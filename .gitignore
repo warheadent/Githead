@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+release/
+out/
+
+# Test and coverage output
+coverage/
+.vitest/
+
+# Vite / TypeScript caches
+.vite/
+*.tsbuildinfo
+
+# Logs and runtime diagnostics
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+electron-debug.*.log
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local agent/tool workspaces
+.agents/
+.claude/
+.codex/
+.junie/
+.kilocode/
+.trae/
