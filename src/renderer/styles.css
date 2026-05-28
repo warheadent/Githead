@@ -39,6 +39,13 @@
   --diff-notice-text: #6b5b20;
   --diff-notice-bg: #fff7d6;
   --diff-line-number-bg: rgba(255, 255, 255, 0.48);
+  --syntax-comment: #6f7782;
+  --syntax-keyword: #8a3ffc;
+  --syntax-literal: #0f62fe;
+  --syntax-string: #0e7a4f;
+  --syntax-title: #a45c00;
+  --syntax-variable: #9f1853;
+  --syntax-meta: #546a7b;
   --focus-ring: rgba(42, 126, 184, 0.36);
   color: var(--text);
   background: var(--surface-page);
@@ -94,6 +101,13 @@
     --diff-notice-text: #d8c36a;
     --diff-notice-bg: #332b10;
     --diff-line-number-bg: rgba(255, 255, 255, 0.04);
+    --syntax-comment: #8b98a8;
+    --syntax-keyword: #c8a5ff;
+    --syntax-literal: #8cbcff;
+    --syntax-string: #8bdca8;
+    --syntax-title: #f2bd72;
+    --syntax-variable: #ff9cc3;
+    --syntax-meta: #a9b7c6;
     --focus-ring: rgba(93, 153, 200, 0.42);
   }
 }
@@ -686,6 +700,72 @@ dd {
   padding-right: 16px;
   padding-left: 10px;
   white-space: pre;
+}
+
+.diff-code.hljs {
+  color: inherit;
+  background: transparent;
+}
+
+.diff-code .hljs-comment,
+.diff-code .hljs-quote {
+  color: var(--syntax-comment);
+  font-style: italic;
+}
+
+.diff-code .hljs-keyword,
+.diff-code .hljs-selector-tag,
+.diff-code .hljs-subst {
+  color: var(--syntax-keyword);
+  font-weight: 700;
+}
+
+.diff-code .hljs-number,
+.diff-code .hljs-literal,
+.diff-code .hljs-symbol,
+.diff-code .hljs-bullet {
+  color: var(--syntax-literal);
+}
+
+.diff-code .hljs-string,
+.diff-code .hljs-doctag,
+.diff-code .hljs-regexp {
+  color: var(--syntax-string);
+}
+
+.diff-code .hljs-title,
+.diff-code .hljs-section,
+.diff-code .hljs-selector-id {
+  color: var(--syntax-title);
+  font-weight: 700;
+}
+
+.diff-code .hljs-variable,
+.diff-code .hljs-template-variable,
+.diff-code .hljs-selector-class,
+.diff-code .hljs-attr,
+.diff-code .hljs-attribute,
+.diff-code .hljs-name {
+  color: var(--syntax-variable);
+}
+
+.diff-code .hljs-type,
+.diff-code .hljs-built_in,
+.diff-code .hljs-class .hljs-title {
+  color: var(--syntax-literal);
+}
+
+.diff-code .hljs-meta,
+.diff-code .hljs-tag {
+  color: var(--syntax-meta);
+}
+
+.diff-code .hljs-deletion {
+  color: var(--danger);
+}
+
+.diff-code .hljs-addition {
+  color: var(--success);
 }
 
 .diff-output.binary,

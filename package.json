@@ -41,5 +41,8 @@
       "target": "dir",
       "signAndEditExecutable": false
     }
+  },
+  "dependencies": {
+    "highlight.js": "^11.11.1"
   }
 }

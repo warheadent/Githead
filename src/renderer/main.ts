@@ -10,7 +10,8 @@ import type {
   GitStatusFile,
   RepoSummary
 } from "../shared/types";
-import { parseUnifiedDiff } from "./diffParser";
+import { type DiffRowKind, parseUnifiedDiff } from "./diffParser";
+import { highlightDiffCode } from "./syntaxHighlighter";
 
 const DEFAULT_REPO_PATH = "D:\\Githead";
 
@@ -950,6 +951,7 @@ function renderDiff(): void {
   }
 
   renderDiffRows(
+    selection.path,
     parseUnifiedDiff(state.diff.text, state.diff.truncated ? [
       "Diff truncated."
     ] : [])
@@ -961,7 +963,7 @@ function setDiffMessage(message: string): void {
   diffOutput.textContent = message;
 }
 
-function renderDiffRows(rows: ReturnType<typeof parseUnifiedDiff>): void {
+function renderDiffRows(filePath: string, rows: ReturnType<typeof parseUnifiedDiff>): void {
   diffOutput.replaceChildren(...rows.map((row) => {
     const line = document.createElement("div");
     line.className = `diff-row ${row.kind}`;
@@ -980,11 +982,26 @@ function renderDiffRows(rows: ReturnType<typeof parseUnifiedDiff>): void {
 
     const code = document.createElement("span");
     code.className = "diff-code";
-    code.textContent = row.text;
+    if (shouldHighlightDiffRow(row.kind)) {
+      const highlighted = highlightDiffCode(filePath, row.text);
+
+      if (highlighted.kind === "highlighted") {
+        code.classList.add("hljs");
+        code.innerHTML = highlighted.value;
+      } else {
+        code.textContent = highlighted.value;
+      }
+    } else {
+      code.textContent = row.text;
+    }
 
     line.append(oldLine, newLine, marker, code);
     return line;
   }));
+}
+
+function shouldHighlightDiffRow(kind: DiffRowKind): boolean {
+  return kind === "context" || kind === "add" || kind === "delete";
 }
 
 function setBusy(isBusy: boolean): void {
