@@ -439,9 +439,14 @@ dd {
   line-height: 1.4;
 }
 
+.repo-actions {
+  display: grid;
+  gap: 8px;
+  margin-top: auto;
+}
+
 .full-width {
   width: 100%;
-  margin-top: auto;
 }
 
 .workspace {

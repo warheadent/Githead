@@ -148,7 +148,10 @@ app.innerHTML = `
         </div>
       </dl>
 
-      <button id="refresh-repo" class="secondary full-width" type="button">Refresh</button>
+      <div class="repo-actions">
+        <button id="settings-button" class="secondary full-width" type="button">Settings</button>
+        <button id="refresh-repo" class="secondary full-width" type="button">Refresh</button>
+      </div>
     </aside>
 
     <div id="shell-resize-handle" class="resize-handle resize-handle-vertical" aria-label="Resize repository panel"></div>
@@ -158,7 +161,6 @@ app.innerHTML = `
         <div>
           <p class="eyebrow">Sync</p>
           <h2 id="action-heading">Ready</h2>
-          <p id="current-branch-label" class="muted">No branch selected</p>
         </div>
         <div class="button-row" role="group" aria-label="Git actions">
           <button class="action-button" data-action="fetch" type="button">Fetch</button>
@@ -249,13 +251,11 @@ app.innerHTML = `
         <div class="commit-author">
           <div>
             <p class="eyebrow">Commit</p>
-            <h2>Staged changes</h2>
           </div>
           <p id="operation-feedback" class="muted"></p>
         </div>
         <textarea id="commit-message" rows="3" placeholder="Summarize staged changes…"></textarea>
         <div class="commit-footer">
-          <button id="settings-button" class="secondary" type="button">Settings</button>
           <button id="generate-message" class="secondary" type="button">Generate</button>
           <button id="clear-log" class="secondary" type="button">Clear Log</button>
           <button id="commit-button" class="primary" type="button">Commit</button>
@@ -317,7 +317,6 @@ const stagedCountValue = getElement("staged-count-value");
 const unstagedCountValue = getElement("unstaged-count-value");
 const conflictCountValue = getElement("conflict-count-value");
 const actionHeading = getElement("action-heading");
-const currentBranchLabel = getElement("current-branch-label");
 const statusTab = getElement<HTMLButtonElement>("status-tab");
 const historyTab = getElement<HTMLButtonElement>("history-tab");
 const fileStatusView = document.querySelector<HTMLElement>(".file-status");
@@ -1070,9 +1069,6 @@ function render(): void {
   stagedCountValue.textContent = String(stagedFiles.length);
   unstagedCountValue.textContent = String(unstagedFiles.length);
   conflictCountValue.textContent = String(summary?.files.filter((file) => file.isConflicted).length ?? 0);
-  currentBranchLabel.textContent = summary?.branch
-    ? `${summary.branch}${summary.upstream ? ` tracking ${summary.upstream}` : ""}`
-    : "No branch selected";
 
   stagedHeading.textContent = `Staged files (${stagedFiles.length})`;
   unstagedHeading.textContent = `Unstaged files (${unstagedFiles.length})`;
