@@ -68,6 +68,25 @@ export interface GitCommitRequest {
   message: string;
 }
 
+export interface AiSettings {
+  hasApiKey: boolean;
+  model: string;
+  siteUrl: string;
+  siteTitle: string;
+}
+
+export interface AiSettingsSaveRequest {
+  apiKey?: string;
+  clearApiKey?: boolean;
+  model: string;
+  siteUrl: string;
+  siteTitle: string;
+}
+
+export interface GenerateCommitMessageRequest {
+  repoPath: string;
+}
+
 export interface GitFileDiffRequest {
   repoPath: string;
   path: string;
@@ -115,6 +134,9 @@ export interface GitheadApi {
   stageFiles(request: GitPathRequest): Promise<GitOperationResult>;
   unstageFiles(request: GitPathRequest): Promise<GitOperationResult>;
   commitChanges(request: GitCommitRequest): Promise<GitOperationResult>;
+  getAiSettings(): Promise<AiSettings>;
+  saveAiSettings(request: AiSettingsSaveRequest): Promise<AiSettings>;
+  generateCommitMessage(request: GenerateCommitMessageRequest): Promise<GitOperationResult>;
   openFile(request: FileSystemPathRequest): Promise<GitOperationResult>;
   showInExplorer(request: FileSystemPathRequest): Promise<GitOperationResult>;
   copyPathToClipboard(request: FileSystemPathRequest): Promise<GitOperationResult>;

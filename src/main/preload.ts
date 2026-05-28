@@ -1,7 +1,9 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { IPC_CHANNELS } from "../shared/ipc";
 import type {
+  AiSettingsSaveRequest,
   FileSystemPathRequest,
+  GenerateCommitMessageRequest,
   GitCommitRequest,
   GitFileDiffRequest,
   GitIgnorePathRequest,
@@ -24,6 +26,12 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.unstageFiles, request) as ReturnType<GitheadApi["unstageFiles"]>,
   commitChanges: (request: GitCommitRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.commitChanges, request) as ReturnType<GitheadApi["commitChanges"]>,
+  getAiSettings: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.getAiSettings) as ReturnType<GitheadApi["getAiSettings"]>,
+  saveAiSettings: (request: AiSettingsSaveRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.saveAiSettings, request) as ReturnType<GitheadApi["saveAiSettings"]>,
+  generateCommitMessage: (request: GenerateCommitMessageRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.generateCommitMessage, request) as ReturnType<GitheadApi["generateCommitMessage"]>,
   openFile: (request: FileSystemPathRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.openFile, request) as ReturnType<GitheadApi["openFile"]>,
   showInExplorer: (request: FileSystemPathRequest) =>

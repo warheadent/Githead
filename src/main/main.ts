@@ -1,9 +1,11 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, safeStorage, shell } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { IPC_CHANNELS } from "../shared/ipc";
 import type {
+  AiSettingsSaveRequest,
   FileSystemPathRequest,
+  GenerateCommitMessageRequest,
   GitCommitRequest,
   GitFileDiffRequest,
   GitIgnorePathRequest,
@@ -12,6 +14,8 @@ import type {
   GitPathRequest,
   GitRunRequest
 } from "../shared/types";
+import { AiSettingsService } from "./aiSettingsService";
+import { CommitMessageService } from "./commitMessageService";
 import { GitService } from "./gitService";
 import { NodeProcessRunner } from "./processRunner";
 
@@ -20,6 +24,8 @@ const gitService = new GitService(new NodeProcessRunner());
 
 let mainWindow: BrowserWindow | null = null;
 let commandRunning = false;
+let aiSettingsService: AiSettingsService | null = null;
+let commitMessageService: CommitMessageService | null = null;
 
 const remoteDebuggingPort = process.env.GITHEAD_REMOTE_DEBUGGING_PORT;
 if (remoteDebuggingPort) {
@@ -117,6 +123,18 @@ ipcMain.handle(IPC_CHANNELS.unstageFiles, async (_event, request: GitPathRequest
 
 ipcMain.handle(IPC_CHANNELS.commitChanges, async (_event, request: GitCommitRequest) => {
   return runExclusiveGitOperation(() => gitService.commitChanges(request), request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.getAiSettings, async () => {
+  return getAiSettingsService().getSettings();
+});
+
+ipcMain.handle(IPC_CHANNELS.saveAiSettings, async (_event, request: AiSettingsSaveRequest) => {
+  return getAiSettingsService().saveSettings(request);
+});
+
+ipcMain.handle(IPC_CHANNELS.generateCommitMessage, async (_event, request: GenerateCommitMessageRequest) => {
+  return runExclusiveGitOperation(() => getCommitMessageService().generateCommitMessage(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.openFile, async (_event, request: FileSystemPathRequest) => {
@@ -313,4 +331,14 @@ function createOperationFailure(repoPath: string, stderr: string): GitOperationR
     stdout: "",
     stderr
   };
+}
+
+function getAiSettingsService(): AiSettingsService {
+  aiSettingsService ??= new AiSettingsService(app.getPath("userData"), safeStorage);
+  return aiSettingsService;
+}
+
+function getCommitMessageService(): CommitMessageService {
+  commitMessageService ??= new CommitMessageService(gitService, getAiSettingsService());
+  return commitMessageService;
 }

@@ -360,6 +360,29 @@ describe("GitService", () => {
     expect(stdinText(runner.calls.at(-1)!)).toBe("subject\n\nbody\n");
   });
 
+  it("returns the full staged diff", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("diff --git a/a.ts b/a.ts\n+added\n")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.getStagedDiff("D:\\Repo");
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stdout: "diff --git a/a.ts b/a.ts\n+added\n"
+    });
+    expect(runner.calls.at(-1)?.args).toEqual([
+      "-C",
+      "D:\\Repo",
+      "diff",
+      "--cached",
+      "--no-color",
+      "--no-ext-diff"
+    ]);
+  });
+
   it("reverts staged changes by unstaging with restore when HEAD exists", async () => {
     const runner = new FakeRunner([
       ok("true\n"),

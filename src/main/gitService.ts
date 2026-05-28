@@ -212,6 +212,20 @@ export class GitService {
     ], undefined, `${request.message.trimEnd()}\n`);
   }
 
+  async getStagedDiff(repoPath: string): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(repoPath);
+    if (!validation.isValid) {
+      return this.createOperationFailure(repoPath, validation.validationErrors.join(" "));
+    }
+
+    return this.runGitOperation(repoPath, [
+      "diff",
+      "--cached",
+      "--no-color",
+      "--no-ext-diff"
+    ]);
+  }
+
   async revertFileChanges(request: GitFileDiffRequest): Promise<GitOperationResult> {
     const validation = await this.validateRepo(request.repoPath);
     if (!validation.isValid) {

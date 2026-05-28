@@ -1,5 +1,6 @@
 import "./styles.css";
 import type {
+  AiSettings,
   GitAction,
   GitDiffSide,
   GitFileDiff,
@@ -37,6 +38,9 @@ interface AppState {
   diffLoading: boolean;
   commitMessage: string;
   contextMenu: ContextMenuState | null;
+  aiSettings: AiSettings | null;
+  settingsError: string;
+  settingsSaving: boolean;
 }
 
 const state: AppState = {
@@ -50,7 +54,10 @@ const state: AppState = {
   diff: null,
   diffLoading: false,
   commitMessage: "",
-  contextMenu: null
+  contextMenu: null,
+  aiSettings: null,
+  settingsError: "",
+  settingsSaving: false
 };
 
 const app = document.querySelector<HTMLDivElement>("#app");
@@ -66,7 +73,7 @@ app.innerHTML = `
         <div class="brand-mark" aria-hidden="true">G</div>
         <div>
           <h1>Githead</h1>
-          <p id="repo-health" class="muted">Checking repository</p>
+          <p id="repo-health" class="muted">Checking repository…</p>
         </div>
       </div>
 
@@ -77,6 +84,21 @@ app.innerHTML = `
           <button id="choose-repo" type="button" title="Choose repository">Browse</button>
         </div>
       </div>
+
+      <section class="change-summary" aria-label="Change summary">
+        <div>
+          <span id="staged-count-value">0</span>
+          <p>Staged</p>
+        </div>
+        <div>
+          <span id="unstaged-count-value">0</span>
+          <p>Unstaged</p>
+        </div>
+        <div>
+          <span id="conflict-count-value">0</span>
+          <p>Conflicts</p>
+        </div>
+      </section>
 
       <dl class="repo-facts">
         <div>
@@ -101,6 +123,7 @@ app.innerHTML = `
         <div>
           <p class="eyebrow">Sync</p>
           <h2 id="action-heading">Ready</h2>
+          <p id="current-branch-label" class="muted">No branch selected</p>
         </div>
         <div class="button-row" role="group" aria-label="Git actions">
           <button class="action-button" data-action="fetch" type="button">Fetch</button>
@@ -116,7 +139,7 @@ app.innerHTML = `
               <h2 id="staged-heading">Staged files</h2>
               <div class="file-actions">
                 <button id="unstage-all" class="small-button" type="button">Unstage All</button>
-                <button id="unstage-selected" class="small-button" type="button">Unstage Selected</button>
+                <button id="unstage-selected" class="small-button" type="button">Unstage</button>
               </div>
             </div>
             <div id="staged-list" class="file-list" role="listbox" aria-labelledby="staged-heading"></div>
@@ -127,7 +150,7 @@ app.innerHTML = `
               <h2 id="unstaged-heading">Unstaged files</h2>
               <div class="file-actions">
                 <button id="stage-all" class="small-button" type="button">Stage All</button>
-                <button id="stage-selected" class="small-button" type="button">Stage Selected</button>
+                <button id="stage-selected" class="small-button" type="button">Stage</button>
               </div>
             </div>
             <div id="unstaged-list" class="file-list" role="listbox" aria-labelledby="unstaged-heading"></div>
@@ -154,16 +177,56 @@ app.innerHTML = `
           </div>
           <p id="operation-feedback" class="muted"></p>
         </div>
-        <textarea id="commit-message" rows="3" placeholder="Commit message"></textarea>
+        <textarea id="commit-message" rows="3" placeholder="Summarize staged changes…"></textarea>
         <div class="commit-footer">
+          <button id="settings-button" class="secondary" type="button">Settings</button>
+          <button id="generate-message" class="secondary" type="button">Generate</button>
           <button id="clear-log" class="secondary" type="button">Clear Log</button>
           <button id="commit-button" class="primary" type="button">Commit</button>
         </div>
-        <pre id="log-output" class="log-output" aria-live="polite"></pre>
+        <details id="log-panel" class="log-panel">
+          <summary>
+            <span>Activity Log</span>
+            <span id="log-status" class="log-status">Empty</span>
+          </summary>
+          <pre id="log-output" class="log-output" aria-live="polite"></pre>
+        </details>
       </section>
     </section>
   </section>
   <div id="file-context-menu" class="context-menu" role="menu" hidden></div>
+  <dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-title">
+    <form id="settings-form" class="settings-form">
+      <div class="settings-header">
+        <div>
+          <p class="eyebrow">OpenRouter</p>
+          <h2 id="settings-title">AI Settings</h2>
+        </div>
+        <button id="settings-close" class="secondary small-button" type="button" aria-label="Close settings">Close</button>
+      </div>
+      <label class="settings-field" for="openrouter-api-key">
+        <span>API Key</span>
+        <input id="openrouter-api-key" type="password" autocomplete="off" placeholder="Leave blank to keep existing key" />
+      </label>
+      <label class="settings-field" for="openrouter-model">
+        <span>Model</span>
+        <input id="openrouter-model" type="text" autocomplete="off" />
+      </label>
+      <label class="settings-field" for="openrouter-site-url">
+        <span>Site URL</span>
+        <input id="openrouter-site-url" type="url" autocomplete="off" placeholder="Optional" />
+      </label>
+      <label class="settings-field" for="openrouter-site-title">
+        <span>Site Title</span>
+        <input id="openrouter-site-title" type="text" autocomplete="off" placeholder="Githead" />
+      </label>
+      <p id="settings-error" class="settings-error" role="alert"></p>
+      <div class="settings-actions">
+        <button id="settings-cancel" class="secondary" type="button">Cancel</button>
+        <button id="settings-save" class="primary" type="submit">Save</button>
+      </div>
+    </form>
+  </dialog>
 `;
 
 const repoHealth = getElement("repo-health");
@@ -173,7 +236,11 @@ const refreshRepoButton = getElement<HTMLButtonElement>("refresh-repo");
 const branchValue = getElement("branch-value");
 const upstreamValue = getElement("upstream-value");
 const remotesValue = getElement("remotes-value");
+const stagedCountValue = getElement("staged-count-value");
+const unstagedCountValue = getElement("unstaged-count-value");
+const conflictCountValue = getElement("conflict-count-value");
 const actionHeading = getElement("action-heading");
+const currentBranchLabel = getElement("current-branch-label");
 const stagedList = getElement("staged-list");
 const unstagedList = getElement("unstaged-list");
 const stagedHeading = getElement("staged-heading");
@@ -188,10 +255,24 @@ const diffTitle = getElement("diff-title");
 const diffOutput = getElement<HTMLDivElement>("diff-output");
 const commitMessageInput = getElement<HTMLTextAreaElement>("commit-message");
 const commitButton = getElement<HTMLButtonElement>("commit-button");
+const generateMessageButton = getElement<HTMLButtonElement>("generate-message");
+const settingsButton = getElement<HTMLButtonElement>("settings-button");
 const operationFeedback = getElement("operation-feedback");
+const logPanel = getElement<HTMLDetailsElement>("log-panel");
+const logStatus = getElement("log-status");
 const logOutput = getElement<HTMLPreElement>("log-output");
 const clearLogButton = getElement<HTMLButtonElement>("clear-log");
 const fileContextMenu = getElement<HTMLDivElement>("file-context-menu");
+const settingsDialog = getElement<HTMLDialogElement>("settings-dialog");
+const settingsForm = getElement<HTMLFormElement>("settings-form");
+const settingsCloseButton = getElement<HTMLButtonElement>("settings-close");
+const settingsCancelButton = getElement<HTMLButtonElement>("settings-cancel");
+const settingsSaveButton = getElement<HTMLButtonElement>("settings-save");
+const settingsError = getElement("settings-error");
+const openRouterApiKeyInput = getElement<HTMLInputElement>("openrouter-api-key");
+const openRouterModelInput = getElement<HTMLInputElement>("openrouter-model");
+const openRouterSiteUrlInput = getElement<HTMLInputElement>("openrouter-site-url");
+const openRouterSiteTitleInput = getElement<HTMLInputElement>("openrouter-site-title");
 const actionButtons = Array.from(document.querySelectorAll<HTMLButtonElement>(".action-button"));
 
 let diffRequestId = 0;
@@ -206,6 +287,7 @@ refreshRepoButton.addEventListener("click", () => {
 
 clearLogButton.addEventListener("click", () => {
   logOutput.textContent = "";
+  updateLogPanel(false);
 });
 
 stageAllButton.addEventListener("click", () => {
@@ -245,6 +327,31 @@ commitMessageInput.addEventListener("input", () => {
 
 commitButton.addEventListener("click", () => {
   void commitChanges();
+});
+
+generateMessageButton.addEventListener("click", () => {
+  void generateCommitMessage();
+});
+
+settingsButton.addEventListener("click", () => {
+  openSettingsDialog();
+});
+
+settingsCloseButton.addEventListener("click", () => {
+  closeSettingsDialog();
+});
+
+settingsCancelButton.addEventListener("click", () => {
+  closeSettingsDialog();
+});
+
+settingsDialog.addEventListener("cancel", () => {
+  state.settingsError = "";
+});
+
+settingsForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  void saveAiSettings();
 });
 
 actionButtons.forEach((button) => {
@@ -297,8 +404,10 @@ window.githead.onGitOutput((event) => {
   appendLog(event);
 });
 
+updateLogPanel(false);
 render();
 void refreshRepo();
+void loadAiSettings();
 
 function getElement<T extends HTMLElement = HTMLElement>(id: string): T {
   const element = document.getElementById(id);
@@ -325,7 +434,7 @@ async function chooseRepo(): Promise<void> {
 }
 
 async function refreshRepo(): Promise<void> {
-  repoHealth.textContent = "Checking repository";
+  repoHealth.textContent = "Checking repository…";
   setBusy(true);
 
   try {
@@ -367,6 +476,7 @@ async function runAction(action: GitAction): Promise<void> {
   state.lastResult = null;
   render();
   logOutput.textContent = "";
+  updateLogPanel(false);
 
   try {
     state.lastResult = await window.githead.runGitAction({
@@ -426,6 +536,101 @@ async function commitChanges(): Promise<void> {
   if (state.lastOperationResult?.exitCode === 0) {
     state.commitMessage = "";
     commitMessageInput.value = "";
+  }
+}
+
+async function generateCommitMessage(): Promise<void> {
+  if (!state.summary?.isValid || isOperationRunning() || !canGenerateCommitMessage()) {
+    return;
+  }
+
+  state.runningOperation = "Generating commit message";
+  state.lastOperationResult = null;
+  render();
+
+  try {
+    state.lastOperationResult = await window.githead.generateCommitMessage({
+      repoPath: state.repoPath
+    });
+
+    if (state.lastOperationResult.exitCode === 0) {
+      const generatedMessage = state.lastOperationResult.stdout.trim();
+      state.commitMessage = generatedMessage;
+      commitMessageInput.value = state.commitMessage;
+      state.lastOperationResult = {
+        ...state.lastOperationResult,
+        stdout: "Commit message generated."
+      };
+    }
+  } catch (error) {
+    state.lastOperationResult = {
+      repoPath: state.repoPath,
+      exitCode: -1,
+      stdout: "",
+      stderr: error instanceof Error ? error.message : "Unable to generate commit message."
+    };
+  } finally {
+    state.runningOperation = null;
+    render();
+  }
+}
+
+async function loadAiSettings(): Promise<void> {
+  try {
+    state.aiSettings = await window.githead.getAiSettings();
+  } catch (error) {
+    state.aiSettings = null;
+    state.lastOperationResult = {
+      repoPath: state.repoPath,
+      exitCode: -1,
+      stdout: "",
+      stderr: error instanceof Error ? error.message : "Unable to load AI settings."
+    };
+  } finally {
+    render();
+  }
+}
+
+function openSettingsDialog(): void {
+  const settings = state.aiSettings;
+  state.settingsError = "";
+  openRouterApiKeyInput.value = "";
+  openRouterModelInput.value = settings?.model ?? "";
+  openRouterSiteUrlInput.value = settings?.siteUrl ?? "";
+  openRouterSiteTitleInput.value = settings?.siteTitle ?? "Githead";
+  settingsDialog.showModal();
+  openRouterApiKeyInput.focus();
+  render();
+}
+
+function closeSettingsDialog(): void {
+  state.settingsError = "";
+  settingsDialog.close();
+  render();
+}
+
+async function saveAiSettings(): Promise<void> {
+  if (state.settingsSaving) {
+    return;
+  }
+
+  state.settingsError = "";
+  state.settingsSaving = true;
+  render();
+
+  try {
+    state.aiSettings = await window.githead.saveAiSettings({
+      apiKey: openRouterApiKeyInput.value,
+      model: openRouterModelInput.value,
+      siteUrl: openRouterSiteUrlInput.value,
+      siteTitle: openRouterSiteTitleInput.value
+    });
+    settingsDialog.close();
+  } catch (error) {
+    state.settingsError = error instanceof Error ? error.message : "Unable to save AI settings.";
+  } finally {
+    state.settingsSaving = false;
+    render();
   }
 }
 
@@ -517,7 +722,7 @@ function render(): void {
     ? summary.isValid
       ? "Repository ready"
       : summary.validationErrors.join(" ")
-    : "Checking repository";
+    : "Checking repository…";
   repoHealth.className = `muted ${isValid ? "good" : "bad"}`;
 
   branchValue.textContent = summary?.branch ?? "-";
@@ -525,6 +730,12 @@ function render(): void {
   remotesValue.textContent = summary?.remotes.length
     ? [...new Set(summary.remotes.map((remote) => remote.name))].join(", ")
     : "-";
+  stagedCountValue.textContent = String(stagedFiles.length);
+  unstagedCountValue.textContent = String(unstagedFiles.length);
+  conflictCountValue.textContent = String(summary?.files.filter((file) => file.isConflicted).length ?? 0);
+  currentBranchLabel.textContent = summary?.branch
+    ? `${summary.branch}${summary.upstream ? ` tracking ${summary.upstream}` : ""}`
+    : "No branch selected";
 
   stagedHeading.textContent = `Staged files (${stagedFiles.length})`;
   unstagedHeading.textContent = `Unstaged files (${unstagedFiles.length})`;
@@ -556,8 +767,12 @@ function render(): void {
   unstageSelectedButton.disabled = disableActions || state.selection?.side !== "staged";
   refreshDiffButton.disabled = disableActions || !state.selection;
   commitButton.disabled = disableActions || !canCommit();
+  generateMessageButton.disabled = disableActions || !canGenerateCommitMessage();
+  generateMessageButton.title = getGenerateMessageTitle();
+  settingsButton.disabled = running;
   refreshRepoButton.disabled = running;
   chooseRepoButton.disabled = running;
+  renderSettingsDialog();
 }
 
 function renderContextMenu(): void {
@@ -718,7 +933,7 @@ function renderDiff(): void {
 
   if (state.diffLoading) {
     diffOutput.className = "diff-output";
-    setDiffMessage("Loading diff...");
+    setDiffMessage("Loading diff…");
     return;
   }
 
@@ -779,8 +994,22 @@ function setBusy(isBusy: boolean): void {
 
 function appendLog(event: GitOutputEvent): void {
   const prefix = event.stream === "system" ? "" : `[${event.stream}] `;
+  logPanel.open = true;
   logOutput.textContent += `${prefix}${event.text}`;
   logOutput.scrollTop = logOutput.scrollHeight;
+  updateLogPanel(true);
+}
+
+function updateLogPanel(shouldOpen: boolean): void {
+  const hasOutput = logOutput.textContent.trim().length > 0;
+  logStatus.textContent = hasOutput ? "Output Available" : "Empty";
+  clearLogButton.disabled = !hasOutput;
+
+  if (shouldOpen) {
+    logPanel.open = true;
+  } else if (!hasOutput) {
+    logPanel.open = false;
+  }
 }
 
 function appendSystemLine(text: string): void {
@@ -1020,6 +1249,38 @@ function formatFileStatus(file: GitStatusFile, side: GitDiffSide): string {
 
 function canCommit(): boolean {
   return getStagedFiles().length > 0 && state.commitMessage.trim().length > 0;
+}
+
+function canGenerateCommitMessage(): boolean {
+  return getStagedFiles().length > 0 && hasCompleteAiSettings();
+}
+
+function hasCompleteAiSettings(): boolean {
+  return Boolean(state.aiSettings?.hasApiKey && state.aiSettings.model.trim());
+}
+
+function getGenerateMessageTitle(): string {
+  if (getStagedFiles().length === 0) {
+    return "Stage changes before generating a commit message.";
+  }
+
+  if (!hasCompleteAiSettings()) {
+    return "Configure OpenRouter settings before generating a commit message.";
+  }
+
+  return "Generate a commit message from staged changes.";
+}
+
+function renderSettingsDialog(): void {
+  settingsError.textContent = state.settingsError;
+  settingsSaveButton.disabled = state.settingsSaving;
+  settingsCancelButton.disabled = state.settingsSaving;
+  settingsCloseButton.disabled = state.settingsSaving;
+  openRouterApiKeyInput.disabled = state.settingsSaving;
+  openRouterModelInput.disabled = state.settingsSaving;
+  openRouterSiteUrlInput.disabled = state.settingsSaving;
+  openRouterSiteTitleInput.disabled = state.settingsSaving;
+  settingsSaveButton.textContent = state.settingsSaving ? "Saving" : "Save";
 }
 
 function isOperationRunning(): boolean {
