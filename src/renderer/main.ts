@@ -14,6 +14,7 @@ import type {
   RepoSummary
 } from "../shared/types";
 import { type DiffRowKind, parseUnifiedDiff } from "./diffParser";
+import { canPush, getPrimaryCommitAction, hasStagedChanges } from "./commitActions";
 import { initializeResizablePanels } from "./resizablePanels";
 import { highlightDiffCode } from "./syntaxHighlighter";
 
@@ -48,6 +49,7 @@ interface AppState {
   aiSettings: AiSettings | null;
   settingsError: string;
   settingsSaving: boolean;
+  commitMenuOpen: boolean;
   activeView: WorkspaceView;
   history: GitCommitGraphRow[];
   historyLoading: boolean;
@@ -78,6 +80,7 @@ const state: AppState = {
   aiSettings: null,
   settingsError: "",
   settingsSaving: false,
+  commitMenuOpen: false,
   activeView: "status",
   history: [],
   historyLoading: false,
@@ -165,7 +168,6 @@ app.innerHTML = `
         <div class="button-row" role="group" aria-label="Git actions">
           <button class="action-button" data-action="fetch" type="button">Fetch</button>
           <button class="action-button" data-action="pull" type="button">Pull</button>
-          <button class="action-button primary" data-action="push" type="button">Push</button>
         </div>
       </header>
 
@@ -258,7 +260,17 @@ app.innerHTML = `
         <div class="commit-footer">
           <button id="generate-message" class="secondary" type="button">Generate</button>
           <button id="clear-log" class="secondary" type="button">Clear Log</button>
-          <button id="commit-button" class="primary" type="button">Commit</button>
+          <div id="commit-split-action" class="split-action">
+            <button id="commit-button" class="primary split-primary" type="button">Commit</button>
+            <button id="commit-menu-button" class="primary split-toggle" type="button" aria-label="More commit actions" aria-haspopup="menu" aria-expanded="false">
+              <svg class="split-toggle-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+                <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </button>
+            <div id="commit-action-menu" class="action-menu" role="menu" hidden>
+              <button id="commit-push-button" type="button" role="menuitem">Commit &amp; Push</button>
+            </div>
+          </div>
         </div>
         <details id="log-panel" class="log-panel">
           <summary>
@@ -343,6 +355,10 @@ const commitDiffOutput = getElement<HTMLDivElement>("commit-diff-output");
 const commitPanel = document.querySelector<HTMLElement>(".commit-panel");
 const commitMessageInput = getElement<HTMLTextAreaElement>("commit-message");
 const commitButton = getElement<HTMLButtonElement>("commit-button");
+const commitSplitAction = getElement<HTMLDivElement>("commit-split-action");
+const commitMenuButton = getElement<HTMLButtonElement>("commit-menu-button");
+const commitActionMenu = getElement<HTMLDivElement>("commit-action-menu");
+const commitPushButton = getElement<HTMLButtonElement>("commit-push-button");
 const generateMessageButton = getElement<HTMLButtonElement>("generate-message");
 const settingsButton = getElement<HTMLButtonElement>("settings-button");
 const operationFeedback = getElement("operation-feedback");
@@ -504,7 +520,28 @@ commitMessageInput.addEventListener("input", () => {
 });
 
 commitButton.addEventListener("click", () => {
-  void commitChanges();
+  hideCommitMenu();
+  const action = getPrimaryCommitAction(state.summary);
+  if (action === "commit") {
+    void commitChanges();
+  } else if (action === "push") {
+    void runAction("push");
+  }
+});
+
+commitMenuButton.addEventListener("click", (event) => {
+  event.stopPropagation();
+  if (commitMenuButton.disabled) {
+    return;
+  }
+
+  state.commitMenuOpen = !state.commitMenuOpen;
+  render();
+});
+
+commitPushButton.addEventListener("click", () => {
+  hideCommitMenu();
+  void commitAndPush();
 });
 
 generateMessageButton.addEventListener("click", () => {
@@ -568,15 +605,22 @@ document.addEventListener("click", (event) => {
   }
 
   hideContextMenu();
+  if (!(event.target instanceof Node) || !commitSplitAction.contains(event.target)) {
+    hideCommitMenu();
+  }
 });
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     hideContextMenu();
+    hideCommitMenu();
   }
 });
 
-window.addEventListener("blur", hideContextMenu);
+window.addEventListener("blur", () => {
+  hideContextMenu();
+  hideCommitMenu();
+});
 
 window.githead.onGitOutput((event) => {
   appendLog(event);
@@ -654,6 +698,7 @@ async function runAction(action: GitAction): Promise<void> {
     return;
   }
 
+  state.commitMenuOpen = false;
   state.runningAction = action;
   state.lastResult = null;
   render();
@@ -719,6 +764,17 @@ async function commitChanges(): Promise<void> {
   if (state.lastOperationResult?.exitCode === 0) {
     state.commitMessage = "";
     commitMessageInput.value = "";
+  }
+}
+
+async function commitAndPush(): Promise<void> {
+  if (!state.summary?.isValid || isOperationRunning() || !canCommit()) {
+    return;
+  }
+
+  await commitChanges();
+  if (state.lastOperationResult?.exitCode === 0 && canPush(state.summary)) {
+    await runAction("push");
   }
 }
 
@@ -827,6 +883,7 @@ async function runFileOperation(
   }
 
   state.contextMenu = null;
+  state.commitMenuOpen = false;
   state.runningOperation = label;
   state.lastOperationResult = null;
   render();
@@ -1053,6 +1110,10 @@ function render(): void {
   const stagedFiles = getStagedFiles();
   const unstagedFiles = getUnstagedFiles();
   const running = isOperationRunning();
+  const primaryCommitAction = getPrimaryCommitAction(summary ?? null);
+  if (primaryCommitAction !== "commit" && state.commitMenuOpen) {
+    state.commitMenuOpen = false;
+  }
 
   repoHealth.textContent = summary
     ? summary.isValid
@@ -1101,7 +1162,15 @@ function render(): void {
   unstageAllButton.disabled = disableActions || stagedFiles.length === 0;
   unstageSelectedButton.disabled = disableActions || state.selection?.side !== "staged";
   refreshDiffButton.disabled = disableActions || !state.selection;
-  commitButton.disabled = disableActions || !canCommit();
+  commitButton.textContent = primaryCommitAction === "push" ? "Push" : "Commit";
+  commitButton.disabled = disableActions
+    || primaryCommitAction === null
+    || (primaryCommitAction === "commit" && !canCommit());
+  commitMenuButton.hidden = primaryCommitAction !== "commit";
+  commitMenuButton.disabled = disableActions || !canCommit();
+  commitMenuButton.setAttribute("aria-expanded", String(state.commitMenuOpen && !commitMenuButton.hidden));
+  commitActionMenu.hidden = !state.commitMenuOpen || commitMenuButton.hidden;
+  commitPushButton.disabled = commitMenuButton.disabled;
   generateMessageButton.disabled = disableActions || !canGenerateCommitMessage();
   generateMessageButton.title = getGenerateMessageTitle();
   settingsButton.disabled = running;
@@ -1606,6 +1675,15 @@ function updateLogPanel(shouldOpen: boolean): void {
   }
 }
 
+function hideCommitMenu(): void {
+  if (!state.commitMenuOpen) {
+    return;
+  }
+
+  state.commitMenuOpen = false;
+  render();
+}
+
 function appendSystemLine(text: string): void {
   appendLog({
     runId: "renderer",
@@ -1899,11 +1977,11 @@ function formatFileStatus(file: GitStatusFile, side: GitDiffSide): string {
 }
 
 function canCommit(): boolean {
-  return getStagedFiles().length > 0 && state.commitMessage.trim().length > 0;
+  return hasStagedChanges(state.summary) && state.commitMessage.trim().length > 0;
 }
 
 function canGenerateCommitMessage(): boolean {
-  return getStagedFiles().length > 0 && hasCompleteAiSettings();
+  return hasStagedChanges(state.summary) && hasCompleteAiSettings();
 }
 
 function hasCompleteAiSettings(): boolean {
@@ -1911,7 +1989,7 @@ function hasCompleteAiSettings(): boolean {
 }
 
 function getGenerateMessageTitle(): string {
-  if (getStagedFiles().length === 0) {
+  if (!hasStagedChanges(state.summary)) {
     return "Stage changes before generating a commit message.";
   }
 

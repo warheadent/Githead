@@ -1206,6 +1206,72 @@ dd {
   justify-content: flex-end;
 }
 
+.split-action {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.split-primary {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.split-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  padding: 0 10px;
+  border-left-color: rgba(255, 255, 255, 0.22);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.split-toggle-icon {
+  display: block;
+  flex: 0 0 auto;
+}
+
+.split-toggle[hidden] {
+  display: none;
+}
+
+.split-toggle:focus-visible,
+.split-primary:focus-visible {
+  position: relative;
+  z-index: 1;
+}
+
+.action-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 12;
+  min-width: 160px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  box-shadow: 0 12px 30px var(--shadow-menu);
+}
+
+.action-menu button {
+  width: 100%;
+  min-height: 34px;
+  justify-content: flex-start;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-weight: 600;
+  text-align: left;
+}
+
+.action-menu button:hover:not(:disabled),
+.action-menu button:focus-visible {
+  background: var(--surface-hover);
+}
+
 #operation-feedback {
   max-width: min(58vw, 720px);
   overflow: hidden;
@@ -1474,5 +1540,13 @@ dd {
   .workspace-tab,
   .settings-actions button {
     flex: 1;
+  }
+
+  .split-action {
+    width: 100%;
+  }
+
+  .split-toggle {
+    flex: 0 0 42px;
   }
 }
