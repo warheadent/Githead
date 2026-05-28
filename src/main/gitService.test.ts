@@ -256,6 +256,163 @@ describe("GitService", () => {
     ]);
   });
 
+  it("loads commit history with graph tokens and refs", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok(`${oid}\n`),
+      ok([
+        `* \x1f${oid}\x1fad4f1df\x1fHEAD -> refs/heads/master, refs/remotes/origin/master, tag: refs/tags/v1\x1ffix(ai): combat attacks now properly loop\x1fTaylor Bombay\x1ftaylor@example.test\x1f2026-05-26T21:42:20-07:00\x1f2 hours ago\x1e`,
+        `| * \x1f${"1".repeat(40)}\x1f1111111\x1frefs/heads/feature\x1ffeat: add graph\x1fTaylor Bombay\x1ftaylor@example.test\x1f2026-05-25T10:00:00-07:00\x1fyesterday\x1e`
+      ].join("\n"))
+    ]);
+    const service = new GitService(runner);
+
+    const history = await service.getCommitHistory({
+      repoPath: "D:\\Repo",
+      limit: 200
+    });
+
+    expect(runner.calls.at(-1)).toMatchObject({
+      command: "git",
+      args: expect.arrayContaining([
+        "log",
+        "--graph",
+        "--max-count=200",
+        "--decorate=full"
+      ])
+    });
+    expect(history).toEqual([
+      expect.objectContaining({
+        hash: oid,
+        shortHash: "ad4f1df",
+        graph: "*",
+        subject: "fix(ai): combat attacks now properly loop",
+        refs: [
+          {
+            name: "master",
+            kind: "branch"
+          },
+          {
+            name: "origin/master",
+            kind: "remote"
+          },
+          {
+            name: "v1",
+            kind: "tag"
+          }
+        ]
+      }),
+      expect.objectContaining({
+        graph: "| *",
+        refs: [
+          {
+            name: "feature",
+            kind: "branch"
+          }
+        ]
+      })
+    ]);
+  });
+
+  it("returns empty commit history when HEAD does not exist", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      failure("fatal: Needed a single revision")
+    ]);
+    const service = new GitService(runner);
+
+    await expect(service.getCommitHistory({
+      repoPath: "D:\\Repo"
+    })).resolves.toEqual([]);
+    expect(runner.calls).toHaveLength(2);
+  });
+
+  it("loads commit details with changed file stats", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok(`${oid}\x1fad4f1df\x1fHEAD -> refs/heads/master\x1fSubject\x1fTaylor\x1ftaylor@example.test\x1f2026-05-26T21:42:20-07:00\x1fTaylor\x1ftaylor@example.test\x1f2026-05-26T21:42:20-07:00\x1f${"1".repeat(40)}\x1eBody text\n`),
+      ok(`M\0src/app.ts\0R100\0old.ts\0new.ts\0`),
+      ok(`12\t3\tsrc/app.ts\0`)
+    ]);
+    const service = new GitService(runner);
+
+    const details = await service.getCommitDetails({
+      repoPath: "D:\\Repo",
+      hash: oid
+    });
+
+    expect(details).toMatchObject({
+      hash: oid,
+      shortHash: "ad4f1df",
+      body: "Body text",
+      parents: [
+        "1".repeat(40)
+      ],
+      files: [
+        {
+          path: "src/app.ts",
+          status: "M",
+          additions: 12,
+          deletions: 3
+        },
+        {
+          path: "new.ts",
+          originalPath: "old.ts",
+          status: "R",
+          additions: 0,
+          deletions: 0
+        }
+      ]
+    });
+  });
+
+  it("loads and truncates selected commit file diffs", async () => {
+    const largeDiff = `diff --git a/a.ts b/a.ts\n${"x".repeat(260_000)}`;
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok(largeDiff)
+    ]);
+    const service = new GitService(runner);
+
+    const diff = await service.getCommitFileDiff({
+      repoPath: "D:\\Repo",
+      hash: oid,
+      path: "a.ts"
+    });
+
+    expect(diff.kind).toBe("text");
+    expect(diff.truncated).toBe(true);
+    expect(diff.text.length).toBe(250_000);
+    expect(runner.calls.at(-1)).toMatchObject({
+      args: [
+        "-C",
+        "D:\\Repo",
+        "show",
+        "--format=",
+        "--no-color",
+        "--no-ext-diff",
+        "--find-renames",
+        "--find-copies",
+        oid,
+        "--",
+        "a.ts"
+      ]
+    });
+  });
+
+  it("rejects invalid commit hashes before reading commit details", async () => {
+    const runner = new FakeRunner([
+      ok("true\n")
+    ]);
+    const service = new GitService(runner);
+
+    await expect(service.getCommitDetails({
+      repoPath: "D:\\Repo",
+      hash: "HEAD~1"
+    })).rejects.toThrow("Commit hash is invalid.");
+    expect(runner.calls).toHaveLength(1);
+  });
+
   it("stages selected files with NUL-delimited pathspec stdin", async () => {
     const runner = new FakeRunner([
       ok("true\n"),

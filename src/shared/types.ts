@@ -16,6 +16,49 @@ export type GitDiffSide = "staged" | "unstaged";
 
 export type GitDiffKind = "text" | "binary" | "empty" | "error";
 
+export type CommitRefKind = "head" | "branch" | "remote" | "tag" | "other";
+
+export interface CommitRef {
+  name: string;
+  kind: CommitRefKind;
+}
+
+export interface GitCommitGraphRow {
+  hash: string;
+  shortHash: string;
+  graph: string;
+  refs: CommitRef[];
+  subject: string;
+  authorName: string;
+  authorEmail: string;
+  authorDate: string;
+  relativeDate: string;
+}
+
+export interface GitCommitChangedFile {
+  path: string;
+  originalPath?: string;
+  status: string;
+  additions: number;
+  deletions: number;
+}
+
+export interface GitCommitDetails {
+  hash: string;
+  shortHash: string;
+  refs: CommitRef[];
+  subject: string;
+  body: string;
+  authorName: string;
+  authorEmail: string;
+  authorDate: string;
+  committerName: string;
+  committerEmail: string;
+  committerDate: string;
+  parents: string[];
+  files: GitCommitChangedFile[];
+}
+
 export interface GitStatusFile {
   path: string;
   originalPath?: string;
@@ -41,6 +84,22 @@ export interface RepoSummary {
 export interface GitRunRequest {
   repoPath: string;
   action: GitAction;
+}
+
+export interface GitCommitHistoryRequest {
+  repoPath: string;
+  limit?: number;
+}
+
+export interface GitCommitDetailsRequest {
+  repoPath: string;
+  hash: string;
+}
+
+export interface GitCommitFileDiffRequest {
+  repoPath: string;
+  hash: string;
+  path: string;
 }
 
 export interface GitPathRequest {
@@ -130,6 +189,9 @@ export interface GitOutputEvent {
 export interface GitheadApi {
   chooseRepo(): Promise<string | null>;
   getRepoSummary(repoPath: string): Promise<RepoSummary>;
+  getCommitHistory(request: GitCommitHistoryRequest): Promise<GitCommitGraphRow[]>;
+  getCommitDetails(request: GitCommitDetailsRequest): Promise<GitCommitDetails>;
+  getCommitFileDiff(request: GitCommitFileDiffRequest): Promise<GitFileDiff>;
   getFileDiff(request: GitFileDiffRequest): Promise<GitFileDiff>;
   stageFiles(request: GitPathRequest): Promise<GitOperationResult>;
   unstageFiles(request: GitPathRequest): Promise<GitOperationResult>;

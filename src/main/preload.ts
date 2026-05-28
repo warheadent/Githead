@@ -3,6 +3,9 @@ import { IPC_CHANNELS } from "../shared/ipc";
 import type {
   AiSettingsSaveRequest,
   FileSystemPathRequest,
+  GitCommitDetailsRequest,
+  GitCommitFileDiffRequest,
+  GitCommitHistoryRequest,
   GenerateCommitMessageRequest,
   GitCommitRequest,
   GitFileDiffRequest,
@@ -18,6 +21,12 @@ const api: GitheadApi = {
   chooseRepo: () => ipcRenderer.invoke(IPC_CHANNELS.chooseRepo) as Promise<string | null>,
   getRepoSummary: (repoPath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.getRepoSummary, repoPath) as Promise<RepoSummary>,
+  getCommitHistory: (request: GitCommitHistoryRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getCommitHistory, request) as ReturnType<GitheadApi["getCommitHistory"]>,
+  getCommitDetails: (request: GitCommitDetailsRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getCommitDetails, request) as ReturnType<GitheadApi["getCommitDetails"]>,
+  getCommitFileDiff: (request: GitCommitFileDiffRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getCommitFileDiff, request) as ReturnType<GitheadApi["getCommitFileDiff"]>,
   getFileDiff: (request: GitFileDiffRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getFileDiff, request) as ReturnType<GitheadApi["getFileDiff"]>,
   stageFiles: (request: GitPathRequest) =>

@@ -177,10 +177,93 @@ textarea:focus-visible {
 
 .shell {
   display: grid;
-  grid-template-columns: minmax(292px, 340px) 1fr;
+  grid-template-columns: minmax(292px, var(--shell-sidebar-width, 340px)) 8px minmax(0, 1fr);
   height: 100%;
   min-height: 0;
   overflow: hidden;
+}
+
+.resize-handle {
+  position: relative;
+  z-index: 2;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  background: var(--surface-page);
+  touch-action: none;
+}
+
+.resize-handle::before {
+  content: "";
+  position: absolute;
+  background: var(--border-strong);
+  opacity: 0.72;
+  transition:
+    background-color 120ms ease,
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.resize-handle:hover::before,
+.resize-handle:focus-visible::before,
+.resize-handle.is-dragging::before {
+  background: var(--brand);
+  opacity: 1;
+}
+
+.resize-handle:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.resize-handle-vertical {
+  cursor: col-resize;
+}
+
+.resize-handle-vertical::before {
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+}
+
+.resize-handle-vertical:hover::before,
+.resize-handle-vertical:focus-visible::before,
+.resize-handle-vertical.is-dragging::before {
+  transform: scaleX(3);
+}
+
+.resize-handle-horizontal {
+  cursor: row-resize;
+}
+
+.resize-handle-horizontal::before {
+  top: 3px;
+  right: 0;
+  left: 0;
+  height: 1px;
+}
+
+.resize-handle-horizontal:hover::before,
+.resize-handle-horizontal:focus-visible::before,
+.resize-handle-horizontal.is-dragging::before {
+  transform: scaleY(3);
+}
+
+.resize-handle[aria-disabled] {
+  display: none;
+}
+
+.is-resizing-panel {
+  user-select: none;
+}
+
+.is-resizing-panel-x {
+  cursor: col-resize;
+}
+
+.is-resizing-panel-y {
+  cursor: row-resize;
 }
 
 .repo-panel {
@@ -363,7 +446,7 @@ dd {
 
 .workspace {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -426,12 +509,40 @@ dd {
   background: var(--warning);
 }
 
+.workspace-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  padding: 8px 24px 0;
+  background: var(--surface-panel);
+}
+
+.workspace-tab {
+  min-height: 34px;
+  border-bottom-right-radius: 0;
+  border-bottom-left-radius: 0;
+  border-color: transparent;
+  border-bottom: 0;
+  background: transparent;
+  font-weight: 700;
+}
+
+.workspace-tab.is-active {
+  border-color: var(--border);
+  color: var(--text-strong);
+  background: var(--surface-page);
+}
+
 .file-status {
   display: grid;
-  grid-template-columns: minmax(360px, 39%) minmax(0, 1fr);
+  grid-template-columns: minmax(300px, var(--status-file-lists-width, 39%)) 8px minmax(0, 1fr);
   min-height: 0;
   overflow: hidden;
   background: var(--surface-page);
+}
+
+.file-status[hidden] {
+  display: none;
 }
 
 .file-lists {
@@ -783,6 +894,295 @@ dd {
   color: var(--danger);
 }
 
+.history-view {
+  display: grid;
+  grid-template-rows: minmax(180px, var(--history-table-height, 45%)) 8px minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface-page);
+}
+
+.history-view[hidden] {
+  display: none;
+}
+
+.history-table-panel,
+.history-detail-panel,
+.commit-detail,
+.commit-diff-panel {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.history-table-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-panel);
+}
+
+.history-table-header,
+.history-row {
+  display: grid;
+  grid-template-columns: 82px minmax(360px, 1fr) 150px 150px 92px;
+  align-items: center;
+  gap: 10px;
+}
+
+.history-table-header {
+  min-height: 30px;
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 0 12px;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.history-list {
+  min-height: 0;
+  overflow: auto;
+  content-visibility: auto;
+}
+
+.history-row {
+  width: 100%;
+  min-height: 28px;
+  border: 0;
+  border-radius: 0;
+  padding: 0 12px;
+  text-align: left;
+  background: transparent;
+}
+
+.history-row:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.history-row.is-selected {
+  color: #ffffff;
+  background: var(--brand);
+}
+
+.history-row.is-selected .ref-badge {
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.history-graph {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+  white-space: pre;
+}
+
+.graph-token {
+  display: inline-grid;
+  width: 10px;
+  min-width: 10px;
+  place-items: center;
+  color: var(--selection-border);
+  font-family:
+    "Cascadia Mono",
+    Consolas,
+    "Courier New",
+    monospace;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.graph-token.lane-1 {
+  color: #d65f7f;
+}
+
+.graph-token.lane-2 {
+  color: #c9902f;
+}
+
+.graph-token.lane-3 {
+  color: #7a8f2f;
+}
+
+.graph-token.lane-4 {
+  color: #8a67c7;
+}
+
+.graph-token.lane-5 {
+  color: #2f8f89;
+}
+
+.commit-dot::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border: 2px solid currentColor;
+  border-radius: 999px;
+  background: var(--surface-panel);
+}
+
+.history-row.is-selected .commit-dot::before {
+  background: #ffffff;
+}
+
+.history-description,
+.history-date,
+.history-author,
+.history-hash {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-description {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.history-refs {
+  display: inline-flex;
+  max-width: 45%;
+  flex: 0 1 auto;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.ref-badge {
+  flex: 0 0 auto;
+  max-width: 160px;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  padding: 1px 6px;
+  color: #ffffff;
+  background: #356da8;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ref-badge.remote {
+  background: #5d5f9f;
+}
+
+.ref-badge.tag {
+  background: #b36b28;
+}
+
+.ref-badge.head {
+  background: var(--danger);
+}
+
+.ref-badge.other {
+  background: var(--text-subtle);
+}
+
+.history-subject {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history-hash,
+.commit-file-stats {
+  font-family:
+    "Cascadia Mono",
+    Consolas,
+    "Courier New",
+    monospace;
+}
+
+.history-detail-panel {
+  display: grid;
+  grid-template-columns: minmax(300px, var(--commit-detail-width, 49%)) 8px minmax(0, 1fr);
+}
+
+.commit-detail {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  border-right: 1px solid var(--border);
+  background: var(--surface-panel);
+}
+
+.commit-detail-meta {
+  min-height: 0;
+  overflow: auto;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.commit-meta-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.commit-facts {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+}
+
+.commit-facts div {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.commit-body {
+  white-space: pre-wrap;
+  line-height: 1.45;
+}
+
+.commit-file-toolbar {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 0 12px 0 16px;
+}
+
+.commit-file-list {
+  min-height: 0;
+  overflow: auto;
+  padding: 6px;
+}
+
+.commit-file-row {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 8px;
+  text-align: left;
+  background: transparent;
+}
+
+.commit-file-row:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.commit-file-row.is-selected {
+  border-color: var(--selection-border);
+  background: var(--selection-bg);
+}
+
+.commit-file-stats {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.commit-diff-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--surface-panel);
+}
+
 .commit-panel {
   display: grid;
   grid-template-rows: auto auto auto auto;
@@ -791,6 +1191,10 @@ dd {
   border-top: 1px solid var(--border);
   padding: 14px 24px 18px;
   background: var(--surface-panel);
+}
+
+.commit-panel[hidden] {
+  display: none;
 }
 
 .commit-footer {
@@ -965,7 +1369,7 @@ dd {
   }
 
   .workspace {
-    grid-template-rows: auto auto auto;
+    grid-template-rows: auto auto auto auto;
     height: auto;
     overflow: visible;
   }
@@ -984,6 +1388,29 @@ dd {
 
   .diff-panel {
     min-height: 360px;
+  }
+
+  .history-view {
+    grid-template-rows: 320px auto;
+    overflow: visible;
+  }
+
+  .history-detail-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .resize-handle {
+    display: none;
+  }
+
+  .commit-detail {
+    min-height: 360px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .commit-diff-panel {
+    min-height: 420px;
   }
 
   .action-bar {
@@ -1026,7 +1453,8 @@ dd {
   }
 
   .file-actions,
-  .commit-footer {
+  .commit-footer,
+  .workspace-tabs {
     justify-content: stretch;
   }
 
@@ -1038,6 +1466,7 @@ dd {
 
   .file-actions button,
   .commit-footer button,
+  .workspace-tab,
   .settings-actions button {
     flex: 1;
   }

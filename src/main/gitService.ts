@@ -2,7 +2,14 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type {
+  CommitRef,
   GitAction,
+  GitCommitChangedFile,
+  GitCommitDetails,
+  GitCommitDetailsRequest,
+  GitCommitFileDiffRequest,
+  GitCommitGraphRow,
+  GitCommitHistoryRequest,
   GitCommitRequest,
   GitDiffSide,
   GitFileDiff,
@@ -50,6 +57,8 @@ const emptySummary = (repoPath: string, validationErrors: string[]): RepoSummary
 });
 
 const DIFF_TEXT_LIMIT = 250_000;
+const DEFAULT_HISTORY_LIMIT = 200;
+const MAX_HISTORY_LIMIT = 500;
 
 export class GitService {
   constructor(private readonly runner: ProcessRunner) {}
@@ -142,6 +151,155 @@ export class GitService {
       : await this.getUnstagedDiff(request.repoPath, request.path);
 
     return normalizeDiffResult(request, diffResult);
+  }
+
+  async getCommitHistory(request: GitCommitHistoryRequest): Promise<GitCommitGraphRow[]> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      throw new Error(validation.validationErrors.join(" "));
+    }
+
+    const headResult = await this.runGit(request.repoPath, [
+      "rev-parse",
+      "--verify",
+      "HEAD"
+    ]);
+    if (headResult.exitCode !== 0) {
+      return [];
+    }
+
+    const limit = sanitizeHistoryLimit(request.limit);
+    const result = await this.runGit(request.repoPath, [
+      "log",
+      "--graph",
+      `--max-count=${limit}`,
+      "--date=iso-strict",
+      "--decorate=full",
+      "--pretty=format:%x1f%H%x1f%h%x1f%D%x1f%s%x1f%an%x1f%ae%x1f%aI%x1f%ar%x1e"
+    ]);
+
+    if (result.exitCode !== 0) {
+      throw new Error(result.stderr.trim() || result.error || "Unable to read commit history.");
+    }
+
+    return parseCommitHistory(result.stdout);
+  }
+
+  async getCommitDetails(request: GitCommitDetailsRequest): Promise<GitCommitDetails> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      throw new Error(validation.validationErrors.join(" "));
+    }
+
+    const hashResult = sanitizeCommitHash(request.hash);
+    if ("error" in hashResult) {
+      throw new Error(hashResult.error);
+    }
+
+    const [
+      metadataResult,
+      nameStatusResult,
+      numstatResult
+    ] = await Promise.all([
+      this.runGit(request.repoPath, [
+        "show",
+        "-s",
+        "--date=iso-strict",
+        "--decorate=full",
+        "--pretty=format:%H%x1f%h%x1f%D%x1f%s%x1f%an%x1f%ae%x1f%aI%x1f%cn%x1f%ce%x1f%cI%x1f%P%x1e%b",
+        hashResult.hash
+      ]),
+      this.runGit(request.repoPath, [
+        "diff-tree",
+        "--root",
+        "--no-commit-id",
+        "--name-status",
+        "-r",
+        "-z",
+        "--find-renames",
+        "--find-copies",
+        hashResult.hash
+      ]),
+      this.runGit(request.repoPath, [
+        "diff-tree",
+        "--root",
+        "--no-commit-id",
+        "--numstat",
+        "-r",
+        "-z",
+        "--find-renames",
+        "--find-copies",
+        hashResult.hash
+      ])
+    ]);
+
+    if (metadataResult.exitCode !== 0) {
+      throw new Error(metadataResult.stderr.trim() || metadataResult.error || "Unable to read commit details.");
+    }
+    if (nameStatusResult.exitCode !== 0) {
+      throw new Error(nameStatusResult.stderr.trim() || nameStatusResult.error || "Unable to read changed files.");
+    }
+    if (numstatResult.exitCode !== 0) {
+      throw new Error(numstatResult.stderr.trim() || numstatResult.error || "Unable to read file stats.");
+    }
+
+    return {
+      ...parseCommitDetails(metadataResult.stdout),
+      files: mergeCommitFiles(
+        parseCommitNameStatus(nameStatusResult.stdout),
+        parseCommitNumstat(numstatResult.stdout)
+      )
+    };
+  }
+
+  async getCommitFileDiff(request: GitCommitFileDiffRequest): Promise<GitFileDiff> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      return {
+        path: request.path,
+        side: "unstaged",
+        kind: "error",
+        text: validation.validationErrors.join(" ")
+      };
+    }
+
+    const hashResult = sanitizeCommitHash(request.hash);
+    if ("error" in hashResult) {
+      return {
+        path: request.path,
+        side: "unstaged",
+        kind: "error",
+        text: hashResult.error
+      };
+    }
+
+    const pathResult = sanitizeSingleRepoPath(request.path);
+    if ("error" in pathResult) {
+      return {
+        path: request.path,
+        side: "unstaged",
+        kind: "error",
+        text: pathResult.error
+      };
+    }
+
+    const diffResult = await this.runGit(request.repoPath, [
+      "show",
+      "--format=",
+      "--no-color",
+      "--no-ext-diff",
+      "--find-renames",
+      "--find-copies",
+      hashResult.hash,
+      "--",
+      pathResult.path
+    ]);
+
+    return normalizeDiffResult({
+      repoPath: request.repoPath,
+      path: pathResult.path,
+      side: "unstaged"
+    }, diffResult);
   }
 
   async stageFiles(request: GitPathRequest): Promise<GitOperationResult> {
@@ -589,6 +747,28 @@ function sanitizeSingleRepoPath(filePath: string): { path: string } | { error: s
   };
 }
 
+function sanitizeCommitHash(hash: string): { hash: string } | { error: string } {
+  const trimmedHash = hash.trim();
+
+  if (!/^[0-9a-f]{7,64}$/i.test(trimmedHash)) {
+    return {
+      error: "Commit hash is invalid."
+    };
+  }
+
+  return {
+    hash: trimmedHash
+  };
+}
+
+function sanitizeHistoryLimit(limit: number | undefined): number {
+  if (!Number.isFinite(limit)) {
+    return DEFAULT_HISTORY_LIMIT;
+  }
+
+  return Math.max(1, Math.min(MAX_HISTORY_LIMIT, Math.trunc(limit ?? DEFAULT_HISTORY_LIMIT)));
+}
+
 function createPathspecInput(paths: string[]): Buffer {
   return Buffer.from(`${paths.join("\0")}\0`, "utf8");
 }
@@ -620,6 +800,230 @@ function shouldEscapeIgnoreSpaces(existing: string): boolean {
       const trimmed = line.trim();
       return trimmed.length > 0 && !trimmed.startsWith("#") && /\\ /.test(trimmed);
     });
+}
+
+function parseCommitHistory(text: string): GitCommitGraphRow[] {
+  return text
+    .split(/\r?\n/)
+    .flatMap((line) => {
+      const separatorIndex = line.indexOf("\x1f");
+      if (separatorIndex === -1) {
+        return [];
+      }
+
+      const graph = line.slice(0, separatorIndex).trimEnd();
+      const fields = line.slice(separatorIndex + 1).replace(/\x1e$/, "").split("\x1f");
+      const [
+        hash = "",
+        shortHash = "",
+        rawRefs = "",
+        subject = "",
+        authorName = "",
+        authorEmail = "",
+        authorDate = "",
+        relativeDate = ""
+      ] = fields;
+
+      if (!hash) {
+        return [];
+      }
+
+      return [
+        {
+          hash,
+          shortHash,
+          graph,
+          refs: parseCommitRefs(rawRefs),
+          subject,
+          authorName,
+          authorEmail,
+          authorDate,
+          relativeDate
+        }
+      ];
+    });
+}
+
+function parseCommitDetails(text: string): Omit<GitCommitDetails, "files"> {
+  const [metadata = "", body = ""] = splitAtFirst(text, "\x1e");
+  const [
+    hash = "",
+    shortHash = "",
+    rawRefs = "",
+    subject = "",
+    authorName = "",
+    authorEmail = "",
+    authorDate = "",
+    committerName = "",
+    committerEmail = "",
+    committerDate = "",
+    rawParents = ""
+  ] = metadata.split("\x1f");
+
+  return {
+    hash,
+    shortHash,
+    refs: parseCommitRefs(rawRefs),
+    subject,
+    body: body.trim(),
+    authorName,
+    authorEmail,
+    authorDate,
+    committerName,
+    committerEmail,
+    committerDate,
+    parents: rawParents.trim() ? rawParents.trim().split(/\s+/) : []
+  };
+}
+
+function parseCommitRefs(text: string): CommitRef[] {
+  return text
+    .split(",")
+    .map((ref) => ref.trim())
+    .filter((ref) => ref.length > 0)
+    .map((ref) => {
+      if (ref === "HEAD") {
+        return {
+          name: ref,
+          kind: "head"
+        };
+      }
+
+      const name = ref
+        .replace(/^HEAD -> /, "")
+        .replace(/^refs\/heads\//, "")
+        .replace(/^refs\/remotes\//, "")
+        .replace(/^tag: refs\/tags\//, "")
+        .replace(/^refs\/tags\//, "");
+
+      if (ref.startsWith("tag: ") || ref.startsWith("refs/tags/")) {
+        return {
+          name,
+          kind: "tag"
+        };
+      }
+      if (ref.startsWith("refs/remotes/")) {
+        return {
+          name,
+          kind: "remote"
+        };
+      }
+      if (ref.startsWith("HEAD -> ") || ref.startsWith("refs/heads/")) {
+        return {
+          name,
+          kind: "branch"
+        };
+      }
+
+      return {
+        name,
+        kind: "other"
+      };
+    });
+}
+
+function parseCommitNameStatus(text: string): GitCommitChangedFile[] {
+  const tokens = text.split("\0").filter((token) => token.length > 0);
+  const files: GitCommitChangedFile[] = [];
+
+  for (let index = 0; index < tokens.length;) {
+    const status = tokens[index] ?? "";
+    index += 1;
+
+    if (/^[RC]\d+/.test(status)) {
+      const originalPath = tokens[index] ?? "";
+      const filePath = tokens[index + 1] ?? "";
+      index += 2;
+      files.push({
+        path: filePath,
+        originalPath,
+        status: status[0] ?? status,
+        additions: 0,
+        deletions: 0
+      });
+      continue;
+    }
+
+    const filePath = tokens[index] ?? "";
+    index += 1;
+    files.push({
+      path: filePath,
+      status,
+      additions: 0,
+      deletions: 0
+    });
+  }
+
+  return files;
+}
+
+function parseCommitNumstat(text: string): Map<string, Pick<GitCommitChangedFile, "additions" | "deletions">> {
+  const tokens = text.split("\0");
+  const stats = new Map<string, Pick<GitCommitChangedFile, "additions" | "deletions">>();
+
+  for (let index = 0; index < tokens.length;) {
+    const token = tokens[index];
+    index += 1;
+    if (!token) {
+      continue;
+    }
+
+    const [rawAdditions = "-", rawDeletions = "-", inlinePath = ""] = token.split("\t");
+    let filePath = inlinePath;
+    if (!filePath) {
+      index += 1;
+      filePath = tokens[index] ?? "";
+      index += 1;
+    }
+
+    if (!filePath) {
+      continue;
+    }
+
+    stats.set(filePath, {
+      additions: parseStatNumber(rawAdditions),
+      deletions: parseStatNumber(rawDeletions)
+    });
+  }
+
+  return stats;
+}
+
+function mergeCommitFiles(
+  files: GitCommitChangedFile[],
+  statsByPath: Map<string, Pick<GitCommitChangedFile, "additions" | "deletions">>
+): GitCommitChangedFile[] {
+  return files.map((file) => {
+    const stats = statsByPath.get(file.path);
+    return {
+      ...file,
+      additions: stats?.additions ?? 0,
+      deletions: stats?.deletions ?? 0
+    };
+  }).sort((left, right) => {
+    const statusCompare = left.status.localeCompare(right.status);
+    return statusCompare === 0 ? left.path.localeCompare(right.path) : statusCompare;
+  });
+}
+
+function parseStatNumber(text: string): number {
+  const value = Number.parseInt(text, 10);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function splitAtFirst(text: string, separator: string): [string, string] {
+  const index = text.indexOf(separator);
+  if (index === -1) {
+    return [
+      text,
+      ""
+    ];
+  }
+
+  return [
+    text.slice(0, index),
+    text.slice(index + separator.length)
+  ];
 }
 
 function parsePorcelainStatus(text: string): { files: GitStatusFile[]; statusLines: string[] } {

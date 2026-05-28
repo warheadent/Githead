@@ -1,6 +1,9 @@
 export const IPC_CHANNELS = {
   chooseRepo: "repo:choose",
   getRepoSummary: "repo:summary",
+  getCommitHistory: "git:commit-history",
+  getCommitDetails: "git:commit-details",
+  getCommitFileDiff: "git:commit-file-diff",
   getFileDiff: "git:file-diff",
   stageFiles: "git:stage-files",
   unstageFiles: "git:unstage-files",

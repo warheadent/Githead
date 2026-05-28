@@ -5,6 +5,9 @@ import { IPC_CHANNELS } from "../shared/ipc";
 import type {
   AiSettingsSaveRequest,
   FileSystemPathRequest,
+  GitCommitDetailsRequest,
+  GitCommitFileDiffRequest,
+  GitCommitHistoryRequest,
   GenerateCommitMessageRequest,
   GitCommitRequest,
   GitFileDiffRequest,
@@ -107,6 +110,18 @@ ipcMain.handle(IPC_CHANNELS.chooseRepo, async () => {
 
 ipcMain.handle(IPC_CHANNELS.getRepoSummary, async (_event, repoPath: string) => {
   return gitService.getRepoSummary(repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.getCommitHistory, async (_event, request: GitCommitHistoryRequest) => {
+  return gitService.getCommitHistory(request);
+});
+
+ipcMain.handle(IPC_CHANNELS.getCommitDetails, async (_event, request: GitCommitDetailsRequest) => {
+  return gitService.getCommitDetails(request);
+});
+
+ipcMain.handle(IPC_CHANNELS.getCommitFileDiff, async (_event, request: GitCommitFileDiffRequest) => {
+  return gitService.getCommitFileDiff(request);
 });
 
 ipcMain.handle(IPC_CHANNELS.getFileDiff, async (_event, request) => {

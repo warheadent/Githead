@@ -1,6 +1,9 @@
 import "./styles.css";
 import type {
   AiSettings,
+  GitCommitChangedFile,
+  GitCommitDetails,
+  GitCommitGraphRow,
   GitAction,
   GitDiffSide,
   GitFileDiff,
@@ -11,6 +14,7 @@ import type {
   RepoSummary
 } from "../shared/types";
 import { type DiffRowKind, parseUnifiedDiff } from "./diffParser";
+import { initializeResizablePanels } from "./resizablePanels";
 import { highlightDiffCode } from "./syntaxHighlighter";
 
 const DEFAULT_REPO_PATH = "D:\\Githead";
@@ -19,6 +23,8 @@ interface FileSelection {
   path: string;
   side: GitDiffSide;
 }
+
+type WorkspaceView = "status" | "history";
 
 interface ContextMenuState {
   x: number;
@@ -42,6 +48,19 @@ interface AppState {
   aiSettings: AiSettings | null;
   settingsError: string;
   settingsSaving: boolean;
+  activeView: WorkspaceView;
+  history: GitCommitGraphRow[];
+  historyLoading: boolean;
+  historyLoaded: boolean;
+  historyError: string;
+  selectedCommitHash: string | null;
+  commitDetails: GitCommitDetails | null;
+  commitDetailsLoading: boolean;
+  commitDetailsError: string;
+  selectedCommitFilePath: string | null;
+  commitFileDiff: GitFileDiff | null;
+  commitFileDiffLoading: boolean;
+  commitFileDiffError: string;
 }
 
 const state: AppState = {
@@ -58,7 +77,20 @@ const state: AppState = {
   contextMenu: null,
   aiSettings: null,
   settingsError: "",
-  settingsSaving: false
+  settingsSaving: false,
+  activeView: "status",
+  history: [],
+  historyLoading: false,
+  historyLoaded: false,
+  historyError: "",
+  selectedCommitHash: null,
+  commitDetails: null,
+  commitDetailsLoading: false,
+  commitDetailsError: "",
+  selectedCommitFilePath: null,
+  commitFileDiff: null,
+  commitFileDiffLoading: false,
+  commitFileDiffError: ""
 };
 
 const app = document.querySelector<HTMLDivElement>("#app");
@@ -119,6 +151,8 @@ app.innerHTML = `
       <button id="refresh-repo" class="secondary full-width" type="button">Refresh</button>
     </aside>
 
+    <div id="shell-resize-handle" class="resize-handle resize-handle-vertical" aria-label="Resize repository panel"></div>
+
     <section class="workspace" aria-label="Git workspace">
       <header class="action-bar">
         <div>
@@ -132,6 +166,11 @@ app.innerHTML = `
           <button class="action-button primary" data-action="push" type="button">Push</button>
         </div>
       </header>
+
+      <nav class="workspace-tabs" aria-label="Workspace views">
+        <button id="status-tab" class="workspace-tab is-active" data-view="status" type="button" aria-selected="true">File Status</button>
+        <button id="history-tab" class="workspace-tab" data-view="history" type="button" aria-selected="false">Commit History</button>
+      </nav>
 
       <section class="file-status" aria-label="File status">
         <div class="file-lists" aria-label="Changed files">
@@ -158,6 +197,8 @@ app.innerHTML = `
           </section>
         </div>
 
+        <div id="status-resize-handle" class="resize-handle resize-handle-vertical" aria-label="Resize file status panels"></div>
+
         <section class="diff-panel" aria-label="File diff">
           <div class="diff-header">
             <div>
@@ -167,6 +208,40 @@ app.innerHTML = `
             <button id="refresh-diff" class="secondary small-button" type="button">Refresh Diff</button>
           </div>
           <div id="diff-output" class="diff-output">Select a file to view the diff</div>
+        </section>
+      </section>
+
+      <section id="history-view" class="history-view" aria-label="Commit history" hidden>
+        <section class="history-table-panel" aria-label="Commit list">
+          <div class="history-table-header" aria-hidden="true">
+            <span>Graph</span>
+            <span>Description</span>
+            <span>Date</span>
+            <span>Author</span>
+            <span>Commit</span>
+          </div>
+          <div id="history-list" class="history-list" role="listbox" aria-label="Commit history"></div>
+        </section>
+        <div id="history-resize-handle" class="resize-handle resize-handle-horizontal" aria-label="Resize commit history list"></div>
+        <section class="history-detail-panel" aria-label="Selected commit">
+          <section class="commit-detail" aria-label="Commit details">
+            <div id="commit-detail-meta" class="commit-detail-meta"></div>
+            <div class="commit-file-toolbar">
+              <span id="commit-file-count" class="muted">No files</span>
+              <span class="muted">Sorted by file status</span>
+            </div>
+            <div id="commit-file-list" class="commit-file-list" role="listbox" aria-label="Changed files"></div>
+          </section>
+          <div id="commit-detail-resize-handle" class="resize-handle resize-handle-vertical" aria-label="Resize commit detail panel"></div>
+          <section class="commit-diff-panel" aria-label="Commit file diff">
+            <div class="diff-header">
+              <div>
+                <p class="eyebrow">Commit diff</p>
+                <h2 id="commit-diff-title">Select a file</h2>
+              </div>
+            </div>
+            <div id="commit-diff-output" class="diff-output">Select a file to view the diff</div>
+          </section>
         </section>
       </section>
 
@@ -231,6 +306,7 @@ app.innerHTML = `
 `;
 
 const repoHealth = getElement("repo-health");
+const shell = document.querySelector<HTMLElement>(".shell");
 const repoPathInput = getElement<HTMLInputElement>("repo-path");
 const chooseRepoButton = getElement<HTMLButtonElement>("choose-repo");
 const refreshRepoButton = getElement<HTMLButtonElement>("refresh-repo");
@@ -242,6 +318,11 @@ const unstagedCountValue = getElement("unstaged-count-value");
 const conflictCountValue = getElement("conflict-count-value");
 const actionHeading = getElement("action-heading");
 const currentBranchLabel = getElement("current-branch-label");
+const statusTab = getElement<HTMLButtonElement>("status-tab");
+const historyTab = getElement<HTMLButtonElement>("history-tab");
+const fileStatusView = document.querySelector<HTMLElement>(".file-status");
+const historyView = getElement<HTMLElement>("history-view");
+const historyDetailPanel = document.querySelector<HTMLElement>(".history-detail-panel");
 const stagedList = getElement("staged-list");
 const unstagedList = getElement("unstaged-list");
 const stagedHeading = getElement("staged-heading");
@@ -254,6 +335,13 @@ const refreshDiffButton = getElement<HTMLButtonElement>("refresh-diff");
 const diffSide = getElement("diff-side");
 const diffTitle = getElement("diff-title");
 const diffOutput = getElement<HTMLDivElement>("diff-output");
+const historyList = getElement<HTMLDivElement>("history-list");
+const commitDetailMeta = getElement<HTMLDivElement>("commit-detail-meta");
+const commitFileCount = getElement("commit-file-count");
+const commitFileList = getElement<HTMLDivElement>("commit-file-list");
+const commitDiffTitle = getElement("commit-diff-title");
+const commitDiffOutput = getElement<HTMLDivElement>("commit-diff-output");
+const commitPanel = document.querySelector<HTMLElement>(".commit-panel");
 const commitMessageInput = getElement<HTMLTextAreaElement>("commit-message");
 const commitButton = getElement<HTMLButtonElement>("commit-button");
 const generateMessageButton = getElement<HTMLButtonElement>("generate-message");
@@ -274,9 +362,83 @@ const openRouterApiKeyInput = getElement<HTMLInputElement>("openrouter-api-key")
 const openRouterModelInput = getElement<HTMLInputElement>("openrouter-model");
 const openRouterSiteUrlInput = getElement<HTMLInputElement>("openrouter-site-url");
 const openRouterSiteTitleInput = getElement<HTMLInputElement>("openrouter-site-title");
+const shellResizeHandle = getElement("shell-resize-handle");
+const statusResizeHandle = getElement("status-resize-handle");
+const historyResizeHandle = getElement("history-resize-handle");
+const commitDetailResizeHandle = getElement("commit-detail-resize-handle");
 const actionButtons = Array.from(document.querySelectorAll<HTMLButtonElement>(".action-button"));
 
+if (!shell) {
+  throw new Error("Missing app shell.");
+}
+if (!fileStatusView) {
+  throw new Error("Missing file status view.");
+}
+if (!historyDetailPanel) {
+  throw new Error("Missing history detail panel.");
+}
+if (!commitPanel) {
+  throw new Error("Missing commit panel.");
+}
+const fileStatusPanel = fileStatusView;
+const shellElement = shell;
+const historyDetailPanelElement = historyDetailPanel;
+const commitPanelElement = commitPanel;
+const resizablePanels = initializeResizablePanels([
+  {
+    id: "shell-sidebar",
+    container: shellElement,
+    handle: shellResizeHandle,
+    axis: "x",
+    cssVariable: "--shell-sidebar-width",
+    label: "Resize repository panel",
+    defaultSize: 340,
+    minSize: 292,
+    minRemainder: 520,
+    disabledQuery: "(max-width: 980px)"
+  },
+  {
+    id: "status-file-lists",
+    container: fileStatusPanel,
+    handle: statusResizeHandle,
+    axis: "x",
+    cssVariable: "--status-file-lists-width",
+    label: "Resize file status panels",
+    defaultSize: 420,
+    minSize: 300,
+    minRemainder: 240,
+    disabledQuery: "(max-width: 980px)"
+  },
+  {
+    id: "history-table",
+    container: historyView,
+    handle: historyResizeHandle,
+    axis: "y",
+    cssVariable: "--history-table-height",
+    label: "Resize commit history list",
+    defaultSize: 320,
+    minSize: 180,
+    minRemainder: 260,
+    disabledQuery: "(max-width: 980px)"
+  },
+  {
+    id: "commit-detail",
+    container: historyDetailPanelElement,
+    handle: commitDetailResizeHandle,
+    axis: "x",
+    cssVariable: "--commit-detail-width",
+    label: "Resize commit detail panel",
+    defaultSize: 440,
+    minSize: 300,
+    minRemainder: 240,
+    disabledQuery: "(max-width: 980px)"
+  }
+]);
+
 let diffRequestId = 0;
+let historyRequestId = 0;
+let commitDetailsRequestId = 0;
+let commitFileDiffRequestId = 0;
 
 chooseRepoButton.addEventListener("click", () => {
   void chooseRepo();
@@ -319,6 +481,22 @@ unstageSelectedButton.addEventListener("click", () => {
 
 refreshDiffButton.addEventListener("click", () => {
   void loadSelectedDiff();
+});
+
+statusTab.addEventListener("click", () => {
+  setWorkspaceView("status");
+});
+
+historyTab.addEventListener("click", () => {
+  setWorkspaceView("history");
+});
+
+historyList.addEventListener("click", (event) => {
+  selectCommitFromEvent(event);
+});
+
+commitFileList.addEventListener("click", (event) => {
+  selectCommitFileFromEvent(event);
 });
 
 commitMessageInput.addEventListener("input", () => {
@@ -431,6 +609,7 @@ async function chooseRepo(): Promise<void> {
   state.selection = null;
   state.diff = null;
   state.contextMenu = null;
+  resetHistoryState();
   await refreshRepo();
 }
 
@@ -466,6 +645,9 @@ async function refreshRepo(): Promise<void> {
   if (state.selection) {
     await loadSelectedDiff();
   }
+  if (state.activeView === "history") {
+    await loadCommitHistory(true);
+  }
 }
 
 async function runAction(action: GitAction): Promise<void> {
@@ -499,6 +681,7 @@ async function runAction(action: GitAction): Promise<void> {
     appendSystemLine(message);
   } finally {
     state.runningAction = null;
+    invalidateHistory();
     await refreshRepo();
     render();
   }
@@ -664,6 +847,9 @@ async function runFileOperation(
       state.selection = nextSelection;
       state.diff = null;
     }
+    if (state.lastOperationResult?.exitCode === 0) {
+      invalidateHistory();
+    }
     await refreshRepo();
     render();
   }
@@ -709,6 +895,156 @@ async function loadSelectedDiff(): Promise<void> {
   }
 }
 
+function setWorkspaceView(view: WorkspaceView): void {
+  if (state.activeView === view) {
+    return;
+  }
+
+  state.activeView = view;
+  render();
+
+  if (view === "history" && !state.historyLoaded && !state.historyLoading) {
+    void loadCommitHistory(false);
+  }
+}
+
+async function loadCommitHistory(force: boolean): Promise<void> {
+  if (!state.summary?.isValid) {
+    state.history = [];
+    state.historyLoaded = false;
+    state.historyError = state.summary?.validationErrors.join(" ") ?? "";
+    render();
+    return;
+  }
+
+  if (state.historyLoaded && !force) {
+    return;
+  }
+
+  const requestId = historyRequestId + 1;
+  historyRequestId = requestId;
+  state.historyLoading = true;
+  state.historyError = "";
+  render();
+
+  const previousCommitHash = state.selectedCommitHash;
+
+  try {
+    const history = await window.githead.getCommitHistory({
+      repoPath: state.repoPath,
+      limit: 200
+    });
+
+    if (requestId !== historyRequestId) {
+      return;
+    }
+
+    state.history = history;
+    state.historyLoaded = true;
+    state.selectedCommitHash = history.some((commit) => commit.hash === previousCommitHash)
+      ? previousCommitHash
+      : history[0]?.hash ?? null;
+    state.commitDetails = null;
+    state.commitDetailsError = "";
+    state.selectedCommitFilePath = null;
+    state.commitFileDiff = null;
+    state.commitFileDiffError = "";
+  } catch (error) {
+    if (requestId === historyRequestId) {
+      state.history = [];
+      state.historyLoaded = false;
+      state.historyError = error instanceof Error ? error.message : "Unable to read commit history.";
+      state.selectedCommitHash = null;
+      state.commitDetails = null;
+      state.selectedCommitFilePath = null;
+      state.commitFileDiff = null;
+    }
+  } finally {
+    if (requestId === historyRequestId) {
+      state.historyLoading = false;
+      render();
+    }
+  }
+
+  if (state.selectedCommitHash) {
+    await loadCommitDetails(state.selectedCommitHash);
+  }
+}
+
+async function loadCommitDetails(hash: string): Promise<void> {
+  const requestId = commitDetailsRequestId + 1;
+  commitDetailsRequestId = requestId;
+  const previousFilePath = state.selectedCommitFilePath;
+  state.commitDetailsLoading = true;
+  state.commitDetailsError = "";
+  state.commitDetails = null;
+  state.selectedCommitFilePath = null;
+  state.commitFileDiff = null;
+  state.commitFileDiffError = "";
+  render();
+
+  try {
+    const details = await window.githead.getCommitDetails({
+      repoPath: state.repoPath,
+      hash
+    });
+
+    if (requestId !== commitDetailsRequestId) {
+      return;
+    }
+
+    state.commitDetails = details;
+    state.selectedCommitFilePath = details.files.some((file) => file.path === previousFilePath)
+      ? previousFilePath
+      : details.files[0]?.path ?? null;
+  } catch (error) {
+    if (requestId === commitDetailsRequestId) {
+      state.commitDetailsError = error instanceof Error ? error.message : "Unable to read commit details.";
+      state.commitDetails = null;
+      state.selectedCommitFilePath = null;
+    }
+  } finally {
+    if (requestId === commitDetailsRequestId) {
+      state.commitDetailsLoading = false;
+      render();
+    }
+  }
+
+  if (state.selectedCommitHash === hash && state.selectedCommitFilePath) {
+    await loadCommitFileDiff(hash, state.selectedCommitFilePath);
+  }
+}
+
+async function loadCommitFileDiff(hash: string, filePath: string): Promise<void> {
+  const requestId = commitFileDiffRequestId + 1;
+  commitFileDiffRequestId = requestId;
+  state.commitFileDiffLoading = true;
+  state.commitFileDiffError = "";
+  state.commitFileDiff = null;
+  render();
+
+  try {
+    const diff = await window.githead.getCommitFileDiff({
+      repoPath: state.repoPath,
+      hash,
+      path: filePath
+    });
+
+    if (requestId === commitFileDiffRequestId) {
+      state.commitFileDiff = diff;
+    }
+  } catch (error) {
+    if (requestId === commitFileDiffRequestId) {
+      state.commitFileDiffError = error instanceof Error ? error.message : "Unable to read commit diff.";
+    }
+  } finally {
+    if (requestId === commitFileDiffRequestId) {
+      state.commitFileDiffLoading = false;
+      render();
+    }
+  }
+}
+
 function render(): void {
   repoPathInput.value = state.repoPath;
   commitMessageInput.value = state.commitMessage;
@@ -740,9 +1076,11 @@ function render(): void {
 
   stagedHeading.textContent = `Staged files (${stagedFiles.length})`;
   unstagedHeading.textContent = `Unstaged files (${unstagedFiles.length})`;
+  renderWorkspaceTabs();
   renderFileList(stagedList, stagedFiles, "staged");
   renderFileList(unstagedList, unstagedFiles, "unstaged");
   renderDiff();
+  renderHistory();
   renderContextMenu();
 
   actionHeading.textContent = state.runningAction
@@ -958,13 +1296,256 @@ function renderDiff(): void {
   );
 }
 
+function renderWorkspaceTabs(): void {
+  const isStatus = state.activeView === "status";
+  statusTab.classList.toggle("is-active", isStatus);
+  statusTab.setAttribute("aria-selected", String(isStatus));
+  historyTab.classList.toggle("is-active", !isStatus);
+  historyTab.setAttribute("aria-selected", String(!isStatus));
+  fileStatusPanel.hidden = !isStatus;
+  historyView.hidden = isStatus;
+  commitPanelElement.hidden = !isStatus;
+  resizablePanels.refresh();
+}
+
+function renderHistory(): void {
+  if (state.historyLoading) {
+    historyList.innerHTML = `<p class="empty-state">Loading commit history...</p>`;
+  } else if (state.historyError) {
+    historyList.innerHTML = `<p class="empty-state bad">${escapeHtml(state.historyError)}</p>`;
+  } else if (!state.summary?.isValid) {
+    historyList.innerHTML = `<p class="empty-state">Select a valid repository.</p>`;
+  } else if (state.history.length === 0) {
+    historyList.innerHTML = `<p class="empty-state">No commits in this repository.</p>`;
+  } else {
+    historyList.replaceChildren(...state.history.map(renderHistoryRow));
+  }
+
+  renderCommitDetails();
+  renderCommitFileDiff();
+}
+
+function renderHistoryRow(commit: GitCommitGraphRow): HTMLElement {
+  const row = document.createElement("button");
+  row.type = "button";
+  row.className = "history-row";
+  row.dataset.hash = commit.hash;
+  row.setAttribute("role", "option");
+  row.setAttribute("aria-selected", String(commit.hash === state.selectedCommitHash));
+  row.classList.toggle("is-selected", commit.hash === state.selectedCommitHash);
+
+  const graph = document.createElement("span");
+  graph.className = "history-graph";
+  graph.append(...renderGraphTokens(commit.graph));
+
+  const description = document.createElement("span");
+  description.className = "history-description";
+  const refs = document.createElement("span");
+  refs.className = "history-refs";
+  refs.append(...commit.refs.map((ref) => {
+    const badge = document.createElement("span");
+    badge.className = `ref-badge ${ref.kind}`;
+    badge.textContent = ref.name;
+    return badge;
+  }));
+  const subject = document.createElement("span");
+  subject.className = "history-subject";
+  subject.textContent = commit.subject || "(no subject)";
+  description.append(refs, subject);
+
+  const date = document.createElement("span");
+  date.className = "history-date";
+  date.title = formatDate(commit.authorDate);
+  date.textContent = commit.relativeDate || formatDate(commit.authorDate);
+
+  const author = document.createElement("span");
+  author.className = "history-author";
+  author.textContent = commit.authorName;
+  author.title = commit.authorEmail;
+
+  const hash = document.createElement("span");
+  hash.className = "history-hash";
+  hash.textContent = commit.shortHash;
+  hash.title = commit.hash;
+
+  row.append(graph, description, date, author, hash);
+  return row;
+}
+
+function renderGraphTokens(graphText: string): HTMLElement[] {
+  const chars = graphText.length > 0 ? [...graphText] : [
+    "*"
+  ];
+
+  return chars.map((char, index) => {
+    const token = document.createElement("span");
+    token.className = `graph-token lane-${index % 6}`;
+    if (char === "*") {
+      token.classList.add("commit-dot");
+      token.textContent = "";
+    } else if (char === "|" || char === "/" || char === "\\" || char === "_") {
+      token.classList.add("graph-line");
+      token.textContent = char;
+    } else {
+      token.textContent = char;
+    }
+
+    return token;
+  });
+}
+
+function renderCommitDetails(): void {
+  if (state.commitDetailsLoading) {
+    commitDetailMeta.innerHTML = `<p class="empty-state">Loading commit details...</p>`;
+    commitFileCount.textContent = "No files";
+    commitFileList.replaceChildren();
+    return;
+  }
+
+  if (state.commitDetailsError) {
+    commitDetailMeta.innerHTML = `<p class="empty-state bad">${escapeHtml(state.commitDetailsError)}</p>`;
+    commitFileCount.textContent = "No files";
+    commitFileList.replaceChildren();
+    return;
+  }
+
+  const details = state.commitDetails;
+  if (!details) {
+    commitDetailMeta.innerHTML = `<p class="empty-state">Select a commit.</p>`;
+    commitFileCount.textContent = "No files";
+    commitFileList.replaceChildren();
+    return;
+  }
+
+  commitDetailMeta.replaceChildren(createCommitMeta(details));
+  commitFileCount.textContent = `${details.files.length} ${details.files.length === 1 ? "file" : "files"}`;
+  if (details.files.length === 0) {
+    commitFileList.innerHTML = `<p class="empty-state">No changed files.</p>`;
+    return;
+  }
+
+  commitFileList.replaceChildren(...details.files.map(renderCommitFileRow));
+}
+
+function createCommitMeta(details: GitCommitDetails): HTMLElement {
+  const container = document.createElement("div");
+  container.className = "commit-meta-card";
+
+  const subject = document.createElement("h2");
+  subject.textContent = details.subject || "(no subject)";
+
+  const facts = document.createElement("dl");
+  facts.className = "commit-facts";
+  appendFact(facts, "Commit", details.hash);
+  appendFact(facts, "Parents", details.parents.length ? details.parents.map((parent) => parent.slice(0, 10)).join(", ") : "-");
+  appendFact(facts, "Author", `${details.authorName} <${details.authorEmail}>`);
+  appendFact(facts, "Date", formatDate(details.authorDate));
+
+  container.append(subject, facts);
+  if (details.body) {
+    const body = document.createElement("p");
+    body.className = "commit-body";
+    body.textContent = details.body;
+    container.append(body);
+  }
+
+  return container;
+}
+
+function appendFact(container: HTMLElement, label: string, value: string): void {
+  const row = document.createElement("div");
+  const dt = document.createElement("dt");
+  dt.textContent = label;
+  const dd = document.createElement("dd");
+  dd.textContent = value;
+  row.append(dt, dd);
+  container.append(row);
+}
+
+function renderCommitFileRow(file: GitCommitChangedFile): HTMLElement {
+  const row = document.createElement("button");
+  row.type = "button";
+  row.className = "commit-file-row";
+  row.dataset.path = file.path;
+  row.setAttribute("role", "option");
+  row.setAttribute("aria-selected", String(file.path === state.selectedCommitFilePath));
+  row.classList.toggle("is-selected", file.path === state.selectedCommitFilePath);
+
+  const status = document.createElement("span");
+  status.className = "status-chip";
+  status.textContent = file.status;
+
+  const path = document.createElement("span");
+  path.className = "file-path";
+  path.textContent = file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path;
+
+  const stats = document.createElement("span");
+  stats.className = "commit-file-stats";
+  stats.textContent = `+${file.additions} -${file.deletions}`;
+
+  row.append(status, path, stats);
+  return row;
+}
+
+function renderCommitFileDiff(): void {
+  const filePath = state.selectedCommitFilePath;
+  commitDiffTitle.textContent = filePath ?? "Select a file";
+
+  if (state.commitFileDiffLoading) {
+    commitDiffOutput.className = "diff-output";
+    setCommitDiffMessage("Loading diff...");
+    return;
+  }
+
+  if (state.commitFileDiffError) {
+    commitDiffOutput.className = "diff-output error";
+    setCommitDiffMessage(state.commitFileDiffError);
+    return;
+  }
+
+  if (!filePath) {
+    commitDiffOutput.className = "diff-output";
+    setCommitDiffMessage("Select a file to view the diff");
+    return;
+  }
+
+  if (!state.commitFileDiff) {
+    commitDiffOutput.className = "diff-output";
+    setCommitDiffMessage("Loading diff...");
+    return;
+  }
+
+  commitDiffOutput.className = `diff-output ${state.commitFileDiff.kind}`;
+  if (state.commitFileDiff.kind !== "text") {
+    setCommitDiffMessage(state.commitFileDiff.text);
+    return;
+  }
+
+  renderDiffRowsInto(
+    commitDiffOutput,
+    filePath,
+    parseUnifiedDiff(state.commitFileDiff.text, state.commitFileDiff.truncated ? [
+      "Diff truncated."
+    ] : [])
+  );
+}
+
+function setCommitDiffMessage(message: string): void {
+  commitDiffOutput.replaceChildren();
+  commitDiffOutput.textContent = message;
+}
+
 function setDiffMessage(message: string): void {
   diffOutput.replaceChildren();
   diffOutput.textContent = message;
 }
 
 function renderDiffRows(filePath: string, rows: ReturnType<typeof parseUnifiedDiff>): void {
-  diffOutput.replaceChildren(...rows.map((row) => {
+  renderDiffRowsInto(diffOutput, filePath, rows);
+}
+
+function renderDiffRowsInto(container: HTMLElement, filePath: string, rows: ReturnType<typeof parseUnifiedDiff>): void {
+  container.replaceChildren(...rows.map((row) => {
     const line = document.createElement("div");
     line.className = `diff-row ${row.kind}`;
 
@@ -1056,6 +1637,43 @@ function selectFileFromEvent(event: Event, side: GitDiffSide): void {
   state.diff = null;
   render();
   void loadSelectedDiff();
+}
+
+function selectCommitFromEvent(event: Event): void {
+  const target = event.target instanceof Element
+    ? event.target.closest<HTMLButtonElement>(".history-row")
+    : null;
+  const hash = target?.dataset.hash;
+
+  if (!hash || hash === state.selectedCommitHash) {
+    return;
+  }
+
+  state.selectedCommitHash = hash;
+  state.commitDetails = null;
+  state.commitDetailsError = "";
+  state.selectedCommitFilePath = null;
+  state.commitFileDiff = null;
+  state.commitFileDiffError = "";
+  render();
+  void loadCommitDetails(hash);
+}
+
+function selectCommitFileFromEvent(event: Event): void {
+  const target = event.target instanceof Element
+    ? event.target.closest<HTMLButtonElement>(".commit-file-row")
+    : null;
+  const filePath = target?.dataset.path;
+
+  if (!filePath || !state.selectedCommitHash || filePath === state.selectedCommitFilePath) {
+    return;
+  }
+
+  state.selectedCommitFilePath = filePath;
+  state.commitFileDiff = null;
+  state.commitFileDiffError = "";
+  render();
+  void loadCommitFileDiff(state.selectedCommitHash, filePath);
 }
 
 function showFileContextMenu(event: MouseEvent, side: GitDiffSide): void {
@@ -1238,6 +1856,26 @@ function reconcileSelection(): void {
   }
 }
 
+function invalidateHistory(): void {
+  state.historyLoaded = false;
+  state.historyError = "";
+}
+
+function resetHistoryState(): void {
+  state.history = [];
+  state.historyLoading = false;
+  state.historyLoaded = false;
+  state.historyError = "";
+  state.selectedCommitHash = null;
+  state.commitDetails = null;
+  state.commitDetailsLoading = false;
+  state.commitDetailsError = "";
+  state.selectedCommitFilePath = null;
+  state.commitFileDiff = null;
+  state.commitFileDiffLoading = false;
+  state.commitFileDiffError = "";
+}
+
 function getStagedFiles(): GitStatusFile[] {
   return getSortedFiles((file) => file.isStaged);
 }
@@ -1323,6 +1961,23 @@ function getOperationFeedback(): string {
 function formatResultHeading(result: GitRunResult): string {
   const label = capitalize(result.action);
   return result.exitCode === 0 ? `${label} complete` : `${label} failed`;
+}
+
+function formatDate(value: string): string {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function capitalize(value: string): string {
