@@ -121,21 +121,6 @@ app.innerHTML = `
         </div>
       </div>
 
-      <section class="change-summary" aria-label="Change summary">
-        <div>
-          <span id="staged-count-value">0</span>
-          <p>Staged</p>
-        </div>
-        <div>
-          <span id="unstaged-count-value">0</span>
-          <p>Unstaged</p>
-        </div>
-        <div>
-          <span id="conflict-count-value">0</span>
-          <p>Conflicts</p>
-        </div>
-      </section>
-
       <dl class="repo-facts">
         <div>
           <dt>Branch</dt>
@@ -325,9 +310,6 @@ const refreshRepoButton = getElement<HTMLButtonElement>("refresh-repo");
 const branchValue = getElement("branch-value");
 const upstreamValue = getElement("upstream-value");
 const remotesValue = getElement("remotes-value");
-const stagedCountValue = getElement("staged-count-value");
-const unstagedCountValue = getElement("unstaged-count-value");
-const conflictCountValue = getElement("conflict-count-value");
 const actionHeading = getElement("action-heading");
 const statusTab = getElement<HTMLButtonElement>("status-tab");
 const historyTab = getElement<HTMLButtonElement>("history-tab");
@@ -1127,9 +1109,6 @@ function render(): void {
   remotesValue.textContent = summary?.remotes.length
     ? [...new Set(summary.remotes.map((remote) => remote.name))].join(", ")
     : "-";
-  stagedCountValue.textContent = String(stagedFiles.length);
-  unstagedCountValue.textContent = String(unstagedFiles.length);
-  conflictCountValue.textContent = String(summary?.files.filter((file) => file.isConflicted).length ?? 0);
 
   stagedHeading.textContent = `Staged files (${stagedFiles.length})`;
   unstagedHeading.textContent = `Unstaged files (${unstagedFiles.length})`;
