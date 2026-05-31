@@ -18,6 +18,8 @@ vi.mock("@/components/ui/resizable", () => ({
 import { App } from "./App";
 import type {
   AiSettings,
+  GitCommitDetails,
+  GitCommitGraphRow,
   GitFileDiff,
   GitheadApi,
   GitOperationResult,
@@ -65,6 +67,39 @@ describe("App", () => {
 
     expect(await screen.findByText("Not a git repository.")).toBeTruthy();
     expect(screen.getAllByText("Select a valid repository.").length).toBeGreaterThan(0);
+  });
+
+  it("styles conventional commit subjects in history and falls back to raw subjects", async () => {
+    const user = userEvent.setup();
+    const conventionalCommit = createCommit({
+      hash: "a".repeat(40),
+      shortHash: "aaaaaaa",
+      subject: "feat(ai): add attack pressure cooldown"
+    });
+    const rawCommit = createCommit({
+      hash: "b".repeat(40),
+      shortHash: "bbbbbbb",
+      subject: "Add MeshBites Shader"
+    });
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([
+      conventionalCommit,
+      rawCommit
+    ]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(conventionalCommit.hash));
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+
+    const badge = await screen.findByText("Feature");
+    expect(badge.className).toContain("commit-type-badge");
+    expect(badge.className).toContain("type-feat");
+    expect(screen.getByText("ai:")).toBeTruthy();
+    const description = screen.getByText("add attack pressure cooldown");
+    expect(description).toBeTruthy();
+    expect(description.closest(".history-description")?.getAttribute("title")).toBe("feat(ai): add attack pressure cooldown");
+    expect(screen.getByText("Add MeshBites Shader")).toBeTruthy();
   });
 
   it("stages the selected unstaged file through the preload API", async () => {
@@ -555,6 +590,40 @@ function createStatusFile(path: string, overrides: Partial<RepoSummary["files"][
     isStaged: false,
     isUnstaged: false,
     isConflicted: false,
+    ...overrides
+  };
+}
+
+function createCommit(overrides: Partial<GitCommitGraphRow> = {}): GitCommitGraphRow {
+  return {
+    hash: "f".repeat(40),
+    shortHash: "fffffff",
+    graph: "*",
+    refs: [],
+    subject: "fix: default test commit",
+    authorName: "Taylor Bombay",
+    authorEmail: "taylor@example.test",
+    authorDate: "2026-05-26T21:42:20-07:00",
+    relativeDate: "2 hours ago",
+    ...overrides
+  };
+}
+
+function createCommitDetails(hash: string, overrides: Partial<GitCommitDetails> = {}): GitCommitDetails {
+  return {
+    hash,
+    shortHash: hash.slice(0, 7),
+    refs: [],
+    subject: "feat(ai): add attack pressure cooldown",
+    body: "",
+    authorName: "Taylor Bombay",
+    authorEmail: "taylor@example.test",
+    authorDate: "2026-05-26T21:42:20-07:00",
+    committerName: "Taylor Bombay",
+    committerEmail: "taylor@example.test",
+    committerDate: "2026-05-26T21:42:20-07:00",
+    parents: [],
+    files: [],
     ...overrides
   };
 }

@@ -79,6 +79,7 @@ import type {
   GitStatusFile,
   RepoSummary
 } from "../shared/types";
+import { parseCommitSubject } from "../shared/commitSubject";
 import { canPush, getPrimaryCommitAction, getPullableCommitCount, hasStagedChanges } from "./commitActions";
 import { parseUnifiedDiff, type DiffRow, type DiffRowKind } from "./diffParser";
 import { highlightDiffCode } from "./syntaxHighlighter";
@@ -2050,7 +2051,7 @@ function HistoryRow({
       onClick={() => onSelectCommit(commit.hash)}
     >
       <span className="history-graph">{renderGraphTokens(commit.graph)}</span>
-      <span className="history-description">
+      <span className="history-description" title={commit.subject || undefined}>
         <span className="history-refs">
           {commit.refs.map((ref) => (
             <span key={`${commit.hash}:${ref.kind}:${ref.name}`} className={`ref-badge ${ref.kind}`}>
@@ -2058,7 +2059,7 @@ function HistoryRow({
             </span>
           ))}
         </span>
-        <span className="history-subject">{commit.subject || "(no subject)"}</span>
+        <HistorySubject subject={commit.subject} />
       </span>
       <span className="history-date" title={formatDate(commit.authorDate)}>
         {commit.relativeDate || formatDate(commit.authorDate)}
@@ -2066,6 +2067,22 @@ function HistoryRow({
       <span className="history-author" title={commit.authorEmail}>{commit.authorName}</span>
       <span className="history-hash" title={commit.hash}>{commit.shortHash}</span>
     </button>
+  );
+}
+
+function HistorySubject({ subject }: { subject: string }): ReactNode {
+  const displaySubject = subject || "(no subject)";
+  const parsedSubject = subject ? parseCommitSubject(subject) : null;
+  if (!parsedSubject) {
+    return <span className="history-subject">{displaySubject}</span>;
+  }
+
+  return (
+    <span className="history-subject is-conventional">
+      <span className={`commit-type-badge type-${parsedSubject.type}`}>{parsedSubject.label}</span>
+      {parsedSubject.scope ? <span className="history-scope">{parsedSubject.scope}:</span> : null}
+      <span className="history-description-text">{parsedSubject.description}</span>
+    </span>
   );
 }
 

@@ -693,6 +693,97 @@
   gap: 8px;
 }
 
+.history-subject {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-subject.is-conventional {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 7px;
+}
+
+.commit-type-badge {
+  --commit-type-color: var(--muted-foreground);
+  display: inline-flex;
+  max-width: 112px;
+  flex: 0 0 auto;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklch, var(--commit-type-color) 56%, transparent);
+  border-radius: 999px;
+  padding: 1px 9px;
+  color: var(--commit-type-color);
+  background: color-mix(in oklch, var(--commit-type-color) 18%, transparent);
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commit-type-badge.type-feat {
+  --commit-type-color: oklch(0.62 0.13 188);
+}
+
+.commit-type-badge.type-fix {
+  --commit-type-color: oklch(0.66 0.15 23);
+}
+
+.commit-type-badge.type-chore,
+.commit-type-badge.type-build {
+  --commit-type-color: oklch(0.68 0.035 255);
+}
+
+.commit-type-badge.type-refactor,
+.commit-type-badge.type-style {
+  --commit-type-color: oklch(0.67 0.15 210);
+}
+
+.commit-type-badge.type-test,
+.commit-type-badge.type-ci {
+  --commit-type-color: oklch(0.7 0.13 88);
+}
+
+.commit-type-badge.type-docs {
+  --commit-type-color: oklch(0.66 0.13 285);
+}
+
+.commit-type-badge.type-perf {
+  --commit-type-color: oklch(0.66 0.15 145);
+}
+
+.commit-type-badge.type-revert {
+  --commit-type-color: oklch(0.66 0.12 330);
+}
+
+.history-scope {
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+  font-weight: 700;
+}
+
+.history-description-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-row.is-selected .commit-type-badge {
+  border-color: color-mix(in oklch, var(--primary-foreground) 70%, transparent);
+  color: var(--primary-foreground);
+  background: color-mix(in oklch, var(--primary-foreground) 18%, transparent);
+}
+
+.history-row.is-selected .history-scope {
+  color: color-mix(in oklch, var(--primary-foreground) 78%, transparent);
+}
+
 .history-refs {
   display: inline-flex;
   max-width: 45%;
