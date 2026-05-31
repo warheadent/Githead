@@ -32,6 +32,10 @@ export function hasUnpushedCommits(summary: RepoSummary | null): boolean {
   return (getAheadBehindCounts(summary)?.ahead ?? 0) > 0;
 }
 
+export function getPushableCommitCount(summary: RepoSummary | null): number {
+  return getAheadBehindCounts(summary)?.ahead ?? 0;
+}
+
 export function getPullableCommitCount(summary: RepoSummary | null): number {
   return getAheadBehindCounts(summary)?.behind ?? 0;
 }

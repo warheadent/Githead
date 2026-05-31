@@ -80,7 +80,7 @@ import type {
   RepoSummary
 } from "../shared/types";
 import { parseCommitSubject } from "../shared/commitSubject";
-import { canPush, getPrimaryCommitAction, getPullableCommitCount, hasStagedChanges } from "./commitActions";
+import { canPush, getPrimaryCommitAction, getPullableCommitCount, getPushableCommitCount, hasStagedChanges } from "./commitActions";
 import { getCommitGraphTokens, getCommitHistoryVisualRows, type CommitGraphTokenKind } from "./commitGraph";
 import { parseUnifiedDiff, type DiffRow, type DiffRowKind } from "./diffParser";
 import { highlightDiffCode } from "./syntaxHighlighter";
@@ -1262,6 +1262,7 @@ export function App(): ReactNode {
                 commitMessage={state.commitMessage}
                 disabled={disableActions}
                 primaryCommitAction={primaryCommitAction}
+                pushableCommitCount={getPushableCommitCount(state.summary)}
                 canCommit={canCommit(state)}
                 canGenerateCommitMessage={canGenerateCommitMessage(state)}
                 generateTitle={getGenerateMessageTitle(state)}
@@ -2197,6 +2198,7 @@ function CommitPanel({
   commitMessage,
   disabled,
   primaryCommitAction,
+  pushableCommitCount,
   canCommit: commitAllowed,
   canGenerateCommitMessage: generateAllowed,
   generateTitle,
@@ -2213,6 +2215,7 @@ function CommitPanel({
   commitMessage: string;
   disabled: boolean;
   primaryCommitAction: "commit" | "push" | null;
+  pushableCommitCount: number;
   canCommit: boolean;
   canGenerateCommitMessage: boolean;
   generateTitle: string;
@@ -2229,6 +2232,9 @@ function CommitPanel({
   const commitDisabled = disabled
     || primaryCommitAction === null
     || (primaryCommitAction === "commit" && !commitAllowed);
+  const primaryActionLabel = primaryCommitAction === "push"
+    ? `Push (${pushableCommitCount})`
+    : "Commit";
 
   return (
     <section className="grid min-h-0 gap-2.5 border-t bg-card px-6 py-4" aria-label="Commit staged files">
@@ -2257,7 +2263,7 @@ function CommitPanel({
             className={primaryCommitAction === "commit" ? "rounded-r-none" : ""}
           >
             {primaryCommitAction === "push" ? <Upload /> : <CheckCircle2 />}
-            {primaryCommitAction === "push" ? "Push" : "Commit"}
+            {primaryActionLabel}
           </Button>
           {primaryCommitAction === "commit" ? (
             <DropdownMenu>

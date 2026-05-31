@@ -5,6 +5,7 @@ import {
   getAheadBehindCounts,
   getPrimaryCommitAction,
   getPullableCommitCount,
+  getPushableCommitCount,
   hasStagedChanges,
   hasUnpushedCommits
 } from "./commitActions";
@@ -61,6 +62,7 @@ describe("commit action helpers", () => {
     };
 
     expect(canPush(summary)).toBe(true);
+    expect(getPushableCommitCount(summary)).toBe(2);
     expect(getPrimaryCommitAction(summary)).toBe("push");
   });
 
@@ -88,6 +90,7 @@ describe("commit action helpers", () => {
     };
 
     expect(hasUnpushedCommits(summary)).toBe(false);
+    expect(getPushableCommitCount(summary)).toBe(0);
     expect(getPullableCommitCount(summary)).toBe(0);
     expect(getPrimaryCommitAction(summary)).toBeNull();
   });
@@ -109,8 +112,10 @@ describe("commit action helpers", () => {
     };
 
     expect(hasUnpushedCommits(noUpstreamSummary)).toBe(false);
+    expect(getPushableCommitCount(noUpstreamSummary)).toBe(0);
     expect(getPullableCommitCount(noUpstreamSummary)).toBe(0);
     expect(hasUnpushedCommits(noAheadBehindSummary)).toBe(false);
+    expect(getPushableCommitCount(noAheadBehindSummary)).toBe(0);
     expect(getPullableCommitCount(noAheadBehindSummary)).toBe(0);
   });
 
@@ -124,6 +129,7 @@ describe("commit action helpers", () => {
 
     expect(getAheadBehindCounts(summary)).toBeNull();
     expect(hasUnpushedCommits(summary)).toBe(false);
+    expect(getPushableCommitCount(summary)).toBe(0);
     expect(getPullableCommitCount(summary)).toBe(0);
   });
 });
