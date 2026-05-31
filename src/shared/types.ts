@@ -12,6 +12,39 @@ export interface GitRemote {
   direction: "fetch" | "push";
 }
 
+export interface GitHubRepository {
+  owner: string;
+  name: string;
+  fullName: string;
+  webUrl: string;
+}
+
+export interface GitHubWorkflowRun {
+  id: string;
+  name: string;
+  runNumber: number | null;
+  status: string;
+  conclusion: string | null;
+  branch: string;
+  event: string;
+  commitSha: string;
+  commitMessage: string;
+  url: string;
+  startedAt: string;
+  updatedAt: string;
+}
+
+export interface GitHubIssue {
+  number: number;
+  title: string;
+  state: string;
+  authorLogin: string;
+  labels: string[];
+  comments: number;
+  updatedAt: string;
+  url: string;
+}
+
 export interface GitBranch {
   name: string;
   current: boolean;
@@ -83,6 +116,7 @@ export interface RepoSummary {
   branches: GitBranch[];
   hasHead: boolean;
   remotes: GitRemote[];
+  githubRepository: GitHubRepository | null;
   statusLines: string[];
   files: GitStatusFile[];
   validationErrors: string[];
@@ -91,6 +125,10 @@ export interface RepoSummary {
 export interface GitRunRequest {
   repoPath: string;
   action: GitAction;
+}
+
+export interface GitHubRepositoryRequest {
+  repoPath: string;
 }
 
 export interface GitCommitHistoryRequest {
@@ -204,6 +242,8 @@ export interface GitheadApi {
   getRepoRecents(): Promise<string[]>;
   addRepoRecent(repoPath: string): Promise<string[]>;
   removeRepoRecent(repoPath: string): Promise<string[]>;
+  getGitHubWorkflowRuns(request: GitHubRepositoryRequest): Promise<GitHubWorkflowRun[]>;
+  getGitHubIssues(request: GitHubRepositoryRequest): Promise<GitHubIssue[]>;
   getCommitHistory(request: GitCommitHistoryRequest): Promise<GitCommitGraphRow[]>;
   getCommitDetails(request: GitCommitDetailsRequest): Promise<GitCommitDetails>;
   getCommitFileDiff(request: GitCommitFileDiffRequest): Promise<GitFileDiff>;

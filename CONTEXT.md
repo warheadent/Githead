@@ -24,6 +24,10 @@ _Avoid_: Remote, origin branch
 A named Git remote configured for the **Repository**. A repository may have zero or more remotes.
 _Avoid_: Upstream
 
+**GitHub Origin**:
+The **Remote** named `origin` when it points to a GitHub repository that Githead can query for GitHub data.
+_Avoid_: GitHub upstream
+
 ## Example Dialogue
 
 Dev: "Should switching repositories also change the current branch?"

@@ -24,6 +24,7 @@ const baseSummary: RepoSummary = {
   ],
   hasHead: true,
   remotes: [],
+  githubRepository: null,
   statusLines: [],
   files: [],
   validationErrors: []

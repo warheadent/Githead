@@ -1,6 +1,7 @@
 import {
   CheckCircle2,
   ChevronDown,
+  CircleDot,
   Clipboard,
   Download,
   Eraser,
@@ -20,6 +21,7 @@ import {
   Sparkles,
   Trash2,
   Upload,
+  Workflow,
   X
 } from "lucide-react";
 import {
@@ -76,6 +78,8 @@ import type {
   GitCommitGraphRow,
   GitDiffSide,
   GitFileDiff,
+  GitHubIssue,
+  GitHubWorkflowRun,
   GitOperationResult,
   GitOutputEvent,
   GitRunResult,
@@ -91,7 +95,7 @@ import { highlightDiffCode } from "./syntaxHighlighter";
 const DEFAULT_REPO_PATH = "D:\\Githead";
 const HISTORY_LIMIT = 200;
 
-type WorkspaceView = "status" | "history" | "activity";
+type WorkspaceView = "status" | "history" | "workflows" | "issues" | "activity";
 
 interface FileSelection {
   path: string;
@@ -139,6 +143,14 @@ interface AppState {
   commitFileDiff: GitFileDiff | null;
   commitFileDiffLoading: boolean;
   commitFileDiffError: string;
+  workflowRuns: GitHubWorkflowRun[];
+  workflowRunsLoading: boolean;
+  workflowRunsLoaded: boolean;
+  workflowRunsError: string;
+  issues: GitHubIssue[];
+  issuesLoading: boolean;
+  issuesLoaded: boolean;
+  issuesError: string;
   logText: string;
 }
 
@@ -150,6 +162,8 @@ interface RequestIds {
   history: number;
   commitDetails: number;
   commitFileDiff: number;
+  workflowRuns: number;
+  issues: number;
 }
 
 const emptySettingsDraft: SettingsDraft = {
@@ -193,6 +207,14 @@ const initialState: AppState = {
   commitFileDiff: null,
   commitFileDiffLoading: false,
   commitFileDiffError: "",
+  workflowRuns: [],
+  workflowRunsLoading: false,
+  workflowRunsLoaded: false,
+  workflowRunsError: "",
+  issues: [],
+  issuesLoading: false,
+  issuesLoaded: false,
+  issuesError: "",
   logText: ""
 };
 
@@ -206,7 +228,9 @@ export function App(): ReactNode {
     diff: 0,
     history: 0,
     commitDetails: 0,
-    commitFileDiff: 0
+    commitFileDiff: 0,
+    workflowRuns: 0,
+    issues: 0
   });
   const logOutputRef = useRef<HTMLPreElement | null>(null);
 
@@ -422,6 +446,106 @@ export function App(): ReactNode {
     }
   }, [loadCommitDetails, updateState]);
 
+  const loadWorkflowRuns = useCallback(async (force: boolean): Promise<void> => {
+    const current = stateRef.current;
+    if (!current.summary?.isValid || !current.summary.githubRepository) {
+      updateState({
+        workflowRuns: [],
+        workflowRunsLoaded: false,
+        workflowRunsError: current.summary?.isValid ? "Selected repository does not have a supported GitHub origin." : ""
+      });
+      return;
+    }
+
+    if (current.workflowRunsLoaded && !force) {
+      return;
+    }
+
+    const requestId = requestIds.current.workflowRuns + 1;
+    requestIds.current.workflowRuns = requestId;
+    updateState({
+      workflowRunsLoading: true,
+      workflowRunsError: ""
+    });
+
+    try {
+      const workflowRuns = await window.githead.getGitHubWorkflowRuns({
+        repoPath: stateRef.current.repoPath
+      });
+
+      if (requestId === requestIds.current.workflowRuns) {
+        updateState({
+          workflowRuns,
+          workflowRunsLoaded: true
+        });
+      }
+    } catch (error) {
+      if (requestId === requestIds.current.workflowRuns) {
+        updateState({
+          workflowRuns: [],
+          workflowRunsLoaded: false,
+          workflowRunsError: error instanceof Error ? error.message : "Unable to load workflow runs."
+        });
+      }
+    } finally {
+      if (requestId === requestIds.current.workflowRuns) {
+        updateState({
+          workflowRunsLoading: false
+        });
+      }
+    }
+  }, [updateState]);
+
+  const loadIssues = useCallback(async (force: boolean): Promise<void> => {
+    const current = stateRef.current;
+    if (!current.summary?.isValid || !current.summary.githubRepository) {
+      updateState({
+        issues: [],
+        issuesLoaded: false,
+        issuesError: current.summary?.isValid ? "Selected repository does not have a supported GitHub origin." : ""
+      });
+      return;
+    }
+
+    if (current.issuesLoaded && !force) {
+      return;
+    }
+
+    const requestId = requestIds.current.issues + 1;
+    requestIds.current.issues = requestId;
+    updateState({
+      issuesLoading: true,
+      issuesError: ""
+    });
+
+    try {
+      const issues = await window.githead.getGitHubIssues({
+        repoPath: stateRef.current.repoPath
+      });
+
+      if (requestId === requestIds.current.issues) {
+        updateState({
+          issues,
+          issuesLoaded: true
+        });
+      }
+    } catch (error) {
+      if (requestId === requestIds.current.issues) {
+        updateState({
+          issues: [],
+          issuesLoaded: false,
+          issuesError: error instanceof Error ? error.message : "Unable to load issues."
+        });
+      }
+    } finally {
+      if (requestId === requestIds.current.issues) {
+        updateState({
+          issuesLoading: false
+        });
+      }
+    }
+  }, [updateState]);
+
   const loadSelectedDiff = useCallback(async (selectionOverride?: FileSelection): Promise<void> => {
     const selection = selectionOverride ?? stateRef.current.selection;
     if (!selection || !stateRef.current.summary?.isValid) {
@@ -485,10 +609,10 @@ export function App(): ReactNode {
         return;
       }
 
-      updateState((current) => reconcileSelection({
+      updateState((current) => reconcileGitHubState(reconcileSelection({
         ...current,
         summary
-      }));
+      }), current.summary));
 
       if (options.addToRecents && summary.isValid) {
         try {
@@ -543,7 +667,13 @@ export function App(): ReactNode {
     if (latest.activeView === "history") {
       await loadCommitHistory(true);
     }
-  }, [loadCommitHistory, loadSelectedDiff, updateState]);
+    if (latest.activeView === "workflows") {
+      await loadWorkflowRuns(true);
+    }
+    if (latest.activeView === "issues") {
+      await loadIssues(true);
+    }
+  }, [loadCommitHistory, loadIssues, loadSelectedDiff, loadWorkflowRuns, updateState]);
 
   const switchRepo = useCallback(async (repoPath: string, options: { addToRecents?: boolean } = {}): Promise<void> => {
     const nextRepoPath = repoPath.trim();
@@ -555,8 +685,10 @@ export function App(): ReactNode {
     requestIds.current.history += 1;
     requestIds.current.commitDetails += 1;
     requestIds.current.commitFileDiff += 1;
+    requestIds.current.workflowRuns += 1;
+    requestIds.current.issues += 1;
 
-    updateState((current) => resetHistoryState({
+    updateState((current) => resetGitHubState(resetHistoryState({
       ...current,
       repoPath: nextRepoPath,
       repoLoading: true,
@@ -566,10 +698,11 @@ export function App(): ReactNode {
       branchError: "",
       lastResult: null,
       lastOperationResult: null,
+      activeView: isGitHubView(current.activeView) ? "status" : current.activeView,
       selection: null,
       diff: null,
       diffLoading: false
-    }));
+    })));
 
     await refreshRepo({
       addToRecents: options.addToRecents ?? false
@@ -1011,6 +1144,10 @@ export function App(): ReactNode {
       return;
     }
 
+    if (isGitHubView(view) && !stateRef.current.summary?.githubRepository) {
+      return;
+    }
+
     updateState({
       activeView: view
     });
@@ -1019,7 +1156,13 @@ export function App(): ReactNode {
     if (view === "history" && !latest.historyLoaded && !latest.historyLoading) {
       void loadCommitHistory(false);
     }
-  }, [loadCommitHistory, updateState]);
+    if (view === "workflows" && !latest.workflowRunsLoaded && !latest.workflowRunsLoading) {
+      void loadWorkflowRuns(false);
+    }
+    if (view === "issues" && !latest.issuesLoaded && !latest.issuesLoading) {
+      void loadIssues(false);
+    }
+  }, [loadCommitHistory, loadIssues, loadWorkflowRuns, updateState]);
 
   const selectFile = useCallback((file: GitStatusFile, side: GitDiffSide): void => {
     const selection = {
@@ -1147,6 +1290,7 @@ export function App(): ReactNode {
   const primaryCommitAction = getPrimaryCommitAction(state.summary);
   const actionHeading = getActionHeading(state);
   const repoHealth = getRepoHealth(state);
+  const showGitHubTabs = Boolean(state.summary?.githubRepository);
 
   return (
     <main className="app-shell bg-background text-foreground">
@@ -1207,6 +1351,18 @@ export function App(): ReactNode {
                     <History />
                     Commit History
                   </TabsTrigger>
+                  {showGitHubTabs ? (
+                    <>
+                      <TabsTrigger value="workflows" className="workspace-tab-trigger h-9 rounded-none">
+                        <Workflow />
+                        Workflow Runs
+                      </TabsTrigger>
+                      <TabsTrigger value="issues" className="workspace-tab-trigger h-9 rounded-none">
+                        <CircleDot />
+                        Issues
+                      </TabsTrigger>
+                    </>
+                  ) : null}
                   <TabsTrigger value="activity" className="workspace-tab-trigger workspace-tab-trigger-end h-9 rounded-none">
                     <Clipboard />
                     Activity Log
@@ -1257,6 +1413,36 @@ export function App(): ReactNode {
                   onSelectCommitFile={selectCommitFile}
                 />
               </TabsContent>
+
+              {showGitHubTabs ? (
+                <>
+                  <TabsContent forceMount value="workflows" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
+                    <WorkflowRunsView
+                      summary={state.summary}
+                      workflowRuns={state.workflowRuns}
+                      loading={state.workflowRunsLoading}
+                      loaded={state.workflowRunsLoaded}
+                      error={state.workflowRunsError}
+                      onRefresh={() => {
+                        void loadWorkflowRuns(true);
+                      }}
+                    />
+                  </TabsContent>
+
+                  <TabsContent forceMount value="issues" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
+                    <IssuesView
+                      summary={state.summary}
+                      issues={state.issues}
+                      loading={state.issuesLoading}
+                      loaded={state.issuesLoaded}
+                      error={state.issuesError}
+                      onRefresh={() => {
+                        void loadIssues(true);
+                      }}
+                    />
+                  </TabsContent>
+                </>
+              ) : null}
 
               <TabsContent forceMount value="activity" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
                 <ActivityLogView
@@ -2064,6 +2250,193 @@ function HistoryView({
   );
 }
 
+function WorkflowRunsView({
+  summary,
+  workflowRuns,
+  loading,
+  loaded,
+  error,
+  onRefresh
+}: {
+  summary: RepoSummary | null;
+  workflowRuns: GitHubWorkflowRun[];
+  loading: boolean;
+  loaded: boolean;
+  error: string;
+  onRefresh: () => void;
+}): ReactNode {
+  const repository = summary?.githubRepository ?? null;
+  const countLabel = loaded ? `${workflowRuns.length} ${workflowRuns.length === 1 ? "run" : "runs"}` : "-";
+
+  return (
+    <section className="github-view workflow-runs-grid" aria-label="Workflow runs">
+      <GitHubViewHeader
+        eyebrow="GitHub"
+        title="Workflow Runs"
+        repositoryName={repository?.fullName ?? "-"}
+        countLabel={countLabel}
+        loading={loading}
+        disabled={!repository}
+        onRefresh={onRefresh}
+      />
+      <div className="github-table-header" aria-hidden="true">
+        <span>Status</span>
+        <span>Workflow</span>
+        <span>Branch</span>
+        <span>Event</span>
+        <span>Updated</span>
+      </div>
+      <div className="github-list" role="list" aria-label="Workflow runs">
+        {!repository ? (
+          <p className="empty-state">Select a repository with a supported GitHub origin.</p>
+        ) : loading ? (
+          <p className="empty-state">Loading workflow runs...</p>
+        ) : error ? (
+          <p className="empty-state bad">{error}</p>
+        ) : workflowRuns.length === 0 ? (
+          <p className="empty-state">No workflow runs found.</p>
+        ) : (
+          workflowRuns.map((run) => (
+            <WorkflowRunRow key={run.id} run={run} />
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
+function WorkflowRunRow({ run }: { run: GitHubWorkflowRun }): ReactNode {
+  const statusText = formatWorkflowRunStatus(run);
+
+  return (
+    <a className="github-row workflow-run-row" href={run.url} target="_blank" rel="noreferrer" role="listitem">
+      <span className={`github-status ${getWorkflowRunStatusClass(run)}`}>
+        <span className="github-status-dot" aria-hidden="true" />
+        <span className="truncate" title={statusText}>{statusText}</span>
+      </span>
+      <span className="min-w-0">
+        <span className="github-primary-text" title={run.name}>{run.name}</span>
+        <span className="github-secondary-text" title={run.commitMessage || run.commitSha}>
+          {run.commitMessage || formatShortHash(run.commitSha)}
+        </span>
+      </span>
+      <span className="truncate" title={run.branch}>{run.branch}</span>
+      <span className="truncate" title={run.event}>{run.event}</span>
+      <span className="truncate" title={formatDate(run.updatedAt)}>{formatDate(run.updatedAt)}</span>
+    </a>
+  );
+}
+
+function IssuesView({
+  summary,
+  issues,
+  loading,
+  loaded,
+  error,
+  onRefresh
+}: {
+  summary: RepoSummary | null;
+  issues: GitHubIssue[];
+  loading: boolean;
+  loaded: boolean;
+  error: string;
+  onRefresh: () => void;
+}): ReactNode {
+  const repository = summary?.githubRepository ?? null;
+  const countLabel = loaded ? `${issues.length} open ${issues.length === 1 ? "issue" : "issues"}` : "-";
+
+  return (
+    <section className="github-view issues-grid" aria-label="Issues">
+      <GitHubViewHeader
+        eyebrow="GitHub"
+        title="Issues"
+        repositoryName={repository?.fullName ?? "-"}
+        countLabel={countLabel}
+        loading={loading}
+        disabled={!repository}
+        onRefresh={onRefresh}
+      />
+      <div className="github-table-header" aria-hidden="true">
+        <span>Issue</span>
+        <span>Title</span>
+        <span>Labels</span>
+        <span>Comments</span>
+        <span>Updated</span>
+      </div>
+      <div className="github-list" role="list" aria-label="Issues">
+        {!repository ? (
+          <p className="empty-state">Select a repository with a supported GitHub origin.</p>
+        ) : loading ? (
+          <p className="empty-state">Loading issues...</p>
+        ) : error ? (
+          <p className="empty-state bad">{error}</p>
+        ) : issues.length === 0 ? (
+          <p className="empty-state">No open issues found.</p>
+        ) : (
+          issues.map((issue) => (
+            <IssueRow key={issue.number} issue={issue} />
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
+function IssueRow({ issue }: { issue: GitHubIssue }): ReactNode {
+  return (
+    <a className="github-row issue-row" href={issue.url} target="_blank" rel="noreferrer" role="listitem">
+      <span className="github-issue-number">#{issue.number}</span>
+      <span className="github-primary-text" title={issue.title}>{issue.title}</span>
+      <span className="github-labels" title={issue.labels.join(", ")}>
+        {issue.labels.length === 0 ? (
+          <span className="github-secondary-text">-</span>
+        ) : (
+          issue.labels.slice(0, 3).map((label) => (
+            <span key={label} className="github-label-chip">{label}</span>
+          ))
+        )}
+      </span>
+      <span className="github-secondary-text">{issue.comments}</span>
+      <span className="truncate" title={formatDate(issue.updatedAt)}>{formatDate(issue.updatedAt)}</span>
+    </a>
+  );
+}
+
+function GitHubViewHeader({
+  eyebrow,
+  title,
+  repositoryName,
+  countLabel,
+  loading,
+  disabled,
+  onRefresh
+}: {
+  eyebrow: string;
+  title: string;
+  repositoryName: string;
+  countLabel: string;
+  loading: boolean;
+  disabled: boolean;
+  onRefresh: () => void;
+}): ReactNode {
+  return (
+    <div className="github-view-header">
+      <div className="min-w-0">
+        <p className="eyebrow">{eyebrow}</p>
+        <h2 className="truncate text-sm font-semibold">{title}</h2>
+        <p className="github-secondary-text" title={repositoryName}>{repositoryName}</p>
+      </div>
+      <div className="github-view-actions">
+        <span className="github-count">{countLabel}</span>
+        <Button type="button" variant="outline" size="sm" disabled={disabled || loading} onClick={onRefresh}>
+          {loading ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+          Refresh
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function CommitGraphSvg({
   layout,
   selectedCommitHash
@@ -2610,6 +2983,7 @@ function createInvalidSummary(repoPath: string, message: string): RepoSummary {
     branches: [],
     hasHead: false,
     remotes: [],
+    githubRepository: null,
     statusLines: [],
     files: [],
     validationErrors: [
@@ -2643,6 +3017,35 @@ function invalidateHistory(state: AppState): AppState {
   };
 }
 
+function resetGitHubState(state: AppState): AppState {
+  return {
+    ...state,
+    workflowRuns: [],
+    workflowRunsLoading: false,
+    workflowRunsLoaded: false,
+    workflowRunsError: "",
+    issues: [],
+    issuesLoading: false,
+    issuesLoaded: false,
+    issuesError: ""
+  };
+}
+
+function reconcileGitHubState(state: AppState, previousSummary: RepoSummary | null): AppState {
+  const previousGitHubKey = getGitHubRepositoryKey(previousSummary);
+  const nextGitHubKey = getGitHubRepositoryKey(state.summary);
+  let next = previousGitHubKey === nextGitHubKey ? state : resetGitHubState(state);
+
+  if (!nextGitHubKey && isGitHubView(next.activeView)) {
+    next = {
+      ...next,
+      activeView: "status"
+    };
+  }
+
+  return next;
+}
+
 function resetHistoryState(state: AppState): AppState {
   return {
     ...state,
@@ -2659,6 +3062,14 @@ function resetHistoryState(state: AppState): AppState {
     commitFileDiffLoading: false,
     commitFileDiffError: ""
   };
+}
+
+function isGitHubView(view: WorkspaceView): boolean {
+  return view === "workflows" || view === "issues";
+}
+
+function getGitHubRepositoryKey(summary: RepoSummary | null): string {
+  return summary?.githubRepository?.fullName.toLocaleLowerCase() ?? "";
 }
 
 function getStagedFiles(summary: RepoSummary | null): GitStatusFile[] {
@@ -2803,6 +3214,29 @@ function formatDate(value: string): string {
 
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function formatWorkflowRunStatus(run: GitHubWorkflowRun): string {
+  return run.conclusion ?? run.status;
+}
+
+function getWorkflowRunStatusClass(run: GitHubWorkflowRun): string {
+  const status = formatWorkflowRunStatus(run).toLowerCase();
+  if (status === "success") {
+    return "success";
+  }
+  if (status === "failure" || status === "timed_out" || status === "cancelled") {
+    return "failure";
+  }
+  if (status === "queued" || status === "in_progress" || status === "requested" || status === "waiting") {
+    return "running";
+  }
+
+  return "neutral";
+}
+
+function formatShortHash(hash: string): string {
+  return hash ? hash.slice(0, 7) : "-";
 }
 
 function shouldHighlightDiffRow(kind: DiffRowKind): boolean {

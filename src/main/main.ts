@@ -12,6 +12,7 @@ import type {
   GenerateCommitMessageRequest,
   GitCommitRequest,
   GitFileDiffRequest,
+  GitHubRepositoryRequest,
   GitIgnorePathRequest,
   GitOperationResult,
   GitOutputEvent,
@@ -21,16 +22,19 @@ import type {
 import { AiSettingsService } from "./aiSettingsService";
 import { CommitMessageService } from "./commitMessageService";
 import { GitService } from "./gitService";
+import { GitHubService } from "./githubService";
 import { NodeProcessRunner } from "./processRunner";
 import { RepoRecentsService } from "./repoRecentsService";
 
 const DEFAULT_REPO_PATH = "D:\\Githead";
-const gitService = new GitService(new NodeProcessRunner());
+const processRunner = new NodeProcessRunner();
+const gitService = new GitService(processRunner);
 
 let mainWindow: BrowserWindow | null = null;
 let commandRunning = false;
 let aiSettingsService: AiSettingsService | null = null;
 let commitMessageService: CommitMessageService | null = null;
+let githubService: GitHubService | null = null;
 let repoRecentsService: RepoRecentsService | null = null;
 
 const remoteDebuggingPort = process.env.GITHEAD_REMOTE_DEBUGGING_PORT;
@@ -125,6 +129,14 @@ ipcMain.handle(IPC_CHANNELS.addRepoRecent, async (_event, repoPath: string) => {
 
 ipcMain.handle(IPC_CHANNELS.removeRepoRecent, async (_event, repoPath: string) => {
   return getRepoRecentsService().removeRecent(repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.getGitHubWorkflowRuns, async (_event, request: GitHubRepositoryRequest) => {
+  return getGitHubService().getWorkflowRuns(request);
+});
+
+ipcMain.handle(IPC_CHANNELS.getGitHubIssues, async (_event, request: GitHubRepositoryRequest) => {
+  return getGitHubService().getIssues(request);
 });
 
 ipcMain.handle(IPC_CHANNELS.getCommitHistory, async (_event, request: GitCommitHistoryRequest) => {
@@ -379,6 +391,11 @@ function getAiSettingsService(): AiSettingsService {
 function getCommitMessageService(): CommitMessageService {
   commitMessageService ??= new CommitMessageService(gitService, getAiSettingsService());
   return commitMessageService;
+}
+
+function getGitHubService(): GitHubService {
+  githubService ??= new GitHubService(gitService, fetch, processRunner);
+  return githubService;
 }
 
 function getRepoRecentsService(): RepoRecentsService {

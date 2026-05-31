@@ -992,6 +992,174 @@
   font-size: 0.8rem;
 }
 
+.github-view {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  overflow: hidden;
+  background: var(--card);
+}
+
+.workflow-runs-grid {
+  --github-grid-template: 128px minmax(280px, 1fr) 140px 118px 172px;
+}
+
+.issues-grid {
+  --github-grid-template: 88px minmax(300px, 1fr) 220px 92px 172px;
+}
+
+.github-view-header {
+  display: flex;
+  min-height: 64px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--border);
+  padding: 10px 16px;
+}
+
+.github-view-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.github-count {
+  color: var(--muted-foreground);
+  font-size: 0.84rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.github-table-header,
+.github-row {
+  display: grid;
+  grid-template-columns: var(--github-grid-template);
+  align-items: center;
+  gap: 12px;
+}
+
+.github-table-header {
+  min-height: 32px;
+  border-bottom: 1px solid var(--border);
+  padding: 0 16px;
+  color: var(--muted-foreground);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.github-list {
+  min-height: 0;
+  overflow: auto;
+  content-visibility: auto;
+}
+
+.github-row {
+  min-height: 46px;
+  border-bottom: 1px solid var(--border);
+  padding: 7px 16px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.github-row:hover {
+  background: var(--accent);
+}
+
+.github-row > * {
+  min-width: 0;
+}
+
+.github-primary-text,
+.github-secondary-text,
+.github-issue-number {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.github-primary-text {
+  font-weight: 650;
+}
+
+.github-secondary-text {
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+}
+
+.github-issue-number {
+  color: var(--muted-foreground);
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.github-status {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted-foreground);
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.github-status-dot {
+  display: block;
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--muted-foreground);
+}
+
+.github-status.success {
+  color: var(--primary);
+}
+
+.github-status.success .github-status-dot {
+  background: var(--primary);
+}
+
+.github-status.failure {
+  color: var(--destructive);
+}
+
+.github-status.failure .github-status-dot {
+  background: var(--destructive);
+}
+
+.github-status.running .github-status-dot {
+  background: oklch(0.68 0.13 88);
+}
+
+.github-labels {
+  display: flex;
+  min-width: 0;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.github-label-chip {
+  display: inline-block;
+  max-width: 78px;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklch, var(--primary) 48%, var(--border));
+  border-radius: 4px;
+  padding: 1px 6px;
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 10%, transparent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 #commit-message {
   min-height: 118px;
   resize: none;

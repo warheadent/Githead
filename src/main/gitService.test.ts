@@ -212,7 +212,8 @@ describe("GitService", () => {
       isValid: true,
       branch: "main",
       upstream: "origin/main",
-      hasHead: true
+      hasHead: true,
+      githubRepository: null
     });
     expect(summary.branches).toEqual([
       {
@@ -266,6 +267,50 @@ describe("GitService", () => {
         isUnstaged: true,
         isConflicted: true
       })
+    ]);
+  });
+
+  it("detects a supported GitHub origin in repository summaries", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("main\n"),
+      ok("origin/main\n"),
+      ok("origin\tgit@github.com:openai/githead.git (fetch)\norigin\tgit@github.com:openai/githead.git (push)\n"),
+      ok("\0"),
+      ok(`${oid}\n`),
+      ok("main\torigin/main\t*\n")
+    ]);
+    const service = new GitService(runner);
+
+    const summary = await service.getRepoSummary("D:\\Repo");
+
+    expect(summary.githubRepository).toEqual({
+      owner: "openai",
+      name: "githead",
+      fullName: "openai/githead",
+      webUrl: "https://github.com/openai/githead"
+    });
+  });
+
+  it("loads the supported GitHub origin without reading the full summary", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("https://github.com/openai/githead.git\n")
+    ]);
+    const service = new GitService(runner);
+
+    await expect(service.getGitHubRepository("D:\\Repo")).resolves.toEqual({
+      owner: "openai",
+      name: "githead",
+      fullName: "openai/githead",
+      webUrl: "https://github.com/openai/githead"
+    });
+    expect(runner.calls.at(-1)?.args).toEqual([
+      "-C",
+      "D:\\Repo",
+      "remote",
+      "get-url",
+      "origin"
     ]);
   });
 

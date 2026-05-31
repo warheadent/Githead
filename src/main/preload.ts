@@ -10,6 +10,7 @@ import type {
   GenerateCommitMessageRequest,
   GitCommitRequest,
   GitFileDiffRequest,
+  GitHubRepositoryRequest,
   GitIgnorePathRequest,
   GitOutputEvent,
   GitPathRequest,
@@ -29,6 +30,10 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.addRepoRecent, repoPath) as ReturnType<GitheadApi["addRepoRecent"]>,
   removeRepoRecent: (repoPath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.removeRepoRecent, repoPath) as ReturnType<GitheadApi["removeRepoRecent"]>,
+  getGitHubWorkflowRuns: (request: GitHubRepositoryRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getGitHubWorkflowRuns, request) as ReturnType<GitheadApi["getGitHubWorkflowRuns"]>,
+  getGitHubIssues: (request: GitHubRepositoryRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getGitHubIssues, request) as ReturnType<GitheadApi["getGitHubIssues"]>,
   getCommitHistory: (request: GitCommitHistoryRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getCommitHistory, request) as ReturnType<GitheadApi["getCommitHistory"]>,
   getCommitDetails: (request: GitCommitDetailsRequest) =>

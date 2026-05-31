@@ -21,6 +21,8 @@ import type {
   GitCommitDetails,
   GitCommitGraphRow,
   GitFileDiff,
+  GitHubIssue,
+  GitHubWorkflowRun,
   GitheadApi,
   GitOperationResult,
   RepoSummary
@@ -331,6 +333,80 @@ describe("App", () => {
     expect(screen.getByText("Empty")).toBeTruthy();
   });
 
+  it("shows GitHub tabs only for repositories with a supported GitHub origin", async () => {
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary());
+
+    const { unmount } = render(<App />);
+
+    await screen.findByText("Repository ready");
+    expect(screen.queryByRole("tab", { name: /Workflow Runs/ })).toBeNull();
+    expect(screen.queryByRole("tab", { name: /^Issues$/ })).toBeNull();
+
+    unmount();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
+
+    render(<App />);
+
+    await screen.findByRole("tab", { name: /Workflow Runs/ });
+    expect(screen.getByRole("tab", { name: /^Issues$/ })).toBeTruthy();
+  });
+
+  it("loads workflow runs from GitHub when the Workflow Runs tab opens", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
+    vi.mocked(githead.getGitHubWorkflowRuns).mockResolvedValue([
+      createWorkflowRun({
+        name: "CI",
+        conclusion: "success",
+        branch: "main",
+        event: "push",
+        commitMessage: "feat: add workflow runs tab"
+      })
+    ]);
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("tab", { name: /Workflow Runs/ }));
+
+    await waitFor(() => {
+      expect(githead.getGitHubWorkflowRuns).toHaveBeenCalledWith({
+        repoPath
+      });
+    });
+    expect(await screen.findByText("CI")).toBeTruthy();
+    expect(screen.getByText("success")).toBeTruthy();
+    expect(screen.getByText("feat: add workflow runs tab")).toBeTruthy();
+  });
+
+  it("loads open issues from GitHub when the Issues tab opens", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
+    vi.mocked(githead.getGitHubIssues).mockResolvedValue([
+      createIssue({
+        number: 12,
+        title: "Add GitHub issue tab",
+        labels: [
+          "enhancement"
+        ],
+        comments: 4
+      })
+    ]);
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("tab", { name: /^Issues$/ }));
+
+    await waitFor(() => {
+      expect(githead.getGitHubIssues).toHaveBeenCalledWith({
+        repoPath
+      });
+    });
+    expect(await screen.findByText("#12")).toBeTruthy();
+    expect(screen.getByText("Add GitHub issue tab")).toBeTruthy();
+    expect(screen.getByText("enhancement")).toBeTruthy();
+    expect(screen.getByText("4")).toBeTruthy();
+  });
+
   it("shows upstream commits ready to pull in the Pull action", async () => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       statusLines: [
@@ -631,6 +707,8 @@ function createGitheadMock(): GitheadApi {
       nextRepoPath
     ]),
     removeRepoRecent: vi.fn().mockResolvedValue([]),
+    getGitHubWorkflowRuns: vi.fn().mockResolvedValue([]),
+    getGitHubIssues: vi.fn().mockResolvedValue([]),
     getCommitHistory: vi.fn().mockResolvedValue([]),
     getCommitDetails: vi.fn(),
     getCommitFileDiff: vi.fn(),
@@ -678,11 +756,31 @@ function createSummary(overrides: Partial<RepoSummary> = {}): RepoSummary {
         direction: "fetch"
       }
     ],
+    githubRepository: null,
     statusLines: [],
     files: [],
     validationErrors: [],
     ...overrides
   };
+}
+
+function createGitHubSummary(overrides: Partial<RepoSummary> = {}): RepoSummary {
+  return createSummary({
+    remotes: [
+      {
+        name: "origin",
+        url: "git@github.com:openai/githead.git",
+        direction: "fetch"
+      }
+    ],
+    githubRepository: {
+      owner: "openai",
+      name: "githead",
+      fullName: "openai/githead",
+      webUrl: "https://github.com/openai/githead"
+    },
+    ...overrides
+  });
 }
 
 function createStatusFile(path: string, overrides: Partial<RepoSummary["files"][number]> = {}): RepoSummary["files"][number] {
@@ -693,6 +791,38 @@ function createStatusFile(path: string, overrides: Partial<RepoSummary["files"][
     isStaged: false,
     isUnstaged: false,
     isConflicted: false,
+    ...overrides
+  };
+}
+
+function createWorkflowRun(overrides: Partial<GitHubWorkflowRun> = {}): GitHubWorkflowRun {
+  return {
+    id: "run-1",
+    name: "CI",
+    runNumber: 1,
+    status: "completed",
+    conclusion: "success",
+    branch: "main",
+    event: "push",
+    commitSha: "abcdef1234567890",
+    commitMessage: "fix: default workflow run",
+    url: "https://github.com/openai/githead/actions/runs/1",
+    startedAt: "2026-05-30T10:00:00Z",
+    updatedAt: "2026-05-30T10:05:00Z",
+    ...overrides
+  };
+}
+
+function createIssue(overrides: Partial<GitHubIssue> = {}): GitHubIssue {
+  return {
+    number: 1,
+    title: "Default issue",
+    state: "open",
+    authorLogin: "taylor",
+    labels: [],
+    comments: 0,
+    updatedAt: "2026-05-30T10:05:00Z",
+    url: "https://github.com/openai/githead/issues/1",
     ...overrides
   };
 }

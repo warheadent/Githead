@@ -24,8 +24,10 @@ import type {
   GitRunRequest,
   GitRunResult,
   GitStatusFile,
+  GitHubRepository,
   RepoSummary
 } from "../shared/types";
+import { getSupportedGitHubOrigin, parseGitHubRemoteUrl } from "../shared/githubRemote";
 import { isGitAction } from "../shared/types";
 import type { ProcessOutput, ProcessResult, ProcessRunner } from "./processRunner";
 
@@ -54,6 +56,7 @@ const emptySummary = (repoPath: string, validationErrors: string[]): RepoSummary
   branches: [],
   hasHead: false,
   remotes: [],
+  githubRepository: null,
   statusLines: [],
   files: [],
   validationErrors
@@ -114,6 +117,7 @@ export class GitService {
     ]);
     const status = parsePorcelainStatus(statusResult.stdout);
     const branch = branchResult.stdout.trim() || null;
+    const remotes = parseRemotes(remoteResult.stdout);
 
     return {
       repoPath,
@@ -122,11 +126,30 @@ export class GitService {
       upstream: upstreamResult.exitCode === 0 ? upstreamResult.stdout.trim() || null : null,
       branches: parseBranches(branchesResult.stdout, branch),
       hasHead: headResult.exitCode === 0,
-      remotes: parseRemotes(remoteResult.stdout),
+      remotes,
+      githubRepository: getSupportedGitHubOrigin(remotes),
       statusLines: status.statusLines,
       files: status.files,
       validationErrors: []
     };
+  }
+
+  async getGitHubRepository(repoPath: string): Promise<GitHubRepository | null> {
+    const validation = await this.validateRepo(repoPath);
+    if (!validation.isValid) {
+      throw new Error(validation.validationErrors.join(" "));
+    }
+
+    const originResult = await this.runGit(repoPath, [
+      "remote",
+      "get-url",
+      "origin"
+    ]);
+    if (originResult.exitCode !== 0) {
+      return null;
+    }
+
+    return parseGitHubRemoteUrl(originResult.stdout.trim());
   }
 
   async getFileDiff(request: GitFileDiffRequest): Promise<GitFileDiff> {
