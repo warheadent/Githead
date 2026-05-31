@@ -1567,7 +1567,7 @@ function FileGroup({
         {!summary?.isValid ? (
           <p className="empty-state">Select a valid repository.</p>
         ) : files.length === 0 ? (
-          <p className="empty-state">No {side} files.</p>
+          null
         ) : (
           files.map((file) => (
             <FileRow
