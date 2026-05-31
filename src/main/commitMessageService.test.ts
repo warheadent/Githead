@@ -127,6 +127,8 @@ describe("CommitMessageService", () => {
     expect(body.model).toBe("openrouter/auto");
     expect(body.messages.at(-1)?.content).toContain("+added");
     expect(body.messages[0]?.content).toContain("Return exactly the commit message text");
+    expect(body.messages[0]?.content).toContain("Use Conventional Commits style");
+    expect(body.messages.at(-1)?.content).toContain("Use Conventional Commits style");
     expect(body.messages.at(-1)?.content).toContain("Output only the commit message");
   });
 

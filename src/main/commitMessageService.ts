@@ -63,6 +63,7 @@ export class CommitMessageService {
               role: "system",
               content: [
                 "You write concise Git commit messages for git commit --file=-.",
+                "Use Conventional Commits style, such as type(scope): subject.",
                 "Return exactly the commit message text that should be saved.",
                 "Do not include commentary, labels, markdown fences, or alternatives.",
                 "Use a subject line under 72 characters.",
@@ -122,6 +123,7 @@ function createPrompt(diff: string): string {
 
   return [
     "Write a Git commit message for this staged diff.",
+    "Use Conventional Commits style, such as type(scope): subject.",
     "Output only the commit message, with no explanation before or after it.",
     truncated ? "The diff was truncated; summarize only the visible staged changes." : "",
     "",
