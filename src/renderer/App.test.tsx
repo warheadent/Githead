@@ -192,6 +192,188 @@ describe("App", () => {
 
     expect(cleanupGitOutput).toHaveBeenCalledTimes(1);
   });
+
+  it("loads recent repositories and starts on the most recent repo", async () => {
+    const recentRepo = "D:\\Work\\Recent";
+    const otherRepo = "D:\\Work\\Other";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([
+      recentRepo,
+      otherRepo
+    ]);
+    vi.mocked(githead.addRepoRecent).mockResolvedValue([
+      recentRepo,
+      otherRepo
+    ]);
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
+      repoPath: requestedRepoPath
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByDisplayValue(recentRepo)).toBeTruthy();
+    expect(screen.getByText("Recent")).toBeTruthy();
+    expect(screen.getByText(otherRepo)).toBeTruthy();
+    expect(githead.getRepoSummary).toHaveBeenCalledWith(recentRepo);
+  });
+
+  it("switches repositories from a recent entry", async () => {
+    const user = userEvent.setup();
+    const otherRepo = "D:\\Work\\Other";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([
+      repoPath,
+      otherRepo
+    ]);
+    vi.mocked(githead.addRepoRecent).mockImplementation(async (requestedRepoPath) => requestedRepoPath === repoPath
+      ? [
+          repoPath,
+          otherRepo
+        ]
+      : [
+          requestedRepoPath,
+          repoPath
+        ]);
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
+      repoPath: requestedRepoPath
+    }));
+
+    render(<App />);
+
+    await screen.findByDisplayValue(repoPath);
+    await user.click(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
+
+    expect(await screen.findByDisplayValue(otherRepo)).toBeTruthy();
+    await waitFor(() => {
+      expect(githead.addRepoRecent).toHaveBeenCalledWith(otherRepo);
+    });
+  });
+
+  it("removes a recent entry without switching repositories", async () => {
+    const user = userEvent.setup();
+    const otherRepo = "D:\\Work\\Other";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([
+      repoPath,
+      otherRepo
+    ]);
+    vi.mocked(githead.addRepoRecent).mockResolvedValue([
+      repoPath,
+      otherRepo
+    ]);
+    vi.mocked(githead.removeRepoRecent).mockResolvedValue([
+      repoPath
+    ]);
+
+    render(<App />);
+
+    await screen.findByDisplayValue(repoPath);
+    vi.mocked(githead.getRepoSummary).mockClear();
+    await user.click(screen.getByRole("button", { name: `Remove ${otherRepo} from recent repositories` }));
+
+    await waitFor(() => {
+      expect(githead.removeRepoRecent).toHaveBeenCalledWith(otherRepo);
+    });
+    expect(screen.getByDisplayValue(repoPath)).toBeTruthy();
+    expect(githead.getRepoSummary).not.toHaveBeenCalledWith(otherRepo);
+  });
+
+  it("adds a browsed valid repository to recents", async () => {
+    const user = userEvent.setup();
+    const browsedRepo = "D:\\Work\\Browsed";
+    vi.mocked(githead.chooseRepo).mockResolvedValue(browsedRepo);
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
+      repoPath: requestedRepoPath
+    }));
+    vi.mocked(githead.addRepoRecent).mockImplementation(async (requestedRepoPath) => [
+      requestedRepoPath,
+      repoPath
+    ]);
+
+    render(<App />);
+
+    await screen.findByDisplayValue(repoPath);
+    vi.mocked(githead.addRepoRecent).mockClear();
+    await user.click(screen.getByRole("button", { name: /Browse/ }));
+
+    expect(await screen.findByDisplayValue(browsedRepo)).toBeTruthy();
+    await waitFor(() => {
+      expect(githead.addRepoRecent).toHaveBeenCalledWith(browsedRepo);
+    });
+  });
+
+  it("does not add an invalid browsed repository to recents", async () => {
+    const user = userEvent.setup();
+    const invalidRepo = "D:\\NotARepo";
+    vi.mocked(githead.chooseRepo).mockResolvedValue(invalidRepo);
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
+      repoPath: requestedRepoPath,
+      isValid: requestedRepoPath !== invalidRepo,
+      validationErrors: requestedRepoPath === invalidRepo ? [
+        "Selected folder is not a git repository."
+      ] : []
+    }));
+
+    render(<App />);
+
+    await screen.findByDisplayValue(repoPath);
+    vi.mocked(githead.addRepoRecent).mockClear();
+    await user.click(screen.getByRole("button", { name: /Browse/ }));
+
+    expect(await screen.findByText("Selected folder is not a git repository.")).toBeTruthy();
+    expect(screen.getByDisplayValue(invalidRepo)).toBeTruthy();
+    expect(githead.addRepoRecent).not.toHaveBeenCalledWith(invalidRepo);
+  });
+
+  it("ignores stale repository summaries when switching quickly", async () => {
+    const user = userEvent.setup();
+    const firstRepo = "D:\\Work\\First";
+    const secondRepo = "D:\\Work\\Second";
+    const firstSummary = defer<RepoSummary>();
+    const secondSummary = defer<RepoSummary>();
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([
+      repoPath,
+      firstRepo,
+      secondRepo
+    ]);
+    vi.mocked(githead.addRepoRecent).mockImplementation(async (requestedRepoPath) => [
+      requestedRepoPath,
+      repoPath,
+      firstRepo,
+      secondRepo
+    ]);
+    vi.mocked(githead.getRepoSummary).mockImplementation((requestedRepoPath) => {
+      if (requestedRepoPath === firstRepo) {
+        return firstSummary.promise;
+      }
+      if (requestedRepoPath === secondRepo) {
+        return secondSummary.promise;
+      }
+
+      return Promise.resolve(createSummary({
+        repoPath: requestedRepoPath,
+        branch: "main"
+      }));
+    });
+
+    render(<App />);
+
+    await screen.findByDisplayValue(repoPath);
+    await user.click(screen.getByRole("button", { name: `Switch to ${firstRepo}` }));
+    await user.click(screen.getByRole("button", { name: `Switch to ${secondRepo}` }));
+
+    secondSummary.resolve(createSummary({
+      repoPath: secondRepo,
+      branch: "second"
+    }));
+    expect(await screen.findByDisplayValue(secondRepo)).toBeTruthy();
+    expect(await screen.findByText("second")).toBeTruthy();
+
+    firstSummary.resolve(createSummary({
+      repoPath: firstRepo,
+      branch: "first"
+    }));
+    await waitFor(() => {
+      expect(screen.queryByText("first")).toBeNull();
+    });
+  });
 });
 
 function createGitheadMock(): GitheadApi {
@@ -211,6 +393,11 @@ function createGitheadMock(): GitheadApi {
   return {
     chooseRepo: vi.fn().mockResolvedValue(null),
     getRepoSummary: vi.fn().mockResolvedValue(createSummary()),
+    getRepoRecents: vi.fn().mockResolvedValue([]),
+    addRepoRecent: vi.fn().mockImplementation(async (nextRepoPath: string) => [
+      nextRepoPath
+    ]),
+    removeRepoRecent: vi.fn().mockResolvedValue([]),
     getCommitHistory: vi.fn().mockResolvedValue([]),
     getCommitDetails: vi.fn(),
     getCommitFileDiff: vi.fn(),

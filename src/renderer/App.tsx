@@ -17,7 +17,8 @@ import {
   Settings,
   Sparkles,
   Trash2,
-  Upload
+  Upload,
+  X
 } from "lucide-react";
 import {
   useCallback,
@@ -97,6 +98,7 @@ interface SettingsDraft {
 
 interface AppState {
   repoPath: string;
+  repoRecents: string[];
   repoLoading: boolean;
   summary: RepoSummary | null;
   runningAction: GitAction | null;
@@ -132,6 +134,7 @@ interface AppState {
 type AppStateUpdater = Partial<AppState> | ((state: AppState) => AppState);
 
 interface RequestIds {
+  repo: number;
   diff: number;
   history: number;
   commitDetails: number;
@@ -147,6 +150,7 @@ const emptySettingsDraft: SettingsDraft = {
 
 const initialState: AppState = {
   repoPath: DEFAULT_REPO_PATH,
+  repoRecents: [],
   repoLoading: false,
   summary: null,
   runningAction: null,
@@ -185,6 +189,7 @@ export function App(): ReactNode {
   const [state, setState] = useState<AppState>(initialState);
   const stateRef = useRef(state);
   const requestIds = useRef<RequestIds>({
+    repo: 0,
     diff: 0,
     history: 0,
     commitDetails: 0,
@@ -454,32 +459,70 @@ export function App(): ReactNode {
     }
   }, [updateState]);
 
-  const refreshRepo = useCallback(async (): Promise<void> => {
+  const refreshRepo = useCallback(async (options: { addToRecents?: boolean } = {}): Promise<void> => {
+    const requestId = requestIds.current.repo + 1;
+    requestIds.current.repo = requestId;
+    const repoPath = stateRef.current.repoPath;
+
     updateState({
       repoLoading: true
     });
 
     try {
-      const repoPath = stateRef.current.repoPath;
       const summary = await window.githead.getRepoSummary(repoPath);
+      if (requestId !== requestIds.current.repo || !isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        return;
+      }
+
       updateState((current) => reconcileSelection({
         ...current,
         summary
       }));
+
+      if (options.addToRecents && summary.isValid) {
+        try {
+          const repoRecents = await window.githead.addRepoRecent(summary.repoPath);
+          if (requestId === requestIds.current.repo && isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+            updateState({
+              repoRecents
+            });
+          }
+        } catch (error) {
+          if (requestId === requestIds.current.repo && isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+            updateState((current) => ({
+              ...current,
+              lastOperationResult: {
+                repoPath,
+                exitCode: -1,
+                stdout: "",
+                stderr: error instanceof Error ? error.message : "Unable to save recent repository."
+              }
+            }));
+          }
+        }
+      }
     } catch (error) {
-      updateState((current) => ({
-        ...current,
-        summary: createInvalidSummary(
-          current.repoPath,
-          error instanceof Error ? error.message : "Unable to read repository state."
-        ),
-        selection: null,
-        diff: null
-      }));
+      if (requestId === requestIds.current.repo && isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        updateState((current) => ({
+          ...current,
+          summary: createInvalidSummary(
+            current.repoPath,
+            error instanceof Error ? error.message : "Unable to read repository state."
+          ),
+          selection: null,
+          diff: null
+        }));
+      }
     } finally {
-      updateState({
-        repoLoading: false
-      });
+      if (requestId === requestIds.current.repo && isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        updateState({
+          repoLoading: false
+        });
+      }
+    }
+
+    if (requestId !== requestIds.current.repo || !isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+      return;
     }
 
     const latest = stateRef.current;
@@ -490,6 +533,62 @@ export function App(): ReactNode {
       await loadCommitHistory(true);
     }
   }, [loadCommitHistory, loadSelectedDiff, updateState]);
+
+  const switchRepo = useCallback(async (repoPath: string, options: { addToRecents?: boolean } = {}): Promise<void> => {
+    const nextRepoPath = repoPath.trim();
+    if (!nextRepoPath) {
+      return;
+    }
+
+    requestIds.current.diff += 1;
+    requestIds.current.history += 1;
+    requestIds.current.commitDetails += 1;
+    requestIds.current.commitFileDiff += 1;
+
+    updateState((current) => resetHistoryState({
+      ...current,
+      repoPath: nextRepoPath,
+      repoLoading: true,
+      summary: null,
+      lastResult: null,
+      lastOperationResult: null,
+      selection: null,
+      diff: null,
+      diffLoading: false
+    }));
+
+    await refreshRepo({
+      addToRecents: options.addToRecents ?? false
+    });
+  }, [refreshRepo, updateState]);
+
+  const initializeRepository = useCallback(async (): Promise<void> => {
+    let repoRecents: string[] = [];
+
+    try {
+      repoRecents = await window.githead.getRepoRecents();
+    } catch (error) {
+      updateState((current) => ({
+        ...current,
+        lastOperationResult: {
+          repoPath: current.repoPath,
+          exitCode: -1,
+          stdout: "",
+          stderr: error instanceof Error ? error.message : "Unable to load recent repositories."
+        }
+      }));
+    }
+
+    updateState((current) => ({
+      ...current,
+      repoPath: repoRecents[0] ?? DEFAULT_REPO_PATH,
+      repoRecents
+    }));
+
+    await refreshRepo({
+      addToRecents: true
+    });
+  }, [refreshRepo, updateState]);
 
   const loadAiSettings = useCallback(async (): Promise<void> => {
     try {
@@ -512,26 +611,49 @@ export function App(): ReactNode {
   }, [updateState]);
 
   useEffect(() => {
-    void refreshRepo();
+    void initializeRepository();
     void loadAiSettings();
-  }, [loadAiSettings, refreshRepo]);
+  }, [initializeRepository, loadAiSettings]);
 
   const chooseRepo = useCallback(async (): Promise<void> => {
-    const repoPath = await window.githead.chooseRepo();
+    const repoPath = await window.githead.chooseRepo(stateRef.current.repoPath);
     if (!repoPath) {
       return;
     }
 
-    updateState((current) => resetHistoryState({
-      ...current,
-      repoPath,
-      lastResult: null,
-      lastOperationResult: null,
-      selection: null,
-      diff: null
-    }));
-    await refreshRepo();
-  }, [refreshRepo, updateState]);
+    await switchRepo(repoPath, {
+      addToRecents: true
+    });
+  }, [switchRepo]);
+
+  const selectRecentRepo = useCallback(async (repoPath: string): Promise<void> => {
+    if (isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+      return;
+    }
+
+    await switchRepo(repoPath, {
+      addToRecents: true
+    });
+  }, [switchRepo]);
+
+  const removeRecentRepo = useCallback(async (repoPath: string): Promise<void> => {
+    try {
+      const repoRecents = await window.githead.removeRepoRecent(repoPath);
+      updateState({
+        repoRecents
+      });
+    } catch (error) {
+      updateState((current) => ({
+        ...current,
+        lastOperationResult: {
+          repoPath: current.repoPath,
+          exitCode: -1,
+          stdout: "",
+          stderr: error instanceof Error ? error.message : "Unable to remove recent repository."
+        }
+      }));
+    }
+  }, [updateState]);
 
   const runAction = useCallback(async (action: GitAction): Promise<void> => {
     const current = stateRef.current;
@@ -938,6 +1060,7 @@ export function App(): ReactNode {
         <ResizablePanel defaultSize="27%" minSize="292px" maxSize="460px" className="min-w-[292px]">
           <RepositoryPanel
             repoPath={state.repoPath}
+            repoRecents={state.repoRecents}
             repoHealth={repoHealth}
             summary={state.summary}
             running={running}
@@ -946,6 +1069,12 @@ export function App(): ReactNode {
             }}
             onRefreshRepo={() => {
               void refreshRepo();
+            }}
+            onSelectRecent={(repoPath) => {
+              void selectRecentRepo(repoPath);
+            }}
+            onRemoveRecent={(repoPath) => {
+              void removeRecentRepo(repoPath);
             }}
             onOpenSettings={openSettingsDialog}
           />
@@ -1099,19 +1228,25 @@ export function App(): ReactNode {
 
 function RepositoryPanel({
   repoPath,
+  repoRecents,
   repoHealth,
   summary,
   running,
   onChooseRepo,
   onRefreshRepo,
+  onSelectRecent,
+  onRemoveRecent,
   onOpenSettings
 }: {
   repoPath: string;
+  repoRecents: string[];
   repoHealth: { text: string; state: "good" | "bad" | "neutral" };
   summary: RepoSummary | null;
   running: boolean;
   onChooseRepo: () => void;
   onRefreshRepo: () => void;
+  onSelectRecent: (repoPath: string) => void;
+  onRemoveRecent: (repoPath: string) => void;
   onOpenSettings: () => void;
 }): ReactNode {
   const remotes = summary?.remotes.length
@@ -1142,6 +1277,49 @@ function RepositoryPanel({
           </Button>
         </div>
       </div>
+
+      {repoRecents.length > 0 ? (
+        <section className="repo-recents" aria-label="Recent repositories">
+          <p className="repo-recents-label">Recent Repositories</p>
+          <div className="repo-recents-list">
+            {repoRecents.map((recentRepoPath) => {
+              const active = isSameRepoPath(recentRepoPath, repoPath);
+
+              return (
+                <div key={getRepoPathKey(recentRepoPath)} className={`repo-recent-row${active ? " is-active" : ""}`}>
+                  <button
+                    type="button"
+                    className="repo-recent-main"
+                    onClick={() => {
+                      onSelectRecent(recentRepoPath);
+                    }}
+                    disabled={running || active}
+                    aria-current={active ? "true" : undefined}
+                    aria-label={`Switch to ${recentRepoPath}`}
+                  >
+                    <span className="repo-recent-name">{getRepoDisplayName(recentRepoPath)}</span>
+                    <span className="repo-recent-path">{recentRepoPath}</span>
+                  </button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    className="repo-recent-remove"
+                    onClick={() => {
+                      onRemoveRecent(recentRepoPath);
+                    }}
+                    disabled={running}
+                    aria-label={`Remove ${recentRepoPath} from recent repositories`}
+                    title="Remove recent repository"
+                  >
+                    <X />
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
       <dl className="repo-facts">
         <Fact label="Branch" value={summary?.branch ?? "-"} />
@@ -2143,6 +2321,20 @@ function getRepoHealth(state: AppState): { text: string; state: "good" | "bad" |
     text: state.summary.validationErrors.join(" "),
     state: "bad"
   };
+}
+
+function isSameRepoPath(left: string, right: string): boolean {
+  return getRepoPathKey(left) === getRepoPathKey(right);
+}
+
+function getRepoPathKey(repoPath: string): string {
+  return repoPath.trim().replace(/[\\/]+$/, "").toLocaleLowerCase();
+}
+
+function getRepoDisplayName(repoPath: string): string {
+  const normalizedPath = repoPath.trim().replace(/[\\/]+$/, "");
+  const match = /[^\\/]+$/.exec(normalizedPath);
+  return match?.[0] || repoPath;
 }
 
 function getActionHeading(state: AppState): string {

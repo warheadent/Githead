@@ -1,6 +1,9 @@
 export const IPC_CHANNELS = {
   chooseRepo: "repo:choose",
   getRepoSummary: "repo:summary",
+  getRepoRecents: "repo-recents:get",
+  addRepoRecent: "repo-recents:add",
+  removeRepoRecent: "repo-recents:remove",
   getCommitHistory: "git:commit-history",
   getCommitDetails: "git:commit-details",
   getCommitFileDiff: "git:commit-file-diff",

@@ -187,8 +187,11 @@ export interface GitOutputEvent {
 }
 
 export interface GitheadApi {
-  chooseRepo(): Promise<string | null>;
+  chooseRepo(defaultPath?: string): Promise<string | null>;
   getRepoSummary(repoPath: string): Promise<RepoSummary>;
+  getRepoRecents(): Promise<string[]>;
+  addRepoRecent(repoPath: string): Promise<string[]>;
+  removeRepoRecent(repoPath: string): Promise<string[]>;
   getCommitHistory(request: GitCommitHistoryRequest): Promise<GitCommitGraphRow[]>;
   getCommitDetails(request: GitCommitDetailsRequest): Promise<GitCommitDetails>;
   getCommitFileDiff(request: GitCommitFileDiffRequest): Promise<GitFileDiff>;

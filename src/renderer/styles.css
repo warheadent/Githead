@@ -196,6 +196,96 @@
   border-top: 1px solid var(--border);
 }
 
+.repo-recents {
+  display: grid;
+  gap: 8px;
+}
+
+.repo-recents-label {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.repo-recents-list {
+  display: grid;
+  gap: 6px;
+}
+
+.repo-recent-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+}
+
+.repo-recent-row:hover,
+.repo-recent-row:focus-within {
+  border-color: var(--border);
+  background: var(--card);
+}
+
+.repo-recent-row.is-active {
+  border-color: color-mix(in oklch, var(--primary) 45%, var(--border));
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+}
+
+.repo-recent-main {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.repo-recent-main:not(:disabled) {
+  cursor: pointer;
+}
+
+.repo-recent-main:disabled {
+  opacity: 1;
+}
+
+.repo-recent-main:focus-visible,
+.repo-recent-remove:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.repo-recent-name,
+.repo-recent-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repo-recent-name {
+  font-size: 0.9rem;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.repo-recent-path {
+  color: var(--muted-foreground);
+  font-size: 0.76rem;
+  line-height: 1.25;
+}
+
+.repo-recent-remove {
+  margin-right: 6px;
+}
+
 .status-text {
   min-height: 20px;
   margin-top: 4px;

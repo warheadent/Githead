@@ -18,9 +18,16 @@ import type {
 } from "../shared/types";
 
 const api: GitheadApi = {
-  chooseRepo: () => ipcRenderer.invoke(IPC_CHANNELS.chooseRepo) as Promise<string | null>,
+  chooseRepo: (defaultPath?: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.chooseRepo, defaultPath) as Promise<string | null>,
   getRepoSummary: (repoPath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.getRepoSummary, repoPath) as Promise<RepoSummary>,
+  getRepoRecents: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.getRepoRecents) as ReturnType<GitheadApi["getRepoRecents"]>,
+  addRepoRecent: (repoPath: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.addRepoRecent, repoPath) as ReturnType<GitheadApi["addRepoRecent"]>,
+  removeRepoRecent: (repoPath: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.removeRepoRecent, repoPath) as ReturnType<GitheadApi["removeRepoRecent"]>,
   getCommitHistory: (request: GitCommitHistoryRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getCommitHistory, request) as ReturnType<GitheadApi["getCommitHistory"]>,
   getCommitDetails: (request: GitCommitDetailsRequest) =>

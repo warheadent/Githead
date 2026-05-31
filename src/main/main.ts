@@ -21,6 +21,7 @@ import { AiSettingsService } from "./aiSettingsService";
 import { CommitMessageService } from "./commitMessageService";
 import { GitService } from "./gitService";
 import { NodeProcessRunner } from "./processRunner";
+import { RepoRecentsService } from "./repoRecentsService";
 
 const DEFAULT_REPO_PATH = "D:\\Githead";
 const gitService = new GitService(new NodeProcessRunner());
@@ -29,6 +30,7 @@ let mainWindow: BrowserWindow | null = null;
 let commandRunning = false;
 let aiSettingsService: AiSettingsService | null = null;
 let commitMessageService: CommitMessageService | null = null;
+let repoRecentsService: RepoRecentsService | null = null;
 
 const remoteDebuggingPort = process.env.GITHEAD_REMOTE_DEBUGGING_PORT;
 if (remoteDebuggingPort) {
@@ -88,10 +90,10 @@ app.on("window-all-closed", () => {
   }
 });
 
-ipcMain.handle(IPC_CHANNELS.chooseRepo, async () => {
+ipcMain.handle(IPC_CHANNELS.chooseRepo, async (_event, defaultPath?: string) => {
   const options: Electron.OpenDialogOptions = {
     title: "Select Git Repository",
-    defaultPath: DEFAULT_REPO_PATH,
+    defaultPath: defaultPath?.trim() || DEFAULT_REPO_PATH,
     properties: [
       "openDirectory"
     ]
@@ -110,6 +112,18 @@ ipcMain.handle(IPC_CHANNELS.chooseRepo, async () => {
 
 ipcMain.handle(IPC_CHANNELS.getRepoSummary, async (_event, repoPath: string) => {
   return gitService.getRepoSummary(repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.getRepoRecents, async () => {
+  return getRepoRecentsService().getRecents();
+});
+
+ipcMain.handle(IPC_CHANNELS.addRepoRecent, async (_event, repoPath: string) => {
+  return getRepoRecentsService().addRecent(repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.removeRepoRecent, async (_event, repoPath: string) => {
+  return getRepoRecentsService().removeRecent(repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.getCommitHistory, async (_event, request: GitCommitHistoryRequest) => {
@@ -356,4 +370,9 @@ function getAiSettingsService(): AiSettingsService {
 function getCommitMessageService(): CommitMessageService {
   commitMessageService ??= new CommitMessageService(gitService, getAiSettingsService());
   return commitMessageService;
+}
+
+function getRepoRecentsService(): RepoRecentsService {
+  repoRecentsService ??= new RepoRecentsService(app.getPath("userData"));
+  return repoRecentsService;
 }
