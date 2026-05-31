@@ -23,6 +23,7 @@ import {
   X
 } from "lucide-react";
 import {
+  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -83,7 +84,7 @@ import type {
 import { parseCommitSubject } from "../shared/commitSubject";
 import { canPush, getPrimaryCommitAction, getPullableCommitCount, getPushableCommitCount, hasStagedChanges } from "./commitActions";
 import { buildCommitGraphLayout, type CommitGraphLayout } from "./commitGraph";
-import { parseUnifiedDiff, type DiffRow, type DiffRowKind } from "./diffParser";
+import { groupDiffRowsByHunk, parseUnifiedDiff, type DiffRow, type DiffRowKind } from "./diffParser";
 import { highlightDiffCode } from "./syntaxHighlighter";
 
 const DEFAULT_REPO_PATH = "D:\\Githead";
@@ -1912,11 +1913,31 @@ function DiffPanel({
 }
 
 function DiffRows({ filePath, text, truncated }: { filePath: string; text: string; truncated: boolean }): ReactNode {
-  const rows = useMemo(() => parseUnifiedDiff(text, truncated ? ["Diff truncated."] : []), [text, truncated]);
+  const groups = useMemo(() => {
+    const rows = parseUnifiedDiff(text, truncated ? ["Diff truncated."] : []);
+    return groupDiffRowsByHunk(rows);
+  }, [text, truncated]);
 
-  return rows.map((row, index) => (
-    <DiffRowView key={`${index}:${row.kind}:${row.oldLine ?? ""}:${row.newLine ?? ""}`} row={row} filePath={filePath} />
-  ));
+  return groups.map((group, groupIndex) => {
+    const groupKey = `${groupIndex}:${group.kind}:${group.rows[0]?.text ?? ""}`;
+    const rowViews = group.rows.map((row, rowIndex) => (
+      <DiffRowView key={`${rowIndex}:${row.kind}:${row.oldLine ?? ""}:${row.newLine ?? ""}`} row={row} filePath={filePath} />
+    ));
+
+    if (group.kind === "hunk") {
+      return (
+        <div className="diff-hunk-block" key={groupKey}>
+          {rowViews}
+        </div>
+      );
+    }
+
+    return (
+      <Fragment key={groupKey}>
+        {rowViews}
+      </Fragment>
+    );
+  });
 }
 
 function DiffRowView({ row, filePath }: { row: DiffRow; filePath: string }): ReactNode {

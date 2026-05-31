@@ -15,6 +15,13 @@ export interface DiffRow {
   text: string;
 }
 
+export type DiffRowGroupKind = "rows" | "hunk";
+
+export interface DiffRowGroup {
+  kind: DiffRowGroupKind;
+  rows: DiffRow[];
+}
+
 interface HunkState {
   oldLine: number;
   newLine: number;
@@ -78,6 +85,43 @@ export function parseUnifiedDiff(text: string, notices: string[] = []): DiffRow[
   return rows;
 }
 
+export function groupDiffRowsByHunk(rows: DiffRow[]): DiffRowGroup[] {
+  const groups: DiffRowGroup[] = [];
+  let currentRows: DiffRowGroup | null = null;
+  let currentHunk: DiffRowGroup | null = null;
+
+  for (const row of rows) {
+    if (row.kind === "hunk") {
+      currentHunk = {
+        kind: "hunk",
+        rows: [row]
+      };
+      currentRows = null;
+      groups.push(currentHunk);
+      continue;
+    }
+
+    if (currentHunk && isHunkContentRow(row)) {
+      currentHunk.rows.push(row);
+      continue;
+    }
+
+    currentHunk = null;
+
+    if (!currentRows) {
+      currentRows = {
+        kind: "rows",
+        rows: []
+      };
+      groups.push(currentRows);
+    }
+
+    currentRows.rows.push(row);
+  }
+
+  return groups;
+}
+
 function splitDiffLines(text: string): string[] {
   const lines = text.split(/\r?\n/);
 
@@ -101,6 +145,13 @@ function parseHunkHeader(line: string): HunkState | null {
     oldLine: oldStart,
     newLine: newStart
   };
+}
+
+function isHunkContentRow(row: DiffRow): boolean {
+  return row.kind === "add"
+    || row.kind === "delete"
+    || row.kind === "context"
+    || row.kind === "notice";
 }
 
 function createRow(

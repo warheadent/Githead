@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseUnifiedDiff } from "./diffParser";
+import { groupDiffRowsByHunk, parseUnifiedDiff } from "./diffParser";
 
 describe("parseUnifiedDiff", () => {
   it("classifies file headers and metadata", () => {
@@ -112,6 +112,84 @@ describe("parseUnifiedDiff", () => {
       text: "\\ No newline at end of file"
     });
     expect(rows.at(-1)).toMatchObject({
+      kind: "notice",
+      text: "Diff truncated."
+    });
+  });
+});
+
+describe("groupDiffRowsByHunk", () => {
+  it("groups multiple hunks separately", () => {
+    const groups = groupDiffRowsByHunk(parseUnifiedDiff([
+      "@@ -1,2 +1,2 @@",
+      "-first old",
+      "+first new",
+      "@@ -20,2 +30,3 @@",
+      " shared",
+      "-second old",
+      "+second new"
+    ].join("\n")));
+
+    expect(groups).toHaveLength(2);
+    expect(groups.map((group) => group.kind)).toEqual(["hunk", "hunk"]);
+    expect(groups[0]!.rows.map((row) => row.kind)).toEqual(["hunk", "delete", "add"]);
+    expect(groups[1]!.rows.map((row) => row.kind)).toEqual(["hunk", "context", "delete", "add"]);
+  });
+
+  it("keeps file metadata before the first hunk as normal rows", () => {
+    const groups = groupDiffRowsByHunk(parseUnifiedDiff([
+      "diff --git a/src/app.ts b/src/app.ts",
+      "index 1234567..89abcde 100644",
+      "--- a/src/app.ts",
+      "+++ b/src/app.ts",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new"
+    ].join("\n")));
+
+    expect(groups).toHaveLength(2);
+    expect(groups[0]!.kind).toBe("rows");
+    expect(groups[0]!.rows.map((row) => row.kind)).toEqual(["file", "meta", "meta", "meta"]);
+    expect(groups[1]!.kind).toBe("hunk");
+    expect(groups[1]!.rows.map((row) => row.kind)).toEqual(["hunk", "delete", "add"]);
+  });
+
+  it("breaks hunk groups when a multi-file diff starts a new file", () => {
+    const groups = groupDiffRowsByHunk(parseUnifiedDiff([
+      "diff --git a/src/first.ts b/src/first.ts",
+      "--- a/src/first.ts",
+      "+++ b/src/first.ts",
+      "@@ -1 +1 @@",
+      "-old first",
+      "+new first",
+      "diff --git a/src/second.ts b/src/second.ts",
+      "--- a/src/second.ts",
+      "+++ b/src/second.ts",
+      "@@ -5 +5 @@",
+      "-old second",
+      "+new second"
+    ].join("\n")));
+
+    expect(groups.map((group) => group.kind)).toEqual(["rows", "hunk", "rows", "hunk"]);
+    expect(groups[2]!.rows[0]).toMatchObject({
+      kind: "file",
+      text: "diff --git a/src/second.ts b/src/second.ts"
+    });
+  });
+
+  it("keeps no-newline and truncation notices with the active hunk", () => {
+    const groups = groupDiffRowsByHunk(parseUnifiedDiff([
+      "@@ -1 +1 @@",
+      "-old",
+      "\\ No newline at end of file"
+    ].join("\n"), [
+      "Diff truncated."
+    ]));
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.kind).toBe("hunk");
+    expect(groups[0]!.rows.map((row) => row.kind)).toEqual(["hunk", "delete", "notice", "notice"]);
+    expect(groups[0]!.rows.at(-1)).toMatchObject({
       kind: "notice",
       text: "Diff truncated."
     });
