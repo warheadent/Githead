@@ -3,6 +3,9 @@
   "compilerOptions": {
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "allowArbitraryExtensions": true,
+    "noUncheckedSideEffectImports": false,
     "lib": [
       "ES2022",
       "DOM",
@@ -15,7 +18,13 @@
   },
   "include": [
     "src/renderer/**/*.ts",
+    "src/renderer/**/*.d.ts",
+    "src/renderer/**/*.tsx",
+    "src/components/**/*.ts",
+    "src/components/**/*.tsx",
+    "src/hooks/**/*.ts",
+    "src/hooks/**/*.tsx",
+    "src/lib/**/*.ts",
     "src/shared/**/*.ts"
   ]
 }
-

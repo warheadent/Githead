@@ -3,8 +3,13 @@
   "compilerOptions": {
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "jsx": "react-jsx",
+    "allowArbitraryExtensions": true,
+    "noUncheckedSideEffectImports": false,
     "lib": [
-      "ES2022"
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
     ],
     "types": [
       "node",
@@ -14,7 +19,15 @@
   },
   "include": [
     "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/**/*.d.ts",
     "src/main/**/*.ts",
+    "src/renderer/**/*.tsx",
+    "src/components/**/*.ts",
+    "src/components/**/*.tsx",
+    "src/hooks/**/*.ts",
+    "src/hooks/**/*.tsx",
+    "src/lib/**/*.ts",
     "src/shared/**/*.ts",
     "vitest.config.ts"
   ]
