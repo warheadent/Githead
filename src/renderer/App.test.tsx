@@ -72,7 +72,7 @@ describe("App", () => {
     expect(screen.getAllByText("Select a valid repository.").length).toBeGreaterThan(0);
   });
 
-  it("styles conventional commit subjects in history and falls back to raw subjects", async () => {
+  it("styles conventional commit subjects in history and details while falling back to raw subjects", async () => {
     const user = userEvent.setup();
     const conventionalCommit = createCommit({
       hash: "a".repeat(40),
@@ -95,15 +95,24 @@ describe("App", () => {
     await screen.findByText("Repository ready");
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
 
-    const badge = await screen.findByText("Feature");
-    expect(badge.className).toContain("commit-type-badge");
-    expect(badge.className).toContain("type-feat");
+    await waitFor(() => expect(screen.getAllByText("Feature")).toHaveLength(2));
+    const historyBadge = screen.getAllByText("Feature").find((badge) => badge.closest(".history-row"));
+    const detailBadge = screen.getAllByText("Feature").find((badge) => badge.closest(".commit-title"));
+    expect(historyBadge?.className).toContain("commit-type-badge");
+    expect(historyBadge?.className).toContain("type-feat");
+    expect(detailBadge?.className).toContain("commit-type-badge");
+    expect(detailBadge?.className).toContain("type-feat");
     expect(screen.getByTestId("commit-graph-svg")).toBeTruthy();
     expect(screen.getAllByTestId("commit-graph-node")).toHaveLength(2);
-    expect(screen.getByText("ai:")).toBeTruthy();
-    const description = screen.getByText("add attack pressure cooldown");
-    expect(description).toBeTruthy();
-    expect(description.closest(".history-description")?.getAttribute("title")).toBe("feat(ai): add attack pressure cooldown");
+    expect(screen.getAllByText("ai:").some((scope) => scope.closest(".commit-title"))).toBe(true);
+    const detailDescription = screen.getAllByText("add attack pressure cooldown").find((element) => (
+      element.className.includes("commit-title-description")
+    ));
+    const historyDescription = screen.getAllByText("add attack pressure cooldown").find((element) => (
+      element.className.includes("history-description-text")
+    ));
+    expect(detailDescription).toBeTruthy();
+    expect(historyDescription?.closest(".history-description")?.getAttribute("title")).toBe("feat(ai): add attack pressure cooldown");
     expect(screen.getByText("Add MeshBites Shader")).toBeTruthy();
   });
 
@@ -170,7 +179,10 @@ describe("App", () => {
         hash: parentHash
       });
     });
-    expect(await screen.findByText("fix(ui): parent commit")).toBeTruthy();
+    const parentDescription = await screen.findByText("parent commit");
+    expect(parentDescription.closest(".commit-title")).toBeTruthy();
+    expect(screen.getByText("Fix").closest(".commit-title")).toBeTruthy();
+    expect(screen.getAllByText("ui:").some((scope) => scope.closest(".commit-title"))).toBe(true);
   });
 
   it("stages the selected unstaged file through the preload API", async () => {

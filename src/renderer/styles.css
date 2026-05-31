@@ -742,14 +742,16 @@
   gap: 8px;
 }
 
-.history-subject {
+.history-subject,
+.commit-title-subject {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.history-subject.is-conventional {
+.history-subject.is-conventional,
+.commit-title-subject.is-conventional {
   display: inline-flex;
   flex: 1 1 auto;
   align-items: center;
@@ -810,13 +812,15 @@
   --commit-type-color: oklch(0.66 0.12 330);
 }
 
-.history-scope {
+.history-scope,
+.commit-title-scope {
   flex: 0 0 auto;
   color: var(--muted-foreground);
   font-weight: 700;
 }
 
-.history-description-text {
+.history-description-text,
+.commit-title-description {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -881,6 +885,20 @@
   display: grid;
   gap: 12px;
   padding: 16px;
+}
+
+.commit-title {
+  min-width: 0;
+}
+
+.commit-title-subject {
+  display: block;
+}
+
+.commit-title-subject.is-conventional {
+  display: flex;
+  max-width: 100%;
+  vertical-align: bottom;
 }
 
 .commit-facts {

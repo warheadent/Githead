@@ -2750,7 +2750,12 @@ function HistoryRow({
             </span>
           ))}
         </span>
-        <HistorySubject subject={commit.subject} />
+        <CommitSubject
+          subject={commit.subject}
+          className="history-subject"
+          scopeClassName="history-scope"
+          descriptionClassName="history-description-text"
+        />
       </span>
       <span className="history-date" title={formatDate(commit.authorDate)}>
         {commit.relativeDate || formatDate(commit.authorDate)}
@@ -2761,18 +2766,28 @@ function HistoryRow({
   );
 }
 
-function HistorySubject({ subject }: { subject: string }): ReactNode {
+function CommitSubject({
+  subject,
+  className,
+  scopeClassName,
+  descriptionClassName
+}: {
+  subject: string;
+  className: string;
+  scopeClassName: string;
+  descriptionClassName: string;
+}): ReactNode {
   const displaySubject = subject || "(no subject)";
   const parsedSubject = subject ? parseCommitSubject(subject) : null;
   if (!parsedSubject) {
-    return <span className="history-subject">{displaySubject}</span>;
+    return <span className={className}>{displaySubject}</span>;
   }
 
   return (
-    <span className="history-subject is-conventional">
+    <span className={`${className} is-conventional`}>
       <span className={`commit-type-badge type-${parsedSubject.type}`}>{parsedSubject.label}</span>
-      {parsedSubject.scope ? <span className="history-scope">{parsedSubject.scope}:</span> : null}
-      <span className="history-description-text">{parsedSubject.description}</span>
+      {parsedSubject.scope ? <span className={scopeClassName}>{parsedSubject.scope}:</span> : null}
+      <span className={descriptionClassName}>{parsedSubject.description}</span>
     </span>
   );
 }
@@ -2809,7 +2824,14 @@ function CommitDetailsPanel({
     fileCount = `${details.files.length} ${details.files.length === 1 ? "file" : "files"}`;
     meta = (
       <div className="commit-meta-card">
-        <h2 className="text-base font-semibold">{details.subject || "(no subject)"}</h2>
+        <h2 className="commit-title text-base font-semibold" title={details.subject || undefined}>
+          <CommitSubject
+            subject={details.subject}
+            className="commit-title-subject"
+            scopeClassName="commit-title-scope"
+            descriptionClassName="commit-title-description"
+          />
+        </h2>
         <dl className="commit-facts">
           <Fact label="Commit" value={details.hash} />
           <Fact
