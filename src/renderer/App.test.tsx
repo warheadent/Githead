@@ -193,6 +193,31 @@ describe("App", () => {
     expect(cleanupGitOutput).toHaveBeenCalledTimes(1);
   });
 
+  it("shows upstream commits ready to pull in the Pull action", async () => {
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      statusLines: [
+        "# branch.ab +0 -3"
+      ]
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByRole("button", { name: /^Pull \(3\)$/ })).toBeTruthy();
+  });
+
+  it("does not show a zero count in the Pull action", async () => {
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      statusLines: [
+        "# branch.ab +0 -0"
+      ]
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByRole("button", { name: /^Pull$/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Pull \(0\)$/ })).toBeNull();
+  });
+
   it("loads recent repositories and starts on the most recent repo", async () => {
     const recentRepo = "D:\\Work\\Recent";
     const otherRepo = "D:\\Work\\Other";

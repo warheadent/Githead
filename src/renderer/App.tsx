@@ -75,7 +75,7 @@ import type {
   GitStatusFile,
   RepoSummary
 } from "../shared/types";
-import { canPush, getPrimaryCommitAction, hasStagedChanges } from "./commitActions";
+import { canPush, getPrimaryCommitAction, getPullableCommitCount, hasStagedChanges } from "./commitActions";
 import { parseUnifiedDiff, type DiffRow, type DiffRowKind } from "./diffParser";
 import { highlightDiffCode } from "./syntaxHighlighter";
 
@@ -1084,6 +1084,7 @@ export function App(): ReactNode {
           <section className="flex h-full min-w-0 flex-col overflow-hidden">
             <ActionBar
               heading={actionHeading}
+              summary={state.summary}
               runningAction={state.runningAction}
               disabled={disableActions}
               onRunAction={(action) => {
@@ -1352,15 +1353,20 @@ function Fact({ label, value }: { label: string; value: string }): ReactNode {
 
 function ActionBar({
   heading,
+  summary,
   runningAction,
   disabled,
   onRunAction
 }: {
   heading: string;
+  summary: RepoSummary | null;
   runningAction: GitAction | null;
   disabled: boolean;
   onRunAction: (action: GitAction) => void;
 }): ReactNode {
+  const pullableCommitCount = getPullableCommitCount(summary);
+  const pullLabel = pullableCommitCount > 0 ? `Pull (${pullableCommitCount})` : "Pull";
+
   return (
     <header className="flex items-center justify-between gap-5 border-b bg-card px-6 py-4">
       <div className="min-w-0">
@@ -1386,7 +1392,7 @@ function ActionBar({
           className="min-w-24"
         >
           {runningAction === "pull" ? <Loader2 className="animate-spin" /> : <Download />}
-          Pull
+          {pullLabel}
         </Button>
       </div>
     </header>

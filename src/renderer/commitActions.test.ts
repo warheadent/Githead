@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { RepoSummary } from "../shared/types";
 import {
   canPush,
+  getAheadBehindCounts,
   getPrimaryCommitAction,
+  getPullableCommitCount,
   hasStagedChanges,
   hasUnpushedCommits
 } from "./commitActions";
@@ -55,6 +57,21 @@ describe("commit action helpers", () => {
     expect(getPrimaryCommitAction(summary)).toBe("push");
   });
 
+  it("reads upstream commits ready to pull from the branch behind count", () => {
+    const summary: RepoSummary = {
+      ...baseSummary,
+      statusLines: [
+        "# branch.ab +1 -3"
+      ]
+    };
+
+    expect(getAheadBehindCounts(summary)).toEqual({
+      ahead: 1,
+      behind: 3
+    });
+    expect(getPullableCommitCount(summary)).toBe(3);
+  });
+
   it("does not enable push fallback when ahead count is zero", () => {
     const summary: RepoSummary = {
       ...baseSummary,
@@ -64,23 +81,42 @@ describe("commit action helpers", () => {
     };
 
     expect(hasUnpushedCommits(summary)).toBe(false);
+    expect(getPullableCommitCount(summary)).toBe(0);
     expect(getPrimaryCommitAction(summary)).toBeNull();
   });
 
-  it("does not enable push fallback without an upstream or branch.ab status", () => {
-    expect(hasUnpushedCommits({
+  it("returns zero pullable commits without an upstream or branch.ab status", () => {
+    const noUpstreamSummary: RepoSummary = {
       ...baseSummary,
       upstream: null,
       statusLines: [
-        "# branch.ab +3 -0"
+        "# branch.ab +3 -4"
       ]
-    })).toBe(false);
+    };
 
-    expect(hasUnpushedCommits({
+    const noAheadBehindSummary: RepoSummary = {
       ...baseSummary,
       statusLines: [
         "# branch.head main"
       ]
-    })).toBe(false);
+    };
+
+    expect(hasUnpushedCommits(noUpstreamSummary)).toBe(false);
+    expect(getPullableCommitCount(noUpstreamSummary)).toBe(0);
+    expect(hasUnpushedCommits(noAheadBehindSummary)).toBe(false);
+    expect(getPullableCommitCount(noAheadBehindSummary)).toBe(0);
+  });
+
+  it("returns zero pullable commits for malformed branch.ab status", () => {
+    const summary: RepoSummary = {
+      ...baseSummary,
+      statusLines: [
+        "# branch.ab +3"
+      ]
+    };
+
+    expect(getAheadBehindCounts(summary)).toBeNull();
+    expect(hasUnpushedCommits(summary)).toBe(false);
+    expect(getPullableCommitCount(summary)).toBe(0);
   });
 });
