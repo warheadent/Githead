@@ -122,9 +122,11 @@ describe("CommitMessageService", () => {
 
     const body = JSON.parse(String(calls[0]?.init?.body)) as {
       model: string;
+      service_tier: string;
       messages: Array<{ role: string; content: string }>;
     };
     expect(body.model).toBe("openrouter/auto");
+    expect(body.service_tier).toBe("flex");
     expect(body.messages.at(-1)?.content).toContain("+added");
     expect(body.messages[0]?.content).toContain("Return exactly the commit message text");
     expect(body.messages[0]?.content).toContain("Use Conventional Commits style");

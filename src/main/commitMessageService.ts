@@ -3,6 +3,7 @@ import type { AiSettingsService } from "./aiSettingsService";
 import type { GitService } from "./gitService";
 
 const OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions";
+const OPENROUTER_PREFERRED_SERVICE_TIER = "flex";
 const MAX_DIFF_CHARS = 60_000;
 
 type Fetch = typeof fetch;
@@ -58,6 +59,7 @@ export class CommitMessageService {
         headers: createHeaders(apiKey, settings.siteUrl, settings.siteTitle),
         body: JSON.stringify({
           model: settings.model,
+          service_tier: OPENROUTER_PREFERRED_SERVICE_TIER,
           messages: [
             {
               role: "system",
