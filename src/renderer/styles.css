@@ -352,6 +352,8 @@
 
 .workspace-tabs-bar {
   overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 5px;
   scrollbar-width: thin;
 }
 
