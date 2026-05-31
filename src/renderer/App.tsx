@@ -225,6 +225,14 @@ export function App(): ReactNode {
     });
   }, [appendLog]);
 
+  const appendOperationLog = useCallback((label: string, result: GitOperationResult): void => {
+    updateState((current) => ({
+      ...current,
+      logText: `${current.logText}${formatOperationLog(label, result)}`,
+      logOpen: true
+    }));
+  }, [updateState]);
+
   useEffect(() => {
     return window.githead.onGitOutput(appendLog);
   }, [appendLog]);
@@ -591,16 +599,19 @@ export function App(): ReactNode {
       updateState({
         lastOperationResult
       });
+      appendOperationLog(label, lastOperationResult);
     } catch (error) {
-      updateState((latest) => ({
-        ...latest,
-        lastOperationResult: {
-          repoPath: latest.repoPath,
-          exitCode: -1,
-          stdout: "",
-          stderr: error instanceof Error ? error.message : `${label} failed.`
-        }
-      }));
+      const lastOperationResult: GitOperationResult = {
+        repoPath: stateRef.current.repoPath,
+        exitCode: -1,
+        stdout: "",
+        stderr: error instanceof Error ? error.message : `${label} failed.`
+      };
+
+      updateState({
+        lastOperationResult
+      });
+      appendOperationLog(label, lastOperationResult);
     } finally {
       updateState((latest) => {
         let next: AppState = {
@@ -624,7 +635,7 @@ export function App(): ReactNode {
       });
       await refreshRepo();
     }
-  }, [refreshRepo, updateState]);
+  }, [appendOperationLog, refreshRepo, updateState]);
 
   const stageFiles = useCallback(async (paths: string[], nextSelection?: FileSelection): Promise<void> => {
     await runFileOperation("Staging files", nextSelection, () =>
@@ -701,22 +712,25 @@ export function App(): ReactNode {
           : result,
         commitMessage: generatedMessage
       });
+      appendOperationLog("Generating commit message", result);
     } catch (error) {
-      updateState((latest) => ({
-        ...latest,
-        lastOperationResult: {
-          repoPath: latest.repoPath,
-          exitCode: -1,
-          stdout: "",
-          stderr: error instanceof Error ? error.message : "Unable to generate commit message."
-        }
-      }));
+      const lastOperationResult: GitOperationResult = {
+        repoPath: stateRef.current.repoPath,
+        exitCode: -1,
+        stdout: "",
+        stderr: error instanceof Error ? error.message : "Unable to generate commit message."
+      };
+
+      updateState({
+        lastOperationResult
+      });
+      appendOperationLog("Generating commit message", lastOperationResult);
     } finally {
       updateState({
         runningOperation: null
       });
     }
-  }, [updateState]);
+  }, [appendOperationLog, updateState]);
 
   const openSettingsDialog = useCallback((): void => {
     const settings = stateRef.current.aiSettings;
@@ -916,7 +930,6 @@ export function App(): ReactNode {
   const disableActions = running || !isValid;
   const primaryCommitAction = getPrimaryCommitAction(state.summary);
   const actionHeading = getActionHeading(state);
-  const operationFeedback = getOperationFeedback(state);
   const repoHealth = getRepoHealth(state);
 
   return (
@@ -1022,8 +1035,6 @@ export function App(): ReactNode {
                 canCommit={canCommit(state)}
                 canGenerateCommitMessage={canGenerateCommitMessage(state)}
                 generateTitle={getGenerateMessageTitle(state)}
-                operationFeedback={operationFeedback}
-                operationFeedbackState={state.lastOperationResult?.exitCode === 0 ? "good" : state.lastOperationResult ? "bad" : "neutral"}
                 logText={state.logText}
                 logOpen={state.logOpen}
                 logOutputRef={logOutputRef}
@@ -1778,8 +1789,6 @@ function CommitPanel({
   canCommit: commitAllowed,
   canGenerateCommitMessage: generateAllowed,
   generateTitle,
-  operationFeedback,
-  operationFeedbackState,
   logText,
   logOpen,
   logOutputRef,
@@ -1796,8 +1805,6 @@ function CommitPanel({
   canCommit: boolean;
   canGenerateCommitMessage: boolean;
   generateTitle: string;
-  operationFeedback: string;
-  operationFeedbackState: "good" | "bad" | "neutral";
   logText: string;
   logOpen: boolean;
   logOutputRef: React.RefObject<HTMLPreElement | null>;
@@ -1814,10 +1821,7 @@ function CommitPanel({
 
   return (
     <section className="grid min-h-0 gap-2.5 border-t bg-card px-6 py-4" aria-label="Commit staged files">
-      <div className="flex items-center justify-between gap-4">
-        <p className="eyebrow">Commit</p>
-        <p className={`status-text ${operationFeedbackState}`}>{operationFeedback}</p>
-      </div>
+      <p className="eyebrow">Commit</p>
       <Textarea
         id="commit-message"
         value={commitMessage}
@@ -2157,25 +2161,30 @@ function getActionHeading(state: AppState): string {
   return "Ready";
 }
 
-function getOperationFeedback(state: AppState): string {
-  if (state.runningOperation) {
-    return state.runningOperation;
-  }
-
-  if (!state.lastOperationResult) {
-    return "";
-  }
-
-  if (state.lastOperationResult.exitCode === 0) {
-    return state.lastOperationResult.stdout.trim() || "Operation complete.";
-  }
-
-  return state.lastOperationResult.stderr.trim() || "Operation failed.";
-}
-
 function formatResultHeading(result: GitRunResult): string {
   const label = capitalize(result.action);
   return result.exitCode === 0 ? `${label} complete` : `${label} failed`;
+}
+
+function formatOperationLog(label: string, result: GitOperationResult): string {
+  const chunks = [
+    `> ${label}\n`
+  ];
+
+  if (result.stdout.trim().length > 0) {
+    chunks.push(formatStreamOutput("stdout", result.stdout));
+  }
+
+  if (result.stderr.trim().length > 0) {
+    chunks.push(formatStreamOutput("stderr", result.stderr));
+  }
+
+  chunks.push(`${label} exited with code ${result.exitCode}.\n\n`);
+  return chunks.join("");
+}
+
+function formatStreamOutput(stream: "stdout" | "stderr", text: string): string {
+  return `[${stream}] ${text.endsWith("\n") ? text : `${text}\n`}`;
 }
 
 function formatDate(value: string): string {

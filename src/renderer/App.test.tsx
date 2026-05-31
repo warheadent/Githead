@@ -128,6 +128,50 @@ describe("App", () => {
     });
   });
 
+  it("logs commit output without rendering it as inline commit feedback", async () => {
+    const user = userEvent.setup();
+    const longCommitOutput = [
+      "[main 1234567] feat: log commit output",
+      " create mode 100644 src/renderer/App.tsx",
+      " create mode 100644 src/renderer/App.test.tsx"
+    ].join("\n");
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/renderer/App.tsx", {
+          indexStatus: "A",
+          isStaged: true
+        })
+      ]
+    }));
+    vi.mocked(githead.commitChanges).mockResolvedValue({
+      repoPath,
+      exitCode: 0,
+      stdout: longCommitOutput,
+      stderr: ""
+    });
+
+    render(<App />);
+
+    await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
+    expect((screen.getByRole("button", { name: /^Commit$/ }) as HTMLButtonElement).disabled).toBe(true);
+
+    await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: log commit output");
+    expect((screen.getByRole("button", { name: /^Commit$/ }) as HTMLButtonElement).disabled).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+
+    await waitFor(() => {
+      expect(githead.commitChanges).toHaveBeenCalledWith({
+        repoPath,
+        message: "feat: log commit output"
+      });
+    });
+
+    expect(screen.getByLabelText("Commit staged files").querySelector(".status-text")).toBeNull();
+    expect(await screen.findByText("Output Available")).toBeTruthy();
+    expect(screen.getByText(/create mode 100644 src\/renderer\/App\.tsx/)).toBeTruthy();
+  });
+
   it("subscribes to git output and removes the listener on unmount", async () => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary());
     const view = render(<App />);
