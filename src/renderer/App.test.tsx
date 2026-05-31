@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -205,11 +205,13 @@ describe("App", () => {
     });
 
     expect(screen.getByLabelText("Commit staged files").querySelector(".status-text")).toBeNull();
+    await user.click(screen.getByRole("tab", { name: /Activity Log/ }));
     expect(await screen.findByText("Output Available")).toBeTruthy();
     expect(screen.getByText(/create mode 100644 src\/renderer\/App\.tsx/)).toBeTruthy();
   });
 
   it("subscribes to git output and removes the listener on unmount", async () => {
+    const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary());
     const view = render(<App />);
 
@@ -222,12 +224,45 @@ describe("App", () => {
       timestamp: new Date().toISOString()
     });
 
+    await user.click(screen.getByRole("tab", { name: /Activity Log/ }));
     expect(await screen.findByText("Output Available")).toBeTruthy();
     expect(screen.getByText(/fetch output/)).toBeTruthy();
 
     view.unmount();
 
     expect(cleanupGitOutput).toHaveBeenCalledTimes(1);
+  });
+
+  it("moves log clearing into the activity log tab", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary());
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    expect(within(screen.getByLabelText("Commit staged files")).queryByRole("button", { name: /Clear Log/ })).toBeNull();
+
+    gitOutputCallback?.({
+      runId: "run-1",
+      action: "fetch",
+      stream: "stdout",
+      text: "fetch output\n",
+      timestamp: new Date().toISOString()
+    });
+
+    await user.click(screen.getByRole("tab", { name: /Activity Log/ }));
+    expect(screen.getByText(/fetch output/)).toBeTruthy();
+
+    const clearButton = screen.getByRole("button", { name: /Clear Log/ }) as HTMLButtonElement;
+    expect(clearButton.disabled).toBe(false);
+
+    await user.click(clearButton);
+
+    await waitFor(() => {
+      expect(screen.queryByText(/fetch output/)).toBeNull();
+    });
+    expect((screen.getByRole("button", { name: /Clear Log/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("Empty")).toBeTruthy();
   });
 
   it("shows upstream commits ready to pull in the Pull action", async () => {

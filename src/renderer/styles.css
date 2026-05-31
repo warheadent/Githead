@@ -346,6 +346,14 @@
   color: var(--destructive);
 }
 
+.workspace-tab-trigger {
+  flex: 0 0 auto;
+}
+
+.workspace-tab-trigger-end {
+  margin-left: auto;
+}
+
 .file-list,
 .history-list,
 .commit-file-list {
@@ -910,55 +918,28 @@
   resize: none;
 }
 
-.log-panel {
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--background);
+.activity-log-view {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  background: var(--card);
 }
 
-.log-panel summary {
+.activity-log-header {
   display: flex;
-  min-height: 36px;
+  min-height: 58px;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 0 12px;
-  color: var(--foreground);
-  cursor: pointer;
-  list-style: none;
-  touch-action: manipulation;
+  border-bottom: 1px solid var(--border);
+  padding: 10px 16px;
 }
 
-.log-panel summary::-webkit-details-marker {
-  display: none;
-}
-
-.log-panel summary::before {
-  content: "";
-  flex: 0 0 auto;
-  width: 0;
-  height: 0;
-  border-top: 5px solid transparent;
-  border-bottom: 5px solid transparent;
-  border-left: 6px solid var(--muted-foreground);
-  transition: transform 120ms ease;
-}
-
-.log-panel[open] summary::before {
-  transform: rotate(90deg);
-}
-
-.log-status {
-  margin-left: auto;
-  color: var(--muted-foreground);
-  font-size: 0.82rem;
-}
-
-.log-output {
-  max-height: 18vh;
-  min-height: 72px;
-  border-top: 1px solid var(--border);
-  padding: 10px;
+.activity-log-output {
+  min-height: 0;
+  padding: 14px 16px;
 }
 
 @media (prefers-reduced-motion: reduce) {

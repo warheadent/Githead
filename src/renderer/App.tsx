@@ -90,7 +90,7 @@ import { highlightDiffCode } from "./syntaxHighlighter";
 const DEFAULT_REPO_PATH = "D:\\Githead";
 const HISTORY_LIMIT = 200;
 
-type WorkspaceView = "status" | "history";
+type WorkspaceView = "status" | "history" | "activity";
 
 interface FileSelection {
   path: string;
@@ -139,7 +139,6 @@ interface AppState {
   commitFileDiffLoading: boolean;
   commitFileDiffError: string;
   logText: string;
-  logOpen: boolean;
 }
 
 type AppStateUpdater = Partial<AppState> | ((state: AppState) => AppState);
@@ -193,8 +192,7 @@ const initialState: AppState = {
   commitFileDiff: null,
   commitFileDiffLoading: false,
   commitFileDiffError: "",
-  logText: "",
-  logOpen: false
+  logText: ""
 };
 
 export function App(): ReactNode {
@@ -229,8 +227,7 @@ export function App(): ReactNode {
     const prefix = event.stream === "system" ? "" : `[${event.stream}] `;
     updateState((current) => ({
       ...current,
-      logText: `${current.logText}${prefix}${event.text}`,
-      logOpen: true
+      logText: `${current.logText}${prefix}${event.text}`
     }));
   }, [updateState]);
 
@@ -247,8 +244,7 @@ export function App(): ReactNode {
   const appendOperationLog = useCallback((label: string, result: GitOperationResult): void => {
     updateState((current) => ({
       ...current,
-      logText: `${current.logText}${formatOperationLog(label, result)}`,
-      logOpen: true
+      logText: `${current.logText}${formatOperationLog(label, result)}`
     }));
   }, [updateState]);
 
@@ -260,7 +256,7 @@ export function App(): ReactNode {
     if (logOutputRef.current) {
       logOutputRef.current.scrollTop = logOutputRef.current.scrollHeight;
     }
-  }, [state.logText]);
+  }, [state.activeView, state.logText]);
 
   const loadCommitFileDiff = useCallback(async (hash: string, filePath: string): Promise<void> => {
     const requestId = requestIds.current.commitFileDiff + 1;
@@ -681,8 +677,7 @@ export function App(): ReactNode {
     updateState({
       runningAction: action,
       lastResult: null,
-      logText: "",
-      logOpen: false
+      logText: ""
     });
 
     try {
@@ -1202,14 +1197,18 @@ export function App(): ReactNode {
               className="flex min-h-0 flex-1 flex-col"
             >
               <div className="border-b bg-card px-6 pt-2">
-                <TabsList variant="line" className="h-9 bg-transparent p-0">
-                  <TabsTrigger value="status" className="h-9 rounded-none">
+                <TabsList variant="line" className="h-9 w-full bg-transparent p-0">
+                  <TabsTrigger value="status" className="workspace-tab-trigger h-9 rounded-none">
                     <ListTree />
                     File Status
                   </TabsTrigger>
-                  <TabsTrigger value="history" className="h-9 rounded-none">
+                  <TabsTrigger value="history" className="workspace-tab-trigger h-9 rounded-none">
                     <History />
                     Commit History
+                  </TabsTrigger>
+                  <TabsTrigger value="activity" className="workspace-tab-trigger workspace-tab-trigger-end h-9 rounded-none">
+                    <Clipboard />
+                    Activity Log
                   </TabsTrigger>
                 </TabsList>
               </div>
@@ -1257,6 +1256,18 @@ export function App(): ReactNode {
                   onSelectCommitFile={selectCommitFile}
                 />
               </TabsContent>
+
+              <TabsContent forceMount value="activity" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
+                <ActivityLogView
+                  logText={state.logText}
+                  logOutputRef={logOutputRef}
+                  onClearLog={() => {
+                    updateState({
+                      logText: ""
+                    });
+                  }}
+                />
+              </TabsContent>
             </Tabs>
 
             {state.activeView === "status" ? (
@@ -1268,9 +1279,6 @@ export function App(): ReactNode {
                 canCommit={canCommit(state)}
                 canGenerateCommitMessage={canGenerateCommitMessage(state)}
                 generateTitle={getGenerateMessageTitle(state)}
-                logText={state.logText}
-                logOpen={state.logOpen}
-                logOutputRef={logOutputRef}
                 onCommit={() => {
                   if (primaryCommitAction === "commit") {
                     void commitChanges();
@@ -1287,17 +1295,6 @@ export function App(): ReactNode {
                 onCommitMessageChange={(commitMessage) => {
                   updateState({
                     commitMessage
-                  });
-                }}
-                onClearLog={() => {
-                  updateState({
-                    logText: "",
-                    logOpen: false
-                  });
-                }}
-                onLogOpenChange={(logOpen) => {
-                  updateState({
-                    logOpen
                   });
                 }}
               />
@@ -2265,15 +2262,10 @@ function CommitPanel({
   canCommit: commitAllowed,
   canGenerateCommitMessage: generateAllowed,
   generateTitle,
-  logText,
-  logOpen,
-  logOutputRef,
   onCommit,
   onCommitAndPush,
   onGenerateMessage,
-  onCommitMessageChange,
-  onClearLog,
-  onLogOpenChange
+  onCommitMessageChange
 }: {
   commitMessage: string;
   disabled: boolean;
@@ -2282,15 +2274,10 @@ function CommitPanel({
   canCommit: boolean;
   canGenerateCommitMessage: boolean;
   generateTitle: string;
-  logText: string;
-  logOpen: boolean;
-  logOutputRef: React.RefObject<HTMLPreElement | null>;
   onCommit: () => void;
   onCommitAndPush: () => void;
   onGenerateMessage: () => void;
   onCommitMessageChange: (message: string) => void;
-  onClearLog: () => void;
-  onLogOpenChange: (open: boolean) => void;
 }): ReactNode {
   const commitDisabled = disabled
     || primaryCommitAction === null
@@ -2313,10 +2300,6 @@ function CommitPanel({
         <Button type="button" variant="secondary" disabled={disabled || !generateAllowed} title={generateTitle} onClick={onGenerateMessage}>
           <Sparkles />
           Generate
-        </Button>
-        <Button type="button" variant="secondary" disabled={logText.trim().length === 0} onClick={onClearLog}>
-          <Eraser />
-          Clear Log
         </Button>
         <div className="flex items-stretch">
           <Button
@@ -2350,19 +2333,34 @@ function CommitPanel({
           ) : null}
         </div>
       </div>
-      <details
-        className="log-panel"
-        open={logOpen}
-        onToggle={(event) => {
-          onLogOpenChange(event.currentTarget.open);
-        }}
-      >
-        <summary>
-          <span>Activity Log</span>
-          <span className="log-status">{logText.trim().length > 0 ? "Output Available" : "Empty"}</span>
-        </summary>
-        <pre ref={logOutputRef} className="log-output" aria-live="polite">{logText}</pre>
-      </details>
+    </section>
+  );
+}
+
+function ActivityLogView({
+  logText,
+  logOutputRef,
+  onClearLog
+}: {
+  logText: string;
+  logOutputRef: React.RefObject<HTMLPreElement | null>;
+  onClearLog: () => void;
+}): ReactNode {
+  const hasOutput = logText.trim().length > 0;
+
+  return (
+    <section className="activity-log-view" aria-label="Activity log">
+      <div className="activity-log-header">
+        <div className="min-w-0">
+          <p className="eyebrow">Activity Log</p>
+          <h2 className="text-sm font-semibold">{hasOutput ? "Output Available" : "Empty"}</h2>
+        </div>
+        <Button type="button" variant="secondary" disabled={!hasOutput} onClick={onClearLog}>
+          <Eraser />
+          Clear Log
+        </Button>
+      </div>
+      <pre ref={logOutputRef} className="log-output activity-log-output" aria-live="polite">{logText}</pre>
     </section>
   );
 }
