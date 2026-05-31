@@ -95,6 +95,8 @@ describe("App", () => {
     const badge = await screen.findByText("Feature");
     expect(badge.className).toContain("commit-type-badge");
     expect(badge.className).toContain("type-feat");
+    expect(screen.getByTestId("commit-graph-svg")).toBeTruthy();
+    expect(screen.getAllByTestId("commit-graph-node")).toHaveLength(2);
     expect(screen.getByText("ai:")).toBeTruthy();
     const description = screen.getByText("add attack pressure cooldown");
     expect(description).toBeTruthy();
@@ -598,7 +600,7 @@ function createCommit(overrides: Partial<GitCommitGraphRow> = {}): GitCommitGrap
   return {
     hash: "f".repeat(40),
     shortHash: "fffffff",
-    graph: "*",
+    parents: [],
     refs: [],
     subject: "fix: default test commit",
     authorName: "Taylor Bombay",

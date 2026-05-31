@@ -181,11 +181,12 @@ export class GitService {
     const limit = sanitizeHistoryLimit(request.limit);
     const result = await this.runGit(request.repoPath, [
       "log",
-      "--graph",
+      "--topo-order",
+      "--parents",
       `--max-count=${limit}`,
       "--date=iso-strict",
       "--decorate=full",
-      "--pretty=format:%x1f%H%x1f%h%x1f%D%x1f%s%x1f%an%x1f%ae%x1f%aI%x1f%ar%x1e"
+      "--pretty=format:%x1f%H%x1f%h%x1f%D%x1f%s%x1f%an%x1f%ae%x1f%aI%x1f%ar%x1f%P%x1e"
     ]);
 
     if (result.exitCode !== 0) {
@@ -893,58 +894,49 @@ function shouldEscapeIgnoreSpaces(existing: string): boolean {
 }
 
 function parseCommitHistory(text: string): GitCommitGraphRow[] {
-  const rows: GitCommitGraphRow[] = [];
-  let graphLinesBefore: string[] = [];
-
-  for (const line of text.split(/\r?\n/)) {
-    const separatorIndex = line.indexOf("\x1f");
-    if (separatorIndex === -1) {
-      const graphLine = line.trimEnd();
-      if (graphLine.trim().length > 0) {
-        graphLinesBefore.push(graphLine);
+  return text
+    .split(/\r?\n/)
+    .flatMap((line) => {
+      const separatorIndex = line.indexOf("\x1f");
+      if (separatorIndex === -1) {
+        return [];
       }
 
-      continue;
-    }
+      const fields = line.slice(separatorIndex + 1).replace(/\x1e$/, "").split("\x1f");
+      const [
+        hash = "",
+        shortHash = "",
+        rawRefs = "",
+        subject = "",
+        authorName = "",
+        authorEmail = "",
+        authorDate = "",
+        relativeDate = "",
+        rawParents = ""
+      ] = fields;
 
-    const graph = line.slice(0, separatorIndex).trimEnd();
-    const fields = line.slice(separatorIndex + 1).replace(/\x1e$/, "").split("\x1f");
-    const [
-      hash = "",
-      shortHash = "",
-      rawRefs = "",
-      subject = "",
-      authorName = "",
-      authorEmail = "",
-      authorDate = "",
-      relativeDate = ""
-    ] = fields;
+      if (!hash) {
+        return [];
+      }
 
-    if (!hash) {
-      continue;
-    }
+      return [
+        {
+          hash,
+          shortHash,
+          parents: splitCommitParents(rawParents),
+          refs: parseCommitRefs(rawRefs),
+          subject,
+          authorName,
+          authorEmail,
+          authorDate,
+          relativeDate
+        }
+      ];
+    });
+}
 
-    const row: GitCommitGraphRow = {
-      hash,
-      shortHash,
-      graph,
-      refs: parseCommitRefs(rawRefs),
-      subject,
-      authorName,
-      authorEmail,
-      authorDate,
-      relativeDate
-    };
-
-    if (graphLinesBefore.length > 0) {
-      row.graphLinesBefore = graphLinesBefore;
-      graphLinesBefore = [];
-    }
-
-    rows.push(row);
-  }
-
-  return rows;
+function splitCommitParents(rawParents: string): string[] {
+  return rawParents.split(/\s+/).filter((parent) => parent.length > 0);
 }
 
 function parseCommitDetails(text: string): Omit<GitCommitDetails, "files"> {

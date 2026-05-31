@@ -28,6 +28,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type FormEvent,
   type ReactNode
 } from "react";
@@ -81,7 +82,7 @@ import type {
 } from "../shared/types";
 import { parseCommitSubject } from "../shared/commitSubject";
 import { canPush, getPrimaryCommitAction, getPullableCommitCount, getPushableCommitCount, hasStagedChanges } from "./commitActions";
-import { getCommitGraphTokens, getCommitHistoryVisualRows, type CommitGraphTokenKind } from "./commitGraph";
+import { buildCommitGraphLayout, type CommitGraphLayout } from "./commitGraph";
 import { parseUnifiedDiff, type DiffRow, type DiffRowKind } from "./diffParser";
 import { highlightDiffCode } from "./syntaxHighlighter";
 
@@ -1973,8 +1974,13 @@ function HistoryView({
   onSelectCommit: (hash: string) => void;
   onSelectCommitFile: (filePath: string) => void;
 }): ReactNode {
+  const graphLayout = useMemo(() => buildCommitGraphLayout(history), [history]);
+  const historyStyle = {
+    "--history-graph-width": `${graphLayout.width}px`
+  } as CSSProperties;
+
   return (
-    <ResizablePanelGroup orientation="vertical" className="h-full min-h-0 bg-background">
+    <ResizablePanelGroup orientation="vertical" className="h-full min-h-0 bg-background" style={historyStyle}>
       <ResizablePanel defaultSize="44%" minSize="180px">
         <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] border-b bg-card" aria-label="Commit list">
           <div className="history-table-header" aria-hidden="true">
@@ -1994,18 +2000,17 @@ function HistoryView({
             ) : history.length === 0 ? (
               <p className="empty-state">No commits in this repository.</p>
             ) : (
-              getCommitHistoryVisualRows(history).map((row) => (
-                row.kind === "connector" ? (
-                  <HistoryConnectorRow key={row.id} graph={row.graph} />
-                ) : (
+              <div className="history-rows">
+                <CommitGraphSvg layout={graphLayout} selectedCommitHash={selectedCommitHash} />
+                {history.map((commit) => (
                   <HistoryRow
-                    key={row.commit.hash}
-                    commit={row.commit}
-                    selected={row.commit.hash === selectedCommitHash}
+                    key={commit.hash}
+                    commit={commit}
+                    selected={commit.hash === selectedCommitHash}
                     onSelectCommit={onSelectCommit}
                   />
-                )
-              ))
+                ))}
+              </div>
             )}
           </div>
         </section>
@@ -2039,11 +2044,48 @@ function HistoryView({
   );
 }
 
-function HistoryConnectorRow({ graph }: { graph: string }): ReactNode {
+function CommitGraphSvg({
+  layout,
+  selectedCommitHash
+}: {
+  layout: CommitGraphLayout;
+  selectedCommitHash: string | null;
+}): ReactNode {
+  if (layout.nodes.length === 0) {
+    return null;
+  }
+
   return (
-    <div className="history-connector-row" role="presentation" aria-hidden="true">
-      <span className="history-graph is-connector">{renderGraphTokens(graph, { fallbackCommit: false })}</span>
-    </div>
+    <svg
+      className="commit-graph-svg"
+      data-testid="commit-graph-svg"
+      width={layout.width}
+      height={layout.height}
+      viewBox={`0 0 ${layout.width} ${layout.height}`}
+      aria-hidden="true"
+    >
+      <g className="commit-graph-edges">
+        {layout.edges.map((edge) => (
+          <path
+            key={edge.id}
+            className={`commit-graph-edge lane-${edge.colorLane % 6}`}
+            d={edge.path}
+          />
+        ))}
+      </g>
+      <g className="commit-graph-nodes">
+        {layout.nodes.map((node) => (
+          <circle
+            key={node.hash}
+            data-testid="commit-graph-node"
+            className={`commit-graph-node lane-${node.lane % 6} ${node.hash === selectedCommitHash ? "is-selected" : ""}`}
+            cx={node.x}
+            cy={node.y}
+            r="3.5"
+          />
+        ))}
+      </g>
+    </svg>
   );
 }
 
@@ -2064,7 +2106,7 @@ function HistoryRow({
       aria-selected={selected}
       onClick={() => onSelectCommit(commit.hash)}
     >
-      <span className="history-graph">{renderGraphTokens(commit.graph)}</span>
+      <span className="history-graph-cell" aria-hidden="true" />
       <span className="history-description" title={commit.subject || undefined}>
         <span className="history-refs">
           {commit.refs.map((ref) => (
@@ -2687,32 +2729,6 @@ function formatDate(value: string): string {
 
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
-}
-
-function renderGraphTokens(graphText: string, options?: { fallbackCommit?: boolean }): ReactNode[] {
-  return getCommitGraphTokens(graphText, options).map((token) => {
-    return (
-      <span key={`${token.lane}:${token.char}`} className={getGraphTokenClassName(token.kind, token.lane)}>
-        {token.kind === "unknown" ? token.char : ""}
-      </span>
-    );
-  });
-}
-
-function getGraphTokenClassName(kind: CommitGraphTokenKind, lane: number): string {
-  const classes = [
-    "graph-token",
-    `lane-${lane % 6}`,
-    `graph-${kind}`
-  ];
-
-  if (kind === "commit") {
-    classes.push("commit-dot");
-  } else if (kind !== "empty" && kind !== "unknown") {
-    classes.push("graph-line");
-  }
-
-  return classes.join(" ");
 }
 
 function shouldHighlightDiffRow(kind: DiffRowKind): boolean {

@@ -269,14 +269,13 @@ describe("GitService", () => {
     ]);
   });
 
-  it("loads commit history with graph tokens and refs", async () => {
+  it("loads commit history with parent hashes and refs", async () => {
     const runner = new FakeRunner([
       ok("true\n"),
       ok(`${oid}\n`),
       ok([
-        `* \x1f${oid}\x1fad4f1df\x1fHEAD -> refs/heads/master, refs/remotes/origin/master, tag: refs/tags/v1\x1ffix(ai): combat attacks now properly loop\x1fTaylor Bombay\x1ftaylor@example.test\x1f2026-05-26T21:42:20-07:00\x1f2 hours ago\x1e`,
-        "|\\",
-        `| * \x1f${"1".repeat(40)}\x1f1111111\x1frefs/heads/feature\x1ffeat: add graph\x1fTaylor Bombay\x1ftaylor@example.test\x1f2026-05-25T10:00:00-07:00\x1fyesterday\x1e`
+        `\x1f${oid}\x1fad4f1df\x1fHEAD -> refs/heads/master, refs/remotes/origin/master, tag: refs/tags/v1\x1ffix(ai): combat attacks now properly loop\x1fTaylor Bombay\x1ftaylor@example.test\x1f2026-05-26T21:42:20-07:00\x1f2 hours ago\x1f${"1".repeat(40)} ${"2".repeat(40)}\x1e`,
+        `\x1f${"1".repeat(40)}\x1f1111111\x1frefs/heads/feature\x1ffeat: add graph\x1fTaylor Bombay\x1ftaylor@example.test\x1f2026-05-25T10:00:00-07:00\x1fyesterday\x1f\x1e`
       ].join("\n"))
     ]);
     const service = new GitService(runner);
@@ -290,16 +289,22 @@ describe("GitService", () => {
       command: "git",
       args: expect.arrayContaining([
         "log",
-        "--graph",
+        "--topo-order",
+        "--parents",
         "--max-count=200",
         "--decorate=full"
       ])
     });
+    expect(runner.calls.at(-1)?.args).not.toContain("--graph");
+    expect(runner.calls.at(-1)?.args).toContain("--pretty=format:%x1f%H%x1f%h%x1f%D%x1f%s%x1f%an%x1f%ae%x1f%aI%x1f%ar%x1f%P%x1e");
     expect(history).toEqual([
       expect.objectContaining({
         hash: oid,
         shortHash: "ad4f1df",
-        graph: "*",
+        parents: [
+          "1".repeat(40),
+          "2".repeat(40)
+        ],
         subject: "fix(ai): combat attacks now properly loop",
         refs: [
           {
@@ -317,10 +322,7 @@ describe("GitService", () => {
         ]
       }),
       expect.objectContaining({
-        graph: "| *",
-        graphLinesBefore: [
-          "|\\"
-        ],
+        parents: [],
         refs: [
           {
             name: "feature",
@@ -342,6 +344,45 @@ describe("GitService", () => {
       repoPath: "D:\\Repo"
     })).resolves.toEqual([]);
     expect(runner.calls).toHaveLength(2);
+  });
+
+  it("parses root, normal, merge, and octopus parent lists", async () => {
+    const firstParent = "1".repeat(40);
+    const secondParent = "2".repeat(40);
+    const thirdParent = "3".repeat(40);
+    const fourthParent = "4".repeat(40);
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok(`${oid}\n`),
+      ok([
+        `\x1f${oid}\x1fad4f1df\x1f\x1fmerge\x1fTaylor Bombay\x1ftaylor@example.test\x1f2026-05-26T21:42:20-07:00\x1f2 hours ago\x1f${firstParent} ${secondParent}\x1e`,
+        `\x1f${firstParent}\x1f1111111\x1f\x1fnormal\x1fTaylor Bombay\x1ftaylor@example.test\x1f2026-05-25T10:00:00-07:00\x1fyesterday\x1f${thirdParent}\x1e`,
+        `\x1f${secondParent}\x1f2222222\x1f\x1foctopus\x1fTaylor Bombay\x1ftaylor@example.test\x1f2026-05-24T10:00:00-07:00\x1f2 days ago\x1f${thirdParent} ${fourthParent} ${oid}\x1e`,
+        `\x1f${thirdParent}\x1f3333333\x1f\x1froot\x1fTaylor Bombay\x1ftaylor@example.test\x1f2026-05-23T10:00:00-07:00\x1f3 days ago\x1f\x1e`
+      ].join("\n"))
+    ]);
+    const service = new GitService(runner);
+
+    const history = await service.getCommitHistory({
+      repoPath: "D:\\Repo",
+      limit: 200
+    });
+
+    expect(history.map((commit) => commit.parents)).toEqual([
+      [
+        firstParent,
+        secondParent
+      ],
+      [
+        thirdParent
+      ],
+      [
+        thirdParent,
+        fourthParent,
+        oid
+      ],
+      []
+    ]);
   });
 
   it("loads commit details with changed file stats", async () => {

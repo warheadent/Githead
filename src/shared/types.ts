@@ -32,8 +32,7 @@ export interface CommitRef {
 export interface GitCommitGraphRow {
   hash: string;
   shortHash: string;
-  graph: string;
-  graphLinesBefore?: string[];
+  parents: string[];
   refs: CommitRef[];
   subject: string;
   authorName: string;
