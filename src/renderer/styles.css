@@ -890,9 +890,69 @@
   gap: 12px;
 }
 
+.commit-parent-links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0 4px;
+}
+
+.commit-link {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.commit-link:hover {
+  color: var(--foreground);
+}
+
 .commit-body {
-  white-space: pre-wrap;
   line-height: 1.45;
+}
+
+.commit-body > * {
+  margin: 0;
+}
+
+.commit-body > * + * {
+  margin-top: 8px;
+}
+
+.commit-body ul,
+.commit-body ol {
+  padding-left: 1.4rem;
+}
+
+.commit-body code {
+  border-radius: 4px;
+  padding: 1px 4px;
+  background: var(--muted);
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-size: 0.9em;
+}
+
+.commit-body pre {
+  overflow: auto;
+  border-radius: 4px;
+  padding: 10px;
+  background: var(--muted);
+}
+
+.commit-body pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.commit-body blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 10px;
+  color: var(--muted-foreground);
+}
+
+.commit-body a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .commit-file-row {

@@ -33,6 +33,7 @@ import {
   type FormEvent,
   type ReactNode
 } from "react";
+import ReactMarkdown from "react-markdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -1541,7 +1542,7 @@ function BranchFact({
   );
 }
 
-function Fact({ label, value }: { label: string; value: string }): ReactNode {
+function Fact({ label, value }: { label: string; value: ReactNode }): ReactNode {
   return (
     <div>
       <dt>{label}</dt>
@@ -2042,6 +2043,7 @@ function HistoryView({
               loading={commitDetailsLoading}
               error={commitDetailsError}
               selectedFilePath={selectedCommitFilePath}
+              onSelectCommit={onSelectCommit}
               onSelectCommitFile={onSelectCommitFile}
             />
           </ResizablePanel>
@@ -2165,12 +2167,14 @@ function CommitDetailsPanel({
   loading,
   error,
   selectedFilePath,
+  onSelectCommit,
   onSelectCommitFile
 }: {
   details: GitCommitDetails | null;
   loading: boolean;
   error: string;
   selectedFilePath: string | null;
+  onSelectCommit: (hash: string) => void;
   onSelectCommitFile: (filePath: string) => void;
 }): ReactNode {
   let meta: ReactNode;
@@ -2193,11 +2197,29 @@ function CommitDetailsPanel({
         <h2 className="text-base font-semibold">{details.subject || "(no subject)"}</h2>
         <dl className="commit-facts">
           <Fact label="Commit" value={details.hash} />
-          <Fact label="Parents" value={details.parents.length ? details.parents.map((parent) => parent.slice(0, 10)).join(", ") : "-"} />
+          <Fact
+            label="Parents"
+            value={<ParentCommitLinks parents={details.parents} onSelectCommit={onSelectCommit} />}
+          />
           <Fact label="Author" value={`${details.authorName} <${details.authorEmail}>`} />
           <Fact label="Date" value={formatDate(details.authorDate)} />
         </dl>
-        {details.body ? <p className="commit-body">{details.body}</p> : null}
+        {details.body ? (
+          <div className="commit-body">
+            <ReactMarkdown
+              skipHtml
+              components={{
+                a: ({ children, ...props }) => (
+                  <a {...props} target="_blank" rel="noreferrer">
+                    {children}
+                  </a>
+                )
+              }}
+            >
+              {details.body}
+            </ReactMarkdown>
+          </div>
+        ) : null}
       </div>
     );
     files = details.files.length === 0 ? (
@@ -2225,6 +2247,39 @@ function CommitDetailsPanel({
         {files}
       </div>
     </section>
+  );
+}
+
+function ParentCommitLinks({
+  parents,
+  onSelectCommit
+}: {
+  parents: string[];
+  onSelectCommit: (hash: string) => void;
+}): ReactNode {
+  if (parents.length === 0) {
+    return "-";
+  }
+
+  return (
+    <span className="commit-parent-links">
+      {parents.map((parent, index) => (
+        <Fragment key={parent}>
+          {index > 0 ? <span aria-hidden="true">, </span> : null}
+          <a
+            className="commit-link"
+            href={`#commit-${parent}`}
+            title={parent}
+            onClick={(event) => {
+              event.preventDefault();
+              onSelectCommit(parent);
+            }}
+          >
+            {parent.slice(0, 10)}
+          </a>
+        </Fragment>
+      ))}
+    </span>
   );
 }
 

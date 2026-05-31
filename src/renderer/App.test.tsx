@@ -104,6 +104,71 @@ describe("App", () => {
     expect(screen.getByText("Add MeshBites Shader")).toBeTruthy();
   });
 
+  it("renders selected commit bodies as markdown", async () => {
+    const user = userEvent.setup();
+    const commit = createCommit({
+      hash: "c".repeat(40),
+      shortHash: "ccccccc",
+      subject: "feat(ui): render markdown commit body"
+    });
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash, {
+      body: [
+        "- Preserve **graph** line segments",
+        "- Render `connector` rows",
+        "",
+        "[View details](https://example.test/commit)"
+      ].join("\n")
+    }));
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+
+    expect(await screen.findByText(/Preserve/)).toBeTruthy();
+    expect(screen.getByText("graph").tagName).toBe("STRONG");
+    expect(screen.getByText("connector").tagName).toBe("CODE");
+    const link = screen.getByRole("link", { name: "View details" });
+    expect(link.getAttribute("href")).toBe("https://example.test/commit");
+    expect(link.getAttribute("rel")).toBe("noreferrer");
+  });
+
+  it("loads parent commit details when a parent hash is clicked", async () => {
+    const user = userEvent.setup();
+    const commitHash = "c".repeat(40);
+    const parentHash = "p".repeat(40);
+    const commit = createCommit({
+      hash: commitHash,
+      shortHash: "ccccccc",
+      parents: [parentHash],
+      subject: "feat(ui): link parent commits"
+    });
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockImplementation(async ({ hash }) => createCommitDetails(hash, {
+      parents: hash === commitHash ? [parentHash] : [],
+      subject: hash === commitHash ? "feat(ui): link parent commits" : "fix(ui): parent commit"
+    }));
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    const parentLink = await screen.findByRole("link", { name: parentHash.slice(0, 10) });
+
+    expect(parentLink.getAttribute("title")).toBe(parentHash);
+
+    await user.click(parentLink);
+
+    await waitFor(() => {
+      expect(githead.getCommitDetails).toHaveBeenLastCalledWith({
+        repoPath,
+        hash: parentHash
+      });
+    });
+    expect(await screen.findByText("fix(ui): parent commit")).toBeTruthy();
+  });
+
   it("stages the selected unstaged file through the preload API", async () => {
     const user = userEvent.setup();
     const file = createStatusFile("src/App.tsx", {
