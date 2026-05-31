@@ -127,6 +127,7 @@ describe("App", () => {
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
 
     expect(await screen.findByText(/Preserve/)).toBeTruthy();
+    expect(screen.getByRole("list").tagName).toBe("UL");
     expect(screen.getByText("graph").tagName).toBe("STRONG");
     expect(screen.getByText("connector").tagName).toBe("CODE");
     const link = screen.getByRole("link", { name: "View details" });

@@ -920,7 +920,26 @@
 
 .commit-body ul,
 .commit-body ol {
+  display: grid;
+  gap: 4px;
+  margin-left: 0;
   padding-left: 1.4rem;
+}
+
+.commit-body ul {
+  list-style: disc outside;
+}
+
+.commit-body ol {
+  list-style: decimal outside;
+}
+
+.commit-body li {
+  padding-left: 0.15rem;
+}
+
+.commit-body li::marker {
+  color: var(--muted-foreground);
 }
 
 .commit-body code {
