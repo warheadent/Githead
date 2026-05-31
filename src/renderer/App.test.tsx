@@ -399,6 +399,76 @@ describe("App", () => {
       expect(screen.queryByText("first")).toBeNull();
     });
   });
+
+  it("switches branches from the repository panel", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      branches: [
+        {
+          name: "main",
+          current: true,
+          upstream: "origin/main"
+        },
+        {
+          name: "feature/nav",
+          current: false,
+          upstream: null
+        }
+      ]
+    }));
+
+    render(<App />);
+
+    await screen.findByText("main");
+    await user.click(screen.getByRole("button", { name: "Switch branch" }));
+    await user.click(await screen.findByRole("menuitem", { name: /feature\/nav/ }));
+
+    await waitFor(() => {
+      expect(githead.switchBranch).toHaveBeenCalledWith({
+        repoPath,
+        branchName: "feature/nav"
+      });
+    });
+  });
+
+  it("creates a branch from the repository panel", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary());
+
+    render(<App />);
+
+    await screen.findByText("main");
+    await user.click(screen.getByRole("button", { name: "Create branch" }));
+    await user.type(await screen.findByLabelText("Branch name"), "feature/new");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => {
+      expect(githead.createBranch).toHaveBeenCalledWith({
+        repoPath,
+        branchName: "feature/new"
+      });
+    });
+  });
+
+  it("keeps the branch dialog open when branch creation fails", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.createBranch).mockResolvedValue({
+      repoPath,
+      exitCode: -1,
+      stdout: "",
+      stderr: "Branch already exists."
+    });
+
+    render(<App />);
+
+    await screen.findByText("main");
+    await user.click(screen.getByRole("button", { name: "Create branch" }));
+    await user.type(await screen.findByLabelText("Branch name"), "main");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(await screen.findByText("Branch already exists.")).toBeTruthy();
+    expect(screen.getByLabelText("Branch name")).toBeTruthy();
+  });
 });
 
 function createGitheadMock(): GitheadApi {
@@ -430,6 +500,8 @@ function createGitheadMock(): GitheadApi {
     stageFiles: vi.fn().mockResolvedValue(okOperation),
     unstageFiles: vi.fn().mockResolvedValue(okOperation),
     commitChanges: vi.fn().mockResolvedValue(okOperation),
+    switchBranch: vi.fn().mockResolvedValue(okOperation),
+    createBranch: vi.fn().mockResolvedValue(okOperation),
     getAiSettings: vi.fn().mockResolvedValue(aiSettings),
     saveAiSettings: vi.fn().mockResolvedValue(aiSettings),
     generateCommitMessage: vi.fn().mockResolvedValue(okOperation),
@@ -453,6 +525,13 @@ function createSummary(overrides: Partial<RepoSummary> = {}): RepoSummary {
     isValid: true,
     branch: "main",
     upstream: "origin/main",
+    branches: [
+      {
+        name: "main",
+        current: true,
+        upstream: "origin/main"
+      }
+    ],
     hasHead: true,
     remotes: [
       {

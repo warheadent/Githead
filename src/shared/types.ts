@@ -12,6 +12,12 @@ export interface GitRemote {
   direction: "fetch" | "push";
 }
 
+export interface GitBranch {
+  name: string;
+  current: boolean;
+  upstream: string | null;
+}
+
 export type GitDiffSide = "staged" | "unstaged";
 
 export type GitDiffKind = "text" | "binary" | "empty" | "error";
@@ -74,6 +80,7 @@ export interface RepoSummary {
   isValid: boolean;
   branch: string | null;
   upstream: string | null;
+  branches: GitBranch[];
   hasHead: boolean;
   remotes: GitRemote[];
   statusLines: string[];
@@ -125,6 +132,11 @@ export interface FileSystemPathRequest {
 export interface GitCommitRequest {
   repoPath: string;
   message: string;
+}
+
+export interface GitBranchRequest {
+  repoPath: string;
+  branchName: string;
 }
 
 export interface AiSettings {
@@ -199,6 +211,8 @@ export interface GitheadApi {
   stageFiles(request: GitPathRequest): Promise<GitOperationResult>;
   unstageFiles(request: GitPathRequest): Promise<GitOperationResult>;
   commitChanges(request: GitCommitRequest): Promise<GitOperationResult>;
+  switchBranch(request: GitBranchRequest): Promise<GitOperationResult>;
+  createBranch(request: GitBranchRequest): Promise<GitOperationResult>;
   getAiSettings(): Promise<AiSettings>;
   saveAiSettings(request: AiSettingsSaveRequest): Promise<AiSettings>;
   generateCommitMessage(request: GenerateCommitMessageRequest): Promise<GitOperationResult>;

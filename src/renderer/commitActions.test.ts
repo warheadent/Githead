@@ -14,6 +14,13 @@ const baseSummary: RepoSummary = {
   isValid: true,
   branch: "main",
   upstream: "origin/main",
+  branches: [
+    {
+      name: "main",
+      current: true,
+      upstream: "origin/main"
+    }
+  ],
   hasHead: true,
   remotes: [],
   statusLines: [],

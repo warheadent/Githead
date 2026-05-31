@@ -201,7 +201,8 @@ describe("GitService", () => {
       ok("origin/main\n"),
       ok("origin\thttps://example.test/repo.git (fetch)\norigin\thttps://example.test/repo.git (push)\n"),
       ok(`${status}\0`),
-      ok(`${oid}\n`)
+      ok(`${oid}\n`),
+      ok("main\torigin/main\t*\nfeature/nav\t\t \n")
     ]);
     const service = new GitService(runner);
 
@@ -213,6 +214,18 @@ describe("GitService", () => {
       upstream: "origin/main",
       hasHead: true
     });
+    expect(summary.branches).toEqual([
+      {
+        name: "main",
+        current: true,
+        upstream: "origin/main"
+      },
+      {
+        name: "feature/nav",
+        current: false,
+        upstream: null
+      }
+    ]);
     expect(summary.remotes).toHaveLength(2);
     expect(summary.files).toEqual([
       expect.objectContaining({
@@ -515,6 +528,98 @@ describe("GitService", () => {
       "--file=-"
     ]);
     expect(stdinText(runner.calls.at(-1)!)).toBe("subject\n\nbody\n");
+  });
+
+  it("switches branches without remote guessing", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("feature/nav\n"),
+      ok("Switched to branch 'feature/nav'\n")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.switchBranch({
+      repoPath: "D:\\Repo",
+      branchName: "feature/nav"
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(runner.calls.at(-1)?.args).toEqual([
+      "-C",
+      "D:\\Repo",
+      "switch",
+      "--no-guess",
+      "feature/nav"
+    ]);
+  });
+
+  it("creates and switches to a new branch", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("feature/new\n"),
+      failure(""),
+      ok("Switched to a new branch 'feature/new'\n")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.createBranch({
+      repoPath: "D:\\Repo",
+      branchName: "feature/new"
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(runner.calls.at(-2)?.args).toEqual([
+      "-C",
+      "D:\\Repo",
+      "show-ref",
+      "--verify",
+      "--quiet",
+      "refs/heads/feature/new"
+    ]);
+    expect(runner.calls.at(-1)?.args).toEqual([
+      "-C",
+      "D:\\Repo",
+      "switch",
+      "-c",
+      "feature/new"
+    ]);
+  });
+
+  it("rejects invalid branch names before switching", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      failure("fatal: 'bad..name' is not a valid branch name")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.switchBranch({
+      repoPath: "D:\\Repo",
+      branchName: "bad..name"
+    });
+
+    expect(result.exitCode).toBe(-1);
+    expect(result.stderr).toContain("not a valid branch name");
+    expect(runner.calls).toHaveLength(2);
+  });
+
+  it("does not overwrite existing branches", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("feature/existing\n"),
+      ok()
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.createBranch({
+      repoPath: "D:\\Repo",
+      branchName: "feature/existing"
+    });
+
+    expect(result).toMatchObject({
+      exitCode: -1,
+      stderr: "Branch already exists."
+    });
+    expect(runner.calls).toHaveLength(3);
   });
 
   it("returns the full staged diff", async () => {

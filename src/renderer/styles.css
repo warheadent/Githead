@@ -196,6 +196,42 @@
   border-top: 1px solid var(--border);
 }
 
+.repo-branch-fact dd {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.repo-branch-name,
+.branch-menu-name,
+.branch-menu-upstream {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repo-branch-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.branch-menu-content {
+  max-width: 360px;
+}
+
+.branch-menu-name {
+  max-width: 190px;
+}
+
+.branch-menu-upstream {
+  max-width: 120px;
+  margin-left: auto;
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+}
+
 .repo-recents {
   display: grid;
   gap: 8px;

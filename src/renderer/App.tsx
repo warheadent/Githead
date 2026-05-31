@@ -7,10 +7,12 @@ import {
   ExternalLink,
   FileCode2,
   FolderOpen,
+  GitBranch as GitBranchIcon,
   History,
   ListTree,
   Loader2,
   MapPinned,
+  Plus,
   RefreshCw,
   RotateCcw,
   Save,
@@ -50,6 +52,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -63,6 +66,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import type {
   AiSettings,
+  GitBranch,
   GitAction,
   GitCommitChangedFile,
   GitCommitDetails,
@@ -101,6 +105,9 @@ interface AppState {
   repoRecents: string[];
   repoLoading: boolean;
   summary: RepoSummary | null;
+  branchDialogOpen: boolean;
+  branchNameDraft: string;
+  branchError: string;
   runningAction: GitAction | null;
   runningOperation: string | null;
   lastResult: GitRunResult | null;
@@ -153,6 +160,9 @@ const initialState: AppState = {
   repoRecents: [],
   repoLoading: false,
   summary: null,
+  branchDialogOpen: false,
+  branchNameDraft: "",
+  branchError: "",
   runningAction: null,
   runningOperation: null,
   lastResult: null,
@@ -550,6 +560,9 @@ export function App(): ReactNode {
       repoPath: nextRepoPath,
       repoLoading: true,
       summary: null,
+      branchDialogOpen: false,
+      branchNameDraft: "",
+      branchError: "",
       lastResult: null,
       lastOperationResult: null,
       selection: null,
@@ -701,7 +714,7 @@ export function App(): ReactNode {
     }
   }, [appendSystemLine, refreshRepo, updateState]);
 
-  const runFileOperation = useCallback(async (
+  const runRepoOperation = useCallback(async (
     label: string,
     nextSelection: FileSelection | null | undefined,
     operation: () => Promise<GitOperationResult>
@@ -759,23 +772,104 @@ export function App(): ReactNode {
     }
   }, [appendOperationLog, refreshRepo, updateState]);
 
+  const openBranchDialog = useCallback((): void => {
+    const current = stateRef.current;
+    if (!current.summary?.isValid || isOperationRunning(current)) {
+      return;
+    }
+
+    updateState({
+      branchDialogOpen: true,
+      branchNameDraft: "",
+      branchError: ""
+    });
+  }, [updateState]);
+
+  const closeBranchDialog = useCallback((): void => {
+    if (isOperationRunning(stateRef.current)) {
+      return;
+    }
+
+    updateState({
+      branchDialogOpen: false,
+      branchError: ""
+    });
+  }, [updateState]);
+
+  const switchBranch = useCallback(async (branchName: string): Promise<void> => {
+    const current = stateRef.current;
+    const nextBranchName = branchName.trim();
+
+    if (!current.summary?.isValid || isOperationRunning(current) || !nextBranchName || nextBranchName === current.summary.branch) {
+      return;
+    }
+
+    await runRepoOperation(`Switching branch to ${nextBranchName}`, null, () =>
+      window.githead.switchBranch({
+        repoPath: stateRef.current.repoPath,
+        branchName: nextBranchName
+      })
+    );
+  }, [runRepoOperation]);
+
+  const createBranch = useCallback(async (): Promise<void> => {
+    const current = stateRef.current;
+    const branchName = current.branchNameDraft.trim();
+
+    if (!current.summary?.isValid || isOperationRunning(current)) {
+      return;
+    }
+
+    if (!branchName) {
+      updateState({
+        branchError: "Enter a branch name."
+      });
+      return;
+    }
+
+    updateState({
+      branchError: ""
+    });
+
+    await runRepoOperation(`Creating branch ${branchName}`, null, () =>
+      window.githead.createBranch({
+        repoPath: stateRef.current.repoPath,
+        branchName
+      })
+    );
+
+    const result = stateRef.current.lastOperationResult;
+    if (result?.exitCode === 0) {
+      updateState({
+        branchDialogOpen: false,
+        branchNameDraft: "",
+        branchError: ""
+      });
+      return;
+    }
+
+    updateState({
+      branchError: getOperationFailureMessage(result, "Unable to create branch.")
+    });
+  }, [runRepoOperation, updateState]);
+
   const stageFiles = useCallback(async (paths: string[], nextSelection?: FileSelection): Promise<void> => {
-    await runFileOperation("Staging files", nextSelection, () =>
+    await runRepoOperation("Staging files", nextSelection, () =>
       window.githead.stageFiles({
         repoPath: stateRef.current.repoPath,
         paths
       })
     );
-  }, [runFileOperation]);
+  }, [runRepoOperation]);
 
   const unstageFiles = useCallback(async (paths: string[], nextSelection?: FileSelection): Promise<void> => {
-    await runFileOperation("Unstaging files", nextSelection, () =>
+    await runRepoOperation("Unstaging files", nextSelection, () =>
       window.githead.unstageFiles({
         repoPath: stateRef.current.repoPath,
         paths
       })
     );
-  }, [runFileOperation]);
+  }, [runRepoOperation]);
 
   const commitChanges = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
@@ -783,7 +877,7 @@ export function App(): ReactNode {
       return;
     }
 
-    await runFileOperation("Committing changes", null, () =>
+    await runRepoOperation("Committing changes", null, () =>
       window.githead.commitChanges({
         repoPath: stateRef.current.repoPath,
         message: stateRef.current.commitMessage
@@ -795,7 +889,7 @@ export function App(): ReactNode {
         commitMessage: ""
       });
     }
-  }, [runFileOperation, updateState]);
+  }, [runRepoOperation, updateState]);
 
   const commitAndPush = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
@@ -991,7 +1085,7 @@ export function App(): ReactNode {
 
     const repoPath = stateRef.current.repoPath;
     if (kind === "open") {
-      await runFileOperation("Opening file", undefined, () =>
+      await runRepoOperation("Opening file", undefined, () =>
         window.githead.openFile({
           repoPath,
           path: file.path
@@ -1000,7 +1094,7 @@ export function App(): ReactNode {
       return;
     }
     if (kind === "show") {
-      await runFileOperation("Showing file in Explorer", undefined, () =>
+      await runRepoOperation("Showing file in Explorer", undefined, () =>
         window.githead.showInExplorer({
           repoPath,
           path: file.path
@@ -1009,7 +1103,7 @@ export function App(): ReactNode {
       return;
     }
     if (kind === "copy") {
-      await runFileOperation("Copying path", undefined, () =>
+      await runRepoOperation("Copying path", undefined, () =>
         window.githead.copyPathToClipboard({
           repoPath,
           path: file.path
@@ -1018,7 +1112,7 @@ export function App(): ReactNode {
       return;
     }
     if (kind === "delete") {
-      await runFileOperation("Deleting file", null, () =>
+      await runRepoOperation("Deleting file", null, () =>
         window.githead.deleteFile({
           repoPath,
           path: file.path
@@ -1027,7 +1121,7 @@ export function App(): ReactNode {
       return;
     }
     if (kind === "revert") {
-      await runFileOperation("Reverting changes", null, () =>
+      await runRepoOperation("Reverting changes", null, () =>
         window.githead.revertFileChanges({
           repoPath,
           path: file.path,
@@ -1037,13 +1131,13 @@ export function App(): ReactNode {
       return;
     }
 
-    await runFileOperation("Adding to ignore", undefined, () =>
+    await runRepoOperation("Adding to ignore", undefined, () =>
       window.githead.addPathToIgnore({
         repoPath,
         path: file.path
       })
     );
-  }, [runFileOperation, stageFiles, unstageFiles]);
+  }, [runRepoOperation, stageFiles, unstageFiles]);
 
   const stagedFiles = useMemo(() => getStagedFiles(state.summary), [state.summary]);
   const unstagedFiles = useMemo(() => getUnstagedFiles(state.summary), [state.summary]);
@@ -1076,6 +1170,10 @@ export function App(): ReactNode {
             onRemoveRecent={(repoPath) => {
               void removeRecentRepo(repoPath);
             }}
+            onSwitchBranch={(branchName) => {
+              void switchBranch(branchName);
+            }}
+            onOpenBranchDialog={openBranchDialog}
             onOpenSettings={openSettingsDialog}
           />
         </ResizablePanel>
@@ -1223,6 +1321,28 @@ export function App(): ReactNode {
           void saveAiSettings();
         }}
       />
+
+      <BranchDialog
+        open={state.branchDialogOpen}
+        branchName={state.branchNameDraft}
+        saving={state.runningOperation?.startsWith("Creating branch ") ?? false}
+        error={state.branchError}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeBranchDialog();
+          }
+        }}
+        onBranchNameChange={(branchNameDraft) => {
+          updateState({
+            branchNameDraft,
+            branchError: ""
+          });
+        }}
+        onCreate={(event) => {
+          event.preventDefault();
+          void createBranch();
+        }}
+      />
     </main>
   );
 }
@@ -1237,6 +1357,8 @@ function RepositoryPanel({
   onRefreshRepo,
   onSelectRecent,
   onRemoveRecent,
+  onSwitchBranch,
+  onOpenBranchDialog,
   onOpenSettings
 }: {
   repoPath: string;
@@ -1248,6 +1370,8 @@ function RepositoryPanel({
   onRefreshRepo: () => void;
   onSelectRecent: (repoPath: string) => void;
   onRemoveRecent: (repoPath: string) => void;
+  onSwitchBranch: (branchName: string) => void;
+  onOpenBranchDialog: () => void;
   onOpenSettings: () => void;
 }): ReactNode {
   const remotes = summary?.remotes.length
@@ -1323,7 +1447,13 @@ function RepositoryPanel({
       ) : null}
 
       <dl className="repo-facts">
-        <Fact label="Branch" value={summary?.branch ?? "-"} />
+        <BranchFact
+          currentBranch={summary?.branch ?? null}
+          branches={summary?.branches ?? []}
+          disabled={running || !summary?.isValid}
+          onSwitchBranch={onSwitchBranch}
+          onCreateBranch={onOpenBranchDialog}
+        />
         <Fact label="Upstream" value={summary?.upstream ?? "-"} />
         <Fact label="Remotes" value={remotes} />
       </dl>
@@ -1339,6 +1469,73 @@ function RepositoryPanel({
         </Button>
       </div>
     </aside>
+  );
+}
+
+function BranchFact({
+  currentBranch,
+  branches,
+  disabled,
+  onSwitchBranch,
+  onCreateBranch
+}: {
+  currentBranch: string | null;
+  branches: GitBranch[];
+  disabled: boolean;
+  onSwitchBranch: (branchName: string) => void;
+  onCreateBranch: () => void;
+}): ReactNode {
+  const switchableBranches = branches.filter((branch) => !branch.current && branch.name !== currentBranch);
+  const canSwitch = !disabled && switchableBranches.length > 0;
+
+  return (
+    <div className="repo-branch-fact">
+      <dt>Branch</dt>
+      <dd>
+        <span className="repo-branch-name" title={currentBranch ?? undefined}>{currentBranch ?? "-"}</span>
+        <span className="repo-branch-actions">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-xs"
+                disabled={!canSwitch}
+                aria-label="Switch branch"
+                title="Switch branch"
+              >
+                <GitBranchIcon />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="branch-menu-content">
+              {switchableBranches.map((branch) => (
+                <DropdownMenuItem key={branch.name} onSelect={() => onSwitchBranch(branch.name)}>
+                  <GitBranchIcon />
+                  <span className="branch-menu-name">{branch.name}</span>
+                  {branch.upstream ? <span className="branch-menu-upstream">{branch.upstream}</span> : null}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={onCreateBranch}>
+                <Plus />
+                New Branch
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-xs"
+            disabled={disabled}
+            onClick={onCreateBranch}
+            aria-label="Create branch"
+            title="Create branch"
+          >
+            <Plus />
+          </Button>
+        </span>
+      </dd>
+    </div>
   );
 }
 
@@ -2071,6 +2268,63 @@ function CommitPanel({
   );
 }
 
+function BranchDialog({
+  open,
+  branchName,
+  saving,
+  error,
+  onOpenChange,
+  onBranchNameChange,
+  onCreate
+}: {
+  open: boolean;
+  branchName: string;
+  saving: boolean;
+  error: string;
+  onOpenChange: (open: boolean) => void;
+  onBranchNameChange: (branchName: string) => void;
+  onCreate: (event: FormEvent<HTMLFormElement>) => void;
+}): ReactNode {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[420px]">
+        <form className="grid gap-4" onSubmit={onCreate}>
+          <DialogHeader>
+            <DialogTitle>New Branch</DialogTitle>
+            <DialogDescription className="sr-only">
+              Create a local branch from the current checkout.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-2">
+            <Label htmlFor="branch-name">Branch name</Label>
+            <Input
+              id="branch-name"
+              type="text"
+              autoComplete="off"
+              value={branchName}
+              disabled={saving}
+              autoFocus
+              onChange={(event) => onBranchNameChange(event.target.value)}
+            />
+          </div>
+
+          <p className="min-h-5 text-sm text-destructive" role="alert">{error}</p>
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={saving} onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? <Loader2 className="animate-spin" /> : <Plus />}
+              {saving ? "Creating" : "Create"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function SettingsDialog({
   open,
   draft,
@@ -2201,6 +2455,7 @@ function createInvalidSummary(repoPath: string, message: string): RepoSummary {
     isValid: false,
     branch: null,
     upstream: null,
+    branches: [],
     hasHead: false,
     remotes: [],
     statusLines: [],
@@ -2379,6 +2634,10 @@ function formatOperationLog(label: string, result: GitOperationResult): string {
 
   chunks.push(`${label} exited with code ${result.exitCode}.\n\n`);
   return chunks.join("");
+}
+
+function getOperationFailureMessage(result: GitOperationResult | null, fallback: string): string {
+  return result?.stderr.trim() || result?.stdout.trim() || fallback;
 }
 
 function formatStreamOutput(stream: "stdout" | "stderr", text: string): string {

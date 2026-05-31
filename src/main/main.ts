@@ -5,6 +5,7 @@ import { IPC_CHANNELS } from "../shared/ipc";
 import type {
   AiSettingsSaveRequest,
   FileSystemPathRequest,
+  GitBranchRequest,
   GitCommitDetailsRequest,
   GitCommitFileDiffRequest,
   GitCommitHistoryRequest,
@@ -152,6 +153,14 @@ ipcMain.handle(IPC_CHANNELS.unstageFiles, async (_event, request: GitPathRequest
 
 ipcMain.handle(IPC_CHANNELS.commitChanges, async (_event, request: GitCommitRequest) => {
   return runExclusiveGitOperation(() => gitService.commitChanges(request), request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.switchBranch, async (_event, request: GitBranchRequest) => {
+  return runExclusiveGitOperation(() => gitService.switchBranch(request), request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.createBranch, async (_event, request: GitBranchRequest) => {
+  return runExclusiveGitOperation(() => gitService.createBranch(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.getAiSettings, async () => {

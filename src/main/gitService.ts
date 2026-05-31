@@ -4,6 +4,8 @@ import path from "node:path";
 import type {
   CommitRef,
   GitAction,
+  GitBranch,
+  GitBranchRequest,
   GitCommitChangedFile,
   GitCommitDetails,
   GitCommitDetailsRequest,
@@ -49,6 +51,7 @@ const emptySummary = (repoPath: string, validationErrors: string[]): RepoSummary
   isValid: false,
   branch: null,
   upstream: null,
+  branches: [],
   hasHead: false,
   remotes: [],
   statusLines: [],
@@ -75,7 +78,8 @@ export class GitService {
       upstreamResult,
       remoteResult,
       statusResult,
-      headResult
+      headResult,
+      branchesResult
     ] = await Promise.all([
       this.runGit(repoPath, [
         "branch",
@@ -102,15 +106,21 @@ export class GitService {
         "rev-parse",
         "--verify",
         "HEAD"
+      ]),
+      this.runGit(repoPath, [
+        "branch",
+        "--format=%(refname:short)%09%(upstream:short)%09%(HEAD)"
       ])
     ]);
     const status = parsePorcelainStatus(statusResult.stdout);
+    const branch = branchResult.stdout.trim() || null;
 
     return {
       repoPath,
       isValid: true,
-      branch: branchResult.stdout.trim() || null,
+      branch,
       upstream: upstreamResult.exitCode === 0 ? upstreamResult.stdout.trim() || null : null,
+      branches: parseBranches(branchesResult.stdout, branch),
       hasHead: headResult.exitCode === 0,
       remotes: parseRemotes(remoteResult.stdout),
       statusLines: status.statusLines,
@@ -370,6 +380,52 @@ export class GitService {
     ], undefined, `${request.message.trimEnd()}\n`);
   }
 
+  async switchBranch(request: GitBranchRequest): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+    }
+
+    const branchResult = await this.validateBranchName(request.repoPath, request.branchName);
+    if ("error" in branchResult) {
+      return this.createOperationFailure(request.repoPath, branchResult.error);
+    }
+
+    return this.runGitOperation(request.repoPath, [
+      "switch",
+      "--no-guess",
+      branchResult.branchName
+    ]);
+  }
+
+  async createBranch(request: GitBranchRequest): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+    }
+
+    const branchResult = await this.validateBranchName(request.repoPath, request.branchName);
+    if ("error" in branchResult) {
+      return this.createOperationFailure(request.repoPath, branchResult.error);
+    }
+
+    const existingResult = await this.runGit(request.repoPath, [
+      "show-ref",
+      "--verify",
+      "--quiet",
+      `refs/heads/${branchResult.branchName}`
+    ]);
+    if (existingResult.exitCode === 0) {
+      return this.createOperationFailure(request.repoPath, "Branch already exists.");
+    }
+
+    return this.runGitOperation(request.repoPath, [
+      "switch",
+      "-c",
+      branchResult.branchName
+    ]);
+  }
+
   async getStagedDiff(repoPath: string): Promise<GitOperationResult> {
     const validation = await this.validateRepo(repoPath);
     if (!validation.isValid) {
@@ -566,6 +622,40 @@ export class GitService {
     return {
       isValid: true,
       validationErrors: []
+    };
+  }
+
+  private async validateBranchName(repoPath: string, branchName: string): Promise<
+    { branchName: string } | { error: string }
+  > {
+    const trimmedBranchName = branchName.trim();
+
+    if (!trimmedBranchName) {
+      return {
+        error: "Enter a branch name."
+      };
+    }
+
+    if (trimmedBranchName.startsWith("-")) {
+      return {
+        error: "Branch name cannot start with a dash."
+      };
+    }
+
+    const result = await this.runGit(repoPath, [
+      "check-ref-format",
+      "--branch",
+      trimmedBranchName
+    ]);
+
+    if (result.exitCode !== 0) {
+      return {
+        error: result.stderr.trim() || "Branch name is invalid."
+      };
+    }
+
+    return {
+      branchName: result.stdout.trim() || trimmedBranchName
     };
   }
 
@@ -1078,6 +1168,41 @@ function parsePorcelainStatus(text: string): { files: GitStatusFile[]; statusLin
       ...files.map((file) => `${file.indexStatus}${file.worktreeStatus} ${file.path}`)
     ]
   };
+}
+
+function parseBranches(text: string, currentBranch: string | null): GitBranch[] {
+  const branchesByName = new Map<string, GitBranch>();
+
+  for (const line of splitLines(text)) {
+    const [name = "", upstream = "", head = ""] = line.split("\t");
+    const branchName = name.trim();
+
+    if (!branchName) {
+      continue;
+    }
+
+    branchesByName.set(branchName, {
+      name: branchName,
+      current: head.trim() === "*" || branchName === currentBranch,
+      upstream: upstream.trim() || null
+    });
+  }
+
+  if (currentBranch && !branchesByName.has(currentBranch)) {
+    branchesByName.set(currentBranch, {
+      name: currentBranch,
+      current: true,
+      upstream: null
+    });
+  }
+
+  return [...branchesByName.values()].sort((left, right) => {
+    if (left.current !== right.current) {
+      return left.current ? -1 : 1;
+    }
+
+    return left.name.localeCompare(right.name);
+  });
 }
 
 function parseTrackedRecord(

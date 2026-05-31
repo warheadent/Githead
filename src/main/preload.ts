@@ -3,6 +3,7 @@ import { IPC_CHANNELS } from "../shared/ipc";
 import type {
   AiSettingsSaveRequest,
   FileSystemPathRequest,
+  GitBranchRequest,
   GitCommitDetailsRequest,
   GitCommitFileDiffRequest,
   GitCommitHistoryRequest,
@@ -42,6 +43,10 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.unstageFiles, request) as ReturnType<GitheadApi["unstageFiles"]>,
   commitChanges: (request: GitCommitRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.commitChanges, request) as ReturnType<GitheadApi["commitChanges"]>,
+  switchBranch: (request: GitBranchRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.switchBranch, request) as ReturnType<GitheadApi["switchBranch"]>,
+  createBranch: (request: GitBranchRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.createBranch, request) as ReturnType<GitheadApi["createBranch"]>,
   getAiSettings: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getAiSettings) as ReturnType<GitheadApi["getAiSettings"]>,
   saveAiSettings: (request: AiSettingsSaveRequest) =>

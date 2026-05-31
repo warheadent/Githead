@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json && tsc --noEmit -p tsconfig.tests.json",
     "test": "vitest run",
     "build": "npm run build:main && vite build",
-    "package:win": "npm run build && node scripts/package-win.mjs"
+    "package:win": "npm run build && node scripts/package-win.mjs",
+    "package:win:dir": "npm run build && node scripts/package-win.mjs --dir"
   },
   "keywords": [
     "electron",
@@ -45,7 +46,8 @@
       "package.json"
     ],
     "win": {
-      "target": "dir",
+      "target": "portable",
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
       "signAndEditExecutable": false
     }
   },

@@ -11,6 +11,8 @@ export const IPC_CHANNELS = {
   stageFiles: "git:stage-files",
   unstageFiles: "git:unstage-files",
   commitChanges: "git:commit-changes",
+  switchBranch: "git:branch-switch",
+  createBranch: "git:branch-create",
   getAiSettings: "ai:settings:get",
   saveAiSettings: "ai:settings:save",
   generateCommitMessage: "ai:commit-message:generate",

@@ -3,7 +3,7 @@ import path from "node:path";
 
 const builderCli = path.join(process.cwd(), "node_modules", "electron-builder", "cli.js");
 
-const child = spawn(process.execPath, [builderCli, "--win"], {
+const child = spawn(process.execPath, [builderCli, "--win", ...process.argv.slice(2)], {
   cwd: process.cwd(),
   env: {
     ...process.env,
