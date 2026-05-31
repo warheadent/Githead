@@ -1,5 +1,6 @@
 import type {
   GitHubIssue,
+  GitHubPullRequest,
   GitHubRepository,
   GitHubRepositoryRequest,
   GitHubWorkflowRun
@@ -10,6 +11,7 @@ const GITHUB_API_BASE_URL = "https://api.github.com";
 const GITHUB_API_VERSION = "2022-11-28";
 const WORKFLOW_RUN_LIMIT = 30;
 const ISSUE_LIMIT = 50;
+const PULL_REQUEST_LIMIT = 50;
 
 type Fetch = typeof fetch;
 
@@ -58,6 +60,31 @@ interface GitHubApiIssue {
   updated_at?: string | null;
   html_url?: string | null;
   pull_request?: unknown;
+}
+
+interface GitHubApiPullRequestsResponse extends Array<GitHubApiPullRequest> {}
+
+interface GitHubApiPullRequest {
+  number?: number;
+  title?: string | null;
+  state?: string | null;
+  user?: {
+    login?: string | null;
+  } | null;
+  head?: {
+    ref?: string | null;
+  } | null;
+  base?: {
+    ref?: string | null;
+  } | null;
+  labels?: Array<string | {
+    name?: string | null;
+  }>;
+  comments?: number | null;
+  review_comments?: number | null;
+  draft?: boolean | null;
+  updated_at?: string | null;
+  html_url?: string | null;
 }
 
 export class GitHubService {
@@ -121,6 +148,36 @@ export class GitHubService {
           comments: Number.isFinite(issue.comments) ? Number(issue.comments) : 0,
           updatedAt: normalizeText(issue.updated_at, ""),
           url: normalizeText(issue.html_url, repository.webUrl)
+        }
+      ];
+    });
+  }
+
+  async getPullRequests(request: GitHubRepositoryRequest): Promise<GitHubPullRequest[]> {
+    const repository = await this.getRepository(request.repoPath);
+    const response = await this.fetchJson<GitHubApiPullRequestsResponse>(
+      repository,
+      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/pulls?state=open&per_page=${PULL_REQUEST_LIMIT}`
+    );
+
+    return response.flatMap((pullRequest) => {
+      if (!Number.isFinite(pullRequest.number)) {
+        return [];
+      }
+
+      return [
+        {
+          number: Number(pullRequest.number),
+          title: normalizeText(pullRequest.title, "(no title)"),
+          state: normalizeText(pullRequest.state, "open"),
+          authorLogin: normalizeText(pullRequest.user?.login, "-"),
+          sourceBranch: normalizeText(pullRequest.head?.ref, "-"),
+          targetBranch: normalizeText(pullRequest.base?.ref, "-"),
+          labels: normalizeLabels(pullRequest.labels ?? []),
+          comments: sumCounts(pullRequest.comments, pullRequest.review_comments),
+          draft: pullRequest.draft === true,
+          updatedAt: normalizeText(pullRequest.updated_at, ""),
+          url: normalizeText(pullRequest.html_url, repository.webUrl)
         }
       ];
     });
@@ -259,4 +316,16 @@ function normalizeLabels(labels: Array<string | { name?: string | null }>): stri
     const name = label.name?.trim();
     return name ? [name] : [];
   });
+}
+
+function sumCounts(...values: Array<number | null | undefined>): number {
+  let total = 0;
+
+  for (const value of values) {
+    if (Number.isFinite(value)) {
+      total += Number(value);
+    }
+  }
+
+  return total;
 }

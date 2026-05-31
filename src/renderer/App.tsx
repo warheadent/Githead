@@ -9,6 +9,7 @@ import {
   FileCode2,
   FolderOpen,
   GitBranch as GitBranchIcon,
+  GitPullRequest,
   History,
   ListTree,
   Loader2,
@@ -79,6 +80,7 @@ import type {
   GitDiffSide,
   GitFileDiff,
   GitHubIssue,
+  GitHubPullRequest,
   GitHubWorkflowRun,
   GitOperationResult,
   GitOutputEvent,
@@ -95,7 +97,7 @@ import { highlightDiffCode } from "./syntaxHighlighter";
 const DEFAULT_REPO_PATH = "D:\\Githead";
 const HISTORY_LIMIT = 200;
 
-type WorkspaceView = "status" | "history" | "workflows" | "issues" | "activity";
+type WorkspaceView = "status" | "history" | "workflows" | "pullRequests" | "issues" | "activity";
 
 interface FileSelection {
   path: string;
@@ -147,6 +149,10 @@ interface AppState {
   workflowRunsLoading: boolean;
   workflowRunsLoaded: boolean;
   workflowRunsError: string;
+  pullRequests: GitHubPullRequest[];
+  pullRequestsLoading: boolean;
+  pullRequestsLoaded: boolean;
+  pullRequestsError: string;
   issues: GitHubIssue[];
   issuesLoading: boolean;
   issuesLoaded: boolean;
@@ -163,6 +169,7 @@ interface RequestIds {
   commitDetails: number;
   commitFileDiff: number;
   workflowRuns: number;
+  pullRequests: number;
   issues: number;
 }
 
@@ -211,6 +218,10 @@ const initialState: AppState = {
   workflowRunsLoading: false,
   workflowRunsLoaded: false,
   workflowRunsError: "",
+  pullRequests: [],
+  pullRequestsLoading: false,
+  pullRequestsLoaded: false,
+  pullRequestsError: "",
   issues: [],
   issuesLoading: false,
   issuesLoaded: false,
@@ -230,6 +241,7 @@ export function App(): ReactNode {
     commitDetails: 0,
     commitFileDiff: 0,
     workflowRuns: 0,
+    pullRequests: 0,
     issues: 0
   });
   const logOutputRef = useRef<HTMLPreElement | null>(null);
@@ -496,6 +508,56 @@ export function App(): ReactNode {
     }
   }, [updateState]);
 
+  const loadPullRequests = useCallback(async (force: boolean): Promise<void> => {
+    const current = stateRef.current;
+    if (!current.summary?.isValid || !current.summary.githubRepository) {
+      updateState({
+        pullRequests: [],
+        pullRequestsLoaded: false,
+        pullRequestsError: current.summary?.isValid ? "Selected repository does not have a supported GitHub origin." : ""
+      });
+      return;
+    }
+
+    if (current.pullRequestsLoaded && !force) {
+      return;
+    }
+
+    const requestId = requestIds.current.pullRequests + 1;
+    requestIds.current.pullRequests = requestId;
+    updateState({
+      pullRequestsLoading: true,
+      pullRequestsError: ""
+    });
+
+    try {
+      const pullRequests = await window.githead.getGitHubPullRequests({
+        repoPath: stateRef.current.repoPath
+      });
+
+      if (requestId === requestIds.current.pullRequests) {
+        updateState({
+          pullRequests,
+          pullRequestsLoaded: true
+        });
+      }
+    } catch (error) {
+      if (requestId === requestIds.current.pullRequests) {
+        updateState({
+          pullRequests: [],
+          pullRequestsLoaded: false,
+          pullRequestsError: error instanceof Error ? error.message : "Unable to load pull requests."
+        });
+      }
+    } finally {
+      if (requestId === requestIds.current.pullRequests) {
+        updateState({
+          pullRequestsLoading: false
+        });
+      }
+    }
+  }, [updateState]);
+
   const loadIssues = useCallback(async (force: boolean): Promise<void> => {
     const current = stateRef.current;
     if (!current.summary?.isValid || !current.summary.githubRepository) {
@@ -670,10 +732,13 @@ export function App(): ReactNode {
     if (latest.activeView === "workflows") {
       await loadWorkflowRuns(true);
     }
+    if (latest.activeView === "pullRequests") {
+      await loadPullRequests(true);
+    }
     if (latest.activeView === "issues") {
       await loadIssues(true);
     }
-  }, [loadCommitHistory, loadIssues, loadSelectedDiff, loadWorkflowRuns, updateState]);
+  }, [loadCommitHistory, loadIssues, loadPullRequests, loadSelectedDiff, loadWorkflowRuns, updateState]);
 
   const switchRepo = useCallback(async (repoPath: string, options: { addToRecents?: boolean } = {}): Promise<void> => {
     const nextRepoPath = repoPath.trim();
@@ -686,6 +751,7 @@ export function App(): ReactNode {
     requestIds.current.commitDetails += 1;
     requestIds.current.commitFileDiff += 1;
     requestIds.current.workflowRuns += 1;
+    requestIds.current.pullRequests += 1;
     requestIds.current.issues += 1;
 
     updateState((current) => resetGitHubState(resetHistoryState({
@@ -1139,6 +1205,22 @@ export function App(): ReactNode {
     }
   }, [updateState]);
 
+  const openExternalUrl = useCallback((url: string): void => {
+    void window.githead.openExternalUrl({
+      url
+    }).catch((error) => {
+      updateState((current) => ({
+        ...current,
+        lastOperationResult: {
+          repoPath: current.repoPath,
+          exitCode: -1,
+          stdout: "",
+          stderr: error instanceof Error ? error.message : "Unable to open link."
+        }
+      }));
+    });
+  }, [updateState]);
+
   const setWorkspaceView = useCallback((view: WorkspaceView): void => {
     if (stateRef.current.activeView === view) {
       return;
@@ -1159,10 +1241,13 @@ export function App(): ReactNode {
     if (view === "workflows" && !latest.workflowRunsLoaded && !latest.workflowRunsLoading) {
       void loadWorkflowRuns(false);
     }
+    if (view === "pullRequests" && !latest.pullRequestsLoaded && !latest.pullRequestsLoading) {
+      void loadPullRequests(false);
+    }
     if (view === "issues" && !latest.issuesLoaded && !latest.issuesLoading) {
       void loadIssues(false);
     }
-  }, [loadCommitHistory, loadIssues, loadWorkflowRuns, updateState]);
+  }, [loadCommitHistory, loadIssues, loadPullRequests, loadWorkflowRuns, updateState]);
 
   const selectFile = useCallback((file: GitStatusFile, side: GitDiffSide): void => {
     const selection = {
@@ -1341,8 +1426,8 @@ export function App(): ReactNode {
               }}
               className="flex min-h-0 flex-1 flex-col"
             >
-              <div className="border-b bg-card px-6 pt-2">
-                <TabsList variant="line" className="h-9 w-full bg-transparent p-0">
+              <div className="workspace-tabs-bar border-b bg-card px-6 pt-2">
+                <TabsList variant="line" className="h-9 w-max min-w-full bg-transparent p-0">
                   <TabsTrigger value="status" className="workspace-tab-trigger h-9 rounded-none">
                     <ListTree />
                     File Status
@@ -1356,6 +1441,10 @@ export function App(): ReactNode {
                       <TabsTrigger value="workflows" className="workspace-tab-trigger h-9 rounded-none">
                         <Workflow />
                         Workflow Runs
+                      </TabsTrigger>
+                      <TabsTrigger value="pullRequests" className="workspace-tab-trigger h-9 rounded-none">
+                        <GitPullRequest />
+                        Pull Requests
                       </TabsTrigger>
                       <TabsTrigger value="issues" className="workspace-tab-trigger h-9 rounded-none">
                         <CircleDot />
@@ -1423,8 +1512,23 @@ export function App(): ReactNode {
                       loading={state.workflowRunsLoading}
                       loaded={state.workflowRunsLoaded}
                       error={state.workflowRunsError}
+                      onOpenExternalUrl={openExternalUrl}
                       onRefresh={() => {
                         void loadWorkflowRuns(true);
+                      }}
+                    />
+                  </TabsContent>
+
+                  <TabsContent forceMount value="pullRequests" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
+                    <PullRequestsView
+                      summary={state.summary}
+                      pullRequests={state.pullRequests}
+                      loading={state.pullRequestsLoading}
+                      loaded={state.pullRequestsLoaded}
+                      error={state.pullRequestsError}
+                      onOpenExternalUrl={openExternalUrl}
+                      onRefresh={() => {
+                        void loadPullRequests(true);
                       }}
                     />
                   </TabsContent>
@@ -1436,6 +1540,7 @@ export function App(): ReactNode {
                       loading={state.issuesLoading}
                       loaded={state.issuesLoaded}
                       error={state.issuesError}
+                      onOpenExternalUrl={openExternalUrl}
                       onRefresh={() => {
                         void loadIssues(true);
                       }}
@@ -2256,6 +2361,7 @@ function WorkflowRunsView({
   loading,
   loaded,
   error,
+  onOpenExternalUrl,
   onRefresh
 }: {
   summary: RepoSummary | null;
@@ -2263,6 +2369,7 @@ function WorkflowRunsView({
   loading: boolean;
   loaded: boolean;
   error: string;
+  onOpenExternalUrl: (url: string) => void;
   onRefresh: () => void;
 }): ReactNode {
   const repository = summary?.githubRepository ?? null;
@@ -2297,7 +2404,7 @@ function WorkflowRunsView({
           <p className="empty-state">No workflow runs found.</p>
         ) : (
           workflowRuns.map((run) => (
-            <WorkflowRunRow key={run.id} run={run} />
+            <WorkflowRunRow key={run.id} run={run} onOpenExternalUrl={onOpenExternalUrl} />
           ))
         )}
       </div>
@@ -2305,11 +2412,27 @@ function WorkflowRunsView({
   );
 }
 
-function WorkflowRunRow({ run }: { run: GitHubWorkflowRun }): ReactNode {
+function WorkflowRunRow({
+  run,
+  onOpenExternalUrl
+}: {
+  run: GitHubWorkflowRun;
+  onOpenExternalUrl: (url: string) => void;
+}): ReactNode {
   const statusText = formatWorkflowRunStatus(run);
 
   return (
-    <a className="github-row workflow-run-row" href={run.url} target="_blank" rel="noreferrer" role="listitem">
+    <a
+      className="github-row workflow-run-row"
+      href={run.url}
+      target="_blank"
+      rel="noreferrer"
+      role="listitem"
+      onClick={(event) => {
+        event.preventDefault();
+        onOpenExternalUrl(run.url);
+      }}
+    >
       <span className={`github-status ${getWorkflowRunStatusClass(run)}`}>
         <span className="github-status-dot" aria-hidden="true" />
         <span className="truncate" title={statusText}>{statusText}</span>
@@ -2327,12 +2450,108 @@ function WorkflowRunRow({ run }: { run: GitHubWorkflowRun }): ReactNode {
   );
 }
 
+function PullRequestsView({
+  summary,
+  pullRequests,
+  loading,
+  loaded,
+  error,
+  onOpenExternalUrl,
+  onRefresh
+}: {
+  summary: RepoSummary | null;
+  pullRequests: GitHubPullRequest[];
+  loading: boolean;
+  loaded: boolean;
+  error: string;
+  onOpenExternalUrl: (url: string) => void;
+  onRefresh: () => void;
+}): ReactNode {
+  const repository = summary?.githubRepository ?? null;
+  const countLabel = loaded ? `${pullRequests.length} open ${pullRequests.length === 1 ? "pull request" : "pull requests"}` : "-";
+
+  return (
+    <section className="github-view pull-requests-grid" aria-label="Pull requests">
+      <GitHubViewHeader
+        eyebrow="GitHub"
+        title="Pull Requests"
+        repositoryName={repository?.fullName ?? "-"}
+        countLabel={countLabel}
+        loading={loading}
+        disabled={!repository}
+        onRefresh={onRefresh}
+      />
+      <div className="github-table-header" aria-hidden="true">
+        <span>PR</span>
+        <span>Title</span>
+        <span>Branch</span>
+        <span>Labels</span>
+        <span>Updated</span>
+      </div>
+      <div className="github-list" role="list" aria-label="Pull requests">
+        {!repository ? (
+          <p className="empty-state">Select a repository with a supported GitHub origin.</p>
+        ) : loading ? (
+          <p className="empty-state">Loading pull requests...</p>
+        ) : error ? (
+          <p className="empty-state bad">{error}</p>
+        ) : pullRequests.length === 0 ? (
+          <p className="empty-state">No open pull requests found.</p>
+        ) : (
+          pullRequests.map((pullRequest) => (
+            <PullRequestRow key={pullRequest.number} pullRequest={pullRequest} onOpenExternalUrl={onOpenExternalUrl} />
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
+function PullRequestRow({
+  pullRequest,
+  onOpenExternalUrl
+}: {
+  pullRequest: GitHubPullRequest;
+  onOpenExternalUrl: (url: string) => void;
+}): ReactNode {
+  return (
+    <a
+      className="github-row pull-request-row"
+      href={pullRequest.url}
+      target="_blank"
+      rel="noreferrer"
+      role="listitem"
+      onClick={(event) => {
+        event.preventDefault();
+        onOpenExternalUrl(pullRequest.url);
+      }}
+    >
+      <span className="github-issue-number">
+        #{pullRequest.number}
+        {pullRequest.draft ? <span className="github-draft-text">Draft</span> : null}
+      </span>
+      <span className="min-w-0">
+        <span className="github-primary-text" title={pullRequest.title}>{pullRequest.title}</span>
+        <span className="github-secondary-text" title={pullRequest.authorLogin}>
+          {pullRequest.authorLogin} · {pullRequest.comments} {pullRequest.comments === 1 ? "comment" : "comments"}
+        </span>
+      </span>
+      <span className="github-secondary-text" title={`${pullRequest.sourceBranch} -> ${pullRequest.targetBranch}`}>
+        {pullRequest.sourceBranch} -&gt; {pullRequest.targetBranch}
+      </span>
+      <GitHubLabels labels={pullRequest.labels} />
+      <span className="truncate" title={formatDate(pullRequest.updatedAt)}>{formatDate(pullRequest.updatedAt)}</span>
+    </a>
+  );
+}
+
 function IssuesView({
   summary,
   issues,
   loading,
   loaded,
   error,
+  onOpenExternalUrl,
   onRefresh
 }: {
   summary: RepoSummary | null;
@@ -2340,6 +2559,7 @@ function IssuesView({
   loading: boolean;
   loaded: boolean;
   error: string;
+  onOpenExternalUrl: (url: string) => void;
   onRefresh: () => void;
 }): ReactNode {
   const repository = summary?.githubRepository ?? null;
@@ -2374,7 +2594,7 @@ function IssuesView({
           <p className="empty-state">No open issues found.</p>
         ) : (
           issues.map((issue) => (
-            <IssueRow key={issue.number} issue={issue} />
+            <IssueRow key={issue.number} issue={issue} onOpenExternalUrl={onOpenExternalUrl} />
           ))
         )}
       </div>
@@ -2382,23 +2602,45 @@ function IssuesView({
   );
 }
 
-function IssueRow({ issue }: { issue: GitHubIssue }): ReactNode {
+function IssueRow({
+  issue,
+  onOpenExternalUrl
+}: {
+  issue: GitHubIssue;
+  onOpenExternalUrl: (url: string) => void;
+}): ReactNode {
   return (
-    <a className="github-row issue-row" href={issue.url} target="_blank" rel="noreferrer" role="listitem">
+    <a
+      className="github-row issue-row"
+      href={issue.url}
+      target="_blank"
+      rel="noreferrer"
+      role="listitem"
+      onClick={(event) => {
+        event.preventDefault();
+        onOpenExternalUrl(issue.url);
+      }}
+    >
       <span className="github-issue-number">#{issue.number}</span>
       <span className="github-primary-text" title={issue.title}>{issue.title}</span>
-      <span className="github-labels" title={issue.labels.join(", ")}>
-        {issue.labels.length === 0 ? (
-          <span className="github-secondary-text">-</span>
-        ) : (
-          issue.labels.slice(0, 3).map((label) => (
-            <span key={label} className="github-label-chip">{label}</span>
-          ))
-        )}
-      </span>
+      <GitHubLabels labels={issue.labels} />
       <span className="github-secondary-text">{issue.comments}</span>
       <span className="truncate" title={formatDate(issue.updatedAt)}>{formatDate(issue.updatedAt)}</span>
     </a>
+  );
+}
+
+function GitHubLabels({ labels }: { labels: string[] }): ReactNode {
+  return (
+    <span className="github-labels" title={labels.join(", ")}>
+      {labels.length === 0 ? (
+        <span className="github-secondary-text">-</span>
+      ) : (
+        labels.slice(0, 3).map((label) => (
+          <span key={label} className="github-label-chip">{label}</span>
+        ))
+      )}
+    </span>
   );
 }
 
@@ -3024,6 +3266,10 @@ function resetGitHubState(state: AppState): AppState {
     workflowRunsLoading: false,
     workflowRunsLoaded: false,
     workflowRunsError: "",
+    pullRequests: [],
+    pullRequestsLoading: false,
+    pullRequestsLoaded: false,
+    pullRequestsError: "",
     issues: [],
     issuesLoading: false,
     issuesLoaded: false,
@@ -3065,7 +3311,7 @@ function resetHistoryState(state: AppState): AppState {
 }
 
 function isGitHubView(view: WorkspaceView): boolean {
-  return view === "workflows" || view === "issues";
+  return view === "workflows" || view === "pullRequests" || view === "issues";
 }
 
 function getGitHubRepositoryKey(summary: RepoSummary | null): string {

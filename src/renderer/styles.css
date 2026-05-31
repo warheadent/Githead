@@ -350,6 +350,11 @@
   flex: 0 0 auto;
 }
 
+.workspace-tabs-bar {
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
 .workspace-tab-trigger-end {
   margin-left: auto;
 }
@@ -1005,6 +1010,10 @@
   --github-grid-template: 128px minmax(280px, 1fr) 140px 118px 172px;
 }
 
+.pull-requests-grid {
+  --github-grid-template: 88px minmax(300px, 1fr) 220px 180px 172px;
+}
+
 .issues-grid {
   --github-grid-template: 88px minmax(300px, 1fr) 220px 92px 172px;
 }
@@ -1096,6 +1105,14 @@
   font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
   font-size: 0.82rem;
   font-weight: 700;
+}
+
+.github-draft-text {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted-foreground);
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-size: 0.72rem;
 }
 
 .github-status {

@@ -45,6 +45,20 @@ export interface GitHubIssue {
   url: string;
 }
 
+export interface GitHubPullRequest {
+  number: number;
+  title: string;
+  state: string;
+  authorLogin: string;
+  sourceBranch: string;
+  targetBranch: string;
+  labels: string[];
+  comments: number;
+  draft: boolean;
+  updatedAt: string;
+  url: string;
+}
+
 export interface GitBranch {
   name: string;
   current: boolean;
@@ -196,6 +210,10 @@ export interface GenerateCommitMessageRequest {
   repoPath: string;
 }
 
+export interface ExternalUrlRequest {
+  url: string;
+}
+
 export interface GitFileDiffRequest {
   repoPath: string;
   path: string;
@@ -244,6 +262,7 @@ export interface GitheadApi {
   removeRepoRecent(repoPath: string): Promise<string[]>;
   getGitHubWorkflowRuns(request: GitHubRepositoryRequest): Promise<GitHubWorkflowRun[]>;
   getGitHubIssues(request: GitHubRepositoryRequest): Promise<GitHubIssue[]>;
+  getGitHubPullRequests(request: GitHubRepositoryRequest): Promise<GitHubPullRequest[]>;
   getCommitHistory(request: GitCommitHistoryRequest): Promise<GitCommitGraphRow[]>;
   getCommitDetails(request: GitCommitDetailsRequest): Promise<GitCommitDetails>;
   getCommitFileDiff(request: GitCommitFileDiffRequest): Promise<GitFileDiff>;
@@ -256,6 +275,7 @@ export interface GitheadApi {
   getAiSettings(): Promise<AiSettings>;
   saveAiSettings(request: AiSettingsSaveRequest): Promise<AiSettings>;
   generateCommitMessage(request: GenerateCommitMessageRequest): Promise<GitOperationResult>;
+  openExternalUrl(request: ExternalUrlRequest): Promise<void>;
   openFile(request: FileSystemPathRequest): Promise<GitOperationResult>;
   showInExplorer(request: FileSystemPathRequest): Promise<GitOperationResult>;
   copyPathToClipboard(request: FileSystemPathRequest): Promise<GitOperationResult>;

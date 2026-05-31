@@ -150,6 +150,60 @@ describe("GitHubService", () => {
     );
   });
 
+  it("loads open pull requests", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse([
+      {
+        number: 11,
+        title: "Add pull request tab",
+        state: "open",
+        user: {
+          login: "taylor"
+        },
+        head: {
+          ref: "feature/github-pr-tab"
+        },
+        base: {
+          ref: "main"
+        },
+        labels: [
+          {
+            name: "ui"
+          }
+        ],
+        comments: 2,
+        review_comments: 5,
+        draft: true,
+        updated_at: "2026-05-30T12:00:00Z",
+        html_url: "https://github.com/openai/githead/pull/11"
+      }
+    ]));
+    const service = new GitHubService(createRepositoryProvider(repository), fetchImpl);
+
+    await expect(service.getPullRequests({
+      repoPath: "D:\\Repo"
+    })).resolves.toEqual([
+      {
+        number: 11,
+        title: "Add pull request tab",
+        state: "open",
+        authorLogin: "taylor",
+        sourceBranch: "feature/github-pr-tab",
+        targetBranch: "main",
+        labels: [
+          "ui"
+        ],
+        comments: 7,
+        draft: true,
+        updatedAt: "2026-05-30T12:00:00Z",
+        url: "https://github.com/openai/githead/pull/11"
+      }
+    ]);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://api.github.com/repos/openai/githead/pulls?state=open&per_page=50",
+      expect.any(Object)
+    );
+  });
+
   it("rejects repositories without a supported GitHub origin", async () => {
     const service = new GitHubService(createRepositoryProvider(null), vi.fn<typeof fetch>());
 

@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import { IPC_CHANNELS } from "../shared/ipc";
 import type {
   AiSettingsSaveRequest,
+  ExternalUrlRequest,
   FileSystemPathRequest,
   GitBranchRequest,
   GitCommitDetailsRequest,
@@ -34,6 +35,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubWorkflowRuns, request) as ReturnType<GitheadApi["getGitHubWorkflowRuns"]>,
   getGitHubIssues: (request: GitHubRepositoryRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubIssues, request) as ReturnType<GitheadApi["getGitHubIssues"]>,
+  getGitHubPullRequests: (request: GitHubRepositoryRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getGitHubPullRequests, request) as ReturnType<GitheadApi["getGitHubPullRequests"]>,
   getCommitHistory: (request: GitCommitHistoryRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getCommitHistory, request) as ReturnType<GitheadApi["getCommitHistory"]>,
   getCommitDetails: (request: GitCommitDetailsRequest) =>
@@ -58,6 +61,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.saveAiSettings, request) as ReturnType<GitheadApi["saveAiSettings"]>,
   generateCommitMessage: (request: GenerateCommitMessageRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.generateCommitMessage, request) as ReturnType<GitheadApi["generateCommitMessage"]>,
+  openExternalUrl: (request: ExternalUrlRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.openExternalUrl, request) as ReturnType<GitheadApi["openExternalUrl"]>,
   openFile: (request: FileSystemPathRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.openFile, request) as ReturnType<GitheadApi["openFile"]>,
   showInExplorer: (request: FileSystemPathRequest) =>

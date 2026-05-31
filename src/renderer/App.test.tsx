@@ -22,6 +22,7 @@ import type {
   GitCommitGraphRow,
   GitFileDiff,
   GitHubIssue,
+  GitHubPullRequest,
   GitHubWorkflowRun,
   GitheadApi,
   GitOperationResult,
@@ -340,6 +341,7 @@ describe("App", () => {
 
     await screen.findByText("Repository ready");
     expect(screen.queryByRole("tab", { name: /Workflow Runs/ })).toBeNull();
+    expect(screen.queryByRole("tab", { name: /Pull Requests/ })).toBeNull();
     expect(screen.queryByRole("tab", { name: /^Issues$/ })).toBeNull();
 
     unmount();
@@ -348,6 +350,7 @@ describe("App", () => {
     render(<App />);
 
     await screen.findByRole("tab", { name: /Workflow Runs/ });
+    expect(screen.getByRole("tab", { name: /Pull Requests/ })).toBeTruthy();
     expect(screen.getByRole("tab", { name: /^Issues$/ })).toBeTruthy();
   });
 
@@ -376,6 +379,54 @@ describe("App", () => {
     expect(await screen.findByText("CI")).toBeTruthy();
     expect(screen.getByText("success")).toBeTruthy();
     expect(screen.getByText("feat: add workflow runs tab")).toBeTruthy();
+
+    await user.click(screen.getByText("CI"));
+
+    await waitFor(() => {
+      expect(githead.openExternalUrl).toHaveBeenCalledWith({
+        url: "https://github.com/openai/githead/actions/runs/1"
+      });
+    });
+  });
+
+  it("loads open pull requests from GitHub when the Pull Requests tab opens", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
+    vi.mocked(githead.getGitHubPullRequests).mockResolvedValue([
+      createPullRequest({
+        number: 24,
+        title: "Add GitHub pull request tab",
+        sourceBranch: "feature/pr-tab",
+        targetBranch: "main",
+        labels: [
+          "ui"
+        ],
+        comments: 3,
+        url: "https://github.com/openai/githead/pull/24"
+      })
+    ]);
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("tab", { name: /Pull Requests/ }));
+
+    await waitFor(() => {
+      expect(githead.getGitHubPullRequests).toHaveBeenCalledWith({
+        repoPath
+      });
+    });
+    expect(await screen.findByText("#24")).toBeTruthy();
+    expect(screen.getByText("Add GitHub pull request tab")).toBeTruthy();
+    expect(screen.getByText("feature/pr-tab -> main")).toBeTruthy();
+    expect(screen.getByText("ui")).toBeTruthy();
+
+    await user.click(screen.getByText("Add GitHub pull request tab"));
+
+    await waitFor(() => {
+      expect(githead.openExternalUrl).toHaveBeenCalledWith({
+        url: "https://github.com/openai/githead/pull/24"
+      });
+    });
   });
 
   it("loads open issues from GitHub when the Issues tab opens", async () => {
@@ -388,7 +439,8 @@ describe("App", () => {
         labels: [
           "enhancement"
         ],
-        comments: 4
+        comments: 4,
+        url: "https://github.com/openai/githead/issues/12"
       })
     ]);
 
@@ -405,6 +457,14 @@ describe("App", () => {
     expect(screen.getByText("Add GitHub issue tab")).toBeTruthy();
     expect(screen.getByText("enhancement")).toBeTruthy();
     expect(screen.getByText("4")).toBeTruthy();
+
+    await user.click(screen.getByText("Add GitHub issue tab"));
+
+    await waitFor(() => {
+      expect(githead.openExternalUrl).toHaveBeenCalledWith({
+        url: "https://github.com/openai/githead/issues/12"
+      });
+    });
   });
 
   it("shows upstream commits ready to pull in the Pull action", async () => {
@@ -709,6 +769,7 @@ function createGitheadMock(): GitheadApi {
     removeRepoRecent: vi.fn().mockResolvedValue([]),
     getGitHubWorkflowRuns: vi.fn().mockResolvedValue([]),
     getGitHubIssues: vi.fn().mockResolvedValue([]),
+    getGitHubPullRequests: vi.fn().mockResolvedValue([]),
     getCommitHistory: vi.fn().mockResolvedValue([]),
     getCommitDetails: vi.fn(),
     getCommitFileDiff: vi.fn(),
@@ -721,6 +782,7 @@ function createGitheadMock(): GitheadApi {
     getAiSettings: vi.fn().mockResolvedValue(aiSettings),
     saveAiSettings: vi.fn().mockResolvedValue(aiSettings),
     generateCommitMessage: vi.fn().mockResolvedValue(okOperation),
+    openExternalUrl: vi.fn().mockResolvedValue(undefined),
     openFile: vi.fn().mockResolvedValue(okOperation),
     showInExplorer: vi.fn().mockResolvedValue(okOperation),
     copyPathToClipboard: vi.fn().mockResolvedValue(okOperation),
@@ -823,6 +885,23 @@ function createIssue(overrides: Partial<GitHubIssue> = {}): GitHubIssue {
     comments: 0,
     updatedAt: "2026-05-30T10:05:00Z",
     url: "https://github.com/openai/githead/issues/1",
+    ...overrides
+  };
+}
+
+function createPullRequest(overrides: Partial<GitHubPullRequest> = {}): GitHubPullRequest {
+  return {
+    number: 1,
+    title: "Default pull request",
+    state: "open",
+    authorLogin: "taylor",
+    sourceBranch: "feature/default",
+    targetBranch: "main",
+    labels: [],
+    comments: 0,
+    draft: false,
+    updatedAt: "2026-05-30T10:05:00Z",
+    url: "https://github.com/openai/githead/pull/1",
     ...overrides
   };
 }

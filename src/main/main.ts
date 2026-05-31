@@ -4,6 +4,7 @@ import path from "node:path";
 import { IPC_CHANNELS } from "../shared/ipc";
 import type {
   AiSettingsSaveRequest,
+  ExternalUrlRequest,
   FileSystemPathRequest,
   GitBranchRequest,
   GitCommitDetailsRequest,
@@ -56,6 +57,17 @@ function createWindow(): void {
       nodeIntegration: false,
       sandbox: false
     }
+  });
+
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    const parsed = normalizeExternalUrl(url);
+    if ("url" in parsed) {
+      void shell.openExternal(parsed.url);
+    }
+
+    return {
+      action: "deny"
+    };
   });
 
   if (process.env.VITE_DEV_SERVER_URL) {
@@ -139,6 +151,10 @@ ipcMain.handle(IPC_CHANNELS.getGitHubIssues, async (_event, request: GitHubRepos
   return getGitHubService().getIssues(request);
 });
 
+ipcMain.handle(IPC_CHANNELS.getGitHubPullRequests, async (_event, request: GitHubRepositoryRequest) => {
+  return getGitHubService().getPullRequests(request);
+});
+
 ipcMain.handle(IPC_CHANNELS.getCommitHistory, async (_event, request: GitCommitHistoryRequest) => {
   return gitService.getCommitHistory(request);
 });
@@ -185,6 +201,15 @@ ipcMain.handle(IPC_CHANNELS.saveAiSettings, async (_event, request: AiSettingsSa
 
 ipcMain.handle(IPC_CHANNELS.generateCommitMessage, async (_event, request: GenerateCommitMessageRequest) => {
   return runExclusiveGitOperation(() => getCommitMessageService().generateCommitMessage(request), request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.openExternalUrl, async (_event, request: ExternalUrlRequest) => {
+  const parsed = normalizeExternalUrl(request.url);
+  if ("error" in parsed) {
+    throw new Error(parsed.error);
+  }
+
+  await shell.openExternal(parsed.url);
 });
 
 ipcMain.handle(IPC_CHANNELS.openFile, async (_event, request: FileSystemPathRequest) => {
@@ -336,6 +361,25 @@ function resolveRepoFilePath(request: FileSystemPathRequest):
     repoRoot,
     absolutePath
   };
+}
+
+function normalizeExternalUrl(url: string): { url: string } | { error: string } {
+  try {
+    const parsed = new URL(url.trim());
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return {
+        error: "Only HTTP and HTTPS links can be opened."
+      };
+    }
+
+    return {
+      url: parsed.href
+    };
+  } catch {
+    return {
+      error: "External URL is invalid."
+    };
+  }
 }
 
 async function getStats(filePath: string): Promise<Awaited<ReturnType<typeof fs.stat>> | null> {
