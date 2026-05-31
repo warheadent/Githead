@@ -893,45 +893,58 @@ function shouldEscapeIgnoreSpaces(existing: string): boolean {
 }
 
 function parseCommitHistory(text: string): GitCommitGraphRow[] {
-  return text
-    .split(/\r?\n/)
-    .flatMap((line) => {
-      const separatorIndex = line.indexOf("\x1f");
-      if (separatorIndex === -1) {
-        return [];
+  const rows: GitCommitGraphRow[] = [];
+  let graphLinesBefore: string[] = [];
+
+  for (const line of text.split(/\r?\n/)) {
+    const separatorIndex = line.indexOf("\x1f");
+    if (separatorIndex === -1) {
+      const graphLine = line.trimEnd();
+      if (graphLine.trim().length > 0) {
+        graphLinesBefore.push(graphLine);
       }
 
-      const graph = line.slice(0, separatorIndex).trimEnd();
-      const fields = line.slice(separatorIndex + 1).replace(/\x1e$/, "").split("\x1f");
-      const [
-        hash = "",
-        shortHash = "",
-        rawRefs = "",
-        subject = "",
-        authorName = "",
-        authorEmail = "",
-        authorDate = "",
-        relativeDate = ""
-      ] = fields;
+      continue;
+    }
 
-      if (!hash) {
-        return [];
-      }
+    const graph = line.slice(0, separatorIndex).trimEnd();
+    const fields = line.slice(separatorIndex + 1).replace(/\x1e$/, "").split("\x1f");
+    const [
+      hash = "",
+      shortHash = "",
+      rawRefs = "",
+      subject = "",
+      authorName = "",
+      authorEmail = "",
+      authorDate = "",
+      relativeDate = ""
+    ] = fields;
 
-      return [
-        {
-          hash,
-          shortHash,
-          graph,
-          refs: parseCommitRefs(rawRefs),
-          subject,
-          authorName,
-          authorEmail,
-          authorDate,
-          relativeDate
-        }
-      ];
-    });
+    if (!hash) {
+      continue;
+    }
+
+    const row: GitCommitGraphRow = {
+      hash,
+      shortHash,
+      graph,
+      refs: parseCommitRefs(rawRefs),
+      subject,
+      authorName,
+      authorEmail,
+      authorDate,
+      relativeDate
+    };
+
+    if (graphLinesBefore.length > 0) {
+      row.graphLinesBefore = graphLinesBefore;
+      graphLinesBefore = [];
+    }
+
+    rows.push(row);
+  }
+
+  return rows;
 }
 
 function parseCommitDetails(text: string): Omit<GitCommitDetails, "files"> {

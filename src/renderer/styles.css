@@ -595,7 +595,8 @@
 }
 
 .history-table-header,
-.history-row {
+.history-row,
+.history-connector-row {
   display: grid;
   grid-template-columns: 82px minmax(360px, 1fr) 150px 150px 92px;
   align-items: center;
@@ -621,6 +622,14 @@
   text-align: left;
 }
 
+.history-connector-row {
+  width: 100%;
+  min-height: 12px;
+  border: 0;
+  padding: 0 12px;
+  pointer-events: none;
+}
+
 .history-row.is-selected {
   color: var(--primary-foreground);
   background: var(--primary);
@@ -628,20 +637,32 @@
 
 .history-graph {
   display: flex;
+  align-self: stretch;
   min-width: 0;
+  min-height: 28px;
   overflow: hidden;
   white-space: pre;
 }
 
+.history-graph.is-connector {
+  min-height: 12px;
+}
+
 .graph-token {
+  position: relative;
   display: inline-grid;
-  width: 10px;
-  min-width: 10px;
+  width: 11px;
+  min-width: 11px;
+  align-self: stretch;
   place-items: center;
   color: oklch(0.56 0.1 230);
   font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
   font-size: 0.9rem;
   font-weight: 700;
+}
+
+.graph-token:not(.graph-unknown) {
+  font-size: 0;
 }
 
 .graph-token.lane-1 {
@@ -664,8 +685,55 @@
   color: oklch(0.58 0.1 185);
 }
 
+.graph-vertical::before,
 .commit-dot::before {
   content: "";
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.graph-horizontal::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: -1px;
+  left: -1px;
+  height: 2px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.graph-diagonal-slash::before,
+.graph-diagonal-backslash::before {
+  content: "";
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  left: 50%;
+  width: 2px;
+  transform-origin: center;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.graph-diagonal-slash::before {
+  transform: translateX(-50%) rotate(24deg);
+}
+
+.graph-diagonal-backslash::before {
+  transform: translateX(-50%) rotate(-24deg);
+}
+
+.commit-dot::after {
+  content: "";
+  position: relative;
   width: 7px;
   height: 7px;
   border: 2px solid currentColor;
@@ -673,7 +741,7 @@
   background: var(--card);
 }
 
-.history-row.is-selected .commit-dot::before {
+.history-row.is-selected .commit-dot::after {
   background: var(--primary-foreground);
 }
 

@@ -81,6 +81,7 @@ import type {
 } from "../shared/types";
 import { parseCommitSubject } from "../shared/commitSubject";
 import { canPush, getPrimaryCommitAction, getPullableCommitCount, hasStagedChanges } from "./commitActions";
+import { getCommitGraphTokens, getCommitHistoryVisualRows, type CommitGraphTokenKind } from "./commitGraph";
 import { parseUnifiedDiff, type DiffRow, type DiffRowKind } from "./diffParser";
 import { highlightDiffCode } from "./syntaxHighlighter";
 
@@ -1992,13 +1993,17 @@ function HistoryView({
             ) : history.length === 0 ? (
               <p className="empty-state">No commits in this repository.</p>
             ) : (
-              history.map((commit) => (
-                <HistoryRow
-                  key={commit.hash}
-                  commit={commit}
-                  selected={commit.hash === selectedCommitHash}
-                  onSelectCommit={onSelectCommit}
-                />
+              getCommitHistoryVisualRows(history).map((row) => (
+                row.kind === "connector" ? (
+                  <HistoryConnectorRow key={row.id} graph={row.graph} />
+                ) : (
+                  <HistoryRow
+                    key={row.commit.hash}
+                    commit={row.commit}
+                    selected={row.commit.hash === selectedCommitHash}
+                    onSelectCommit={onSelectCommit}
+                  />
+                )
               ))
             )}
           </div>
@@ -2030,6 +2035,14 @@ function HistoryView({
         </ResizablePanelGroup>
       </ResizablePanel>
     </ResizablePanelGroup>
+  );
+}
+
+function HistoryConnectorRow({ graph }: { graph: string }): ReactNode {
+  return (
+    <div className="history-connector-row" role="presentation" aria-hidden="true">
+      <span className="history-graph is-connector">{renderGraphTokens(graph, { fallbackCommit: false })}</span>
+    </div>
   );
 }
 
@@ -2670,24 +2683,30 @@ function formatDate(value: string): string {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
-function renderGraphTokens(graphText: string): ReactNode[] {
-  const chars = graphText.length > 0 ? [...graphText] : [
-    "*"
-  ];
-
-  return chars.map((char, index) => {
-    const className = char === "*"
-      ? `graph-token lane-${index % 6} commit-dot`
-      : char === "|" || char === "/" || char === "\\" || char === "_"
-        ? `graph-token lane-${index % 6} graph-line`
-        : `graph-token lane-${index % 6}`;
-
+function renderGraphTokens(graphText: string, options?: { fallbackCommit?: boolean }): ReactNode[] {
+  return getCommitGraphTokens(graphText, options).map((token) => {
     return (
-      <span key={`${index}:${char}`} className={className}>
-        {char === "*" ? "" : char}
+      <span key={`${token.lane}:${token.char}`} className={getGraphTokenClassName(token.kind, token.lane)}>
+        {token.kind === "unknown" ? token.char : ""}
       </span>
     );
   });
+}
+
+function getGraphTokenClassName(kind: CommitGraphTokenKind, lane: number): string {
+  const classes = [
+    "graph-token",
+    `lane-${lane % 6}`,
+    `graph-${kind}`
+  ];
+
+  if (kind === "commit") {
+    classes.push("commit-dot");
+  } else if (kind !== "empty" && kind !== "unknown") {
+    classes.push("graph-line");
+  }
+
+  return classes.join(" ");
 }
 
 function shouldHighlightDiffRow(kind: DiffRowKind): boolean {

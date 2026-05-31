@@ -275,6 +275,7 @@ describe("GitService", () => {
       ok(`${oid}\n`),
       ok([
         `* \x1f${oid}\x1fad4f1df\x1fHEAD -> refs/heads/master, refs/remotes/origin/master, tag: refs/tags/v1\x1ffix(ai): combat attacks now properly loop\x1fTaylor Bombay\x1ftaylor@example.test\x1f2026-05-26T21:42:20-07:00\x1f2 hours ago\x1e`,
+        "|\\",
         `| * \x1f${"1".repeat(40)}\x1f1111111\x1frefs/heads/feature\x1ffeat: add graph\x1fTaylor Bombay\x1ftaylor@example.test\x1f2026-05-25T10:00:00-07:00\x1fyesterday\x1e`
       ].join("\n"))
     ]);
@@ -317,6 +318,9 @@ describe("GitService", () => {
       }),
       expect.objectContaining({
         graph: "| *",
+        graphLinesBefore: [
+          "|\\"
+        ],
         refs: [
           {
             name: "feature",
