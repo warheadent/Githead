@@ -223,6 +223,127 @@ describe("App", () => {
     });
   });
 
+  it("stages multiple ctrl-selected unstaged files through the preload API", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/first.ts", {
+          isUnstaged: true,
+          worktreeStatus: "M"
+        }),
+        createStatusFile("src/second.ts", {
+          isUnstaged: true,
+          worktreeStatus: "M"
+        })
+      ]
+    }));
+
+    render(<App />);
+
+    const firstFile = await screen.findByRole("option", { name: /src\/first\.ts/ });
+    const secondFile = screen.getByRole("option", { name: /src\/second\.ts/ });
+    await user.click(firstFile);
+    fireEvent.click(secondFile, { ctrlKey: true });
+
+    expect(firstFile.getAttribute("aria-selected")).toBe("true");
+    expect(secondFile.getAttribute("aria-selected")).toBe("true");
+
+    await user.click(screen.getByRole("button", { name: /^Stage$/ }));
+
+    await waitFor(() => {
+      expect(githead.stageFiles).toHaveBeenCalledWith({
+        repoPath,
+        paths: [
+          "src/first.ts",
+          "src/second.ts"
+        ]
+      });
+    });
+  });
+
+  it("unstages multiple ctrl-selected staged files through the preload API", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/first.ts", {
+          indexStatus: "M",
+          isStaged: true
+        }),
+        createStatusFile("src/second.ts", {
+          indexStatus: "M",
+          isStaged: true
+        })
+      ]
+    }));
+
+    render(<App />);
+
+    const firstFile = await screen.findByRole("option", { name: /src\/first\.ts/ });
+    const secondFile = screen.getByRole("option", { name: /src\/second\.ts/ });
+    await user.click(firstFile);
+    fireEvent.click(secondFile, { ctrlKey: true });
+
+    expect(firstFile.getAttribute("aria-selected")).toBe("true");
+    expect(secondFile.getAttribute("aria-selected")).toBe("true");
+
+    await user.click(screen.getByRole("button", { name: /^Unstage$/ }));
+
+    await waitFor(() => {
+      expect(githead.unstageFiles).toHaveBeenCalledWith({
+        repoPath,
+        paths: [
+          "src/first.ts",
+          "src/second.ts"
+        ]
+      });
+    });
+  });
+
+  it("stages a shift-selected unstaged file range through the preload API", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/a.ts", {
+          isUnstaged: true,
+          worktreeStatus: "M"
+        }),
+        createStatusFile("src/b.ts", {
+          isUnstaged: true,
+          worktreeStatus: "M"
+        }),
+        createStatusFile("src/c.ts", {
+          isUnstaged: true,
+          worktreeStatus: "M"
+        })
+      ]
+    }));
+
+    render(<App />);
+
+    const firstFile = await screen.findByRole("option", { name: /src\/a\.ts/ });
+    const middleFile = screen.getByRole("option", { name: /src\/b\.ts/ });
+    const lastFile = screen.getByRole("option", { name: /src\/c\.ts/ });
+    await user.click(firstFile);
+    fireEvent.click(lastFile, { shiftKey: true });
+
+    expect(firstFile.getAttribute("aria-selected")).toBe("true");
+    expect(middleFile.getAttribute("aria-selected")).toBe("true");
+    expect(lastFile.getAttribute("aria-selected")).toBe("true");
+
+    await user.click(screen.getByRole("button", { name: /^Stage$/ }));
+
+    await waitFor(() => {
+      expect(githead.stageFiles).toHaveBeenCalledWith({
+        repoPath,
+        paths: [
+          "src/a.ts",
+          "src/b.ts",
+          "src/c.ts"
+        ]
+      });
+    });
+  });
+
   it("ignores stale file diff responses when selection changes quickly", async () => {
     const user = userEvent.setup();
     const firstDiff = defer<GitFileDiff>();

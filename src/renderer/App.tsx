@@ -34,6 +34,7 @@ import {
   useState,
   type CSSProperties,
   type FormEvent,
+  type MouseEvent,
   type ReactNode
 } from "react";
 import ReactMarkdown from "react-markdown";
@@ -105,6 +106,13 @@ type WorkspaceView = "status" | "history" | "workflows" | "pullRequests" | "issu
 interface FileSelection {
   path: string;
   side: GitDiffSide;
+  paths: string[];
+  anchorPath: string;
+}
+
+interface FileSelectionModifiers {
+  extendRange: boolean;
+  toggle: boolean;
 }
 
 interface SettingsDraft {
@@ -1368,11 +1376,25 @@ export function App(): ReactNode {
     }
   }, [loadCommitHistory, loadIssues, loadPullRequests, loadWorkflowRuns, refreshDirtyFileStatus, updateState]);
 
-  const selectFile = useCallback((file: GitStatusFile, side: GitDiffSide): void => {
-    const selection = {
-      path: file.path,
-      side
-    };
+  const selectFile = useCallback((file: GitStatusFile, side: GitDiffSide, modifiers: FileSelectionModifiers): void => {
+    const selection = buildFileSelection(
+      stateRef.current.selection,
+      getFilesForSide(stateRef.current.summary, side),
+      file.path,
+      side,
+      modifiers
+    );
+
+    if (!selection) {
+      requestIds.current.diff += 1;
+      updateState({
+        selection: null,
+        diff: null,
+        diffLoading: false
+      });
+      return;
+    }
+
     updateState({
       selection,
       diff: null
@@ -1419,12 +1441,16 @@ export function App(): ReactNode {
       if (side === "unstaged") {
         await stageFiles([file.path], {
           path: file.path,
-          side: "staged"
+          side: "staged",
+          paths: [file.path],
+          anchorPath: file.path
         });
       } else {
         await unstageFiles([file.path], {
           path: file.path,
-          side: "unstaged"
+          side: "unstaged",
+          paths: [file.path],
+          anchorPath: file.path
         });
       }
       return;
@@ -2147,12 +2173,15 @@ function StatusView({
   diff: GitFileDiff | null;
   diffLoading: boolean;
   disabled: boolean;
-  onSelectFile: (file: GitStatusFile, side: GitDiffSide) => void;
+  onSelectFile: (file: GitStatusFile, side: GitDiffSide, modifiers: FileSelectionModifiers) => void;
   onStageFiles: (paths: string[], selection?: FileSelection) => void;
   onUnstageFiles: (paths: string[], selection?: FileSelection) => void;
   onRefreshDiff: () => void;
   onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind) => void;
 }): ReactNode {
+  const stagedSelectionPaths = selection?.side === "staged" ? getSelectionPaths(selection) : [];
+  const unstagedSelectionPaths = selection?.side === "unstaged" ? getSelectionPaths(selection) : [];
+
   return (
     <ResizablePanelGroup orientation="horizontal" className="h-full min-h-0 bg-background">
       <ResizablePanel defaultSize="38%" minSize="300px" className="min-w-[300px]">
@@ -2179,13 +2208,13 @@ function StatusView({
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled={disabled || selection?.side !== "staged"}
+                  disabled={disabled || stagedSelectionPaths.length === 0}
                   onClick={() => {
-                    if (selection?.side === "staged") {
-                      onUnstageFiles([selection.path], {
-                        path: selection.path,
-                        side: "unstaged"
-                      });
+                    if (selection?.side === "staged" && stagedSelectionPaths.length > 0) {
+                      onUnstageFiles(
+                        stagedSelectionPaths,
+                        createFileSelection("unstaged", stagedSelectionPaths, selection.path, selection.anchorPath)
+                      );
                     }
                   }}
                 >
@@ -2219,13 +2248,13 @@ function StatusView({
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled={disabled || selection?.side !== "unstaged"}
+                  disabled={disabled || unstagedSelectionPaths.length === 0}
                   onClick={() => {
-                    if (selection?.side === "unstaged") {
-                      onStageFiles([selection.path], {
-                        path: selection.path,
-                        side: "staged"
-                      });
+                    if (selection?.side === "unstaged" && unstagedSelectionPaths.length > 0) {
+                      onStageFiles(
+                        unstagedSelectionPaths,
+                        createFileSelection("staged", unstagedSelectionPaths, selection.path, selection.anchorPath)
+                      );
                     }
                   }}
                 >
@@ -2281,9 +2310,11 @@ function FileGroup({
   disabled: boolean;
   actions: ReactNode;
   className?: string;
-  onSelectFile: (file: GitStatusFile, side: GitDiffSide) => void;
+  onSelectFile: (file: GitStatusFile, side: GitDiffSide, modifiers: FileSelectionModifiers) => void;
   onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind) => void;
 }): ReactNode {
+  const selectedPathSet = selection?.side === side ? new Set(getSelectionPaths(selection)) : new Set<string>();
+
   return (
     <section className={`grid min-h-0 grid-rows-[auto_minmax(0,1fr)] ${className}`} aria-label={title}>
       <div className="flex min-h-11 items-center justify-between gap-3 border-b px-4 py-2.5">
@@ -2301,7 +2332,7 @@ function FileGroup({
               key={`${side}:${file.path}`}
               file={file}
               side={side}
-              selected={selection?.path === file.path && selection.side === side}
+              selected={selectedPathSet.has(file.path)}
               disabled={disabled}
               onSelectFile={onSelectFile}
               onContextAction={onContextAction}
@@ -2325,7 +2356,7 @@ function FileRow({
   side: GitDiffSide;
   selected: boolean;
   disabled: boolean;
-  onSelectFile: (file: GitStatusFile, side: GitDiffSide) => void;
+  onSelectFile: (file: GitStatusFile, side: GitDiffSide, modifiers: FileSelectionModifiers) => void;
   onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind) => void;
 }): ReactNode {
   const actionLabel = side === "unstaged" ? "Stage" : "Unstage";
@@ -2333,14 +2364,24 @@ function FileRow({
 
   return (
     <ContextMenu>
-      <ContextMenuTrigger asChild onContextMenu={() => onSelectFile(file, side)}>
+      <ContextMenuTrigger
+        asChild
+        onContextMenu={() => {
+          if (!selected) {
+            onSelectFile(file, side, { extendRange: false, toggle: false });
+          }
+        }}
+      >
         <button
           type="button"
           className={`file-row ${selected ? "is-selected" : ""}`}
           data-path={file.path}
           role="option"
           aria-selected={selected}
-          onClick={() => onSelectFile(file, side)}
+          onClick={(event: MouseEvent<HTMLButtonElement>) => onSelectFile(file, side, {
+            extendRange: event.shiftKey,
+            toggle: event.ctrlKey || event.metaKey
+          })}
         >
           <StatusBadge file={file} side={side} />
           <span className="file-path" title={file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}>
@@ -3531,15 +3572,35 @@ function reconcileSelection(state: AppState): AppState {
   }
 
   const files = getFilesForSide(state.summary, state.selection.side);
-  if (files.some((file) => file.path === state.selection?.path)) {
+  const availablePaths = new Set(files.map((file) => file.path));
+  const selectedPaths = getSelectionPaths(state.selection).filter((path) => availablePaths.has(path));
+  if (selectedPaths.length === 0) {
+    return {
+      ...state,
+      selection: null,
+      diff: null
+    };
+  }
+
+  const path = availablePaths.has(state.selection.path) ? state.selection.path : selectedPaths[0]!;
+  const anchorPath = availablePaths.has(state.selection.anchorPath) ? state.selection.anchorPath : path;
+  if (
+    path === state.selection.path &&
+    anchorPath === state.selection.anchorPath &&
+    areStringArraysEqual(selectedPaths, getSelectionPaths(state.selection))
+  ) {
     return state;
   }
 
   return {
     ...state,
-    selection: null,
-    diff: null
+    selection: createFileSelection(state.selection.side, selectedPaths, path, anchorPath),
+    diff: path === state.selection.path ? state.diff : null
   };
+}
+
+function areStringArraysEqual(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function invalidateHistory(state: AppState): AppState {
@@ -3619,6 +3680,81 @@ function getUnstagedFiles(summary: RepoSummary | null): GitStatusFile[] {
 
 function getFilesForSide(summary: RepoSummary | null, side: GitDiffSide): GitStatusFile[] {
   return side === "staged" ? getStagedFiles(summary) : getUnstagedFiles(summary);
+}
+
+function buildFileSelection(
+  current: FileSelection | null,
+  files: GitStatusFile[],
+  path: string,
+  side: GitDiffSide,
+  modifiers: FileSelectionModifiers
+): FileSelection | null {
+  if (modifiers.extendRange && current?.side === side) {
+    const rangePaths = getFileRangePaths(files, current.anchorPath, path);
+    return createFileSelection(side, rangePaths.length > 0 ? rangePaths : [path], path, current.anchorPath);
+  }
+
+  if (modifiers.toggle && current?.side === side) {
+    const currentPaths = getSelectionPaths(current);
+    const selectedPaths = currentPaths.includes(path)
+      ? currentPaths.filter((selectedPath) => selectedPath !== path)
+      : getOrderedSelectionPaths(files, [...currentPaths, path]);
+
+    if (selectedPaths.length === 0) {
+      return null;
+    }
+
+    const primaryPath = selectedPaths.includes(path) ? path : selectedPaths[0]!;
+    const anchorPath = selectedPaths.includes(path)
+      ? path
+      : selectedPaths.includes(current.anchorPath)
+        ? current.anchorPath
+        : primaryPath;
+
+    return createFileSelection(side, selectedPaths, primaryPath, anchorPath);
+  }
+
+  return createFileSelection(side, [path], path, path);
+}
+
+function createFileSelection(
+  side: GitDiffSide,
+  paths: string[],
+  primaryPath: string,
+  anchorPath: string
+): FileSelection {
+  const selectedPaths = [...new Set(paths.length > 0 ? paths : [primaryPath])];
+  const path = selectedPaths.includes(primaryPath) ? primaryPath : selectedPaths[0]!;
+
+  return {
+    path,
+    side,
+    paths: selectedPaths,
+    anchorPath: selectedPaths.includes(anchorPath) ? anchorPath : path
+  };
+}
+
+function getSelectionPaths(selection: FileSelection): string[] {
+  return selection.paths.length > 0 ? selection.paths : [selection.path];
+}
+
+function getFileRangePaths(files: GitStatusFile[], anchorPath: string, path: string): string[] {
+  const anchorIndex = files.findIndex((file) => file.path === anchorPath);
+  const pathIndex = files.findIndex((file) => file.path === path);
+  if (anchorIndex === -1 || pathIndex === -1) {
+    return [];
+  }
+
+  const start = Math.min(anchorIndex, pathIndex);
+  const end = Math.max(anchorIndex, pathIndex);
+  return files.slice(start, end + 1).map((file) => file.path);
+}
+
+function getOrderedSelectionPaths(files: GitStatusFile[], paths: string[]): string[] {
+  const pathSet = new Set(paths);
+  return files
+    .map((file) => file.path)
+    .filter((filePath) => pathSet.has(filePath));
 }
 
 function getSortedFiles(summary: RepoSummary | null, predicate: (file: GitStatusFile) => boolean): GitStatusFile[] {
