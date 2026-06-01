@@ -1,0 +1,143 @@
+import { watch, type FSWatcher, type WatchOptions } from "node:fs";
+import path from "node:path";
+import type { BrowserWindow } from "electron";
+import { IPC_CHANNELS } from "../shared/ipc";
+import type { RepoChangedEvent, RepoChangedReason } from "../shared/types";
+
+export interface RepoWatcherLike {
+  close(): void;
+  on(eventName: "error", listener: (error: Error) => void): this;
+}
+
+export type RepoWatchFactory = (
+  repoPath: string,
+  options: WatchOptions,
+  listener: (eventType: string, filename: string | Buffer | null) => void
+) => RepoWatcherLike;
+
+export interface RepoWatchServiceOptions {
+  getWindows: () => BrowserWindow[];
+  watchFactory?: RepoWatchFactory;
+  debounceMs?: number;
+  clock?: () => Date;
+}
+
+const REPO_CHANGE_DEBOUNCE_MS = 750;
+
+export class RepoWatchService {
+  private readonly getWindows: () => BrowserWindow[];
+  private readonly watchFactory: RepoWatchFactory;
+  private readonly debounceMs: number;
+  private readonly clock: () => Date;
+  private watcher: RepoWatcherLike | null = null;
+  private watchedRepoPath: string | null = null;
+  private debounceTimer: NodeJS.Timeout | null = null;
+
+  constructor(options: RepoWatchServiceOptions) {
+    this.getWindows = options.getWindows;
+    this.watchFactory = options.watchFactory ?? defaultWatchFactory;
+    this.debounceMs = options.debounceMs ?? REPO_CHANGE_DEBOUNCE_MS;
+    this.clock = options.clock ?? (() => new Date());
+  }
+
+  watchRepo(repoPath: string): void {
+    const nextRepoPath = normalizeRepoPath(repoPath);
+    if (!nextRepoPath) {
+      this.stopWatching();
+      return;
+    }
+
+    if (this.watcher && this.watchedRepoPath && isSameRepoPath(this.watchedRepoPath, nextRepoPath)) {
+      return;
+    }
+
+    this.stopWatching();
+    this.watchedRepoPath = nextRepoPath;
+
+    try {
+      this.watcher = this.watchFactory(nextRepoPath, {
+        recursive: true
+      }, () => {
+        this.scheduleChange("filesystem");
+      });
+
+      this.watcher.on("error", () => {
+        this.emitChange("watcher-error");
+        this.stopWatching(nextRepoPath);
+      });
+    } catch {
+      this.emitChange("watcher-error");
+      this.stopWatching(nextRepoPath);
+    }
+  }
+
+  stopWatching(repoPath?: string): void {
+    const normalizedRepoPath = repoPath ? normalizeRepoPath(repoPath) : null;
+    if (
+      normalizedRepoPath &&
+      this.watchedRepoPath &&
+      !isSameRepoPath(this.watchedRepoPath, normalizedRepoPath)
+    ) {
+      return;
+    }
+
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+
+    const watcher = this.watcher;
+    this.watcher = null;
+    this.watchedRepoPath = null;
+
+    try {
+      watcher?.close();
+    } catch {
+      // A watcher can already be closed after an OS-level error.
+    }
+  }
+
+  private scheduleChange(reason: RepoChangedReason): void {
+    if (!this.watchedRepoPath || this.debounceTimer) {
+      return;
+    }
+
+    this.debounceTimer = setTimeout(() => {
+      this.debounceTimer = null;
+      this.emitChange(reason);
+    }, this.debounceMs);
+  }
+
+  private emitChange(reason: RepoChangedReason): void {
+    if (!this.watchedRepoPath) {
+      return;
+    }
+
+    const event: RepoChangedEvent = {
+      repoPath: this.watchedRepoPath,
+      changedAt: this.clock().toISOString(),
+      reason
+    };
+
+    for (const window of this.getWindows()) {
+      window.webContents.send(IPC_CHANNELS.repoChanged, event);
+    }
+  }
+}
+
+function defaultWatchFactory(
+  repoPath: string,
+  options: WatchOptions,
+  listener: (eventType: string, filename: string | Buffer | null) => void
+): FSWatcher {
+  return watch(repoPath, options, listener);
+}
+
+function normalizeRepoPath(repoPath: string): string | null {
+  const trimmedRepoPath = repoPath.trim();
+  return trimmedRepoPath ? path.resolve(trimmedRepoPath) : null;
+}
+
+function isSameRepoPath(left: string, right: string): boolean {
+  return normalizeRepoPath(left)?.toLocaleLowerCase() === normalizeRepoPath(right)?.toLocaleLowerCase();
+}

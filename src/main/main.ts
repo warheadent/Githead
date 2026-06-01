@@ -26,6 +26,7 @@ import { GitService } from "./gitService";
 import { GitHubService } from "./githubService";
 import { NodeProcessRunner } from "./processRunner";
 import { RepoRecentsService } from "./repoRecentsService";
+import { RepoWatchService } from "./repoWatchService";
 import { AppUpdateService } from "./updateService";
 
 const DEFAULT_REPO_PATH = "D:\\Githead";
@@ -38,6 +39,7 @@ let aiSettingsService: AiSettingsService | null = null;
 let commitMessageService: CommitMessageService | null = null;
 let githubService: GitHubService | null = null;
 let repoRecentsService: RepoRecentsService | null = null;
+let repoWatchService: RepoWatchService | null = null;
 let appUpdateService: AppUpdateService | null = null;
 
 const remoteDebuggingPort = process.env.GITHEAD_REMOTE_DEBUGGING_PORT;
@@ -112,6 +114,7 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   appUpdateService?.stop();
+  repoWatchService?.stopWatching();
 });
 
 ipcMain.handle(IPC_CHANNELS.chooseRepo, async (_event, defaultPath?: string) => {
@@ -136,6 +139,14 @@ ipcMain.handle(IPC_CHANNELS.chooseRepo, async (_event, defaultPath?: string) => 
 
 ipcMain.handle(IPC_CHANNELS.getRepoSummary, async (_event, repoPath: string) => {
   return gitService.getRepoSummary(repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.watchRepoChanges, async (_event, repoPath: string) => {
+  getRepoWatchService().watchRepo(repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.unwatchRepoChanges, async (_event, repoPath?: string) => {
+  getRepoWatchService().stopWatching(repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.getRepoRecents, async () => {
@@ -468,6 +479,13 @@ function getGitHubService(): GitHubService {
 function getRepoRecentsService(): RepoRecentsService {
   repoRecentsService ??= new RepoRecentsService(app.getPath("userData"));
   return repoRecentsService;
+}
+
+function getRepoWatchService(): RepoWatchService {
+  repoWatchService ??= new RepoWatchService({
+    getWindows: () => BrowserWindow.getAllWindows()
+  });
+  return repoWatchService;
 }
 
 function getAppUpdateService(): AppUpdateService {

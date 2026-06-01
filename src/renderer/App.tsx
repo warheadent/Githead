@@ -97,6 +97,8 @@ import { highlightDiffCode } from "./syntaxHighlighter";
 
 const DEFAULT_REPO_PATH = "D:\\Githead";
 const HISTORY_LIMIT = 200;
+const FILE_STATUS_REFRESH_INTERVAL_MS = 5_000;
+const FILE_STATUS_FALLBACK_REFRESH_INTERVAL_MS = 30_000;
 
 type WorkspaceView = "status" | "history" | "workflows" | "pullRequests" | "issues" | "activity";
 
@@ -248,6 +250,8 @@ export function App(): ReactNode {
     issues: 0
   });
   const logOutputRef = useRef<HTMLPreElement | null>(null);
+  const repoRefreshInFlightRef = useRef(false);
+  const fileStatusDirtyRef = useRef(false);
 
   const updateState = useCallback((updater: AppStateUpdater): void => {
     const current = stateRef.current;
@@ -687,14 +691,17 @@ export function App(): ReactNode {
     }
   }, [updateState]);
 
-  const refreshRepo = useCallback(async (options: { addToRecents?: boolean } = {}): Promise<void> => {
+  const refreshRepo = useCallback(async (options: { addToRecents?: boolean; silent?: boolean } = {}): Promise<void> => {
     const requestId = requestIds.current.repo + 1;
     requestIds.current.repo = requestId;
     const repoPath = stateRef.current.repoPath;
+    repoRefreshInFlightRef.current = true;
 
-    updateState({
-      repoLoading: true
-    });
+    if (!options.silent) {
+      updateState({
+        repoLoading: true
+      });
+    }
 
     try {
       const summary = await window.githead.getRepoSummary(repoPath);
@@ -702,6 +709,7 @@ export function App(): ReactNode {
         return;
       }
 
+      fileStatusDirtyRef.current = false;
       updateState((current) => reconcileGitHubState(reconcileSelection({
         ...current,
         summary
@@ -743,9 +751,12 @@ export function App(): ReactNode {
       }
     } finally {
       if (requestId === requestIds.current.repo && isSameRepoPath(repoPath, stateRef.current.repoPath)) {
-        updateState({
-          repoLoading: false
-        });
+        repoRefreshInFlightRef.current = false;
+        if (!options.silent) {
+          updateState({
+            repoLoading: false
+          });
+        }
       }
     }
 
@@ -770,6 +781,63 @@ export function App(): ReactNode {
       await loadIssues(true);
     }
   }, [loadCommitHistory, loadIssues, loadPullRequests, loadSelectedDiff, loadWorkflowRuns, updateState]);
+
+  const refreshDirtyFileStatus = useCallback(async (options: { force?: boolean } = {}): Promise<void> => {
+    const current = stateRef.current;
+    if (!options.force && !fileStatusDirtyRef.current) {
+      return;
+    }
+
+    if (current.activeView !== "status") {
+      return;
+    }
+
+    if (
+      !current.summary?.isValid ||
+      current.repoLoading ||
+      isOperationRunning(current) ||
+      repoRefreshInFlightRef.current
+    ) {
+      if (options.force) {
+        fileStatusDirtyRef.current = true;
+      }
+      return;
+    }
+
+    fileStatusDirtyRef.current = false;
+    await refreshRepo({
+      silent: true
+    });
+  }, [refreshRepo]);
+
+  useEffect(() => {
+    const cleanupRepoChanged = window.githead.onRepoChanged((event) => {
+      if (!isSameRepoPath(event.repoPath, stateRef.current.repoPath)) {
+        return;
+      }
+
+      fileStatusDirtyRef.current = true;
+    });
+
+    return cleanupRepoChanged;
+  }, []);
+
+  useEffect(() => {
+    const refreshTimer = window.setInterval(() => {
+      void refreshDirtyFileStatus();
+    }, FILE_STATUS_REFRESH_INTERVAL_MS);
+
+    const fallbackTimer = window.setInterval(() => {
+      void refreshDirtyFileStatus({
+        force: true
+      });
+    }, FILE_STATUS_FALLBACK_REFRESH_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(refreshTimer);
+      window.clearInterval(fallbackTimer);
+    };
+  }, [refreshDirtyFileStatus]);
 
   const switchRepo = useCallback(async (repoPath: string, options: { addToRecents?: boolean } = {}): Promise<void> => {
     const nextRepoPath = repoPath.trim();
@@ -858,6 +926,23 @@ export function App(): ReactNode {
     void initializeRepository();
     void loadAiSettings();
   }, [initializeRepository, loadAiSettings]);
+
+  useEffect(() => {
+    if (!state.summary?.isValid) {
+      fileStatusDirtyRef.current = false;
+      void window.githead.unwatchRepoChanges(state.repoPath).catch(() => undefined);
+      return;
+    }
+
+    const watchedRepoPath = state.summary.repoPath;
+    void window.githead.watchRepoChanges(watchedRepoPath).catch(() => {
+      fileStatusDirtyRef.current = true;
+    });
+
+    return () => {
+      void window.githead.unwatchRepoChanges(watchedRepoPath).catch(() => undefined);
+    };
+  }, [state.repoPath, state.summary?.isValid, state.summary?.repoPath]);
 
   const chooseRepo = useCallback(async (): Promise<void> => {
     const repoPath = await window.githead.chooseRepo(stateRef.current.repoPath);
@@ -1266,6 +1351,9 @@ export function App(): ReactNode {
     });
 
     const latest = stateRef.current;
+    if (view === "status") {
+      void refreshDirtyFileStatus();
+    }
     if (view === "history" && !latest.historyLoaded && !latest.historyLoading) {
       void loadCommitHistory(false);
     }
@@ -1278,7 +1366,7 @@ export function App(): ReactNode {
     if (view === "issues" && !latest.issuesLoaded && !latest.issuesLoading) {
       void loadIssues(false);
     }
-  }, [loadCommitHistory, loadIssues, loadPullRequests, loadWorkflowRuns, updateState]);
+  }, [loadCommitHistory, loadIssues, loadPullRequests, loadWorkflowRuns, refreshDirtyFileStatus, updateState]);
 
   const selectFile = useCallback((file: GitStatusFile, side: GitDiffSide): void => {
     const selection = {

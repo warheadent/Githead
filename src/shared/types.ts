@@ -254,6 +254,14 @@ export interface GitOutputEvent {
   timestamp: string;
 }
 
+export type RepoChangedReason = "filesystem" | "watcher-error";
+
+export interface RepoChangedEvent {
+  repoPath: string;
+  changedAt: string;
+  reason: RepoChangedReason;
+}
+
 export type AppUpdateStatus =
   | "disabled"
   | "idle"
@@ -293,6 +301,8 @@ export interface AppUpdateActionResult {
 export interface GitheadApi {
   chooseRepo(defaultPath?: string): Promise<string | null>;
   getRepoSummary(repoPath: string): Promise<RepoSummary>;
+  watchRepoChanges(repoPath: string): Promise<void>;
+  unwatchRepoChanges(repoPath?: string): Promise<void>;
   getRepoRecents(): Promise<string[]>;
   addRepoRecent(repoPath: string): Promise<string[]>;
   removeRepoRecent(repoPath: string): Promise<string[]>;
@@ -324,6 +334,7 @@ export interface GitheadApi {
   downloadUpdate(): Promise<AppUpdateActionResult>;
   installUpdate(): Promise<AppUpdateActionResult>;
   onGitOutput(callback: (event: GitOutputEvent) => void): () => void;
+  onRepoChanged(callback: (event: RepoChangedEvent) => void): () => void;
   onUpdateState(callback: (state: AppUpdateState) => void): () => void;
 }
 

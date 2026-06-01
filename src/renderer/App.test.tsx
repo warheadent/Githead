@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -27,6 +27,7 @@ import type {
   GitHubWorkflowRun,
   GitheadApi,
   GitOperationResult,
+  RepoChangedEvent,
   RepoSummary
 } from "../shared/types";
 
@@ -40,14 +41,18 @@ const repoPath = "D:\\Githead";
 let githead: GitheadApi;
 let cleanupGitOutput: Mock<() => void>;
 let cleanupUpdateState: Mock<() => void>;
+let cleanupRepoChanged: Mock<() => void>;
 let gitOutputCallback: Parameters<GitheadApi["onGitOutput"]>[0] | null;
 let updateStateCallback: Parameters<GitheadApi["onUpdateState"]>[0] | null;
+let repoChangedCallback: Parameters<GitheadApi["onRepoChanged"]>[0] | null;
 
 beforeEach(() => {
   cleanupGitOutput = vi.fn<() => void>();
   cleanupUpdateState = vi.fn<() => void>();
+  cleanupRepoChanged = vi.fn<() => void>();
   gitOutputCallback = null;
   updateStateCallback = null;
+  repoChangedCallback = null;
   window.matchMedia = vi.fn().mockReturnValue({
     matches: false,
     addEventListener: vi.fn(),
@@ -59,6 +64,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -317,6 +323,7 @@ describe("App", () => {
     view.unmount();
 
     expect(cleanupGitOutput).toHaveBeenCalledTimes(1);
+    expect(cleanupRepoChanged).toHaveBeenCalledTimes(1);
     expect(cleanupUpdateState).toHaveBeenCalledTimes(1);
   });
 
@@ -594,6 +601,146 @@ describe("App", () => {
     expect(screen.queryByRole("button", { name: /^Pull \(0\)$/ })).toBeNull();
   });
 
+  it("refreshes File Status on the balanced interval after active repository file changes", async () => {
+    vi.useFakeTimers();
+    const changedFile = createStatusFile("src/App.tsx", {
+      isUnstaged: true,
+      worktreeStatus: "M"
+    });
+    vi.mocked(githead.getRepoSummary)
+      .mockResolvedValueOnce(createSummary())
+      .mockResolvedValue(createSummary({
+        files: [
+          changedFile
+        ]
+      }));
+
+    render(<App />);
+    await flushRendererAsync();
+    expect(screen.getByText("Repository ready")).toBeTruthy();
+    expect(githead.getRepoSummary).toHaveBeenCalledTimes(1);
+
+    emitRepoChanged();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_999);
+    });
+    expect(githead.getRepoSummary).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    await flushRendererAsync();
+
+    expect(githead.getRepoSummary).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("option", { name: /src\/App\.tsx/ })).toBeTruthy();
+  });
+
+  it("defers file change refreshes until File Status is opened", async () => {
+    vi.useFakeTimers();
+    vi.mocked(githead.getRepoSummary)
+      .mockResolvedValueOnce(createSummary())
+      .mockResolvedValue(createSummary({
+        files: [
+          createStatusFile("src/deferred.ts", {
+            isUnstaged: true,
+            worktreeStatus: "M"
+          })
+        ]
+      }));
+
+    render(<App />);
+    await flushRendererAsync();
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /Commit History/ }), {
+      button: 0
+    });
+
+    emitRepoChanged();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(githead.getRepoSummary).toHaveBeenCalledTimes(1);
+
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /File Status/ }), {
+      button: 0
+    });
+    await flushRendererAsync();
+
+    expect(githead.getRepoSummary).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("option", { name: /src\/deferred\.ts/ })).toBeTruthy();
+  });
+
+  it("ignores file change events for stale repositories", async () => {
+    vi.useFakeTimers();
+    render(<App />);
+    await flushRendererAsync();
+
+    emitRepoChanged({
+      repoPath: "D:\\Other"
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+
+    expect(githead.getRepoSummary).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not start another automatic refresh while a refresh is already in flight", async () => {
+    vi.useFakeTimers();
+    const pendingRefresh = defer<RepoSummary>();
+    vi.mocked(githead.getRepoSummary)
+      .mockResolvedValueOnce(createSummary())
+      .mockReturnValueOnce(pendingRefresh.promise)
+      .mockResolvedValue(createSummary());
+
+    render(<App />);
+    await flushRendererAsync();
+    emitRepoChanged();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(githead.getRepoSummary).toHaveBeenCalledTimes(2);
+
+    emitRepoChanged();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(githead.getRepoSummary).toHaveBeenCalledTimes(2);
+
+    pendingRefresh.resolve(createSummary());
+    await flushRendererAsync();
+  });
+
+  it("keeps file changes dirty instead of refreshing during repository operations", async () => {
+    vi.useFakeTimers();
+    const pendingStage = defer<GitOperationResult>();
+    vi.mocked(githead.getRepoSummary)
+      .mockResolvedValueOnce(createSummary({
+        files: [
+          createStatusFile("src/pending.ts", {
+            isUnstaged: true,
+            worktreeStatus: "M"
+          })
+        ]
+      }))
+      .mockResolvedValue(createSummary());
+    vi.mocked(githead.stageFiles).mockReturnValue(pendingStage.promise);
+
+    render(<App />);
+    await flushRendererAsync();
+    fireEvent.click(screen.getByRole("option", { name: /src\/pending\.ts/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Stage$/ }));
+    await flushRendererAsync();
+
+    emitRepoChanged();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(githead.getRepoSummary).toHaveBeenCalledTimes(1);
+
+    pendingStage.resolve(createOperationResult());
+    await flushRendererAsync();
+  });
+
   it("loads recent repositories and starts on the most recent repo", async () => {
     const recentRepo = "D:\\Work\\Recent";
     const otherRepo = "D:\\Work\\Other";
@@ -864,6 +1011,8 @@ function createGitheadMock(): GitheadApi {
   return {
     chooseRepo: vi.fn().mockResolvedValue(null),
     getRepoSummary: vi.fn().mockResolvedValue(createSummary()),
+    watchRepoChanges: vi.fn().mockResolvedValue(undefined),
+    unwatchRepoChanges: vi.fn().mockResolvedValue(undefined),
     getRepoRecents: vi.fn().mockResolvedValue([]),
     addRepoRecent: vi.fn().mockImplementation(async (nextRepoPath: string) => [
       nextRepoPath
@@ -922,6 +1071,10 @@ function createGitheadMock(): GitheadApi {
     onGitOutput: vi.fn((callback) => {
       gitOutputCallback = callback;
       return cleanupGitOutput;
+    }),
+    onRepoChanged: vi.fn((callback) => {
+      repoChangedCallback = callback;
+      return cleanupRepoChanged;
     }),
     onUpdateState: vi.fn((callback) => {
       updateStateCallback = callback;
@@ -1089,6 +1242,16 @@ function createCommitDetails(hash: string, overrides: Partial<GitCommitDetails> 
   };
 }
 
+function createOperationResult(overrides: Partial<GitOperationResult> = {}): GitOperationResult {
+  return {
+    repoPath,
+    exitCode: 0,
+    stdout: "",
+    stderr: "",
+    ...overrides
+  };
+}
+
 function createTextDiff(path: string, value: string): GitFileDiff {
   return {
     path,
@@ -1100,6 +1263,27 @@ function createTextDiff(path: string, value: string): GitFileDiff {
       `+${value}`
     ].join("\n")
   };
+}
+
+async function flushRendererAsync(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
+function emitRepoChanged(overrides: Partial<RepoChangedEvent> = {}): void {
+  if (!repoChangedCallback) {
+    throw new Error("Repository change listener was not registered.");
+  }
+
+  repoChangedCallback({
+    repoPath,
+    changedAt: "2026-05-31T10:00:00.000Z",
+    reason: "filesystem",
+    ...overrides
+  });
 }
 
 function defer<T>(): Deferred<T> {
