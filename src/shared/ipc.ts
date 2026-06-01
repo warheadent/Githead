@@ -27,5 +27,10 @@ export const IPC_CHANNELS = {
   revertFileChanges: "git:revert-file",
   addPathToIgnore: "git:add-ignore",
   runGitAction: "git:run",
-  gitOutput: "git:output"
+  gitOutput: "git:output",
+  getUpdateState: "update:state:get",
+  checkForUpdates: "update:check",
+  downloadUpdate: "update:download",
+  installUpdate: "update:install",
+  updateState: "update:state"
 } as const;

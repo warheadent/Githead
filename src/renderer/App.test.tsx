@@ -18,6 +18,7 @@ vi.mock("@/components/ui/resizable", () => ({
 import { App } from "./App";
 import type {
   AiSettings,
+  AppUpdateState,
   GitCommitDetails,
   GitCommitGraphRow,
   GitFileDiff,
@@ -38,11 +39,15 @@ interface Deferred<T> {
 const repoPath = "D:\\Githead";
 let githead: GitheadApi;
 let cleanupGitOutput: Mock<() => void>;
+let cleanupUpdateState: Mock<() => void>;
 let gitOutputCallback: Parameters<GitheadApi["onGitOutput"]>[0] | null;
+let updateStateCallback: Parameters<GitheadApi["onUpdateState"]>[0] | null;
 
 beforeEach(() => {
   cleanupGitOutput = vi.fn<() => void>();
+  cleanupUpdateState = vi.fn<() => void>();
   gitOutputCallback = null;
+  updateStateCallback = null;
   window.matchMedia = vi.fn().mockReturnValue({
     matches: false,
     addEventListener: vi.fn(),
@@ -312,6 +317,91 @@ describe("App", () => {
     view.unmount();
 
     expect(cleanupGitOutput).toHaveBeenCalledTimes(1);
+    expect(cleanupUpdateState).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the app update control while no update is active", async () => {
+    vi.mocked(githead.getUpdateState).mockResolvedValue(createUpdateState({
+      status: "idle"
+    }));
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+
+    expect(screen.queryByRole("button", { name: /Update available/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Restart to update/ })).toBeNull();
+  });
+
+  it("downloads an available app update from the update control", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getUpdateState).mockResolvedValue(createUpdateState({
+      status: "available",
+      availableVersion: "0.1.1",
+      checkedAt: "2026-05-31T10:00:00Z"
+    }));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Update available" }));
+
+    await waitFor(() => {
+      expect(githead.downloadUpdate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("renders app update download progress from update state events", async () => {
+    vi.mocked(githead.getUpdateState).mockResolvedValue(createUpdateState());
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    updateStateCallback?.(createUpdateState({
+      status: "downloading",
+      availableVersion: "0.1.1",
+      downloadPercent: 42
+    }));
+
+    const button = await screen.findByRole("button", { name: "Downloading 42%" });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("installs a downloaded app update after confirmation", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(githead.getUpdateState).mockResolvedValue(createUpdateState({
+      status: "downloaded",
+      availableVersion: "0.1.1",
+      downloadedVersion: "0.1.1",
+      downloadPercent: 100
+    }));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Restart to update" }));
+
+    await waitFor(() => {
+      expect(githead.installUpdate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("retries app update checks from an error state", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getUpdateState).mockResolvedValue(createUpdateState({
+      status: "error",
+      message: "Update check failed.",
+      errorContext: "check",
+      canRetry: true
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByText("Update check failed.")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Retry update check" }));
+
+    await waitFor(() => {
+      expect(githead.checkForUpdates).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("moves log clearing into the activity log tab", async () => {
@@ -802,10 +892,57 @@ function createGitheadMock(): GitheadApi {
     revertFileChanges: vi.fn().mockResolvedValue(okOperation),
     addPathToIgnore: vi.fn().mockResolvedValue(okOperation),
     runGitAction: vi.fn(),
+    getUpdateState: vi.fn().mockResolvedValue(createUpdateState()),
+    checkForUpdates: vi.fn().mockResolvedValue({
+      checked: true,
+      state: createUpdateState({
+        status: "up-to-date",
+        checkedAt: "2026-05-31T10:00:00Z"
+      })
+    }),
+    downloadUpdate: vi.fn().mockResolvedValue({
+      accepted: true,
+      completed: false,
+      state: createUpdateState({
+        status: "downloading",
+        availableVersion: "0.1.1",
+        downloadPercent: 0
+      })
+    }),
+    installUpdate: vi.fn().mockResolvedValue({
+      accepted: true,
+      completed: false,
+      state: createUpdateState({
+        status: "downloaded",
+        availableVersion: "0.1.1",
+        downloadedVersion: "0.1.1",
+        downloadPercent: 100
+      })
+    }),
     onGitOutput: vi.fn((callback) => {
       gitOutputCallback = callback;
       return cleanupGitOutput;
+    }),
+    onUpdateState: vi.fn((callback) => {
+      updateStateCallback = callback;
+      return cleanupUpdateState;
     })
+  };
+}
+
+function createUpdateState(overrides: Partial<AppUpdateState> = {}): AppUpdateState {
+  return {
+    enabled: true,
+    status: "idle",
+    currentVersion: "0.1.0",
+    availableVersion: null,
+    downloadedVersion: null,
+    downloadPercent: null,
+    checkedAt: null,
+    message: null,
+    errorContext: null,
+    canRetry: false,
+    ...overrides
   };
 }
 

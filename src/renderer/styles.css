@@ -221,6 +221,41 @@
   gap: 6px;
 }
 
+.app-update-control {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid color-mix(in oklch, var(--primary) 35%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--primary) 9%, transparent);
+}
+
+.app-update-control.is-error {
+  border-color: color-mix(in oklch, var(--destructive) 45%, var(--border));
+  background: color-mix(in oklch, var(--destructive) 8%, transparent);
+}
+
+.app-update-control > button {
+  width: 100%;
+  justify-content: center;
+}
+
+.app-update-version,
+.app-update-message {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.app-update-version {
+  color: var(--muted-foreground);
+}
+
+.app-update-message {
+  color: var(--destructive);
+  overflow-wrap: anywhere;
+}
+
 .branch-menu-content {
   max-width: 360px;
 }

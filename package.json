@@ -45,16 +45,28 @@
       "dist/**/*",
       "package.json"
     ],
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://github.com/warheadent/Githead/releases/latest/download"
+      }
+    ],
     "win": {
-      "target": "portable",
-      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "target": "nsis",
+      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",
       "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
     }
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "electron-updater": "^6.8.3",
     "highlight.js": "^11.11.1",
     "lucide-react": "^1.17.0",
     "radix-ui": "^1.4.3",

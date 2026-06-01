@@ -72,6 +72,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import type {
   AiSettings,
+  AppUpdateState,
   GitBranch,
   GitAction,
   GitCommitChangedFile,
@@ -158,6 +159,7 @@ interface AppState {
   issuesLoaded: boolean;
   issuesError: string;
   logText: string;
+  appUpdate: AppUpdateState;
 }
 
 type AppStateUpdater = Partial<AppState> | ((state: AppState) => AppState);
@@ -226,7 +228,8 @@ const initialState: AppState = {
   issuesLoading: false,
   issuesLoaded: false,
   issuesError: "",
-  logText: ""
+  logText: "",
+  appUpdate: createInitialRendererUpdateState()
 };
 
 export function App(): ReactNode {
@@ -288,6 +291,34 @@ export function App(): ReactNode {
   useEffect(() => {
     return window.githead.onGitOutput(appendLog);
   }, [appendLog]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const cleanupUpdateState = window.githead.onUpdateState((appUpdate) => {
+      updateState({
+        appUpdate
+      });
+    });
+
+    void window.githead.getUpdateState()
+      .then((appUpdate) => {
+        if (!cancelled) {
+          updateState({
+            appUpdate
+          });
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          updateState((current) => markAppUpdateError(current, "check", error));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      cleanupUpdateState();
+    };
+  }, [updateState]);
 
   useEffect(() => {
     if (logOutputRef.current) {
@@ -1367,6 +1398,39 @@ export function App(): ReactNode {
     );
   }, [runRepoOperation, stageFiles, unstageFiles]);
 
+  const checkForAppUpdates = useCallback(async (): Promise<void> => {
+    try {
+      const result = await window.githead.checkForUpdates();
+      updateState({
+        appUpdate: result.state
+      });
+    } catch (error) {
+      updateState((current) => markAppUpdateError(current, "check", error));
+    }
+  }, [updateState]);
+
+  const downloadAppUpdate = useCallback(async (): Promise<void> => {
+    try {
+      const result = await window.githead.downloadUpdate();
+      updateState({
+        appUpdate: result.state
+      });
+    } catch (error) {
+      updateState((current) => markAppUpdateError(current, "download", error));
+    }
+  }, [updateState]);
+
+  const installAppUpdate = useCallback(async (): Promise<void> => {
+    try {
+      const result = await window.githead.installUpdate();
+      updateState({
+        appUpdate: result.state
+      });
+    } catch (error) {
+      updateState((current) => markAppUpdateError(current, "install", error));
+    }
+  }, [updateState]);
+
   const stagedFiles = useMemo(() => getStagedFiles(state.summary), [state.summary]);
   const unstagedFiles = useMemo(() => getUnstagedFiles(state.summary), [state.summary]);
   const running = isOperationRunning(state);
@@ -1387,6 +1451,7 @@ export function App(): ReactNode {
             repoHealth={repoHealth}
             summary={state.summary}
             running={running}
+            appUpdate={state.appUpdate}
             onChooseRepo={() => {
               void chooseRepo();
             }}
@@ -1404,6 +1469,15 @@ export function App(): ReactNode {
             }}
             onOpenBranchDialog={openBranchDialog}
             onOpenSettings={openSettingsDialog}
+            onCheckForUpdates={() => {
+              void checkForAppUpdates();
+            }}
+            onDownloadUpdate={() => {
+              void downloadAppUpdate();
+            }}
+            onInstallUpdate={() => {
+              void installAppUpdate();
+            }}
           />
         </ResizablePanel>
         <ResizableHandle />
@@ -1647,19 +1721,24 @@ function RepositoryPanel({
   repoHealth,
   summary,
   running,
+  appUpdate,
   onChooseRepo,
   onRefreshRepo,
   onSelectRecent,
   onRemoveRecent,
   onSwitchBranch,
   onOpenBranchDialog,
-  onOpenSettings
+  onOpenSettings,
+  onCheckForUpdates,
+  onDownloadUpdate,
+  onInstallUpdate
 }: {
   repoPath: string;
   repoRecents: string[];
   repoHealth: { text: string; state: "good" | "bad" | "neutral" };
   summary: RepoSummary | null;
   running: boolean;
+  appUpdate: AppUpdateState;
   onChooseRepo: () => void;
   onRefreshRepo: () => void;
   onSelectRecent: (repoPath: string) => void;
@@ -1667,6 +1746,9 @@ function RepositoryPanel({
   onSwitchBranch: (branchName: string) => void;
   onOpenBranchDialog: () => void;
   onOpenSettings: () => void;
+  onCheckForUpdates: () => void;
+  onDownloadUpdate: () => void;
+  onInstallUpdate: () => void;
 }): ReactNode {
   const remotes = summary?.remotes.length
     ? [...new Set(summary.remotes.map((remote) => remote.name))].join(", ")
@@ -1753,6 +1835,12 @@ function RepositoryPanel({
       </dl>
 
       <div className="mt-auto grid gap-2">
+        <AppUpdateControl
+          state={appUpdate}
+          onCheck={onCheckForUpdates}
+          onDownload={onDownloadUpdate}
+          onInstall={onInstallUpdate}
+        />
         <Button type="button" variant="secondary" onClick={onOpenSettings} disabled={running}>
           <Settings />
           Settings
@@ -1839,6 +1927,66 @@ function Fact({ label, value }: { label: string; value: ReactNode }): ReactNode 
       <dt>{label}</dt>
       <dd>{value}</dd>
     </div>
+  );
+}
+
+function AppUpdateControl({
+  state,
+  onCheck,
+  onDownload,
+  onInstall
+}: {
+  state: AppUpdateState;
+  onCheck: () => void;
+  onDownload: () => void;
+  onInstall: () => void;
+}): ReactNode {
+  const action = resolveAppUpdateAction(state);
+  if (action === "none") {
+    return null;
+  }
+
+  const version = state.downloadedVersion ?? state.availableVersion;
+  const label = getAppUpdateButtonLabel(state);
+  const disabled = state.status === "checking" || state.status === "downloading";
+  const icon = state.status === "downloaded"
+    ? <RotateCcw />
+    : state.status === "checking" || state.status === "downloading"
+      ? <Loader2 className="animate-spin" />
+      : action === "check"
+        ? <RefreshCw />
+        : <Download />;
+
+  const runAction = (): void => {
+    if (action === "check") {
+      onCheck();
+      return;
+    }
+
+    if (action === "download") {
+      onDownload();
+      return;
+    }
+
+    if (window.confirm("Restart Githead now to install the downloaded update?")) {
+      onInstall();
+    }
+  };
+
+  return (
+    <section className={`app-update-control is-${state.status}`} aria-label="App update">
+      <Button
+        type="button"
+        variant={state.status === "error" ? "outline" : "secondary"}
+        disabled={disabled}
+        onClick={runAction}
+      >
+        {icon}
+        {label}
+      </Button>
+      {version ? <p className="app-update-version">Version {version}</p> : null}
+      {state.message ? <p className="app-update-message" role="alert">{state.message}</p> : null}
+    </section>
   );
 }
 
@@ -3256,6 +3404,39 @@ function createInvalidSummary(repoPath: string, message: string): RepoSummary {
   };
 }
 
+function createInitialRendererUpdateState(): AppUpdateState {
+  return {
+    enabled: false,
+    status: "disabled",
+    currentVersion: "unknown",
+    availableVersion: null,
+    downloadedVersion: null,
+    downloadPercent: null,
+    checkedAt: null,
+    message: null,
+    errorContext: null,
+    canRetry: false
+  };
+}
+
+function markAppUpdateError(
+  state: AppState,
+  errorContext: NonNullable<AppUpdateState["errorContext"]>,
+  error: unknown
+): AppState {
+  return {
+    ...state,
+    appUpdate: {
+      ...state.appUpdate,
+      status: errorContext === "install" ? "downloaded" : "error",
+      message: error instanceof Error ? error.message : "Unable to update Githead.",
+      errorContext,
+      canRetry: true,
+      downloadPercent: errorContext === "download" ? null : state.appUpdate.downloadPercent
+    }
+  };
+}
+
 function reconcileSelection(state: AppState): AppState {
   if (!state.selection || !state.summary?.isValid) {
     return state;
@@ -3392,6 +3573,54 @@ function getGenerateMessageTitle(state: AppState): string {
 
 function isOperationRunning(state: AppState): boolean {
   return Boolean(state.runningAction || state.runningOperation);
+}
+
+type AppUpdateAction = "check" | "download" | "install" | "none";
+
+function resolveAppUpdateAction(state: AppUpdateState): AppUpdateAction {
+  if (state.status === "available") {
+    return "download";
+  }
+
+  if (state.status === "downloaded") {
+    return "install";
+  }
+
+  if (state.status === "error" && state.canRetry) {
+    return "check";
+  }
+
+  if (state.status === "checking" || state.status === "downloading") {
+    return "check";
+  }
+
+  return "none";
+}
+
+function getAppUpdateButtonLabel(state: AppUpdateState): string {
+  if (state.status === "checking") {
+    return "Checking for updates";
+  }
+
+  if (state.status === "downloading") {
+    return typeof state.downloadPercent === "number"
+      ? `Downloading ${Math.floor(state.downloadPercent)}%`
+      : "Downloading update";
+  }
+
+  if (state.status === "downloaded") {
+    return "Restart to update";
+  }
+
+  if (state.status === "error") {
+    return "Retry update check";
+  }
+
+  if (state.status === "available" && state.errorContext === "download") {
+    return "Retry update download";
+  }
+
+  return "Update available";
 }
 
 function getRepoHealth(state: AppState): { text: string; state: "good" | "bad" | "neutral" } {

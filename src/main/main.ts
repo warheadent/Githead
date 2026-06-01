@@ -26,6 +26,7 @@ import { GitService } from "./gitService";
 import { GitHubService } from "./githubService";
 import { NodeProcessRunner } from "./processRunner";
 import { RepoRecentsService } from "./repoRecentsService";
+import { AppUpdateService } from "./updateService";
 
 const DEFAULT_REPO_PATH = "D:\\Githead";
 const processRunner = new NodeProcessRunner();
@@ -37,6 +38,7 @@ let aiSettingsService: AiSettingsService | null = null;
 let commitMessageService: CommitMessageService | null = null;
 let githubService: GitHubService | null = null;
 let repoRecentsService: RepoRecentsService | null = null;
+let appUpdateService: AppUpdateService | null = null;
 
 const remoteDebuggingPort = process.env.GITHEAD_REMOTE_DEBUGGING_PORT;
 if (remoteDebuggingPort) {
@@ -89,6 +91,7 @@ function sendGitOutput(event: GitOutputEvent): void {
 
 app.whenReady().then(() => {
   createWindow();
+  void getAppUpdateService().configure();
 
   nativeTheme.on("updated", () => {
     mainWindow?.setBackgroundColor(getWindowBackgroundColor());
@@ -105,6 +108,10 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
   }
+});
+
+app.on("before-quit", () => {
+  appUpdateService?.stop();
 });
 
 ipcMain.handle(IPC_CHANNELS.chooseRepo, async (_event, defaultPath?: string) => {
@@ -304,6 +311,22 @@ ipcMain.handle(IPC_CHANNELS.runGitAction, async (_event, request: GitRunRequest)
   }
 });
 
+ipcMain.handle(IPC_CHANNELS.getUpdateState, async () => {
+  return getAppUpdateService().getState();
+});
+
+ipcMain.handle(IPC_CHANNELS.checkForUpdates, async () => {
+  return getAppUpdateService().checkForUpdates();
+});
+
+ipcMain.handle(IPC_CHANNELS.downloadUpdate, async () => {
+  return getAppUpdateService().downloadUpdate();
+});
+
+ipcMain.handle(IPC_CHANNELS.installUpdate, async () => {
+  return getAppUpdateService().installUpdate();
+});
+
 async function runExclusiveGitOperation(
   operation: () => Promise<GitOperationResult>,
   repoPath: string
@@ -445,4 +468,11 @@ function getGitHubService(): GitHubService {
 function getRepoRecentsService(): RepoRecentsService {
   repoRecentsService ??= new RepoRecentsService(app.getPath("userData"));
   return repoRecentsService;
+}
+
+function getAppUpdateService(): AppUpdateService {
+  appUpdateService ??= new AppUpdateService({
+    getWindows: () => BrowserWindow.getAllWindows()
+  });
+  return appUpdateService;
 }

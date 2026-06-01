@@ -254,6 +254,42 @@ export interface GitOutputEvent {
   timestamp: string;
 }
 
+export type AppUpdateStatus =
+  | "disabled"
+  | "idle"
+  | "checking"
+  | "up-to-date"
+  | "available"
+  | "downloading"
+  | "downloaded"
+  | "error";
+
+export type AppUpdateErrorContext = "check" | "download" | "install" | null;
+
+export interface AppUpdateState {
+  enabled: boolean;
+  status: AppUpdateStatus;
+  currentVersion: string;
+  availableVersion: string | null;
+  downloadedVersion: string | null;
+  downloadPercent: number | null;
+  checkedAt: string | null;
+  message: string | null;
+  errorContext: AppUpdateErrorContext;
+  canRetry: boolean;
+}
+
+export interface AppUpdateCheckResult {
+  checked: boolean;
+  state: AppUpdateState;
+}
+
+export interface AppUpdateActionResult {
+  accepted: boolean;
+  completed: boolean;
+  state: AppUpdateState;
+}
+
 export interface GitheadApi {
   chooseRepo(defaultPath?: string): Promise<string | null>;
   getRepoSummary(repoPath: string): Promise<RepoSummary>;
@@ -283,7 +319,12 @@ export interface GitheadApi {
   revertFileChanges(request: GitFileDiffRequest): Promise<GitOperationResult>;
   addPathToIgnore(request: GitIgnorePathRequest): Promise<GitOperationResult>;
   runGitAction(request: GitRunRequest): Promise<GitRunResult>;
+  getUpdateState(): Promise<AppUpdateState>;
+  checkForUpdates(): Promise<AppUpdateCheckResult>;
+  downloadUpdate(): Promise<AppUpdateActionResult>;
+  installUpdate(): Promise<AppUpdateActionResult>;
   onGitOutput(callback: (event: GitOutputEvent) => void): () => void;
+  onUpdateState(callback: (state: AppUpdateState) => void): () => void;
 }
 
 export function isGitAction(value: unknown): value is GitAction {

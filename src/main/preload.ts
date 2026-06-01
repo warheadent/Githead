@@ -17,6 +17,7 @@ import type {
   GitPathRequest,
   GitRunRequest,
   GitheadApi,
+  AppUpdateState,
   RepoSummary
 } from "../shared/types";
 
@@ -77,6 +78,14 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.addPathToIgnore, request) as ReturnType<GitheadApi["addPathToIgnore"]>,
   runGitAction: (request: GitRunRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.runGitAction, request) as ReturnType<GitheadApi["runGitAction"]>,
+  getUpdateState: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.getUpdateState) as ReturnType<GitheadApi["getUpdateState"]>,
+  checkForUpdates: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.checkForUpdates) as ReturnType<GitheadApi["checkForUpdates"]>,
+  downloadUpdate: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.downloadUpdate) as ReturnType<GitheadApi["downloadUpdate"]>,
+  installUpdate: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.installUpdate) as ReturnType<GitheadApi["installUpdate"]>,
   onGitOutput: (callback: (event: GitOutputEvent) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, output: GitOutputEvent) => {
       callback(output);
@@ -86,6 +95,17 @@ const api: GitheadApi = {
 
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.gitOutput, listener);
+    };
+  },
+  onUpdateState: (callback: (state: AppUpdateState) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, updateState: AppUpdateState) => {
+      callback(updateState);
+    };
+
+    ipcRenderer.on(IPC_CHANNELS.updateState, listener);
+
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.updateState, listener);
     };
   }
 };
