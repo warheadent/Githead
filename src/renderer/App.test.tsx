@@ -1291,6 +1291,87 @@ describe("App", () => {
     });
   });
 
+  it("opens the clone popout from the repository sidebar", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await screen.findByDisplayValue(repoPath);
+    await user.click(screen.getByRole("button", { name: "Clone repository" }));
+
+    expect(screen.getByRole("heading", { name: "Clone repository" })).toBeTruthy();
+    expect(screen.getByLabelText("Repository URL or path")).toBeTruthy();
+    expect(screen.getByLabelText("Destination folder")).toBeTruthy();
+  });
+
+  it("clones from the sidebar popout, switches repositories, and resets the clone draft", async () => {
+    const user = userEvent.setup();
+    const clonedRepo = "D:\\Work\\repo";
+    vi.mocked(githead.cloneRepository).mockResolvedValue(createOperationResult({
+      repoPath: clonedRepo,
+      stdout: "Repository cloned."
+    }));
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
+      repoPath: requestedRepoPath
+    }));
+    vi.mocked(githead.addRepoRecent).mockImplementation(async (requestedRepoPath) => [
+      requestedRepoPath,
+      repoPath
+    ]);
+
+    render(<App />);
+
+    await screen.findByDisplayValue(repoPath);
+    vi.mocked(githead.addRepoRecent).mockClear();
+    await user.click(screen.getByRole("button", { name: "Clone repository" }));
+    await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
+    await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
+    await user.click(screen.getByRole("button", { name: "Clone Repository" }));
+
+    await waitFor(() => {
+      expect(githead.cloneRepository).toHaveBeenCalledWith({
+        source: "https://github.com/openai/repo.git",
+        parentPath: "D:\\Work",
+        directoryName: "repo",
+        branchName: "",
+        depth: null
+      });
+    });
+    expect(await screen.findByDisplayValue(clonedRepo)).toBeTruthy();
+    await waitFor(() => {
+      expect(githead.addRepoRecent).toHaveBeenCalledWith(clonedRepo);
+    });
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Repository URL or path")).toBeNull();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Clone repository" }));
+    expect((screen.getByLabelText("Repository URL or path") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("Depth") as HTMLInputElement).value).toBe("0");
+  });
+
+  it("keeps the sidebar clone popout open when cloning fails", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.cloneRepository).mockResolvedValue(createOperationResult({
+      repoPath: "D:\\Work\\repo",
+      exitCode: 1,
+      stderr: "fatal: authentication failed"
+    }));
+
+    render(<App />);
+
+    await screen.findByDisplayValue(repoPath);
+    await user.click(screen.getByRole("button", { name: "Clone repository" }));
+    await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
+    await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
+    await user.click(screen.getByRole("button", { name: "Clone Repository" }));
+
+    expect(await screen.findByText("fatal: authentication failed")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Clone repository" })).toBeTruthy();
+    expect(screen.getByLabelText("Repository URL or path")).toBeTruthy();
+    expect(githead.addRepoRecent).not.toHaveBeenCalledWith("D:\\Work\\repo");
+  });
+
   it("ignores stale repository summaries when switching quickly", async () => {
     const user = userEvent.setup();
     const firstRepo = "D:\\Work\\First";

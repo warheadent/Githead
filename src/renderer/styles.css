@@ -213,7 +213,8 @@
 }
 
 .setup-header h1,
-.setup-panel h2 {
+.setup-panel h2,
+.setup-clone-form h2 {
   margin: 0;
   line-height: 1.15;
 }
@@ -224,7 +225,8 @@
 }
 
 .setup-header p,
-.setup-panel p {
+.setup-panel p,
+.setup-clone-form p {
   margin: 4px 0 0;
   color: var(--muted-foreground);
   line-height: 1.4;
@@ -268,18 +270,27 @@
   color: var(--primary);
 }
 
-.setup-panel h2 {
+.setup-panel h2,
+.setup-clone-form h2 {
   font-size: 1rem;
   font-weight: 700;
 }
 
-.setup-panel p {
+.setup-panel p,
+.setup-clone-form p {
   font-size: 0.86rem;
 }
 
 .setup-clone-form {
   display: grid;
   gap: 14px;
+}
+
+.clone-popout-content {
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+  padding: 16px;
 }
 
 .setup-clone-options {

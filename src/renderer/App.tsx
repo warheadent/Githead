@@ -66,6 +66,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger
+} from "@/components/ui/popover";
+import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup
@@ -148,6 +153,7 @@ interface AppState {
   cloneCheckStatus: "idle" | "success" | "error";
   cloneCheckMessage: string;
   cloneBranches: string[];
+  clonePanelOpen: boolean;
   summary: RepoSummary | null;
   branchDialogOpen: boolean;
   branchNameDraft: string;
@@ -238,6 +244,7 @@ const initialState: AppState = {
   cloneCheckStatus: "idle",
   cloneCheckMessage: "",
   cloneBranches: [],
+  clonePanelOpen: false,
   summary: null,
   branchDialogOpen: false,
   branchNameDraft: "",
@@ -926,6 +933,7 @@ export function App(): ReactNode {
       showSetup: false,
       setupError: "",
       cloneError: "",
+      clonePanelOpen: false,
       summary: null,
       branchDialogOpen: false,
       branchNameDraft: "",
@@ -1062,6 +1070,17 @@ export function App(): ReactNode {
     });
   }, [updateState]);
 
+  const setClonePanelOpen = useCallback((clonePanelOpen: boolean): void => {
+    const current = stateRef.current;
+    if (!clonePanelOpen && (current.cloneRunning || current.cloneCheckRunning)) {
+      return;
+    }
+
+    updateState({
+      clonePanelOpen
+    });
+  }, [updateState]);
+
   const checkRepositoryAccess = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
     if (isOperationRunning(current)) {
@@ -1157,6 +1176,14 @@ export function App(): ReactNode {
 
       await switchRepo(result.repoPath, {
         addToRecents: true
+      });
+      updateState({
+        cloneDraft: emptyCloneDraft,
+        cloneError: "",
+        cloneCheckStatus: "idle",
+        cloneCheckMessage: "",
+        cloneBranches: [],
+        clonePanelOpen: false
       });
     } catch (error) {
       const result: GitOperationResult = {
@@ -1912,6 +1939,15 @@ export function App(): ReactNode {
             summary={state.summary}
             running={running}
             appUpdate={state.appUpdate}
+            clonePanelOpen={state.clonePanelOpen}
+            cloneDraft={state.cloneDraft}
+            cloneError={state.cloneError}
+            cloneRunning={state.cloneRunning}
+            cloneCheckRunning={state.cloneCheckRunning}
+            cloneCheckStatus={state.cloneCheckStatus}
+            cloneCheckMessage={state.cloneCheckMessage}
+            cloneBranches={state.cloneBranches}
+            onClonePanelOpenChange={setClonePanelOpen}
             onChooseRepo={() => {
               void chooseRepo();
             }}
@@ -1930,6 +1966,21 @@ export function App(): ReactNode {
             onOpenBranchDialog={openBranchDialog}
             onOpenUpstreamDialog={openUpstreamDialog}
             onOpenSettings={openSettingsDialog}
+            onCloneDraftChange={updateCloneDraft}
+            onCloneSourceChange={(draft) => {
+              updateCloneDraft(draft);
+              resetCloneCheckState();
+            }}
+            onChooseCloneParent={() => {
+              void chooseCloneParent();
+            }}
+            onCheckRepositoryAccess={() => {
+              void checkRepositoryAccess();
+            }}
+            onClone={(event) => {
+              event.preventDefault();
+              void cloneRepository();
+            }}
             onCheckForUpdates={() => {
               void checkForAppUpdates();
             }}
@@ -2241,19 +2292,6 @@ function RepositorySetupScreen({
   onCheckRepositoryAccess: () => void;
   onClone: (event: FormEvent<HTMLFormElement>) => void;
 }): ReactNode {
-  const updateSource = (source: string): void => {
-    const previousInferredName = inferCloneDirectoryName(cloneDraft.source);
-    const nextInferredName = inferCloneDirectoryName(source);
-    const shouldUpdateDirectory = !cloneDraft.directoryName.trim() || cloneDraft.directoryName === previousInferredName;
-
-    onCloneSourceChange({
-      ...cloneDraft,
-      source,
-      directoryName: shouldUpdateDirectory ? nextInferredName : cloneDraft.directoryName
-    });
-  };
-  const cloneBusy = cloneRunning || cloneCheckRunning;
-
   return (
     <section className="setup-screen">
       <div className="setup-header">
@@ -2286,158 +2324,21 @@ function RepositorySetupScreen({
         </section>
 
         <section className="setup-panel">
-          <form className="setup-clone-form" onSubmit={onClone}>
-            <div className="setup-panel-heading">
-              <GitFork />
-              <div>
-                <h2>Clone repository</h2>
-                <p>Clone from any Git-supported HTTPS, SSH, or local source.</p>
-              </div>
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="clone-source">Repository URL or path</Label>
-              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                <Input
-                  id="clone-source"
-                  value={cloneDraft.source}
-                  disabled={cloneBusy}
-                  placeholder="https://github.com/owner/repo.git"
-                  onChange={(event) => {
-                    updateSource(event.target.value);
-                  }}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={onCheckRepositoryAccess}
-                  disabled={cloneBusy || !cloneDraft.source.trim()}
-                >
-                  {cloneCheckRunning ? <Loader2 className="animate-spin" /> : <CheckCircle2 />}
-                  {cloneCheckRunning ? "Checking" : "Check"}
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="clone-parent">Destination folder</Label>
-              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                <Input
-                  id="clone-parent"
-                  value={cloneDraft.parentPath}
-                  disabled={cloneRunning}
-                  placeholder="Choose a parent folder"
-                  onChange={(event) => {
-                    onCloneDraftChange({
-                      ...cloneDraft,
-                      parentPath: event.target.value
-                    });
-                  }}
-                />
-                <Button type="button" variant="outline" onClick={onChooseCloneParent} disabled={cloneRunning}>
-                  <FolderOpen />
-                  Browse
-                </Button>
-              </div>
-            </div>
-
-            <div className="setup-clone-options">
-              <div className="grid gap-2">
-                <Label htmlFor="clone-directory">Folder name</Label>
-                <Input
-                  id="clone-directory"
-                  value={cloneDraft.directoryName}
-                  disabled={cloneRunning}
-                  onChange={(event) => {
-                    onCloneDraftChange({
-                      ...cloneDraft,
-                      directoryName: event.target.value
-                    });
-                  }}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="clone-branch">Branch</Label>
-                <div className="clone-branch-control">
-                  <Input
-                    id="clone-branch"
-                    className="clone-branch-input"
-                    value={cloneDraft.branchName}
-                    disabled={cloneRunning}
-                    placeholder="Optional"
-                    onChange={(event) => {
-                      onCloneDraftChange({
-                        ...cloneDraft,
-                        branchName: event.target.value
-                      });
-                    }}
-                  />
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        className="clone-branch-trigger"
-                        disabled={cloneRunning || cloneBranches.length === 0}
-                        aria-label="Choose branch"
-                        title="Choose branch"
-                      >
-                        <ChevronDown />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="clone-branch-menu">
-                      {cloneBranches.map((branch) => (
-                        <DropdownMenuItem
-                          key={branch}
-                          onSelect={() => {
-                            onCloneDraftChange({
-                              ...cloneDraft,
-                              branchName: branch
-                            });
-                          }}
-                        >
-                          {branch}
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="clone-depth">Depth</Label>
-                <Input
-                  id="clone-depth"
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={cloneDraft.depth}
-                  disabled={cloneRunning}
-                  placeholder="Optional"
-                  onChange={(event) => {
-                    onCloneDraftChange({
-                      ...cloneDraft,
-                      depth: event.target.value
-                    });
-                  }}
-                />
-              </div>
-            </div>
-
-            {cloneError ? (
-              <p className="setup-error" role="alert">{cloneError}</p>
-            ) : null}
-            {cloneCheckMessage ? (
-              <p className={cloneCheckStatus === "success" ? "setup-success" : "setup-error"} role={cloneCheckStatus === "error" ? "alert" : "status"}>
-                {cloneCheckMessage}
-              </p>
-            ) : null}
-
-            <Button type="submit" className="w-full justify-center" disabled={cloneBusy}>
-              {cloneRunning ? <Loader2 className="animate-spin" /> : <Download />}
-              {cloneRunning ? "Cloning" : "Clone Repository"}
-            </Button>
-          </form>
+          <CloneRepositoryForm
+            idPrefix="clone"
+            cloneDraft={cloneDraft}
+            cloneError={cloneError}
+            cloneRunning={cloneRunning}
+            cloneCheckRunning={cloneCheckRunning}
+            cloneCheckStatus={cloneCheckStatus}
+            cloneCheckMessage={cloneCheckMessage}
+            cloneBranches={cloneBranches}
+            onCloneDraftChange={onCloneDraftChange}
+            onCloneSourceChange={onCloneSourceChange}
+            onChooseCloneParent={onChooseCloneParent}
+            onCheckRepositoryAccess={onCheckRepositoryAccess}
+            onClone={onClone}
+          />
         </section>
       </div>
 
@@ -2482,6 +2383,212 @@ function RepositorySetupScreen({
   );
 }
 
+interface CloneRepositoryFormProps {
+  idPrefix: string;
+  cloneDraft: CloneDraft;
+  cloneError: string;
+  cloneRunning: boolean;
+  cloneCheckRunning: boolean;
+  cloneCheckStatus: "idle" | "success" | "error";
+  cloneCheckMessage: string;
+  cloneBranches: string[];
+  onCloneDraftChange: (draft: CloneDraft) => void;
+  onCloneSourceChange: (draft: CloneDraft) => void;
+  onChooseCloneParent: () => void;
+  onCheckRepositoryAccess: () => void;
+  onClone: (event: FormEvent<HTMLFormElement>) => void;
+}
+
+function CloneRepositoryForm({
+  idPrefix,
+  cloneDraft,
+  cloneError,
+  cloneRunning,
+  cloneCheckRunning,
+  cloneCheckStatus,
+  cloneCheckMessage,
+  cloneBranches,
+  onCloneDraftChange,
+  onCloneSourceChange,
+  onChooseCloneParent,
+  onCheckRepositoryAccess,
+  onClone
+}: CloneRepositoryFormProps): ReactNode {
+  const cloneBusy = cloneRunning || cloneCheckRunning;
+  const sourceId = `${idPrefix}-source`;
+  const parentId = `${idPrefix}-parent`;
+  const directoryId = `${idPrefix}-directory`;
+  const branchId = `${idPrefix}-branch`;
+  const depthId = `${idPrefix}-depth`;
+
+  const updateSource = (source: string): void => {
+    const previousInferredName = inferCloneDirectoryName(cloneDraft.source);
+    const nextInferredName = inferCloneDirectoryName(source);
+    const shouldUpdateDirectory = !cloneDraft.directoryName.trim() || cloneDraft.directoryName === previousInferredName;
+
+    onCloneSourceChange({
+      ...cloneDraft,
+      source,
+      directoryName: shouldUpdateDirectory ? nextInferredName : cloneDraft.directoryName
+    });
+  };
+
+  return (
+    <form className="setup-clone-form" onSubmit={onClone}>
+      <div className="setup-panel-heading">
+        <GitFork />
+        <div>
+          <h2>Clone repository</h2>
+          <p>Clone from any Git-supported HTTPS, SSH, or local source.</p>
+        </div>
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor={sourceId}>Repository URL or path</Label>
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+          <Input
+            id={sourceId}
+            value={cloneDraft.source}
+            disabled={cloneBusy}
+            placeholder="https://github.com/owner/repo.git"
+            onChange={(event) => {
+              updateSource(event.target.value);
+            }}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onCheckRepositoryAccess}
+            disabled={cloneBusy || !cloneDraft.source.trim()}
+          >
+            {cloneCheckRunning ? <Loader2 className="animate-spin" /> : <CheckCircle2 />}
+            {cloneCheckRunning ? "Checking" : "Check"}
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor={parentId}>Destination folder</Label>
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+          <Input
+            id={parentId}
+            value={cloneDraft.parentPath}
+            disabled={cloneRunning}
+            placeholder="Choose a parent folder"
+            onChange={(event) => {
+              onCloneDraftChange({
+                ...cloneDraft,
+                parentPath: event.target.value
+              });
+            }}
+          />
+          <Button type="button" variant="outline" onClick={onChooseCloneParent} disabled={cloneRunning}>
+            <FolderOpen />
+            Browse
+          </Button>
+        </div>
+      </div>
+
+      <div className="setup-clone-options">
+        <div className="grid gap-2">
+          <Label htmlFor={directoryId}>Folder name</Label>
+          <Input
+            id={directoryId}
+            value={cloneDraft.directoryName}
+            disabled={cloneRunning}
+            onChange={(event) => {
+              onCloneDraftChange({
+                ...cloneDraft,
+                directoryName: event.target.value
+              });
+            }}
+          />
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor={branchId}>Branch</Label>
+          <div className="clone-branch-control">
+            <Input
+              id={branchId}
+              className="clone-branch-input"
+              value={cloneDraft.branchName}
+              disabled={cloneRunning}
+              placeholder="Optional"
+              onChange={(event) => {
+                onCloneDraftChange({
+                  ...cloneDraft,
+                  branchName: event.target.value
+                });
+              }}
+            />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="clone-branch-trigger"
+                  disabled={cloneRunning || cloneBranches.length === 0}
+                  aria-label="Choose branch"
+                  title="Choose branch"
+                >
+                  <ChevronDown />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="clone-branch-menu">
+                {cloneBranches.map((branch) => (
+                  <DropdownMenuItem
+                    key={branch}
+                    onSelect={() => {
+                      onCloneDraftChange({
+                        ...cloneDraft,
+                        branchName: branch
+                      });
+                    }}
+                  >
+                    {branch}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor={depthId}>Depth</Label>
+          <Input
+            id={depthId}
+            type="number"
+            min="0"
+            step="1"
+            value={cloneDraft.depth}
+            disabled={cloneRunning}
+            placeholder="Optional"
+            onChange={(event) => {
+              onCloneDraftChange({
+                ...cloneDraft,
+                depth: event.target.value
+              });
+            }}
+          />
+        </div>
+      </div>
+
+      {cloneError ? (
+        <p className="setup-error" role="alert">{cloneError}</p>
+      ) : null}
+      {cloneCheckMessage ? (
+        <p className={cloneCheckStatus === "success" ? "setup-success" : "setup-error"} role={cloneCheckStatus === "error" ? "alert" : "status"}>
+          {cloneCheckMessage}
+        </p>
+      ) : null}
+
+      <Button type="submit" className="w-full justify-center" disabled={cloneBusy}>
+        {cloneRunning ? <Loader2 className="animate-spin" /> : <Download />}
+        {cloneRunning ? "Cloning" : "Clone Repository"}
+      </Button>
+    </form>
+  );
+}
+
 function RepositoryPanel({
   repoPath,
   repoRecents,
@@ -2489,6 +2596,15 @@ function RepositoryPanel({
   summary,
   running,
   appUpdate,
+  clonePanelOpen,
+  cloneDraft,
+  cloneError,
+  cloneRunning,
+  cloneCheckRunning,
+  cloneCheckStatus,
+  cloneCheckMessage,
+  cloneBranches,
+  onClonePanelOpenChange,
   onChooseRepo,
   onRefreshRepo,
   onSelectRecent,
@@ -2497,6 +2613,11 @@ function RepositoryPanel({
   onOpenBranchDialog,
   onOpenUpstreamDialog,
   onOpenSettings,
+  onCloneDraftChange,
+  onCloneSourceChange,
+  onChooseCloneParent,
+  onCheckRepositoryAccess,
+  onClone,
   onCheckForUpdates,
   onDownloadUpdate,
   onInstallUpdate
@@ -2507,6 +2628,15 @@ function RepositoryPanel({
   summary: RepoSummary | null;
   running: boolean;
   appUpdate: AppUpdateState;
+  clonePanelOpen: boolean;
+  cloneDraft: CloneDraft;
+  cloneError: string;
+  cloneRunning: boolean;
+  cloneCheckRunning: boolean;
+  cloneCheckStatus: "idle" | "success" | "error";
+  cloneCheckMessage: string;
+  cloneBranches: string[];
+  onClonePanelOpenChange: (open: boolean) => void;
   onChooseRepo: () => void;
   onRefreshRepo: () => void;
   onSelectRecent: (repoPath: string) => void;
@@ -2515,6 +2645,11 @@ function RepositoryPanel({
   onOpenBranchDialog: () => void;
   onOpenUpstreamDialog: () => void;
   onOpenSettings: () => void;
+  onCloneDraftChange: (draft: CloneDraft) => void;
+  onCloneSourceChange: (draft: CloneDraft) => void;
+  onChooseCloneParent: () => void;
+  onCheckRepositoryAccess: () => void;
+  onClone: (event: FormEvent<HTMLFormElement>) => void;
   onCheckForUpdates: () => void;
   onDownloadUpdate: () => void;
   onInstallUpdate: () => void;
@@ -2525,7 +2660,7 @@ function RepositoryPanel({
 
   return (
     <aside className="flex h-full min-h-0 flex-col gap-5 overflow-auto border-r bg-sidebar p-6 text-sidebar-foreground">
-      <div className="grid grid-cols-[44px_minmax(0,1fr)] items-center gap-3.5">
+      <div className="grid grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-3.5">
         <div className="grid size-11 place-items-center rounded-lg bg-primary text-base font-extrabold text-primary-foreground">
           G
         </div>
@@ -2535,6 +2670,42 @@ function RepositoryPanel({
             {repoHealth.text}
           </p>
         </div>
+        <Popover open={clonePanelOpen} onOpenChange={onClonePanelOpenChange}>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon-sm"
+              aria-label="Clone repository"
+              title="Clone repository"
+            >
+              <Plus />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            side="right"
+            sideOffset={12}
+            collisionPadding={12}
+            className="clone-popout-content"
+          >
+            <CloneRepositoryForm
+              idPrefix="sidebar-clone"
+              cloneDraft={cloneDraft}
+              cloneError={cloneError}
+              cloneRunning={cloneRunning}
+              cloneCheckRunning={cloneCheckRunning}
+              cloneCheckStatus={cloneCheckStatus}
+              cloneCheckMessage={cloneCheckMessage}
+              cloneBranches={cloneBranches}
+              onCloneDraftChange={onCloneDraftChange}
+              onCloneSourceChange={onCloneSourceChange}
+              onChooseCloneParent={onChooseCloneParent}
+              onCheckRepositoryAccess={onCheckRepositoryAccess}
+              onClone={onClone}
+            />
+          </PopoverContent>
+        </Popover>
       </div>
 
       <div className="grid gap-2">
