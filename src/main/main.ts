@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, safeStorage, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, safeStorage, screen, shell } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { IPC_CHANNELS } from "../shared/ipc";
@@ -29,6 +29,7 @@ import { NodeProcessRunner } from "./processRunner";
 import { RepoRecentsService } from "./repoRecentsService";
 import { RepoWatchService } from "./repoWatchService";
 import { AppUpdateService } from "./updateService";
+import { MIN_WINDOW_BOUNDS, WindowStateService } from "./windowStateService";
 
 const DEFAULT_REPO_PATH = "D:\\Githead";
 const processRunner = new NodeProcessRunner();
@@ -42,18 +43,20 @@ let githubService: GitHubService | null = null;
 let repoRecentsService: RepoRecentsService | null = null;
 let repoWatchService: RepoWatchService | null = null;
 let appUpdateService: AppUpdateService | null = null;
+let windowStateService: WindowStateService | null = null;
 
 const remoteDebuggingPort = process.env.GITHEAD_REMOTE_DEBUGGING_PORT;
 if (remoteDebuggingPort) {
   app.commandLine.appendSwitch("remote-debugging-port", remoteDebuggingPort);
 }
 
-function createWindow(): void {
+async function createWindow(): Promise<void> {
+  const restoredWindowState = await getWindowStateService().getWindowState(getDisplayWorkAreas());
+
   mainWindow = new BrowserWindow({
-    width: 1120,
-    height: 760,
-    minWidth: 860,
-    minHeight: 620,
+    ...restoredWindowState.bounds,
+    minWidth: MIN_WINDOW_BOUNDS.width,
+    minHeight: MIN_WINDOW_BOUNDS.height,
     title: "Githead",
     backgroundColor: getWindowBackgroundColor(),
     webPreferences: {
@@ -63,6 +66,7 @@ function createWindow(): void {
       sandbox: false
     }
   });
+  getWindowStateService().watchWindow(mainWindow);
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     const parsed = normalizeExternalUrl(url);
@@ -80,6 +84,10 @@ function createWindow(): void {
   } else {
     void mainWindow.loadFile(path.join(__dirname, "..", "..", "renderer", "index.html"));
   }
+
+  if (restoredWindowState.isMaximized) {
+    mainWindow.maximize();
+  }
 }
 
 function getWindowBackgroundColor(): string {
@@ -92,8 +100,22 @@ function sendGitOutput(event: GitOutputEvent): void {
   });
 }
 
-app.whenReady().then(() => {
-  createWindow();
+function getDisplayWorkAreas(): Electron.Rectangle[] {
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const primaryWorkArea = primaryDisplay.workArea;
+  const otherWorkAreas = screen
+    .getAllDisplays()
+    .filter((display) => display.id !== primaryDisplay.id)
+    .map((display) => display.workArea);
+
+  return [
+    primaryWorkArea,
+    ...otherWorkAreas
+  ];
+}
+
+app.whenReady().then(async () => {
+  await createWindow();
   void getAppUpdateService().configure();
 
   nativeTheme.on("updated", () => {
@@ -102,7 +124,7 @@ app.whenReady().then(() => {
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+      void createWindow();
     }
   });
 });
@@ -498,4 +520,9 @@ function getAppUpdateService(): AppUpdateService {
     getWindows: () => BrowserWindow.getAllWindows()
   });
   return appUpdateService;
+}
+
+function getWindowStateService(): WindowStateService {
+  windowStateService ??= new WindowStateService(app.getPath("userData"));
+  return windowStateService;
 }
