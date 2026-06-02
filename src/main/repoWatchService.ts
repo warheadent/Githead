@@ -57,7 +57,11 @@ export class RepoWatchService {
     try {
       this.watcher = this.watchFactory(nextRepoPath, {
         recursive: true
-      }, () => {
+      }, (_eventType, filename) => {
+        if (isGitStatusReadWatchEvent(filename)) {
+          return;
+        }
+
         this.scheduleChange("filesystem");
       });
 
@@ -140,4 +144,20 @@ function normalizeRepoPath(repoPath: string): string | null {
 
 function isSameRepoPath(left: string, right: string): boolean {
   return normalizeRepoPath(left)?.toLocaleLowerCase() === normalizeRepoPath(right)?.toLocaleLowerCase();
+}
+
+function isGitStatusReadWatchEvent(filename: string | Buffer | null): boolean {
+  if (!filename) {
+    return false;
+  }
+
+  const normalizedFileName = filename.toString().replaceAll("\\", "/").toLocaleLowerCase();
+  return (
+    normalizedFileName === ".git" ||
+    normalizedFileName === ".git/index" ||
+    normalizedFileName === ".git/index.lock" ||
+    normalizedFileName.endsWith("/.git") ||
+    normalizedFileName.endsWith("/.git/index") ||
+    normalizedFileName.endsWith("/.git/index.lock")
+  );
 }

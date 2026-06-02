@@ -19,7 +19,7 @@ interface WatchFixture {
   send: ReturnType<typeof vi.fn>;
   watchFactory: ReturnType<typeof vi.fn<RepoWatchFactory>>;
   watchers: FakeWatcher[];
-  emitChange(index?: number): void;
+  emitChange(index?: number, filename?: string | Buffer | null): void;
 }
 
 const repoPath = "D:\\Repo";
@@ -52,6 +52,19 @@ describe("RepoWatchService", () => {
       changedAt: "2026-05-31T10:00:00.000Z",
       reason: "filesystem"
     });
+  });
+
+  it("ignores git watcher events produced by status refreshes", async () => {
+    const fixture = createWatchFixture();
+
+    fixture.service.watchRepo(repoPath);
+    fixture.emitChange(0, ".git\\index.lock");
+    fixture.emitChange(0, ".git\\index");
+    fixture.emitChange(0, ".git");
+
+    await vi.advanceTimersByTimeAsync(750);
+
+    expect(fixture.send).not.toHaveBeenCalled();
   });
 
   it("closes the previous watcher when switching repositories", () => {
@@ -120,8 +133,8 @@ function createWatchFixture(): WatchFixture {
     send,
     watchFactory,
     watchers,
-    emitChange(index = 0): void {
-      listeners[index]?.("change", "src/App.tsx");
+    emitChange(index = 0, filename: string | Buffer | null = "src/App.tsx"): void {
+      listeners[index]?.("change", filename);
     }
   };
 }

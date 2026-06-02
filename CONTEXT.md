@@ -28,6 +28,10 @@ _Avoid_: Upstream
 The **Remote** named `origin` when it points to a GitHub repository that Githead can query for GitHub data.
 _Avoid_: GitHub upstream
 
+**Live Update**:
+Githead's current view of a **Repository** catching up after the repository changes or Githead returns to focus.
+_Avoid_: Polling refresh, refresh loop
+
 ## Example Dialogue
 
 Dev: "Should switching repositories also change the current branch?"

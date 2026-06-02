@@ -99,8 +99,6 @@ import { highlightDiffCode } from "./syntaxHighlighter";
 
 const DEFAULT_REPO_PATH = "D:\\Githead";
 const HISTORY_LIMIT = 200;
-const FILE_STATUS_REFRESH_INTERVAL_MS = 5_000;
-const FILE_STATUS_FALLBACK_REFRESH_INTERVAL_MS = 30_000;
 
 type WorkspaceView = "status" | "history" | "workflows" | "pullRequests" | "issues" | "activity";
 
@@ -267,6 +265,7 @@ export function App(): ReactNode {
   const logOutputRef = useRef<HTMLPreElement | null>(null);
   const repoRefreshInFlightRef = useRef(false);
   const fileStatusDirtyRef = useRef(false);
+  const windowFocusedRef = useRef(true);
 
   const updateState = useCallback((updater: AppStateUpdater): void => {
     const current = stateRef.current;
@@ -832,25 +831,33 @@ export function App(): ReactNode {
       }
 
       fileStatusDirtyRef.current = true;
+      void refreshDirtyFileStatus();
     });
 
     return cleanupRepoChanged;
-  }, []);
+  }, [refreshDirtyFileStatus]);
 
   useEffect(() => {
-    const refreshTimer = window.setInterval(() => {
-      void refreshDirtyFileStatus();
-    }, FILE_STATUS_REFRESH_INTERVAL_MS);
+    const handleWindowBlur = (): void => {
+      windowFocusedRef.current = false;
+    };
 
-    const fallbackTimer = window.setInterval(() => {
+    const handleWindowFocus = (): void => {
+      if (windowFocusedRef.current) {
+        return;
+      }
+
+      windowFocusedRef.current = true;
       void refreshDirtyFileStatus({
         force: true
       });
-    }, FILE_STATUS_FALLBACK_REFRESH_INTERVAL_MS);
+    };
 
+    window.addEventListener("blur", handleWindowBlur);
+    window.addEventListener("focus", handleWindowFocus);
     return () => {
-      window.clearInterval(refreshTimer);
-      window.clearInterval(fallbackTimer);
+      window.removeEventListener("blur", handleWindowBlur);
+      window.removeEventListener("focus", handleWindowFocus);
     };
   }, [refreshDirtyFileStatus]);
 

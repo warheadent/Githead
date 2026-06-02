@@ -722,8 +722,7 @@ describe("App", () => {
     expect(screen.queryByRole("button", { name: /^Pull \(0\)$/ })).toBeNull();
   });
 
-  it("refreshes File Status on the balanced interval after active repository file changes", async () => {
-    vi.useFakeTimers();
+  it("refreshes File Status after active repository file changes", async () => {
     const changedFile = createStatusFile("src/App.tsx", {
       isUnstaged: true,
       worktreeStatus: "M"
@@ -742,22 +741,71 @@ describe("App", () => {
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(1);
 
     emitRepoChanged();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(4_999);
-    });
-    expect(githead.getRepoSummary).toHaveBeenCalledTimes(1);
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1);
-    });
     await flushRendererAsync();
 
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(2);
     expect(screen.getByRole("option", { name: /src\/App\.tsx/ })).toBeTruthy();
   });
 
-  it("defers file change refreshes until File Status is opened", async () => {
+  it("does not refresh File Status on idle timers", async () => {
     vi.useFakeTimers();
+
+    render(<App />);
+    await flushRendererAsync();
+    expect(githead.getRepoSummary).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    await flushRendererAsync();
+
+    expect(githead.getRepoSummary).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes File Status when the window is refocused", async () => {
+    const changedFile = createStatusFile("src/focused.ts", {
+      isUnstaged: true,
+      worktreeStatus: "M"
+    });
+    vi.mocked(githead.getRepoSummary)
+      .mockResolvedValueOnce(createSummary())
+      .mockResolvedValue(createSummary({
+        files: [
+          changedFile
+        ]
+      }));
+
+    render(<App />);
+    await flushRendererAsync();
+    expect(githead.getRepoSummary).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("blur"));
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await flushRendererAsync();
+
+    expect(githead.getRepoSummary).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("option", { name: /src\/focused\.ts/ })).toBeTruthy();
+  });
+
+  it("does not repeatedly refresh while the window is already focused", async () => {
+    render(<App />);
+    await flushRendererAsync();
+    expect(githead.getRepoSummary).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      window.dispatchEvent(new Event("focus"));
+    });
+    await flushRendererAsync();
+
+    expect(githead.getRepoSummary).toHaveBeenCalledTimes(1);
+  });
+
+  it("defers file change refreshes until File Status is opened", async () => {
     vi.mocked(githead.getRepoSummary)
       .mockResolvedValueOnce(createSummary())
       .mockResolvedValue(createSummary({
@@ -776,9 +824,7 @@ describe("App", () => {
     });
 
     emitRepoChanged();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000);
-    });
+    await flushRendererAsync();
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(1);
 
     fireEvent.mouseDown(screen.getByRole("tab", { name: /File Status/ }), {
@@ -791,16 +837,13 @@ describe("App", () => {
   });
 
   it("ignores file change events for stale repositories", async () => {
-    vi.useFakeTimers();
     render(<App />);
     await flushRendererAsync();
 
     emitRepoChanged({
       repoPath: "D:\\Other"
     });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000);
-    });
+    await flushRendererAsync();
 
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(1);
   });
@@ -816,15 +859,11 @@ describe("App", () => {
     render(<App />);
     await flushRendererAsync();
     emitRepoChanged();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000);
-    });
+    await flushRendererAsync();
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(2);
 
     emitRepoChanged();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000);
-    });
+    await flushRendererAsync();
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(2);
 
     pendingRefresh.resolve(createSummary());
@@ -853,9 +892,7 @@ describe("App", () => {
     await flushRendererAsync();
 
     emitRepoChanged();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000);
-    });
+    await flushRendererAsync();
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(1);
 
     pendingStage.resolve(createOperationResult());
