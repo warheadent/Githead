@@ -1,5 +1,6 @@
 export const IPC_CHANNELS = {
   chooseRepo: "repo:choose",
+  chooseCloneParent: "repo:clone-parent-choose",
   getRepoSummary: "repo:summary",
   watchRepoChanges: "repo:watch",
   unwatchRepoChanges: "repo:unwatch",
@@ -30,6 +31,8 @@ export const IPC_CHANNELS = {
   deleteFile: "file:delete",
   revertFileChanges: "git:revert-file",
   addPathToIgnore: "git:add-ignore",
+  cloneRepository: "git:clone",
+  checkRepositoryAccess: "git:repository-access-check",
   runGitAction: "git:run",
   gitOutput: "git:output",
   getUpdateState: "update:state:get",

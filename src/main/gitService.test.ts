@@ -183,6 +183,270 @@ describe("GitService", () => {
     expect(output.join("")).toContain("exited with code 1");
   });
 
+  it("clones repositories with safe argv construction and advanced options", async () => {
+    await withTempDir(async (dir) => {
+      const runner = new FakeRunner([
+        ok("")
+      ]);
+      const service = new GitService(runner);
+
+      const result = await service.cloneRepository({
+        source: "git@github.com:openai/repo.git",
+        parentPath: dir,
+        directoryName: "repo",
+        branchName: "main",
+        depth: 1
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.repoPath).toBe(path.join(dir, "repo"));
+      expect(runner.calls).toHaveLength(1);
+      expect(runner.calls[0]).toMatchObject({
+        command: "git",
+        args: [
+          "clone",
+          "--progress",
+          "--branch",
+          "main",
+          "--depth",
+          "1",
+          "--",
+          "git@github.com:openai/repo.git",
+          path.join(dir, "repo")
+        ],
+        options: {
+          cwd: dir
+        }
+      });
+    });
+  });
+
+  it("checks repository access and parses branch details", async () => {
+    const stdout = [
+      "ref: refs/heads/main\tHEAD",
+      "0123456789abcdef0123456789abcdef01234567\tHEAD",
+      "0123456789abcdef0123456789abcdef01234567\trefs/heads/main",
+      "abcdef0123456789abcdef0123456789abcdef01\trefs/heads/feature/demo"
+    ].join("\n");
+    const runner = new FakeRunner([
+      ok(stdout)
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.checkRepositoryAccess({
+      source: "https://example.test/repo.git"
+    });
+
+    expect(result).toMatchObject({
+      source: "https://example.test/repo.git",
+      exitCode: 0,
+      branches: [
+        "feature/demo",
+        "main"
+      ],
+      defaultBranch: "main"
+    });
+    expect(runner.calls).toHaveLength(1);
+    expect(runner.calls[0]).toMatchObject({
+      command: "git",
+      args: [
+        "ls-remote",
+        "--symref",
+        "--",
+        "https://example.test/repo.git",
+        "HEAD",
+        "refs/heads/*"
+      ]
+    });
+    expect(runner.calls.at(0)?.options?.timeoutMs).toBeGreaterThan(0);
+  });
+
+  it("rejects empty repository access checks before spawning git", async () => {
+    const runner = new FakeRunner([]);
+    const service = new GitService(runner);
+
+    const result = await service.checkRepositoryAccess({
+      source: "   "
+    });
+
+    expect(result.exitCode).toBe(-1);
+    expect(result.stderr).toBe("Enter a repository URL or path.");
+    expect(result.branches).toEqual([]);
+    expect(result.defaultBranch).toBeNull();
+    expect(runner.calls).toHaveLength(0);
+  });
+
+  it("returns failed repository access checks without branch details", async () => {
+    const runner = new FakeRunner([
+      failure("fatal: Authentication failed")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.checkRepositoryAccess({
+      source: "git@example.test:owner/private.git"
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe("fatal: Authentication failed");
+    expect(result.branches).toEqual([]);
+    expect(result.defaultBranch).toBeNull();
+  });
+
+  it("redacts credentials from repository access check output", async () => {
+    const source = "https://user:token@example.test/repo.git";
+    const runner = new FakeRunner([
+      failure(`fatal: Authentication failed for '${source}'`)
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.checkRepositoryAccess({
+      source
+    });
+
+    expect(result.stderr).toContain("https://***@example.test/repo.git");
+    expect(result.stderr).not.toContain("user:token");
+  });
+
+  it("passes through repository access check timeouts as failures", async () => {
+    const runner = new FakeRunner([
+      {
+        exitCode: -1,
+        stdout: "",
+        stderr: "",
+        error: "Command timed out after 30000ms."
+      }
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.checkRepositoryAccess({
+      source: "https://example.test/repo.git"
+    });
+
+    expect(result.exitCode).toBe(-1);
+    expect(result.stderr).toBe("Command timed out after 30000ms.");
+    expect(result.branches).toEqual([]);
+  });
+
+  it("treats clone depth 0 as a full clone", async () => {
+    await withTempDir(async (dir) => {
+      const runner = new FakeRunner([
+        ok("")
+      ]);
+      const service = new GitService(runner);
+
+      const result = await service.cloneRepository({
+        source: "https://example.test/repo.git",
+        parentPath: dir,
+        directoryName: "repo",
+        branchName: "",
+        depth: 0
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(runner.calls.at(0)?.args).not.toContain("--depth");
+    });
+  });
+
+  it("rejects unsafe or unavailable clone destinations before spawning git", async () => {
+    await withTempDir(async (dir) => {
+      const nonEmptyDestination = path.join(dir, "existing");
+      await fs.mkdir(nonEmptyDestination);
+      await fs.writeFile(path.join(nonEmptyDestination, "file.txt"), "content", "utf8");
+
+      const cases = [
+        {
+          request: {
+            source: "",
+            parentPath: dir,
+            directoryName: "repo"
+          },
+          error: "Enter a repository URL or path."
+        },
+        {
+          request: {
+            source: "https://example.test/repo.git",
+            parentPath: "relative",
+            directoryName: "repo"
+          },
+          error: "Select an absolute destination folder."
+        },
+        {
+          request: {
+            source: "https://example.test/repo.git",
+            parentPath: dir,
+            directoryName: "..\\repo"
+          },
+          error: "Destination folder name cannot include a path."
+        },
+        {
+          request: {
+            source: "https://example.test/repo.git",
+            parentPath: dir,
+            directoryName: "existing"
+          },
+          error: "Destination folder already exists and is not empty."
+        }
+      ];
+
+      for (const testCase of cases) {
+        const runner = new FakeRunner([]);
+        const service = new GitService(runner);
+        const result = await service.cloneRepository({
+          branchName: "",
+          depth: null,
+          ...testCase.request
+        });
+
+        expect(result.exitCode).toBe(-1);
+        expect(result.stderr).toBe(testCase.error);
+        expect(runner.calls).toHaveLength(0);
+      }
+    });
+  });
+
+  it("allows cloning into an empty existing destination folder", async () => {
+    await withTempDir(async (dir) => {
+      const destination = path.join(dir, "empty");
+      await fs.mkdir(destination);
+      const runner = new FakeRunner([
+        ok("")
+      ]);
+      const service = new GitService(runner);
+
+      const result = await service.cloneRepository({
+        source: "https://example.test/repo.git",
+        parentPath: dir,
+        directoryName: "empty",
+        branchName: "",
+        depth: null
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(runner.calls).toHaveLength(1);
+    });
+  });
+
+  it("redacts credentials from clone output", async () => {
+    await withTempDir(async (dir) => {
+      const source = "https://user:token@example.test/repo.git";
+      const runner = new FakeRunner([
+        failure(`fatal: Authentication failed for '${source}'`)
+      ]);
+      const service = new GitService(runner);
+
+      const result = await service.cloneRepository({
+        source,
+        parentPath: dir,
+        directoryName: "repo",
+        branchName: "",
+        depth: null
+      });
+
+      expect(result.stderr).toContain("https://***@example.test/repo.git");
+      expect(result.stderr).not.toContain("user:token");
+    });
+  });
+
   it("parses repo details and porcelain v2 file states", async () => {
     const status = [
       "# branch.oid abc",

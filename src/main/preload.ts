@@ -5,6 +5,7 @@ import type {
   ExternalUrlRequest,
   FileSystemPathRequest,
   GitBranchRequest,
+  GitCloneRequest,
   GitCommitDetailsRequest,
   GitCommitFileDiffRequest,
   GitCommitHistoryRequest,
@@ -15,6 +16,7 @@ import type {
   GitIgnorePathRequest,
   GitOutputEvent,
   GitPathRequest,
+  GitRepositoryAccessCheckRequest,
   GitRunRequest,
   GitUpstreamRequest,
   GitheadApi,
@@ -26,6 +28,8 @@ import type {
 const api: GitheadApi = {
   chooseRepo: (defaultPath?: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.chooseRepo, defaultPath) as Promise<string | null>,
+  chooseCloneParent: (defaultPath?: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.chooseCloneParent, defaultPath) as Promise<string | null>,
   getRepoSummary: (repoPath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.getRepoSummary, repoPath) as Promise<RepoSummary>,
   watchRepoChanges: (repoPath: string) =>
@@ -84,6 +88,10 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.revertFileChanges, request) as ReturnType<GitheadApi["revertFileChanges"]>,
   addPathToIgnore: (request: GitIgnorePathRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.addPathToIgnore, request) as ReturnType<GitheadApi["addPathToIgnore"]>,
+  cloneRepository: (request: GitCloneRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.cloneRepository, request) as ReturnType<GitheadApi["cloneRepository"]>,
+  checkRepositoryAccess: (request: GitRepositoryAccessCheckRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.checkRepositoryAccess, request) as ReturnType<GitheadApi["checkRepositoryAccess"]>,
   runGitAction: (request: GitRunRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.runGitAction, request) as ReturnType<GitheadApi["runGitAction"]>,
   getUpdateState: () =>

@@ -80,7 +80,7 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByText("Not a git repository.")).toBeTruthy();
-    expect(screen.getAllByText("Select a valid repository.").length).toBeGreaterThan(0);
+    expect(screen.getByText("Select a repository to continue.")).toBeTruthy();
   });
 
   it("styles conventional commit subjects in history and details while falling back to raw subjects", async () => {
@@ -922,6 +922,38 @@ describe("App", () => {
     expect(githead.getRepoSummary).toHaveBeenCalledWith(recentRepo);
   });
 
+  it("shows the setup screen on first run without probing the old hard-coded fallback", async () => {
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([]);
+
+    render(<App />);
+
+    expect(await screen.findByText("Select a repository to continue.")).toBeTruthy();
+    await waitFor(() => {
+      expect(githead.getRepoSummary).not.toHaveBeenCalled();
+    });
+    expect(screen.queryByDisplayValue("D:\\Githead")).toBeNull();
+  });
+
+  it("shows the setup screen when the initial recent repository is invalid", async () => {
+    const invalidRepo = "D:\\MissingRepo";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([
+      invalidRepo
+    ]);
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      repoPath: invalidRepo,
+      isValid: false,
+      validationErrors: [
+        "Selected folder is not a git repository."
+      ]
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByText("Select a repository to continue.")).toBeTruthy();
+    expect(screen.getByText("Selected folder is not a git repository.")).toBeTruthy();
+    expect(screen.getAllByText(invalidRepo).length).toBeGreaterThan(0);
+  });
+
   it("switches repositories from a recent entry", async () => {
     const user = userEvent.setup();
     const otherRepo = "D:\\Work\\Other";
@@ -1024,8 +1056,226 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: /Browse/ }));
 
     expect(await screen.findByText("Selected folder is not a git repository.")).toBeTruthy();
-    expect(screen.getByDisplayValue(invalidRepo)).toBeTruthy();
+    expect(screen.getByText(invalidRepo)).toBeTruthy();
     expect(githead.addRepoRecent).not.toHaveBeenCalledWith(invalidRepo);
+  });
+
+  it("clones a repository, validates the result, and adds it to recents", async () => {
+    const user = userEvent.setup();
+    const clonedRepo = "D:\\Work\\repo";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([]);
+    vi.mocked(githead.cloneRepository).mockResolvedValue(createOperationResult({
+      repoPath: clonedRepo,
+      stdout: "Repository cloned."
+    }));
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
+      repoPath: requestedRepoPath
+    }));
+    vi.mocked(githead.addRepoRecent).mockImplementation(async (requestedRepoPath) => [
+      requestedRepoPath
+    ]);
+
+    render(<App />);
+
+    await screen.findByText("Select a repository to continue.");
+    await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
+    await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
+    await user.click(screen.getByRole("button", { name: "Clone Repository" }));
+
+    await waitFor(() => {
+      expect(githead.cloneRepository).toHaveBeenCalledWith({
+        source: "https://github.com/openai/repo.git",
+        parentPath: "D:\\Work",
+        directoryName: "repo",
+        branchName: "",
+        depth: null
+      });
+    });
+    expect(await screen.findByDisplayValue(clonedRepo)).toBeTruthy();
+    await waitFor(() => {
+      expect(githead.addRepoRecent).toHaveBeenCalledWith(clonedRepo);
+    });
+  });
+
+  it("keeps the setup screen open when cloning fails", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([]);
+    vi.mocked(githead.cloneRepository).mockResolvedValue(createOperationResult({
+      repoPath: "D:\\Work\\repo",
+      exitCode: 1,
+      stderr: "fatal: authentication failed"
+    }));
+
+    render(<App />);
+
+    await screen.findByText("Select a repository to continue.");
+    await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
+    await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
+    await user.click(screen.getByRole("button", { name: "Clone Repository" }));
+
+    expect(await screen.findByText("fatal: authentication failed")).toBeTruthy();
+    expect(screen.getByText("Select a repository to continue.")).toBeTruthy();
+    expect(githead.addRepoRecent).not.toHaveBeenCalledWith("D:\\Work\\repo");
+  });
+
+  it("passes branch and depth options when cloning", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([]);
+    vi.mocked(githead.cloneRepository).mockResolvedValue(createOperationResult({
+      repoPath: "D:\\Work\\repo"
+    }));
+
+    render(<App />);
+
+    await screen.findByText("Select a repository to continue.");
+    await user.type(screen.getByLabelText("Repository URL or path"), "git@github.com:openai/repo.git");
+    await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
+    await user.type(screen.getByLabelText("Branch"), "main");
+    await user.type(screen.getByLabelText("Depth"), "1");
+    await user.click(screen.getByRole("button", { name: "Clone Repository" }));
+
+    await waitFor(() => {
+      expect(githead.cloneRepository).toHaveBeenCalledWith({
+        source: "git@github.com:openai/repo.git",
+        parentPath: "D:\\Work",
+        directoryName: "repo",
+        branchName: "main",
+        depth: 1
+      });
+    });
+  });
+
+  it("checks repository access, reports success, and populates branch choices", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([]);
+    vi.mocked(githead.checkRepositoryAccess).mockResolvedValue({
+      source: "https://github.com/openai/repo.git",
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+      branches: [
+        "develop",
+        "main"
+      ],
+      defaultBranch: "main"
+    });
+
+    render(<App />);
+
+    await screen.findByText("Select a repository to continue.");
+    await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
+    await user.click(screen.getByRole("button", { name: "Check" }));
+
+    await waitFor(() => {
+      expect(githead.checkRepositoryAccess).toHaveBeenCalledWith({
+        source: "https://github.com/openai/repo.git"
+      });
+    });
+    expect(await screen.findByText("Repository is accessible.")).toBeTruthy();
+    expect((screen.getByLabelText("Branch") as HTMLInputElement).value).toBe("main");
+
+    await user.click(screen.getByRole("button", { name: "Choose branch" }));
+    await user.click(screen.getByText("develop"));
+
+    expect((screen.getByLabelText("Branch") as HTMLInputElement).value).toBe("develop");
+  });
+
+  it("preserves a manually typed branch after a successful repository check", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([]);
+    vi.mocked(githead.checkRepositoryAccess).mockResolvedValue({
+      source: "git@github.com:openai/repo.git",
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+      branches: [
+        "main"
+      ],
+      defaultBranch: "main"
+    });
+
+    render(<App />);
+
+    await screen.findByText("Select a repository to continue.");
+    await user.type(screen.getByLabelText("Repository URL or path"), "git@github.com:openai/repo.git");
+    await user.type(screen.getByLabelText("Branch"), "release");
+    await user.click(screen.getByRole("button", { name: "Check" }));
+
+    expect(await screen.findByText("Repository is accessible.")).toBeTruthy();
+    expect((screen.getByLabelText("Branch") as HTMLInputElement).value).toBe("release");
+  });
+
+  it("shows repository check failures and clears them when the source changes", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([]);
+    vi.mocked(githead.checkRepositoryAccess).mockResolvedValue({
+      source: "https://github.com/openai/private.git",
+      exitCode: 1,
+      stdout: "",
+      stderr: "fatal: authentication failed",
+      branches: [],
+      defaultBranch: null
+    });
+
+    render(<App />);
+
+    await screen.findByText("Select a repository to continue.");
+    const sourceInput = screen.getByLabelText("Repository URL or path");
+    await user.type(sourceInput, "https://github.com/openai/private.git");
+    await user.click(screen.getByRole("button", { name: "Check" }));
+
+    expect(await screen.findByText("fatal: authentication failed")).toBeTruthy();
+    await user.type(sourceInput, "-copy");
+
+    expect(screen.queryByText("fatal: authentication failed")).toBeNull();
+  });
+
+  it("disables clone actions while checking repository access", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([]);
+    let resolveCheck: (value: Awaited<ReturnType<GitheadApi["checkRepositoryAccess"]>>) => void = () => undefined;
+    vi.mocked(githead.checkRepositoryAccess).mockReturnValue(new Promise((resolve) => {
+      resolveCheck = resolve;
+    }));
+
+    render(<App />);
+
+    await screen.findByText("Select a repository to continue.");
+    await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
+    await user.click(screen.getByRole("button", { name: "Check" }));
+
+    expect((await screen.findByRole("button", { name: "Checking" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Clone Repository" }) as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => {
+      resolveCheck({
+        source: "https://github.com/openai/repo.git",
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        branches: [],
+        defaultBranch: null
+      });
+    });
+  });
+
+  it("defaults clone depth to 0 and sends a full-clone request", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([]);
+
+    render(<App />);
+
+    await screen.findByText("Select a repository to continue.");
+    expect((screen.getByLabelText("Depth") as HTMLInputElement).value).toBe("0");
+    await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
+    await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
+    await user.click(screen.getByRole("button", { name: "Clone Repository" }));
+
+    await waitFor(() => {
+      expect(githead.cloneRepository).toHaveBeenCalledWith(expect.objectContaining({
+        depth: null
+      }));
+    });
   });
 
   it("ignores stale repository summaries when switching quickly", async () => {
@@ -1255,10 +1505,13 @@ function createGitheadMock(): GitheadApi {
 
   return {
     chooseRepo: vi.fn().mockResolvedValue(null),
+    chooseCloneParent: vi.fn().mockResolvedValue(null),
     getRepoSummary: vi.fn().mockResolvedValue(createSummary()),
     watchRepoChanges: vi.fn().mockResolvedValue(undefined),
     unwatchRepoChanges: vi.fn().mockResolvedValue(undefined),
-    getRepoRecents: vi.fn().mockResolvedValue([]),
+    getRepoRecents: vi.fn().mockResolvedValue([
+      repoPath
+    ]),
     addRepoRecent: vi.fn().mockImplementation(async (nextRepoPath: string) => [
       nextRepoPath
     ]),
@@ -1286,6 +1539,15 @@ function createGitheadMock(): GitheadApi {
     deleteFile: vi.fn().mockResolvedValue(okOperation),
     revertFileChanges: vi.fn().mockResolvedValue(okOperation),
     addPathToIgnore: vi.fn().mockResolvedValue(okOperation),
+    cloneRepository: vi.fn().mockResolvedValue(okOperation),
+    checkRepositoryAccess: vi.fn().mockResolvedValue({
+      source: "",
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+      branches: [],
+      defaultBranch: null
+    }),
     runGitAction: vi.fn(),
     getUpdateState: vi.fn().mockResolvedValue(createUpdateState()),
     checkForUpdates: vi.fn().mockResolvedValue({

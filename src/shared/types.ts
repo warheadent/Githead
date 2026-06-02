@@ -193,6 +193,27 @@ export interface GitCommitRequest {
   message: string;
 }
 
+export interface GitCloneRequest {
+  source: string;
+  parentPath: string;
+  directoryName: string;
+  branchName?: string;
+  depth?: number | null;
+}
+
+export interface GitRepositoryAccessCheckRequest {
+  source: string;
+}
+
+export interface GitRepositoryAccessCheckResult {
+  source: string;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  branches: string[];
+  defaultBranch: string | null;
+}
+
 export interface GitBranchRequest {
   repoPath: string;
   branchName: string;
@@ -313,6 +334,7 @@ export interface AppUpdateActionResult {
 
 export interface GitheadApi {
   chooseRepo(defaultPath?: string): Promise<string | null>;
+  chooseCloneParent(defaultPath?: string): Promise<string | null>;
   getRepoSummary(repoPath: string): Promise<RepoSummary>;
   watchRepoChanges(repoPath: string): Promise<void>;
   unwatchRepoChanges(repoPath?: string): Promise<void>;
@@ -342,6 +364,8 @@ export interface GitheadApi {
   deleteFile(request: FileSystemPathRequest): Promise<GitOperationResult>;
   revertFileChanges(request: GitFileDiffRequest): Promise<GitOperationResult>;
   addPathToIgnore(request: GitIgnorePathRequest): Promise<GitOperationResult>;
+  cloneRepository(request: GitCloneRequest): Promise<GitOperationResult>;
+  checkRepositoryAccess(request: GitRepositoryAccessCheckRequest): Promise<GitRepositoryAccessCheckResult>;
   runGitAction(request: GitRunRequest): Promise<GitRunResult>;
   getUpdateState(): Promise<AppUpdateState>;
   checkForUpdates(): Promise<AppUpdateCheckResult>;

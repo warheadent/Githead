@@ -15,6 +15,7 @@ export interface ProcessResult {
 export interface ProcessRunOptions {
   cwd?: string;
   stdin?: string | Buffer;
+  timeoutMs?: number;
   onOutput?: (output: ProcessOutput) => void;
 }
 
@@ -34,6 +35,17 @@ export class NodeProcessRunner implements ProcessRunner {
         shell: false,
         windowsHide: true
       });
+      const timeout = options.timeoutMs
+        ? setTimeout(() => {
+            child.kill();
+            finish({
+              exitCode: -1,
+              stdout: stdoutChunks.join(""),
+              stderr: stderrChunks.join(""),
+              error: `Command timed out after ${options.timeoutMs}ms.`
+            });
+          }, options.timeoutMs)
+        : null;
 
       child.stdin?.end(options.stdin);
 
@@ -43,6 +55,9 @@ export class NodeProcessRunner implements ProcessRunner {
         }
 
         completed = true;
+        if (timeout) {
+          clearTimeout(timeout);
+        }
         resolve(result);
       };
 

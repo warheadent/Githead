@@ -8,6 +8,7 @@ import {
   ExternalLink,
   FileCode2,
   FolderOpen,
+  GitFork,
   GitBranch as GitBranchIcon,
   GitPullRequest,
   History,
@@ -87,6 +88,7 @@ import type {
   GitOperationResult,
   GitOutputEvent,
   GitRemoteBranch,
+  GitRepositoryAccessCheckResult,
   GitRunResult,
   GitStatusFile,
   RepoSummary
@@ -97,7 +99,6 @@ import { buildCommitGraphLayout, type CommitGraphLayout } from "./commitGraph";
 import { groupDiffRowsByHunk, parseUnifiedDiff, type DiffRow, type DiffRowKind } from "./diffParser";
 import { highlightDiffCode } from "./syntaxHighlighter";
 
-const DEFAULT_REPO_PATH = "D:\\Githead";
 const HISTORY_LIMIT = 200;
 
 type WorkspaceView = "status" | "history" | "workflows" | "pullRequests" | "issues" | "activity";
@@ -121,10 +122,27 @@ interface SettingsDraft {
   siteTitle: string;
 }
 
+interface CloneDraft {
+  source: string;
+  parentPath: string;
+  directoryName: string;
+  branchName: string;
+  depth: string;
+}
+
 interface AppState {
   repoPath: string;
   repoRecents: string[];
   repoLoading: boolean;
+  showSetup: boolean;
+  setupError: string;
+  cloneDraft: CloneDraft;
+  cloneError: string;
+  cloneRunning: boolean;
+  cloneCheckRunning: boolean;
+  cloneCheckStatus: "idle" | "success" | "error";
+  cloneCheckMessage: string;
+  cloneBranches: string[];
   summary: RepoSummary | null;
   branchDialogOpen: boolean;
   branchNameDraft: string;
@@ -194,10 +212,27 @@ const emptySettingsDraft: SettingsDraft = {
   siteTitle: "Githead"
 };
 
+const emptyCloneDraft: CloneDraft = {
+  source: "",
+  parentPath: "",
+  directoryName: "",
+  branchName: "",
+  depth: "0"
+};
+
 const initialState: AppState = {
-  repoPath: DEFAULT_REPO_PATH,
+  repoPath: "",
   repoRecents: [],
   repoLoading: false,
+  showSetup: true,
+  setupError: "",
+  cloneDraft: emptyCloneDraft,
+  cloneError: "",
+  cloneRunning: false,
+  cloneCheckRunning: false,
+  cloneCheckStatus: "idle",
+  cloneCheckMessage: "",
+  cloneBranches: [],
   summary: null,
   branchDialogOpen: false,
   branchNameDraft: "",
@@ -726,7 +761,9 @@ export function App(): ReactNode {
       fileStatusDirtyRef.current = false;
       updateState((current) => reconcileGitHubState(reconcileSelection({
         ...current,
-        summary
+        summary,
+        showSetup: !summary.isValid,
+        setupError: summary.isValid ? "" : summary.validationErrors.join(" ")
       }), current.summary));
 
       if (options.addToRecents && summary.isValid) {
@@ -759,6 +796,8 @@ export function App(): ReactNode {
             current.repoPath,
             error instanceof Error ? error.message : "Unable to read repository state."
           ),
+          showSetup: true,
+          setupError: error instanceof Error ? error.message : "Unable to read repository state.",
           selection: null,
           diff: null
         }));
@@ -879,6 +918,9 @@ export function App(): ReactNode {
       ...current,
       repoPath: nextRepoPath,
       repoLoading: true,
+      showSetup: false,
+      setupError: "",
+      cloneError: "",
       summary: null,
       branchDialogOpen: false,
       branchNameDraft: "",
@@ -918,13 +960,17 @@ export function App(): ReactNode {
 
     updateState((current) => ({
       ...current,
-      repoPath: repoRecents[0] ?? DEFAULT_REPO_PATH,
-      repoRecents
+      repoPath: repoRecents[0] ?? "",
+      repoRecents,
+      showSetup: repoRecents.length === 0,
+      setupError: repoRecents.length === 0 ? "" : current.setupError
     }));
 
-    await refreshRepo({
-      addToRecents: true
-    });
+    if (repoRecents.length > 0) {
+      await refreshRepo({
+        addToRecents: true
+      });
+    }
   }, [refreshRepo, updateState]);
 
   const loadAiSettings = useCallback(async (): Promise<void> => {
@@ -979,6 +1025,152 @@ export function App(): ReactNode {
       addToRecents: true
     });
   }, [switchRepo]);
+
+  const chooseCloneParent = useCallback(async (): Promise<void> => {
+    const parentPath = await window.githead.chooseCloneParent(stateRef.current.cloneDraft.parentPath);
+    if (!parentPath) {
+      return;
+    }
+
+    updateState((current) => ({
+      ...current,
+      cloneDraft: {
+        ...current.cloneDraft,
+        parentPath
+      },
+      cloneError: ""
+    }));
+  }, [updateState]);
+
+  const updateCloneDraft = useCallback((cloneDraft: CloneDraft): void => {
+    updateState({
+      cloneDraft,
+      cloneError: ""
+    });
+  }, [updateState]);
+
+  const resetCloneCheckState = useCallback((): void => {
+    updateState({
+      cloneCheckStatus: "idle",
+      cloneCheckMessage: "",
+      cloneBranches: []
+    });
+  }, [updateState]);
+
+  const checkRepositoryAccess = useCallback(async (): Promise<void> => {
+    const current = stateRef.current;
+    if (isOperationRunning(current)) {
+      return;
+    }
+
+    updateState({
+      cloneCheckRunning: true,
+      cloneCheckStatus: "idle",
+      cloneCheckMessage: "",
+      cloneBranches: [],
+      cloneError: ""
+    });
+
+    try {
+      const result = await window.githead.checkRepositoryAccess({
+        source: current.cloneDraft.source
+      });
+
+      if (result.exitCode !== 0) {
+        updateState({
+          cloneCheckStatus: "error",
+          cloneCheckMessage: getRepositoryAccessCheckFailureMessage(result),
+          cloneBranches: []
+        });
+        return;
+      }
+
+      updateState((latest) => ({
+        ...latest,
+        cloneDraft: {
+          ...latest.cloneDraft,
+          branchName: latest.cloneDraft.branchName.trim() || result.defaultBranch || latest.cloneDraft.branchName
+        },
+        cloneCheckStatus: "success",
+        cloneCheckMessage: "Repository is accessible.",
+        cloneBranches: result.branches
+      }));
+    } catch (error) {
+      updateState({
+        cloneCheckStatus: "error",
+        cloneCheckMessage: error instanceof Error ? error.message : "Unable to check repository access.",
+        cloneBranches: []
+      });
+    } finally {
+      updateState({
+        cloneCheckRunning: false
+      });
+    }
+  }, [updateState]);
+
+  const cloneRepository = useCallback(async (): Promise<void> => {
+    const current = stateRef.current;
+    if (isOperationRunning(current)) {
+      return;
+    }
+
+    const depthText = current.cloneDraft.depth.trim();
+    const requestedDepth = depthText ? Number(depthText) : null;
+    if (requestedDepth !== null && (!Number.isInteger(requestedDepth) || requestedDepth < 0)) {
+      updateState({
+        cloneError: "Clone depth must be 0 or a positive whole number."
+      });
+      return;
+    }
+    const depth = requestedDepth && requestedDepth > 0 ? requestedDepth : null;
+
+    updateState({
+      cloneRunning: true,
+      cloneError: "",
+      lastOperationResult: null
+    });
+
+    try {
+      const result = await window.githead.cloneRepository({
+        source: current.cloneDraft.source,
+        parentPath: current.cloneDraft.parentPath,
+        directoryName: current.cloneDraft.directoryName,
+        branchName: current.cloneDraft.branchName,
+        depth
+      });
+      updateState({
+        lastOperationResult: result
+      });
+      appendOperationLog("Cloning repository", result);
+
+      if (result.exitCode !== 0) {
+        updateState({
+          cloneError: getOperationFailureMessage(result, "Unable to clone repository.")
+        });
+        return;
+      }
+
+      await switchRepo(result.repoPath, {
+        addToRecents: true
+      });
+    } catch (error) {
+      const result: GitOperationResult = {
+        repoPath: stateRef.current.cloneDraft.parentPath,
+        exitCode: -1,
+        stdout: "",
+        stderr: error instanceof Error ? error.message : "Unable to clone repository."
+      };
+      updateState({
+        lastOperationResult: result,
+        cloneError: result.stderr
+      });
+      appendOperationLog("Cloning repository", result);
+    } finally {
+      updateState({
+        cloneRunning: false
+      });
+    }
+  }, [appendOperationLog, switchRepo, updateState]);
 
   const selectRecentRepo = useCallback(async (repoPath: string): Promise<void> => {
     if (isSameRepoPath(repoPath, stateRef.current.repoPath)) {
@@ -1660,6 +1852,50 @@ export function App(): ReactNode {
   const repoHealth = getRepoHealth(state);
   const showGitHubTabs = Boolean(state.summary?.githubRepository);
 
+  if (state.showSetup) {
+    return (
+      <main className="app-shell bg-background text-foreground">
+        <RepositorySetupScreen
+          repoRecents={state.repoRecents}
+          selectedRepoPath={state.repoPath}
+          setupError={state.setupError}
+          cloneDraft={state.cloneDraft}
+          cloneError={state.cloneError}
+          cloneRunning={state.cloneRunning}
+          cloneCheckRunning={state.cloneCheckRunning}
+          cloneCheckStatus={state.cloneCheckStatus}
+          cloneCheckMessage={state.cloneCheckMessage}
+          cloneBranches={state.cloneBranches}
+          running={running}
+          onChooseRepo={() => {
+            void chooseRepo();
+          }}
+          onSelectRecent={(repoPath) => {
+            void selectRecentRepo(repoPath);
+          }}
+          onRemoveRecent={(repoPath) => {
+            void removeRecentRepo(repoPath);
+          }}
+          onCloneDraftChange={updateCloneDraft}
+          onCloneSourceChange={(draft) => {
+            updateCloneDraft(draft);
+            resetCloneCheckState();
+          }}
+          onChooseCloneParent={() => {
+            void chooseCloneParent();
+          }}
+          onCheckRepositoryAccess={() => {
+            void checkRepositoryAccess();
+          }}
+          onClone={(event) => {
+            event.preventDefault();
+            void cloneRepository();
+          }}
+        />
+      </main>
+    );
+  }
+
   return (
     <main className="app-shell bg-background text-foreground">
       <ResizablePanelGroup orientation="horizontal" className="min-h-0">
@@ -1956,6 +2192,286 @@ export function App(): ReactNode {
         }}
       />
     </main>
+  );
+}
+
+function RepositorySetupScreen({
+  repoRecents,
+  selectedRepoPath,
+  setupError,
+  cloneDraft,
+  cloneError,
+  cloneRunning,
+  cloneCheckRunning,
+  cloneCheckStatus,
+  cloneCheckMessage,
+  cloneBranches,
+  running,
+  onChooseRepo,
+  onSelectRecent,
+  onRemoveRecent,
+  onCloneDraftChange,
+  onCloneSourceChange,
+  onChooseCloneParent,
+  onCheckRepositoryAccess,
+  onClone
+}: {
+  repoRecents: string[];
+  selectedRepoPath: string;
+  setupError: string;
+  cloneDraft: CloneDraft;
+  cloneError: string;
+  cloneRunning: boolean;
+  cloneCheckRunning: boolean;
+  cloneCheckStatus: "idle" | "success" | "error";
+  cloneCheckMessage: string;
+  cloneBranches: string[];
+  running: boolean;
+  onChooseRepo: () => void;
+  onSelectRecent: (repoPath: string) => void;
+  onRemoveRecent: (repoPath: string) => void;
+  onCloneDraftChange: (draft: CloneDraft) => void;
+  onCloneSourceChange: (draft: CloneDraft) => void;
+  onChooseCloneParent: () => void;
+  onCheckRepositoryAccess: () => void;
+  onClone: (event: FormEvent<HTMLFormElement>) => void;
+}): ReactNode {
+  const updateSource = (source: string): void => {
+    const previousInferredName = inferCloneDirectoryName(cloneDraft.source);
+    const nextInferredName = inferCloneDirectoryName(source);
+    const shouldUpdateDirectory = !cloneDraft.directoryName.trim() || cloneDraft.directoryName === previousInferredName;
+
+    onCloneSourceChange({
+      ...cloneDraft,
+      source,
+      directoryName: shouldUpdateDirectory ? nextInferredName : cloneDraft.directoryName
+    });
+  };
+  const cloneBusy = cloneRunning || cloneCheckRunning;
+
+  return (
+    <section className="setup-screen">
+      <div className="setup-header">
+        <div className="setup-logo">G</div>
+        <div className="min-w-0">
+          <h1>Githead</h1>
+          <p>Select a repository to continue.</p>
+        </div>
+      </div>
+
+      <div className="setup-grid">
+        <section className="setup-panel">
+          <div className="setup-panel-heading">
+            <FolderOpen />
+            <div>
+              <h2>Open existing repository</h2>
+              <p>Locate a folder that already contains a Git working tree.</p>
+            </div>
+          </div>
+          <Button type="button" className="w-full justify-center" onClick={onChooseRepo} disabled={running}>
+            <FolderOpen />
+            Browse for Repository
+          </Button>
+          {setupError ? (
+            <p className="setup-error" role="alert">{setupError}</p>
+          ) : null}
+          {selectedRepoPath ? (
+            <p className="setup-selected-path">{selectedRepoPath}</p>
+          ) : null}
+        </section>
+
+        <section className="setup-panel">
+          <form className="setup-clone-form" onSubmit={onClone}>
+            <div className="setup-panel-heading">
+              <GitFork />
+              <div>
+                <h2>Clone repository</h2>
+                <p>Clone from any Git-supported HTTPS, SSH, or local source.</p>
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="clone-source">Repository URL or path</Label>
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                <Input
+                  id="clone-source"
+                  value={cloneDraft.source}
+                  disabled={cloneBusy}
+                  placeholder="https://github.com/owner/repo.git"
+                  onChange={(event) => {
+                    updateSource(event.target.value);
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={onCheckRepositoryAccess}
+                  disabled={cloneBusy || !cloneDraft.source.trim()}
+                >
+                  {cloneCheckRunning ? <Loader2 className="animate-spin" /> : <CheckCircle2 />}
+                  {cloneCheckRunning ? "Checking" : "Check"}
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="clone-parent">Destination folder</Label>
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                <Input
+                  id="clone-parent"
+                  value={cloneDraft.parentPath}
+                  disabled={cloneRunning}
+                  placeholder="Choose a parent folder"
+                  onChange={(event) => {
+                    onCloneDraftChange({
+                      ...cloneDraft,
+                      parentPath: event.target.value
+                    });
+                  }}
+                />
+                <Button type="button" variant="outline" onClick={onChooseCloneParent} disabled={cloneRunning}>
+                  <FolderOpen />
+                  Browse
+                </Button>
+              </div>
+            </div>
+
+            <div className="setup-clone-options">
+              <div className="grid gap-2">
+                <Label htmlFor="clone-directory">Folder name</Label>
+                <Input
+                  id="clone-directory"
+                  value={cloneDraft.directoryName}
+                  disabled={cloneRunning}
+                  onChange={(event) => {
+                    onCloneDraftChange({
+                      ...cloneDraft,
+                      directoryName: event.target.value
+                    });
+                  }}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="clone-branch">Branch</Label>
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                  <Input
+                    id="clone-branch"
+                    value={cloneDraft.branchName}
+                    disabled={cloneRunning}
+                    placeholder="Optional"
+                    onChange={(event) => {
+                      onCloneDraftChange({
+                        ...cloneDraft,
+                        branchName: event.target.value
+                      });
+                    }}
+                  />
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        disabled={cloneRunning || cloneBranches.length === 0}
+                        aria-label="Choose branch"
+                        title="Choose branch"
+                      >
+                        <ChevronDown />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="clone-branch-menu">
+                      {cloneBranches.map((branch) => (
+                        <DropdownMenuItem
+                          key={branch}
+                          onSelect={() => {
+                            onCloneDraftChange({
+                              ...cloneDraft,
+                              branchName: branch
+                            });
+                          }}
+                        >
+                          {branch}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="clone-depth">Depth</Label>
+                <Input
+                  id="clone-depth"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={cloneDraft.depth}
+                  disabled={cloneRunning}
+                  placeholder="Optional"
+                  onChange={(event) => {
+                    onCloneDraftChange({
+                      ...cloneDraft,
+                      depth: event.target.value
+                    });
+                  }}
+                />
+              </div>
+            </div>
+
+            {cloneError ? (
+              <p className="setup-error" role="alert">{cloneError}</p>
+            ) : null}
+            {cloneCheckMessage ? (
+              <p className={cloneCheckStatus === "success" ? "setup-success" : "setup-error"} role={cloneCheckStatus === "error" ? "alert" : "status"}>
+                {cloneCheckMessage}
+              </p>
+            ) : null}
+
+            <Button type="submit" className="w-full justify-center" disabled={cloneBusy}>
+              {cloneRunning ? <Loader2 className="animate-spin" /> : <Download />}
+              {cloneRunning ? "Cloning" : "Clone Repository"}
+            </Button>
+          </form>
+        </section>
+      </div>
+
+      {repoRecents.length > 0 ? (
+        <section className="setup-recents" aria-label="Recent repositories">
+          <p className="repo-recents-label">Recent Repositories</p>
+          <div className="repo-recents-list">
+            {repoRecents.map((recentRepoPath) => (
+              <div key={getRepoPathKey(recentRepoPath)} className="repo-recent-row">
+                <button
+                  type="button"
+                  className="repo-recent-main"
+                  onClick={() => {
+                    onSelectRecent(recentRepoPath);
+                  }}
+                  disabled={running}
+                  aria-label={`Switch to ${recentRepoPath}`}
+                >
+                  <span className="repo-recent-name">{getRepoDisplayName(recentRepoPath)}</span>
+                  <span className="repo-recent-path">{recentRepoPath}</span>
+                </button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="repo-recent-remove"
+                  onClick={() => {
+                    onRemoveRecent(recentRepoPath);
+                  }}
+                  disabled={running}
+                  aria-label={`Remove ${recentRepoPath} from recent repositories`}
+                  title="Remove recent repository"
+                >
+                  <X />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+    </section>
   );
 }
 
@@ -4082,7 +4598,7 @@ function getGenerateMessageTitle(state: AppState): string {
 }
 
 function isOperationRunning(state: AppState): boolean {
-  return Boolean(state.runningAction || state.runningOperation);
+  return Boolean(state.runningAction || state.runningOperation || state.cloneRunning || state.cloneCheckRunning);
 }
 
 type AppUpdateAction = "check" | "download" | "install" | "none";
@@ -4168,6 +4684,17 @@ function getRepoDisplayName(repoPath: string): string {
   return match?.[0] || repoPath;
 }
 
+function inferCloneDirectoryName(source: string): string {
+  const trimmedSource = source.trim().replace(/[\\/]+$/, "");
+  if (!trimmedSource) {
+    return "";
+  }
+
+  const withoutQuery = trimmedSource.split(/[?#]/, 1)[0] ?? trimmedSource;
+  const match = /([^/:\\]+?)(?:\.git)?$/.exec(withoutQuery);
+  return match?.[1] ?? "";
+}
+
 function getActionHeading(state: AppState): string {
   if (state.runningAction) {
     return `${capitalize(state.runningAction)} running`;
@@ -4208,6 +4735,10 @@ function formatOperationLog(label: string, result: GitOperationResult): string {
 
 function getOperationFailureMessage(result: GitOperationResult | null, fallback: string): string {
   return result?.stderr.trim() || result?.stdout.trim() || fallback;
+}
+
+function getRepositoryAccessCheckFailureMessage(result: GitRepositoryAccessCheckResult): string {
+  return result.stderr.trim() || result.stdout.trim() || "Unable to check repository access.";
 }
 
 function formatStreamOutput(stream: "stdout" | "stderr", text: string): string {

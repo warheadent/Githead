@@ -6,6 +6,7 @@ import type {
   GitAction,
   GitBranch,
   GitBranchRequest,
+  GitCloneRequest,
   GitCommitChangedFile,
   GitCommitDetails,
   GitCommitDetailsRequest,
@@ -22,6 +23,8 @@ import type {
   GitPathRequest,
   GitRemoteBranch,
   GitRemote,
+  GitRepositoryAccessCheckRequest,
+  GitRepositoryAccessCheckResult,
   GitRunRequest,
   GitRunResult,
   GitStatusFile,
@@ -68,6 +71,7 @@ const emptySummary = (repoPath: string, validationErrors: string[]): RepoSummary
 const DIFF_TEXT_LIMIT = 250_000;
 const DEFAULT_HISTORY_LIMIT = 200;
 const MAX_HISTORY_LIMIT = 500;
+const REPOSITORY_ACCESS_CHECK_TIMEOUT_MS = 30_000;
 
 export class GitService {
   constructor(private readonly runner: ProcessRunner) {}
@@ -160,6 +164,76 @@ export class GitService {
     }
 
     return parseGitHubRemoteUrl(originResult.stdout.trim());
+  }
+
+  async checkRepositoryAccess(request: GitRepositoryAccessCheckRequest): Promise<GitRepositoryAccessCheckResult> {
+    const source = request.source.trim();
+    if (!source) {
+      return createRepositoryAccessCheckFailure(source, "Enter a repository URL or path.");
+    }
+
+    const result = await this.runner.run("git", [
+      "ls-remote",
+      "--symref",
+      "--",
+      source,
+      "HEAD",
+      "refs/heads/*"
+    ], {
+      timeoutMs: REPOSITORY_ACCESS_CHECK_TIMEOUT_MS
+    });
+    const stderr = redactRepositorySourceCredentials(
+      result.error ? `${result.stderr}${result.error}` : result.stderr,
+      source
+    );
+    const stdout = redactRepositorySourceCredentials(result.stdout, source);
+    const refs = parseRepositoryAccessRefs(result.stdout);
+
+    return {
+      source,
+      exitCode: result.exitCode,
+      stdout,
+      stderr,
+      branches: result.exitCode === 0 ? refs.branches : [],
+      defaultBranch: result.exitCode === 0 ? refs.defaultBranch : null
+    };
+  }
+
+  async cloneRepository(request: GitCloneRequest): Promise<GitOperationResult> {
+    const validation = await validateCloneRequest(request);
+    if ("error" in validation) {
+      return this.createOperationFailure(request.parentPath, validation.error);
+    }
+
+    const args = [
+      "clone",
+      "--progress",
+      ...(validation.branchName
+        ? [
+            "--branch",
+            validation.branchName
+          ]
+        : []),
+      ...(validation.depth
+        ? [
+            "--depth",
+            String(validation.depth)
+          ]
+        : []),
+      "--",
+      validation.source,
+      validation.destinationPath
+    ];
+    const result = await this.runner.run("git", args, {
+      cwd: validation.parentPath
+    });
+
+    return {
+      repoPath: validation.destinationPath,
+      exitCode: result.exitCode,
+      stdout: redactRepositorySourceCredentials(result.stdout || (result.exitCode === 0 ? "Repository cloned." : ""), validation.source),
+      stderr: redactRepositorySourceCredentials(result.error ? `${result.stderr}${result.error}` : result.stderr, validation.source)
+    };
   }
 
   async getFileDiff(request: GitFileDiffRequest): Promise<GitFileDiff> {
@@ -909,6 +983,165 @@ function createRunOptions(
   return {
     ...(onOutput ? { onOutput } : {}),
     ...(stdin !== undefined ? { stdin } : {})
+  };
+}
+
+interface ValidCloneRequest {
+  source: string;
+  parentPath: string;
+  destinationPath: string;
+  branchName: string | null;
+  depth: number | null;
+}
+
+async function validateCloneRequest(request: GitCloneRequest): Promise<ValidCloneRequest | { error: string }> {
+  const source = request.source.trim();
+  if (!source) {
+    return {
+      error: "Enter a repository URL or path."
+    };
+  }
+
+  const parentPath = path.normalize(request.parentPath.trim());
+  if (!parentPath || !path.isAbsolute(parentPath)) {
+    return {
+      error: "Select an absolute destination folder."
+    };
+  }
+
+  const parentStats = await getStats(parentPath);
+  if (!parentStats?.isDirectory()) {
+    return {
+      error: "Destination folder does not exist."
+    };
+  }
+
+  const directoryName = request.directoryName.trim();
+  if (!directoryName) {
+    return {
+      error: "Enter a destination folder name."
+    };
+  }
+
+  if (
+    path.isAbsolute(directoryName) ||
+    directoryName === "." ||
+    directoryName === ".." ||
+    directoryName.includes("/") ||
+    directoryName.includes("\\") ||
+    path.normalize(directoryName) !== directoryName
+  ) {
+    return {
+      error: "Destination folder name cannot include a path."
+    };
+  }
+
+  const destinationPath = path.resolve(parentPath, directoryName);
+  const relativeDestination = path.relative(parentPath, destinationPath);
+  if (!relativeDestination || relativeDestination.startsWith("..") || path.isAbsolute(relativeDestination)) {
+    return {
+      error: "Destination folder must stay inside the selected folder."
+    };
+  }
+
+  const destinationStats = await getStats(destinationPath);
+  if (destinationStats) {
+    if (!destinationStats.isDirectory()) {
+      return {
+        error: "Destination path already exists and is not a folder."
+      };
+    }
+
+    const entries = await fs.readdir(destinationPath);
+    if (entries.length > 0) {
+      return {
+        error: "Destination folder already exists and is not empty."
+      };
+    }
+  }
+
+  const branchName = request.branchName?.trim() ?? "";
+  if (branchName.startsWith("-")) {
+    return {
+      error: "Branch name cannot start with a dash."
+    };
+  }
+
+  const requestedDepth = request.depth ?? null;
+  if (requestedDepth !== null && (!Number.isInteger(requestedDepth) || requestedDepth < 0)) {
+    return {
+      error: "Clone depth must be 0 or a positive whole number."
+    };
+  }
+  const depth = requestedDepth && requestedDepth > 0 ? requestedDepth : null;
+
+  return {
+    source,
+    parentPath,
+    destinationPath,
+    branchName: branchName || null,
+    depth
+  };
+}
+
+async function getStats(filePath: string): Promise<Awaited<ReturnType<typeof fs.stat>> | null> {
+  try {
+    return await fs.stat(filePath);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+function createRepositoryAccessCheckFailure(source: string, message: string): GitRepositoryAccessCheckResult {
+  return {
+    source,
+    exitCode: -1,
+    stdout: "",
+    stderr: message,
+    branches: [],
+    defaultBranch: null
+  };
+}
+
+function redactRepositorySourceCredentials(text: string, source: string): string {
+  const sourceWithCredentialsRedacted = redactUrlCredentials(source);
+  return redactUrlCredentials(text.replaceAll(source, sourceWithCredentialsRedacted));
+}
+
+function redactUrlCredentials(text: string): string {
+  return text.replace(/([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)([^@\s/]+)@/g, "$1***@");
+}
+
+function parseRepositoryAccessRefs(stdout: string): { branches: string[]; defaultBranch: string | null } {
+  const branches = new Set<string>();
+  let defaultBranch: string | null = null;
+
+  for (const line of stdout.split(/\r?\n/)) {
+    const trimmedLine = line.trim();
+    if (!trimmedLine) {
+      continue;
+    }
+
+    const symrefMatch = /^ref:\s+refs\/heads\/(.+)\s+HEAD$/.exec(trimmedLine);
+    if (symrefMatch?.[1]) {
+      defaultBranch = symrefMatch[1];
+      branches.add(symrefMatch[1]);
+      continue;
+    }
+
+    const branchMatch = /^[0-9a-f]{40}\s+refs\/heads\/(.+)$/i.exec(trimmedLine);
+    if (branchMatch?.[1]) {
+      branches.add(branchMatch[1]);
+    }
+  }
+
+  return {
+    branches: [...branches].sort((left, right) => left.localeCompare(right)),
+    defaultBranch
   };
 }
 

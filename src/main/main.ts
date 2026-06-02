@@ -7,6 +7,7 @@ import type {
   ExternalUrlRequest,
   FileSystemPathRequest,
   GitBranchRequest,
+  GitCloneRequest,
   GitCommitDetailsRequest,
   GitCommitFileDiffRequest,
   GitCommitHistoryRequest,
@@ -18,6 +19,7 @@ import type {
   GitOperationResult,
   GitOutputEvent,
   GitPathRequest,
+  GitRepositoryAccessCheckRequest,
   GitRunRequest,
   GitUpstreamRequest
 } from "../shared/types";
@@ -144,6 +146,26 @@ ipcMain.handle(IPC_CHANNELS.chooseRepo, async (_event, defaultPath?: string) => 
   const options: Electron.OpenDialogOptions = {
     title: "Select Git Repository",
     defaultPath: defaultPath?.trim() || DEFAULT_REPO_PATH,
+    properties: [
+      "openDirectory"
+    ]
+  };
+
+  const result = mainWindow
+    ? await dialog.showOpenDialog(mainWindow, options)
+    : await dialog.showOpenDialog(options);
+
+  if (result.canceled) {
+    return null;
+  }
+
+  return result.filePaths[0] ?? null;
+});
+
+ipcMain.handle(IPC_CHANNELS.chooseCloneParent, async (_event, defaultPath?: string) => {
+  const options: Electron.OpenDialogOptions = {
+    title: "Select Clone Destination Folder",
+    defaultPath: defaultPath?.trim() || app.getPath("documents"),
     properties: [
       "openDirectory"
     ]
@@ -323,6 +345,31 @@ ipcMain.handle(IPC_CHANNELS.revertFileChanges, async (_event, request: GitFileDi
 
 ipcMain.handle(IPC_CHANNELS.addPathToIgnore, async (_event, request: GitIgnorePathRequest) => {
   return runExclusiveGitOperation(() => gitService.addPathToIgnore(request), request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.cloneRepository, async (_event, request: GitCloneRequest) => {
+  return runExclusiveGitOperation(() => gitService.cloneRepository(request), request.parentPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.checkRepositoryAccess, async (_event, request: GitRepositoryAccessCheckRequest) => {
+  if (commandRunning) {
+    return {
+      source: request.source,
+      exitCode: -1,
+      stdout: "",
+      stderr: "Another git command is already running.",
+      branches: [],
+      defaultBranch: null
+    };
+  }
+
+  commandRunning = true;
+
+  try {
+    return await gitService.checkRepositoryAccess(request);
+  } finally {
+    commandRunning = false;
+  }
 });
 
 ipcMain.handle(IPC_CHANNELS.runGitAction, async (_event, request: GitRunRequest) => {

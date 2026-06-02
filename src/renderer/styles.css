@@ -180,6 +180,148 @@
   overflow: hidden;
 }
 
+.setup-screen {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 18px;
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  padding: 34px;
+}
+
+.setup-header {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  max-width: 1040px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.setup-logo {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+.setup-header h1,
+.setup-panel h2 {
+  margin: 0;
+  line-height: 1.15;
+}
+
+.setup-header h1 {
+  font-size: 1.8rem;
+  font-weight: 720;
+}
+
+.setup-header p,
+.setup-panel p {
+  margin: 4px 0 0;
+  color: var(--muted-foreground);
+  line-height: 1.4;
+}
+
+.setup-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.84fr) minmax(360px, 1.16fr);
+  gap: 16px;
+  max-width: 1040px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.setup-panel,
+.setup-recents {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+}
+
+.setup-panel {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  padding: 18px;
+}
+
+.setup-panel-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 11px;
+}
+
+.setup-panel-heading > svg {
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  color: var(--primary);
+}
+
+.setup-panel h2 {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.setup-panel p {
+  font-size: 0.86rem;
+}
+
+.setup-clone-form {
+  display: grid;
+  gap: 14px;
+}
+
+.setup-clone-options {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(120px, 0.9fr) minmax(86px, 0.55fr);
+  gap: 10px;
+}
+
+.setup-error {
+  min-height: 20px;
+  color: var(--destructive) !important;
+  overflow-wrap: anywhere;
+  font-size: 0.86rem;
+}
+
+.setup-success {
+  min-height: 20px;
+  color: var(--primary) !important;
+  overflow-wrap: anywhere;
+  font-size: 0.86rem;
+}
+
+.setup-selected-path {
+  overflow-wrap: anywhere;
+  font-size: 0.82rem;
+}
+
+.clone-branch-menu {
+  max-width: 280px;
+}
+
+.setup-recents {
+  display: grid;
+  gap: 8px;
+  max-width: 1040px;
+  width: 100%;
+  min-height: 0;
+  margin: 0 auto;
+  padding: 14px;
+  overflow: auto;
+}
+
 .repo-facts {
   display: grid;
   gap: 0;
