@@ -311,6 +311,33 @@
   max-width: 280px;
 }
 
+.clone-branch-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+}
+
+.clone-branch-input {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.clone-branch-trigger {
+  margin-left: -1px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.clone-branch-input:focus-visible {
+  position: relative;
+  z-index: 1;
+}
+
+.clone-branch-trigger:focus-visible {
+  position: relative;
+  z-index: 2;
+}
+
 .setup-recents {
   display: grid;
   gap: 8px;

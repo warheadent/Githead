@@ -2353,9 +2353,10 @@ function RepositorySetupScreen({
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="clone-branch">Branch</Label>
-                <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                <div className="clone-branch-control">
                   <Input
                     id="clone-branch"
+                    className="clone-branch-input"
                     value={cloneDraft.branchName}
                     disabled={cloneRunning}
                     placeholder="Optional"
@@ -2372,6 +2373,7 @@ function RepositorySetupScreen({
                         type="button"
                         variant="outline"
                         size="icon"
+                        className="clone-branch-trigger"
                         disabled={cloneRunning || cloneBranches.length === 0}
                         aria-label="Choose branch"
                         title="Choose branch"
