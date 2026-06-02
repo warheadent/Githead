@@ -1113,6 +1113,93 @@ describe("App", () => {
     expect(await screen.findByText("Branch already exists.")).toBeTruthy();
     expect(screen.getByLabelText("Branch name")).toBeTruthy();
   });
+
+  it("changes the current branch upstream from the repository panel", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      remoteBranches: [
+        {
+          name: "origin/main",
+          remote: "origin",
+          branch: "main"
+        },
+        {
+          name: "origin/feature",
+          remote: "origin",
+          branch: "feature"
+        }
+      ]
+    }));
+
+    render(<App />);
+
+    await screen.findByText("origin/main");
+    await user.click(screen.getByRole("button", { name: "Change upstream" }));
+    await user.click(await screen.findByRole("radio", { name: /origin\/feature/ }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(githead.setBranchUpstream).toHaveBeenCalledWith({
+        repoPath,
+        branchName: "main",
+        upstream: "origin/feature"
+      });
+    });
+  });
+
+  it("clears the current branch upstream from the repository panel", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary());
+
+    render(<App />);
+
+    await screen.findByText("origin/main");
+    await user.click(screen.getByRole("button", { name: "Change upstream" }));
+    await user.click(await screen.findByRole("radio", { name: /No upstream/ }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(githead.setBranchUpstream).toHaveBeenCalledWith({
+        repoPath,
+        branchName: "main",
+        upstream: null
+      });
+    });
+  });
+
+  it("keeps the upstream dialog open when changing upstream fails", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      remoteBranches: [
+        {
+          name: "origin/main",
+          remote: "origin",
+          branch: "main"
+        },
+        {
+          name: "origin/feature",
+          remote: "origin",
+          branch: "feature"
+        }
+      ]
+    }));
+    vi.mocked(githead.setBranchUpstream).mockResolvedValue({
+      repoPath,
+      exitCode: -1,
+      stdout: "",
+      stderr: "Unable to set upstream."
+    });
+
+    render(<App />);
+
+    await screen.findByText("origin/main");
+    await user.click(screen.getByRole("button", { name: "Change upstream" }));
+    await user.click(await screen.findByRole("radio", { name: /origin\/feature/ }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("Unable to set upstream.")).toBeTruthy();
+    expect(screen.getByRole("radio", { name: /origin\/feature/ })).toBeTruthy();
+  });
 });
 
 function createGitheadMock(): GitheadApi {
@@ -1151,6 +1238,7 @@ function createGitheadMock(): GitheadApi {
     commitChanges: vi.fn().mockResolvedValue(okOperation),
     switchBranch: vi.fn().mockResolvedValue(okOperation),
     createBranch: vi.fn().mockResolvedValue(okOperation),
+    setBranchUpstream: vi.fn().mockResolvedValue(okOperation),
     getAiSettings: vi.fn().mockResolvedValue(aiSettings),
     saveAiSettings: vi.fn().mockResolvedValue(aiSettings),
     generateCommitMessage: vi.fn().mockResolvedValue(okOperation),
@@ -1239,6 +1327,13 @@ function createSummary(overrides: Partial<RepoSummary> = {}): RepoSummary {
         name: "origin",
         url: "https://example.test/repo.git",
         direction: "fetch"
+      }
+    ],
+    remoteBranches: [
+      {
+        name: "origin/main",
+        remote: "origin",
+        branch: "main"
       }
     ],
     githubRepository: null,

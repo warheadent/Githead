@@ -86,6 +86,7 @@ import type {
   GitHubWorkflowRun,
   GitOperationResult,
   GitOutputEvent,
+  GitRemoteBranch,
   GitRunResult,
   GitStatusFile,
   RepoSummary
@@ -130,6 +131,9 @@ interface AppState {
   branchDialogOpen: boolean;
   branchNameDraft: string;
   branchError: string;
+  upstreamDialogOpen: boolean;
+  upstreamDraft: string | null;
+  upstreamError: string;
   runningAction: GitAction | null;
   runningOperation: string | null;
   lastResult: GitRunResult | null;
@@ -200,6 +204,9 @@ const initialState: AppState = {
   branchDialogOpen: false,
   branchNameDraft: "",
   branchError: "",
+  upstreamDialogOpen: false,
+  upstreamDraft: null,
+  upstreamError: "",
   runningAction: null,
   runningOperation: null,
   lastResult: null,
@@ -869,6 +876,9 @@ export function App(): ReactNode {
       branchDialogOpen: false,
       branchNameDraft: "",
       branchError: "",
+      upstreamDialogOpen: false,
+      upstreamDraft: null,
+      upstreamError: "",
       lastResult: null,
       lastOperationResult: null,
       activeView: isGitHubView(current.activeView) ? "status" : current.activeView,
@@ -1119,6 +1129,41 @@ export function App(): ReactNode {
     });
   }, [updateState]);
 
+  const openUpstreamDialog = useCallback((): void => {
+    const current = stateRef.current;
+    const summary = current.summary;
+    if (!summary?.isValid || isOperationRunning(current) || !summary.branch) {
+      return;
+    }
+
+    if (summary.remoteBranches.length === 0 && !summary.upstream) {
+      return;
+    }
+
+    const currentUpstreamAvailable = summary.upstream
+      ? summary.remoteBranches.some((remoteBranch) => remoteBranch.name === summary.upstream)
+      : false;
+
+    updateState({
+      upstreamDialogOpen: true,
+      upstreamDraft: currentUpstreamAvailable
+        ? summary.upstream
+        : summary.remoteBranches[0]?.name ?? null,
+      upstreamError: ""
+    });
+  }, [updateState]);
+
+  const closeUpstreamDialog = useCallback((): void => {
+    if (isOperationRunning(stateRef.current)) {
+      return;
+    }
+
+    updateState({
+      upstreamDialogOpen: false,
+      upstreamError: ""
+    });
+  }, [updateState]);
+
   const switchBranch = useCallback(async (branchName: string): Promise<void> => {
     const current = stateRef.current;
     const nextBranchName = branchName.trim();
@@ -1134,6 +1179,59 @@ export function App(): ReactNode {
       })
     );
   }, [runRepoOperation]);
+
+  const setBranchUpstream = useCallback(async (): Promise<void> => {
+    const current = stateRef.current;
+    const summary = current.summary;
+
+    if (!summary?.isValid || isOperationRunning(current) || !summary.branch) {
+      return;
+    }
+
+    const branchName = summary.branch;
+    if (current.upstreamDraft === summary.upstream) {
+      updateState({
+        upstreamDialogOpen: false,
+        upstreamError: ""
+      });
+      return;
+    }
+
+    const upstream = current.upstreamDraft;
+    if (upstream !== null && !summary.remoteBranches.some((remoteBranch) => remoteBranch.name === upstream)) {
+      updateState({
+        upstreamError: "Select a fetched remote branch."
+      });
+      return;
+    }
+
+    updateState({
+      upstreamError: ""
+    });
+
+    const label = upstream ? `Changing upstream to ${upstream}` : "Clearing upstream";
+    await runRepoOperation(label, null, () =>
+      window.githead.setBranchUpstream({
+        repoPath: stateRef.current.repoPath,
+        branchName,
+        upstream
+      })
+    );
+
+    const result = stateRef.current.lastOperationResult;
+    if (result?.exitCode === 0) {
+      updateState({
+        upstreamDialogOpen: false,
+        upstreamDraft: null,
+        upstreamError: ""
+      });
+      return;
+    }
+
+    updateState({
+      upstreamError: getOperationFailureMessage(result, "Unable to change upstream.")
+    });
+  }, [runRepoOperation, updateState]);
 
   const createBranch = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
@@ -1582,6 +1680,7 @@ export function App(): ReactNode {
               void switchBranch(branchName);
             }}
             onOpenBranchDialog={openBranchDialog}
+            onOpenUpstreamDialog={openUpstreamDialog}
             onOpenSettings={openSettingsDialog}
             onCheckForUpdates={() => {
               void checkForAppUpdates();
@@ -1825,6 +1924,30 @@ export function App(): ReactNode {
           void createBranch();
         }}
       />
+
+      <UpstreamDialog
+        open={state.upstreamDialogOpen}
+        currentUpstream={state.summary?.upstream ?? null}
+        remoteBranches={state.summary?.remoteBranches ?? []}
+        upstream={state.upstreamDraft}
+        saving={state.runningOperation?.startsWith("Changing upstream") || state.runningOperation === "Clearing upstream"}
+        error={state.upstreamError}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeUpstreamDialog();
+          }
+        }}
+        onUpstreamChange={(upstreamDraft) => {
+          updateState({
+            upstreamDraft,
+            upstreamError: ""
+          });
+        }}
+        onSave={(event) => {
+          event.preventDefault();
+          void setBranchUpstream();
+        }}
+      />
     </main>
   );
 }
@@ -1842,6 +1965,7 @@ function RepositoryPanel({
   onRemoveRecent,
   onSwitchBranch,
   onOpenBranchDialog,
+  onOpenUpstreamDialog,
   onOpenSettings,
   onCheckForUpdates,
   onDownloadUpdate,
@@ -1859,6 +1983,7 @@ function RepositoryPanel({
   onRemoveRecent: (repoPath: string) => void;
   onSwitchBranch: (branchName: string) => void;
   onOpenBranchDialog: () => void;
+  onOpenUpstreamDialog: () => void;
   onOpenSettings: () => void;
   onCheckForUpdates: () => void;
   onDownloadUpdate: () => void;
@@ -1944,7 +2069,13 @@ function RepositoryPanel({
           onSwitchBranch={onSwitchBranch}
           onCreateBranch={onOpenBranchDialog}
         />
-        <Fact label="Upstream" value={summary?.upstream ?? "-"} />
+        <UpstreamFact
+          upstream={summary?.upstream ?? null}
+          currentBranch={summary?.branch ?? null}
+          remoteBranches={summary?.remoteBranches ?? []}
+          disabled={running || !summary?.isValid}
+          onChangeUpstream={onOpenUpstreamDialog}
+        />
         <Fact label="Remotes" value={remotes} />
       </dl>
 
@@ -2030,6 +2161,42 @@ function BranchFact({
             <Plus />
           </Button>
         </span>
+      </dd>
+    </div>
+  );
+}
+
+function UpstreamFact({
+  upstream,
+  currentBranch,
+  remoteBranches,
+  disabled,
+  onChangeUpstream
+}: {
+  upstream: string | null;
+  currentBranch: string | null;
+  remoteBranches: GitRemoteBranch[];
+  disabled: boolean;
+  onChangeUpstream: () => void;
+}): ReactNode {
+  const canChange = !disabled && Boolean(currentBranch) && (remoteBranches.length > 0 || Boolean(upstream));
+
+  return (
+    <div className="repo-upstream-fact">
+      <dt>Upstream</dt>
+      <dd>
+        <span className="repo-upstream-name" title={upstream ?? undefined}>{upstream ?? "-"}</span>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-xs"
+          disabled={!canChange}
+          onClick={onChangeUpstream}
+          aria-label="Change upstream"
+          title="Change upstream"
+        >
+          <GitBranchIcon />
+        </Button>
       </dd>
     </div>
   );
@@ -3391,6 +3558,97 @@ function BranchDialog({
   );
 }
 
+function UpstreamDialog({
+  open,
+  currentUpstream,
+  remoteBranches,
+  upstream,
+  saving,
+  error,
+  onOpenChange,
+  onUpstreamChange,
+  onSave
+}: {
+  open: boolean;
+  currentUpstream: string | null;
+  remoteBranches: GitRemoteBranch[];
+  upstream: string | null;
+  saving: boolean;
+  error: string;
+  onOpenChange: (open: boolean) => void;
+  onUpstreamChange: (upstream: string | null) => void;
+  onSave: (event: FormEvent<HTMLFormElement>) => void;
+}): ReactNode {
+  const remoteGroups = groupRemoteBranchesByRemote(remoteBranches);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[460px]">
+        <form className="grid gap-4" onSubmit={onSave}>
+          <DialogHeader>
+            <DialogTitle>Change Upstream</DialogTitle>
+            <DialogDescription className="sr-only">
+              Change the remote-tracking branch configured for the current branch.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="upstream-dialog-list" role="radiogroup" aria-label="Upstream">
+            {remoteGroups.map((group) => (
+              <fieldset key={group.remote} className="upstream-remote-group">
+                <legend>{group.remote}</legend>
+                {group.branches.map((remoteBranch) => (
+                  <label key={remoteBranch.name} className="upstream-option">
+                    <input
+                      type="radio"
+                      name="upstream"
+                      value={remoteBranch.name}
+                      checked={upstream === remoteBranch.name}
+                      disabled={saving}
+                      onChange={() => onUpstreamChange(remoteBranch.name)}
+                    />
+                    <span className="upstream-option-main">
+                      <span className="upstream-option-name">{remoteBranch.name}</span>
+                      <span className="upstream-option-branch">{remoteBranch.branch}</span>
+                    </span>
+                  </label>
+                ))}
+              </fieldset>
+            ))}
+
+            {currentUpstream ? (
+              <label className="upstream-option">
+                <input
+                  type="radio"
+                  name="upstream"
+                  value=""
+                  checked={upstream === null}
+                  disabled={saving}
+                  onChange={() => onUpstreamChange(null)}
+                />
+                <span className="upstream-option-main">
+                  <span className="upstream-option-name">No upstream</span>
+                  <span className="upstream-option-branch">Stop tracking {currentUpstream}</span>
+                </span>
+              </label>
+            ) : null}
+          </div>
+
+          <p className="min-h-5 text-sm text-destructive" role="alert">{error}</p>
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={saving} onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? <Loader2 className="animate-spin" /> : <Save />}
+              {saving ? "Saving" : "Save"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function SettingsDialog({
   open,
   draft,
@@ -3524,6 +3782,7 @@ function createInvalidSummary(repoPath: string, message: string): RepoSummary {
     branches: [],
     hasHead: false,
     remotes: [],
+    remoteBranches: [],
     githubRepository: null,
     statusLines: [],
     files: [],
@@ -3668,6 +3927,26 @@ function isGitHubView(view: WorkspaceView): boolean {
 
 function getGitHubRepositoryKey(summary: RepoSummary | null): string {
   return summary?.githubRepository?.fullName.toLocaleLowerCase() ?? "";
+}
+
+function groupRemoteBranchesByRemote(remoteBranches: GitRemoteBranch[]): Array<{
+  remote: string;
+  branches: GitRemoteBranch[];
+}> {
+  const branchesByRemote = new Map<string, GitRemoteBranch[]>();
+
+  for (const remoteBranch of remoteBranches) {
+    const branches = branchesByRemote.get(remoteBranch.remote) ?? [];
+    branches.push(remoteBranch);
+    branchesByRemote.set(remoteBranch.remote, branches);
+  }
+
+  return [...branchesByRemote.entries()]
+    .map(([remote, branches]) => ({
+      remote,
+      branches
+    }))
+    .sort((left, right) => left.remote.localeCompare(right.remote));
 }
 
 function getStagedFiles(summary: RepoSummary | null): GitStatusFile[] {

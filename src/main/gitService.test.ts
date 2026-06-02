@@ -202,7 +202,12 @@ describe("GitService", () => {
       ok("origin\thttps://example.test/repo.git (fetch)\norigin\thttps://example.test/repo.git (push)\n"),
       ok(`${status}\0`),
       ok(`${oid}\n`),
-      ok("main\torigin/main\t*\nfeature/nav\t\t \n")
+      ok("main\torigin/main\t*\nfeature/nav\t\t \n"),
+      ok([
+        "refs/remotes/origin/HEAD\torigin\trefs/remotes/origin/main",
+        "refs/remotes/origin/main\torigin/main\t",
+        "refs/remotes/origin/feature/nav\torigin/feature/nav\t"
+      ].join("\n"))
     ]);
     const service = new GitService(runner);
 
@@ -225,6 +230,18 @@ describe("GitService", () => {
         name: "feature/nav",
         current: false,
         upstream: null
+      }
+    ]);
+    expect(summary.remoteBranches).toEqual([
+      {
+        name: "origin/feature/nav",
+        remote: "origin",
+        branch: "feature/nav"
+      },
+      {
+        name: "origin/main",
+        remote: "origin",
+        branch: "main"
       }
     ]);
     expect(summary.remotes).toHaveLength(2);
@@ -278,7 +295,8 @@ describe("GitService", () => {
       ok("origin\tgit@github.com:openai/githead.git (fetch)\norigin\tgit@github.com:openai/githead.git (push)\n"),
       ok("\0"),
       ok(`${oid}\n`),
-      ok("main\torigin/main\t*\n")
+      ok("main\torigin/main\t*\n"),
+      ok("refs/remotes/origin/main\torigin/main\t\n")
     ]);
     const service = new GitService(runner);
 
@@ -672,6 +690,105 @@ describe("GitService", () => {
       "switch",
       "-c",
       "feature/new"
+    ]);
+  });
+
+  it("sets a branch upstream to a fetched remote branch", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("main\n"),
+      ok(),
+      ok("origin\thttps://example.test/repo.git (fetch)\n"),
+      ok("refs/remotes/origin/main\torigin/main\t\n"),
+      ok("branch 'main' set up to track 'origin/main'.\n")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.setBranchUpstream({
+      repoPath: "D:\\Repo",
+      branchName: "main",
+      upstream: "origin/main"
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(runner.calls.at(-1)?.args).toEqual([
+      "-C",
+      "D:\\Repo",
+      "branch",
+      "--set-upstream-to=origin/main",
+      "main"
+    ]);
+  });
+
+  it("clears a branch upstream", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("main\n"),
+      ok(),
+      ok()
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.setBranchUpstream({
+      repoPath: "D:\\Repo",
+      branchName: "main",
+      upstream: null
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(runner.calls.at(-1)?.args).toEqual([
+      "-C",
+      "D:\\Repo",
+      "branch",
+      "--unset-upstream",
+      "main"
+    ]);
+  });
+
+  it("rejects invalid branch names before changing upstream", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      failure("fatal: 'bad..name' is not a valid branch name")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.setBranchUpstream({
+      repoPath: "D:\\Repo",
+      branchName: "bad..name",
+      upstream: "origin/main"
+    });
+
+    expect(result.exitCode).toBe(-1);
+    expect(result.stderr).toContain("not a valid branch name");
+    expect(runner.calls).toHaveLength(2);
+  });
+
+  it("rejects upstreams that are not fetched remote branches", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("main\n"),
+      ok(),
+      ok("origin\thttps://example.test/repo.git (fetch)\n"),
+      ok("refs/remotes/origin/main\torigin/main\t\n")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.setBranchUpstream({
+      repoPath: "D:\\Repo",
+      branchName: "main",
+      upstream: "origin/missing"
+    });
+
+    expect(result).toMatchObject({
+      exitCode: -1,
+      stderr: "Upstream must be a fetched remote branch."
+    });
+    expect(runner.calls.at(-1)?.args).toEqual([
+      "-C",
+      "D:\\Repo",
+      "for-each-ref",
+      "--format=%(refname)%09%(refname:short)%09%(symref)",
+      "refs/remotes"
     ]);
   });
 

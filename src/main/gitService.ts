@@ -20,10 +20,12 @@ import type {
   GitOperationResult,
   GitOutputEvent,
   GitPathRequest,
+  GitRemoteBranch,
   GitRemote,
   GitRunRequest,
   GitRunResult,
   GitStatusFile,
+  GitUpstreamRequest,
   GitHubRepository,
   RepoSummary
 } from "../shared/types";
@@ -56,6 +58,7 @@ const emptySummary = (repoPath: string, validationErrors: string[]): RepoSummary
   branches: [],
   hasHead: false,
   remotes: [],
+  remoteBranches: [],
   githubRepository: null,
   statusLines: [],
   files: [],
@@ -82,7 +85,8 @@ export class GitService {
       remoteResult,
       statusResult,
       headResult,
-      branchesResult
+      branchesResult,
+      remoteBranchesResult
     ] = await Promise.all([
       this.runGit(repoPath, [
         "branch",
@@ -113,6 +117,11 @@ export class GitService {
       this.runGit(repoPath, [
         "branch",
         "--format=%(refname:short)%09%(upstream:short)%09%(HEAD)"
+      ]),
+      this.runGit(repoPath, [
+        "for-each-ref",
+        "--format=%(refname)%09%(refname:short)%09%(symref)",
+        "refs/remotes"
       ])
     ]);
     const status = parsePorcelainStatus(statusResult.stdout);
@@ -127,6 +136,7 @@ export class GitService {
       branches: parseBranches(branchesResult.stdout, branch),
       hasHead: headResult.exitCode === 0,
       remotes,
+      remoteBranches: remoteBranchesResult.exitCode === 0 ? parseRemoteBranches(remoteBranchesResult.stdout, remotes) : [],
       githubRepository: getSupportedGitHubOrigin(remotes),
       statusLines: status.statusLines,
       files: status.files,
@@ -450,6 +460,52 @@ export class GitService {
     ]);
   }
 
+  async setBranchUpstream(request: GitUpstreamRequest): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+    }
+
+    const branchResult = await this.validateBranchName(request.repoPath, request.branchName);
+    if ("error" in branchResult) {
+      return this.createOperationFailure(request.repoPath, branchResult.error);
+    }
+
+    const existingResult = await this.runGit(request.repoPath, [
+      "show-ref",
+      "--verify",
+      "--quiet",
+      `refs/heads/${branchResult.branchName}`
+    ]);
+    if (existingResult.exitCode !== 0) {
+      return this.createOperationFailure(request.repoPath, "Branch does not exist.");
+    }
+
+    if (request.upstream === null) {
+      return this.runGitOperation(request.repoPath, [
+        "branch",
+        "--unset-upstream",
+        branchResult.branchName
+      ]);
+    }
+
+    const upstream = request.upstream.trim();
+    if (!upstream) {
+      return this.createOperationFailure(request.repoPath, "Select an upstream.");
+    }
+
+    const remoteBranches = await this.getRemoteBranches(request.repoPath);
+    if (!remoteBranches.some((remoteBranch) => remoteBranch.name === upstream)) {
+      return this.createOperationFailure(request.repoPath, "Upstream must be a fetched remote branch.");
+    }
+
+    return this.runGitOperation(request.repoPath, [
+      "branch",
+      `--set-upstream-to=${upstream}`,
+      branchResult.branchName
+    ]);
+  }
+
   async getStagedDiff(repoPath: string): Promise<GitOperationResult> {
     const validation = await this.validateRepo(repoPath);
     if (!validation.isValid) {
@@ -747,6 +803,32 @@ export class GitService {
     ]);
 
     return parsePorcelainStatus(statusResult.stdout).files.find((file) => file.path === filePath);
+  }
+
+  private async getRemoteBranches(repoPath: string): Promise<GitRemoteBranch[]> {
+    const [
+      remotesResult,
+      remoteBranchesResult
+    ] = await Promise.all([
+      this.runGit(repoPath, [
+        "remote",
+        "-v"
+      ]),
+      this.runGit(repoPath, [
+        "for-each-ref",
+        "--format=%(refname)%09%(refname:short)%09%(symref)",
+        "refs/remotes"
+      ])
+    ]);
+
+    if (remoteBranchesResult.exitCode !== 0) {
+      return [];
+    }
+
+    return parseRemoteBranches(
+      remoteBranchesResult.stdout,
+      remotesResult.exitCode === 0 ? parseRemotes(remotesResult.stdout) : []
+    );
   }
 
   private async runGitOperation(
@@ -1231,6 +1313,37 @@ function parseBranches(text: string, currentBranch: string | null): GitBranch[] 
 
     return left.name.localeCompare(right.name);
   });
+}
+
+function parseRemoteBranches(text: string, remotes: GitRemote[]): GitRemoteBranch[] {
+  const remoteNames = [...new Set(remotes.map((remote) => remote.name))]
+    .sort((left, right) => right.length - left.length);
+  const branchesByName = new Map<string, GitRemoteBranch>();
+
+  for (const line of splitLines(text)) {
+    const [refName = "", shortName = "", symref = ""] = line.split("\t");
+    if (!refName.startsWith("refs/remotes/") || !shortName.trim() || symref.trim()) {
+      continue;
+    }
+
+    const refPath = refName.slice("refs/remotes/".length);
+    const remote = remoteNames.find((remoteName) => refPath.startsWith(`${remoteName}/`))
+      ?? refPath.split("/")[0]
+      ?? "";
+    const branch = remote ? refPath.slice(remote.length + 1) : "";
+
+    if (!remote || !branch) {
+      continue;
+    }
+
+    branchesByName.set(shortName.trim(), {
+      name: shortName.trim(),
+      remote,
+      branch
+    });
+  }
+
+  return [...branchesByName.values()].sort((left, right) => left.name.localeCompare(right.name));
 }
 
 function parseTrackedRecord(

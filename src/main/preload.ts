@@ -16,6 +16,7 @@ import type {
   GitOutputEvent,
   GitPathRequest,
   GitRunRequest,
+  GitUpstreamRequest,
   GitheadApi,
   AppUpdateState,
   RepoChangedEvent,
@@ -61,6 +62,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.switchBranch, request) as ReturnType<GitheadApi["switchBranch"]>,
   createBranch: (request: GitBranchRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.createBranch, request) as ReturnType<GitheadApi["createBranch"]>,
+  setBranchUpstream: (request: GitUpstreamRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.setBranchUpstream, request) as ReturnType<GitheadApi["setBranchUpstream"]>,
   getAiSettings: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getAiSettings) as ReturnType<GitheadApi["getAiSettings"]>,
   saveAiSettings: (request: AiSettingsSaveRequest) =>

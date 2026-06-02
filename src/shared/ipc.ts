@@ -19,6 +19,7 @@ export const IPC_CHANNELS = {
   commitChanges: "git:commit-changes",
   switchBranch: "git:branch-switch",
   createBranch: "git:branch-create",
+  setBranchUpstream: "git:branch-upstream-set",
   getAiSettings: "ai:settings:get",
   saveAiSettings: "ai:settings:save",
   generateCommitMessage: "ai:commit-message:generate",

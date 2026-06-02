@@ -18,7 +18,8 @@ import type {
   GitOperationResult,
   GitOutputEvent,
   GitPathRequest,
-  GitRunRequest
+  GitRunRequest,
+  GitUpstreamRequest
 } from "../shared/types";
 import { AiSettingsService } from "./aiSettingsService";
 import { CommitMessageService } from "./commitMessageService";
@@ -207,6 +208,10 @@ ipcMain.handle(IPC_CHANNELS.switchBranch, async (_event, request: GitBranchReque
 
 ipcMain.handle(IPC_CHANNELS.createBranch, async (_event, request: GitBranchRequest) => {
   return runExclusiveGitOperation(() => gitService.createBranch(request), request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.setBranchUpstream, async (_event, request: GitUpstreamRequest) => {
+  return runExclusiveGitOperation(() => gitService.setBranchUpstream(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.getAiSettings, async () => {

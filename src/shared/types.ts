@@ -12,6 +12,12 @@ export interface GitRemote {
   direction: "fetch" | "push";
 }
 
+export interface GitRemoteBranch {
+  name: string;
+  remote: string;
+  branch: string;
+}
+
 export interface GitHubRepository {
   owner: string;
   name: string;
@@ -130,6 +136,7 @@ export interface RepoSummary {
   branches: GitBranch[];
   hasHead: boolean;
   remotes: GitRemote[];
+  remoteBranches: GitRemoteBranch[];
   githubRepository: GitHubRepository | null;
   statusLines: string[];
   files: GitStatusFile[];
@@ -189,6 +196,12 @@ export interface GitCommitRequest {
 export interface GitBranchRequest {
   repoPath: string;
   branchName: string;
+}
+
+export interface GitUpstreamRequest {
+  repoPath: string;
+  branchName: string;
+  upstream: string | null;
 }
 
 export interface AiSettings {
@@ -318,6 +331,7 @@ export interface GitheadApi {
   commitChanges(request: GitCommitRequest): Promise<GitOperationResult>;
   switchBranch(request: GitBranchRequest): Promise<GitOperationResult>;
   createBranch(request: GitBranchRequest): Promise<GitOperationResult>;
+  setBranchUpstream(request: GitUpstreamRequest): Promise<GitOperationResult>;
   getAiSettings(): Promise<AiSettings>;
   saveAiSettings(request: AiSettingsSaveRequest): Promise<AiSettings>;
   generateCommitMessage(request: GenerateCommitMessageRequest): Promise<GitOperationResult>;
