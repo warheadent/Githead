@@ -72,6 +72,11 @@ import {
 } from "@/components/ui/resizable";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger
+} from "@/components/ui/tooltip";
 import type {
   AiSettings,
   AppUpdateState,
@@ -2781,17 +2786,36 @@ function AppUpdateControl({
 
   return (
     <section className={`app-update-control is-${state.status}`} aria-label="App update">
-      <Button
-        type="button"
-        variant={state.status === "error" ? "outline" : "secondary"}
-        disabled={disabled}
-        onClick={runAction}
-      >
-        {icon}
-        {label}
-      </Button>
+      {state.message ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant={state.status === "error" ? "outline" : "secondary"}
+              disabled={disabled}
+              onClick={runAction}
+              aria-label={`${label}: ${state.message}`}
+            >
+              {icon}
+              {label}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-72">
+            {state.message}
+          </TooltipContent>
+        </Tooltip>
+      ) : (
+        <Button
+          type="button"
+          variant={state.status === "error" ? "outline" : "secondary"}
+          disabled={disabled}
+          onClick={runAction}
+        >
+          {icon}
+          {label}
+        </Button>
+      )}
       {version ? <p className="app-update-version">Version {version}</p> : null}
-      {state.message ? <p className="app-update-message" role="alert">{state.message}</p> : null}
     </section>
   );
 }
@@ -4641,7 +4665,7 @@ function getAppUpdateButtonLabel(state: AppUpdateState): string {
   }
 
   if (state.status === "error") {
-    return "Retry update check";
+    return getAppUpdateMessageSummary(state);
   }
 
   if (state.status === "available" && state.errorContext === "download") {
@@ -4649,6 +4673,22 @@ function getAppUpdateButtonLabel(state: AppUpdateState): string {
   }
 
   return "Update available";
+}
+
+function getAppUpdateMessageSummary(state: AppUpdateState): string {
+  if (state.status !== "error") {
+    return state.message ?? "";
+  }
+
+  if (state.errorContext === "download") {
+    return "Update download failed";
+  }
+
+  if (state.errorContext === "install") {
+    return "Update install failed";
+  }
+
+  return "Update check failed";
 }
 
 function getRepoHealth(state: AppState): { text: string; state: "good" | "bad" | "neutral" } {

@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 vi.mock("@/components/ui/resizable", () => ({
   ResizablePanelGroup: ({ children, className }: { children: ReactNode; className?: string }) => (
@@ -517,15 +518,27 @@ describe("App", () => {
     const user = userEvent.setup();
     vi.mocked(githead.getUpdateState).mockResolvedValue(createUpdateState({
       status: "error",
-      message: "Update check failed.",
+      message: "Could not check for updates. The GitHub release feed is not publicly available yet.",
       errorContext: "check",
       canRetry: true
     }));
 
-    render(<App />);
+    render(
+      <TooltipProvider>
+        <App />
+      </TooltipProvider>
+    );
 
-    expect(await screen.findByText("Update check failed.")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Retry update check" }));
+    const button = await screen.findByRole("button", {
+      name: "Update check failed: Could not check for updates. The GitHub release feed is not publicly available yet."
+    });
+    expect(button).toBeTruthy();
+    expect(button.textContent).toContain("Update check failed");
+    expect(button.getAttribute("aria-label")).toBe(
+      "Update check failed: Could not check for updates. The GitHub release feed is not publicly available yet."
+    );
+    expect(screen.queryByText("Could not check for updates. The GitHub release feed is not publicly available yet.")).toBeNull();
+    await user.click(button);
 
     await waitFor(() => {
       expect(githead.checkForUpdates).toHaveBeenCalledTimes(1);
