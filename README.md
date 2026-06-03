@@ -71,7 +71,7 @@ npm run version:minor
 npm run version:major
 ```
 
-The version helper runs `npm version` without npm's automatic git tag behavior, type-checks the project, commits only `package.json` and `package-lock.json`, and creates a matching `v<version>` tag. It does not push the commit or tag; the GitHub release workflow starts when the `v*.*.*` tag is pushed.
+The version helper runs `npm version` without npm's automatic git tag behavior, type-checks the project, commits only `package.json` and `package-lock.json`, and creates a matching `v<version>` tag. It does not push automatically; use the app's Push action to push the commit and local tags. The GitHub release workflow starts when the `v*.*.*` tag is pushed.
 
 ## Configuration
 

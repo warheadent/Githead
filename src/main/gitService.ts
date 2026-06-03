@@ -54,7 +54,8 @@ export const GIT_ACTION_COMMANDS: Record<GitAction, string[]> = {
     "--ff-only"
   ],
   push: [
-    "push"
+    "push",
+    "--tags"
   ]
 };
 

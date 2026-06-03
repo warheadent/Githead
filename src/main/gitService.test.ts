@@ -126,7 +126,8 @@ describe("GitService", () => {
       [
         "-C",
         "D:\\Repo",
-        "push"
+        "push",
+        "--tags"
       ]
     ]
   ] as const)("maps %s to the expected git command", async (action, expectedArgs) => {
