@@ -262,6 +262,7 @@ export class GitService {
         "--cached",
         "--no-color",
         "--no-ext-diff",
+        "--no-textconv",
         "--",
         request.path
       ])
@@ -406,6 +407,7 @@ export class GitService {
       "--format=",
       "--no-color",
       "--no-ext-diff",
+      "--no-textconv",
       "--find-renames",
       "--find-copies",
       hashResult.hash,
@@ -590,7 +592,8 @@ export class GitService {
       "diff",
       "--cached",
       "--no-color",
-      "--no-ext-diff"
+      "--no-ext-diff",
+      "--no-textconv"
     ]);
   }
 
@@ -861,6 +864,7 @@ export class GitService {
       "diff",
       "--no-color",
       "--no-ext-diff",
+      "--no-textconv",
       "--",
       filePath
     ]);

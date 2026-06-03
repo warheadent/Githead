@@ -776,6 +776,7 @@ describe("GitService", () => {
         "--format=",
         "--no-color",
         "--no-ext-diff",
+        "--no-textconv",
         "--find-renames",
         "--find-copies",
         oid,
@@ -1112,7 +1113,8 @@ describe("GitService", () => {
       "diff",
       "--cached",
       "--no-color",
-      "--no-ext-diff"
+      "--no-ext-diff",
+      "--no-textconv"
     ]);
   });
 
@@ -1334,6 +1336,37 @@ describe("GitService", () => {
       "--cached",
       "--no-color",
       "--no-ext-diff",
+      "--no-textconv",
+      "--",
+      "a.ts"
+    ]);
+  });
+
+  it("returns unstaged tracked text diffs without textconv helpers", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok(trackedRecord(" M", "a.ts")),
+      ok("diff --git a/a.ts b/a.ts\n+changed\n")
+    ]);
+    const service = new GitService(runner);
+
+    const diff = await service.getFileDiff({
+      repoPath: "D:\\Repo",
+      path: "a.ts",
+      side: "unstaged"
+    });
+
+    expect(diff).toMatchObject({
+      kind: "text",
+      text: expect.stringContaining("+changed")
+    });
+    expect(runner.calls.at(-1)?.args).toEqual([
+      "-C",
+      "D:\\Repo",
+      "diff",
+      "--no-color",
+      "--no-ext-diff",
+      "--no-textconv",
       "--",
       "a.ts"
     ]);
