@@ -54,8 +54,7 @@ export const GIT_ACTION_COMMANDS: Record<GitAction, string[]> = {
     "--ff-only"
   ],
   push: [
-    "push",
-    "--tags"
+    "push"
   ]
 };
 
@@ -874,13 +873,9 @@ export class GitService {
       });
     }
 
-    const commandArgs = GIT_ACTION_COMMANDS[request.action];
-    const displayCommand = `git -C "${request.repoPath}" ${commandArgs.join(" ")}`;
-    onOutput?.(this.createOutputEvent(runId, request.action, "system", `> ${displayCommand}\n`));
-
-    const result = await this.runGit(request.repoPath, commandArgs, (output) => {
-      onOutput?.(this.createOutputEvent(runId, request.action, output.stream, output.text));
-    });
+    const result = request.action === "push"
+      ? await this.runPushWithTags(request, runId, onOutput)
+      : await this.runActionCommand(request, runId, GIT_ACTION_COMMANDS[request.action], onOutput);
 
     const endedAt = new Date().toISOString();
     onOutput?.(
@@ -1174,6 +1169,46 @@ export class GitService {
 
     return {
       patch: patch.endsWith("\n") ? patch : `${patch}\n`
+    };
+  }
+
+  private async runActionCommand(
+    request: GitRunRequest,
+    runId: string,
+    commandArgs: string[],
+    onOutput?: GitOutputHandler
+  ): Promise<ProcessResult> {
+    const displayCommand = `git -C "${request.repoPath}" ${commandArgs.join(" ")}`;
+    onOutput?.(this.createOutputEvent(runId, request.action, "system", `> ${displayCommand}\n`));
+
+    return await this.runGit(request.repoPath, commandArgs, (output) => {
+      onOutput?.(this.createOutputEvent(runId, request.action, output.stream, output.text));
+    });
+  }
+
+  private async runPushWithTags(
+    request: GitRunRequest,
+    runId: string,
+    onOutput?: GitOutputHandler
+  ): Promise<ProcessResult> {
+    const pushResult = await this.runActionCommand(request, runId, [
+      "push"
+    ], onOutput);
+
+    if (pushResult.exitCode !== 0) {
+      return pushResult;
+    }
+
+    const tagResult = await this.runActionCommand(request, runId, [
+      "push",
+      "--tags"
+    ], onOutput);
+
+    return {
+      exitCode: tagResult.exitCode,
+      stdout: `${pushResult.stdout}${tagResult.stdout}`,
+      stderr: `${pushResult.stderr}${tagResult.stderr}`,
+      ...(tagResult.error ? { error: tagResult.error } : {})
     };
   }
 

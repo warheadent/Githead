@@ -121,15 +121,6 @@ describe("GitService", () => {
         "--ff-only"
       ]
     ],
-    [
-      "push",
-      [
-        "-C",
-        "D:\\Repo",
-        "push",
-        "--tags"
-      ]
-    ]
   ] as const)("maps %s to the expected git command", async (action, expectedArgs) => {
     const runner = new FakeRunner([
       ok("true\n"),
@@ -146,6 +137,67 @@ describe("GitService", () => {
     expect(runner.calls.at(-1)).toMatchObject({
       command: "git",
       args: expectedArgs
+    });
+  });
+
+  it("pushes commits before pushing tags", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("branch pushed\n"),
+      ok("tags pushed\n")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.runGitAction({
+      repoPath: "D:\\Repo",
+      action: "push"
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("branch pushed\ntags pushed\n");
+    expect(runner.calls.slice(1)).toMatchObject([
+      {
+        command: "git",
+        args: [
+          "-C",
+          "D:\\Repo",
+          "push"
+        ]
+      },
+      {
+        command: "git",
+        args: [
+          "-C",
+          "D:\\Repo",
+          "push",
+          "--tags"
+        ]
+      }
+    ]);
+  });
+
+  it("does not push tags when pushing commits fails", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      failure("fatal: no upstream configured")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.runGitAction({
+      repoPath: "D:\\Repo",
+      action: "push"
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("fatal: no upstream configured");
+    expect(runner.calls).toHaveLength(2);
+    expect(runner.calls.at(-1)).toMatchObject({
+      command: "git",
+      args: [
+        "-C",
+        "D:\\Repo",
+        "push"
+      ]
     });
   });
 
