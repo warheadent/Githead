@@ -34,11 +34,17 @@ run("git", ["commit", "-m", `Bump version to ${version}`]);
 run("git", ["tag", `v${version}`]);
 
 function run(command, args, options = {}) {
-  const executable = process.platform === "win32" && command === "npm" ? "npm.cmd" : command;
-  const result = spawnSync(executable, args, { stdio: "inherit" });
+  const result = spawnSync(command, args, {
+    shell: process.platform === "win32" && command === "npm",
+    stdio: "inherit"
+  });
 
   if (result.status === 0) {
     return;
+  }
+
+  if (result.error) {
+    console.error(`Failed to run ${command}: ${result.error.message}`);
   }
 
   if (options.failureMessage) {
