@@ -130,7 +130,13 @@ describe("CommitMessageService", () => {
     expect(body.messages.at(-1)?.content).toContain("+added");
     expect(body.messages[0]?.content).toContain("Return exactly the commit message text");
     expect(body.messages[0]?.content).toContain("Use Conventional Commits style");
+    expect(body.messages[0]?.content).toContain("Describe the primary module touched");
+    expect(body.messages[0]?.content).toContain("Use bullet points for body details");
+    expect(body.messages[0]?.content).toContain("Do not predictively word-wrap lines");
     expect(body.messages.at(-1)?.content).toContain("Use Conventional Commits style");
+    expect(body.messages.at(-1)?.content).toContain("Make the scope the primary module touched");
+    expect(body.messages.at(-1)?.content).toContain("use '-' bullet points");
+    expect(body.messages.at(-1)?.content).toContain("do not insert predictive word wrapping");
     expect(body.messages.at(-1)?.content).toContain("Output only the commit message");
   });
 

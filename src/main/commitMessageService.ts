@@ -66,10 +66,12 @@ export class CommitMessageService {
               content: [
                 "You write concise Git commit messages for git commit --file=-.",
                 "Use Conventional Commits style, such as type(scope): subject.",
+                "Describe the primary module touched and what changed in the subject.",
                 "Return exactly the commit message text that should be saved.",
                 "Do not include commentary, labels, markdown fences, or alternatives.",
                 "Use a subject line under 72 characters.",
-                "Add a plain-text body only when it explains important context."
+                "Use bullet points for body details, and keep each bullet concise.",
+                "Do not predictively word-wrap lines; keep each subject or bullet on one line."
               ].join(" ")
             },
             {
@@ -126,6 +128,11 @@ function createPrompt(diff: string): string {
   return [
     "Write a Git commit message for this staged diff.",
     "Use Conventional Commits style, such as type(scope): subject.",
+    "Make the scope the primary module touched when one is clear.",
+    "Make the subject concise and describe what changed, was added, or was removed.",
+    "Add body details only when they clarify important changed behavior.",
+    "When adding body details, use '-' bullet points.",
+    "Keep every subject and bullet on one line; do not insert predictive word wrapping.",
     "Output only the commit message, with no explanation before or after it.",
     truncated ? "The diff was truncated; summarize only the visible staged changes." : "",
     "",
