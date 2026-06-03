@@ -10,6 +10,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json && tsc --noEmit -p tsconfig.tests.json",
     "test": "vitest run",
     "build": "npm run build:main && vite build",
+    "version:bump": "node scripts/version-bump.mjs",
+    "version:patch": "node scripts/version-bump.mjs patch",
+    "version:minor": "node scripts/version-bump.mjs minor",
+    "version:major": "node scripts/version-bump.mjs major",
     "package:win": "npm run build && node scripts/package-win.mjs",
     "package:win:dir": "npm run build && node scripts/package-win.mjs --dir"
   },
