@@ -188,6 +188,14 @@ export interface FileSystemPathRequest {
   path: string;
 }
 
+export interface RepoTrustRequest {
+  repoPath: string;
+}
+
+export interface RepoTrustResult {
+  trusted: boolean;
+}
+
 export interface GitCommitRequest {
   repoPath: string;
   message: string;
@@ -341,6 +349,8 @@ export interface GitheadApi {
   getRepoRecents(): Promise<string[]>;
   addRepoRecent(repoPath: string): Promise<string[]>;
   removeRepoRecent(repoPath: string): Promise<string[]>;
+  getRepoTrust(request: RepoTrustRequest): Promise<RepoTrustResult>;
+  addRepoTrust(request: RepoTrustRequest): Promise<RepoTrustResult>;
   getGitHubWorkflowRuns(request: GitHubRepositoryRequest): Promise<GitHubWorkflowRun[]>;
   getGitHubIssues(request: GitHubRepositoryRequest): Promise<GitHubIssue[]>;
   getGitHubPullRequests(request: GitHubRepositoryRequest): Promise<GitHubPullRequest[]>;

@@ -424,6 +424,74 @@ describe("App", () => {
     expect(screen.getByText(/create mode 100644 src\/renderer\/App\.tsx/)).toBeTruthy();
   });
 
+  it("prompts to trust a repository before committing and remembers the decision", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoTrust).mockResolvedValueOnce({
+      trusted: false
+    }).mockResolvedValue({
+      trusted: true
+    });
+    vi.mocked(githead.addRepoTrust).mockResolvedValue({
+      trusted: true
+    });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/renderer/App.tsx", {
+          indexStatus: "A",
+          isStaged: true
+        })
+      ]
+    }));
+
+    render(<App />);
+
+    await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
+    await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: trust repo");
+    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+
+    await waitFor(() => {
+      expect(githead.addRepoTrust).toHaveBeenCalledWith({
+        repoPath
+      });
+      expect(githead.commitChanges).toHaveBeenCalledWith({
+        repoPath,
+        message: "feat: trust repo"
+      });
+    });
+    expect(confirm).toHaveBeenCalledWith("Trust this repository before running Git operations that may execute hooks or local Git configuration?");
+  });
+
+  it("does not run risky git operations when repository trust is declined", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoTrust).mockResolvedValue({
+      trusted: false
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/renderer/App.tsx", {
+          indexStatus: "A",
+          isStaged: true
+        })
+      ]
+    }));
+
+    render(<App />);
+
+    await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
+    await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: decline trust");
+    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+
+    await waitFor(() => {
+      expect(githead.getRepoTrust).toHaveBeenCalledWith({
+        repoPath
+      });
+    });
+    expect(githead.addRepoTrust).not.toHaveBeenCalled();
+    expect(githead.commitChanges).not.toHaveBeenCalled();
+  });
+
   it("subscribes to git output and removes the listener on unmount", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary());
@@ -1610,6 +1678,12 @@ function createGitheadMock(): GitheadApi {
       nextRepoPath
     ]),
     removeRepoRecent: vi.fn().mockResolvedValue([]),
+    getRepoTrust: vi.fn().mockResolvedValue({
+      trusted: true
+    }),
+    addRepoTrust: vi.fn().mockResolvedValue({
+      trusted: true
+    }),
     getGitHubWorkflowRuns: vi.fn().mockResolvedValue([]),
     getGitHubIssues: vi.fn().mockResolvedValue([]),
     getGitHubPullRequests: vi.fn().mockResolvedValue([]),

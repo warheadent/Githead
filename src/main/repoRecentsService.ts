@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { getRepoPathKey, normalizeRepoPath } from "./repoPath";
 
 export const MAX_REPO_RECENTS = 8;
 
@@ -93,21 +94,6 @@ export class RepoRecentsService {
   }
 }
 
-function normalizeRepoPath(repoPath: string): string | null {
-  const trimmed = repoPath.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  const normalizedPath = path.normalize(trimmed);
-  if (!path.isAbsolute(normalizedPath)) {
-    return null;
-  }
-
-  const root = path.parse(normalizedPath).root;
-  return normalizedPath.length > root.length ? normalizedPath.replace(/[\\/]+$/, "") : normalizedPath;
-}
-
 function dedupeRecents(recents: string[]): string[] {
   const seen = new Set<string>();
   const deduped: string[] = [];
@@ -123,10 +109,6 @@ function dedupeRecents(recents: string[]): string[] {
   }
 
   return deduped;
-}
-
-function getRepoPathKey(repoPath: string): string {
-  return process.platform === "win32" ? repoPath.toLocaleLowerCase() : repoPath;
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

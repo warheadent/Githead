@@ -22,6 +22,7 @@ import type {
   GitheadApi,
   AppUpdateState,
   RepoChangedEvent,
+  RepoTrustRequest,
   RepoSummary
 } from "../shared/types";
 
@@ -42,6 +43,10 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.addRepoRecent, repoPath) as ReturnType<GitheadApi["addRepoRecent"]>,
   removeRepoRecent: (repoPath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.removeRepoRecent, repoPath) as ReturnType<GitheadApi["removeRepoRecent"]>,
+  getRepoTrust: (request: RepoTrustRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getRepoTrust, request) as ReturnType<GitheadApi["getRepoTrust"]>,
+  addRepoTrust: (request: RepoTrustRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.addRepoTrust, request) as ReturnType<GitheadApi["addRepoTrust"]>,
   getGitHubWorkflowRuns: (request: GitHubRepositoryRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubWorkflowRuns, request) as ReturnType<GitheadApi["getGitHubWorkflowRuns"]>,
   getGitHubIssues: (request: GitHubRepositoryRequest) =>

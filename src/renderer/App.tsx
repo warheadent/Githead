@@ -101,6 +101,7 @@ import type {
   GitRepositoryAccessCheckResult,
   GitRunResult,
   GitStatusFile,
+  RepoTrustResult,
   RepoSummary
 } from "../shared/types";
 import { parseCommitSubject } from "../shared/commitSubject";
@@ -1233,9 +1234,61 @@ export function App(): ReactNode {
     }
   }, [updateState]);
 
+  const createTrustFailure = useCallback((): GitOperationResult => ({
+    repoPath: stateRef.current.repoPath,
+    exitCode: -1,
+    stdout: "",
+    stderr: "Trust this repository before running Git operations that may execute hooks or local Git configuration."
+  }), []);
+
+  const ensureTrustedRepo = useCallback(async (): Promise<boolean> => {
+    const repoPath = stateRef.current.repoPath;
+    if (!repoPath.trim()) {
+      return false;
+    }
+
+    try {
+      const existingTrust = await window.githead.getRepoTrust({ repoPath });
+      if (existingTrust.trusted) {
+        return true;
+      }
+
+      if (!window.confirm("Trust this repository before running Git operations that may execute hooks or local Git configuration?")) {
+        updateState({
+          lastOperationResult: createTrustFailure()
+        });
+        return false;
+      }
+
+      const nextTrust: RepoTrustResult = await window.githead.addRepoTrust({ repoPath });
+      if (nextTrust.trusted) {
+        return true;
+      }
+
+      updateState({
+        lastOperationResult: createTrustFailure()
+      });
+      return false;
+    } catch (error) {
+      updateState({
+        lastOperationResult: {
+          repoPath,
+          exitCode: -1,
+          stdout: "",
+          stderr: error instanceof Error ? error.message : "Unable to update repository trust."
+        }
+      });
+      return false;
+    }
+  }, [createTrustFailure, updateState]);
+
   const runAction = useCallback(async (action: GitAction): Promise<void> => {
     const current = stateRef.current;
     if (!current.summary?.isValid || isOperationRunning(current)) {
+      return;
+    }
+
+    if (!(await ensureTrustedRepo())) {
       return;
     }
 
@@ -1276,7 +1329,7 @@ export function App(): ReactNode {
       }));
       await refreshRepo();
     }
-  }, [appendSystemLine, refreshRepo, updateState]);
+  }, [appendSystemLine, ensureTrustedRepo, refreshRepo, updateState]);
 
   const runRepoOperation = useCallback(async (
     label: string,
@@ -1403,13 +1456,17 @@ export function App(): ReactNode {
       return;
     }
 
+    if (!(await ensureTrustedRepo())) {
+      return;
+    }
+
     await runRepoOperation(`Switching branch to ${nextBranchName}`, null, () =>
       window.githead.switchBranch({
         repoPath: stateRef.current.repoPath,
         branchName: nextBranchName
       })
     );
-  }, [runRepoOperation]);
+  }, [ensureTrustedRepo, runRepoOperation]);
 
   const setBranchUpstream = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
@@ -1440,6 +1497,13 @@ export function App(): ReactNode {
       upstreamError: ""
     });
 
+    if (!(await ensureTrustedRepo())) {
+      updateState({
+        upstreamError: "Repository trust is required before changing branch upstreams."
+      });
+      return;
+    }
+
     const label = upstream ? `Changing upstream to ${upstream}` : "Clearing upstream";
     await runRepoOperation(label, null, () =>
       window.githead.setBranchUpstream({
@@ -1462,7 +1526,7 @@ export function App(): ReactNode {
     updateState({
       upstreamError: getOperationFailureMessage(result, "Unable to change upstream.")
     });
-  }, [runRepoOperation, updateState]);
+  }, [ensureTrustedRepo, runRepoOperation, updateState]);
 
   const createBranch = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
@@ -1482,6 +1546,13 @@ export function App(): ReactNode {
     updateState({
       branchError: ""
     });
+
+    if (!(await ensureTrustedRepo())) {
+      updateState({
+        branchError: "Repository trust is required before creating branches."
+      });
+      return;
+    }
 
     await runRepoOperation(`Creating branch ${branchName}`, null, () =>
       window.githead.createBranch({
@@ -1503,7 +1574,7 @@ export function App(): ReactNode {
     updateState({
       branchError: getOperationFailureMessage(result, "Unable to create branch.")
     });
-  }, [runRepoOperation, updateState]);
+  }, [ensureTrustedRepo, runRepoOperation, updateState]);
 
   const stageFiles = useCallback(async (paths: string[], nextSelection?: FileSelection): Promise<void> => {
     await runRepoOperation("Staging files", nextSelection, () =>
@@ -1529,6 +1600,10 @@ export function App(): ReactNode {
       return;
     }
 
+    if (!(await ensureTrustedRepo())) {
+      return;
+    }
+
     await runRepoOperation("Committing changes", null, () =>
       window.githead.commitChanges({
         repoPath: stateRef.current.repoPath,
@@ -1541,7 +1616,7 @@ export function App(): ReactNode {
         commitMessage: ""
       });
     }
-  }, [runRepoOperation, updateState]);
+  }, [ensureTrustedRepo, runRepoOperation, updateState]);
 
   const commitAndPush = useCallback(async (): Promise<void> => {
     const current = stateRef.current;

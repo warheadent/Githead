@@ -8,6 +8,8 @@ export const IPC_CHANNELS = {
   getRepoRecents: "repo-recents:get",
   addRepoRecent: "repo-recents:add",
   removeRepoRecent: "repo-recents:remove",
+  getRepoTrust: "repo-trust:get",
+  addRepoTrust: "repo-trust:add",
   getGitHubWorkflowRuns: "github:workflow-runs",
   getGitHubIssues: "github:issues",
   getGitHubPullRequests: "github:pull-requests",

@@ -20,6 +20,7 @@ import type {
   GitOutputEvent,
   GitPathRequest,
   GitRepositoryAccessCheckRequest,
+  RepoTrustRequest,
   GitRunRequest,
   GitUpstreamRequest
 } from "../shared/types";
@@ -28,7 +29,9 @@ import { CommitMessageService } from "./commitMessageService";
 import { GitService } from "./gitService";
 import { GitHubService } from "./githubService";
 import { NodeProcessRunner } from "./processRunner";
+import { getOpenRepositoryFileError } from "./openFilePolicy";
 import { RepoRecentsService } from "./repoRecentsService";
+import { RepoTrustService } from "./repoTrustService";
 import { RepoWatchService } from "./repoWatchService";
 import { AppUpdateService } from "./updateService";
 import { MIN_WINDOW_BOUNDS, WindowStateService } from "./windowStateService";
@@ -43,6 +46,7 @@ let aiSettingsService: AiSettingsService | null = null;
 let commitMessageService: CommitMessageService | null = null;
 let githubService: GitHubService | null = null;
 let repoRecentsService: RepoRecentsService | null = null;
+let repoTrustService: RepoTrustService | null = null;
 let repoWatchService: RepoWatchService | null = null;
 let appUpdateService: AppUpdateService | null = null;
 let windowStateService: WindowStateService | null = null;
@@ -206,6 +210,18 @@ ipcMain.handle(IPC_CHANNELS.removeRepoRecent, async (_event, repoPath: string) =
   return getRepoRecentsService().removeRecent(repoPath);
 });
 
+ipcMain.handle(IPC_CHANNELS.getRepoTrust, async (_event, request: RepoTrustRequest) => {
+  return {
+    trusted: await getRepoTrustService().isTrusted(request.repoPath)
+  };
+});
+
+ipcMain.handle(IPC_CHANNELS.addRepoTrust, async (_event, request: RepoTrustRequest) => {
+  return {
+    trusted: await getRepoTrustService().trustRepo(request.repoPath)
+  };
+});
+
 ipcMain.handle(IPC_CHANNELS.getGitHubWorkflowRuns, async (_event, request: GitHubRepositoryRequest) => {
   return getGitHubService().getWorkflowRuns(request);
 });
@@ -243,18 +259,38 @@ ipcMain.handle(IPC_CHANNELS.unstageFiles, async (_event, request: GitPathRequest
 });
 
 ipcMain.handle(IPC_CHANNELS.commitChanges, async (_event, request: GitCommitRequest) => {
+  const trusted = await requireTrustedRepo(request.repoPath);
+  if (trusted) {
+    return trusted;
+  }
+
   return runExclusiveGitOperation(() => gitService.commitChanges(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.switchBranch, async (_event, request: GitBranchRequest) => {
+  const trusted = await requireTrustedRepo(request.repoPath);
+  if (trusted) {
+    return trusted;
+  }
+
   return runExclusiveGitOperation(() => gitService.switchBranch(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.createBranch, async (_event, request: GitBranchRequest) => {
+  const trusted = await requireTrustedRepo(request.repoPath);
+  if (trusted) {
+    return trusted;
+  }
+
   return runExclusiveGitOperation(() => gitService.createBranch(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.setBranchUpstream, async (_event, request: GitUpstreamRequest) => {
+  const trusted = await requireTrustedRepo(request.repoPath);
+  if (trusted) {
+    return trusted;
+  }
+
   return runExclusiveGitOperation(() => gitService.setBranchUpstream(request), request.repoPath);
 });
 
@@ -292,6 +328,11 @@ ipcMain.handle(IPC_CHANNELS.openFile, async (_event, request: FileSystemPathRequ
 
   if (!stats.isFile()) {
     return createOperationFailure(request.repoPath, "Only files can be opened.");
+  }
+
+  const policyError = getOpenRepositoryFileError(resolved.absolutePath);
+  if (policyError) {
+    return createOperationFailure(request.repoPath, policyError);
   }
 
   const error = await shell.openPath(resolved.absolutePath);
@@ -373,6 +414,21 @@ ipcMain.handle(IPC_CHANNELS.checkRepositoryAccess, async (_event, request: GitRe
 });
 
 ipcMain.handle(IPC_CHANNELS.runGitAction, async (_event, request: GitRunRequest) => {
+  const trusted = await requireTrustedRepo(request.repoPath);
+  if (trusted) {
+    const now = new Date().toISOString();
+    return {
+      runId: "untrusted",
+      action: request.action,
+      repoPath: request.repoPath,
+      exitCode: -1,
+      stdout: "",
+      stderr: trusted.stderr,
+      startedAt: now,
+      endedAt: now
+    };
+  }
+
   if (commandRunning) {
     const now = new Date().toISOString();
     return {
@@ -432,6 +488,17 @@ async function runExclusiveGitOperation(
   } finally {
     commandRunning = false;
   }
+}
+
+async function requireTrustedRepo(repoPath: string): Promise<GitOperationResult | null> {
+  if (await getRepoTrustService().isTrusted(repoPath)) {
+    return null;
+  }
+
+  return createOperationFailure(
+    repoPath,
+    "Trust this repository before running Git operations that may execute hooks or local Git configuration."
+  );
 }
 
 function resolveRepoFilePath(request: FileSystemPathRequest):
@@ -553,6 +620,11 @@ function getGitHubService(): GitHubService {
 function getRepoRecentsService(): RepoRecentsService {
   repoRecentsService ??= new RepoRecentsService(app.getPath("userData"));
   return repoRecentsService;
+}
+
+function getRepoTrustService(): RepoTrustService {
+  repoTrustService ??= new RepoTrustService(app.getPath("userData"));
+  return repoTrustService;
 }
 
 function getRepoWatchService(): RepoWatchService {
