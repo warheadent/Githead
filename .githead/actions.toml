@@ -1,0 +1,4 @@
+[[actions]]
+name = "Typecheck"
+command = "npm run typecheck"
+shell = "powershell"
