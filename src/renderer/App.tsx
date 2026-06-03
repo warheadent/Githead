@@ -2705,9 +2705,6 @@ export function App(): ReactNode {
             onChooseRepo={() => {
               void chooseRepo();
             }}
-            onRefreshRepo={() => {
-              void refreshRepo();
-            }}
             onSelectRecent={(repoPath) => {
               void selectRecentRepo(repoPath);
             }}
@@ -3608,7 +3605,6 @@ function RepositoryPanel({
   cloneBranches,
   onClonePanelOpenChange,
   onChooseRepo,
-  onRefreshRepo,
   onSelectRecent,
   onRemoveRecent,
   onSwitchBranch,
@@ -3640,7 +3636,6 @@ function RepositoryPanel({
   cloneBranches: string[];
   onClonePanelOpenChange: (open: boolean) => void;
   onChooseRepo: () => void;
-  onRefreshRepo: () => void;
   onSelectRecent: (repoPath: string) => void;
   onRemoveRecent: (repoPath: string) => void;
   onSwitchBranch: (branchName: string) => void;
@@ -3809,10 +3804,6 @@ function RepositoryPanel({
         <Button type="button" variant="secondary" onClick={onOpenSettings} disabled={running}>
           <Settings />
           Settings
-        </Button>
-        <Button type="button" variant="secondary" onClick={onRefreshRepo} disabled={running}>
-          <RefreshCw />
-          Refresh
         </Button>
       </div>
     </aside>
