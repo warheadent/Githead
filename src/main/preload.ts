@@ -31,6 +31,7 @@ import type {
   GitUpstreamRequest,
   GitheadApi,
   AppUpdateState,
+  AppWindowState,
   RepoChangedEvent,
   RepoTrustRequest,
   RepoSummary
@@ -139,6 +140,14 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.downloadUpdate) as ReturnType<GitheadApi["downloadUpdate"]>,
   installUpdate: () =>
     ipcRenderer.invoke(IPC_CHANNELS.installUpdate) as ReturnType<GitheadApi["installUpdate"]>,
+  minimizeWindow: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.minimizeWindow) as ReturnType<GitheadApi["minimizeWindow"]>,
+  toggleMaximizeWindow: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.toggleMaximizeWindow) as ReturnType<GitheadApi["toggleMaximizeWindow"]>,
+  closeWindow: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.closeWindow) as ReturnType<GitheadApi["closeWindow"]>,
+  getWindowState: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.getWindowState) as ReturnType<GitheadApi["getWindowState"]>,
   onGitOutput: (callback: (event: GitOutputEvent) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, output: GitOutputEvent) => {
       callback(output);
@@ -170,6 +179,17 @@ const api: GitheadApi = {
 
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.updateState, listener);
+    };
+  },
+  onWindowState: (callback: (state: AppWindowState) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, windowState: AppWindowState) => {
+      callback(windowState);
+    };
+
+    ipcRenderer.on(IPC_CHANNELS.windowState, listener);
+
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.windowState, listener);
     };
   }
 };

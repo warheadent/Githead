@@ -3,6 +3,7 @@ import {
   ChevronDown,
   CircleDot,
   Clipboard,
+  Copy,
   Download,
   Eraser,
   ExternalLink,
@@ -15,6 +16,8 @@ import {
   ListTree,
   Loader2,
   MapPinned,
+  Maximize2,
+  Minus,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -81,6 +84,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger
 } from "@/components/ui/tooltip";
 import type {
@@ -96,6 +100,7 @@ import type {
   GitHubIssue,
   GitHubPullRequest,
   GitHubWorkflowRun,
+  AppWindowState,
   GitOperationResult,
   GitOutputEvent,
   GitRemoteBranch,
@@ -376,10 +381,15 @@ const initialState: AppState = {
   appUpdate: createInitialRendererUpdateState()
 };
 
+const initialWindowState: AppWindowState = {
+  isMaximized: false
+};
+
 export function App(): ReactNode {
   useSystemThemeClass();
 
   const [state, setState] = useState<AppState>(initialState);
+  const [windowState, setWindowState] = useState<AppWindowState>(initialWindowState);
   const stateRef = useRef(state);
   const requestIds = useRef<RequestIds>({
     repo: 0,
@@ -468,6 +478,26 @@ export function App(): ReactNode {
       cleanupUpdateState();
     };
   }, [updateState]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const cleanupWindowState = window.githead.onWindowState((nextWindowState) => {
+      setWindowState(nextWindowState);
+    });
+
+    void window.githead.getWindowState()
+      .then((nextWindowState) => {
+        if (!cancelled) {
+          setWindowState(nextWindowState);
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+      cleanupWindowState();
+    };
+  }, []);
 
   useEffect(() => {
     if (logOutputRef.current) {
@@ -2587,6 +2617,22 @@ export function App(): ReactNode {
     }
   }, [updateState]);
 
+  const minimizeWindow = useCallback((): void => {
+    void window.githead.minimizeWindow()
+      .then(setWindowState)
+      .catch(() => undefined);
+  }, []);
+
+  const toggleMaximizeWindow = useCallback((): void => {
+    void window.githead.toggleMaximizeWindow()
+      .then(setWindowState)
+      .catch(() => undefined);
+  }, []);
+
+  const closeWindow = useCallback((): void => {
+    void window.githead.closeWindow().catch(() => undefined);
+  }, []);
+
   const stagedFiles = useMemo(() => getStagedFiles(state.summary), [state.summary]);
   const unstagedFiles = useMemo(() => getUnstagedFiles(state.summary), [state.summary]);
   const running = isOperationRunning(state);
@@ -2599,7 +2645,12 @@ export function App(): ReactNode {
 
   if (state.showSetup) {
     return (
-      <main className="app-shell bg-background text-foreground">
+      <AppChrome
+        isMaximized={windowState.isMaximized}
+        onMinimize={minimizeWindow}
+        onToggleMaximize={toggleMaximizeWindow}
+        onClose={closeWindow}
+      >
         <RepositorySetupScreen
           repoRecents={state.repoRecents}
           selectedRepoPath={state.repoPath}
@@ -2637,13 +2688,18 @@ export function App(): ReactNode {
             void cloneRepository();
           }}
         />
-      </main>
+      </AppChrome>
     );
   }
 
   return (
-    <main className="app-shell bg-background text-foreground">
-      <ResizablePanelGroup orientation="horizontal" className="min-h-0">
+    <AppChrome
+      isMaximized={windowState.isMaximized}
+      onMinimize={minimizeWindow}
+      onToggleMaximize={toggleMaximizeWindow}
+      onClose={closeWindow}
+    >
+      <ResizablePanelGroup orientation="horizontal" className="h-full min-h-0">
         <ResizablePanel defaultSize="27%" minSize="292px" maxSize="460px" className="min-w-[292px]">
           <RepositoryPanel
             repoPath={state.repoPath}
@@ -3055,7 +3111,117 @@ export function App(): ReactNode {
           closeTrustDialog(true);
         }}
       />
+    </AppChrome>
+  );
+}
+
+interface AppChromeProps {
+  children: ReactNode;
+  isMaximized: boolean;
+  onMinimize(): void;
+  onToggleMaximize(): void;
+  onClose(): void;
+}
+
+function AppChrome({
+  children,
+  isMaximized,
+  onMinimize,
+  onToggleMaximize,
+  onClose
+}: AppChromeProps): ReactNode {
+  return (
+    <main className="app-shell bg-background text-foreground">
+      <header className="window-chrome" data-maximized={isMaximized ? "true" : "false"}>
+        <div className="window-title">
+          <div className="window-title-mark" aria-hidden="true">G</div>
+          <span>Githead</span>
+        </div>
+        <TooltipProvider>
+          <WindowControls
+            isMaximized={isMaximized}
+            onMinimize={onMinimize}
+            onToggleMaximize={onToggleMaximize}
+            onClose={onClose}
+          />
+        </TooltipProvider>
+      </header>
+      <section className="app-content">
+        {children}
+      </section>
     </main>
+  );
+}
+
+interface WindowControlsProps {
+  isMaximized: boolean;
+  onMinimize(): void;
+  onToggleMaximize(): void;
+  onClose(): void;
+}
+
+function WindowControls({
+  isMaximized,
+  onMinimize,
+  onToggleMaximize,
+  onClose
+}: WindowControlsProps): ReactNode {
+  const maximizeLabel = isMaximized ? "Restore window" : "Maximize window";
+  const MaximizeIcon = isMaximized ? Copy : Maximize2;
+
+  return (
+    <div className="window-controls" aria-label="Window controls">
+      <WindowControlButton label="Minimize window" onClick={onMinimize}>
+        <Minus />
+      </WindowControlButton>
+      <WindowControlButton label={maximizeLabel} onClick={onToggleMaximize}>
+        <MaximizeIcon />
+      </WindowControlButton>
+      <WindowControlButton label="Close window" destructive onClick={onClose}>
+        <X />
+      </WindowControlButton>
+    </div>
+  );
+}
+
+interface WindowControlButtonProps {
+  children: ReactNode;
+  destructive?: boolean;
+  label: string;
+  onClick(): void;
+}
+
+function WindowControlButton({
+  children,
+  destructive = false,
+  label,
+  onClick
+}: WindowControlButtonProps): ReactNode {
+  const [open, setOpen] = useState(false);
+
+  const closeTooltip = (): void => {
+    setOpen(false);
+  };
+
+  return (
+    <Tooltip open={open} onOpenChange={setOpen}>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className={destructive ? "window-control window-control-close" : "window-control"}
+          aria-label={label}
+          onBlur={closeTooltip}
+          onClick={onClick}
+          onMouseLeave={closeTooltip}
+          onPointerLeave={closeTooltip}
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
   );
 }
 

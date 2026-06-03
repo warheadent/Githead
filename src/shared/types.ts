@@ -403,6 +403,10 @@ export interface AppUpdateActionResult {
   state: AppUpdateState;
 }
 
+export interface AppWindowState {
+  isMaximized: boolean;
+}
+
 export interface GitheadApi {
   chooseRepo(defaultPath?: string): Promise<string | null>;
   chooseCloneParent(defaultPath?: string): Promise<string | null>;
@@ -455,9 +459,14 @@ export interface GitheadApi {
   checkForUpdates(): Promise<AppUpdateCheckResult>;
   downloadUpdate(): Promise<AppUpdateActionResult>;
   installUpdate(): Promise<AppUpdateActionResult>;
+  minimizeWindow(): Promise<AppWindowState>;
+  toggleMaximizeWindow(): Promise<AppWindowState>;
+  closeWindow(): Promise<void>;
+  getWindowState(): Promise<AppWindowState>;
   onGitOutput(callback: (event: GitOutputEvent) => void): () => void;
   onRepoChanged(callback: (event: RepoChangedEvent) => void): () => void;
   onUpdateState(callback: (state: AppUpdateState) => void): () => void;
+  onWindowState(callback: (state: AppWindowState) => void): () => void;
 }
 
 export function isGitAction(value: unknown): value is GitAction {

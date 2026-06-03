@@ -52,5 +52,10 @@ export const IPC_CHANNELS = {
   checkForUpdates: "update:check",
   downloadUpdate: "update:download",
   installUpdate: "update:install",
-  updateState: "update:state"
+  updateState: "update:state",
+  minimizeWindow: "window:minimize",
+  toggleMaximizeWindow: "window:toggle-maximize",
+  closeWindow: "window:close",
+  getWindowState: "window:state:get",
+  windowState: "window:state"
 } as const;

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, safeStorage, screen, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, safeStorage, screen, shell } from "electron";
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import { createWriteStream } from "node:fs";
@@ -74,6 +74,8 @@ async function createWindow(): Promise<void> {
 
   mainWindow = new BrowserWindow({
     ...restoredWindowState.bounds,
+    frame: false,
+    autoHideMenuBar: true,
     minWidth: MIN_WINDOW_BOUNDS.width,
     minHeight: MIN_WINDOW_BOUNDS.height,
     title: "Githead",
@@ -86,6 +88,13 @@ async function createWindow(): Promise<void> {
     }
   });
   getWindowStateService().watchWindow(mainWindow);
+  Menu.setApplicationMenu(null);
+  mainWindow.on("maximize", () => {
+    sendWindowState(mainWindow);
+  });
+  mainWindow.on("unmaximize", () => {
+    sendWindowState(mainWindow);
+  });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     const parsed = normalizeExternalUrl(url);
@@ -544,6 +553,35 @@ ipcMain.handle(IPC_CHANNELS.installUpdate, async () => {
   return getAppUpdateService().installUpdate();
 });
 
+ipcMain.handle(IPC_CHANNELS.minimizeWindow, () => {
+  const window = getWindowForControl();
+  window?.minimize();
+  return getAppWindowState(window);
+});
+
+ipcMain.handle(IPC_CHANNELS.toggleMaximizeWindow, () => {
+  const window = getWindowForControl();
+  if (!window) {
+    return getAppWindowState(window);
+  }
+
+  if (window.isMaximized()) {
+    window.unmaximize();
+  } else {
+    window.maximize();
+  }
+
+  return getAppWindowState(window);
+});
+
+ipcMain.handle(IPC_CHANNELS.closeWindow, () => {
+  getWindowForControl()?.close();
+});
+
+ipcMain.handle(IPC_CHANNELS.getWindowState, () => {
+  return getAppWindowState(getWindowForControl());
+});
+
 async function runExclusiveGitOperation(
   operation: () => Promise<GitOperationResult>,
   repoPath: string
@@ -741,6 +779,20 @@ function createOperationFailure(repoPath: string, stderr: string): GitOperationR
     stdout: "",
     stderr
   };
+}
+
+function getWindowForControl(): BrowserWindow | null {
+  return BrowserWindow.getFocusedWindow() ?? mainWindow;
+}
+
+function getAppWindowState(window: BrowserWindow | null): { isMaximized: boolean } {
+  return {
+    isMaximized: window?.isMaximized() ?? false
+  };
+}
+
+function sendWindowState(window: BrowserWindow | null): void {
+  window?.webContents.send(IPC_CHANNELS.windowState, getAppWindowState(window));
 }
 
 function getAiSettingsService(): AiSettingsService {

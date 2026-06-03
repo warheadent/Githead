@@ -175,7 +175,77 @@
 }
 
 .app-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.window-chrome {
+  -webkit-app-region: drag;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 38px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in oklch, var(--background) 88%, var(--card));
+  user-select: none;
+}
+
+.window-title {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px;
+  color: var(--foreground);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.window-title-mark {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid color-mix(in oklch, var(--primary) 34%, var(--border));
+  border-radius: 5px;
+  background: color-mix(in oklch, var(--primary) 17%, transparent);
+  color: var(--primary);
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.window-controls {
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  align-items: stretch;
+  height: 38px;
+}
+
+.window-control {
+  width: 46px;
+  height: 38px;
+  border-radius: 0;
+  color: var(--muted-foreground);
+}
+
+.window-control:hover,
+.window-control:focus-visible {
+  color: var(--foreground);
+  background: var(--accent);
+}
+
+.window-control-close:hover,
+.window-control-close:focus-visible {
+  color: white;
+  background: var(--destructive);
+}
+
+.app-content {
   min-height: 0;
   overflow: hidden;
 }

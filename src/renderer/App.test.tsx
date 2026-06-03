@@ -20,6 +20,7 @@ import { App } from "./App";
 import type {
   AiSettings,
   AppUpdateState,
+  AppWindowState,
   GitCommitDetails,
   GitCommitGraphRow,
   GitFileDiff,
@@ -43,17 +44,21 @@ let githead: GitheadApi;
 let cleanupGitOutput: Mock<() => void>;
 let cleanupUpdateState: Mock<() => void>;
 let cleanupRepoChanged: Mock<() => void>;
+let cleanupWindowState: Mock<() => void>;
 let gitOutputCallback: Parameters<GitheadApi["onGitOutput"]>[0] | null;
 let updateStateCallback: Parameters<GitheadApi["onUpdateState"]>[0] | null;
 let repoChangedCallback: Parameters<GitheadApi["onRepoChanged"]>[0] | null;
+let windowStateCallback: Parameters<GitheadApi["onWindowState"]>[0] | null;
 
 beforeEach(() => {
   cleanupGitOutput = vi.fn<() => void>();
   cleanupUpdateState = vi.fn<() => void>();
   cleanupRepoChanged = vi.fn<() => void>();
+  cleanupWindowState = vi.fn<() => void>();
   gitOutputCallback = null;
   updateStateCallback = null;
   repoChangedCallback = null;
+  windowStateCallback = null;
   window.matchMedia = vi.fn().mockReturnValue({
     matches: false,
     addEventListener: vi.fn(),
@@ -76,6 +81,52 @@ afterEach(() => {
 });
 
 describe("App", () => {
+  it("renders custom window controls on the repository setup screen", async () => {
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      isValid: false,
+      validationErrors: [
+        "Not a git repository."
+      ]
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByText("Select a repository to continue.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Minimize window" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Maximize window" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Close window" })).toBeTruthy();
+  });
+
+  it("renders custom window controls in the repository workspace and calls window APIs", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    await user.click(screen.getByRole("button", { name: "Minimize window" }));
+    await user.click(screen.getByRole("button", { name: "Maximize window" }));
+    await user.click(screen.getByRole("button", { name: "Close window" }));
+
+    expect(githead.minimizeWindow).toHaveBeenCalledTimes(1);
+    expect(githead.toggleMaximizeWindow).toHaveBeenCalledTimes(1);
+    expect(githead.closeWindow).toHaveBeenCalledTimes(1);
+  });
+
+  it("switches the maximize control to restore when the window is maximized", async () => {
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    expect(screen.getByRole("button", { name: "Maximize window" })).toBeTruthy();
+
+    act(() => {
+      windowStateCallback?.({
+        isMaximized: true
+      });
+    });
+
+    expect(screen.getByRole("button", { name: "Restore window" })).toBeTruthy();
+  });
+
   it("renders repository validation failures from the initial summary", async () => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       isValid: false,
@@ -2492,6 +2543,12 @@ function createGitheadMock(): GitheadApi {
         downloadPercent: 100
       })
     }),
+    minimizeWindow: vi.fn().mockResolvedValue(createWindowState()),
+    toggleMaximizeWindow: vi.fn().mockResolvedValue(createWindowState({
+      isMaximized: true
+    })),
+    closeWindow: vi.fn().mockResolvedValue(undefined),
+    getWindowState: vi.fn().mockResolvedValue(createWindowState()),
     onGitOutput: vi.fn((callback) => {
       gitOutputCallback = callback;
       return cleanupGitOutput;
@@ -2503,7 +2560,18 @@ function createGitheadMock(): GitheadApi {
     onUpdateState: vi.fn((callback) => {
       updateStateCallback = callback;
       return cleanupUpdateState;
+    }),
+    onWindowState: vi.fn((callback) => {
+      windowStateCallback = callback;
+      return cleanupWindowState;
     })
+  };
+}
+
+function createWindowState(overrides: Partial<AppWindowState> = {}): AppWindowState {
+  return {
+    isMaximized: false,
+    ...overrides
   };
 }
 
