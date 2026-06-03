@@ -21,6 +21,7 @@ import {
   Save,
   Settings,
   Sparkles,
+  Tag,
   Trash2,
   Upload,
   Workflow,
@@ -98,6 +99,7 @@ import type {
   GitOperationResult,
   GitOutputEvent,
   GitRemoteBranch,
+  GitResetMode,
   GitRepositoryAccessCheckResult,
   GitRunResult,
   GitStatusFile,
@@ -141,6 +143,33 @@ interface CloneDraft {
   depth: string;
 }
 
+interface ResetCommitDialogState {
+  open: boolean;
+  hash: string;
+  mode: GitResetMode;
+  error: string;
+}
+
+interface RevertCommitDialogState {
+  open: boolean;
+  hash: string;
+  error: string;
+}
+
+interface TagDialogState {
+  open: boolean;
+  hash: string;
+  tab: "add" | "remove";
+  tagName: string;
+  message: string;
+  lightweight: boolean;
+  force: boolean;
+  pushRemote: string | null;
+  deleteTagName: string;
+  deletePushRemote: string | null;
+  error: string;
+}
+
 interface AppState {
   repoPath: string;
   repoRecents: string[];
@@ -181,6 +210,9 @@ interface AppState {
   historyLoaded: boolean;
   historyError: string;
   selectedCommitHash: string | null;
+  resetCommitDialog: ResetCommitDialogState;
+  revertCommitDialog: RevertCommitDialogState;
+  tagDialog: TagDialogState;
   commitDetails: GitCommitDetails | null;
   commitDetailsLoading: boolean;
   commitDetailsError: string;
@@ -232,6 +264,33 @@ const emptyCloneDraft: CloneDraft = {
   depth: "0"
 };
 
+const emptyResetCommitDialog: ResetCommitDialogState = {
+  open: false,
+  hash: "",
+  mode: "mixed",
+  error: ""
+};
+
+const emptyRevertCommitDialog: RevertCommitDialogState = {
+  open: false,
+  hash: "",
+  error: ""
+};
+
+const emptyTagDialog: TagDialogState = {
+  open: false,
+  hash: "",
+  tab: "add",
+  tagName: "",
+  message: "",
+  lightweight: false,
+  force: false,
+  pushRemote: null,
+  deleteTagName: "",
+  deletePushRemote: null,
+  error: ""
+};
+
 const TRUST_WORKSPACE_TITLE = "Do you trust this workspace?";
 const TRUST_WORKSPACE_DESCRIPTION = "This is the first time Githead will run Git operations here that may execute configured hooks or local Git configuration.";
 
@@ -275,6 +334,9 @@ const initialState: AppState = {
   historyLoaded: false,
   historyError: "",
   selectedCommitHash: null,
+  resetCommitDialog: emptyResetCommitDialog,
+  revertCommitDialog: emptyRevertCommitDialog,
+  tagDialog: emptyTagDialog,
   commitDetails: null,
   commitDetailsLoading: false,
   commitDetailsError: "",
@@ -1902,6 +1964,351 @@ export function App(): ReactNode {
     void loadCommitFileDiff(current.selectedCommitHash, filePath);
   }, [loadCommitFileDiff, updateState]);
 
+  const openTagDialog = useCallback((commit: GitCommitGraphRow): void => {
+    const commitTag = getCommitTags(commit)[0]?.name ?? "";
+
+    updateState({
+      tagDialog: {
+        ...emptyTagDialog,
+        open: true,
+        hash: commit.hash,
+        deleteTagName: commitTag
+      }
+    });
+  }, [updateState]);
+
+  const closeTagDialog = useCallback((): void => {
+    if (isOperationRunning(stateRef.current)) {
+      return;
+    }
+
+    updateState({
+      tagDialog: emptyTagDialog
+    });
+  }, [updateState]);
+
+  const openResetCommitDialog = useCallback((commit: GitCommitGraphRow): void => {
+    updateState({
+      resetCommitDialog: {
+        ...emptyResetCommitDialog,
+        open: true,
+        hash: commit.hash
+      }
+    });
+  }, [updateState]);
+
+  const closeResetCommitDialog = useCallback((): void => {
+    if (isOperationRunning(stateRef.current)) {
+      return;
+    }
+
+    updateState({
+      resetCommitDialog: emptyResetCommitDialog
+    });
+  }, [updateState]);
+
+  const openRevertCommitDialog = useCallback((commit: GitCommitGraphRow): void => {
+    updateState({
+      revertCommitDialog: {
+        ...emptyRevertCommitDialog,
+        open: true,
+        hash: commit.hash
+      }
+    });
+  }, [updateState]);
+
+  const closeRevertCommitDialog = useCallback((): void => {
+    if (isOperationRunning(stateRef.current)) {
+      return;
+    }
+
+    updateState({
+      revertCommitDialog: emptyRevertCommitDialog
+    });
+  }, [updateState]);
+
+  const copyCommitShaToClipboard = useCallback(async (commit: GitCommitGraphRow): Promise<void> => {
+    const current = stateRef.current;
+    if (!current.summary?.isValid || isOperationRunning(current)) {
+      return;
+    }
+
+    updateState({
+      runningOperation: "Copying commit SHA",
+      lastOperationResult: null
+    });
+
+    try {
+      const lastOperationResult = await window.githead.copyCommitShaToClipboard({
+        repoPath: stateRef.current.repoPath,
+        hash: commit.hash
+      });
+      updateState({
+        lastOperationResult
+      });
+      appendOperationLog("Copying commit SHA", lastOperationResult);
+    } catch (error) {
+      const lastOperationResult: GitOperationResult = {
+        repoPath: stateRef.current.repoPath,
+        exitCode: -1,
+        stdout: "",
+        stderr: error instanceof Error ? error.message : "Copying commit SHA failed."
+      };
+      updateState({
+        lastOperationResult
+      });
+      appendOperationLog("Copying commit SHA", lastOperationResult);
+    } finally {
+      updateState({
+        runningOperation: null
+      });
+    }
+  }, [appendOperationLog, updateState]);
+
+  const runCommitContextAction = useCallback((commit: GitCommitGraphRow, action: CommitContextActionKind): void => {
+    if (commit.hash !== stateRef.current.selectedCommitHash) {
+      selectCommit(commit.hash);
+    }
+
+    if (action === "tag") {
+      openTagDialog(commit);
+      return;
+    }
+
+    if (action === "reset") {
+      openResetCommitDialog(commit);
+      return;
+    }
+
+    if (action === "revert") {
+      openRevertCommitDialog(commit);
+      return;
+    }
+
+    void copyCommitShaToClipboard(commit);
+  }, [copyCommitShaToClipboard, openResetCommitDialog, openRevertCommitDialog, openTagDialog, selectCommit]);
+
+  const createTag = useCallback(async (): Promise<void> => {
+    const current = stateRef.current;
+    const dialog = current.tagDialog;
+    const tagName = dialog.tagName.trim();
+
+    if (!current.summary?.isValid || isOperationRunning(current) || !dialog.hash) {
+      return;
+    }
+
+    if (!tagName) {
+      updateState({
+        tagDialog: {
+          ...dialog,
+          error: "Enter a tag name."
+        }
+      });
+      return;
+    }
+
+    updateState({
+      tagDialog: {
+        ...dialog,
+        error: ""
+      }
+    });
+
+    if (!(await ensureTrustedRepo())) {
+      updateState({
+        tagDialog: {
+          ...stateRef.current.tagDialog,
+          error: "Repository trust is required before creating tags."
+        }
+      });
+      return;
+    }
+
+    await runRepoOperation(`Creating tag ${tagName}`, null, () =>
+      window.githead.createTag({
+        repoPath: stateRef.current.repoPath,
+        hash: stateRef.current.tagDialog.hash,
+        tagName,
+        message: stateRef.current.tagDialog.message,
+        lightweight: stateRef.current.tagDialog.lightweight,
+        force: stateRef.current.tagDialog.force,
+        pushRemote: stateRef.current.tagDialog.pushRemote
+      })
+    );
+
+    const result = stateRef.current.lastOperationResult;
+    if (result?.exitCode === 0) {
+      updateState({
+        tagDialog: emptyTagDialog
+      });
+      return;
+    }
+
+    updateState({
+      tagDialog: {
+        ...stateRef.current.tagDialog,
+        error: getOperationFailureMessage(result, "Unable to create tag.")
+      }
+    });
+  }, [ensureTrustedRepo, runRepoOperation, updateState]);
+
+  const deleteTag = useCallback(async (): Promise<void> => {
+    const current = stateRef.current;
+    const dialog = current.tagDialog;
+    const tagName = dialog.deleteTagName.trim();
+
+    if (!current.summary?.isValid || isOperationRunning(current) || !dialog.hash) {
+      return;
+    }
+
+    if (!tagName) {
+      updateState({
+        tagDialog: {
+          ...dialog,
+          error: "Select a tag to remove."
+        }
+      });
+      return;
+    }
+
+    updateState({
+      tagDialog: {
+        ...dialog,
+        error: ""
+      }
+    });
+
+    if (!(await ensureTrustedRepo())) {
+      updateState({
+        tagDialog: {
+          ...stateRef.current.tagDialog,
+          error: "Repository trust is required before removing tags."
+        }
+      });
+      return;
+    }
+
+    await runRepoOperation(`Removing tag ${tagName}`, null, () =>
+      window.githead.deleteTag({
+        repoPath: stateRef.current.repoPath,
+        tagName,
+        pushRemote: stateRef.current.tagDialog.deletePushRemote
+      })
+    );
+
+    const result = stateRef.current.lastOperationResult;
+    if (result?.exitCode === 0) {
+      updateState({
+        tagDialog: emptyTagDialog
+      });
+      return;
+    }
+
+    updateState({
+      tagDialog: {
+        ...stateRef.current.tagDialog,
+        error: getOperationFailureMessage(result, "Unable to remove tag.")
+      }
+    });
+  }, [ensureTrustedRepo, runRepoOperation, updateState]);
+
+  const resetBranchToCommit = useCallback(async (): Promise<void> => {
+    const current = stateRef.current;
+    const dialog = current.resetCommitDialog;
+
+    if (!current.summary?.isValid || isOperationRunning(current) || !dialog.hash) {
+      return;
+    }
+
+    updateState({
+      resetCommitDialog: {
+        ...dialog,
+        error: ""
+      }
+    });
+
+    if (!(await ensureTrustedRepo())) {
+      updateState({
+        resetCommitDialog: {
+          ...stateRef.current.resetCommitDialog,
+          error: "Repository trust is required before resetting branches."
+        }
+      });
+      return;
+    }
+
+    await runRepoOperation("Resetting branch to commit", null, () =>
+      window.githead.resetBranchToCommit({
+        repoPath: stateRef.current.repoPath,
+        hash: stateRef.current.resetCommitDialog.hash,
+        mode: stateRef.current.resetCommitDialog.mode
+      })
+    );
+
+    const result = stateRef.current.lastOperationResult;
+    if (result?.exitCode === 0) {
+      updateState({
+        resetCommitDialog: emptyResetCommitDialog
+      });
+      return;
+    }
+
+    updateState({
+      resetCommitDialog: {
+        ...stateRef.current.resetCommitDialog,
+        error: getOperationFailureMessage(result, "Unable to reset branch.")
+      }
+    });
+  }, [ensureTrustedRepo, runRepoOperation, updateState]);
+
+  const revertCommit = useCallback(async (): Promise<void> => {
+    const current = stateRef.current;
+    const dialog = current.revertCommitDialog;
+
+    if (!current.summary?.isValid || isOperationRunning(current) || !dialog.hash) {
+      return;
+    }
+
+    updateState({
+      revertCommitDialog: {
+        ...dialog,
+        error: ""
+      }
+    });
+
+    if (!(await ensureTrustedRepo())) {
+      updateState({
+        revertCommitDialog: {
+          ...stateRef.current.revertCommitDialog,
+          error: "Repository trust is required before reversing commits."
+        }
+      });
+      return;
+    }
+
+    await runRepoOperation("Reversing commit", null, () =>
+      window.githead.revertCommit({
+        repoPath: stateRef.current.repoPath,
+        hash: stateRef.current.revertCommitDialog.hash
+      })
+    );
+
+    const result = stateRef.current.lastOperationResult;
+    if (result?.exitCode === 0) {
+      updateState({
+        revertCommitDialog: emptyRevertCommitDialog
+      });
+      return;
+    }
+
+    updateState({
+      revertCommitDialog: {
+        ...stateRef.current.revertCommitDialog,
+        error: getOperationFailureMessage(result, "Unable to reverse commit.")
+      }
+    });
+  }, [ensureTrustedRepo, runRepoOperation, updateState]);
+
   const runContextFileOperation = useCallback(async (
     file: GitStatusFile,
     side: GitDiffSide,
@@ -2232,6 +2639,7 @@ export function App(): ReactNode {
                   commitFileDiffError={state.commitFileDiffError}
                   onSelectCommit={selectCommit}
                   onSelectCommitFile={selectCommitFile}
+                  onCommitContextAction={runCommitContextAction}
                 />
               </TabsContent>
 
@@ -2391,6 +2799,67 @@ export function App(): ReactNode {
         onSave={(event) => {
           event.preventDefault();
           void setBranchUpstream();
+        }}
+      />
+
+      <TagDialog
+        state={state.tagDialog}
+        commit={getCommitByHash(state.history, state.tagDialog.hash)}
+        remotes={getPushRemotes(state.summary)}
+        saving={Boolean(state.runningOperation?.startsWith("Creating tag ") || state.runningOperation?.startsWith("Removing tag "))}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeTagDialog();
+          }
+        }}
+        onStateChange={(tagDialog) => {
+          updateState({
+            tagDialog
+          });
+        }}
+        onCreate={(event) => {
+          event.preventDefault();
+          void createTag();
+        }}
+        onDelete={(event) => {
+          event.preventDefault();
+          void deleteTag();
+        }}
+      />
+
+      <ResetCommitDialog
+        state={state.resetCommitDialog}
+        commit={getCommitByHash(state.history, state.resetCommitDialog.hash)}
+        branchName={state.summary?.branch ?? null}
+        saving={state.runningOperation === "Resetting branch to commit"}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeResetCommitDialog();
+          }
+        }}
+        onStateChange={(resetCommitDialog) => {
+          updateState({
+            resetCommitDialog
+          });
+        }}
+        onReset={(event) => {
+          event.preventDefault();
+          void resetBranchToCommit();
+        }}
+      />
+
+      <RevertCommitDialog
+        state={state.revertCommitDialog}
+        commit={getCommitByHash(state.history, state.revertCommitDialog.hash)}
+        saving={state.runningOperation === "Reversing commit"}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeRevertCommitDialog();
+          }
+        }}
+        onReverse={(event) => {
+          event.preventDefault();
+          void revertCommit();
         }}
       />
 
@@ -3344,6 +3813,7 @@ function StatusView({
 }
 
 type ContextActionKind = "open" | "show" | "copy" | "toggle-stage" | "delete" | "revert" | "ignore";
+type CommitContextActionKind = "tag" | "reset" | "revert" | "copy";
 
 function FileGroup({
   title,
@@ -3662,7 +4132,8 @@ function HistoryView({
   commitFileDiffLoading,
   commitFileDiffError,
   onSelectCommit,
-  onSelectCommitFile
+  onSelectCommitFile,
+  onCommitContextAction
 }: {
   summary: RepoSummary | null;
   history: GitCommitGraphRow[];
@@ -3678,6 +4149,7 @@ function HistoryView({
   commitFileDiffError: string;
   onSelectCommit: (hash: string) => void;
   onSelectCommitFile: (filePath: string) => void;
+  onCommitContextAction: (commit: GitCommitGraphRow, action: CommitContextActionKind) => void;
 }): ReactNode {
   const graphLayout = useMemo(() => buildCommitGraphLayout(history), [history]);
   const historyStyle = {
@@ -3713,6 +4185,7 @@ function HistoryView({
                     commit={commit}
                     selected={commit.hash === selectedCommitHash}
                     onSelectCommit={onSelectCommit}
+                    onCommitContextAction={onCommitContextAction}
                   />
                 ))}
               </div>
@@ -4122,42 +4595,74 @@ function CommitGraphSvg({
 function HistoryRow({
   commit,
   selected,
-  onSelectCommit
+  onSelectCommit,
+  onCommitContextAction
 }: {
   commit: GitCommitGraphRow;
   selected: boolean;
   onSelectCommit: (hash: string) => void;
+  onCommitContextAction: (commit: GitCommitGraphRow, action: CommitContextActionKind) => void;
 }): ReactNode {
   return (
-    <button
-      type="button"
-      className={`history-row ${selected ? "is-selected" : ""}`}
-      role="option"
-      aria-selected={selected}
-      onClick={() => onSelectCommit(commit.hash)}
-    >
-      <span className="history-graph-cell" aria-hidden="true" />
-      <span className="history-description" title={commit.subject || undefined}>
-        <span className="history-refs">
-          {commit.refs.map((ref) => (
-            <span key={`${commit.hash}:${ref.kind}:${ref.name}`} className={`ref-badge ${ref.kind}`}>
-              {ref.name}
+    <ContextMenu>
+      <ContextMenuTrigger
+        asChild
+        onContextMenu={() => {
+          if (!selected) {
+            onSelectCommit(commit.hash);
+          }
+        }}
+      >
+        <button
+          type="button"
+          className={`history-row ${selected ? "is-selected" : ""}`}
+          role="option"
+          aria-selected={selected}
+          onClick={() => onSelectCommit(commit.hash)}
+        >
+          <span className="history-graph-cell" aria-hidden="true" />
+          <span className="history-description" title={commit.subject || undefined}>
+            <span className="history-refs">
+              {commit.refs.map((ref) => (
+                <span key={`${commit.hash}:${ref.kind}:${ref.name}`} className={`ref-badge ${ref.kind}`}>
+                  {ref.name}
+                </span>
+              ))}
             </span>
-          ))}
-        </span>
-        <CommitSubject
-          subject={commit.subject}
-          className="history-subject"
-          scopeClassName="history-scope"
-          descriptionClassName="history-description-text"
-        />
-      </span>
-      <span className="history-date" title={formatDate(commit.authorDate)}>
-        {commit.relativeDate || formatDate(commit.authorDate)}
-      </span>
-      <span className="history-author" title={commit.authorEmail}>{commit.authorName}</span>
-      <span className="history-hash" title={commit.hash}>{commit.shortHash}</span>
-    </button>
+            <CommitSubject
+              subject={commit.subject}
+              className="history-subject"
+              scopeClassName="history-scope"
+              descriptionClassName="history-description-text"
+            />
+          </span>
+          <span className="history-date" title={formatDate(commit.authorDate)}>
+            {commit.relativeDate || formatDate(commit.authorDate)}
+          </span>
+          <span className="history-author" title={commit.authorEmail}>{commit.authorName}</span>
+          <span className="history-hash" title={commit.hash}>{commit.shortHash}</span>
+        </button>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-64">
+        <ContextMenuItem onSelect={() => onCommitContextAction(commit, "tag")}>
+          <Tag />
+          Tag
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => onCommitContextAction(commit, "reset")}>
+          <GitBranchIcon />
+          Reset current branch to this commit
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => onCommitContextAction(commit, "revert")}>
+          <RotateCcw />
+          Reverse commit
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={() => onCommitContextAction(commit, "copy")}>
+          <Clipboard />
+          Copy SHA to clipboard
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
@@ -4501,6 +5006,308 @@ function BranchDialog({
             <Button type="submit" disabled={saving}>
               {saving ? <Loader2 className="animate-spin" /> : <Plus />}
               {saving ? "Creating" : "Create"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function TagDialog({
+  state,
+  commit,
+  remotes,
+  saving,
+  onOpenChange,
+  onStateChange,
+  onCreate,
+  onDelete
+}: {
+  state: TagDialogState;
+  commit: GitCommitGraphRow | null;
+  remotes: string[];
+  saving: boolean;
+  onOpenChange: (open: boolean) => void;
+  onStateChange: (state: TagDialogState) => void;
+  onCreate: (event: FormEvent<HTMLFormElement>) => void;
+  onDelete: (event: FormEvent<HTMLFormElement>) => void;
+}): ReactNode {
+  const commitTags = commit ? getCommitTags(commit) : [];
+  const remoteOptions = remotes.length > 0 ? remotes : [];
+
+  return (
+    <Dialog open={state.open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Tag</DialogTitle>
+          <DialogDescription>
+            {commit ? getCommitSummaryLabel(commit) : "Select a commit to tag."}
+          </DialogDescription>
+        </DialogHeader>
+        <Tabs
+          value={state.tab}
+          onValueChange={(tab) => {
+            onStateChange({
+              ...state,
+              tab: tab === "remove" ? "remove" : "add",
+              error: ""
+            });
+          }}
+        >
+          <TabsList>
+            <TabsTrigger value="add">
+              <Tag />
+              Add Tag
+            </TabsTrigger>
+            <TabsTrigger value="remove">
+              <Trash2 />
+              Remove Tag
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="add">
+            <form className="commit-action-form" onSubmit={onCreate}>
+              <div className="form-grid">
+                <Label htmlFor="tag-name">Tag Name</Label>
+                <Input
+                  id="tag-name"
+                  value={state.tagName}
+                  disabled={saving}
+                  onChange={(event) => {
+                    onStateChange({
+                      ...state,
+                      tagName: event.currentTarget.value,
+                      error: ""
+                    });
+                  }}
+                />
+                <Label>Commit</Label>
+                <span className="commit-action-value">{commit ? getCommitSummaryLabel(commit) : state.hash}</span>
+                <Label htmlFor="tag-push-remote">Push tag</Label>
+                <select
+                  id="tag-push-remote"
+                  className="form-select"
+                  value={state.pushRemote ?? ""}
+                  disabled={saving || remoteOptions.length === 0}
+                  onChange={(event) => {
+                    onStateChange({
+                      ...state,
+                      pushRemote: event.currentTarget.value || null,
+                      error: ""
+                    });
+                  }}
+                >
+                  <option value="">Do not push</option>
+                  {remoteOptions.map((remote) => (
+                    <option key={remote} value={remote}>{remote}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="commit-action-options">
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={state.force}
+                    disabled={saving}
+                    onChange={(event) => {
+                      onStateChange({
+                        ...state,
+                        force: event.currentTarget.checked,
+                        error: ""
+                      });
+                    }}
+                  />
+                  Move existing tag
+                </label>
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={state.lightweight}
+                    disabled={saving}
+                    onChange={(event) => {
+                      onStateChange({
+                        ...state,
+                        lightweight: event.currentTarget.checked,
+                        error: ""
+                      });
+                    }}
+                  />
+                  Lightweight tag
+                </label>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="tag-message">Message</Label>
+                <Input
+                  id="tag-message"
+                  value={state.message}
+                  disabled={saving || state.lightweight}
+                  onChange={(event) => {
+                    onStateChange({
+                      ...state,
+                      message: event.currentTarget.value,
+                      error: ""
+                    });
+                  }}
+                />
+              </div>
+              {state.error ? <p className="dialog-error">{state.error}</p> : null}
+              <DialogFooter>
+                <Button type="submit" disabled={saving}>
+                  {saving ? <Loader2 className="animate-spin" /> : <Tag />}
+                  Add Tag
+                </Button>
+              </DialogFooter>
+            </form>
+          </TabsContent>
+          <TabsContent value="remove">
+            <form className="commit-action-form" onSubmit={onDelete}>
+              <div className="form-grid">
+                <Label htmlFor="tag-remove-name">Tag</Label>
+                <select
+                  id="tag-remove-name"
+                  className="form-select"
+                  value={state.deleteTagName}
+                  disabled={saving || commitTags.length === 0}
+                  onChange={(event) => {
+                    onStateChange({
+                      ...state,
+                      deleteTagName: event.currentTarget.value,
+                      error: ""
+                    });
+                  }}
+                >
+                  {commitTags.length === 0 ? <option value="">No tags on this commit</option> : null}
+                  {commitTags.map((ref) => (
+                    <option key={`${state.hash}:${ref.name}`} value={ref.name}>{ref.name}</option>
+                  ))}
+                </select>
+                <Label htmlFor="tag-delete-push-remote">Push delete</Label>
+                <select
+                  id="tag-delete-push-remote"
+                  className="form-select"
+                  value={state.deletePushRemote ?? ""}
+                  disabled={saving || remoteOptions.length === 0}
+                  onChange={(event) => {
+                    onStateChange({
+                      ...state,
+                      deletePushRemote: event.currentTarget.value || null,
+                      error: ""
+                    });
+                  }}
+                >
+                  <option value="">Do not push</option>
+                  {remoteOptions.map((remote) => (
+                    <option key={remote} value={remote}>{remote}</option>
+                  ))}
+                </select>
+              </div>
+              {state.error ? <p className="dialog-error">{state.error}</p> : null}
+              <DialogFooter>
+                <Button type="submit" variant="destructive" disabled={saving || commitTags.length === 0}>
+                  {saving ? <Loader2 className="animate-spin" /> : <Trash2 />}
+                  Remove Tag
+                </Button>
+              </DialogFooter>
+            </form>
+          </TabsContent>
+        </Tabs>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ResetCommitDialog({
+  state,
+  commit,
+  branchName,
+  saving,
+  onOpenChange,
+  onStateChange,
+  onReset
+}: {
+  state: ResetCommitDialogState;
+  commit: GitCommitGraphRow | null;
+  branchName: string | null;
+  saving: boolean;
+  onOpenChange: (open: boolean) => void;
+  onStateChange: (state: ResetCommitDialogState) => void;
+  onReset: (event: FormEvent<HTMLFormElement>) => void;
+}): ReactNode {
+  return (
+    <Dialog open={state.open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <form className="commit-action-form" onSubmit={onReset}>
+          <DialogHeader>
+            <DialogTitle>Reset to Commit</DialogTitle>
+            <DialogDescription>
+              Move the current branch pointer to the selected commit.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="form-grid">
+            <Label>Reset branch</Label>
+            <span className="commit-action-value">{branchName ?? "No current branch"}</span>
+            <Label>To commit</Label>
+            <span className="commit-action-value">{commit ? getCommitSummaryLabel(commit) : state.hash}</span>
+            <Label htmlFor="reset-mode">Using mode</Label>
+            <select
+              id="reset-mode"
+              className="form-select"
+              value={state.mode}
+              disabled={saving}
+              onChange={(event) => {
+                onStateChange({
+                  ...state,
+                  mode: event.currentTarget.value as GitResetMode,
+                  error: ""
+                });
+              }}
+            >
+              <option value="soft">Soft - keep all local changes</option>
+              <option value="mixed">Mixed - keep working copy but reset index</option>
+              <option value="hard">Hard - discard all working copy changes</option>
+            </select>
+          </div>
+          {state.error ? <p className="dialog-error">{state.error}</p> : null}
+          <DialogFooter>
+            <Button type="submit" disabled={saving || !branchName}>
+              {saving ? <Loader2 className="animate-spin" /> : <GitBranchIcon />}
+              OK
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function RevertCommitDialog({
+  state,
+  commit,
+  saving,
+  onOpenChange,
+  onReverse
+}: {
+  state: RevertCommitDialogState;
+  commit: GitCommitGraphRow | null;
+  saving: boolean;
+  onOpenChange: (open: boolean) => void;
+  onReverse: (event: FormEvent<HTMLFormElement>) => void;
+}): ReactNode {
+  return (
+    <Dialog open={state.open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <form className="commit-action-form" onSubmit={onReverse}>
+          <DialogHeader>
+            <DialogTitle>Confirm reverse commit?</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to create a new commit reversing all the changes in {commit ? getCommitSummaryLabel(commit) : "the selected commit"}?
+            </DialogDescription>
+          </DialogHeader>
+          {state.error ? <p className="dialog-error">{state.error}</p> : null}
+          <DialogFooter>
+            <Button type="submit" disabled={saving}>
+              {saving ? <Loader2 className="animate-spin" /> : <RotateCcw />}
+              Yes
             </Button>
           </DialogFooter>
         </form>
@@ -4906,6 +5713,9 @@ function resetHistoryState(state: AppState): AppState {
     historyLoaded: false,
     historyError: "",
     selectedCommitHash: null,
+    resetCommitDialog: emptyResetCommitDialog,
+    revertCommitDialog: emptyRevertCommitDialog,
+    tagDialog: emptyTagDialog,
     commitDetails: null,
     commitDetailsLoading: false,
     commitDetailsError: "",
@@ -4942,6 +5752,27 @@ function groupRemoteBranchesByRemote(remoteBranches: GitRemoteBranch[]): Array<{
       branches
     }))
     .sort((left, right) => left.remote.localeCompare(right.remote));
+}
+
+function getCommitByHash(history: GitCommitGraphRow[], hash: string): GitCommitGraphRow | null {
+  return history.find((commit) => commit.hash === hash) ?? null;
+}
+
+function getCommitTags(commit: GitCommitGraphRow): Array<{ name: string }> {
+  return commit.refs.filter((ref) => ref.kind === "tag");
+}
+
+function getCommitSummaryLabel(commit: GitCommitGraphRow): string {
+  const subject = commit.subject || "(no subject)";
+  return `${commit.shortHash}: ${subject}`;
+}
+
+function getPushRemotes(summary: RepoSummary | null): string[] {
+  if (!summary) {
+    return [];
+  }
+
+  return [...new Set(summary.remotes.filter((remote) => remote.direction === "push").map((remote) => remote.name))];
 }
 
 function getStagedFiles(summary: RepoSummary | null): GitStatusFile[] {

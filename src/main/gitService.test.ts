@@ -974,6 +974,218 @@ describe("GitService", () => {
     expect(runner.calls).toHaveLength(1);
   });
 
+  it.each([
+    ["soft", "--soft"],
+    ["mixed", "--mixed"],
+    ["hard", "--hard"]
+  ] as const)("resets the current branch to a commit with %s mode", async (mode, flag) => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok()
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.resetBranchToCommit({
+      repoPath: "D:\\Repo",
+      hash: oid,
+      mode
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(runner.calls.at(-1)?.args).toEqual([
+      "-C",
+      "D:\\Repo",
+      "reset",
+      flag,
+      oid
+    ]);
+  });
+
+  it("rejects invalid reset requests before running reset", async () => {
+    const runner = new FakeRunner([
+      ok("true\n")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.resetBranchToCommit({
+      repoPath: "D:\\Repo",
+      hash: "HEAD~1",
+      mode: "mixed"
+    });
+
+    expect(result.exitCode).toBe(-1);
+    expect(result.stderr).toBe("Commit hash is invalid.");
+    expect(runner.calls).toHaveLength(1);
+  });
+
+  it("reverts a commit without opening an editor", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok()
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.revertCommit({
+      repoPath: "D:\\Repo",
+      hash: oid
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(runner.calls.at(-1)?.args).toEqual([
+      "-C",
+      "D:\\Repo",
+      "revert",
+      "--no-edit",
+      oid
+    ]);
+  });
+
+  it("creates an annotated tag on a selected commit", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok(),
+      ok()
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.createTag({
+      repoPath: "D:\\Repo",
+      hash: oid,
+      tagName: "v1.2.3",
+      message: "Release 1.2.3",
+      lightweight: false,
+      force: false,
+      pushRemote: null
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(runner.calls.at(-1)?.args).toEqual([
+      "-C",
+      "D:\\Repo",
+      "tag",
+      "-a",
+      "-m",
+      "Release 1.2.3",
+      "v1.2.3",
+      oid
+    ]);
+  });
+
+  it("creates and pushes a forced lightweight tag", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok(),
+      ok(),
+      ok("origin\n"),
+      ok()
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.createTag({
+      repoPath: "D:\\Repo",
+      hash: oid,
+      tagName: "v1.2.3",
+      message: "",
+      lightweight: true,
+      force: true,
+      pushRemote: "origin"
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(runner.calls.at(-3)?.args).toEqual([
+      "-C",
+      "D:\\Repo",
+      "tag",
+      "-f",
+      "v1.2.3",
+      oid
+    ]);
+    expect(runner.calls.at(-1)?.args).toEqual([
+      "-C",
+      "D:\\Repo",
+      "push",
+      "origin",
+      "refs/tags/v1.2.3"
+    ]);
+  });
+
+  it("does not push a tag when local tag creation fails", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok(),
+      failure("fatal: tag already exists")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.createTag({
+      repoPath: "D:\\Repo",
+      hash: oid,
+      tagName: "v1.2.3",
+      message: "",
+      lightweight: true,
+      force: false,
+      pushRemote: "origin"
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe("fatal: tag already exists");
+    expect(runner.calls).toHaveLength(3);
+  });
+
+  it("deletes a tag and optionally pushes the remote delete", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok(),
+      ok(),
+      ok("origin\n"),
+      ok()
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.deleteTag({
+      repoPath: "D:\\Repo",
+      tagName: "v1.2.3",
+      pushRemote: "origin"
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(runner.calls.at(-3)?.args).toEqual([
+      "-C",
+      "D:\\Repo",
+      "tag",
+      "-d",
+      "v1.2.3"
+    ]);
+    expect(runner.calls.at(-1)?.args).toEqual([
+      "-C",
+      "D:\\Repo",
+      "push",
+      "origin",
+      ":refs/tags/v1.2.3"
+    ]);
+  });
+
+  it("rejects invalid tag names before creating a tag", async () => {
+    const runner = new FakeRunner([
+      ok("true\n")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.createTag({
+      repoPath: "D:\\Repo",
+      hash: oid,
+      tagName: "",
+      message: "",
+      lightweight: true,
+      force: false,
+      pushRemote: null
+    });
+
+    expect(result.exitCode).toBe(-1);
+    expect(result.stderr).toBe("Enter a tag name.");
+    expect(runner.calls).toHaveLength(1);
+  });
+
   it("commits with the commit message supplied on stdin", async () => {
     const runner = new FakeRunner([
       ok("true\n"),

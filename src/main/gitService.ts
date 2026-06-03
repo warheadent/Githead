@@ -12,8 +12,11 @@ import type {
   GitCommitDetailsRequest,
   GitCommitFileDiffRequest,
   GitCommitGraphRow,
+  GitCommitHashRequest,
   GitCommitHistoryRequest,
   GitCommitRequest,
+  GitCreateTagRequest,
+  GitDeleteTagRequest,
   GitDiffSide,
   GitFileChangesRequest,
   GitFileDiff,
@@ -27,6 +30,7 @@ import type {
   GitRemote,
   GitRepositoryAccessCheckRequest,
   GitRepositoryAccessCheckResult,
+  GitResetCommitRequest,
   GitRunRequest,
   GitRunResult,
   GitStatusFile,
@@ -521,6 +525,100 @@ export class GitService {
     ], undefined, `${request.message.trimEnd()}\n`);
   }
 
+  async resetBranchToCommit(request: GitResetCommitRequest): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+    }
+
+    const hashResult = sanitizeCommitHash(request.hash);
+    if ("error" in hashResult) {
+      return this.createOperationFailure(request.repoPath, hashResult.error);
+    }
+
+    if (!isResetMode(request.mode)) {
+      return this.createOperationFailure(request.repoPath, "Reset mode is invalid.");
+    }
+
+    return this.runGitOperation(request.repoPath, [
+      "reset",
+      `--${request.mode}`,
+      hashResult.hash
+    ]);
+  }
+
+  async revertCommit(request: GitCommitHashRequest): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+    }
+
+    const hashResult = sanitizeCommitHash(request.hash);
+    if ("error" in hashResult) {
+      return this.createOperationFailure(request.repoPath, hashResult.error);
+    }
+
+    return this.runGitOperation(request.repoPath, [
+      "revert",
+      "--no-edit",
+      hashResult.hash
+    ]);
+  }
+
+  async createTag(request: GitCreateTagRequest): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+    }
+
+    const hashResult = sanitizeCommitHash(request.hash);
+    if ("error" in hashResult) {
+      return this.createOperationFailure(request.repoPath, hashResult.error);
+    }
+
+    const tagResult = await this.validateTagName(request.repoPath, request.tagName);
+    if ("error" in tagResult) {
+      return this.createOperationFailure(request.repoPath, tagResult.error);
+    }
+
+    const tagArgs = [
+      "tag",
+      ...(request.force ? ["-f"] : []),
+      ...(request.lightweight ? [] : ["-a", "-m", request.message.trim() || tagResult.tagName]),
+      tagResult.tagName,
+      hashResult.hash
+    ];
+    const tagOperation = await this.runGitOperation(request.repoPath, tagArgs);
+    if (tagOperation.exitCode !== 0 || !request.pushRemote) {
+      return tagOperation;
+    }
+
+    return this.pushTag(request.repoPath, request.pushRemote, tagResult.tagName, false);
+  }
+
+  async deleteTag(request: GitDeleteTagRequest): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+    }
+
+    const tagResult = await this.validateTagName(request.repoPath, request.tagName);
+    if ("error" in tagResult) {
+      return this.createOperationFailure(request.repoPath, tagResult.error);
+    }
+
+    const deleteOperation = await this.runGitOperation(request.repoPath, [
+      "tag",
+      "-d",
+      tagResult.tagName
+    ]);
+    if (deleteOperation.exitCode !== 0 || !request.pushRemote) {
+      return deleteOperation;
+    }
+
+    return this.pushTag(request.repoPath, request.pushRemote, tagResult.tagName, true);
+  }
+
   async switchBranch(request: GitBranchRequest): Promise<GitOperationResult> {
     const validation = await this.validateRepo(request.repoPath);
     if (!validation.isValid) {
@@ -840,6 +938,82 @@ export class GitService {
 
     return {
       branchName: result.stdout.trim() || trimmedBranchName
+    };
+  }
+
+  private async validateTagName(repoPath: string, tagName: string): Promise<{ tagName: string } | { error: string }> {
+    const trimmedTagName = tagName.trim();
+
+    if (!trimmedTagName) {
+      return {
+        error: "Enter a tag name."
+      };
+    }
+
+    if (trimmedTagName.startsWith("-")) {
+      return {
+        error: "Tag name cannot start with a dash."
+      };
+    }
+
+    const result = await this.runGit(repoPath, [
+      "check-ref-format",
+      "--allow-onelevel",
+      `refs/tags/${trimmedTagName}`
+    ]);
+
+    if (result.exitCode !== 0) {
+      return {
+        error: result.stderr.trim() || "Tag name is invalid."
+      };
+    }
+
+    return {
+      tagName: trimmedTagName
+    };
+  }
+
+  private async pushTag(repoPath: string, remoteName: string, tagName: string, deleteRemote: boolean): Promise<GitOperationResult> {
+    const remoteResult = await this.validateRemoteName(repoPath, remoteName);
+    if ("error" in remoteResult) {
+      return this.createOperationFailure(repoPath, remoteResult.error);
+    }
+
+    return this.runGitOperation(repoPath, [
+      "push",
+      remoteResult.remoteName,
+      deleteRemote ? `:refs/tags/${tagName}` : `refs/tags/${tagName}`
+    ]);
+  }
+
+  private async validateRemoteName(repoPath: string, remoteName: string): Promise<{ remoteName: string } | { error: string }> {
+    const trimmedRemoteName = remoteName.trim();
+
+    if (!trimmedRemoteName) {
+      return {
+        error: "Select a remote."
+      };
+    }
+
+    const result = await this.runGit(repoPath, [
+      "remote"
+    ]);
+
+    if (result.exitCode !== 0) {
+      return {
+        error: result.stderr.trim() || "Unable to read remotes."
+      };
+    }
+
+    const remotes = new Set(splitLines(result.stdout).map((line) => line.trim()).filter((line) => line.length > 0));
+    if (!remotes.has(trimmedRemoteName)) {
+      return {
+        error: "Remote is invalid."
+      };
+    }
+
+    return {
+      remoteName: trimmedRemoteName
     };
   }
 
@@ -1279,6 +1453,10 @@ function sanitizeCommitHash(hash: string): { hash: string } | { error: string } 
   return {
     hash: trimmedHash
   };
+}
+
+function isResetMode(mode: string): mode is GitResetCommitRequest["mode"] {
+  return mode === "soft" || mode === "mixed" || mode === "hard";
 }
 
 function sanitizeHistoryLimit(limit: number | undefined): number {

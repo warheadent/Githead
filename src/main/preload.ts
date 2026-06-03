@@ -9,9 +9,12 @@ import type {
   GitCloneRequest,
   GitCommitDetailsRequest,
   GitCommitFileDiffRequest,
+  GitCommitHashRequest,
   GitCommitHistoryRequest,
   GenerateCommitMessageRequest,
   GitCommitRequest,
+  GitCreateTagRequest,
+  GitDeleteTagRequest,
   GitFileChangesRequest,
   GitFileDiffRequest,
   GitHunkRequest,
@@ -20,6 +23,7 @@ import type {
   GitOutputEvent,
   GitPathRequest,
   GitRepositoryAccessCheckRequest,
+  GitResetCommitRequest,
   GitRunRequest,
   GitUpstreamRequest,
   GitheadApi,
@@ -74,6 +78,16 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.unstageHunk, request) as ReturnType<GitheadApi["unstageHunk"]>,
   commitChanges: (request: GitCommitRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.commitChanges, request) as ReturnType<GitheadApi["commitChanges"]>,
+  copyCommitShaToClipboard: (request: GitCommitHashRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.copyCommitShaToClipboard, request) as ReturnType<GitheadApi["copyCommitShaToClipboard"]>,
+  resetBranchToCommit: (request: GitResetCommitRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.resetBranchToCommit, request) as ReturnType<GitheadApi["resetBranchToCommit"]>,
+  revertCommit: (request: GitCommitHashRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.revertCommit, request) as ReturnType<GitheadApi["revertCommit"]>,
+  createTag: (request: GitCreateTagRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.createTag, request) as ReturnType<GitheadApi["createTag"]>,
+  deleteTag: (request: GitDeleteTagRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.deleteTag, request) as ReturnType<GitheadApi["deleteTag"]>,
   switchBranch: (request: GitBranchRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.switchBranch, request) as ReturnType<GitheadApi["switchBranch"]>,
   createBranch: (request: GitBranchRequest) =>

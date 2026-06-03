@@ -10,9 +10,12 @@ import type {
   GitCloneRequest,
   GitCommitDetailsRequest,
   GitCommitFileDiffRequest,
+  GitCommitHashRequest,
   GitCommitHistoryRequest,
   GenerateCommitMessageRequest,
   GitCommitRequest,
+  GitCreateTagRequest,
+  GitDeleteTagRequest,
   GitFileChangesRequest,
   GitFileDiffRequest,
   GitHunkRequest,
@@ -22,6 +25,7 @@ import type {
   GitOutputEvent,
   GitPathRequest,
   GitRepositoryAccessCheckRequest,
+  GitResetCommitRequest,
   RepoTrustRequest,
   GitRunRequest,
   GitUpstreamRequest
@@ -276,6 +280,47 @@ ipcMain.handle(IPC_CHANNELS.commitChanges, async (_event, request: GitCommitRequ
   }
 
   return runExclusiveGitOperation(() => gitService.commitChanges(request), request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.copyCommitShaToClipboard, async (_event, request: GitCommitHashRequest) => {
+  clipboard.writeText(request.hash.trim());
+  return createOperationSuccess(request.repoPath, "Commit SHA copied to clipboard.");
+});
+
+ipcMain.handle(IPC_CHANNELS.resetBranchToCommit, async (_event, request: GitResetCommitRequest) => {
+  const trusted = await requireTrustedRepo(request.repoPath);
+  if (trusted) {
+    return trusted;
+  }
+
+  return runExclusiveGitOperation(() => gitService.resetBranchToCommit(request), request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.revertCommit, async (_event, request: GitCommitHashRequest) => {
+  const trusted = await requireTrustedRepo(request.repoPath);
+  if (trusted) {
+    return trusted;
+  }
+
+  return runExclusiveGitOperation(() => gitService.revertCommit(request), request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.createTag, async (_event, request: GitCreateTagRequest) => {
+  const trusted = await requireTrustedRepo(request.repoPath);
+  if (trusted) {
+    return trusted;
+  }
+
+  return runExclusiveGitOperation(() => gitService.createTag(request), request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.deleteTag, async (_event, request: GitDeleteTagRequest) => {
+  const trusted = await requireTrustedRepo(request.repoPath);
+  if (trusted) {
+    return trusted;
+  }
+
+  return runExclusiveGitOperation(() => gitService.deleteTag(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.switchBranch, async (_event, request: GitBranchRequest) => {

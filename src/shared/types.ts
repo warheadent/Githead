@@ -206,6 +206,35 @@ export interface GitCommitRequest {
   message: string;
 }
 
+export interface GitCommitHashRequest {
+  repoPath: string;
+  hash: string;
+}
+
+export type GitResetMode = "soft" | "mixed" | "hard";
+
+export interface GitResetCommitRequest {
+  repoPath: string;
+  hash: string;
+  mode: GitResetMode;
+}
+
+export interface GitCreateTagRequest {
+  repoPath: string;
+  hash: string;
+  tagName: string;
+  message: string;
+  lightweight: boolean;
+  force: boolean;
+  pushRemote: string | null;
+}
+
+export interface GitDeleteTagRequest {
+  repoPath: string;
+  tagName: string;
+  pushRemote: string | null;
+}
+
 export interface GitCloneRequest {
   source: string;
   parentPath: string;
@@ -381,6 +410,11 @@ export interface GitheadApi {
   stageHunk(request: GitHunkRequest): Promise<GitOperationResult>;
   unstageHunk(request: GitHunkRequest): Promise<GitOperationResult>;
   commitChanges(request: GitCommitRequest): Promise<GitOperationResult>;
+  copyCommitShaToClipboard(request: GitCommitHashRequest): Promise<GitOperationResult>;
+  resetBranchToCommit(request: GitResetCommitRequest): Promise<GitOperationResult>;
+  revertCommit(request: GitCommitHashRequest): Promise<GitOperationResult>;
+  createTag(request: GitCreateTagRequest): Promise<GitOperationResult>;
+  deleteTag(request: GitDeleteTagRequest): Promise<GitOperationResult>;
   switchBranch(request: GitBranchRequest): Promise<GitOperationResult>;
   createBranch(request: GitBranchRequest): Promise<GitOperationResult>;
   setBranchUpstream(request: GitUpstreamRequest): Promise<GitOperationResult>;

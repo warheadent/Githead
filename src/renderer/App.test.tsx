@@ -203,6 +203,180 @@ describe("App", () => {
     expect(screen.getAllByText("ui:").some((scope) => scope.closest(".commit-title"))).toBe(true);
   });
 
+  it("opens commit context menu on right click and copies the full SHA", async () => {
+    const user = userEvent.setup();
+    const firstCommit = createCommit({
+      hash: "a".repeat(40),
+      shortHash: "aaaaaaa",
+      subject: "feat: first commit"
+    });
+    const secondCommit = createCommit({
+      hash: "b".repeat(40),
+      shortHash: "bbbbbbb",
+      subject: "fix: second commit"
+    });
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([
+      firstCommit,
+      secondCommit
+    ]);
+    vi.mocked(githead.getCommitDetails).mockImplementation(async ({ hash }) => createCommitDetails(hash));
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    const secondRow = await screen.findByRole("option", { name: /second commit/ });
+
+    fireEvent.contextMenu(secondRow);
+    await user.click(await screen.findByRole("menuitem", { name: /Copy SHA to clipboard/ }));
+
+    expect(secondRow.getAttribute("aria-selected")).toBe("true");
+    await waitFor(() => {
+      expect(githead.copyCommitShaToClipboard).toHaveBeenCalledWith({
+        repoPath,
+        hash: secondCommit.hash
+      });
+    });
+  });
+
+  it("resets the current branch to a commit with the selected mode", async () => {
+    const user = userEvent.setup();
+    const commit = createCommit({
+      hash: "c".repeat(40),
+      shortHash: "ccccccc",
+      subject: "feat: reset target"
+    });
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash));
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /reset target/ }));
+    await user.click(await screen.findByRole("menuitem", { name: /Reset current branch to this commit/ }));
+    await user.selectOptions(await screen.findByLabelText("Using mode"), "hard");
+    await user.click(screen.getByRole("button", { name: "OK" }));
+
+    await waitFor(() => {
+      expect(githead.resetBranchToCommit).toHaveBeenCalledWith({
+        repoPath,
+        hash: commit.hash,
+        mode: "hard"
+      });
+    });
+  });
+
+  it("reverses a commit only after confirmation", async () => {
+    const user = userEvent.setup();
+    const commit = createCommit({
+      hash: "d".repeat(40),
+      shortHash: "ddddddd",
+      subject: "fix: reverse target"
+    });
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash));
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /reverse target/ }));
+    await user.click(await screen.findByRole("menuitem", { name: /Reverse commit/ }));
+
+    expect(githead.revertCommit).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Yes" }));
+
+    await waitFor(() => {
+      expect(githead.revertCommit).toHaveBeenCalledWith({
+        repoPath,
+        hash: commit.hash
+      });
+    });
+  });
+
+  it("creates a tag for the selected commit and validates required tag names", async () => {
+    const user = userEvent.setup();
+    const commit = createCommit({
+      hash: "e".repeat(40),
+      shortHash: "eeeeeee",
+      subject: "feat: tag target"
+    });
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      remotes: [
+        {
+          name: "origin",
+          url: "https://example.test/repo.git",
+          direction: "push"
+        }
+      ]
+    }));
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash));
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /tag target/ }));
+    await user.click(await screen.findByRole("menuitem", { name: /^Tag$/ }));
+    await user.click(screen.getByRole("button", { name: "Add Tag" }));
+
+    expect(await screen.findByText("Enter a tag name.")).toBeTruthy();
+
+    await user.type(screen.getByLabelText("Tag Name"), "v1.2.3");
+    await user.type(screen.getByLabelText("Message"), "Release 1.2.3");
+    await user.selectOptions(screen.getByLabelText("Push tag"), "origin");
+    await user.click(screen.getByRole("button", { name: "Add Tag" }));
+
+    await waitFor(() => {
+      expect(githead.createTag).toHaveBeenCalledWith({
+        repoPath,
+        hash: commit.hash,
+        tagName: "v1.2.3",
+        message: "Release 1.2.3",
+        lightweight: false,
+        force: false,
+        pushRemote: "origin"
+      });
+    });
+  });
+
+  it("removes an existing tag from the selected commit", async () => {
+    const user = userEvent.setup();
+    const commit = createCommit({
+      hash: "f".repeat(40),
+      shortHash: "fffffff",
+      subject: "feat: remove tag target",
+      refs: [
+        {
+          name: "v1.2.3",
+          kind: "tag"
+        }
+      ]
+    });
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash));
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /remove tag target/ }));
+    await user.click(await screen.findByRole("menuitem", { name: /^Tag$/ }));
+    await user.click(screen.getByRole("tab", { name: /Remove Tag/ }));
+    await user.click(screen.getByRole("button", { name: "Remove Tag" }));
+
+    await waitFor(() => {
+      expect(githead.deleteTag).toHaveBeenCalledWith({
+        repoPath,
+        tagName: "v1.2.3",
+        pushRemote: null
+      });
+    });
+  });
+
   it("stages the selected unstaged file through the preload API", async () => {
     const user = userEvent.setup();
     const file = createStatusFile("src/App.tsx", {
@@ -2088,6 +2262,11 @@ function createGitheadMock(): GitheadApi {
     stageHunk: vi.fn().mockResolvedValue(okOperation),
     unstageHunk: vi.fn().mockResolvedValue(okOperation),
     commitChanges: vi.fn().mockResolvedValue(okOperation),
+    copyCommitShaToClipboard: vi.fn().mockResolvedValue(okOperation),
+    resetBranchToCommit: vi.fn().mockResolvedValue(okOperation),
+    revertCommit: vi.fn().mockResolvedValue(okOperation),
+    createTag: vi.fn().mockResolvedValue(okOperation),
+    deleteTag: vi.fn().mockResolvedValue(okOperation),
     switchBranch: vi.fn().mockResolvedValue(okOperation),
     createBranch: vi.fn().mockResolvedValue(okOperation),
     setBranchUpstream: vi.fn().mockResolvedValue(okOperation),
