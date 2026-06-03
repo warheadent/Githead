@@ -1222,7 +1222,9 @@ describe("GitService", () => {
 
     const result = await service.revertFileChanges({
       repoPath: "D:\\Repo",
-      path: "staged.ts",
+      paths: [
+        "staged.ts"
+      ],
       side: "staged"
     });
 
@@ -1249,7 +1251,9 @@ describe("GitService", () => {
 
     await service.revertFileChanges({
       repoPath: "D:\\Repo",
-      path: "new.ts",
+      paths: [
+        "new.ts"
+      ],
       side: "staged"
     });
 
@@ -1265,6 +1269,36 @@ describe("GitService", () => {
     expect(stdinText(runner.calls.at(-1)!)).toBe("new.ts\0");
   });
 
+  it("reverts multiple staged changes by unstaging with one pathspec", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("true\n"),
+      ok(`${oid}\n`),
+      ok()
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.revertFileChanges({
+      repoPath: "D:\\Repo",
+      paths: [
+        "src/first.ts",
+        "src/second.ts"
+      ],
+      side: "staged"
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(runner.calls.at(-1)?.args).toEqual([
+      "-C",
+      "D:\\Repo",
+      "restore",
+      "--staged",
+      "--pathspec-from-file=-",
+      "--pathspec-file-nul"
+    ]);
+    expect(stdinText(runner.calls.at(-1)!)).toBe("src/first.ts\0src/second.ts\0");
+  });
+
   it("reverts unstaged tracked changes with git restore --worktree", async () => {
     const runner = new FakeRunner([
       ok("true\n"),
@@ -1275,7 +1309,9 @@ describe("GitService", () => {
 
     const result = await service.revertFileChanges({
       repoPath: "D:\\Repo",
-      path: "src/file.ts",
+      paths: [
+        "src/file.ts"
+      ],
       side: "unstaged"
     });
 
@@ -1291,6 +1327,35 @@ describe("GitService", () => {
     expect(stdinText(runner.calls.at(-1)!)).toBe("src/file.ts\0");
   });
 
+  it("reverts multiple unstaged tracked changes with one pathspec", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok(`${trackedRecord(".M", "src/first.ts")}\0${trackedRecord(".M", "src/second.ts")}\0`),
+      ok()
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.revertFileChanges({
+      repoPath: "D:\\Repo",
+      paths: [
+        "src/first.ts",
+        "src/second.ts"
+      ],
+      side: "unstaged"
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(runner.calls.at(-1)?.args).toEqual([
+      "-C",
+      "D:\\Repo",
+      "restore",
+      "--worktree",
+      "--pathspec-from-file=-",
+      "--pathspec-file-nul"
+    ]);
+    expect(stdinText(runner.calls.at(-1)!)).toBe("src/first.ts\0src/second.ts\0");
+  });
+
   it("rejects empty paths when reverting file changes", async () => {
     const runner = new FakeRunner([
       ok("true\n")
@@ -1299,12 +1364,14 @@ describe("GitService", () => {
 
     const result = await service.revertFileChanges({
       repoPath: "D:\\Repo",
-      path: "   ",
+      paths: [
+        "   "
+      ],
       side: "unstaged"
     });
 
     expect(result.exitCode).toBe(-1);
-    expect(result.stderr).toBe("Select a file.");
+    expect(result.stderr).toBe("Select at least one file.");
   });
 
   it("rejects revert for untracked files", async () => {
@@ -1316,12 +1383,35 @@ describe("GitService", () => {
 
     const result = await service.revertFileChanges({
       repoPath: "D:\\Repo",
-      path: "new.ts",
+      paths: [
+        "new.ts"
+      ],
       side: "unstaged"
     });
 
     expect(result.exitCode).toBe(-1);
     expect(result.stderr).toBe("Untracked files cannot be reverted. Use Delete to remove this file.");
+  });
+
+  it("rejects multi-file revert when any selected file is untracked", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok(`${trackedRecord(".M", "tracked.ts")}\0? new.ts\0`)
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.revertFileChanges({
+      repoPath: "D:\\Repo",
+      paths: [
+        "tracked.ts",
+        "new.ts"
+      ],
+      side: "unstaged"
+    });
+
+    expect(result.exitCode).toBe(-1);
+    expect(result.stderr).toBe("Untracked files cannot be reverted. Use Delete to remove this file.");
+    expect(runner.calls).toHaveLength(2);
   });
 
   it("appends exact repo-relative paths to .gitignore", async () => {

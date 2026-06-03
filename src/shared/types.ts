@@ -188,6 +188,11 @@ export interface FileSystemPathRequest {
   path: string;
 }
 
+export interface FileSystemPathListRequest {
+  repoPath: string;
+  paths: string[];
+}
+
 export interface RepoTrustRequest {
   repoPath: string;
 }
@@ -259,6 +264,12 @@ export interface ExternalUrlRequest {
 export interface GitFileDiffRequest {
   repoPath: string;
   path: string;
+  side: GitDiffSide;
+}
+
+export interface GitFileChangesRequest {
+  repoPath: string;
+  paths: string[];
   side: GitDiffSide;
 }
 
@@ -381,7 +392,8 @@ export interface GitheadApi {
   showInExplorer(request: FileSystemPathRequest): Promise<GitOperationResult>;
   copyPathToClipboard(request: FileSystemPathRequest): Promise<GitOperationResult>;
   deleteFile(request: FileSystemPathRequest): Promise<GitOperationResult>;
-  revertFileChanges(request: GitFileDiffRequest): Promise<GitOperationResult>;
+  deleteFiles(request: FileSystemPathListRequest): Promise<GitOperationResult>;
+  revertFileChanges(request: GitFileChangesRequest): Promise<GitOperationResult>;
   addPathToIgnore(request: GitIgnorePathRequest): Promise<GitOperationResult>;
   cloneRepository(request: GitCloneRequest): Promise<GitOperationResult>;
   checkRepositoryAccess(request: GitRepositoryAccessCheckRequest): Promise<GitRepositoryAccessCheckResult>;

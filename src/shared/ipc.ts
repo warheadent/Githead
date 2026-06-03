@@ -33,6 +33,7 @@ export const IPC_CHANNELS = {
   showInExplorer: "file:show-in-explorer",
   copyPathToClipboard: "file:copy-path",
   deleteFile: "file:delete",
+  deleteFiles: "file:delete-files",
   revertFileChanges: "git:revert-file",
   addPathToIgnore: "git:add-ignore",
   cloneRepository: "git:clone",

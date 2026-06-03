@@ -435,6 +435,191 @@ describe("App", () => {
     });
   });
 
+  it("stages multiple selected unstaged files from a selected row context menu", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/first.ts", {
+          isUnstaged: true,
+          worktreeStatus: "M"
+        }),
+        createStatusFile("src/second.ts", {
+          isUnstaged: true,
+          worktreeStatus: "M"
+        })
+      ]
+    }));
+
+    render(<App />);
+
+    const firstFile = await screen.findByRole("option", { name: /src\/first\.ts/ });
+    const secondFile = screen.getByRole("option", { name: /src\/second\.ts/ });
+    await user.click(firstFile);
+    fireEvent.click(secondFile, { ctrlKey: true });
+
+    fireEvent.contextMenu(secondFile);
+    await user.click(await screen.findByRole("menuitem", { name: /^Stage$/ }));
+
+    await waitFor(() => {
+      expect(githead.stageFiles).toHaveBeenCalledWith({
+        repoPath,
+        paths: [
+          "src/first.ts",
+          "src/second.ts"
+        ]
+      });
+    });
+  });
+
+  it("unstages multiple selected staged files from a selected row context menu", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/first.ts", {
+          indexStatus: "M",
+          isStaged: true
+        }),
+        createStatusFile("src/second.ts", {
+          indexStatus: "M",
+          isStaged: true
+        })
+      ]
+    }));
+
+    render(<App />);
+
+    const firstFile = await screen.findByRole("option", { name: /src\/first\.ts/ });
+    const secondFile = screen.getByRole("option", { name: /src\/second\.ts/ });
+    await user.click(firstFile);
+    fireEvent.click(secondFile, { ctrlKey: true });
+
+    fireEvent.contextMenu(firstFile);
+    await user.click(await screen.findByRole("menuitem", { name: /^Unstage$/ }));
+
+    await waitFor(() => {
+      expect(githead.unstageFiles).toHaveBeenCalledWith({
+        repoPath,
+        paths: [
+          "src/first.ts",
+          "src/second.ts"
+        ]
+      });
+    });
+  });
+
+  it("deletes multiple selected files from a selected row context menu", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/first.ts", {
+          isUnstaged: true,
+          worktreeStatus: "M"
+        }),
+        createStatusFile("src/second.ts", {
+          isUnstaged: true,
+          worktreeStatus: "M"
+        })
+      ]
+    }));
+
+    render(<App />);
+
+    const firstFile = await screen.findByRole("option", { name: /src\/first\.ts/ });
+    const secondFile = screen.getByRole("option", { name: /src\/second\.ts/ });
+    await user.click(firstFile);
+    fireEvent.click(secondFile, { ctrlKey: true });
+
+    fireEvent.contextMenu(firstFile);
+    await user.click(await screen.findByRole("menuitem", { name: /^Delete$/ }));
+
+    await waitFor(() => {
+      expect(githead.deleteFiles).toHaveBeenCalledWith({
+        repoPath,
+        paths: [
+          "src/first.ts",
+          "src/second.ts"
+        ]
+      });
+    });
+  });
+
+  it("reverts multiple selected files from a selected row context menu", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/first.ts", {
+          isUnstaged: true,
+          worktreeStatus: "M"
+        }),
+        createStatusFile("src/second.ts", {
+          isUnstaged: true,
+          worktreeStatus: "M"
+        })
+      ]
+    }));
+
+    render(<App />);
+
+    const firstFile = await screen.findByRole("option", { name: /src\/first\.ts/ });
+    const secondFile = screen.getByRole("option", { name: /src\/second\.ts/ });
+    await user.click(firstFile);
+    fireEvent.click(secondFile, { ctrlKey: true });
+
+    fireEvent.contextMenu(secondFile);
+    await user.click(await screen.findByRole("menuitem", { name: /^Revert changes$/ }));
+
+    await waitFor(() => {
+      expect(githead.revertFileChanges).toHaveBeenCalledWith({
+        repoPath,
+        paths: [
+          "src/first.ts",
+          "src/second.ts"
+        ],
+        side: "unstaged"
+      });
+    });
+  });
+
+  it("uses only an unselected context-menu row instead of the previous multi-selection", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/first.ts", {
+          isUnstaged: true,
+          worktreeStatus: "M"
+        }),
+        createStatusFile("src/second.ts", {
+          isUnstaged: true,
+          worktreeStatus: "M"
+        }),
+        createStatusFile("src/third.ts", {
+          isUnstaged: true,
+          worktreeStatus: "M"
+        })
+      ]
+    }));
+
+    render(<App />);
+
+    const firstFile = await screen.findByRole("option", { name: /src\/first\.ts/ });
+    const secondFile = screen.getByRole("option", { name: /src\/second\.ts/ });
+    const thirdFile = screen.getByRole("option", { name: /src\/third\.ts/ });
+    await user.click(firstFile);
+    fireEvent.click(secondFile, { ctrlKey: true });
+
+    fireEvent.contextMenu(thirdFile);
+    await user.click(await screen.findByRole("menuitem", { name: /^Stage$/ }));
+
+    await waitFor(() => {
+      expect(githead.stageFiles).toHaveBeenCalledWith({
+        repoPath,
+        paths: [
+          "src/third.ts"
+        ]
+      });
+    });
+  });
+
   it("ignores stale file diff responses when selection changes quickly", async () => {
     const user = userEvent.setup();
     const firstDiff = defer<GitFileDiff>();
@@ -1799,6 +1984,7 @@ function createGitheadMock(): GitheadApi {
     showInExplorer: vi.fn().mockResolvedValue(okOperation),
     copyPathToClipboard: vi.fn().mockResolvedValue(okOperation),
     deleteFile: vi.fn().mockResolvedValue(okOperation),
+    deleteFiles: vi.fn().mockResolvedValue(okOperation),
     revertFileChanges: vi.fn().mockResolvedValue(okOperation),
     addPathToIgnore: vi.fn().mockResolvedValue(okOperation),
     cloneRepository: vi.fn().mockResolvedValue(okOperation),

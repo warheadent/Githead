@@ -15,6 +15,7 @@ import type {
   GitCommitHistoryRequest,
   GitCommitRequest,
   GitDiffSide,
+  GitFileChangesRequest,
   GitFileDiff,
   GitFileDiffRequest,
   GitHunkRequest,
@@ -627,28 +628,26 @@ export class GitService {
     ]);
   }
 
-  async revertFileChanges(request: GitFileDiffRequest): Promise<GitOperationResult> {
+  async revertFileChanges(request: GitFileChangesRequest): Promise<GitOperationResult> {
     const validation = await this.validateRepo(request.repoPath);
     if (!validation.isValid) {
       return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
     }
 
-    const pathResult = sanitizeSingleRepoPath(request.path);
-    if ("error" in pathResult) {
-      return this.createOperationFailure(request.repoPath, pathResult.error);
+    const pathsResult = sanitizeRepoPaths(request.paths);
+    if ("error" in pathsResult) {
+      return this.createOperationFailure(request.repoPath, pathsResult.error);
     }
 
     if (request.side === "staged") {
       return this.unstageFiles({
         repoPath: request.repoPath,
-        paths: [
-          pathResult.path
-        ]
+        paths: pathsResult.paths
       });
     }
 
-    const statusFile = await this.getStatusFile(request.repoPath, pathResult.path);
-    if (statusFile?.indexStatus === "?") {
+    const statusFiles = await this.getStatusFiles(request.repoPath, pathsResult.paths);
+    if (statusFiles.some((statusFile) => statusFile?.indexStatus === "?")) {
       return this.createOperationFailure(
         request.repoPath,
         "Untracked files cannot be reverted. Use Delete to remove this file."
@@ -660,9 +659,7 @@ export class GitService {
       "--worktree",
       "--pathspec-from-file=-",
       "--pathspec-file-nul"
-    ], [
-      pathResult.path
-    ]);
+    ], pathsResult.paths);
   }
 
   async addPathToIgnore(request: GitIgnorePathRequest): Promise<GitOperationResult> {
@@ -900,17 +897,21 @@ export class GitService {
     ]);
   }
 
-  private async getStatusFile(repoPath: string, filePath: string): Promise<GitStatusFile | undefined> {
+  private async getStatusFiles(repoPath: string, filePaths: string[]): Promise<Array<GitStatusFile | undefined>> {
     const statusResult = await this.runGit(repoPath, [
       "status",
       "--porcelain=v2",
       "-z",
       "--untracked-files=all",
       "--",
-      filePath
+      ...filePaths
     ]);
 
-    return parsePorcelainStatus(statusResult.stdout).files.find((file) => file.path === filePath);
+    const filesByPath = new Map(parsePorcelainStatus(statusResult.stdout).files.map((file) => [
+      file.path,
+      file
+    ]));
+    return filePaths.map((filePath) => filesByPath.get(filePath));
   }
 
   private async getRemoteBranches(repoPath: string): Promise<GitRemoteBranch[]> {
@@ -1217,6 +1218,26 @@ function parseRepositoryAccessRefs(stdout: string): { branches: string[]; defaul
 
 function sanitizePaths(paths: string[]): string[] {
   return [...new Set(paths.map((path) => path.trim()).filter((path) => path.length > 0))];
+}
+
+function sanitizeRepoPaths(paths: string[]): { paths: string[] } | { error: string } {
+  const sanitizedPaths = sanitizePaths(paths);
+  if (sanitizedPaths.length === 0) {
+    return {
+      error: "Select at least one file."
+    };
+  }
+
+  for (const filePath of sanitizedPaths) {
+    const pathResult = sanitizeSingleRepoPath(filePath);
+    if ("error" in pathResult) {
+      return pathResult;
+    }
+  }
+
+  return {
+    paths: sanitizedPaths
+  };
 }
 
 function sanitizeSingleRepoPath(filePath: string): { path: string } | { error: string } {

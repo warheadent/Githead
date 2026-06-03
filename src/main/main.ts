@@ -1,10 +1,10 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, safeStorage, screen, shell } from "electron";
-import fs from "node:fs/promises";
 import path from "node:path";
 import { IPC_CHANNELS } from "../shared/ipc";
 import type {
   AiSettingsSaveRequest,
   ExternalUrlRequest,
+  FileSystemPathListRequest,
   FileSystemPathRequest,
   GitBranchRequest,
   GitCloneRequest,
@@ -13,6 +13,7 @@ import type {
   GitCommitHistoryRequest,
   GenerateCommitMessageRequest,
   GitCommitRequest,
+  GitFileChangesRequest,
   GitFileDiffRequest,
   GitHunkRequest,
   GitHubRepositoryRequest,
@@ -27,6 +28,7 @@ import type {
 } from "../shared/types";
 import { AiSettingsService } from "./aiSettingsService";
 import { CommitMessageService } from "./commitMessageService";
+import { deleteFiles, getStats, resolveRepoFilePath } from "./fileOperationService";
 import { GitService } from "./gitService";
 import { GitHubService } from "./githubService";
 import { NodeProcessRunner } from "./processRunner";
@@ -373,23 +375,19 @@ ipcMain.handle(IPC_CHANNELS.copyPathToClipboard, async (_event, request: FileSys
 });
 
 ipcMain.handle(IPC_CHANNELS.deleteFile, async (_event, request: FileSystemPathRequest) => {
-  return runExclusiveGitOperation(async () => {
-    const resolved = resolveRepoFilePath(request);
-    if ("error" in resolved) {
-      return createOperationFailure(request.repoPath, resolved.error);
-    }
-
-    const stats = await getStats(resolved.absolutePath);
-    if (!stats) {
-      return createOperationFailure(request.repoPath, "File does not exist.");
-    }
-
-    await shell.trashItem(resolved.absolutePath);
-    return createOperationSuccess(request.repoPath, "File moved to Recycle Bin.");
-  }, request.repoPath);
+  return runExclusiveGitOperation(() => deleteFiles({
+    repoPath: request.repoPath,
+    paths: [
+      request.path
+    ]
+  }, shell.trashItem), request.repoPath);
 });
 
-ipcMain.handle(IPC_CHANNELS.revertFileChanges, async (_event, request: GitFileDiffRequest) => {
+ipcMain.handle(IPC_CHANNELS.deleteFiles, async (_event, request: FileSystemPathListRequest) => {
+  return runExclusiveGitOperation(() => deleteFiles(request, shell.trashItem), request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.revertFileChanges, async (_event, request: GitFileChangesRequest) => {
   return runExclusiveGitOperation(() => gitService.revertFileChanges(request), request.repoPath);
 });
 
@@ -510,43 +508,6 @@ async function requireTrustedRepo(repoPath: string): Promise<GitOperationResult 
   );
 }
 
-function resolveRepoFilePath(request: FileSystemPathRequest):
-  | { repoRoot: string; absolutePath: string }
-  | { error: string } {
-  if (!request.repoPath.trim()) {
-    return {
-      error: "Select a repository folder."
-    };
-  }
-
-  if (!request.path.trim()) {
-    return {
-      error: "Select a file."
-    };
-  }
-
-  if (path.isAbsolute(request.path)) {
-    return {
-      error: "File path must be relative to the repository."
-    };
-  }
-
-  const repoRoot = path.resolve(request.repoPath);
-  const absolutePath = path.resolve(repoRoot, request.path);
-  const relativePath = path.relative(repoRoot, absolutePath);
-
-  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
-    return {
-      error: "File path must stay inside the repository."
-    };
-  }
-
-  return {
-    repoRoot,
-    absolutePath
-  };
-}
-
 function normalizeExternalUrl(url: string): { url: string } | { error: string } {
   try {
     const parsed = new URL(url.trim());
@@ -563,18 +524,6 @@ function normalizeExternalUrl(url: string): { url: string } | { error: string } 
     return {
       error: "External URL is invalid."
     };
-  }
-}
-
-async function getStats(filePath: string): Promise<Awaited<ReturnType<typeof fs.stat>> | null> {
-  try {
-    return await fs.stat(filePath);
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return null;
-    }
-
-    throw error;
   }
 }
 

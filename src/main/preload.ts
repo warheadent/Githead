@@ -3,6 +3,7 @@ import { IPC_CHANNELS } from "../shared/ipc";
 import type {
   AiSettingsSaveRequest,
   ExternalUrlRequest,
+  FileSystemPathListRequest,
   FileSystemPathRequest,
   GitBranchRequest,
   GitCloneRequest,
@@ -11,6 +12,7 @@ import type {
   GitCommitHistoryRequest,
   GenerateCommitMessageRequest,
   GitCommitRequest,
+  GitFileChangesRequest,
   GitFileDiffRequest,
   GitHunkRequest,
   GitHubRepositoryRequest,
@@ -94,7 +96,9 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.copyPathToClipboard, request) as ReturnType<GitheadApi["copyPathToClipboard"]>,
   deleteFile: (request: FileSystemPathRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.deleteFile, request) as ReturnType<GitheadApi["deleteFile"]>,
-  revertFileChanges: (request: GitFileDiffRequest) =>
+  deleteFiles: (request: FileSystemPathListRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.deleteFiles, request) as ReturnType<GitheadApi["deleteFiles"]>,
+  revertFileChanges: (request: GitFileChangesRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.revertFileChanges, request) as ReturnType<GitheadApi["revertFileChanges"]>,
   addPathToIgnore: (request: GitIgnorePathRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.addPathToIgnore, request) as ReturnType<GitheadApi["addPathToIgnore"]>,

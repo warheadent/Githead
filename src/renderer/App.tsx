@@ -1892,20 +1892,22 @@ export function App(): ReactNode {
     side: GitDiffSide,
     kind: "open" | "show" | "copy" | "toggle-stage" | "delete" | "revert" | "ignore"
   ): Promise<void> => {
+    const paths = getContextActionPaths(stateRef.current.selection, file, side);
+
     if (kind === "toggle-stage") {
       if (side === "unstaged") {
-        await stageFiles([file.path], {
-          path: file.path,
+        await stageFiles(paths, {
+          path: paths.includes(file.path) ? file.path : paths[0]!,
           side: "staged",
-          paths: [file.path],
-          anchorPath: file.path
+          paths,
+          anchorPath: getContextActionAnchorPath(stateRef.current.selection, paths, file.path)
         });
       } else {
-        await unstageFiles([file.path], {
-          path: file.path,
+        await unstageFiles(paths, {
+          path: paths.includes(file.path) ? file.path : paths[0]!,
           side: "unstaged",
-          paths: [file.path],
-          anchorPath: file.path
+          paths,
+          anchorPath: getContextActionAnchorPath(stateRef.current.selection, paths, file.path)
         });
       }
       return;
@@ -1940,19 +1942,19 @@ export function App(): ReactNode {
       return;
     }
     if (kind === "delete") {
-      await runRepoOperation("Deleting file", null, () =>
-        window.githead.deleteFile({
+      await runRepoOperation(paths.length === 1 ? "Deleting file" : "Deleting files", null, () =>
+        window.githead.deleteFiles({
           repoPath,
-          path: file.path
+          paths
         })
       );
       return;
     }
     if (kind === "revert") {
-      await runRepoOperation("Reverting changes", null, () =>
+      await runRepoOperation(paths.length === 1 ? "Reverting changes" : "Reverting selected changes", null, () =>
         window.githead.revertFileChanges({
           repoPath,
-          path: file.path,
+          paths,
           side
         })
       );
@@ -4993,6 +4995,23 @@ function createFileSelection(
 
 function getSelectionPaths(selection: FileSelection): string[] {
   return selection.paths.length > 0 ? selection.paths : [selection.path];
+}
+
+function getContextActionPaths(selection: FileSelection | null, file: GitStatusFile, side: GitDiffSide): string[] {
+  if (selection?.side !== side) {
+    return [file.path];
+  }
+
+  const selectionPaths = getSelectionPaths(selection);
+  return selectionPaths.includes(file.path) ? selectionPaths : [file.path];
+}
+
+function getContextActionAnchorPath(selection: FileSelection | null, paths: string[], fallbackPath: string): string {
+  if (selection?.anchorPath && paths.includes(selection.anchorPath)) {
+    return selection.anchorPath;
+  }
+
+  return paths.includes(fallbackPath) ? fallbackPath : paths[0]!;
 }
 
 function getFileRangePaths(files: GitStatusFile[], anchorPath: string, path: string): string[] {
