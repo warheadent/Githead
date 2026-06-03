@@ -17,6 +17,7 @@ import type {
   GitDiffSide,
   GitFileDiff,
   GitFileDiffRequest,
+  GitHunkRequest,
   GitIgnorePathRequest,
   GitOperationResult,
   GitOutputEvent,
@@ -474,6 +475,35 @@ export class GitService {
     return this.runGitOperation(request.repoPath, args, paths);
   }
 
+  async stageHunk(request: GitHunkRequest): Promise<GitOperationResult> {
+    const validation = await this.validateHunkRequest(request, "unstaged");
+    if ("error" in validation) {
+      return this.createOperationFailure(request.repoPath, validation.error);
+    }
+
+    return this.runGitOperation(request.repoPath, [
+      "apply",
+      "--cached",
+      "--whitespace=nowarn",
+      "-"
+    ], undefined, validation.patch);
+  }
+
+  async unstageHunk(request: GitHunkRequest): Promise<GitOperationResult> {
+    const validation = await this.validateHunkRequest(request, "staged");
+    if ("error" in validation) {
+      return this.createOperationFailure(request.repoPath, validation.error);
+    }
+
+    return this.runGitOperation(request.repoPath, [
+      "apply",
+      "--cached",
+      "--reverse",
+      "--whitespace=nowarn",
+      "-"
+    ], undefined, validation.patch);
+  }
+
   async commitChanges(request: GitCommitRequest): Promise<GitOperationResult> {
     const validation = await this.validateRepo(request.repoPath);
     if (!validation.isValid) {
@@ -907,6 +937,42 @@ export class GitService {
       remoteBranchesResult.stdout,
       remotesResult.exitCode === 0 ? parseRemotes(remotesResult.stdout) : []
     );
+  }
+
+  private async validateHunkRequest(
+    request: GitHunkRequest,
+    expectedSide: GitDiffSide
+  ): Promise<{ patch: string } | { error: string }> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      return {
+        error: validation.validationErrors.join(" ")
+      };
+    }
+
+    const pathResult = sanitizeSingleRepoPath(request.path);
+    if ("error" in pathResult) {
+      return pathResult;
+    }
+
+    if (request.side !== expectedSide) {
+      return {
+        error: expectedSide === "unstaged"
+          ? "Only unstaged hunks can be staged."
+          : "Only staged hunks can be unstaged."
+      };
+    }
+
+    const patch = request.patch;
+    if (!patch.trim()) {
+      return {
+        error: "Select a hunk to apply."
+      };
+    }
+
+    return {
+      patch: patch.endsWith("\n") ? patch : `${patch}\n`
+    };
   }
 
   private async runGitOperation(

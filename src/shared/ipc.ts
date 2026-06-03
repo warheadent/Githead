@@ -19,6 +19,8 @@ export const IPC_CHANNELS = {
   getFileDiff: "git:file-diff",
   stageFiles: "git:stage-files",
   unstageFiles: "git:unstage-files",
+  stageHunk: "git:stage-hunk",
+  unstageHunk: "git:unstage-hunk",
   commitChanges: "git:commit-changes",
   switchBranch: "git:branch-switch",
   createBranch: "git:branch-create",

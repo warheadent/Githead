@@ -881,6 +881,99 @@ describe("GitService", () => {
     expect(stdinText(runner.calls.at(-1)!)).toBe("new.ts\0");
   });
 
+  it("stages a hunk by applying the patch to the index", async () => {
+    const patch = [
+      "diff --git a/src/app.ts b/src/app.ts",
+      "--- a/src/app.ts",
+      "+++ b/src/app.ts",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new",
+      ""
+    ].join("\n");
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok()
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.stageHunk({
+      repoPath: "D:\\Repo",
+      path: "src/app.ts",
+      side: "unstaged",
+      patch
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(runner.calls.at(-1)).toMatchObject({
+      command: "git",
+      args: [
+        "-C",
+        "D:\\Repo",
+        "apply",
+        "--cached",
+        "--whitespace=nowarn",
+        "-"
+      ]
+    });
+    expect(stdinText(runner.calls.at(-1)!)).toBe(patch);
+  });
+
+  it("unstages a hunk by reverse-applying the patch to the index", async () => {
+    const patch = [
+      "diff --git a/src/app.ts b/src/app.ts",
+      "--- a/src/app.ts",
+      "+++ b/src/app.ts",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new",
+      ""
+    ].join("\n");
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok()
+    ]);
+    const service = new GitService(runner);
+
+    await service.unstageHunk({
+      repoPath: "D:\\Repo",
+      path: "src/app.ts",
+      side: "staged",
+      patch
+    });
+
+    expect(runner.calls.at(-1)?.args).toEqual([
+      "-C",
+      "D:\\Repo",
+      "apply",
+      "--cached",
+      "--reverse",
+      "--whitespace=nowarn",
+      "-"
+    ]);
+    expect(stdinText(runner.calls.at(-1)!)).toBe(patch);
+  });
+
+  it("rejects empty hunk patches before applying", async () => {
+    const runner = new FakeRunner([
+      ok("true\n")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.stageHunk({
+      repoPath: "D:\\Repo",
+      path: "src/app.ts",
+      side: "unstaged",
+      patch: " \n"
+    });
+
+    expect(result).toMatchObject({
+      exitCode: -1,
+      stderr: "Select a hunk to apply."
+    });
+    expect(runner.calls).toHaveLength(1);
+  });
+
   it("commits with the commit message supplied on stdin", async () => {
     const runner = new FakeRunner([
       ok("true\n"),

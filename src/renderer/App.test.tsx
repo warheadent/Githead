@@ -59,6 +59,11 @@ beforeEach(() => {
     addEventListener: vi.fn(),
     removeEventListener: vi.fn()
   });
+  vi.stubGlobal("ResizeObserver", class ResizeObserverMock {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  });
   githead = createGitheadMock();
   window.githead = githead;
 });
@@ -67,6 +72,7 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("App", () => {
@@ -220,6 +226,90 @@ describe("App", () => {
         paths: [
           "src/App.tsx"
         ]
+      });
+    });
+  });
+
+  it("stages an unstaged hunk through the preload API", async () => {
+    const user = userEvent.setup();
+    const file = createStatusFile("src/App.tsx", {
+      isUnstaged: true,
+      worktreeStatus: "M"
+    });
+    const diffText = [
+      "diff --git a/src/App.tsx b/src/App.tsx",
+      "index 1234567..89abcde 100644",
+      "--- a/src/App.tsx",
+      "+++ b/src/App.tsx",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new"
+    ].join("\n");
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        file
+      ]
+    }));
+    vi.mocked(githead.getFileDiff).mockResolvedValue({
+      path: file.path,
+      side: "unstaged",
+      kind: "text",
+      text: diffText
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
+    await user.click(await screen.findByRole("button", { name: /^Stage Hunk$/ }));
+
+    await waitFor(() => {
+      expect(githead.stageHunk).toHaveBeenCalledWith({
+        repoPath,
+        path: "src/App.tsx",
+        side: "unstaged",
+        patch: `${diffText}\n`
+      });
+    });
+  });
+
+  it("unstages a staged hunk through the preload API", async () => {
+    const user = userEvent.setup();
+    const file = createStatusFile("src/App.tsx", {
+      isStaged: true,
+      indexStatus: "M"
+    });
+    const diffText = [
+      "diff --git a/src/App.tsx b/src/App.tsx",
+      "index 1234567..89abcde 100644",
+      "--- a/src/App.tsx",
+      "+++ b/src/App.tsx",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new"
+    ].join("\n");
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        file
+      ]
+    }));
+    vi.mocked(githead.getFileDiff).mockResolvedValue({
+      path: file.path,
+      side: "staged",
+      kind: "text",
+      text: diffText
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
+    await user.click(await screen.findByRole("button", { name: /^Unstage Hunk$/ }));
+
+    await waitFor(() => {
+      expect(githead.unstageHunk).toHaveBeenCalledWith({
+        repoPath,
+        path: "src/App.tsx",
+        side: "staged",
+        patch: `${diffText}\n`
       });
     });
   });
@@ -434,7 +524,6 @@ describe("App", () => {
     vi.mocked(githead.addRepoTrust).mockResolvedValue({
       trusted: true
     });
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       files: [
         createStatusFile("src/renderer/App.tsx", {
@@ -470,7 +559,6 @@ describe("App", () => {
     vi.mocked(githead.getRepoTrust).mockResolvedValue({
       trusted: false
     });
-    vi.spyOn(window, "confirm").mockReturnValue(false);
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       files: [
         createStatusFile("src/renderer/App.tsx", {
@@ -485,6 +573,7 @@ describe("App", () => {
     await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: decline trust");
     await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.click(await screen.findByRole("button", { name: "Cancel" }));
 
     await waitFor(() => {
       expect(githead.getRepoTrust).toHaveBeenCalledWith({
@@ -1696,6 +1785,8 @@ function createGitheadMock(): GitheadApi {
     getFileDiff: vi.fn(),
     stageFiles: vi.fn().mockResolvedValue(okOperation),
     unstageFiles: vi.fn().mockResolvedValue(okOperation),
+    stageHunk: vi.fn().mockResolvedValue(okOperation),
+    unstageHunk: vi.fn().mockResolvedValue(okOperation),
     commitChanges: vi.fn().mockResolvedValue(okOperation),
     switchBranch: vi.fn().mockResolvedValue(okOperation),
     createBranch: vi.fn().mockResolvedValue(okOperation),

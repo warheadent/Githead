@@ -14,6 +14,7 @@ import type {
   GenerateCommitMessageRequest,
   GitCommitRequest,
   GitFileDiffRequest,
+  GitHunkRequest,
   GitHubRepositoryRequest,
   GitIgnorePathRequest,
   GitOperationResult,
@@ -256,6 +257,14 @@ ipcMain.handle(IPC_CHANNELS.stageFiles, async (_event, request: GitPathRequest) 
 
 ipcMain.handle(IPC_CHANNELS.unstageFiles, async (_event, request: GitPathRequest) => {
   return runExclusiveGitOperation(() => gitService.unstageFiles(request), request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.stageHunk, async (_event, request: GitHunkRequest) => {
+  return runExclusiveGitOperation(() => gitService.stageHunk(request), request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.unstageHunk, async (_event, request: GitHunkRequest) => {
+  return runExclusiveGitOperation(() => gitService.unstageHunk(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.commitChanges, async (_event, request: GitCommitRequest) => {

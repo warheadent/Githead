@@ -1617,6 +1617,34 @@ export function App(): ReactNode {
     );
   }, [runRepoOperation]);
 
+  const applySelectedHunk = useCallback(async (patch: string): Promise<void> => {
+    const selection = stateRef.current.selection;
+    if (!selection) {
+      return;
+    }
+
+    if (selection.side === "unstaged") {
+      await runRepoOperation("Staging hunk", selection, () =>
+        window.githead.stageHunk({
+          repoPath: stateRef.current.repoPath,
+          path: selection.path,
+          side: selection.side,
+          patch
+        })
+      );
+      return;
+    }
+
+    await runRepoOperation("Unstaging hunk", selection, () =>
+      window.githead.unstageHunk({
+        repoPath: stateRef.current.repoPath,
+        path: selection.path,
+        side: selection.side,
+        patch
+      })
+    );
+  }, [runRepoOperation]);
+
   const commitChanges = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
     if (!current.summary?.isValid || isOperationRunning(current) || !canCommit(current)) {
@@ -2161,6 +2189,9 @@ export function App(): ReactNode {
                   }}
                   onRefreshDiff={() => {
                     void loadSelectedDiff();
+                  }}
+                  onApplyHunk={(patch) => {
+                    void applySelectedHunk(patch);
                   }}
                   onContextAction={(file, side, kind) => {
                     void runContextFileOperation(file, side, kind);
@@ -3160,6 +3191,7 @@ function StatusView({
   onStageFiles,
   onUnstageFiles,
   onRefreshDiff,
+  onApplyHunk,
   onContextAction
 }: {
   stagedFiles: GitStatusFile[];
@@ -3173,10 +3205,15 @@ function StatusView({
   onStageFiles: (paths: string[], selection?: FileSelection) => void;
   onUnstageFiles: (paths: string[], selection?: FileSelection) => void;
   onRefreshDiff: () => void;
+  onApplyHunk: (patch: string) => void;
   onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind) => void;
 }): ReactNode {
   const stagedSelectionPaths = selection?.side === "staged" ? getSelectionPaths(selection) : [];
   const unstagedSelectionPaths = selection?.side === "unstaged" ? getSelectionPaths(selection) : [];
+  const selectedFile = selection
+    ? getFilesForSide(summary, selection.side).find((file) => file.path === selection.path) ?? null
+    : null;
+  const canApplyHunks = Boolean(selection && diff?.kind === "text" && !diff.truncated && !selectedFile?.isConflicted);
 
   return (
     <ResizablePanelGroup orientation="horizontal" className="h-full min-h-0 bg-background">
@@ -3272,6 +3309,11 @@ function StatusView({
           filePath={selection?.path ?? ""}
           loading={diffLoading}
           emptyMessage={selection ? "Refresh the diff to view this file." : "Select a file to view the diff"}
+          hunkAction={canApplyHunks && selection ? {
+            side: selection.side,
+            disabled,
+            onApply: onApplyHunk
+          } : undefined}
           action={
             <Button type="button" variant="outline" size="sm" disabled={disabled || !selection} onClick={onRefreshDiff}>
               <RefreshCw />
@@ -3436,6 +3478,7 @@ function DiffPanel({
   filePath,
   loading,
   emptyMessage,
+  hunkAction,
   action
 }: {
   title: string;
@@ -3444,6 +3487,7 @@ function DiffPanel({
   filePath: string;
   loading: boolean;
   emptyMessage: string;
+  hunkAction?: DiffHunkAction | undefined;
   action?: ReactNode;
 }): ReactNode {
   let content: ReactNode = emptyMessage;
@@ -3454,7 +3498,7 @@ function DiffPanel({
   } else if (diff) {
     outputClass = `diff-output ${diff.kind}`;
     content = diff.kind === "text"
-      ? <DiffRows filePath={filePath} text={diff.text} truncated={Boolean(diff.truncated)} />
+      ? <DiffRows filePath={filePath} text={diff.text} truncated={Boolean(diff.truncated)} hunkAction={hunkAction} />
       : diff.text;
   }
 
@@ -3474,21 +3518,66 @@ function DiffPanel({
   );
 }
 
-function DiffRows({ filePath, text, truncated }: { filePath: string; text: string; truncated: boolean }): ReactNode {
+interface DiffHunkAction {
+  side: GitDiffSide;
+  disabled: boolean;
+  onApply: (patch: string) => void;
+}
+
+function DiffRows({
+  filePath,
+  text,
+  truncated,
+  hunkAction
+}: {
+  filePath: string;
+  text: string;
+  truncated: boolean;
+  hunkAction?: DiffHunkAction | undefined;
+}): ReactNode {
   const groups = useMemo(() => {
     const rows = parseUnifiedDiff(text, truncated ? ["Diff truncated."] : []);
     return groupDiffRowsByHunk(rows);
   }, [text, truncated]);
 
+  let hunkNumber = 0;
+
   return groups.map((group, groupIndex) => {
     const groupKey = `${groupIndex}:${group.kind}:${group.rows[0]?.text ?? ""}`;
-    const rowViews = group.rows.map((row, rowIndex) => (
+    const visibleRows = group.kind === "hunk"
+      ? group.rows.filter((row) => row.kind !== "hunk")
+      : group.rows;
+    const rowViews = visibleRows.map((row, rowIndex) => (
       <DiffRowView key={`${rowIndex}:${row.kind}:${row.oldLine ?? ""}:${row.newLine ?? ""}`} row={row} filePath={filePath} />
     ));
+    const hunkActionLabel = hunkAction?.side === "unstaged" ? "Stage Hunk" : "Unstage Hunk";
 
     if (group.kind === "hunk") {
+      hunkNumber += 1;
+
       return (
         <div className="diff-hunk-block" key={groupKey}>
+          <div className="diff-hunk-toolbar">
+            <span aria-hidden="true" />
+            <span aria-hidden="true" />
+            <span className="diff-hunk-title">{formatHunkTitle(group.rows, hunkNumber)}</span>
+            <span className="diff-hunk-actions">
+              {hunkAction && group.patch ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  className="diff-hunk-action"
+                  aria-label={hunkActionLabel}
+                  title={hunkActionLabel}
+                  disabled={hunkAction.disabled}
+                  onClick={() => hunkAction.onApply(group.patch!)}
+                >
+                  {hunkActionLabel}
+                </Button>
+              ) : null}
+            </span>
+          </div>
           {rowViews}
         </div>
       );
@@ -3500,6 +3589,22 @@ function DiffRows({ filePath, text, truncated }: { filePath: string; text: strin
       </Fragment>
     );
   });
+}
+
+function formatHunkTitle(rows: DiffRow[], hunkNumber: number): string {
+  const lineNumbers = rows
+    .flatMap((row) => row.newLine ?? row.oldLine ?? [])
+    .filter((lineNumber) => Number.isInteger(lineNumber));
+  const minLine = Math.min(...lineNumbers);
+  const maxLine = Math.max(...lineNumbers);
+
+  if (!Number.isFinite(minLine) || !Number.isFinite(maxLine)) {
+    return `Hunk ${hunkNumber}`;
+  }
+
+  return minLine === maxLine
+    ? `Hunk ${hunkNumber}: Line ${minLine}`
+    : `Hunk ${hunkNumber}: Lines ${minLine}-${maxLine}`;
 }
 
 function DiffRowView({ row, filePath }: { row: DiffRow; filePath: string }): ReactNode {

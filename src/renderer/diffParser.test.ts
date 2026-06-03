@@ -194,4 +194,65 @@ describe("groupDiffRowsByHunk", () => {
       text: "Diff truncated."
     });
   });
+
+  it("includes file metadata and hunk lines in each hunk patch", () => {
+    const groups = groupDiffRowsByHunk(parseUnifiedDiff([
+      "diff --git a/src/app.ts b/src/app.ts",
+      "index 1234567..89abcde 100644",
+      "--- a/src/app.ts",
+      "+++ b/src/app.ts",
+      "@@ -1,2 +1,2 @@",
+      " unchanged",
+      "-old",
+      "+new",
+      "@@ -10,2 +10,3 @@",
+      " shared",
+      "+added"
+    ].join("\n")));
+
+    expect(groups[1]!.patch).toBe([
+      "diff --git a/src/app.ts b/src/app.ts",
+      "index 1234567..89abcde 100644",
+      "--- a/src/app.ts",
+      "+++ b/src/app.ts",
+      "@@ -1,2 +1,2 @@",
+      " unchanged",
+      "-old",
+      "+new",
+      ""
+    ].join("\n"));
+    expect(groups[2]!.patch).toBe([
+      "diff --git a/src/app.ts b/src/app.ts",
+      "index 1234567..89abcde 100644",
+      "--- a/src/app.ts",
+      "+++ b/src/app.ts",
+      "@@ -10,2 +10,3 @@",
+      " shared",
+      "+added",
+      ""
+    ].join("\n"));
+  });
+
+  it("includes no-newline markers but omits synthetic notices from hunk patches", () => {
+    const groups = groupDiffRowsByHunk(parseUnifiedDiff([
+      "diff --git a/readme.md b/readme.md",
+      "--- a/readme.md",
+      "+++ b/readme.md",
+      "@@ -1 +1 @@",
+      "-old",
+      "\\ No newline at end of file"
+    ].join("\n"), [
+      "Diff truncated."
+    ]));
+
+    expect(groups[1]!.patch).toBe([
+      "diff --git a/readme.md b/readme.md",
+      "--- a/readme.md",
+      "+++ b/readme.md",
+      "@@ -1 +1 @@",
+      "-old",
+      "\\ No newline at end of file",
+      ""
+    ].join("\n"));
+  });
 });

@@ -262,6 +262,13 @@ export interface GitFileDiffRequest {
   side: GitDiffSide;
 }
 
+export interface GitHunkRequest {
+  repoPath: string;
+  path: string;
+  side: GitDiffSide;
+  patch: string;
+}
+
 export interface GitFileDiff {
   path: string;
   side: GitDiffSide;
@@ -360,6 +367,8 @@ export interface GitheadApi {
   getFileDiff(request: GitFileDiffRequest): Promise<GitFileDiff>;
   stageFiles(request: GitPathRequest): Promise<GitOperationResult>;
   unstageFiles(request: GitPathRequest): Promise<GitOperationResult>;
+  stageHunk(request: GitHunkRequest): Promise<GitOperationResult>;
+  unstageHunk(request: GitHunkRequest): Promise<GitOperationResult>;
   commitChanges(request: GitCommitRequest): Promise<GitOperationResult>;
   switchBranch(request: GitBranchRequest): Promise<GitOperationResult>;
   createBranch(request: GitBranchRequest): Promise<GitOperationResult>;

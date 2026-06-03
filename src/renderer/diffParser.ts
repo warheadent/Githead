@@ -13,6 +13,7 @@ export interface DiffRow {
   newLine: number | null;
   marker: string;
   text: string;
+  patchLine: string | null;
 }
 
 export type DiffRowGroupKind = "rows" | "hunk";
@@ -20,6 +21,7 @@ export type DiffRowGroupKind = "rows" | "hunk";
 export interface DiffRowGroup {
   kind: DiffRowGroupKind;
   rows: DiffRow[];
+  patch: string | null;
 }
 
 interface HunkState {
@@ -35,51 +37,51 @@ export function parseUnifiedDiff(text: string, notices: string[] = []): DiffRow[
     const hunk = parseHunkHeader(line);
     if (hunk) {
       hunkState = hunk;
-      rows.push(createRow("hunk", null, null, "", line));
+      rows.push(createRow("hunk", null, null, "", line, line));
       continue;
     }
 
     if (line.startsWith("diff --git ")) {
       hunkState = null;
-      rows.push(createRow("file", null, null, "", line));
+      rows.push(createRow("file", null, null, "", line, line));
       continue;
     }
 
     if (line.startsWith("+++") || line.startsWith("---")) {
-      rows.push(createRow("meta", null, null, "", line));
+      rows.push(createRow("meta", null, null, "", line, line));
       continue;
     }
 
     if (!hunkState) {
-      rows.push(createRow("meta", null, null, "", line));
+      rows.push(createRow("meta", null, null, "", line, line));
       continue;
     }
 
     if (line.startsWith("+")) {
-      rows.push(createRow("add", null, hunkState.newLine, "+", line.slice(1)));
+      rows.push(createRow("add", null, hunkState.newLine, "+", line.slice(1), line));
       hunkState.newLine += 1;
       continue;
     }
 
     if (line.startsWith("-")) {
-      rows.push(createRow("delete", hunkState.oldLine, null, "-", line.slice(1)));
+      rows.push(createRow("delete", hunkState.oldLine, null, "-", line.slice(1), line));
       hunkState.oldLine += 1;
       continue;
     }
 
     if (line.startsWith("\\")) {
-      rows.push(createRow("notice", null, null, "", line));
+      rows.push(createRow("notice", null, null, "", line, line));
       continue;
     }
 
     const textLine = line.startsWith(" ") ? line.slice(1) : line;
-    rows.push(createRow("context", hunkState.oldLine, hunkState.newLine, "", textLine));
+    rows.push(createRow("context", hunkState.oldLine, hunkState.newLine, "", textLine, line));
     hunkState.oldLine += 1;
     hunkState.newLine += 1;
   }
 
   for (const notice of notices) {
-    rows.push(createRow("notice", null, null, "", notice));
+    rows.push(createRow("notice", null, null, "", notice, null));
   }
 
   return rows;
@@ -89,12 +91,24 @@ export function groupDiffRowsByHunk(rows: DiffRow[]): DiffRowGroup[] {
   const groups: DiffRowGroup[] = [];
   let currentRows: DiffRowGroup | null = null;
   let currentHunk: DiffRowGroup | null = null;
+  let filePatchLines: string[] = [];
 
   for (const row of rows) {
+    if (row.kind === "file") {
+      filePatchLines = row.patchLine ? [row.patchLine] : [];
+    } else if (!currentHunk && row.kind === "meta" && row.patchLine) {
+      filePatchLines.push(row.patchLine);
+    }
+
     if (row.kind === "hunk") {
+      const patchLines = [
+        ...filePatchLines,
+        ...(row.patchLine ? [row.patchLine] : [])
+      ];
       currentHunk = {
         kind: "hunk",
-        rows: [row]
+        rows: [row],
+        patch: createPatch(patchLines)
       };
       currentRows = null;
       groups.push(currentHunk);
@@ -103,6 +117,9 @@ export function groupDiffRowsByHunk(rows: DiffRow[]): DiffRowGroup[] {
 
     if (currentHunk && isHunkContentRow(row)) {
       currentHunk.rows.push(row);
+      if (row.patchLine) {
+        currentHunk.patch = appendPatchLine(currentHunk.patch, row.patchLine);
+      }
       continue;
     }
 
@@ -111,7 +128,8 @@ export function groupDiffRowsByHunk(rows: DiffRow[]): DiffRowGroup[] {
     if (!currentRows) {
       currentRows = {
         kind: "rows",
-        rows: []
+        rows: [],
+        patch: null
       };
       groups.push(currentRows);
     }
@@ -159,13 +177,23 @@ function createRow(
   oldLine: number | null,
   newLine: number | null,
   marker: string,
-  text: string
+  text: string,
+  patchLine: string | null
 ): DiffRow {
   return {
     kind,
     oldLine,
     newLine,
     marker,
-    text
+    text,
+    patchLine
   };
+}
+
+function createPatch(lines: string[]): string | null {
+  return lines.length > 0 ? `${lines.join("\n")}\n` : null;
+}
+
+function appendPatchLine(patch: string | null, line: string): string {
+  return `${patch ?? ""}${line}\n`;
 }

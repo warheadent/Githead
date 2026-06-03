@@ -766,6 +766,50 @@
   background: var(--diff-hunk-group-bg);
 }
 
+.diff-hunk-toolbar {
+  display: grid;
+  grid-template-columns: 56px 56px minmax(220px, 1fr) auto;
+  align-items: center;
+  min-width: 100%;
+  min-height: 32px;
+  border-left: 4px solid var(--diff-hunk-border);
+  border-bottom: 1px solid var(--diff-hunk-group-border);
+  background: var(--diff-hunk-bg);
+  color: var(--diff-hunk-text);
+}
+
+.diff-hunk-title {
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.diff-hunk-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 3px 6px;
+}
+
+.diff-hunk-actions:empty {
+  display: none;
+}
+
+.diff-hunk-action {
+  height: 24px;
+  min-width: 84px;
+  border-radius: 2px;
+  border-color: var(--diff-hunk-border);
+  background: var(--diff-meta-bg);
+  color: var(--diff-hunk-text);
+  font-size: 12px;
+}
+
 .diff-hunk-block .diff-row.hunk {
   box-shadow: inset 0 -1px 0 var(--diff-hunk-group-border);
 }

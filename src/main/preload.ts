@@ -12,6 +12,7 @@ import type {
   GenerateCommitMessageRequest,
   GitCommitRequest,
   GitFileDiffRequest,
+  GitHunkRequest,
   GitHubRepositoryRequest,
   GitIgnorePathRequest,
   GitOutputEvent,
@@ -65,6 +66,10 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.stageFiles, request) as ReturnType<GitheadApi["stageFiles"]>,
   unstageFiles: (request: GitPathRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.unstageFiles, request) as ReturnType<GitheadApi["unstageFiles"]>,
+  stageHunk: (request: GitHunkRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.stageHunk, request) as ReturnType<GitheadApi["stageHunk"]>,
+  unstageHunk: (request: GitHunkRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.unstageHunk, request) as ReturnType<GitheadApi["unstageHunk"]>,
   commitChanges: (request: GitCommitRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.commitChanges, request) as ReturnType<GitheadApi["commitChanges"]>,
   switchBranch: (request: GitBranchRequest) =>
