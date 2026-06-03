@@ -654,6 +654,121 @@ describe("App", () => {
     });
   });
 
+  it("does not refresh the selected diff when a watcher refresh finds unchanged status", async () => {
+    const user = userEvent.setup();
+    const summary = createSummary({
+      files: [
+        createStatusFile("src/app.ts", {
+          isUnstaged: true,
+          worktreeStatus: "M"
+        })
+      ]
+    });
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(summary);
+    vi.mocked(githead.getFileDiff).mockResolvedValue(createTextDiff("src/app.ts", "initial-value"));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("option", { name: /src\/app\.ts/ }));
+    expect(await screen.findByText("initial-value")).toBeTruthy();
+
+    const summaryCallsBeforeWatchEvent = vi.mocked(githead.getRepoSummary).mock.calls.length;
+    vi.mocked(githead.getFileDiff).mockClear();
+    await act(async () => {
+      emitRepoChanged();
+      await flushRendererAsync();
+    });
+
+    await waitFor(() => {
+      expect(githead.getRepoSummary).toHaveBeenCalledTimes(summaryCallsBeforeWatchEvent + 1);
+    });
+    expect(githead.getFileDiff).not.toHaveBeenCalled();
+  });
+
+  it("refreshes the selected diff when a watcher refresh finds selected file status changed", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary)
+      .mockResolvedValueOnce(createSummary({
+        files: [
+          createStatusFile("src/app.ts", {
+            isUnstaged: true,
+            worktreeStatus: "M"
+          })
+        ]
+      }))
+      .mockResolvedValue(createSummary({
+        files: [
+          createStatusFile("src/app.ts", {
+            isUnstaged: true,
+            worktreeStatus: "D"
+          })
+        ]
+      }));
+    vi.mocked(githead.getFileDiff)
+      .mockResolvedValueOnce(createTextDiff("src/app.ts", "initial-value"))
+      .mockResolvedValue(createTextDiff("src/app.ts", "changed-value"));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("option", { name: /src\/app\.ts/ }));
+    expect(await screen.findByText("initial-value")).toBeTruthy();
+
+    await act(async () => {
+      emitRepoChanged();
+      await flushRendererAsync();
+    });
+
+    expect(await screen.findByText("changed-value")).toBeTruthy();
+    expect(githead.getFileDiff).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not refresh the selected diff when a watcher refresh only changes another file", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary)
+      .mockResolvedValueOnce(createSummary({
+        files: [
+          createStatusFile("src/app.ts", {
+            isUnstaged: true,
+            worktreeStatus: "M"
+          }),
+          createStatusFile("src/other.ts", {
+            isUnstaged: true,
+            worktreeStatus: "M"
+          })
+        ]
+      }))
+      .mockResolvedValue(createSummary({
+        files: [
+          createStatusFile("src/app.ts", {
+            isUnstaged: true,
+            worktreeStatus: "M"
+          }),
+          createStatusFile("src/other.ts", {
+            isUnstaged: true,
+            worktreeStatus: "D"
+          })
+        ]
+      }));
+    vi.mocked(githead.getFileDiff).mockResolvedValue(createTextDiff("src/app.ts", "initial-value"));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("option", { name: /src\/app\.ts/ }));
+    expect(await screen.findByText("initial-value")).toBeTruthy();
+
+    const summaryCallsBeforeWatchEvent = vi.mocked(githead.getRepoSummary).mock.calls.length;
+    vi.mocked(githead.getFileDiff).mockClear();
+    await act(async () => {
+      emitRepoChanged();
+      await flushRendererAsync();
+    });
+
+    await waitFor(() => {
+      expect(githead.getRepoSummary).toHaveBeenCalledTimes(summaryCallsBeforeWatchEvent + 1);
+    });
+    expect(githead.getFileDiff).not.toHaveBeenCalled();
+  });
+
   it("logs commit output without rendering it as inline commit feedback", async () => {
     const user = userEvent.setup();
     const longCommitOutput = [

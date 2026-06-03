@@ -758,10 +758,18 @@ export function App(): ReactNode {
     }
   }, [updateState]);
 
-  const refreshRepo = useCallback(async (options: { addToRecents?: boolean; silent?: boolean } = {}): Promise<void> => {
+  const refreshRepo = useCallback(async (options: {
+    addToRecents?: boolean;
+    diffRefresh?: "always" | "when-selected-file-changed";
+    silent?: boolean;
+  } = {}): Promise<void> => {
     const requestId = requestIds.current.repo + 1;
     requestIds.current.repo = requestId;
     const repoPath = stateRef.current.repoPath;
+    const previousSelection = stateRef.current.selection;
+    const previousSelectedFile = previousSelection
+      ? getSelectedFileForDiff(stateRef.current.summary, previousSelection)
+      : null;
     repoRefreshInFlightRef.current = true;
 
     if (!options.silent) {
@@ -836,7 +844,13 @@ export function App(): ReactNode {
     }
 
     const latest = stateRef.current;
-    if (latest.selection) {
+    if (
+      latest.selection &&
+      (
+        options.diffRefresh !== "when-selected-file-changed" ||
+        didSelectedDiffTargetChange(previousSelection, previousSelectedFile, latest.summary, latest.selection)
+      )
+    ) {
       await loadSelectedDiff(latest.selection);
     }
     if (latest.activeView === "history") {
@@ -877,6 +891,7 @@ export function App(): ReactNode {
 
     fileStatusDirtyRef.current = false;
     await refreshRepo({
+      diffRefresh: "when-selected-file-changed",
       silent: true
     });
   }, [refreshRepo]);
@@ -4939,6 +4954,50 @@ function getUnstagedFiles(summary: RepoSummary | null): GitStatusFile[] {
 
 function getFilesForSide(summary: RepoSummary | null, side: GitDiffSide): GitStatusFile[] {
   return side === "staged" ? getStagedFiles(summary) : getUnstagedFiles(summary);
+}
+
+function getSelectedFileForDiff(summary: RepoSummary | null, selection: FileSelection): GitStatusFile | null {
+  return getFilesForSide(summary, selection.side).find((file) => file.path === selection.path) ?? null;
+}
+
+function didSelectedDiffTargetChange(
+  previousSelection: FileSelection | null,
+  previousFile: GitStatusFile | null,
+  nextSummary: RepoSummary | null,
+  nextSelection: FileSelection
+): boolean {
+  if (!previousSelection || previousSelection.path !== nextSelection.path || previousSelection.side !== nextSelection.side) {
+    return true;
+  }
+
+  const nextFile = getSelectedFileForDiff(nextSummary, nextSelection);
+  if (!previousFile || !nextFile) {
+    return previousFile !== nextFile;
+  }
+
+  return nextSelection.side === "staged"
+    ? didStagedFileDiffStateChange(previousFile, nextFile)
+    : didUnstagedFileDiffStateChange(previousFile, nextFile);
+}
+
+function didStagedFileDiffStateChange(previousFile: GitStatusFile, nextFile: GitStatusFile): boolean {
+  return (
+    previousFile.path !== nextFile.path ||
+    previousFile.originalPath !== nextFile.originalPath ||
+    previousFile.indexStatus !== nextFile.indexStatus ||
+    previousFile.isStaged !== nextFile.isStaged ||
+    previousFile.isConflicted !== nextFile.isConflicted
+  );
+}
+
+function didUnstagedFileDiffStateChange(previousFile: GitStatusFile, nextFile: GitStatusFile): boolean {
+  return (
+    previousFile.path !== nextFile.path ||
+    previousFile.originalPath !== nextFile.originalPath ||
+    previousFile.worktreeStatus !== nextFile.worktreeStatus ||
+    previousFile.isUnstaged !== nextFile.isUnstaged ||
+    previousFile.isConflicted !== nextFile.isConflicted
+  );
 }
 
 function buildFileSelection(
