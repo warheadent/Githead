@@ -3613,9 +3613,30 @@ function RepositoryPanel({
   onDownloadUpdate: () => void;
   onInstallUpdate: () => void;
 }): ReactNode {
+  const [addMode, setAddMode] = useState<"choice" | "clone">("choice");
   const remotes = summary?.remotes.length
     ? [...new Set(summary.remotes.map((remote) => remote.name))].join(", ")
     : "-";
+  const addBusy = cloneRunning || cloneCheckRunning;
+
+  const updateAddPopoverOpen = (open: boolean): void => {
+    if (!open && addBusy) {
+      return;
+    }
+
+    setAddMode("choice");
+    onClonePanelOpenChange(open);
+  };
+
+  const chooseExistingRepo = (): void => {
+    if (running) {
+      return;
+    }
+
+    setAddMode("choice");
+    onClonePanelOpenChange(false);
+    onChooseRepo();
+  };
 
   return (
     <aside className="flex h-full min-h-0 flex-col gap-5 overflow-auto border-r bg-sidebar p-6 text-sidebar-foreground">
@@ -3629,14 +3650,14 @@ function RepositoryPanel({
             {repoHealth.text}
           </p>
         </div>
-        <Popover open={clonePanelOpen} onOpenChange={onClonePanelOpenChange}>
+        <Popover open={clonePanelOpen} onOpenChange={updateAddPopoverOpen}>
           <PopoverTrigger asChild>
             <Button
               type="button"
               variant="outline"
               size="icon-sm"
-              aria-label="Clone repository"
-              title="Clone repository"
+              aria-label="Add repository"
+              title="Add repository"
             >
               <Plus />
             </Button>
@@ -3646,36 +3667,53 @@ function RepositoryPanel({
             side="right"
             sideOffset={12}
             collisionPadding={12}
-            className="clone-popout-content"
+            className={addMode === "clone" ? "clone-popout-content" : "repo-add-popout-content"}
           >
-            <CloneRepositoryForm
-              idPrefix="sidebar-clone"
-              cloneDraft={cloneDraft}
-              cloneError={cloneError}
-              cloneRunning={cloneRunning}
-              cloneCheckRunning={cloneCheckRunning}
-              cloneCheckStatus={cloneCheckStatus}
-              cloneCheckMessage={cloneCheckMessage}
-              cloneBranches={cloneBranches}
-              onCloneDraftChange={onCloneDraftChange}
-              onCloneSourceChange={onCloneSourceChange}
-              onChooseCloneParent={onChooseCloneParent}
-              onCheckRepositoryAccess={onCheckRepositoryAccess}
-              onClone={onClone}
-            />
+            {addMode === "clone" ? (
+              <CloneRepositoryForm
+                idPrefix="sidebar-clone"
+                cloneDraft={cloneDraft}
+                cloneError={cloneError}
+                cloneRunning={cloneRunning}
+                cloneCheckRunning={cloneCheckRunning}
+                cloneCheckStatus={cloneCheckStatus}
+                cloneCheckMessage={cloneCheckMessage}
+                cloneBranches={cloneBranches}
+                onCloneDraftChange={onCloneDraftChange}
+                onCloneSourceChange={onCloneSourceChange}
+                onChooseCloneParent={onChooseCloneParent}
+                onCheckRepositoryAccess={onCheckRepositoryAccess}
+                onClone={onClone}
+              />
+            ) : (
+              <div className="repo-add-menu" aria-label="Add repository">
+                <p className="repo-add-title">Add repository</p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="repo-add-option"
+                  onClick={chooseExistingRepo}
+                  disabled={running}
+                >
+                  <FolderOpen />
+                  <span>Add existing</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="repo-add-option"
+                  onClick={() => {
+                    setAddMode("clone");
+                  }}
+                  disabled={running}
+                >
+                  <GitFork />
+                  <span>Clone new</span>
+                </Button>
+              </div>
+            )}
           </PopoverContent>
         </Popover>
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="repo-path">Repository</Label>
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-          <Input id="repo-path" value={repoPath} readOnly />
-          <Button type="button" variant="outline" onClick={onChooseRepo} disabled={running}>
-            <FolderOpen />
-            Browse
-          </Button>
-        </div>
       </div>
 
       {repoRecents.length > 0 ? (

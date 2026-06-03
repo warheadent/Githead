@@ -1830,7 +1830,8 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByDisplayValue(recentRepo)).toBeTruthy();
+    expect(await screen.findByText("Repository ready")).toBeTruthy();
+    expect(screen.getByRole("button", { name: `Switch to ${recentRepo}` }).getAttribute("aria-current")).toBe("true");
     expect(screen.getByText("Recent")).toBeTruthy();
     expect(screen.getByText(otherRepo)).toBeTruthy();
     expect(githead.getRepoSummary).toHaveBeenCalledWith(recentRepo);
@@ -1890,10 +1891,12 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByDisplayValue(repoPath);
+    await screen.findByText("Repository ready");
     await user.click(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
 
-    expect(await screen.findByDisplayValue(otherRepo)).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: `Switch to ${otherRepo}` }).getAttribute("aria-current")).toBe("true");
+    });
     await waitFor(() => {
       expect(githead.addRepoRecent).toHaveBeenCalledWith(otherRepo);
     });
@@ -1916,14 +1919,14 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByDisplayValue(repoPath);
+    await screen.findByText("Repository ready");
     vi.mocked(githead.getRepoSummary).mockClear();
     await user.click(screen.getByRole("button", { name: `Remove ${otherRepo} from recent repositories` }));
 
     await waitFor(() => {
       expect(githead.removeRepoRecent).toHaveBeenCalledWith(otherRepo);
     });
-    expect(screen.getByDisplayValue(repoPath)).toBeTruthy();
+    expect(screen.getByRole("button", { name: `Switch to ${repoPath}` }).getAttribute("aria-current")).toBe("true");
     expect(githead.getRepoSummary).not.toHaveBeenCalledWith(otherRepo);
   });
 
@@ -1941,11 +1944,14 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByDisplayValue(repoPath);
+    await screen.findByText("Repository ready");
     vi.mocked(githead.addRepoRecent).mockClear();
-    await user.click(screen.getByRole("button", { name: /Browse/ }));
+    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await user.click(screen.getByRole("button", { name: "Add existing" }));
 
-    expect(await screen.findByDisplayValue(browsedRepo)).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: `Switch to ${browsedRepo}` }).getAttribute("aria-current")).toBe("true");
+    });
     await waitFor(() => {
       expect(githead.addRepoRecent).toHaveBeenCalledWith(browsedRepo);
     });
@@ -1965,9 +1971,10 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByDisplayValue(repoPath);
+    await screen.findByText("Repository ready");
     vi.mocked(githead.addRepoRecent).mockClear();
-    await user.click(screen.getByRole("button", { name: /Browse/ }));
+    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await user.click(screen.getByRole("button", { name: "Add existing" }));
 
     expect(await screen.findByText("Selected folder is not a git repository.")).toBeTruthy();
     expect(screen.getByText(invalidRepo)).toBeTruthy();
@@ -2005,7 +2012,8 @@ describe("App", () => {
         depth: null
       });
     });
-    expect(await screen.findByDisplayValue(clonedRepo)).toBeTruthy();
+    expect(await screen.findByText("Repository ready")).toBeTruthy();
+    expect(screen.getByRole("button", { name: `Switch to ${clonedRepo}` }).getAttribute("aria-current")).toBe("true");
     await waitFor(() => {
       expect(githead.addRepoRecent).toHaveBeenCalledWith(clonedRepo);
     });
@@ -2192,13 +2200,27 @@ describe("App", () => {
     });
   });
 
-  it("opens the clone popout from the repository sidebar", async () => {
+  it("opens repository add choices from the repository sidebar", async () => {
     const user = userEvent.setup();
 
     render(<App />);
 
-    await screen.findByDisplayValue(repoPath);
-    await user.click(screen.getByRole("button", { name: "Clone repository" }));
+    await screen.findByText("Repository ready");
+    await user.click(screen.getByRole("button", { name: "Add repository" }));
+
+    expect(screen.getByRole("button", { name: "Add existing" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Clone new" })).toBeTruthy();
+    expect(screen.queryByLabelText("Repository URL or path")).toBeNull();
+  });
+
+  it("opens the clone form from the repository add popout", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await user.click(screen.getByRole("button", { name: "Clone new" }));
 
     expect(screen.getByRole("heading", { name: "Clone repository" })).toBeTruthy();
     expect(screen.getByLabelText("Repository URL or path")).toBeTruthy();
@@ -2222,9 +2244,10 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByDisplayValue(repoPath);
+    await screen.findByText("Repository ready");
     vi.mocked(githead.addRepoRecent).mockClear();
-    await user.click(screen.getByRole("button", { name: "Clone repository" }));
+    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await user.click(screen.getByRole("button", { name: "Clone new" }));
     await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
     await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
     await user.click(screen.getByRole("button", { name: "Clone Repository" }));
@@ -2238,7 +2261,9 @@ describe("App", () => {
         depth: null
       });
     });
-    expect(await screen.findByDisplayValue(clonedRepo)).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: `Switch to ${clonedRepo}` }).getAttribute("aria-current")).toBe("true");
+    });
     await waitFor(() => {
       expect(githead.addRepoRecent).toHaveBeenCalledWith(clonedRepo);
     });
@@ -2246,7 +2271,8 @@ describe("App", () => {
       expect(screen.queryByLabelText("Repository URL or path")).toBeNull();
     });
 
-    await user.click(screen.getByRole("button", { name: "Clone repository" }));
+    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await user.click(screen.getByRole("button", { name: "Clone new" }));
     expect((screen.getByLabelText("Repository URL or path") as HTMLInputElement).value).toBe("");
     expect((screen.getByLabelText("Depth") as HTMLInputElement).value).toBe("0");
   });
@@ -2261,8 +2287,9 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByDisplayValue(repoPath);
-    await user.click(screen.getByRole("button", { name: "Clone repository" }));
+    await screen.findByText("Repository ready");
+    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await user.click(screen.getByRole("button", { name: "Clone new" }));
     await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
     await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
     await user.click(screen.getByRole("button", { name: "Clone Repository" }));
@@ -2306,7 +2333,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByDisplayValue(repoPath);
+    await screen.findByText("Repository ready");
     await user.click(screen.getByRole("button", { name: `Switch to ${firstRepo}` }));
     await user.click(screen.getByRole("button", { name: `Switch to ${secondRepo}` }));
 
@@ -2314,7 +2341,9 @@ describe("App", () => {
       repoPath: secondRepo,
       branch: "second"
     }));
-    expect(await screen.findByDisplayValue(secondRepo)).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: `Switch to ${secondRepo}` }).getAttribute("aria-current")).toBe("true");
+    });
     expect(await screen.findByText("second")).toBeTruthy();
 
     firstSummary.resolve(createSummary({
