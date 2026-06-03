@@ -75,6 +75,19 @@ The version helper runs `npm version` without npm's automatic git tag behavior, 
 
 ## Configuration
 
+### Repository actions
+
+Repositories can expose custom commands in the Sync bar by adding a `.githead` folder at the repository root. Define shared actions in `.githead/actions.toml`:
+
+```toml
+[[actions]]
+name = "Build"
+command = "npm run build"
+shell = "powershell" # powershell | cmd | bash
+```
+
+Optional `.githead/actions.local.toml` entries are loaded after `actions.toml`. Local entries with the same action name replace the shared action; new local entries are appended. Configured actions run from the repository root and use the same workspace trust prompt and Activity Log as built-in Git commands.
+
 ### AI commit messages
 
 Commit message generation uses the OpenRouter Chat Completions API. Open **Settings** in the app and provide:
