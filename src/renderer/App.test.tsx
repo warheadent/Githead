@@ -296,6 +296,177 @@ describe("App", () => {
     });
   });
 
+  it("shows commit file context menu actions with log and blame disabled", async () => {
+    const user = userEvent.setup();
+    const commit = createCommit();
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash, {
+      files: [
+        {
+          path: "src/App.test.tsx",
+          status: "M",
+          additions: 3,
+          deletions: 1
+        }
+      ]
+    }));
+    vi.mocked(githead.getCommitFileDiff).mockResolvedValue(createTextDiff("src/App.test.tsx", "test"));
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    const commitFile = await screen.findByRole("option", { name: /src\/App\.test\.tsx/ });
+
+    fireEvent.contextMenu(commitFile);
+
+    const expectedActions = [
+      "Log Selected",
+      "Blame Selected",
+      "Reset to Commit",
+      "Open Current Version",
+      "Open Selected Version",
+      "Copy Path to Clipboard"
+    ];
+    for (const action of expectedActions) {
+      expect(await screen.findByRole("menuitem", { name: action })).toBeTruthy();
+    }
+    expect(screen.getByRole("menuitem", { name: "Log Selected" }).getAttribute("data-disabled")).toBe("");
+    expect(screen.getByRole("menuitem", { name: "Blame Selected" }).getAttribute("data-disabled")).toBe("");
+  });
+
+  it("runs commit file context menu open and copy actions through preload APIs", async () => {
+    const user = userEvent.setup();
+    const commit = createCommit();
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash, {
+      files: [
+        {
+          path: "src/App.test.tsx",
+          status: "M",
+          additions: 3,
+          deletions: 1
+        }
+      ]
+    }));
+    vi.mocked(githead.getCommitFileDiff).mockResolvedValue(createTextDiff("src/App.test.tsx", "test"));
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    const commitFile = await screen.findByRole("option", { name: /src\/App\.test\.tsx/ });
+
+    fireEvent.contextMenu(commitFile);
+    await user.click(await screen.findByRole("menuitem", { name: "Open Current Version" }));
+    await waitFor(() => {
+      expect(githead.openFile).toHaveBeenCalledWith({
+        repoPath,
+        path: "src/App.test.tsx"
+      });
+    });
+
+    fireEvent.contextMenu(commitFile);
+    await user.click(await screen.findByRole("menuitem", { name: "Open Selected Version" }));
+    await waitFor(() => {
+      expect(githead.openCommitFileVersion).toHaveBeenCalledWith({
+        repoPath,
+        hash: commit.hash,
+        path: "src/App.test.tsx"
+      });
+    });
+
+    fireEvent.contextMenu(commitFile);
+    await user.click(await screen.findByRole("menuitem", { name: "Copy Path to Clipboard" }));
+    await waitFor(() => {
+      expect(githead.copyPathToClipboard).toHaveBeenCalledWith({
+        repoPath,
+        path: "src/App.test.tsx"
+      });
+    });
+  });
+
+  it("confirms before resetting a commit file to the selected commit", async () => {
+    const user = userEvent.setup();
+    const commit = createCommit();
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash, {
+      files: [
+        {
+          path: "src/App.test.tsx",
+          status: "M",
+          additions: 3,
+          deletions: 1
+        }
+      ]
+    }));
+    vi.mocked(githead.getCommitFileDiff).mockResolvedValue(createTextDiff("src/App.test.tsx", "test"));
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    const commitFile = await screen.findByRole("option", { name: /src\/App\.test\.tsx/ });
+
+    fireEvent.contextMenu(commitFile);
+    await user.click(await screen.findByRole("menuitem", { name: "Reset to Commit" }));
+
+    expect(await screen.findByRole("dialog", { name: "Confirm reset file contents" })).toBeTruthy();
+    expect(screen.getByDisplayValue("src/App.test.tsx")).toBeTruthy();
+    expect(githead.resetFilesToCommit).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Copy to Clipboard" }));
+    await waitFor(() => {
+      expect(githead.copyTextToClipboard).toHaveBeenCalledWith({
+        text: "src/App.test.tsx"
+      });
+    });
+
+    await user.click(screen.getByRole("button", { name: "OK" }));
+    await waitFor(() => {
+      expect(githead.resetFilesToCommit).toHaveBeenCalledWith({
+        repoPath,
+        hash: commit.hash,
+        paths: [
+          "src/App.test.tsx"
+        ]
+      });
+    });
+  });
+
+  it("cancels commit file reset without calling the reset API", async () => {
+    const user = userEvent.setup();
+    const commit = createCommit();
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash, {
+      files: [
+        {
+          path: "src/App.test.tsx",
+          status: "M",
+          additions: 3,
+          deletions: 1
+        }
+      ]
+    }));
+    vi.mocked(githead.getCommitFileDiff).mockResolvedValue(createTextDiff("src/App.test.tsx", "test"));
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    const commitFile = await screen.findByRole("option", { name: /src\/App\.test\.tsx/ });
+
+    fireEvent.contextMenu(commitFile);
+    await user.click(await screen.findByRole("menuitem", { name: "Reset to Commit" }));
+    await screen.findByRole("dialog", { name: "Confirm reset file contents" });
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Confirm reset file contents" })).toBeNull();
+    });
+    expect(githead.resetFilesToCommit).not.toHaveBeenCalled();
+  });
+
   it("creates a tag for the selected commit and validates required tag names", async () => {
     const user = userEvent.setup();
     const commit = createCommit({
@@ -2257,6 +2428,8 @@ function createGitheadMock(): GitheadApi {
     getCommitDetails: vi.fn(),
     getCommitFileDiff: vi.fn(),
     getFileDiff: vi.fn(),
+    resetFilesToCommit: vi.fn().mockResolvedValue(okOperation),
+    openCommitFileVersion: vi.fn().mockResolvedValue(okOperation),
     stageFiles: vi.fn().mockResolvedValue(okOperation),
     unstageFiles: vi.fn().mockResolvedValue(okOperation),
     stageHunk: vi.fn().mockResolvedValue(okOperation),
@@ -2277,6 +2450,7 @@ function createGitheadMock(): GitheadApi {
     openFile: vi.fn().mockResolvedValue(okOperation),
     showInExplorer: vi.fn().mockResolvedValue(okOperation),
     copyPathToClipboard: vi.fn().mockResolvedValue(okOperation),
+    copyTextToClipboard: vi.fn().mockResolvedValue(okOperation),
     deleteFile: vi.fn().mockResolvedValue(okOperation),
     deleteFiles: vi.fn().mockResolvedValue(okOperation),
     revertFileChanges: vi.fn().mockResolvedValue(okOperation),

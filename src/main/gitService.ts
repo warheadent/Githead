@@ -11,6 +11,7 @@ import type {
   GitCommitDetails,
   GitCommitDetailsRequest,
   GitCommitFileDiffRequest,
+  GitCommitFileResetRequest,
   GitCommitGraphRow,
   GitCommitHashRequest,
   GitCommitHistoryRequest,
@@ -426,6 +427,31 @@ export class GitService {
       path: pathResult.path,
       side: "unstaged"
     }, diffResult);
+  }
+
+  async resetFilesToCommit(request: GitCommitFileResetRequest): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+    }
+
+    const hashResult = sanitizeCommitHash(request.hash);
+    if ("error" in hashResult) {
+      return this.createOperationFailure(request.repoPath, hashResult.error);
+    }
+
+    const pathsResult = sanitizeRepoPaths(request.paths);
+    if ("error" in pathsResult) {
+      return this.createOperationFailure(request.repoPath, pathsResult.error);
+    }
+
+    return this.runGitOperation(request.repoPath, [
+      "restore",
+      "--worktree",
+      `--source=${hashResult.hash}`,
+      "--pathspec-from-file=-",
+      "--pathspec-file-nul"
+    ], pathsResult.paths);
   }
 
   async stageFiles(request: GitPathRequest): Promise<GitOperationResult> {

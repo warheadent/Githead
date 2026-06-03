@@ -1018,6 +1018,73 @@ describe("GitService", () => {
     expect(runner.calls).toHaveLength(1);
   });
 
+  it("resets selected files to a commit with NUL-delimited pathspec stdin", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok()
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.resetFilesToCommit({
+      repoPath: "D:\\Repo",
+      hash: oid,
+      paths: [
+        "src/a file.ts",
+        "src/nested.ts"
+      ]
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(runner.calls.at(-1)?.args).toEqual([
+      "-C",
+      "D:\\Repo",
+      "restore",
+      "--worktree",
+      `--source=${oid}`,
+      "--pathspec-from-file=-",
+      "--pathspec-file-nul"
+    ]);
+    expect(stdinText(runner.calls.at(-1)!)).toBe("src/a file.ts\0src/nested.ts\0");
+  });
+
+  it("rejects invalid commit hashes before resetting selected files", async () => {
+    const runner = new FakeRunner([
+      ok("true\n")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.resetFilesToCommit({
+      repoPath: "D:\\Repo",
+      hash: "HEAD~1",
+      paths: [
+        "src/app.ts"
+      ]
+    });
+
+    expect(result.exitCode).toBe(-1);
+    expect(result.stderr).toBe("Commit hash is invalid.");
+    expect(runner.calls).toHaveLength(1);
+  });
+
+  it("rejects empty paths before resetting selected files", async () => {
+    const runner = new FakeRunner([
+      ok("true\n")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.resetFilesToCommit({
+      repoPath: "D:\\Repo",
+      hash: oid,
+      paths: [
+        " "
+      ]
+    });
+
+    expect(result.exitCode).toBe(-1);
+    expect(result.stderr).toBe("Select at least one file.");
+    expect(runner.calls).toHaveLength(1);
+  });
+
   it("reverts a commit without opening an editor", async () => {
     const runner = new FakeRunner([
       ok("true\n"),

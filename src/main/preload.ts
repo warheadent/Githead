@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import { IPC_CHANNELS } from "../shared/ipc";
 import type {
   AiSettingsSaveRequest,
+  ClipboardTextRequest,
   ExternalUrlRequest,
   FileSystemPathListRequest,
   FileSystemPathRequest,
@@ -9,6 +10,8 @@ import type {
   GitCloneRequest,
   GitCommitDetailsRequest,
   GitCommitFileDiffRequest,
+  GitCommitFileResetRequest,
+  GitCommitFileVersionRequest,
   GitCommitHashRequest,
   GitCommitHistoryRequest,
   GenerateCommitMessageRequest,
@@ -68,6 +71,10 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getCommitFileDiff, request) as ReturnType<GitheadApi["getCommitFileDiff"]>,
   getFileDiff: (request: GitFileDiffRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getFileDiff, request) as ReturnType<GitheadApi["getFileDiff"]>,
+  resetFilesToCommit: (request: GitCommitFileResetRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.resetFilesToCommit, request) as ReturnType<GitheadApi["resetFilesToCommit"]>,
+  openCommitFileVersion: (request: GitCommitFileVersionRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.openCommitFileVersion, request) as ReturnType<GitheadApi["openCommitFileVersion"]>,
   stageFiles: (request: GitPathRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.stageFiles, request) as ReturnType<GitheadApi["stageFiles"]>,
   unstageFiles: (request: GitPathRequest) =>
@@ -108,6 +115,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.showInExplorer, request) as ReturnType<GitheadApi["showInExplorer"]>,
   copyPathToClipboard: (request: FileSystemPathRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.copyPathToClipboard, request) as ReturnType<GitheadApi["copyPathToClipboard"]>,
+  copyTextToClipboard: (request: ClipboardTextRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.copyTextToClipboard, request) as ReturnType<GitheadApi["copyTextToClipboard"]>,
   deleteFile: (request: FileSystemPathRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.deleteFile, request) as ReturnType<GitheadApi["deleteFile"]>,
   deleteFiles: (request: FileSystemPathListRequest) =>

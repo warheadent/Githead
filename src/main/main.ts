@@ -1,8 +1,12 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, safeStorage, screen, shell } from "electron";
+import { spawn } from "node:child_process";
+import fs from "node:fs/promises";
+import { createWriteStream } from "node:fs";
 import path from "node:path";
 import { IPC_CHANNELS } from "../shared/ipc";
 import type {
   AiSettingsSaveRequest,
+  ClipboardTextRequest,
   ExternalUrlRequest,
   FileSystemPathListRequest,
   FileSystemPathRequest,
@@ -10,6 +14,8 @@ import type {
   GitCloneRequest,
   GitCommitDetailsRequest,
   GitCommitFileDiffRequest,
+  GitCommitFileResetRequest,
+  GitCommitFileVersionRequest,
   GitCommitHashRequest,
   GitCommitHistoryRequest,
   GenerateCommitMessageRequest,
@@ -257,6 +263,19 @@ ipcMain.handle(IPC_CHANNELS.getFileDiff, async (_event, request) => {
   return gitService.getFileDiff(request);
 });
 
+ipcMain.handle(IPC_CHANNELS.resetFilesToCommit, async (_event, request: GitCommitFileResetRequest) => {
+  const trusted = await requireTrustedRepo(request.repoPath);
+  if (trusted) {
+    return trusted;
+  }
+
+  return runExclusiveGitOperation(() => gitService.resetFilesToCommit(request), request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.openCommitFileVersion, async (_event, request: GitCommitFileVersionRequest) => {
+  return openCommitFileVersion(request);
+});
+
 ipcMain.handle(IPC_CHANNELS.stageFiles, async (_event, request: GitPathRequest) => {
   return runExclusiveGitOperation(() => gitService.stageFiles(request), request.repoPath);
 });
@@ -419,6 +438,11 @@ ipcMain.handle(IPC_CHANNELS.copyPathToClipboard, async (_event, request: FileSys
   return createOperationSuccess(request.repoPath, "Path copied to clipboard.");
 });
 
+ipcMain.handle(IPC_CHANNELS.copyTextToClipboard, async (_event, request: ClipboardTextRequest) => {
+  clipboard.writeText(request.text);
+  return createOperationSuccess("", "Text copied to clipboard.");
+});
+
 ipcMain.handle(IPC_CHANNELS.deleteFile, async (_event, request: FileSystemPathRequest) => {
   return runExclusiveGitOperation(() => deleteFiles({
     repoPath: request.repoPath,
@@ -570,6 +594,120 @@ function normalizeExternalUrl(url: string): { url: string } | { error: string } 
       error: "External URL is invalid."
     };
   }
+}
+
+async function openCommitFileVersion(request: GitCommitFileVersionRequest): Promise<GitOperationResult> {
+  const resolved = resolveRepoFilePath({
+    repoPath: request.repoPath,
+    path: request.path
+  });
+  if ("error" in resolved) {
+    return createOperationFailure(request.repoPath, resolved.error);
+  }
+
+  const hash = request.hash.trim();
+  if (!/^[0-9a-f]{7,64}$/i.test(hash)) {
+    return createOperationFailure(request.repoPath, "Commit hash is invalid.");
+  }
+
+  const policyError = getOpenRepositoryFileError(resolved.absolutePath);
+  if (policyError) {
+    return createOperationFailure(request.repoPath, policyError);
+  }
+
+  const tempDir = await fs.mkdtemp(path.join(app.getPath("temp"), "githead-commit-file-"));
+  const tempPath = path.join(tempDir, path.basename(resolved.absolutePath));
+  const result = await writeCommitFileVersionToPath(
+    request.repoPath,
+    hash,
+    request.path.replace(/\\/g, "/"),
+    tempPath
+  );
+
+  if (result.exitCode !== 0) {
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+    return createOperationFailure(
+      request.repoPath,
+      result.stderr.trim() || result.error || "Unable to read file at the selected commit."
+    );
+  }
+
+  await fs.chmod(tempPath, 0o444).catch(() => undefined);
+  const error = await shell.openPath(tempPath);
+  if (error) {
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+    return createOperationFailure(request.repoPath, error);
+  }
+
+  return createOperationSuccess(request.repoPath, "Selected file version opened.");
+}
+
+function writeCommitFileVersionToPath(
+  repoPath: string,
+  hash: string,
+  filePath: string,
+  outputPath: string
+): Promise<{ exitCode: number; stderr: string; error?: string }> {
+  return new Promise((resolve) => {
+    const child = spawn("git", [
+      "-C",
+      repoPath,
+      "cat-file",
+      "blob",
+      `${hash}:${filePath}`
+    ], {
+      shell: false,
+      windowsHide: true
+    });
+    const output = createWriteStream(outputPath);
+    const stderrChunks: Buffer[] = [];
+    let processResult: { exitCode: number; stderr: string; error?: string } | null = null;
+    let outputFinished = false;
+    let resolved = false;
+
+    const maybeResolve = () => {
+      if (resolved || !processResult || !outputFinished) {
+        return;
+      }
+
+      resolved = true;
+      resolve(processResult);
+    };
+
+    child.stdout.pipe(output);
+    output.on("finish", () => {
+      outputFinished = true;
+      maybeResolve();
+    });
+    output.on("error", (error) => {
+      outputFinished = true;
+      processResult ??= {
+        exitCode: -1,
+        stderr: Buffer.concat(stderrChunks).toString("utf8"),
+        error: error.message
+      };
+      maybeResolve();
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderrChunks.push(chunk);
+    });
+    child.on("error", (error) => {
+      processResult ??= {
+        exitCode: -1,
+        stderr: Buffer.concat(stderrChunks).toString("utf8"),
+        error: error.message
+      };
+      output.end();
+      maybeResolve();
+    });
+    child.on("close", (code) => {
+      processResult ??= {
+        exitCode: code ?? -1,
+        stderr: Buffer.concat(stderrChunks).toString("utf8")
+      };
+      maybeResolve();
+    });
+  });
 }
 
 async function getExplorerTarget(absolutePath: string, repoRoot: string): Promise<string> {

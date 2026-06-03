@@ -168,6 +168,22 @@ export interface GitCommitFileDiffRequest {
   path: string;
 }
 
+export interface GitCommitFileResetRequest {
+  repoPath: string;
+  hash: string;
+  paths: string[];
+}
+
+export interface GitCommitFileVersionRequest {
+  repoPath: string;
+  hash: string;
+  path: string;
+}
+
+export interface ClipboardTextRequest {
+  text: string;
+}
+
 export interface GitPathRequest {
   repoPath: string;
   paths: string[];
@@ -405,6 +421,8 @@ export interface GitheadApi {
   getCommitDetails(request: GitCommitDetailsRequest): Promise<GitCommitDetails>;
   getCommitFileDiff(request: GitCommitFileDiffRequest): Promise<GitFileDiff>;
   getFileDiff(request: GitFileDiffRequest): Promise<GitFileDiff>;
+  resetFilesToCommit(request: GitCommitFileResetRequest): Promise<GitOperationResult>;
+  openCommitFileVersion(request: GitCommitFileVersionRequest): Promise<GitOperationResult>;
   stageFiles(request: GitPathRequest): Promise<GitOperationResult>;
   unstageFiles(request: GitPathRequest): Promise<GitOperationResult>;
   stageHunk(request: GitHunkRequest): Promise<GitOperationResult>;
@@ -425,6 +443,7 @@ export interface GitheadApi {
   openFile(request: FileSystemPathRequest): Promise<GitOperationResult>;
   showInExplorer(request: FileSystemPathRequest): Promise<GitOperationResult>;
   copyPathToClipboard(request: FileSystemPathRequest): Promise<GitOperationResult>;
+  copyTextToClipboard(request: ClipboardTextRequest): Promise<GitOperationResult>;
   deleteFile(request: FileSystemPathRequest): Promise<GitOperationResult>;
   deleteFiles(request: FileSystemPathListRequest): Promise<GitOperationResult>;
   revertFileChanges(request: GitFileChangesRequest): Promise<GitOperationResult>;

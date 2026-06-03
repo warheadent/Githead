@@ -156,6 +156,13 @@ interface RevertCommitDialogState {
   error: string;
 }
 
+interface ResetCommitFileDialogState {
+  open: boolean;
+  hash: string;
+  paths: string[];
+  error: string;
+}
+
 interface TagDialogState {
   open: boolean;
   hash: string;
@@ -212,6 +219,7 @@ interface AppState {
   selectedCommitHash: string | null;
   resetCommitDialog: ResetCommitDialogState;
   revertCommitDialog: RevertCommitDialogState;
+  resetCommitFileDialog: ResetCommitFileDialogState;
   tagDialog: TagDialogState;
   commitDetails: GitCommitDetails | null;
   commitDetailsLoading: boolean;
@@ -277,6 +285,13 @@ const emptyRevertCommitDialog: RevertCommitDialogState = {
   error: ""
 };
 
+const emptyResetCommitFileDialog: ResetCommitFileDialogState = {
+  open: false,
+  hash: "",
+  paths: [],
+  error: ""
+};
+
 const emptyTagDialog: TagDialogState = {
   open: false,
   hash: "",
@@ -336,6 +351,7 @@ const initialState: AppState = {
   selectedCommitHash: null,
   resetCommitDialog: emptyResetCommitDialog,
   revertCommitDialog: emptyRevertCommitDialog,
+  resetCommitFileDialog: emptyResetCommitFileDialog,
   tagDialog: emptyTagDialog,
   commitDetails: null,
   commitDetailsLoading: false,
@@ -2027,6 +2043,34 @@ export function App(): ReactNode {
     });
   }, [updateState]);
 
+  const openResetCommitFileDialog = useCallback((file: GitCommitChangedFile): void => {
+    const hash = stateRef.current.selectedCommitHash;
+    if (!hash) {
+      return;
+    }
+
+    updateState({
+      resetCommitFileDialog: {
+        ...emptyResetCommitFileDialog,
+        open: true,
+        hash,
+        paths: [
+          file.path
+        ]
+      }
+    });
+  }, [updateState]);
+
+  const closeResetCommitFileDialog = useCallback((): void => {
+    if (isOperationRunning(stateRef.current)) {
+      return;
+    }
+
+    updateState({
+      resetCommitFileDialog: emptyResetCommitFileDialog
+    });
+  }, [updateState]);
+
   const copyCommitShaToClipboard = useCallback(async (commit: GitCommitGraphRow): Promise<void> => {
     const current = stateRef.current;
     if (!current.summary?.isValid || isOperationRunning(current)) {
@@ -2087,6 +2131,55 @@ export function App(): ReactNode {
 
     void copyCommitShaToClipboard(commit);
   }, [copyCommitShaToClipboard, openResetCommitDialog, openRevertCommitDialog, openTagDialog, selectCommit]);
+
+  const runCommitFileContextAction = useCallback((file: GitCommitChangedFile, action: CommitFileContextActionKind): void => {
+    const repoPath = stateRef.current.repoPath;
+    const hash = stateRef.current.selectedCommitHash;
+    if (!repoPath || !hash) {
+      return;
+    }
+
+    if (action === "log" || action === "blame") {
+      return;
+    }
+
+    if (file.path !== stateRef.current.selectedCommitFilePath) {
+      selectCommitFile(file.path);
+    }
+
+    if (action === "reset") {
+      openResetCommitFileDialog(file);
+      return;
+    }
+
+    if (action === "open-current") {
+      void runRepoOperation("Opening current file version", undefined, () =>
+        window.githead.openFile({
+          repoPath,
+          path: file.path
+        })
+      );
+      return;
+    }
+
+    if (action === "open-selected") {
+      void runRepoOperation("Opening selected file version", undefined, () =>
+        window.githead.openCommitFileVersion({
+          repoPath,
+          hash,
+          path: file.path
+        })
+      );
+      return;
+    }
+
+    void runRepoOperation("Copying path", undefined, () =>
+      window.githead.copyPathToClipboard({
+        repoPath,
+        path: file.path
+      })
+    );
+  }, [openResetCommitFileDialog, runRepoOperation, selectCommitFile]);
 
   const createTag = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
@@ -2260,6 +2353,76 @@ export function App(): ReactNode {
       }
     });
   }, [ensureTrustedRepo, runRepoOperation, updateState]);
+
+  const resetFilesToCommit = useCallback(async (): Promise<void> => {
+    const current = stateRef.current;
+    const dialog = current.resetCommitFileDialog;
+
+    if (!current.summary?.isValid || isOperationRunning(current) || !dialog.hash || dialog.paths.length === 0) {
+      return;
+    }
+
+    updateState({
+      resetCommitFileDialog: {
+        ...dialog,
+        error: ""
+      }
+    });
+
+    if (!(await ensureTrustedRepo())) {
+      updateState({
+        resetCommitFileDialog: {
+          ...stateRef.current.resetCommitFileDialog,
+          error: "Repository trust is required before resetting files."
+        }
+      });
+      return;
+    }
+
+    await runRepoOperation(
+      dialog.paths.length === 1 ? "Resetting file to commit" : "Resetting files to commit",
+      null,
+      () => window.githead.resetFilesToCommit({
+        repoPath: stateRef.current.repoPath,
+        hash: stateRef.current.resetCommitFileDialog.hash,
+        paths: stateRef.current.resetCommitFileDialog.paths
+      })
+    );
+
+    const result = stateRef.current.lastOperationResult;
+    if (result?.exitCode === 0) {
+      updateState({
+        resetCommitFileDialog: emptyResetCommitFileDialog
+      });
+      return;
+    }
+
+    updateState({
+      resetCommitFileDialog: {
+        ...stateRef.current.resetCommitFileDialog,
+        error: getOperationFailureMessage(result, "Unable to reset file.")
+      }
+    });
+  }, [ensureTrustedRepo, runRepoOperation, updateState]);
+
+  const copyResetCommitFileDialogPaths = useCallback(async (): Promise<void> => {
+    const paths = stateRef.current.resetCommitFileDialog.paths;
+    if (paths.length === 0) {
+      return;
+    }
+
+    await window.githead.copyTextToClipboard({
+      text: paths.join("\n")
+    }).catch((error) => {
+      updateState((current) => ({
+        ...current,
+        resetCommitFileDialog: {
+          ...current.resetCommitFileDialog,
+          error: error instanceof Error ? error.message : "Unable to copy file paths."
+        }
+      }));
+    });
+  }, [updateState]);
 
   const revertCommit = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
@@ -2637,9 +2800,11 @@ export function App(): ReactNode {
                   commitFileDiff={state.commitFileDiff}
                   commitFileDiffLoading={state.commitFileDiffLoading}
                   commitFileDiffError={state.commitFileDiffError}
+                  disabled={disableActions}
                   onSelectCommit={selectCommit}
                   onSelectCommitFile={selectCommitFile}
                   onCommitContextAction={runCommitContextAction}
+                  onCommitFileContextAction={runCommitFileContextAction}
                 />
               </TabsContent>
 
@@ -2845,6 +3010,23 @@ export function App(): ReactNode {
         onReset={(event) => {
           event.preventDefault();
           void resetBranchToCommit();
+        }}
+      />
+
+      <ResetCommitFileDialog
+        state={state.resetCommitFileDialog}
+        saving={state.runningOperation === "Resetting file to commit" || state.runningOperation === "Resetting files to commit"}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeResetCommitFileDialog();
+          }
+        }}
+        onCopy={() => {
+          void copyResetCommitFileDialogPaths();
+        }}
+        onReset={(event) => {
+          event.preventDefault();
+          void resetFilesToCommit();
         }}
       />
 
@@ -3814,6 +3996,7 @@ function StatusView({
 
 type ContextActionKind = "open" | "show" | "copy" | "toggle-stage" | "delete" | "revert" | "ignore";
 type CommitContextActionKind = "tag" | "reset" | "revert" | "copy";
+type CommitFileContextActionKind = "log" | "blame" | "reset" | "open-current" | "open-selected" | "copy";
 
 function FileGroup({
   title,
@@ -4131,9 +4314,11 @@ function HistoryView({
   commitFileDiff,
   commitFileDiffLoading,
   commitFileDiffError,
+  disabled,
   onSelectCommit,
   onSelectCommitFile,
-  onCommitContextAction
+  onCommitContextAction,
+  onCommitFileContextAction
 }: {
   summary: RepoSummary | null;
   history: GitCommitGraphRow[];
@@ -4147,9 +4332,11 @@ function HistoryView({
   commitFileDiff: GitFileDiff | null;
   commitFileDiffLoading: boolean;
   commitFileDiffError: string;
+  disabled: boolean;
   onSelectCommit: (hash: string) => void;
   onSelectCommitFile: (filePath: string) => void;
   onCommitContextAction: (commit: GitCommitGraphRow, action: CommitContextActionKind) => void;
+  onCommitFileContextAction: (file: GitCommitChangedFile, action: CommitFileContextActionKind) => void;
 }): ReactNode {
   const graphLayout = useMemo(() => buildCommitGraphLayout(history), [history]);
   const historyStyle = {
@@ -4202,8 +4389,10 @@ function HistoryView({
               loading={commitDetailsLoading}
               error={commitDetailsError}
               selectedFilePath={selectedCommitFilePath}
+              disabled={disabled}
               onSelectCommit={onSelectCommit}
               onSelectCommitFile={onSelectCommitFile}
+              onCommitFileContextAction={onCommitFileContextAction}
             />
           </ResizablePanel>
           <ResizableHandle />
@@ -4697,15 +4886,19 @@ function CommitDetailsPanel({
   loading,
   error,
   selectedFilePath,
+  disabled,
   onSelectCommit,
-  onSelectCommitFile
+  onSelectCommitFile,
+  onCommitFileContextAction
 }: {
   details: GitCommitDetails | null;
   loading: boolean;
   error: string;
   selectedFilePath: string | null;
+  disabled: boolean;
   onSelectCommit: (hash: string) => void;
   onSelectCommitFile: (filePath: string) => void;
+  onCommitFileContextAction: (file: GitCommitChangedFile, action: CommitFileContextActionKind) => void;
 }): ReactNode {
   let meta: ReactNode;
   let files: ReactNode;
@@ -4767,7 +4960,9 @@ function CommitDetailsPanel({
           key={file.path}
           file={file}
           selected={file.path === selectedFilePath}
+          disabled={disabled}
           onSelectCommitFile={onSelectCommitFile}
+          onContextAction={onCommitFileContextAction}
         />
       ))
     );
@@ -4823,26 +5018,68 @@ function ParentCommitLinks({
 function CommitFileRow({
   file,
   selected,
-  onSelectCommitFile
+  disabled,
+  onSelectCommitFile,
+  onContextAction
 }: {
   file: GitCommitChangedFile;
   selected: boolean;
+  disabled: boolean;
   onSelectCommitFile: (filePath: string) => void;
+  onContextAction: (file: GitCommitChangedFile, action: CommitFileContextActionKind) => void;
 }): ReactNode {
   return (
-    <button
-      type="button"
-      className={`commit-file-row ${selected ? "is-selected" : ""}`}
-      role="option"
-      aria-selected={selected}
-      onClick={() => onSelectCommitFile(file.path)}
-    >
-      <Badge className="status-chip">{file.status}</Badge>
-      <span className="file-path" title={file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}>
-        {file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}
-      </span>
-      <span className="commit-file-stats">+{file.additions} -{file.deletions}</span>
-    </button>
+    <ContextMenu>
+      <ContextMenuTrigger
+        asChild
+        onContextMenu={() => {
+          if (!selected) {
+            onSelectCommitFile(file.path);
+          }
+        }}
+      >
+        <button
+          type="button"
+          className={`commit-file-row ${selected ? "is-selected" : ""}`}
+          role="option"
+          aria-selected={selected}
+          onClick={() => onSelectCommitFile(file.path)}
+        >
+          <Badge className="status-chip">{file.status}</Badge>
+          <span className="file-path" title={file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}>
+            {file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}
+          </span>
+          <span className="commit-file-stats">+{file.additions} -{file.deletions}</span>
+        </button>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-56">
+        <ContextMenuItem disabled onSelect={() => onContextAction(file, "log")}>
+          <History />
+          Log Selected
+        </ContextMenuItem>
+        <ContextMenuItem disabled onSelect={() => onContextAction(file, "blame")}>
+          <GitFork />
+          Blame Selected
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem variant="destructive" disabled={disabled} onSelect={() => onContextAction(file, "reset")}>
+          <RotateCcw />
+          Reset to Commit
+        </ContextMenuItem>
+        <ContextMenuItem disabled={disabled} onSelect={() => onContextAction(file, "open-current")}>
+          <ExternalLink />
+          Open Current Version
+        </ContextMenuItem>
+        <ContextMenuItem disabled={disabled} onSelect={() => onContextAction(file, "open-selected")}>
+          <FileCode2 />
+          Open Selected Version
+        </ContextMenuItem>
+        <ContextMenuItem disabled={disabled} onSelect={() => onContextAction(file, "copy")}>
+          <Clipboard />
+          Copy Path to Clipboard
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
@@ -5272,6 +5509,60 @@ function ResetCommitDialog({
             <Button type="submit" disabled={saving || !branchName}>
               {saving ? <Loader2 className="animate-spin" /> : <GitBranchIcon />}
               OK
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ResetCommitFileDialog({
+  state,
+  saving,
+  onOpenChange,
+  onCopy,
+  onReset
+}: {
+  state: ResetCommitFileDialogState;
+  saving: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCopy: () => void;
+  onReset: (event: FormEvent<HTMLFormElement>) => void;
+}): ReactNode {
+  const filesText = state.paths.join("\n");
+
+  return (
+    <Dialog open={state.open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <form className="commit-action-form" onSubmit={onReset}>
+          <DialogHeader>
+            <DialogTitle>Confirm reset file contents</DialogTitle>
+            <DialogDescription>
+              Please confirm that you want to reset the following files to the state they were in at this commit: {state.hash}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Label htmlFor="reset-file-paths">files:</Label>
+            <Textarea
+              id="reset-file-paths"
+              value={filesText}
+              readOnly
+              rows={Math.max(1, Math.min(6, state.paths.length))}
+            />
+          </div>
+          {state.error ? <p className="dialog-error">{state.error}</p> : null}
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={saving || state.paths.length === 0} onClick={onCopy}>
+              <Clipboard />
+              Copy to Clipboard
+            </Button>
+            <Button type="submit" disabled={saving || state.paths.length === 0}>
+              {saving ? <Loader2 className="animate-spin" /> : <RotateCcw />}
+              OK
+            </Button>
+            <Button type="button" variant="outline" disabled={saving} onClick={() => onOpenChange(false)}>
+              Cancel
             </Button>
           </DialogFooter>
         </form>
@@ -5715,6 +6006,7 @@ function resetHistoryState(state: AppState): AppState {
     selectedCommitHash: null,
     resetCommitDialog: emptyResetCommitDialog,
     revertCommitDialog: emptyRevertCommitDialog,
+    resetCommitFileDialog: emptyResetCommitFileDialog,
     tagDialog: emptyTagDialog,
     commitDetails: null,
     commitDetailsLoading: false,
