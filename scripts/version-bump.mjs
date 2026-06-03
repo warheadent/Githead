@@ -30,7 +30,7 @@ if (typeof version !== "string" || version.length === 0) {
   process.exit(1);
 }
 
-run("git", ["commit", "-m", `Bump version to ${version}`]);
+run("git", ["commit", "-m", `chore: bump version to ${version}`]);
 run("git", ["tag", `v${version}`]);
 
 function run(command, args, options = {}) {
