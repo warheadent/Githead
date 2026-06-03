@@ -497,7 +497,7 @@ async function requireTrustedRepo(repoPath: string): Promise<GitOperationResult 
 
   return createOperationFailure(
     repoPath,
-    "Trust this repository before running Git operations that may execute hooks or local Git configuration."
+    "Do you trust this workspace? This is the first time Githead will run Git operations here that may execute configured hooks or local Git configuration."
   );
 }
 

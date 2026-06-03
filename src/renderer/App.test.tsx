@@ -450,6 +450,10 @@ describe("App", () => {
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: trust repo");
     await user.click(screen.getByRole("button", { name: /^Commit$/ }));
 
+    expect(await screen.findByRole("dialog", { name: "Do you trust this workspace?" })).toBeTruthy();
+    expect(screen.getByText("This is the first time Githead will run Git operations here that may execute configured hooks or local Git configuration.")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Trust Workspace" }));
+
     await waitFor(() => {
       expect(githead.addRepoTrust).toHaveBeenCalledWith({
         repoPath
@@ -459,7 +463,6 @@ describe("App", () => {
         message: "feat: trust repo"
       });
     });
-    expect(confirm).toHaveBeenCalledWith("Trust this repository before running Git operations that may execute hooks or local Git configuration?");
   });
 
   it("does not run risky git operations when repository trust is declined", async () => {

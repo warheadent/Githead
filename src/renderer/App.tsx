@@ -232,6 +232,9 @@ const emptyCloneDraft: CloneDraft = {
   depth: "0"
 };
 
+const TRUST_WORKSPACE_TITLE = "Do you trust this workspace?";
+const TRUST_WORKSPACE_DESCRIPTION = "This is the first time Githead will run Git operations here that may execute configured hooks or local Git configuration.";
+
 const initialState: AppState = {
   repoPath: "",
   repoRecents: [],
@@ -311,9 +314,11 @@ export function App(): ReactNode {
     issues: 0
   });
   const logOutputRef = useRef<HTMLPreElement | null>(null);
+  const trustDialogResolveRef = useRef<((trusted: boolean) => void) | null>(null);
   const repoRefreshInFlightRef = useRef(false);
   const fileStatusDirtyRef = useRef(false);
   const windowFocusedRef = useRef(true);
+  const [trustDialogOpen, setTrustDialogOpen] = useState(false);
 
   const updateState = useCallback((updater: AppStateUpdater): void => {
     const current = stateRef.current;
@@ -1238,8 +1243,26 @@ export function App(): ReactNode {
     repoPath: stateRef.current.repoPath,
     exitCode: -1,
     stdout: "",
-    stderr: "Trust this repository before running Git operations that may execute hooks or local Git configuration."
+    stderr: `${TRUST_WORKSPACE_TITLE} ${TRUST_WORKSPACE_DESCRIPTION}`
   }), []);
+
+  const closeTrustDialog = useCallback((trusted: boolean): void => {
+    const resolve = trustDialogResolveRef.current;
+    trustDialogResolveRef.current = null;
+    setTrustDialogOpen(false);
+    resolve?.(trusted);
+  }, []);
+
+  const confirmWorkspaceTrust = useCallback(async (): Promise<boolean> => {
+    if (trustDialogResolveRef.current) {
+      return false;
+    }
+
+    setTrustDialogOpen(true);
+    return new Promise((resolve) => {
+      trustDialogResolveRef.current = resolve;
+    });
+  }, []);
 
   const ensureTrustedRepo = useCallback(async (): Promise<boolean> => {
     const repoPath = stateRef.current.repoPath;
@@ -1253,7 +1276,7 @@ export function App(): ReactNode {
         return true;
       }
 
-      if (!window.confirm("Trust this repository before running Git operations that may execute hooks or local Git configuration?")) {
+      if (!(await confirmWorkspaceTrust())) {
         updateState({
           lastOperationResult: createTrustFailure()
         });
@@ -1280,7 +1303,7 @@ export function App(): ReactNode {
       });
       return false;
     }
-  }, [createTrustFailure, updateState]);
+  }, [confirmWorkspaceTrust, createTrustFailure, updateState]);
 
   const runAction = useCallback(async (action: GitAction): Promise<void> => {
     const current = stateRef.current;
@@ -2320,6 +2343,17 @@ export function App(): ReactNode {
         onSave={(event) => {
           event.preventDefault();
           void setBranchUpstream();
+        }}
+      />
+
+      <TrustWorkspaceDialog
+        open={trustDialogOpen}
+        repoPath={state.repoPath}
+        onCancel={() => {
+          closeTrustDialog(false);
+        }}
+        onTrust={() => {
+          closeTrustDialog(true);
         }}
       />
     </main>
@@ -4439,6 +4473,50 @@ function UpstreamDialog({
             </Button>
           </DialogFooter>
         </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function TrustWorkspaceDialog({
+  open,
+  repoPath,
+  onCancel,
+  onTrust
+}: {
+  open: boolean;
+  repoPath: string;
+  onCancel: () => void;
+  onTrust: () => void;
+}): ReactNode {
+  return (
+    <Dialog open={open} onOpenChange={(nextOpen) => {
+      if (!nextOpen) {
+        onCancel();
+      }
+    }}>
+      <DialogContent className="sm:max-w-[500px]" showCloseButton={false}>
+        <DialogHeader>
+          <DialogTitle>{TRUST_WORKSPACE_TITLE}</DialogTitle>
+          <DialogDescription>
+            {TRUST_WORKSPACE_DESCRIPTION}
+          </DialogDescription>
+        </DialogHeader>
+
+        {repoPath.trim() ? (
+          <p className="rounded-md border bg-muted/50 px-3 py-2 text-sm font-medium text-muted-foreground">
+            {repoPath}
+          </p>
+        ) : null}
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={onTrust} autoFocus>
+            Trust Workspace
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
