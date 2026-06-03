@@ -1250,7 +1250,7 @@ describe("App", () => {
     });
 
     expect(screen.getByLabelText("Commit staged files").querySelector(".status-text")).toBeNull();
-    await user.click(screen.getByRole("tab", { name: /Activity Log/ }));
+    await user.click(screen.getByRole("tab", { name: "Activity Log" }));
     expect(await screen.findByText("Output Available")).toBeTruthy();
     expect(screen.getByText(/create mode 100644 src\/renderer\/App\.tsx/)).toBeTruthy();
   });
@@ -1339,7 +1339,7 @@ describe("App", () => {
       timestamp: new Date().toISOString()
     });
 
-    await user.click(screen.getByRole("tab", { name: /Activity Log/ }));
+    await user.click(screen.getByRole("tab", { name: "Activity Log" }));
     expect(await screen.findByText("Output Available")).toBeTruthy();
     expect(screen.getByText(/fetch output/)).toBeTruthy();
 
@@ -1463,7 +1463,7 @@ describe("App", () => {
       timestamp: new Date().toISOString()
     });
 
-    await user.click(screen.getByRole("tab", { name: /Activity Log/ }));
+    await user.click(screen.getByRole("tab", { name: "Activity Log" }));
     expect(screen.getByText(/fetch output/)).toBeTruthy();
 
     const clearButton = screen.getByRole("button", { name: /Clear Log/ }) as HTMLButtonElement;
@@ -1833,7 +1833,9 @@ describe("App", () => {
     expect(await screen.findByText("Repository ready")).toBeTruthy();
     expect(screen.getByRole("button", { name: `Switch to ${recentRepo}` }).getAttribute("aria-current")).toBe("true");
     expect(screen.getByText("Recent")).toBeTruthy();
-    expect(screen.getByText(otherRepo)).toBeTruthy();
+    expect(screen.getByText("Other")).toBeTruthy();
+    expect(screen.getByRole("button", { name: `Switch to ${otherRepo}` })).toBeTruthy();
+    expect(screen.queryByText(otherRepo)).toBeNull();
     expect(githead.getRepoSummary).toHaveBeenCalledWith(recentRepo);
   });
 
@@ -1866,7 +1868,10 @@ describe("App", () => {
 
     expect(await screen.findByText("Select a repository to continue.")).toBeTruthy();
     expect(screen.getByText("Selected folder is not a git repository.")).toBeTruthy();
-    expect(screen.getAllByText(invalidRepo).length).toBeGreaterThan(0);
+    expect(screen.getByText("MissingRepo")).toBeTruthy();
+    const recents = screen.getByRole("region", { name: "Recent repositories" });
+    expect(within(recents).getByRole("button", { name: `Switch to ${invalidRepo}` })).toBeTruthy();
+    expect(within(recents).queryByText(invalidRepo)).toBeNull();
   });
 
   it("switches repositories from a recent entry", async () => {

@@ -2792,10 +2792,18 @@ export function App(): ReactNode {
                       </TabsTrigger>
                     </>
                   ) : null}
-                  <TabsTrigger value="activity" className="workspace-tab-trigger workspace-tab-trigger-end h-9 rounded-none">
-                    <Clipboard />
-                    Activity Log
-                  </TabsTrigger>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <TabsTrigger
+                        value="activity"
+                        aria-label="Activity Log"
+                        className="workspace-tab-trigger workspace-tab-trigger-end h-9 rounded-none"
+                      >
+                        <Clipboard />
+                      </TabsTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent>Activity Log</TooltipContent>
+                  </Tooltip>
                 </TabsList>
               </div>
 
@@ -3116,25 +3124,25 @@ function AppChrome({
   onClose
 }: AppChromeProps): ReactNode {
   return (
-    <main className="app-shell bg-background text-foreground">
-      <header className="window-chrome" data-maximized={isMaximized ? "true" : "false"}>
-        <div className="window-title">
-          <div className="window-title-mark" aria-hidden="true">G</div>
-          <span>Githead</span>
-        </div>
-        <TooltipProvider>
+    <TooltipProvider>
+      <main className="app-shell bg-background text-foreground">
+        <header className="window-chrome" data-maximized={isMaximized ? "true" : "false"}>
+          <div className="window-title">
+            <div className="window-title-mark" aria-hidden="true">G</div>
+            <span>Githead</span>
+          </div>
           <WindowControls
             isMaximized={isMaximized}
             onMinimize={onMinimize}
             onToggleMaximize={onToggleMaximize}
             onClose={onClose}
           />
-        </TooltipProvider>
-      </header>
-      <section className="app-content">
-        {children}
-      </section>
-    </main>
+        </header>
+        <section className="app-content">
+          {children}
+        </section>
+      </main>
+    </TooltipProvider>
   );
 }
 
@@ -3306,39 +3314,74 @@ function RepositorySetupScreen({
           <p className="repo-recents-label">Recent Repositories</p>
           <div className="repo-recents-list">
             {repoRecents.map((recentRepoPath) => (
-              <div key={getRepoPathKey(recentRepoPath)} className="repo-recent-row">
-                <button
-                  type="button"
-                  className="repo-recent-main"
-                  onClick={() => {
-                    onSelectRecent(recentRepoPath);
-                  }}
-                  disabled={running}
-                  aria-label={`Switch to ${recentRepoPath}`}
-                >
-                  <span className="repo-recent-name">{getRepoDisplayName(recentRepoPath)}</span>
-                  <span className="repo-recent-path">{recentRepoPath}</span>
-                </button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-xs"
-                  className="repo-recent-remove"
-                  onClick={() => {
-                    onRemoveRecent(recentRepoPath);
-                  }}
-                  disabled={running}
-                  aria-label={`Remove ${recentRepoPath} from recent repositories`}
-                  title="Remove recent repository"
-                >
-                  <X />
-                </Button>
-              </div>
+              <RecentRepositoryRow
+                key={getRepoPathKey(recentRepoPath)}
+                repoPath={recentRepoPath}
+                disabled={running}
+                onSelect={onSelectRecent}
+                onRemove={onRemoveRecent}
+              />
             ))}
           </div>
         </section>
       ) : null}
     </section>
+  );
+}
+
+interface RecentRepositoryRowProps {
+  active?: boolean;
+  disabled: boolean;
+  repoPath: string;
+  onSelect: (repoPath: string) => void;
+  onRemove: (repoPath: string) => void;
+}
+
+function RecentRepositoryRow({
+  active = false,
+  disabled,
+  repoPath,
+  onSelect,
+  onRemove
+}: RecentRepositoryRowProps): ReactNode {
+  const displayName = getRepoDisplayName(repoPath);
+
+  return (
+    <div className={`repo-recent-row${active ? " is-active" : ""}`}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="repo-recent-main"
+            onClick={() => {
+              onSelect(repoPath);
+            }}
+            disabled={disabled || active}
+            aria-current={active ? "true" : undefined}
+            aria-label={`Switch to ${repoPath}`}
+          >
+            <span className="repo-recent-name">{displayName}</span>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-80 break-all">
+          {repoPath}
+        </TooltipContent>
+      </Tooltip>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        className="repo-recent-remove"
+        onClick={() => {
+          onRemove(repoPath);
+        }}
+        disabled={disabled}
+        aria-label={`Remove ${repoPath} from recent repositories`}
+        title="Remove recent repository"
+      >
+        <X />
+      </Button>
+    </div>
   );
 }
 
@@ -3724,35 +3767,14 @@ function RepositoryPanel({
               const active = isSameRepoPath(recentRepoPath, repoPath);
 
               return (
-                <div key={getRepoPathKey(recentRepoPath)} className={`repo-recent-row${active ? " is-active" : ""}`}>
-                  <button
-                    type="button"
-                    className="repo-recent-main"
-                    onClick={() => {
-                      onSelectRecent(recentRepoPath);
-                    }}
-                    disabled={running || active}
-                    aria-current={active ? "true" : undefined}
-                    aria-label={`Switch to ${recentRepoPath}`}
-                  >
-                    <span className="repo-recent-name">{getRepoDisplayName(recentRepoPath)}</span>
-                    <span className="repo-recent-path">{recentRepoPath}</span>
-                  </button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-xs"
-                    className="repo-recent-remove"
-                    onClick={() => {
-                      onRemoveRecent(recentRepoPath);
-                    }}
-                    disabled={running}
-                    aria-label={`Remove ${recentRepoPath} from recent repositories`}
-                    title="Remove recent repository"
-                  >
-                    <X />
-                  </Button>
-                </div>
+                <RecentRepositoryRow
+                  key={getRepoPathKey(recentRepoPath)}
+                  repoPath={recentRepoPath}
+                  active={active}
+                  disabled={running}
+                  onSelect={onSelectRecent}
+                  onRemove={onRemoveRecent}
+                />
               );
             })}
           </div>

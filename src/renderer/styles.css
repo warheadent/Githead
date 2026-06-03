@@ -660,8 +660,8 @@
 .repo-recent-main {
   display: grid;
   min-width: 0;
-  gap: 2px;
-  padding: 8px 10px;
+  width: 100%;
+  padding: 6px 10px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -682,8 +682,7 @@
   outline-offset: 2px;
 }
 
-.repo-recent-name,
-.repo-recent-path {
+.repo-recent-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -693,12 +692,6 @@
 .repo-recent-name {
   font-size: 0.9rem;
   font-weight: 650;
-  line-height: 1.25;
-}
-
-.repo-recent-path {
-  color: var(--muted-foreground);
-  font-size: 0.76rem;
   line-height: 1.25;
 }
 
