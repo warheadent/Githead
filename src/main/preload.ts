@@ -8,6 +8,7 @@ import type {
   FileSystemPathRequest,
   GitBranchRequest,
   GitCloneRequest,
+  GitConfiguredActionRunRequest,
   GitCommitDetailsRequest,
   GitCommitFileDiffRequest,
   GitCommitFileResetRequest,
@@ -132,6 +133,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.checkRepositoryAccess, request) as ReturnType<GitheadApi["checkRepositoryAccess"]>,
   runGitAction: (request: GitRunRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.runGitAction, request) as ReturnType<GitheadApi["runGitAction"]>,
+  runConfiguredAction: (request: GitConfiguredActionRunRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.runConfiguredAction, request) as ReturnType<GitheadApi["runConfiguredAction"]>,
   getUpdateState: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getUpdateState) as ReturnType<GitheadApi["getUpdateState"]>,
   checkForUpdates: () =>

@@ -6,6 +6,26 @@ export const GIT_ACTIONS = [
 
 export type GitAction = (typeof GIT_ACTIONS)[number];
 
+export const GIT_CONFIGURED_ACTION_SHELLS = [
+  "powershell",
+  "cmd",
+  "bash"
+] as const;
+
+export type GitConfiguredActionShell = (typeof GIT_CONFIGURED_ACTION_SHELLS)[number];
+
+export interface GitConfiguredAction {
+  name: string;
+  command: string;
+  shell: GitConfiguredActionShell;
+}
+
+export interface GitActionsConfig {
+  hasGitheadDir: boolean;
+  actions: GitConfiguredAction[];
+  error: string;
+}
+
 export interface GitRemote {
   name: string;
   url: string;
@@ -141,11 +161,17 @@ export interface RepoSummary {
   statusLines: string[];
   files: GitStatusFile[];
   validationErrors: string[];
+  actionsConfig: GitActionsConfig;
 }
 
 export interface GitRunRequest {
   repoPath: string;
   action: GitAction;
+}
+
+export interface GitConfiguredActionRunRequest {
+  repoPath: string;
+  name: string;
 }
 
 export interface GitHubRepositoryRequest {
@@ -342,7 +368,7 @@ export interface GitOperationResult {
 
 export interface GitRunResult {
   runId: string;
-  action: GitAction;
+  action: string;
   repoPath: string;
   exitCode: number;
   stdout: string;
@@ -353,7 +379,7 @@ export interface GitRunResult {
 
 export interface GitOutputEvent {
   runId: string;
-  action: GitAction;
+  action: string;
   stream: "stdout" | "stderr" | "system";
   text: string;
   timestamp: string;
@@ -455,6 +481,7 @@ export interface GitheadApi {
   cloneRepository(request: GitCloneRequest): Promise<GitOperationResult>;
   checkRepositoryAccess(request: GitRepositoryAccessCheckRequest): Promise<GitRepositoryAccessCheckResult>;
   runGitAction(request: GitRunRequest): Promise<GitRunResult>;
+  runConfiguredAction(request: GitConfiguredActionRunRequest): Promise<GitRunResult>;
   getUpdateState(): Promise<AppUpdateState>;
   checkForUpdates(): Promise<AppUpdateCheckResult>;
   downloadUpdate(): Promise<AppUpdateActionResult>;

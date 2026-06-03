@@ -1636,6 +1636,112 @@ describe("App", () => {
     expect(screen.queryByRole("button", { name: /^Pull \(0\)$/ })).toBeNull();
   });
 
+  it("disables repository actions without a .githead folder", async () => {
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+
+    expect((screen.getByRole("button", { name: "Repository actions" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("renders and runs configured repository actions", async () => {
+    const user = userEvent.setup();
+    const action = {
+      name: "Build",
+      command: "npm run build",
+      shell: "powershell" as const
+    };
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      actionsConfig: {
+        hasGitheadDir: true,
+        actions: [
+          action
+        ],
+        error: ""
+      }
+    }));
+    vi.mocked(githead.runConfiguredAction).mockResolvedValue({
+      runId: "run-build",
+      action: "Build",
+      repoPath,
+      exitCode: 0,
+      stdout: "built\n",
+      stderr: "",
+      startedAt: new Date().toISOString(),
+      endedAt: new Date().toISOString()
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Repository actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Build" }));
+
+    await waitFor(() => {
+      expect(githead.runConfiguredAction).toHaveBeenCalledWith({
+        repoPath,
+        name: "Build"
+      });
+    });
+  });
+
+  it("shows configured action running and result headings", async () => {
+    const user = userEvent.setup();
+    const pendingAction = defer<Awaited<ReturnType<GitheadApi["runConfiguredAction"]>>>();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      actionsConfig: {
+        hasGitheadDir: true,
+        actions: [
+          {
+            name: "Build",
+            command: "npm run build",
+            shell: "powershell"
+          }
+        ],
+        error: ""
+      }
+    }));
+    vi.mocked(githead.runConfiguredAction).mockReturnValue(pendingAction.promise);
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Repository actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Build" }));
+
+    expect(await screen.findByText("Build running")).toBeTruthy();
+
+    pendingAction.resolve({
+      runId: "run-build",
+      action: "Build",
+      repoPath,
+      exitCode: 0,
+      stdout: "built\n",
+      stderr: "",
+      startedAt: new Date().toISOString(),
+      endedAt: new Date().toISOString()
+    });
+    await flushRendererAsync();
+
+    expect(await screen.findByText("Build complete")).toBeTruthy();
+  });
+
+  it("shows configured action errors without enabling execution", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      actionsConfig: {
+        hasGitheadDir: true,
+        actions: [],
+        error: "actions.toml: Action \"Build\" has an invalid shell."
+      }
+    }));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Repository actions" }));
+
+    expect(await screen.findByText("actions.toml: Action \"Build\" has an invalid shell.")).toBeTruthy();
+    expect(githead.runConfiguredAction).not.toHaveBeenCalled();
+  });
+
   it("refreshes File Status after active repository file changes", async () => {
     const changedFile = createStatusFile("src/App.tsx", {
       isUnstaged: true,
@@ -2595,6 +2701,7 @@ function createGitheadMock(): GitheadApi {
       defaultBranch: null
     }),
     runGitAction: vi.fn(),
+    runConfiguredAction: vi.fn(),
     getUpdateState: vi.fn().mockResolvedValue(createUpdateState()),
     checkForUpdates: vi.fn().mockResolvedValue({
       checked: true,
@@ -2701,6 +2808,11 @@ function createSummary(overrides: Partial<RepoSummary> = {}): RepoSummary {
     githubRepository: null,
     statusLines: [],
     files: [],
+    actionsConfig: {
+      hasGitheadDir: false,
+      actions: [],
+      error: ""
+    },
     validationErrors: [],
     ...overrides
   };

@@ -28,6 +28,11 @@ const baseSummary: RepoSummary = {
   githubRepository: null,
   statusLines: [],
   files: [],
+  actionsConfig: {
+    hasGitheadDir: false,
+    actions: [],
+    error: ""
+  },
   validationErrors: []
 };
 

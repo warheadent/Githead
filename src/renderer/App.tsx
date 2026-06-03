@@ -92,6 +92,7 @@ import type {
   AppUpdateState,
   GitBranch,
   GitAction,
+  GitConfiguredAction,
   GitCommitChangedFile,
   GitCommitDetails,
   GitCommitGraphRow,
@@ -203,7 +204,7 @@ interface AppState {
   upstreamDialogOpen: boolean;
   upstreamDraft: string | null;
   upstreamError: string;
-  runningAction: GitAction | null;
+  runningAction: string | null;
   runningOperation: string | null;
   lastResult: GitRunResult | null;
   lastOperationResult: GitOperationResult | null;
@@ -1444,6 +1445,55 @@ export function App(): ReactNode {
         lastResult: {
           runId: "renderer-error",
           action,
+          repoPath: latest.repoPath,
+          exitCode: -1,
+          stdout: "",
+          stderr: message,
+          startedAt: new Date().toISOString(),
+          endedAt: new Date().toISOString()
+        }
+      }));
+      appendSystemLine(message);
+    } finally {
+      updateState((latest) => invalidateHistory({
+        ...latest,
+        runningAction: null
+      }));
+      await refreshRepo();
+    }
+  }, [appendSystemLine, ensureTrustedRepo, refreshRepo, updateState]);
+
+  const runConfiguredAction = useCallback(async (action: GitConfiguredAction): Promise<void> => {
+    const current = stateRef.current;
+    if (!current.summary?.isValid || isOperationRunning(current)) {
+      return;
+    }
+
+    if (!(await ensureTrustedRepo())) {
+      return;
+    }
+
+    updateState({
+      runningAction: action.name,
+      lastResult: null,
+      logText: ""
+    });
+
+    try {
+      const lastResult = await window.githead.runConfiguredAction({
+        repoPath: stateRef.current.repoPath,
+        name: action.name
+      });
+      updateState({
+        lastResult
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Configured action failed.";
+      updateState((latest) => ({
+        ...latest,
+        lastResult: {
+          runId: "renderer-error",
+          action: action.name,
           repoPath: latest.repoPath,
           exitCode: -1,
           stdout: "",
@@ -2754,6 +2804,9 @@ export function App(): ReactNode {
               onRunAction={(action) => {
                 void runAction(action);
               }}
+              onRunConfiguredAction={(action) => {
+                void runConfiguredAction(action);
+              }}
             />
 
             <Tabs
@@ -4006,16 +4059,31 @@ function ActionBar({
   summary,
   runningAction,
   disabled,
-  onRunAction
+  onRunAction,
+  onRunConfiguredAction
 }: {
   heading: string;
   summary: RepoSummary | null;
-  runningAction: GitAction | null;
+  runningAction: string | null;
   disabled: boolean;
   onRunAction: (action: GitAction) => void;
+  onRunConfiguredAction: (action: GitConfiguredAction) => void;
 }): ReactNode {
   const pullableCommitCount = getPullableCommitCount(summary);
   const pullLabel = pullableCommitCount > 0 ? `Pull (${pullableCommitCount})` : "Pull";
+  const actionsConfig = summary?.actionsConfig;
+  const configuredActions = actionsConfig?.actions ?? [];
+  const actionsConfigError = actionsConfig?.error.trim() ?? "";
+  const hasConfiguredActions = configuredActions.length > 0;
+  const runningConfiguredAction = Boolean(
+    runningAction &&
+    runningAction !== "fetch" &&
+    runningAction !== "pull" &&
+    runningAction !== "push"
+  );
+  const actionsMenuDisabled = disabled
+    || !actionsConfig?.hasGitheadDir
+    || (!hasConfiguredActions && !actionsConfigError);
 
   return (
     <header className="flex items-center justify-between gap-5 border-b bg-card px-6 py-4">
@@ -4044,6 +4112,42 @@ function ActionBar({
           {runningAction === "pull" ? <Loader2 className="animate-spin" /> : <Download />}
           {pullLabel}
         </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant={runningConfiguredAction ? "secondary" : "outline"}
+              disabled={actionsMenuDisabled}
+              aria-label="Repository actions"
+              className="min-w-28"
+            >
+              {runningConfiguredAction ? <Loader2 className="animate-spin" /> : <Workflow />}
+              Actions
+              <ChevronDown />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {actionsConfigError ? (
+              <DropdownMenuItem disabled className="max-w-80 whitespace-normal">
+                {actionsConfigError}
+              </DropdownMenuItem>
+            ) : hasConfiguredActions ? (
+              configuredActions.map((action) => (
+                <DropdownMenuItem
+                  key={action.name}
+                  onSelect={() => onRunConfiguredAction(action)}
+                >
+                  <Workflow />
+                  {action.name}
+                </DropdownMenuItem>
+              ))
+            ) : (
+              <DropdownMenuItem disabled>
+                No configured actions
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );
@@ -6081,6 +6185,11 @@ function createInvalidSummary(repoPath: string, message: string): RepoSummary {
     githubRepository: null,
     statusLines: [],
     files: [],
+    actionsConfig: {
+      hasGitheadDir: false,
+      actions: [],
+      error: ""
+    },
     validationErrors: [
       message
     ]

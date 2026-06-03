@@ -100,6 +100,20 @@ async function withTempDir<T>(callback: (dir: string) => Promise<T>): Promise<T>
   }
 }
 
+function repoSummaryResults(repoRoot: string): ProcessResult[] {
+  return [
+    ok("true\n"),
+    ok("main\n"),
+    ok("origin/main\n"),
+    ok("origin\thttps://example.test/repo.git (fetch)\norigin\thttps://example.test/repo.git (push)\n"),
+    ok("\0"),
+    ok(`${oid}\n`),
+    ok("main\torigin/main\t*\n"),
+    ok("refs/remotes/origin/main\torigin/main\t\n"),
+    ok(`${repoRoot}\n`)
+  ];
+}
+
 describe("GitService", () => {
   it.each([
     [
@@ -524,7 +538,8 @@ describe("GitService", () => {
         "refs/remotes/origin/HEAD\torigin\trefs/remotes/origin/main",
         "refs/remotes/origin/main\torigin/main\t",
         "refs/remotes/origin/feature/nav\torigin/feature/nav\t"
-      ].join("\n"))
+      ].join("\n")),
+      ok("D:\\Repo\n")
     ]);
     const service = new GitService(runner);
 
@@ -604,6 +619,169 @@ describe("GitService", () => {
     ]);
   });
 
+  it("reports no configured actions without a .githead folder", async () => {
+    await withTempDir(async (dir) => {
+      const runner = new FakeRunner(repoSummaryResults(dir));
+      const service = new GitService(runner);
+
+      const summary = await service.getRepoSummary(dir);
+
+      expect(summary.actionsConfig).toEqual({
+        hasGitheadDir: false,
+        actions: [],
+        error: ""
+      });
+    });
+  });
+
+  it("loads configured actions and lets local actions override shared actions", async () => {
+    await withTempDir(async (dir) => {
+      const githeadDir = path.join(dir, ".githead");
+      await fs.mkdir(githeadDir);
+      await fs.writeFile(path.join(githeadDir, "actions.toml"), [
+        "[[actions]]",
+        "name = \"Build\"",
+        "command = \"npm run build\"",
+        "shell = \"powershell\"",
+        "",
+        "[[actions]]",
+        "name = \"Test\"",
+        "command = \"npm test\"",
+        "shell = \"bash\"",
+        ""
+      ].join("\n"), "utf8");
+      await fs.writeFile(path.join(githeadDir, "actions.local.toml"), [
+        "[[actions]]",
+        "name = \"test\"",
+        "command = \"npm run test:local\"",
+        "shell = \"cmd\"",
+        "",
+        "[[actions]]",
+        "name = \"Lint\"",
+        "command = \"npm run lint\"",
+        "shell = \"powershell\"",
+        ""
+      ].join("\n"), "utf8");
+      const runner = new FakeRunner(repoSummaryResults(dir));
+      const service = new GitService(runner);
+
+      const summary = await service.getRepoSummary(dir);
+
+      expect(summary.actionsConfig).toEqual({
+        hasGitheadDir: true,
+        error: "",
+        actions: [
+          {
+            name: "Build",
+            command: "npm run build",
+            shell: "powershell"
+          },
+          {
+            name: "test",
+            command: "npm run test:local",
+            shell: "cmd"
+          },
+          {
+            name: "Lint",
+            command: "npm run lint",
+            shell: "powershell"
+          }
+        ]
+      });
+    });
+  });
+
+  it("fails configured actions closed for invalid config", async () => {
+    await withTempDir(async (dir) => {
+      const githeadDir = path.join(dir, ".githead");
+      await fs.mkdir(githeadDir);
+      await fs.writeFile(path.join(githeadDir, "actions.toml"), [
+        "[[actions]]",
+        "name = \"Build\"",
+        "command = \"npm run build\"",
+        "shell = \"zsh\"",
+        ""
+      ].join("\n"), "utf8");
+      const runner = new FakeRunner(repoSummaryResults(dir));
+      const service = new GitService(runner);
+
+      const summary = await service.getRepoSummary(dir);
+
+      expect(summary.actionsConfig).toMatchObject({
+        hasGitheadDir: true,
+        actions: [],
+        error: "actions.toml: Action \"Build\" has an invalid shell."
+      });
+    });
+  });
+
+  it.each([
+    {
+      shell: "powershell",
+      command: "powershell.exe",
+      args: [
+        "-NoLogo",
+        "-NoProfile",
+        "-Command",
+        "npm run build"
+      ]
+    },
+    {
+      shell: "cmd",
+      command: "cmd.exe",
+      args: [
+        "/d",
+        "/s",
+        "/c",
+        "npm run build"
+      ]
+    },
+    {
+      shell: "bash",
+      command: "bash",
+      args: [
+        "-lc",
+        "npm run build"
+      ]
+    }
+  ] as const)("runs configured $shell actions from the repository root", async ({ shell, command, args }) => {
+    await withTempDir(async (dir) => {
+      const githeadDir = path.join(dir, ".githead");
+      await fs.mkdir(githeadDir);
+      await fs.writeFile(path.join(githeadDir, "actions.toml"), [
+        "[[actions]]",
+        "name = \"Build\"",
+        "command = \"npm run build\"",
+        `shell = "${shell}"`,
+        ""
+      ].join("\n"), "utf8");
+      const runner = new FakeRunner([
+        ok("true\n"),
+        ok(`${dir}\n`),
+        ok("done\n")
+      ]);
+      const service = new GitService(runner);
+
+      const result = await service.runConfiguredAction({
+        repoPath: path.join(dir, "subdir"),
+        name: "build"
+      });
+
+      expect(result).toMatchObject({
+        action: "Build",
+        exitCode: 0,
+        stdout: "done\n"
+      });
+      expect(runner.calls.at(-1)).toMatchObject({
+        command,
+        args,
+        options: expect.objectContaining({
+          cwd: dir
+        })
+      });
+    });
+  });
+
   it("detects a supported GitHub origin in repository summaries", async () => {
     const runner = new FakeRunner([
       ok("true\n"),
@@ -613,7 +791,8 @@ describe("GitService", () => {
       ok("\0"),
       ok(`${oid}\n`),
       ok("main\torigin/main\t*\n"),
-      ok("refs/remotes/origin/main\torigin/main\t\n")
+      ok("refs/remotes/origin/main\torigin/main\t\n"),
+      ok("D:\\Repo\n")
     ]);
     const service = new GitService(runner);
 

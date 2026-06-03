@@ -12,6 +12,7 @@ import type {
   FileSystemPathRequest,
   GitBranchRequest,
   GitCloneRequest,
+  GitConfiguredActionRunRequest,
   GitCommitDetailsRequest,
   GitCommitFileDiffRequest,
   GitCommitFileResetRequest,
@@ -532,6 +533,46 @@ ipcMain.handle(IPC_CHANNELS.runGitAction, async (_event, request: GitRunRequest)
 
   try {
     return await gitService.runGitAction(request, sendGitOutput);
+  } finally {
+    commandRunning = false;
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.runConfiguredAction, async (_event, request: GitConfiguredActionRunRequest) => {
+  const actionName = request.name.trim() || "Actions";
+  const trusted = await requireTrustedRepo(request.repoPath);
+  if (trusted) {
+    const now = new Date().toISOString();
+    return {
+      runId: "untrusted",
+      action: actionName,
+      repoPath: request.repoPath,
+      exitCode: -1,
+      stdout: "",
+      stderr: trusted.stderr,
+      startedAt: now,
+      endedAt: now
+    };
+  }
+
+  if (commandRunning) {
+    const now = new Date().toISOString();
+    return {
+      runId: "busy",
+      action: actionName,
+      repoPath: request.repoPath,
+      exitCode: -1,
+      stdout: "",
+      stderr: "Another git command is already running.",
+      startedAt: now,
+      endedAt: now
+    };
+  }
+
+  commandRunning = true;
+
+  try {
+    return await gitService.runConfiguredAction(request, sendGitOutput);
   } finally {
     commandRunning = false;
   }
