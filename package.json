@@ -1,6 +1,6 @@
 {
   "name": "githead",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "A lightweight Windows desktop GUI for common git sync commands.",
   "main": "dist/main/main/main.js",
   "private": true,
