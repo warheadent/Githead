@@ -32,6 +32,14 @@ _Avoid_: GitHub upstream
 Githead's current view of a **Repository** catching up after the repository changes or Githead returns to focus.
 _Avoid_: Polling refresh, refresh loop
 
+**File Status**:
+The current staged and unstaged file list for the selected **Repository**.
+_Avoid_: Diff list, change feed
+
+**Diff Preview**:
+The currently displayed diff for a user-selected file and side in **File Status**.
+_Avoid_: File status, live diff
+
 ## Example Dialogue
 
 Dev: "Should switching repositories also change the current branch?"

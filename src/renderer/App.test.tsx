@@ -1081,7 +1081,50 @@ describe("App", () => {
     expect(githead.getFileDiff).not.toHaveBeenCalled();
   });
 
-  it("refreshes the selected diff when a watcher refresh finds selected file status changed", async () => {
+  it("does not refresh the selected diff when a watcher refresh finds selected file status changed", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary)
+      .mockResolvedValueOnce(createSummary({
+        files: [
+          createStatusFile("src/app.ts", {
+            isUnstaged: true,
+            worktreeStatus: "M"
+          })
+        ]
+      }))
+      .mockResolvedValue(createSummary({
+        files: [
+          createStatusFile("src/app.ts", {
+            isUnstaged: true,
+            worktreeStatus: "D"
+          })
+        ]
+      }));
+    vi.mocked(githead.getFileDiff)
+      .mockResolvedValueOnce(createTextDiff("src/app.ts", "initial-value"))
+      .mockResolvedValue(createTextDiff("src/app.ts", "changed-value"));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("option", { name: /src\/app\.ts/ }));
+    expect(await screen.findByText("initial-value")).toBeTruthy();
+
+    const summaryCallsBeforeWatchEvent = vi.mocked(githead.getRepoSummary).mock.calls.length;
+    vi.mocked(githead.getFileDiff).mockClear();
+    await act(async () => {
+      emitRepoChanged();
+      await flushRendererAsync();
+    });
+
+    await waitFor(() => {
+      expect(githead.getRepoSummary).toHaveBeenCalledTimes(summaryCallsBeforeWatchEvent + 1);
+    });
+    expect(screen.getByText("initial-value")).toBeTruthy();
+    expect(screen.queryByText("changed-value")).toBeNull();
+    expect(githead.getFileDiff).not.toHaveBeenCalled();
+  });
+
+  it("refreshes the selected diff when Refresh Diff is clicked after file status changes", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary)
       .mockResolvedValueOnce(createSummary({
@@ -1113,6 +1156,8 @@ describe("App", () => {
       emitRepoChanged();
       await flushRendererAsync();
     });
+
+    await user.click(screen.getByRole("button", { name: "Refresh Diff" }));
 
     expect(await screen.findByText("changed-value")).toBeTruthy();
     expect(githead.getFileDiff).toHaveBeenCalledTimes(2);
