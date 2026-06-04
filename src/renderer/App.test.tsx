@@ -1703,12 +1703,32 @@ describe("App", () => {
     });
   });
 
-  it("disables repository actions without a .githead folder", async () => {
+  it("opens the Repository Actions manager without a .githead folder and saves a shared action", async () => {
+    const user = userEvent.setup();
     render(<App />);
 
     await screen.findByText("Repository ready");
 
-    expect((screen.getByRole("button", { name: "Repository actions" }) as HTMLButtonElement).disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Repository actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
+    await user.click(screen.getAllByRole("button", { name: "Add" })[0]!);
+    await user.type(screen.getAllByLabelText("Name")[0]!, "Build");
+    await user.type(screen.getAllByLabelText("Command")[0]!, "npm run build");
+    await user.click(screen.getAllByRole("button", { name: "Save" })[0]!);
+
+    await waitFor(() => {
+      expect(githead.saveConfiguredActions).toHaveBeenCalledWith({
+        repoPath,
+        target: "shared",
+        actions: [
+          {
+            name: "Build",
+            command: "npm run build",
+            shell: "powershell"
+          }
+        ]
+      });
+    });
   });
 
   it("renders and runs configured repository actions", async () => {
@@ -1807,6 +1827,129 @@ describe("App", () => {
 
     expect(await screen.findByText("actions.toml: Action \"Build\" has an invalid shell.")).toBeTruthy();
     expect(githead.runConfiguredAction).not.toHaveBeenCalled();
+  });
+
+  it("shows local Repository Actions that override shared actions", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      actionsConfig: {
+        hasGitheadDir: true,
+        shared: {
+          exists: true,
+          actions: [
+            {
+              name: "Build",
+              command: "npm run build",
+              shell: "powershell"
+            }
+          ]
+        },
+        local: {
+          exists: true,
+          actions: [
+            {
+              name: "build",
+              command: "npm run build:local",
+              shell: "cmd"
+            }
+          ]
+        },
+        actions: [
+          {
+            name: "build",
+            command: "npm run build:local",
+            shell: "cmd"
+          }
+        ]
+      }
+    }));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Repository actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
+
+    expect(await screen.findByText("Overrides Shared")).toBeTruthy();
+  });
+
+  it("saves reordered Repository Actions in file order", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      actionsConfig: {
+        hasGitheadDir: true,
+        shared: {
+          exists: true,
+          actions: [
+            {
+              name: "Build",
+              command: "npm run build",
+              shell: "powershell"
+            },
+            {
+              name: "Test",
+              command: "npm test",
+              shell: "bash"
+            }
+          ]
+        }
+      }
+    }));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Repository actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
+    await user.click(await screen.findByRole("button", { name: "Move Test up" }));
+    await user.click(screen.getAllByRole("button", { name: "Save" })[0]!);
+
+    await waitFor(() => {
+      expect(githead.saveConfiguredActions).toHaveBeenCalledWith({
+        repoPath,
+        target: "shared",
+        actions: [
+          {
+            name: "Test",
+            command: "npm test",
+            shell: "bash"
+          },
+          {
+            name: "Build",
+            command: "npm run build",
+            shell: "powershell"
+          }
+        ]
+      });
+    });
+  });
+
+  it("shows blocked Repository Action files without enabling structured edits", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      actionsConfig: {
+        hasGitheadDir: true,
+        local: {
+          exists: true,
+          writable: false,
+          blockedReason: "This file contains comments. Edit it manually to preserve them.",
+          actions: [
+            {
+              name: "Build",
+              command: "npm run build",
+              shell: "powershell"
+            }
+          ]
+        }
+      }
+    }));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Repository actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
+
+    expect(await screen.findByText("This file contains comments. Edit it manually to preserve them.")).toBeTruthy();
+    expect((screen.getAllByRole("button", { name: "Add" })[1] as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getAllByRole("button", { name: "Save" })[1] as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("refreshes File Status after active repository file changes", async () => {
@@ -2769,6 +2912,7 @@ function createGitheadMock(): GitheadApi {
     }),
     runGitAction: vi.fn(),
     runConfiguredAction: vi.fn(),
+    saveConfiguredActions: vi.fn().mockResolvedValue(okOperation),
     getUpdateState: vi.fn().mockResolvedValue(createUpdateState()),
     checkForUpdates: vi.fn().mockResolvedValue({
       checked: true,
@@ -2844,7 +2988,13 @@ function createUpdateState(overrides: Partial<AppUpdateState> = {}): AppUpdateSt
   };
 }
 
-function createSummary(overrides: Partial<RepoSummary> = {}): RepoSummary {
+function createSummary(
+  overrides: Omit<Partial<RepoSummary>, "actionsConfig"> & {
+    actionsConfig?: PartialActionsConfig;
+  } = {}
+): RepoSummary {
+  const actionsConfig = createActionsConfig(overrides.actionsConfig);
+
   return {
     repoPath,
     isValid: true,
@@ -2875,15 +3025,50 @@ function createSummary(overrides: Partial<RepoSummary> = {}): RepoSummary {
     githubRepository: null,
     statusLines: [],
     files: [],
-    actionsConfig: {
-      hasGitheadDir: false,
-      actions: [],
-      error: ""
-    },
     validationErrors: [],
-    ...overrides
+    ...overrides,
+    actionsConfig
   };
 }
+
+function createActionsConfig(
+  overrides: PartialActionsConfig = {}
+): RepoSummary["actionsConfig"] {
+  const shared = {
+    target: "shared" as const,
+    fileName: "actions.toml",
+    exists: false,
+    actions: [],
+    error: "",
+    writable: true,
+    blockedReason: "",
+    ...overrides.shared
+  };
+  const local = {
+    target: "local" as const,
+    fileName: "actions.local.toml",
+    exists: false,
+    actions: [],
+    error: "",
+    writable: true,
+    blockedReason: "",
+    ...overrides.local
+  };
+
+  return {
+    hasGitheadDir: false,
+    actions: [],
+    error: "",
+    ...overrides,
+    shared,
+    local
+  };
+}
+
+type PartialActionsConfig = Omit<Partial<RepoSummary["actionsConfig"]>, "shared" | "local"> & {
+  shared?: Partial<RepoSummary["actionsConfig"]["shared"]>;
+  local?: Partial<RepoSummary["actionsConfig"]["local"]>;
+};
 
 function createGitHubSummary(overrides: Partial<RepoSummary> = {}): RepoSummary {
   return createSummary({

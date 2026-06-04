@@ -9,6 +9,7 @@ import type {
   GitBranchRequest,
   GitCloneRequest,
   GitConfiguredActionRunRequest,
+  GitConfiguredActionSaveRequest,
   GitCommitDetailsRequest,
   GitCommitFileDiffRequest,
   GitCommitFileResetRequest,
@@ -135,6 +136,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.runGitAction, request) as ReturnType<GitheadApi["runGitAction"]>,
   runConfiguredAction: (request: GitConfiguredActionRunRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.runConfiguredAction, request) as ReturnType<GitheadApi["runConfiguredAction"]>,
+  saveConfiguredActions: (request: GitConfiguredActionSaveRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.saveConfiguredActions, request) as ReturnType<GitheadApi["saveConfiguredActions"]>,
   getUpdateState: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getUpdateState) as ReturnType<GitheadApi["getUpdateState"]>,
   checkForUpdates: () =>

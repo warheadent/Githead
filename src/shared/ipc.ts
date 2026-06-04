@@ -48,6 +48,7 @@ export const IPC_CHANNELS = {
   checkRepositoryAccess: "git:repository-access-check",
   runGitAction: "git:run",
   runConfiguredAction: "git:configured-action-run",
+  saveConfiguredActions: "git:configured-actions-save",
   gitOutput: "git:output",
   getUpdateState: "update:state:get",
   checkForUpdates: "update:check",

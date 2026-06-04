@@ -1,17 +1,15 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { parse as parseToml } from "smol-toml";
 import type {
   CommitRef,
-  GitActionsConfig,
   GitAction,
   GitBranch,
   GitBranchRequest,
   GitCloneRequest,
   GitConfiguredAction,
   GitConfiguredActionRunRequest,
-  GitConfiguredActionShell,
+  GitConfiguredActionSaveRequest,
   GitCommitChangedFile,
   GitCommitDetails,
   GitCommitDetailsRequest,
@@ -45,7 +43,8 @@ import type {
   RepoSummary
 } from "../shared/types";
 import { getSupportedGitHubOrigin, parseGitHubRemoteUrl } from "../shared/githubRemote";
-import { GIT_CONFIGURED_ACTION_SHELLS, isGitAction } from "../shared/types";
+import { isGitAction } from "../shared/types";
+import { createEmptyActionsConfig, getActionKey, readActionsConfig, saveActionsConfigFile } from "./actionsConfig";
 import type { ProcessOutput, ProcessResult, ProcessRunner } from "./processRunner";
 
 export const GIT_ACTION_COMMANDS: Record<GitAction, string[]> = {
@@ -152,8 +151,7 @@ export class GitService {
     const actionsConfig = rootResult.exitCode === 0
       ? await readActionsConfig(rootResult.stdout.trim())
       : {
-          hasGitheadDir: false,
-          actions: [],
+          ...createEmptyActionsConfig(),
           error: rootResult.stderr.trim() || "Unable to locate repository root."
         };
 
@@ -1019,6 +1017,26 @@ export class GitService {
     };
   }
 
+  async saveConfiguredActions(request: GitConfiguredActionSaveRequest): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+    }
+
+    const rootResult = await this.runGit(request.repoPath, [
+      "rev-parse",
+      "--show-toplevel"
+    ]);
+    if (rootResult.exitCode !== 0) {
+      return this.createOperationFailure(
+        request.repoPath,
+        rootResult.stderr.trim() || "Unable to locate repository root."
+      );
+    }
+
+    return saveActionsConfigFile(rootResult.stdout.trim(), request);
+  }
+
   private async validateRepo(repoPath: string): Promise<Pick<RepoSummary, "isValid" | "validationErrors">> {
     if (!repoPath.trim()) {
       return {
@@ -1654,162 +1672,6 @@ function createPathspecInput(paths: string[]): Buffer {
   return Buffer.from(`${paths.join("\0")}\0`, "utf8");
 }
 
-async function readActionsConfig(repoRoot: string): Promise<GitActionsConfig> {
-  const githeadPath = path.join(repoRoot, ".githead");
-  const stats = await getStats(githeadPath);
-  if (!stats) {
-    return createEmptyActionsConfig();
-  }
-
-  if (!stats.isDirectory()) {
-    return {
-      hasGitheadDir: false,
-      actions: [],
-      error: ".githead must be a folder."
-    };
-  }
-
-  const mergedActions: GitConfiguredAction[] = [];
-  const actionIndexes = new Map<string, number>();
-  for (const fileName of [
-    "actions.toml",
-    "actions.local.toml"
-  ]) {
-    const filePath = path.join(githeadPath, fileName);
-    const text = await readTextFileIfExists(filePath);
-    if (text === null) {
-      continue;
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = parseToml(text);
-    } catch (error) {
-      return createActionsConfigError(fileName, error instanceof Error ? error.message : "Unable to parse TOML.");
-    }
-
-    const fileActions = parseActionsFile(fileName, parsed);
-    if ("error" in fileActions) {
-      return createActionsConfigError(fileName, fileActions.error);
-    }
-
-    for (const action of fileActions.actions) {
-      const key = getActionKey(action.name);
-      const existingIndex = actionIndexes.get(key);
-      if (existingIndex === undefined) {
-        actionIndexes.set(key, mergedActions.length);
-        mergedActions.push(action);
-      } else {
-        mergedActions[existingIndex] = action;
-      }
-    }
-  }
-
-  return {
-    hasGitheadDir: true,
-    actions: mergedActions,
-    error: ""
-  };
-}
-
-function parseActionsFile(fileName: string, parsed: unknown): { actions: GitConfiguredAction[] } | { error: string } {
-  if (!isRecord(parsed)) {
-    return {
-      error: "Actions config must be a TOML table."
-    };
-  }
-
-  const rawActions = parsed.actions;
-  if (rawActions === undefined) {
-    return {
-      actions: []
-    };
-  }
-
-  if (!Array.isArray(rawActions)) {
-    return {
-      error: "Expected [[actions]] array tables."
-    };
-  }
-
-  const seenNames = new Set<string>();
-  const actions: GitConfiguredAction[] = [];
-  for (const [index, rawAction] of rawActions.entries()) {
-    if (!isRecord(rawAction)) {
-      return {
-        error: `Action ${index + 1} must be a table.`
-      };
-    }
-
-    const name = typeof rawAction.name === "string" ? rawAction.name.trim() : "";
-    if (!name) {
-      return {
-        error: `Action ${index + 1} is missing a name.`
-      };
-    }
-
-    const key = getActionKey(name);
-    if (seenNames.has(key)) {
-      return {
-        error: `Duplicate action name "${name}" in ${fileName}.`
-      };
-    }
-    seenNames.add(key);
-
-    const command = typeof rawAction.command === "string" ? rawAction.command.trim() : "";
-    if (!command) {
-      return {
-        error: `Action "${name}" is missing a command.`
-      };
-    }
-
-    const shell = typeof rawAction.shell === "string" ? rawAction.shell.trim() : "";
-    if (!isConfiguredActionShell(shell)) {
-      return {
-        error: `Action "${name}" has an invalid shell.`
-      };
-    }
-
-    actions.push({
-      name,
-      command,
-      shell
-    });
-  }
-
-  return {
-    actions
-  };
-}
-
-async function readTextFileIfExists(filePath: string): Promise<string | null> {
-  try {
-    return await fs.readFile(filePath, "utf8");
-  } catch (error) {
-    if (isNodeError(error) && error.code === "ENOENT") {
-      return null;
-    }
-
-    throw error;
-  }
-}
-
-function createEmptyActionsConfig(): GitActionsConfig {
-  return {
-    hasGitheadDir: false,
-    actions: [],
-    error: ""
-  };
-}
-
-function createActionsConfigError(fileName: string, message: string): GitActionsConfig {
-  return {
-    hasGitheadDir: true,
-    actions: [],
-    error: `${fileName}: ${message}`
-  };
-}
-
 function getShellCommand(action: GitConfiguredAction): { command: string; args: string[] } {
   if (action.shell === "powershell") {
     return {
@@ -1846,18 +1708,6 @@ function getShellCommand(action: GitConfiguredAction): { command: string; args: 
 
 function formatCommandArgument(argument: string): string {
   return /^[A-Za-z0-9_./:=+-]+$/.test(argument) ? argument : JSON.stringify(argument);
-}
-
-function getActionKey(name: string): string {
-  return name.trim().toLocaleLowerCase();
-}
-
-function isConfiguredActionShell(value: string): value is GitConfiguredActionShell {
-  return GIT_CONFIGURED_ACTION_SHELLS.includes(value as GitConfiguredActionShell);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 async function readTextIfExists(filePath: string): Promise<string> {

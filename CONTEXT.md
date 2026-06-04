@@ -40,6 +40,10 @@ _Avoid_: Diff list, change feed
 The currently displayed diff for a user-selected file and side in **File Status**.
 _Avoid_: File status, live diff
 
+**Repository Action**:
+A repository-scoped custom command configured in the selected **Repository** under `.githead`.
+_Avoid_: Configured action, custom script
+
 ## Example Dialogue
 
 Dev: "Should switching repositories also change the current branch?"

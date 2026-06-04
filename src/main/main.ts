@@ -13,6 +13,7 @@ import type {
   GitBranchRequest,
   GitCloneRequest,
   GitConfiguredActionRunRequest,
+  GitConfiguredActionSaveRequest,
   GitCommitDetailsRequest,
   GitCommitFileDiffRequest,
   GitCommitFileResetRequest,
@@ -576,6 +577,10 @@ ipcMain.handle(IPC_CHANNELS.runConfiguredAction, async (_event, request: GitConf
   } finally {
     commandRunning = false;
   }
+});
+
+ipcMain.handle(IPC_CHANNELS.saveConfiguredActions, async (_event, request: GitConfiguredActionSaveRequest) => {
+  return runExclusiveGitOperation(() => gitService.saveConfiguredActions(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.getUpdateState, async () => {

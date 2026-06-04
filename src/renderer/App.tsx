@@ -1,4 +1,6 @@
 import {
+  ArrowDown,
+  ArrowUp,
   CheckCircle2,
   ChevronDown,
   CircleDot,
@@ -18,6 +20,7 @@ import {
   MapPinned,
   Maximize2,
   Minus,
+  Pencil,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -92,7 +95,9 @@ import type {
   AppUpdateState,
   GitBranch,
   GitAction,
+  GitConfiguredActionFile,
   GitConfiguredAction,
+  GitConfiguredActionFileConfig,
   GitCommitChangedFile,
   GitCommitDetails,
   GitCommitGraphRow,
@@ -112,6 +117,7 @@ import type {
   RepoTrustResult,
   RepoSummary
 } from "../shared/types";
+import { GIT_CONFIGURED_ACTION_SHELLS } from "../shared/types";
 import { parseCommitSubject } from "../shared/commitSubject";
 import { canPush, getPrimaryCommitAction, getPullableCommitCount, getPushableCommitCount, hasStagedChanges } from "./commitActions";
 import { buildCommitGraphLayout, type CommitGraphLayout } from "./commitGraph";
@@ -139,6 +145,22 @@ interface SettingsDraft {
   model: string;
   siteUrl: string;
   siteTitle: string;
+}
+
+interface RepositoryActionDraft extends GitConfiguredAction {
+  id: string;
+}
+
+interface RepositoryActionManagerDraft {
+  shared: RepositoryActionDraft[];
+  local: RepositoryActionDraft[];
+}
+
+interface RepositoryActionManagerState {
+  open: boolean;
+  draft: RepositoryActionManagerDraft;
+  savingTarget: GitConfiguredActionFile | null;
+  error: string;
 }
 
 interface CloneDraft {
@@ -217,6 +239,7 @@ interface AppState {
   settingsDraft: SettingsDraft;
   settingsError: string;
   settingsSaving: boolean;
+  actionManager: RepositoryActionManagerState;
   activeView: WorkspaceView;
   history: GitCommitGraphRow[];
   historyLoading: boolean;
@@ -268,6 +291,16 @@ const emptySettingsDraft: SettingsDraft = {
   model: "",
   siteUrl: "",
   siteTitle: "Githead"
+};
+
+const emptyActionManager: RepositoryActionManagerState = {
+  open: false,
+  draft: {
+    shared: [],
+    local: []
+  },
+  savingTarget: null,
+  error: ""
 };
 
 const emptyCloneDraft: CloneDraft = {
@@ -349,6 +382,7 @@ const initialState: AppState = {
   settingsDraft: emptySettingsDraft,
   settingsError: "",
   settingsSaving: false,
+  actionManager: emptyActionManager,
   activeView: "status",
   history: [],
   historyLoading: false,
@@ -1511,6 +1545,183 @@ export function App(): ReactNode {
       await refreshRepo();
     }
   }, [appendSystemLine, ensureTrustedRepo, refreshRepo, updateState]);
+
+  const openActionManager = useCallback((): void => {
+    const current = stateRef.current;
+    if (!current.summary?.isValid || isOperationRunning(current)) {
+      return;
+    }
+
+    updateState({
+      actionManager: {
+        open: true,
+        draft: createRepositoryActionManagerDraft(current.summary),
+        savingTarget: null,
+        error: ""
+      }
+    });
+  }, [updateState]);
+
+  const closeActionManager = useCallback((): void => {
+    if (stateRef.current.actionManager.savingTarget) {
+      return;
+    }
+
+    updateState({
+      actionManager: emptyActionManager
+    });
+  }, [updateState]);
+
+  const updateActionManagerDraft = useCallback((
+    target: GitConfiguredActionFile,
+    index: number,
+    patch: Partial<GitConfiguredAction>
+  ): void => {
+    updateState((current) => ({
+      ...current,
+      actionManager: {
+        ...current.actionManager,
+        error: "",
+        draft: {
+          ...current.actionManager.draft,
+          [target]: current.actionManager.draft[target].map((action, actionIndex) => (
+            actionIndex === index
+              ? {
+                  ...action,
+                  ...patch
+                }
+              : action
+          ))
+        }
+      }
+    }));
+  }, [updateState]);
+
+  const addRepositoryAction = useCallback((target: GitConfiguredActionFile): void => {
+    updateState((current) => ({
+      ...current,
+      actionManager: {
+        ...current.actionManager,
+        error: "",
+        draft: {
+          ...current.actionManager.draft,
+          [target]: [
+            ...current.actionManager.draft[target],
+            createEmptyRepositoryActionDraft()
+          ]
+        }
+      }
+    }));
+  }, [updateState]);
+
+  const deleteRepositoryAction = useCallback((target: GitConfiguredActionFile, index: number): void => {
+    updateState((current) => ({
+      ...current,
+      actionManager: {
+        ...current.actionManager,
+        error: "",
+        draft: {
+          ...current.actionManager.draft,
+          [target]: current.actionManager.draft[target].filter((_, actionIndex) => actionIndex !== index)
+        }
+      }
+    }));
+  }, [updateState]);
+
+  const moveRepositoryAction = useCallback((target: GitConfiguredActionFile, index: number, direction: -1 | 1): void => {
+    updateState((current) => {
+      const actions = [
+        ...current.actionManager.draft[target]
+      ];
+      const nextIndex = index + direction;
+      if (nextIndex < 0 || nextIndex >= actions.length) {
+        return current;
+      }
+
+      const [action] = actions.splice(index, 1);
+      if (!action) {
+        return current;
+      }
+
+      actions.splice(nextIndex, 0, action);
+      return {
+        ...current,
+        actionManager: {
+          ...current.actionManager,
+          error: "",
+          draft: {
+            ...current.actionManager.draft,
+            [target]: actions
+          }
+        }
+      };
+    });
+  }, [updateState]);
+
+  const saveRepositoryActions = useCallback(async (target: GitConfiguredActionFile): Promise<void> => {
+    const current = stateRef.current;
+    if (!current.summary?.isValid || isOperationRunning(current) || current.actionManager.savingTarget) {
+      return;
+    }
+
+    const actions = stripRepositoryActionDrafts(current.actionManager.draft[target]);
+    const validationError = validateRepositoryActionDrafts(target, actions);
+    if (validationError) {
+      updateState({
+        actionManager: {
+          ...current.actionManager,
+          error: validationError
+        }
+      });
+      return;
+    }
+
+    updateState({
+      actionManager: {
+        ...current.actionManager,
+        savingTarget: target,
+        error: ""
+      }
+    });
+
+    try {
+      const result = await window.githead.saveConfiguredActions({
+        repoPath: current.repoPath,
+        target,
+        actions
+      });
+      if (result.exitCode !== 0) {
+        updateState((latest) => ({
+          ...latest,
+          actionManager: {
+            ...latest.actionManager,
+            savingTarget: null,
+            error: result.stderr || "Unable to save Repository Actions."
+          }
+        }));
+        return;
+      }
+
+      await refreshRepo();
+      updateState((latest) => ({
+        ...latest,
+        actionManager: {
+          ...latest.actionManager,
+          savingTarget: null,
+          error: ""
+        }
+      }));
+    } catch (error) {
+      updateState((latest) => ({
+        ...latest,
+        actionManager: {
+          ...latest.actionManager,
+          savingTarget: null,
+          error: error instanceof Error ? error.message : "Unable to save Repository Actions."
+        }
+      }));
+    }
+  }, [refreshRepo, updateState]);
 
   const runRepoOperation = useCallback(async (
     label: string,
@@ -2807,6 +3018,7 @@ export function App(): ReactNode {
               onRunConfiguredAction={(action) => {
                 void runConfiguredAction(action);
               }}
+              onManageActions={openActionManager}
             />
 
             <Tabs
@@ -3017,6 +3229,26 @@ export function App(): ReactNode {
         onSave={(event) => {
           event.preventDefault();
           void saveAiSettings();
+        }}
+      />
+
+      <RepositoryActionsDialog
+        open={state.actionManager.open}
+        summary={state.summary}
+        draft={state.actionManager.draft}
+        savingTarget={state.actionManager.savingTarget}
+        error={state.actionManager.error}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeActionManager();
+          }
+        }}
+        onDraftChange={updateActionManagerDraft}
+        onAddAction={addRepositoryAction}
+        onDeleteAction={deleteRepositoryAction}
+        onMoveAction={moveRepositoryAction}
+        onSave={(target) => {
+          void saveRepositoryActions(target);
         }}
       />
 
@@ -4060,7 +4292,8 @@ function ActionBar({
   runningAction,
   disabled,
   onRunAction,
-  onRunConfiguredAction
+  onRunConfiguredAction,
+  onManageActions
 }: {
   heading: string;
   summary: RepoSummary | null;
@@ -4068,6 +4301,7 @@ function ActionBar({
   disabled: boolean;
   onRunAction: (action: GitAction) => void;
   onRunConfiguredAction: (action: GitConfiguredAction) => void;
+  onManageActions: () => void;
 }): ReactNode {
   const pullableCommitCount = getPullableCommitCount(summary);
   const pullLabel = pullableCommitCount > 0 ? `Pull (${pullableCommitCount})` : "Pull";
@@ -4083,9 +4317,7 @@ function ActionBar({
     runningAction !== "pull" &&
     runningAction !== "push"
   );
-  const actionsMenuDisabled = disabled
-    || !actionsConfig?.hasGitheadDir
-    || (!hasConfiguredActions && !actionsConfigError);
+  const actionsMenuDisabled = disabled;
 
   return (
     <header className="flex items-center justify-between gap-5 border-b bg-card px-6 py-4">
@@ -4128,6 +4360,11 @@ function ActionBar({
                 No configured actions
               </DropdownMenuItem>
             )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onManageActions}>
+              <Settings />
+              Manage Repository Actions
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
         <Button
@@ -6165,6 +6402,245 @@ function SettingsDialog({
   );
 }
 
+function RepositoryActionsDialog({
+  open,
+  summary,
+  draft,
+  savingTarget,
+  error,
+  onOpenChange,
+  onDraftChange,
+  onAddAction,
+  onDeleteAction,
+  onMoveAction,
+  onSave
+}: {
+  open: boolean;
+  summary: RepoSummary | null;
+  draft: RepositoryActionManagerDraft;
+  savingTarget: GitConfiguredActionFile | null;
+  error: string;
+  onOpenChange: (open: boolean) => void;
+  onDraftChange: (target: GitConfiguredActionFile, index: number, patch: Partial<GitConfiguredAction>) => void;
+  onAddAction: (target: GitConfiguredActionFile) => void;
+  onDeleteAction: (target: GitConfiguredActionFile, index: number) => void;
+  onMoveAction: (target: GitConfiguredActionFile, index: number, direction: -1 | 1) => void;
+  onSave: (target: GitConfiguredActionFile) => void;
+}): ReactNode {
+  const actionsConfig = summary?.actionsConfig;
+  const sharedConfig = actionsConfig?.shared ?? createFallbackActionFileConfig("shared");
+  const localConfig = actionsConfig?.local ?? createFallbackActionFileConfig("local");
+  const sharedActionNames = new Set(draft.shared.map((action) => getRepositoryActionKey(action.name)));
+  const saving = savingTarget !== null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-4xl">
+        <div className="flex min-h-0 flex-col gap-4">
+          <DialogHeader>
+            <p className="eyebrow">Repository</p>
+            <DialogTitle>Repository Actions</DialogTitle>
+            <DialogDescription className="sr-only">
+              Create, edit, delete, and reorder repository actions.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid min-h-0 gap-4 overflow-y-auto pr-1 lg:grid-cols-2">
+            <RepositoryActionFileSection
+              target="shared"
+              title="Shared"
+              config={sharedConfig}
+              actions={draft.shared}
+              saving={saving}
+              savingTarget={savingTarget}
+              overrideNames={new Set()}
+              onDraftChange={onDraftChange}
+              onAddAction={onAddAction}
+              onDeleteAction={onDeleteAction}
+              onMoveAction={onMoveAction}
+              onSave={onSave}
+            />
+            <RepositoryActionFileSection
+              target="local"
+              title="Local"
+              config={localConfig}
+              actions={draft.local}
+              saving={saving}
+              savingTarget={savingTarget}
+              overrideNames={sharedActionNames}
+              onDraftChange={onDraftChange}
+              onAddAction={onAddAction}
+              onDeleteAction={onDeleteAction}
+              onMoveAction={onMoveAction}
+              onSave={onSave}
+            />
+          </div>
+
+          <p className="min-h-5 text-sm text-destructive" role="alert">{error}</p>
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={saving} onClick={() => onOpenChange(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function RepositoryActionFileSection({
+  target,
+  title,
+  config,
+  actions,
+  saving,
+  savingTarget,
+  overrideNames,
+  onDraftChange,
+  onAddAction,
+  onDeleteAction,
+  onMoveAction,
+  onSave
+}: {
+  target: GitConfiguredActionFile;
+  title: string;
+  config: GitConfiguredActionFileConfig;
+  actions: RepositoryActionDraft[];
+  saving: boolean;
+  savingTarget: GitConfiguredActionFile | null;
+  overrideNames: Set<string>;
+  onDraftChange: (target: GitConfiguredActionFile, index: number, patch: Partial<GitConfiguredAction>) => void;
+  onAddAction: (target: GitConfiguredActionFile) => void;
+  onDeleteAction: (target: GitConfiguredActionFile, index: number) => void;
+  onMoveAction: (target: GitConfiguredActionFile, index: number, direction: -1 | 1) => void;
+  onSave: (target: GitConfiguredActionFile) => void;
+}): ReactNode {
+  const blockedMessage = config.error || config.blockedReason;
+  const disabled = saving || Boolean(blockedMessage) || !config.writable;
+  const fileLabel = `.githead/${config.fileName}`;
+  const isSaving = savingTarget === target;
+
+  return (
+    <section className="grid min-h-0 gap-3 rounded-md border bg-card p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold">{title}</h3>
+          <p className="truncate text-xs text-muted-foreground">{fileLabel}</p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <Button type="button" size="sm" variant="outline" disabled={disabled} onClick={() => onAddAction(target)}>
+            <Plus />
+            Add
+          </Button>
+          <Button type="button" size="sm" disabled={disabled} onClick={() => onSave(target)}>
+            {isSaving ? <Loader2 className="animate-spin" /> : <Save />}
+            Save
+          </Button>
+        </div>
+      </div>
+
+      {blockedMessage ? (
+        <p className="text-sm text-destructive" role="alert">{blockedMessage}</p>
+      ) : null}
+
+      <div className="grid gap-3">
+        {actions.length === 0 ? (
+          <p className="rounded-md border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
+            No {title.toLocaleLowerCase()} actions
+          </p>
+        ) : actions.map((action, index) => {
+          const overridden = target === "local" && overrideNames.has(getRepositoryActionKey(action.name));
+          return (
+            <div key={action.id} className="grid gap-3 rounded-md border bg-background p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Pencil className="size-4 text-muted-foreground" aria-hidden="true" />
+                  <span className="truncate text-sm font-medium">
+                    {action.name.trim() || "Untitled Repository Action"}
+                  </span>
+                  {overridden ? <Badge variant="secondary">Overrides Shared</Badge> : null}
+                </div>
+                <div className="flex shrink-0 gap-1">
+                  <Button
+                    type="button"
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label={`Move ${action.name || "Repository Action"} up`}
+                    disabled={disabled || index === 0}
+                    onClick={() => onMoveAction(target, index, -1)}
+                  >
+                    <ArrowUp />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label={`Move ${action.name || "Repository Action"} down`}
+                    disabled={disabled || index === actions.length - 1}
+                    onClick={() => onMoveAction(target, index, 1)}
+                  >
+                    <ArrowDown />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label={`Delete ${action.name || "Repository Action"}`}
+                    disabled={disabled}
+                    onClick={() => onDeleteAction(target, index)}
+                  >
+                    <Trash2 />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor={`${target}-action-${action.id}-name`}>Name</Label>
+                <Input
+                  id={`${target}-action-${action.id}-name`}
+                  value={action.name}
+                  disabled={disabled}
+                  onChange={(event) => onDraftChange(target, index, {
+                    name: event.target.value
+                  })}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor={`${target}-action-${action.id}-command`}>Command</Label>
+                <Textarea
+                  id={`${target}-action-${action.id}-command`}
+                  value={action.command}
+                  disabled={disabled}
+                  className="min-h-20 resize-y font-mono text-sm"
+                  onChange={(event) => onDraftChange(target, index, {
+                    command: event.target.value
+                  })}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor={`${target}-action-${action.id}-shell`}>Shell</Label>
+                <select
+                  id={`${target}-action-${action.id}-shell`}
+                  value={action.shell}
+                  disabled={disabled}
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
+                  onChange={(event) => onDraftChange(target, index, {
+                    shell: event.target.value as GitConfiguredAction["shell"]
+                  })}
+                >
+                  {GIT_CONFIGURED_ACTION_SHELLS.map((shell) => (
+                    <option key={shell} value={shell}>{shell}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function useSystemThemeClass(): void {
   useEffect(() => {
     if (!("matchMedia" in window)) {
@@ -6184,6 +6660,99 @@ function useSystemThemeClass(): void {
   }, []);
 }
 
+let repositoryActionDraftId = 0;
+
+function createRepositoryActionManagerDraft(summary: RepoSummary): RepositoryActionManagerDraft {
+  return {
+    shared: summary.actionsConfig.shared.actions.map(createRepositoryActionDraft),
+    local: summary.actionsConfig.local.actions.map(createRepositoryActionDraft)
+  };
+}
+
+function createRepositoryActionDraft(action: GitConfiguredAction): RepositoryActionDraft {
+  repositoryActionDraftId += 1;
+  return {
+    id: `repository-action-${repositoryActionDraftId}`,
+    name: action.name,
+    command: action.command,
+    shell: action.shell
+  };
+}
+
+function createEmptyRepositoryActionDraft(): RepositoryActionDraft {
+  return createRepositoryActionDraft({
+    name: "",
+    command: "",
+    shell: "powershell"
+  });
+}
+
+function stripRepositoryActionDrafts(actions: RepositoryActionDraft[]): GitConfiguredAction[] {
+  return actions.map((action) => ({
+    name: action.name.trim(),
+    command: action.command.trim(),
+    shell: action.shell
+  }));
+}
+
+function validateRepositoryActionDrafts(
+  target: GitConfiguredActionFile,
+  actions: GitConfiguredAction[]
+): string {
+  const seenNames = new Set<string>();
+  for (const [index, action] of actions.entries()) {
+    if (!action.name) {
+      return `${getActionFileLabel(target)} action ${index + 1} is missing a name.`;
+    }
+
+    const key = getRepositoryActionKey(action.name);
+    if (seenNames.has(key)) {
+      return `Duplicate ${getActionFileLabel(target)} action name "${action.name}".`;
+    }
+    seenNames.add(key);
+
+    if (!action.command) {
+      return `${getActionFileLabel(target)} action "${action.name}" is missing a command.`;
+    }
+
+    if (!GIT_CONFIGURED_ACTION_SHELLS.includes(action.shell)) {
+      return `${getActionFileLabel(target)} action "${action.name}" has an invalid shell.`;
+    }
+  }
+
+  return "";
+}
+
+function getActionFileLabel(target: GitConfiguredActionFile): string {
+  return target === "shared" ? "Shared" : "Local";
+}
+
+function getRepositoryActionKey(name: string): string {
+  return name.trim().toLocaleLowerCase();
+}
+
+function createFallbackActionFileConfig(target: GitConfiguredActionFile): GitConfiguredActionFileConfig {
+  return {
+    target,
+    fileName: target === "shared" ? "actions.toml" : "actions.local.toml",
+    exists: false,
+    actions: [],
+    error: "",
+    writable: true,
+    blockedReason: ""
+  };
+}
+
+function createEmptyRendererActionsConfig(): RepoSummary["actionsConfig"] {
+  return {
+    hasGitheadDir: false,
+    actions: [],
+    error: "",
+    shared: createFallbackActionFileConfig("shared"),
+    local: createFallbackActionFileConfig("local")
+  };
+}
+
 function createInvalidSummary(repoPath: string, message: string): RepoSummary {
   return {
     repoPath,
@@ -6197,11 +6766,7 @@ function createInvalidSummary(repoPath: string, message: string): RepoSummary {
     githubRepository: null,
     statusLines: [],
     files: [],
-    actionsConfig: {
-      hasGitheadDir: false,
-      actions: [],
-      error: ""
-    },
+    actionsConfig: createEmptyRendererActionsConfig(),
     validationErrors: [
       message
     ]

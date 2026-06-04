@@ -626,10 +626,20 @@ describe("GitService", () => {
 
       const summary = await service.getRepoSummary(dir);
 
-      expect(summary.actionsConfig).toEqual({
+      expect(summary.actionsConfig).toMatchObject({
         hasGitheadDir: false,
         actions: [],
-        error: ""
+        error: "",
+        shared: {
+          exists: false,
+          actions: [],
+          writable: true
+        },
+        local: {
+          exists: false,
+          actions: [],
+          writable: true
+        }
       });
     });
   });
@@ -667,7 +677,7 @@ describe("GitService", () => {
 
       const summary = await service.getRepoSummary(dir);
 
-      expect(summary.actionsConfig).toEqual({
+      expect(summary.actionsConfig).toMatchObject({
         hasGitheadDir: true,
         error: "",
         actions: [
@@ -686,7 +696,37 @@ describe("GitService", () => {
             command: "npm run lint",
             shell: "powershell"
           }
-        ]
+        ],
+        shared: {
+          exists: true,
+          actions: [
+            {
+              name: "Build",
+              command: "npm run build",
+              shell: "powershell"
+            },
+            {
+              name: "Test",
+              command: "npm test",
+              shell: "bash"
+            }
+          ]
+        },
+        local: {
+          exists: true,
+          actions: [
+            {
+              name: "test",
+              command: "npm run test:local",
+              shell: "cmd"
+            },
+            {
+              name: "Lint",
+              command: "npm run lint",
+              shell: "powershell"
+            }
+          ]
+        }
       });
     });
   });
@@ -710,7 +750,11 @@ describe("GitService", () => {
       expect(summary.actionsConfig).toMatchObject({
         hasGitheadDir: true,
         actions: [],
-        error: "actions.toml: Action \"Build\" has an invalid shell."
+        error: "actions.toml: Action \"Build\" has an invalid shell.",
+        shared: {
+          exists: true,
+          error: "actions.toml: Action \"Build\" has an invalid shell."
+        }
       });
     });
   });

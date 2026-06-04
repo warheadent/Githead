@@ -31,7 +31,25 @@ const baseSummary: RepoSummary = {
   actionsConfig: {
     hasGitheadDir: false,
     actions: [],
-    error: ""
+    error: "",
+    shared: {
+      target: "shared",
+      fileName: "actions.toml",
+      exists: false,
+      actions: [],
+      error: "",
+      writable: true,
+      blockedReason: ""
+    },
+    local: {
+      target: "local",
+      fileName: "actions.local.toml",
+      exists: false,
+      actions: [],
+      error: "",
+      writable: true,
+      blockedReason: ""
+    }
   },
   validationErrors: []
 };

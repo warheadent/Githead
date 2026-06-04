@@ -20,10 +20,24 @@ export interface GitConfiguredAction {
   shell: GitConfiguredActionShell;
 }
 
+export type GitConfiguredActionFile = "shared" | "local";
+
+export interface GitConfiguredActionFileConfig {
+  target: GitConfiguredActionFile;
+  fileName: string;
+  exists: boolean;
+  actions: GitConfiguredAction[];
+  error: string;
+  writable: boolean;
+  blockedReason: string;
+}
+
 export interface GitActionsConfig {
   hasGitheadDir: boolean;
   actions: GitConfiguredAction[];
   error: string;
+  shared: GitConfiguredActionFileConfig;
+  local: GitConfiguredActionFileConfig;
 }
 
 export interface GitRemote {
@@ -172,6 +186,12 @@ export interface GitRunRequest {
 export interface GitConfiguredActionRunRequest {
   repoPath: string;
   name: string;
+}
+
+export interface GitConfiguredActionSaveRequest {
+  repoPath: string;
+  target: GitConfiguredActionFile;
+  actions: GitConfiguredAction[];
 }
 
 export interface GitHubRepositoryRequest {
@@ -482,6 +502,7 @@ export interface GitheadApi {
   checkRepositoryAccess(request: GitRepositoryAccessCheckRequest): Promise<GitRepositoryAccessCheckResult>;
   runGitAction(request: GitRunRequest): Promise<GitRunResult>;
   runConfiguredAction(request: GitConfiguredActionRunRequest): Promise<GitRunResult>;
+  saveConfiguredActions(request: GitConfiguredActionSaveRequest): Promise<GitOperationResult>;
   getUpdateState(): Promise<AppUpdateState>;
   checkForUpdates(): Promise<AppUpdateCheckResult>;
   downloadUpdate(): Promise<AppUpdateActionResult>;
