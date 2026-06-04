@@ -4071,6 +4071,8 @@ function ActionBar({
 }): ReactNode {
   const pullableCommitCount = getPullableCommitCount(summary);
   const pullLabel = pullableCommitCount > 0 ? `Pull (${pullableCommitCount})` : "Pull";
+  const pushableCommitCount = getPushableCommitCount(summary);
+  const pushLabel = pushableCommitCount > 0 ? `Push (${pushableCommitCount})` : "Push";
   const actionsConfig = summary?.actionsConfig;
   const configuredActions = actionsConfig?.actions ?? [];
   const actionsConfigError = actionsConfig?.error.trim() ?? "";
@@ -4092,26 +4094,6 @@ function ActionBar({
         <h2 className="truncate text-base font-semibold">{heading}</h2>
       </div>
       <div className="flex flex-wrap justify-end gap-2" role="group" aria-label="Git actions">
-        <Button
-          type="button"
-          variant={runningAction === "fetch" ? "secondary" : "outline"}
-          disabled={disabled}
-          onClick={() => onRunAction("fetch")}
-          className="min-w-24"
-        >
-          {runningAction === "fetch" ? <Loader2 className="animate-spin" /> : <Download />}
-          Fetch
-        </Button>
-        <Button
-          type="button"
-          variant={runningAction === "pull" ? "secondary" : "outline"}
-          disabled={disabled}
-          onClick={() => onRunAction("pull")}
-          className="min-w-24"
-        >
-          {runningAction === "pull" ? <Loader2 className="animate-spin" /> : <Download />}
-          {pullLabel}
-        </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -4148,6 +4130,36 @@ function ActionBar({
             )}
           </DropdownMenuContent>
         </DropdownMenu>
+        <Button
+          type="button"
+          variant={runningAction === "fetch" ? "secondary" : "outline"}
+          disabled={disabled}
+          onClick={() => onRunAction("fetch")}
+          className="min-w-24"
+        >
+          {runningAction === "fetch" ? <Loader2 className="animate-spin" /> : <Download />}
+          Fetch
+        </Button>
+        <Button
+          type="button"
+          variant={runningAction === "pull" ? "secondary" : "outline"}
+          disabled={disabled}
+          onClick={() => onRunAction("pull")}
+          className="min-w-24"
+        >
+          {runningAction === "pull" ? <Loader2 className="animate-spin" /> : <Download />}
+          {pullLabel}
+        </Button>
+        <Button
+          type="button"
+          variant={runningAction === "push" ? "secondary" : "outline"}
+          disabled={disabled}
+          onClick={() => onRunAction("push")}
+          className="min-w-24"
+        >
+          {runningAction === "push" ? <Loader2 className="animate-spin" /> : <Upload />}
+          {pushLabel}
+        </Button>
       </div>
     </header>
   );

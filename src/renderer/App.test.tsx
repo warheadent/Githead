@@ -1636,6 +1636,73 @@ describe("App", () => {
     expect(screen.queryByRole("button", { name: /^Pull \(0\)$/ })).toBeNull();
   });
 
+  it("orders repository actions before Fetch, Pull, and Push", async () => {
+    render(<App />);
+
+    const actionsGroup = await screen.findByRole("group", { name: "Git actions" });
+    const buttons = within(actionsGroup).getAllByRole("button");
+
+    expect(buttons.map((button) => button.textContent?.trim())).toEqual([
+      "Actions",
+      "Fetch",
+      "Pull",
+      "Push"
+    ]);
+    expect(buttons[0]?.getAttribute("aria-label")).toBe("Repository actions");
+  });
+
+  it("shows upstream commits ready to push in the Push action", async () => {
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      statusLines: [
+        "# branch.ab +2 -0"
+      ]
+    }));
+
+    render(<App />);
+
+    const actionsGroup = await screen.findByRole("group", { name: "Git actions" });
+
+    expect(within(actionsGroup).getByRole("button", { name: /^Push \(2\)$/ })).toBeTruthy();
+  });
+
+  it("does not show a zero count in the Push action", async () => {
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      statusLines: [
+        "# branch.ab +0 -0"
+      ]
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByRole("button", { name: /^Push$/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Push \(0\)$/ })).toBeNull();
+  });
+
+  it("runs Push from the sync toolbar", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.runGitAction).mockResolvedValue({
+      runId: "run-push",
+      action: "push",
+      repoPath,
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+      startedAt: new Date().toISOString(),
+      endedAt: new Date().toISOString()
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: /^Push$/ }));
+
+    await waitFor(() => {
+      expect(githead.runGitAction).toHaveBeenCalledWith({
+        repoPath,
+        action: "push"
+      });
+    });
+  });
+
   it("disables repository actions without a .githead folder", async () => {
     render(<App />);
 
