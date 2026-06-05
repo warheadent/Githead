@@ -1,6 +1,6 @@
 # Githead
 
-A lightweight Windows desktop GUI, built with Electron and React.
+A lightweight desktop GUI, built with Electron and React.
 
 ## Why it was built
 
@@ -27,6 +27,8 @@ This is early development, and only tested on a handful of git repositories. Thi
 - [Tailwind CSS](https://tailwindcss.com/) + [Radix UI](https://www.radix-ui.com/) + [lucide-react](https://lucide.dev/) — styling and components
 - [Vitest](https://vitest.dev/) + Testing Library — tests
 - [electron-builder](https://www.electron.build/) — Windows (NSIS) packaging
+
+Linux packaging is configured for AppImage and `.deb` outputs.
 
 ## Getting started
 
@@ -55,14 +57,25 @@ This builds the Electron main process, starts the Vite dev server, and launches 
 npm run build
 ```
 
-### Package a Windows installer
+### Package desktop builds
 
 ```sh
 npm run package:win        # full NSIS installer
 npm run package:win:dir    # unpacked directory (faster, for testing)
+npm run package:linux      # AppImage and .deb for x64 Linux
+npm run package:linux:dir  # unpacked Linux directory (faster, for testing)
 ```
 
 Output is written to the `release/` directory.
+
+Linux AppImage builds can be made executable and run directly:
+
+```sh
+chmod +x release/Githead-<version>-x86_64.AppImage
+./release/Githead-<version>-x86_64.AppImage
+```
+
+In-app updates are available for packaged Windows builds and Linux AppImage builds when release metadata is published. Linux `.deb` installs do not use the in-app updater; install newer `.deb` releases manually unless a package repository is added later.
 
 ### Bump the release version
 
