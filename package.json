@@ -4,6 +4,14 @@
   "description": "A lightweight Windows desktop GUI for common git sync commands.",
   "main": "dist/main/main/main.js",
   "private": true,
+  "homepage": "https://github.com/warheadent/Githead#readme",
+  "bugs": {
+    "url": "https://github.com/warheadent/Githead/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/warheadent/Githead.git"
+  },
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build:main": "tsc -p tsconfig.electron.json",
