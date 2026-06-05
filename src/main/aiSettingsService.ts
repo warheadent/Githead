@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import type { AiSettings, AiSettingsSaveRequest } from "../shared/types";
 
 export const DEFAULT_OPENROUTER_MODEL = "openai/gpt-4.1-mini";
@@ -8,6 +9,7 @@ interface StoredAiSettings {
   model?: string;
   siteUrl?: string;
   siteTitle?: string;
+  commitMessagePrompt?: string;
   encryptedApiKey?: string;
 }
 
@@ -33,8 +35,7 @@ export class AiSettingsService {
     return {
       hasApiKey: Boolean(stored.encryptedApiKey),
       model: sanitizeSetting(stored.model) || DEFAULT_OPENROUTER_MODEL,
-      siteUrl: sanitizeSetting(stored.siteUrl),
-      siteTitle: sanitizeSetting(stored.siteTitle) || "Githead"
+      commitMessagePrompt: sanitizePrompt(stored.commitMessagePrompt) || DEFAULT_COMMIT_MESSAGE_PROMPT
     };
   }
 
@@ -42,6 +43,11 @@ export class AiSettingsService {
     const model = sanitizeSetting(request.model);
     if (!model) {
       throw new Error("Enter an OpenRouter model.");
+    }
+
+    const commitMessagePrompt = sanitizePrompt(request.commitMessagePrompt);
+    if (!commitMessagePrompt) {
+      throw new Error("Enter a commit message prompt.");
     }
 
     const existing = await this.readStoredSettings();
@@ -62,8 +68,7 @@ export class AiSettingsService {
 
     const stored: StoredAiSettings = {
       model,
-      siteUrl: sanitizeSetting(request.siteUrl),
-      siteTitle: sanitizeSetting(request.siteTitle) || "Githead",
+      commitMessagePrompt,
       ...(encryptedApiKey ? { encryptedApiKey } : {})
     };
 
@@ -105,6 +110,10 @@ export class AiSettingsService {
 }
 
 function sanitizeSetting(value: string | undefined): string {
+  return value?.trim() ?? "";
+}
+
+function sanitizePrompt(value: string | undefined): string {
   return value?.trim() ?? "";
 }
 

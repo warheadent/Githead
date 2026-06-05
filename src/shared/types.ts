@@ -332,16 +332,14 @@ export interface GitUpstreamRequest {
 export interface AiSettings {
   hasApiKey: boolean;
   model: string;
-  siteUrl: string;
-  siteTitle: string;
+  commitMessagePrompt: string;
 }
 
 export interface AiSettingsSaveRequest {
   apiKey?: string;
   clearApiKey?: boolean;
   model: string;
-  siteUrl: string;
-  siteTitle: string;
+  commitMessagePrompt: string;
 }
 
 export interface GenerateCommitMessageRequest {

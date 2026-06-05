@@ -92,6 +92,7 @@ import {
   TooltipProvider,
   TooltipTrigger
 } from "@/components/ui/tooltip";
+import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import type {
   AiSettings,
   AppUpdateState,
@@ -145,8 +146,7 @@ interface FileSelectionModifiers {
 interface SettingsDraft {
   apiKey: string;
   model: string;
-  siteUrl: string;
-  siteTitle: string;
+  commitMessagePrompt: string;
 }
 
 interface RepositoryActionDraft extends GitConfiguredAction {
@@ -291,8 +291,7 @@ interface RequestIds {
 const emptySettingsDraft: SettingsDraft = {
   apiKey: "",
   model: "",
-  siteUrl: "",
-  siteTitle: "Githead"
+  commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT
 };
 
 const emptyActionManager: RepositoryActionManagerState = {
@@ -2105,8 +2104,7 @@ export function App(): ReactNode {
       settingsDraft: {
         apiKey: "",
         model: settings?.model ?? "",
-        siteUrl: settings?.siteUrl ?? "",
-        siteTitle: settings?.siteTitle ?? "Githead"
+        commitMessagePrompt: settings?.commitMessagePrompt ?? DEFAULT_COMMIT_MESSAGE_PROMPT
       }
     });
   }, [updateState]);
@@ -2137,8 +2135,7 @@ export function App(): ReactNode {
       const aiSettings = await window.githead.saveAiSettings({
         apiKey: draft.apiKey,
         model: draft.model,
-        siteUrl: draft.siteUrl,
-        siteTitle: draft.siteTitle
+        commitMessagePrompt: draft.commitMessagePrompt
       });
       updateState({
         aiSettings,
@@ -6358,32 +6355,15 @@ function SettingsDialog({
             />
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="openrouter-site-url">Site URL</Label>
-            <Input
-              id="openrouter-site-url"
-              type="url"
-              autoComplete="off"
-              placeholder="Optional"
-              value={draft.siteUrl}
+            <Label htmlFor="openrouter-commit-message-prompt">Commit Message Prompt</Label>
+            <Textarea
+              id="openrouter-commit-message-prompt"
+              rows={8}
+              value={draft.commitMessagePrompt}
               disabled={saving}
               onChange={(event) => onDraftChange({
                 ...draft,
-                siteUrl: event.target.value
-              })}
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="openrouter-site-title">Site Title</Label>
-            <Input
-              id="openrouter-site-title"
-              type="text"
-              autoComplete="off"
-              placeholder="Githead"
-              value={draft.siteTitle}
-              disabled={saving}
-              onChange={(event) => onDraftChange({
-                ...draft,
-                siteTitle: event.target.value
+                commitMessagePrompt: event.target.value
               })}
             />
           </div>
@@ -7135,7 +7115,7 @@ function canGenerateCommitMessage(state: AppState): boolean {
 }
 
 function hasCompleteAiSettings(aiSettings: AiSettings | null): boolean {
-  return Boolean(aiSettings?.hasApiKey && aiSettings.model.trim());
+  return Boolean(aiSettings?.hasApiKey && aiSettings.model.trim() && aiSettings.commitMessagePrompt.trim());
 }
 
 function getGenerateMessageTitle(state: AppState): string {

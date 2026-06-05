@@ -1,9 +1,12 @@
 import type { GitOperationResult, GenerateCommitMessageRequest } from "../shared/types";
+import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import type { AiSettingsService } from "./aiSettingsService";
 import type { GitService } from "./gitService";
 
 const OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions";
 const OPENROUTER_PREFERRED_SERVICE_TIER = "flex";
+const OPENROUTER_SITE_URL = "https://github.com/warheadent/Githead#readme";
+const OPENROUTER_SITE_TITLE = "Githead";
 const MAX_DIFF_CHARS = 60_000;
 
 type Fetch = typeof fetch;
@@ -56,7 +59,7 @@ export class CommitMessageService {
 
       const response = await this.fetchImpl(OPENROUTER_CHAT_COMPLETIONS_URL, {
         method: "POST",
-        headers: createHeaders(apiKey, settings.siteUrl, settings.siteTitle),
+        headers: createHeaders(apiKey),
         body: JSON.stringify({
           model: settings.model,
           service_tier: OPENROUTER_PREFERRED_SERVICE_TIER,
@@ -76,7 +79,7 @@ export class CommitMessageService {
             },
             {
               role: "user",
-              content: createPrompt(diff)
+              content: createPrompt(settings.commitMessagePrompt, diff)
             }
           ],
           temperature: 0.2,
@@ -112,28 +115,22 @@ export class CommitMessageService {
   }
 }
 
-function createHeaders(apiKey: string, siteUrl: string, siteTitle: string): Record<string, string> {
+function createHeaders(apiKey: string): Record<string, string> {
   return {
     "Authorization": `Bearer ${apiKey}`,
     "Content-Type": "application/json",
-    ...(siteUrl ? { "HTTP-Referer": siteUrl } : {}),
-    ...(siteTitle ? { "X-Title": siteTitle } : {})
+    "HTTP-Referer": OPENROUTER_SITE_URL,
+    "X-Title": OPENROUTER_SITE_TITLE
   };
 }
 
-function createPrompt(diff: string): string {
+function createPrompt(commitMessagePrompt: string, diff: string): string {
   const truncated = diff.length > MAX_DIFF_CHARS;
   const promptDiff = truncated ? diff.slice(0, MAX_DIFF_CHARS) : diff;
+  const instructions = commitMessagePrompt.trim() || DEFAULT_COMMIT_MESSAGE_PROMPT;
 
   return [
-    "Write a Git commit message for this staged diff.",
-    "Use Conventional Commits style, such as type(scope): subject.",
-    "Make the scope the primary module touched when one is clear.",
-    "Make the subject concise and describe what changed, was added, or was removed.",
-    "Add body details only when they clarify important changed behavior.",
-    "When adding body details, use '-' bullet points.",
-    "Keep every subject and bullet on one line; do not insert predictive word wrapping.",
-    "Output only the commit message, with no explanation before or after it.",
+    instructions,
     truncated ? "The diff was truncated; summarize only the visible staged changes." : "",
     "",
     "Staged diff:",

@@ -17,6 +17,7 @@ vi.mock("@/components/ui/resizable", () => ({
 }));
 
 import { App } from "./App";
+import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import type {
   AiSettings,
   AppUpdateState,
@@ -2871,6 +2872,44 @@ describe("App", () => {
     expect(await screen.findByText("Unable to set upstream.")).toBeTruthy();
     expect(screen.getByRole("radio", { name: /origin\/feature/ })).toBeTruthy();
   });
+
+  it("saves OpenRouter settings with a commit message prompt instead of site attribution fields", async () => {
+    const user = userEvent.setup();
+    const savedSettings: AiSettings = {
+      hasApiKey: true,
+      model: "openrouter/auto",
+      commitMessagePrompt: "Write concise commit messages."
+    };
+    vi.mocked(githead.getAiSettings).mockResolvedValue(savedSettings);
+    vi.mocked(githead.saveAiSettings).mockResolvedValue(savedSettings);
+
+    render(<App />);
+
+    await screen.findByRole("button", { name: "Settings" });
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+
+    expect(screen.queryByLabelText("Site URL")).toBeNull();
+    expect(screen.queryByLabelText("Site Title")).toBeNull();
+
+    const prompt = await screen.findByLabelText("Commit Message Prompt");
+    expect(prompt).toBeTruthy();
+
+    await user.clear(screen.getByLabelText("API Key"));
+    await user.type(screen.getByLabelText("API Key"), "sk-or-key");
+    await user.clear(screen.getByLabelText("Model"));
+    await user.type(screen.getByLabelText("Model"), "openrouter/auto");
+    await user.clear(prompt);
+    await user.type(prompt, "Write a single-line commit message.");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(githead.saveAiSettings).toHaveBeenCalledWith({
+        apiKey: "sk-or-key",
+        model: "openrouter/auto",
+        commitMessagePrompt: "Write a single-line commit message."
+      });
+    });
+  });
 });
 
 function createGitheadMock(): GitheadApi {
@@ -2883,8 +2922,7 @@ function createGitheadMock(): GitheadApi {
   const aiSettings: AiSettings = {
     hasApiKey: true,
     model: "openai/gpt-5-mini",
-    siteUrl: "",
-    siteTitle: "Githead"
+    commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT
   };
 
   return {

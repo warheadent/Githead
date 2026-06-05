@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import type { AiSettings } from "../shared/types";
 import { CommitMessageService } from "./commitMessageService";
 import type { AiSettingsService } from "./aiSettingsService";
@@ -40,8 +41,10 @@ interface FetchCall {
 const settings: AiSettings = {
   hasApiKey: true,
   model: "openrouter/auto",
-  siteUrl: "https://githead.test",
-  siteTitle: "Githead"
+  commitMessagePrompt: [
+    "Write a project-specific Git commit message.",
+    "Prefer Conventional Commits."
+  ].join("\n")
 };
 
 function createFetch(
@@ -116,7 +119,7 @@ describe("CommitMessageService", () => {
     expect(calls[0]?.init?.headers).toMatchObject({
       "Authorization": "Bearer sk-or-key",
       "Content-Type": "application/json",
-      "HTTP-Referer": "https://githead.test",
+      "HTTP-Referer": "https://github.com/warheadent/Githead#readme",
       "X-Title": "Githead"
     });
 
@@ -133,11 +136,38 @@ describe("CommitMessageService", () => {
     expect(body.messages[0]?.content).toContain("Describe the primary module touched");
     expect(body.messages[0]?.content).toContain("Use bullet points for body details");
     expect(body.messages[0]?.content).toContain("Do not predictively word-wrap lines");
-    expect(body.messages.at(-1)?.content).toContain("Use Conventional Commits style");
-    expect(body.messages.at(-1)?.content).toContain("Make the scope the primary module touched");
-    expect(body.messages.at(-1)?.content).toContain("use '-' bullet points");
-    expect(body.messages.at(-1)?.content).toContain("do not insert predictive word wrapping");
-    expect(body.messages.at(-1)?.content).toContain("Output only the commit message");
+    expect(body.messages.at(-1)?.content).toContain("Write a project-specific Git commit message.");
+    expect(body.messages.at(-1)?.content).toContain("Prefer Conventional Commits.");
+    expect(body.messages.at(-1)?.content).toContain("Staged diff:");
+  });
+
+  it("uses the default prompt when saved prompt settings are blank", async () => {
+    const fetchState = createFetch({
+      choices: [
+        {
+          message: {
+            content: "fix: normalize defaults"
+          }
+        }
+      ]
+    });
+    const service = new CommitMessageService(
+      new FakeGitService("diff --git a/a.ts b/a.ts\n+added\n") as unknown as GitService,
+      new FakeAiSettingsService({
+        ...settings,
+        commitMessagePrompt: ""
+      }, "sk-or-key") as unknown as AiSettingsService,
+      fetchState.fetch
+    );
+
+    await service.generateCommitMessage({
+      repoPath: "D:\\Repo"
+    });
+
+    const body = JSON.parse(String(fetchState.calls[0]?.init?.body)) as {
+      messages: Array<{ content: string }>;
+    };
+    expect(body.messages.at(-1)?.content).toContain(DEFAULT_COMMIT_MESSAGE_PROMPT);
   });
 
   it("caps large staged diffs before sending them to OpenRouter", async () => {

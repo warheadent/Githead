@@ -94,9 +94,9 @@ Commit message generation uses the OpenRouter Chat Completions API. Open **Setti
 
 - an **OpenRouter API key**
 - a **model** (e.g. an OpenRouter model slug)
-- optional **site URL** and **site title** (sent as OpenRouter attribution headers)
+- a **commit message prompt** used to guide generated messages
 
-The API key is stored by the app; the staged diff is sent to OpenRouter to produce a suggested message.
+The API key is stored by the app; the configured prompt and staged diff are sent to OpenRouter to produce a suggested message.
 
 ### GitHub access
 
