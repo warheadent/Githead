@@ -6,6 +6,8 @@ A lightweight Windows desktop GUI, built with Electron and React.
 
 Our team needed a faster GUI for working with Git on game development projects. Our preferred tooling at the time was [SourceTree](https://www.sourcetreeapp.com/) but it's featureset and performance has fallen behind in recent years. This project is our attempt to make a Git GUI client that focuses in on what we actually need an interface for, and adds in some other tools to reduce constant context switching.
 
+This is early development, and only tested on a handful of git repositories. This has not been tested on repositories that make use of worktrees, or submodules, or git hooks. This is purpose-built software that will be expanded over time as we get bored and have additional needs, but do not moke any guarantees of data integrity for all workloads.
+
 ## Features
 
 - **Repository workspace** — pick a local Git repository and switch quickly between recently opened ones. The active repository's branch, upstream, and remotes are always in view.
