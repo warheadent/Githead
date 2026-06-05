@@ -67,6 +67,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
@@ -6619,25 +6621,68 @@ function RepositoryActionFileSection({
               </div>
               <div className="grid gap-2">
                 <Label htmlFor={`${target}-action-${action.id}-shell`}>Shell</Label>
-                <select
+                <ActionShellSelect
                   id={`${target}-action-${action.id}-shell`}
                   value={action.shell}
                   disabled={disabled}
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
-                  onChange={(event) => onDraftChange(target, index, {
-                    shell: event.target.value as GitConfiguredAction["shell"]
+                  onValueChange={(shell) => onDraftChange(target, index, {
+                    shell
                   })}
-                >
-                  {GIT_CONFIGURED_ACTION_SHELLS.map((shell) => (
-                    <option key={shell} value={shell}>{shell}</option>
-                  ))}
-                </select>
+                />
               </div>
             </div>
           );
         })}
       </div>
     </section>
+  );
+}
+
+function ActionShellSelect({
+  id,
+  value,
+  disabled,
+  onValueChange
+}: {
+  id: string;
+  value: GitConfiguredAction["shell"];
+  disabled: boolean;
+  onValueChange: (shell: GitConfiguredAction["shell"]) => void;
+}): ReactNode {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          id={id}
+          type="button"
+          variant="outline"
+          disabled={disabled}
+          className="h-9 w-full justify-between px-3 font-normal"
+        >
+          <span>{value}</span>
+          <ChevronDown />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        className="w-[var(--radix-dropdown-menu-trigger-width)]"
+      >
+        <DropdownMenuRadioGroup
+          value={value}
+          onValueChange={(nextValue) => {
+            if (isRepositoryActionShell(nextValue)) {
+              onValueChange(nextValue);
+            }
+          }}
+        >
+          {GIT_CONFIGURED_ACTION_SHELLS.map((shell) => (
+            <DropdownMenuRadioItem key={shell} value={shell}>
+              {shell}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -6721,6 +6766,10 @@ function validateRepositoryActionDrafts(
   }
 
   return "";
+}
+
+function isRepositoryActionShell(value: string): value is GitConfiguredAction["shell"] {
+  return GIT_CONFIGURED_ACTION_SHELLS.includes(value as GitConfiguredAction["shell"]);
 }
 
 function getActionFileLabel(target: GitConfiguredActionFile): string {
