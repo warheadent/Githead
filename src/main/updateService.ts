@@ -50,6 +50,7 @@ export interface AppUpdateServiceOptions {
   pollIntervalMs?: number;
   resourcesPath?: string;
   platform?: NodeJS.Platform;
+  appImagePath?: string | undefined;
   disabledByEnv?: boolean;
   clock?: () => Date;
 }
@@ -62,6 +63,7 @@ export class AppUpdateService {
   private readonly pollIntervalMs: number;
   private readonly resourcesPath: string;
   private readonly platform: NodeJS.Platform;
+  private readonly appImagePath: string | undefined;
   private readonly disabledByEnv: boolean;
   private readonly clock: () => Date;
   private state: AppUpdateState;
@@ -80,6 +82,7 @@ export class AppUpdateService {
     this.pollIntervalMs = options.pollIntervalMs ?? UPDATE_POLL_INTERVAL_MS;
     this.resourcesPath = options.resourcesPath ?? getElectronResourcesPath();
     this.platform = options.platform ?? process.platform;
+    this.appImagePath = "appImagePath" in options ? options.appImagePath : process.env.APPIMAGE;
     this.disabledByEnv = options.disabledByEnv ?? process.env.GITHEAD_DISABLE_AUTO_UPDATE === "1";
     this.clock = options.clock ?? (() => new Date());
     this.state = createInitialAppUpdateState(this.runtime.getVersion());
@@ -223,16 +226,20 @@ export class AppUpdateService {
   }
 
   private async getDisabledReason(): Promise<string | null> {
-    if (this.platform !== "win32") {
-      return "Automatic updates are only available for Windows builds.";
-    }
-
     if (!this.runtime.isPackaged) {
       return "Automatic updates are only available in packaged production builds.";
     }
 
     if (this.disabledByEnv) {
       return "Automatic updates are disabled by GITHEAD_DISABLE_AUTO_UPDATE.";
+    }
+
+    if (this.platform === "linux" && !this.appImagePath) {
+      return "Automatic updates are only available for Linux AppImage builds.";
+    }
+
+    if (this.platform !== "win32" && this.platform !== "linux") {
+      return "Automatic updates are only available for Windows and Linux AppImage builds.";
     }
 
     if (!(await hasUpdateFeedConfig(this.resourcesPath))) {

@@ -28,6 +28,11 @@ interface ServiceFixture {
   send: ReturnType<typeof vi.fn>;
 }
 
+interface ServiceFixtureOptions {
+  appImagePath?: string;
+  platform?: NodeJS.Platform;
+}
+
 async function withTempDir<T>(callback: (dir: string) => Promise<T>): Promise<T> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "githead-updater-test-"));
 
@@ -41,7 +46,10 @@ async function withTempDir<T>(callback: (dir: string) => Promise<T>): Promise<T>
   }
 }
 
-async function createServiceFixture(resourcesPath: string): Promise<ServiceFixture> {
+async function createServiceFixture(
+  resourcesPath: string,
+  options: ServiceFixtureOptions = {}
+): Promise<ServiceFixture> {
   await fs.writeFile(path.join(resourcesPath, "app-update.yml"), "provider: github\n", "utf8");
   const updater = new FakeUpdater();
   const send = vi.fn();
@@ -58,7 +66,8 @@ async function createServiceFixture(resourcesPath: string): Promise<ServiceFixtu
     updater,
     getWindows: () => [window],
     resourcesPath,
-    platform: "win32",
+    platform: options.platform ?? "win32",
+    appImagePath: options.appImagePath,
     startupDelayMs: 60_000,
     pollIntervalMs: 60_000,
     clock: () => new Date("2026-05-31T10:00:00Z")
@@ -97,9 +106,79 @@ describe("AppUpdateService", () => {
     });
   });
 
+  it("stays disabled for packaged Linux builds that are not AppImages", async () => {
+    await withTempDir(async (dir) => {
+      await fs.writeFile(path.join(dir, "app-update.yml"), "provider: github\n", "utf8");
+      const updater = new FakeUpdater();
+      const service = new AppUpdateService({
+        runtime: {
+          getVersion: () => "0.1.0",
+          isPackaged: true
+        },
+        updater,
+        getWindows: () => [],
+        resourcesPath: dir,
+        platform: "linux"
+      });
+
+      await expect(service.configure()).resolves.toMatchObject({
+        enabled: false,
+        status: "disabled",
+        message: "Automatic updates are only available for Linux AppImage builds."
+      });
+      expect(updater.checkForUpdates).not.toHaveBeenCalled();
+      service.stop();
+    });
+  });
+
+  it("stays disabled for unsupported packaged platforms", async () => {
+    await withTempDir(async (dir) => {
+      await fs.writeFile(path.join(dir, "app-update.yml"), "provider: github\n", "utf8");
+      const updater = new FakeUpdater();
+      const service = new AppUpdateService({
+        runtime: {
+          getVersion: () => "0.1.0",
+          isPackaged: true
+        },
+        updater,
+        getWindows: () => [],
+        resourcesPath: dir,
+        platform: "darwin"
+      });
+
+      await expect(service.configure()).resolves.toMatchObject({
+        enabled: false,
+        status: "disabled",
+        message: "Automatic updates are only available for Windows and Linux AppImage builds."
+      });
+      expect(updater.checkForUpdates).not.toHaveBeenCalled();
+      service.stop();
+    });
+  });
+
   it("configures manual update behavior and emits initial state", async () => {
     await withTempDir(async (dir) => {
       const { service, updater, send } = await createServiceFixture(dir);
+
+      expect(updater.autoDownload).toBe(false);
+      expect(updater.autoInstallOnAppQuit).toBe(false);
+      expect(updater.allowPrerelease).toBe(false);
+      expect(service.getState()).toMatchObject({
+        enabled: true,
+        status: "idle",
+        currentVersion: "0.1.0"
+      });
+      expect(send).toHaveBeenCalledWith(IPC_CHANNELS.updateState, service.getState());
+      service.stop();
+    });
+  });
+
+  it("configures manual update behavior for Linux AppImage builds", async () => {
+    await withTempDir(async (dir) => {
+      const { service, updater, send } = await createServiceFixture(dir, {
+        appImagePath: "/tmp/Githead.AppImage",
+        platform: "linux"
+      });
 
       expect(updater.autoDownload).toBe(false);
       expect(updater.autoInstallOnAppQuit).toBe(false);
