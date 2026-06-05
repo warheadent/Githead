@@ -27,11 +27,24 @@ electron-debug.*.log
 .env.*
 !.env.example
 
+# Local Githead repository action overrides
+.githead/actions.local.toml
+
+# Local keys and certificates
+*.pem
+*.key
+*.p12
+
 # Editor and OS files
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
+
+# Local package-manager/tool caches
+.npm/
+.pnpm-store/
+.yarn/
 
 # Local agent/tool workspaces
 .agents/
