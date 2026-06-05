@@ -3,7 +3,7 @@ import { appendFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
-const DEFAULT_MODEL = "anthropic/claude-sonnet-4.5";
+const DEFAULT_MODEL = "anthropic/claude-sonnet-4.6";
 const MAX_COMMITS_CHARS = 40_000;
 const MAX_STAT_CHARS = 20_000;
 const MAX_DIFF_CHARS = 120_000;
