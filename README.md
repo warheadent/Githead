@@ -1,8 +1,10 @@
 # Githead
 
-A lightweight Windows desktop GUI for common Git sync commands, built with Electron and React.
+A lightweight Windows desktop GUI, built with Electron and React.
 
-Githead operates on **one selected local repository at a time**. It gives you a focused view of your working tree, branch state, and remote sync status — plus read-only GitHub insight (workflow runs, pull requests, issues) when the repository's `origin` points to GitHub.
+## Why it was built
+
+Our team needed a faster GUI for working with Git on game development projects. Our preferred tooling at the time was [SourceTree](https://www.sourcetreeapp.com/) but it's featureset and performance has fallen behind in recent years. This project is our attempt to make a Git GUI client that focuses in on what we actually need an interface for, and adds in some other tools to reduce constant context switching.
 
 ## Features
 
@@ -12,10 +14,8 @@ Githead operates on **one selected local repository at a time**. It gives you a 
 - **Committing** — write a commit message and commit staged changes. Optionally **generate a commit message** from the staged diff using an LLM (via [OpenRouter](https://openrouter.ai/)).
 - **Commit history** — browse the commit graph, inspect commit details, and view file-level diffs for any commit.
 - **Branches** — view branches, switch the current branch, and create new branches.
-- **File actions** — open a file, reveal it in Explorer, copy its path, revert changes, delete it, or add it to `.gitignore`.
 - **GitHub insight** — when `origin` is a GitHub remote, view recent **Workflow Runs**, open **Pull Requests**, and open **Issues**.
 - **Live updates** — the repository is watched on disk, so the UI refreshes automatically when files change.
-- **Auto-update** — the packaged app checks GitHub releases and can download and install updates.
 
 ## Tech stack
 
@@ -71,7 +71,7 @@ npm run version:minor
 npm run version:major
 ```
 
-The version helper runs `npm version` without npm's automatic git tag behavior, type-checks the project, commits only `package.json` and `package-lock.json`, and creates a matching `v<version>` tag. It does not push automatically; use the app's Push action to push the commit and local tags. The GitHub release workflow starts when the `v*.*.*` tag is pushed.
+The version helper runs `npm version` without npm's automatic git tag behavior, type-checks the project, commits only `package.json` and `package-lock.json`, and creates a matching `v<version>` tag. It does not push automatically.
 
 ## Configuration
 
@@ -100,7 +100,15 @@ The API key is stored by the app; the staged diff is sent to OpenRouter to produ
 
 ### GitHub access
 
-The Workflow Runs, Pull Requests, and Issues tabs query the public GitHub REST API for the repository behind `origin`. Public repositories work without any setup. For private repositories (or to raise rate limits), authenticate with the GitHub CLI (`gh auth login`) or set a `GITHUB_TOKEN` / `GH_TOKEN` environment variable, then refresh.
+The Workflow Runs, Pull Requests, and Issues tabs query the public GitHub REST API for the repository behind `origin`. Public repositories work without any setup. For private repositories, authenticate with the GitHub CLI (`gh auth login`) or set a `GITHUB_TOKEN` / `GH_TOKEN` environment variable, then refresh.
+
+## Privacy and data flow
+
+- Githead runs Git commands locally against repositories selected by the user.
+- Repository paths, branch names, remotes, diffs, commit messages, and command output can contain sensitive information. Review logs before sharing them publicly.
+- GitHub insight calls the GitHub REST API for the repository behind `origin`. If the GitHub CLI is authenticated or `GITHUB_TOKEN` / `GH_TOKEN` is set, Githead may use that authentication for private repositories or higher rate limits.
+- AI commit message generation is optional. When used, Githead sends the staged diff to OpenRouter and receives a suggested commit message.
+- OpenRouter API keys are stored locally by the app and encrypted when the operating system provides encryption support.
 
 ## Project layout
 
@@ -116,15 +124,8 @@ scripts/      dev and packaging scripts
 
 ## Development
 
-Useful checks:
-
-```sh
-npm run typecheck   # type-check renderer, electron, and test configs
-npm test            # run the Vitest suite
-```
-
-> **Note:** Do not visually verify the renderer by opening the Vite URL directly in a browser. The UI depends on Electron preload APIs (`window.githead`) and will render a blank page outside the Electron shell. Verify through the Electron app, or rely on `npm test`, `npm run typecheck`, and `npm run build`.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, verification, and pull request guidance.
 
 ## License
 
-MIT
+[MIT](LICENSE)
