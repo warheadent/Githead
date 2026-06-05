@@ -1301,10 +1301,26 @@
   font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
 }
 
+.commit-details-panel {
+  --commit-meta-max-height: clamp(132px, 36vh, 260px);
+  --commit-files-min-height: 128px;
+  grid-template-rows: minmax(0, var(--commit-meta-max-height)) auto minmax(var(--commit-files-min-height), 1fr);
+}
+
+.commit-meta-scroll {
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.commit-file-list-header {
+  min-width: 0;
+}
+
 .commit-meta-card {
   display: grid;
-  gap: 12px;
-  padding: 16px;
+  gap: 10px;
+  padding: 14px 16px;
 }
 
 .commit-title {
@@ -1350,7 +1366,7 @@
 }
 
 .commit-body {
-  line-height: 1.45;
+  line-height: 1.38;
 }
 
 .commit-body > * {
@@ -1358,13 +1374,13 @@
 }
 
 .commit-body > * + * {
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 .commit-body ul,
 .commit-body ol {
   display: grid;
-  gap: 4px;
+  gap: 2px;
   margin-left: 0;
   padding-left: 1.4rem;
 }

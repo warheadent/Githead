@@ -216,6 +216,45 @@ describe("App", () => {
     expect(link.getAttribute("rel")).toBe("noreferrer");
   });
 
+  it("keeps changed files separate from long commit body scrolling", async () => {
+    const user = userEvent.setup();
+    const commit = createCommit({
+      hash: "d".repeat(40),
+      shortHash: "ddddddd",
+      subject: "feat(ui): keep commit details bounded"
+    });
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash, {
+      body: Array.from({ length: 18 }, (_, index) => `- Commit body bullet ${index + 1}`).join("\n"),
+      files: [
+        { path: "src/renderer/App.tsx", status: "modified", additions: 12, deletions: 4 },
+        { path: "src/renderer/styles.css", status: "modified", additions: 8, deletions: 1 },
+        { path: "src/renderer/App.test.tsx", status: "modified", additions: 16, deletions: 0 },
+        { path: "README.md", status: "modified", additions: 1, deletions: 0 }
+      ]
+    }));
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+
+    const firstBullet = await screen.findByText("Commit body bullet 1");
+    const metaScroller = firstBullet.closest(".commit-meta-scroll");
+    expect(metaScroller).toBeTruthy();
+    expect(metaScroller?.querySelector(".commit-file-list-header")).toBeNull();
+
+    const fileList = screen.getByRole("listbox", { name: "Changed files" });
+    expect(fileList.className).toContain("commit-file-list");
+    expect(within(fileList).getByRole("option", { name: /src\/renderer\/App\.tsx/ })).toBeTruthy();
+    expect(within(fileList).getAllByRole("option")).toHaveLength(4);
+
+    const fileHeader = screen.getByText("4 files").closest(".commit-file-list-header");
+    expect(fileHeader).toBeTruthy();
+    expect(fileHeader?.contains(fileList)).toBe(false);
+    expect(fileHeader?.closest(".commit-meta-scroll")).toBeNull();
+  });
+
   it("loads parent commit details when a parent hash is clicked", async () => {
     const user = userEvent.setup();
     const commitHash = "c".repeat(40);

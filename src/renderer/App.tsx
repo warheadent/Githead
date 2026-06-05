@@ -5526,9 +5526,9 @@ function CommitDetailsPanel({
   }
 
   return (
-    <section className="grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] border-r bg-card" aria-label="Commit details">
-      <div className="min-h-0 overflow-auto border-b">{meta}</div>
-      <div className="flex min-h-10 items-center justify-between gap-3 border-b px-4 text-sm">
+    <section className="commit-details-panel grid h-full min-h-0 border-r bg-card" aria-label="Commit details">
+      <div className="commit-meta-scroll border-b">{meta}</div>
+      <div className="commit-file-list-header flex min-h-10 items-center justify-between gap-3 border-b px-4 text-sm">
         <span className="text-muted-foreground">{fileCount}</span>
         <span className="text-muted-foreground">Sorted by file status</span>
       </div>
