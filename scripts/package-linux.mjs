@@ -1,3 +1,3 @@
 import { runElectronBuilder } from "./package-builder.mjs";
 
-runElectronBuilder(["--win"]);
+runElectronBuilder(["--linux", "--x64"]);
