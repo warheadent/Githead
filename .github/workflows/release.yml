@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -44,9 +46,18 @@ jobs:
       - name: Package Windows installer
         run: node scripts/package-win.mjs --publish never
 
+      - name: Generate release summary
+        id: release_summary
+        shell: pwsh
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: anthropic/claude-sonnet-4.5
+        run: node scripts/summarize-release.mjs
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          body: ${{ steps.release_summary.outputs.body }}
           files: |
             release/*.exe
             release/latest.yml
