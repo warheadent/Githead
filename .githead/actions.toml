@@ -1,4 +1,9 @@
 [[actions]]
+name = "Package Windows (unpacked)"
+command = "npm run package:win:dir"
+shell = "powershell"
+
+[[actions]]
 name = "Typecheck"
 command = "npm run typecheck"
 shell = "powershell"
