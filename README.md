@@ -30,6 +30,7 @@ This is early development, and only tested on a handful of git repositories. Thi
 - Submodule interaction not working as expected
 - Github integration is extremely basic (needs filtering, more intelligent linking with PRs/Issues in commits)
 - AI Commit Message defaults could be better tuned to reduce on noise
+- Can't stage/unstage individual lines, yet
 
 ## Tech stack
 
