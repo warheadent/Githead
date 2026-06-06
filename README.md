@@ -19,6 +19,18 @@ This is early development, and only tested on a handful of git repositories. Thi
 - **GitHub insight** — when `origin` is a GitHub remote, view recent **Workflow Runs**, open **Pull Requests**, and open **Issues**.
 - **Live updates** — the repository is watched on disk, so the UI refreshes automatically when files change.
 
+## Current Gaps
+
+- Can't set remote, or multiple remotes
+- Doesn't handle local being ahead of remote at all
+- Console log sucks (doesn't support colors, for one)
+- Some cursed layout sizing issues on smaller screens or extreme circumstances (huge commit messages)
+- Some UI/UX oddities that are "good enough functionally" but not great
+- Need to support a lot of different settings and configurations
+- Submodule interaction not working as expected
+- Github integration is extremely basic (needs filtering, more intelligent linking with PRs/Issues in commits)
+- AI Commit Message defaults could be better tuned to reduce on noise
+
 ## Tech stack
 
 - [Electron](https://www.electronjs.org/) — desktop shell (main + preload + renderer)
