@@ -26,6 +26,7 @@ import type {
   GitCommitGraphRow,
   GitFileDiff,
   GitHubIssue,
+  GitHubOpenCounts,
   GitHubPullRequest,
   GitHubWorkflowRun,
   GitheadApi,
@@ -1542,7 +1543,7 @@ describe("App", () => {
     await screen.findByText("Repository ready");
     expect(screen.queryByRole("tab", { name: /Workflow Runs/ })).toBeNull();
     expect(screen.queryByRole("tab", { name: /Pull Requests/ })).toBeNull();
-    expect(screen.queryByRole("tab", { name: /^Issues$/ })).toBeNull();
+    expect(screen.queryByRole("tab", { name: /Issues/ })).toBeNull();
 
     unmount();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
@@ -1551,7 +1552,40 @@ describe("App", () => {
 
     await screen.findByRole("tab", { name: /Workflow Runs/ });
     expect(screen.getByRole("tab", { name: /Pull Requests/ })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: /^Issues$/ })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /Issues/ })).toBeTruthy();
+  });
+
+  it("loads GitHub open counts into pull request and issue tab titles", async () => {
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
+    vi.mocked(githead.getGitHubOpenCounts).mockResolvedValue(createOpenCounts({
+      issues: 17,
+      pullRequests: 4
+    }));
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(githead.getGitHubOpenCounts).toHaveBeenCalledWith({
+        repoPath
+      });
+    });
+    expect(await screen.findByRole("tab", { name: /Pull Requests 4/ })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /Issues 17/ })).toBeTruthy();
+    expect(githead.getGitHubPullRequests).not.toHaveBeenCalled();
+    expect(githead.getGitHubIssues).not.toHaveBeenCalled();
+  });
+
+  it("compacts large GitHub open counts in tab titles", async () => {
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
+    vi.mocked(githead.getGitHubOpenCounts).mockResolvedValue(createOpenCounts({
+      issues: 1100,
+      pullRequests: 12_000
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByRole("tab", { name: /Issues 1\.1k/ })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /Pull Requests 12k/ })).toBeTruthy();
   });
 
   it("loads workflow runs from GitHub when the Workflow Runs tab opens", async () => {
@@ -1646,7 +1680,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: /^Issues$/ }));
+    await user.click(await screen.findByRole("tab", { name: /Issues/ }));
 
     await waitFor(() => {
       expect(githead.getGitHubIssues).toHaveBeenCalledWith({
@@ -2986,6 +3020,7 @@ function createGitheadMock(): GitheadApi {
       trusted: true
     }),
     getGitHubWorkflowRuns: vi.fn().mockResolvedValue([]),
+    getGitHubOpenCounts: vi.fn().mockResolvedValue(createOpenCounts()),
     getGitHubIssues: vi.fn().mockResolvedValue([]),
     getGitHubPullRequests: vi.fn().mockResolvedValue([]),
     getCommitHistory: vi.fn().mockResolvedValue([]),
@@ -3248,6 +3283,14 @@ function createIssue(overrides: Partial<GitHubIssue> = {}): GitHubIssue {
     comments: 0,
     updatedAt: "2026-05-30T10:05:00Z",
     url: "https://github.com/openai/githead/issues/1",
+    ...overrides
+  };
+}
+
+function createOpenCounts(overrides: Partial<GitHubOpenCounts> = {}): GitHubOpenCounts {
+  return {
+    issues: 0,
+    pullRequests: 0,
     ...overrides
   };
 }

@@ -11,6 +11,7 @@ export const IPC_CHANNELS = {
   getRepoTrust: "repo-trust:get",
   addRepoTrust: "repo-trust:add",
   getGitHubWorkflowRuns: "github:workflow-runs",
+  getGitHubOpenCounts: "github:open-counts",
   getGitHubIssues: "github:issues",
   getGitHubPullRequests: "github:pull-requests",
   getCommitHistory: "git:commit-history",

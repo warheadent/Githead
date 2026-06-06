@@ -102,6 +102,81 @@ describe("GitHubService", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("loads open issue and pull request counts with GitHub CLI auth", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const runner = new FakeRunner([
+      ok(JSON.stringify({
+        total_count: 1100
+      })),
+      ok(JSON.stringify({
+        total_count: 42
+      }))
+    ]);
+    const service = new GitHubService(createRepositoryProvider(repository), fetchImpl, runner);
+
+    await expect(service.getOpenCounts({
+      repoPath: "D:\\Repo"
+    })).resolves.toEqual({
+      issues: 1100,
+      pullRequests: 42
+    });
+    expect(runner.calls).toEqual([
+      {
+        command: "gh",
+        args: [
+          "api",
+          "--method",
+          "GET",
+          `/search/issues?q=${encodeURIComponent("repo:openai/githead is:open is:issue")}&per_page=1`,
+          "--header",
+          "Accept: application/vnd.github+json",
+          "--header",
+          "X-GitHub-Api-Version: 2022-11-28"
+        ]
+      },
+      {
+        command: "gh",
+        args: [
+          "api",
+          "--method",
+          "GET",
+          `/search/issues?q=${encodeURIComponent("repo:openai/githead is:open is:pr")}&per_page=1`,
+          "--header",
+          "Accept: application/vnd.github+json",
+          "--header",
+          "X-GitHub-Api-Version: 2022-11-28"
+        ]
+      }
+    ]);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("loads open issue and pull request counts with REST fallback", async () => {
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({
+        total_count: 7
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        total_count: 13
+      }));
+    const service = new GitHubService(createRepositoryProvider(repository), fetchImpl);
+
+    await expect(service.getOpenCounts({
+      repoPath: "D:\\Repo"
+    })).resolves.toEqual({
+      issues: 7,
+      pullRequests: 13
+    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      `https://api.github.com/search/issues?q=${encodeURIComponent("repo:openai/githead is:open is:issue")}&per_page=1`,
+      expect.any(Object)
+    );
+    expect(fetchImpl).toHaveBeenCalledWith(
+      `https://api.github.com/search/issues?q=${encodeURIComponent("repo:openai/githead is:open is:pr")}&per_page=1`,
+      expect.any(Object)
+    );
+  });
+
   it("loads open issues and filters pull requests", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse([
       {

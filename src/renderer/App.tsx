@@ -108,6 +108,7 @@ import type {
   GitDiffSide,
   GitFileDiff,
   GitHubIssue,
+  GitHubOpenCounts,
   GitHubPullRequest,
   GitHubWorkflowRun,
   AppWindowState,
@@ -264,6 +265,10 @@ interface AppState {
   workflowRunsLoading: boolean;
   workflowRunsLoaded: boolean;
   workflowRunsError: string;
+  githubOpenCounts: GitHubOpenCounts | null;
+  githubOpenCountsLoading: boolean;
+  githubOpenCountsLoaded: boolean;
+  githubOpenCountsError: string;
   pullRequests: GitHubPullRequest[];
   pullRequestsLoading: boolean;
   pullRequestsLoaded: boolean;
@@ -285,6 +290,7 @@ interface RequestIds {
   commitDetails: number;
   commitFileDiff: number;
   workflowRuns: number;
+  githubOpenCounts: number;
   pullRequests: number;
   issues: number;
 }
@@ -406,6 +412,10 @@ const initialState: AppState = {
   workflowRunsLoading: false,
   workflowRunsLoaded: false,
   workflowRunsError: "",
+  githubOpenCounts: null,
+  githubOpenCountsLoading: false,
+  githubOpenCountsLoaded: false,
+  githubOpenCountsError: "",
   pullRequests: [],
   pullRequestsLoading: false,
   pullRequestsLoaded: false,
@@ -435,6 +445,7 @@ export function App(): ReactNode {
     commitDetails: 0,
     commitFileDiff: 0,
     workflowRuns: 0,
+    githubOpenCounts: 0,
     pullRequests: 0,
     issues: 0
   });
@@ -755,6 +766,56 @@ export function App(): ReactNode {
     }
   }, [updateState]);
 
+  const loadGitHubOpenCounts = useCallback(async (force: boolean): Promise<void> => {
+    const current = stateRef.current;
+    if (!current.summary?.isValid || !current.summary.githubRepository) {
+      updateState({
+        githubOpenCounts: null,
+        githubOpenCountsLoaded: false,
+        githubOpenCountsError: current.summary?.isValid ? "Selected repository does not have a supported GitHub origin." : ""
+      });
+      return;
+    }
+
+    if ((current.githubOpenCountsLoaded || current.githubOpenCountsLoading) && !force) {
+      return;
+    }
+
+    const requestId = requestIds.current.githubOpenCounts + 1;
+    requestIds.current.githubOpenCounts = requestId;
+    updateState({
+      githubOpenCountsLoading: true,
+      githubOpenCountsError: ""
+    });
+
+    try {
+      const githubOpenCounts = await window.githead.getGitHubOpenCounts({
+        repoPath: stateRef.current.repoPath
+      });
+
+      if (requestId === requestIds.current.githubOpenCounts) {
+        updateState({
+          githubOpenCounts,
+          githubOpenCountsLoaded: true
+        });
+      }
+    } catch (error) {
+      if (requestId === requestIds.current.githubOpenCounts) {
+        updateState({
+          githubOpenCounts: null,
+          githubOpenCountsLoaded: false,
+          githubOpenCountsError: error instanceof Error ? error.message : "Unable to load GitHub counts."
+        });
+      }
+    } finally {
+      if (requestId === requestIds.current.githubOpenCounts) {
+        updateState({
+          githubOpenCountsLoading: false
+        });
+      }
+    }
+  }, [updateState]);
+
   const loadPullRequests = useCallback(async (force: boolean): Promise<void> => {
     const current = stateRef.current;
     if (!current.summary?.isValid || !current.summary.githubRepository) {
@@ -984,6 +1045,9 @@ export function App(): ReactNode {
     }
 
     const latest = stateRef.current;
+    if (latest.summary?.isValid && latest.summary.githubRepository) {
+      void loadGitHubOpenCounts(false);
+    }
     if (latest.activeView === "history") {
       await loadCommitHistory(true);
     }
@@ -996,7 +1060,7 @@ export function App(): ReactNode {
     if (latest.activeView === "issues") {
       await loadIssues(true);
     }
-  }, [loadCommitHistory, loadIssues, loadPullRequests, loadWorkflowRuns, updateState]);
+  }, [loadCommitHistory, loadGitHubOpenCounts, loadIssues, loadPullRequests, loadWorkflowRuns, updateState]);
 
   const refreshDirtyFileStatus = useCallback(async (options: { force?: boolean } = {}): Promise<void> => {
     const current = stateRef.current;
@@ -1074,6 +1138,7 @@ export function App(): ReactNode {
     requestIds.current.commitDetails += 1;
     requestIds.current.commitFileDiff += 1;
     requestIds.current.workflowRuns += 1;
+    requestIds.current.githubOpenCounts += 1;
     requestIds.current.pullRequests += 1;
     requestIds.current.issues += 1;
 
@@ -2903,6 +2968,8 @@ export function App(): ReactNode {
   const actionHeading = getActionHeading(state);
   const repoHealth = getRepoHealth(state);
   const showGitHubTabs = Boolean(state.summary?.githubRepository);
+  const pullRequestTabCount = state.githubOpenCountsLoaded ? formatCompactCount(state.githubOpenCounts?.pullRequests ?? 0) : null;
+  const issueTabCount = state.githubOpenCountsLoaded ? formatCompactCount(state.githubOpenCounts?.issues ?? 0) : null;
 
   if (state.showSetup) {
     return (
@@ -3065,13 +3132,23 @@ export function App(): ReactNode {
                         <Workflow />
                         Workflow Runs
                       </TabsTrigger>
-                      <TabsTrigger value="pullRequests" className="workspace-tab-trigger h-9 rounded-none">
+                      <TabsTrigger
+                        value="pullRequests"
+                        aria-label={pullRequestTabCount ? `Pull Requests ${pullRequestTabCount}` : "Pull Requests"}
+                        className="workspace-tab-trigger h-9 rounded-none"
+                      >
                         <GitPullRequest />
                         Pull Requests
+                        {pullRequestTabCount ? <span className="workspace-tab-count">{pullRequestTabCount}</span> : null}
                       </TabsTrigger>
-                      <TabsTrigger value="issues" className="workspace-tab-trigger h-9 rounded-none">
+                      <TabsTrigger
+                        value="issues"
+                        aria-label={issueTabCount ? `Issues ${issueTabCount}` : "Issues"}
+                        className="workspace-tab-trigger h-9 rounded-none"
+                      >
                         <CircleDot />
                         Issues
+                        {issueTabCount ? <span className="workspace-tab-count">{issueTabCount}</span> : null}
                       </TabsTrigger>
                     </>
                   ) : null}
@@ -3160,12 +3237,14 @@ export function App(): ReactNode {
                     <PullRequestsView
                       summary={state.summary}
                       pullRequests={state.pullRequests}
+                      openCount={state.githubOpenCountsLoaded ? state.githubOpenCounts?.pullRequests ?? null : null}
                       loading={state.pullRequestsLoading}
                       loaded={state.pullRequestsLoaded}
                       error={state.pullRequestsError}
                       onOpenExternalUrl={openExternalUrl}
                       onRefresh={() => {
                         void loadPullRequests(true);
+                        void loadGitHubOpenCounts(true);
                       }}
                     />
                   </TabsContent>
@@ -3174,12 +3253,14 @@ export function App(): ReactNode {
                     <IssuesView
                       summary={state.summary}
                       issues={state.issues}
+                      openCount={state.githubOpenCountsLoaded ? state.githubOpenCounts?.issues ?? null : null}
                       loading={state.issuesLoading}
                       loaded={state.issuesLoaded}
                       error={state.issuesError}
                       onOpenExternalUrl={openExternalUrl}
                       onRefresh={() => {
                         void loadIssues(true);
+                        void loadGitHubOpenCounts(true);
                       }}
                     />
                   </TabsContent>
@@ -5101,6 +5182,7 @@ function WorkflowRunRow({
 function PullRequestsView({
   summary,
   pullRequests,
+  openCount,
   loading,
   loaded,
   error,
@@ -5109,6 +5191,7 @@ function PullRequestsView({
 }: {
   summary: RepoSummary | null;
   pullRequests: GitHubPullRequest[];
+  openCount: number | null;
   loading: boolean;
   loaded: boolean;
   error: string;
@@ -5116,7 +5199,10 @@ function PullRequestsView({
   onRefresh: () => void;
 }): ReactNode {
   const repository = summary?.githubRepository ?? null;
-  const countLabel = loaded ? `${pullRequests.length} open ${pullRequests.length === 1 ? "pull request" : "pull requests"}` : "-";
+  const visibleCount = openCount ?? (loaded ? pullRequests.length : null);
+  const countLabel = visibleCount === null
+    ? "-"
+    : `${visibleCount} open ${visibleCount === 1 ? "pull request" : "pull requests"}`;
 
   return (
     <section className="github-view pull-requests-grid" aria-label="Pull requests">
@@ -5196,6 +5282,7 @@ function PullRequestRow({
 function IssuesView({
   summary,
   issues,
+  openCount,
   loading,
   loaded,
   error,
@@ -5204,6 +5291,7 @@ function IssuesView({
 }: {
   summary: RepoSummary | null;
   issues: GitHubIssue[];
+  openCount: number | null;
   loading: boolean;
   loaded: boolean;
   error: string;
@@ -5211,7 +5299,10 @@ function IssuesView({
   onRefresh: () => void;
 }): ReactNode {
   const repository = summary?.githubRepository ?? null;
-  const countLabel = loaded ? `${issues.length} open ${issues.length === 1 ? "issue" : "issues"}` : "-";
+  const visibleCount = openCount ?? (loaded ? issues.length : null);
+  const countLabel = visibleCount === null
+    ? "-"
+    : `${visibleCount} open ${visibleCount === 1 ? "issue" : "issues"}`;
 
   return (
     <section className="github-view issues-grid" aria-label="Issues">
@@ -6925,6 +7016,10 @@ function resetGitHubState(state: AppState): AppState {
     workflowRunsLoading: false,
     workflowRunsLoaded: false,
     workflowRunsError: "",
+    githubOpenCounts: null,
+    githubOpenCountsLoading: false,
+    githubOpenCountsLoaded: false,
+    githubOpenCountsError: "",
     pullRequests: [],
     pullRequestsLoading: false,
     pullRequestsLoaded: false,
@@ -7330,6 +7425,25 @@ function getRepositoryAccessCheckFailureMessage(result: GitRepositoryAccessCheck
 
 function formatStreamOutput(stream: "stdout" | "stderr", text: string): string {
   return `[${stream}] ${text.endsWith("\n") ? text : `${text}\n`}`;
+}
+
+function formatCompactCount(value: number): string {
+  const count = Math.max(0, Math.floor(Number.isFinite(value) ? value : 0));
+
+  if (count < 1_000) {
+    return String(count);
+  }
+
+  if (count < 999_950) {
+    return formatCompactUnit(count / 1_000, "k");
+  }
+
+  return formatCompactUnit(count / 1_000_000, "m");
+}
+
+function formatCompactUnit(value: number, unit: string): string {
+  const rounded = value < 10 ? Math.round(value * 10) / 10 : Math.round(value);
+  return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}${unit}`;
 }
 
 function formatDate(value: string): string {

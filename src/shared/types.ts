@@ -99,6 +99,11 @@ export interface GitHubPullRequest {
   url: string;
 }
 
+export interface GitHubOpenCounts {
+  issues: number;
+  pullRequests: number;
+}
+
 export interface GitBranch {
   name: string;
   current: boolean;
@@ -463,6 +468,7 @@ export interface GitheadApi {
   getRepoTrust(request: RepoTrustRequest): Promise<RepoTrustResult>;
   addRepoTrust(request: RepoTrustRequest): Promise<RepoTrustResult>;
   getGitHubWorkflowRuns(request: GitHubRepositoryRequest): Promise<GitHubWorkflowRun[]>;
+  getGitHubOpenCounts(request: GitHubRepositoryRequest): Promise<GitHubOpenCounts>;
   getGitHubIssues(request: GitHubRepositoryRequest): Promise<GitHubIssue[]>;
   getGitHubPullRequests(request: GitHubRepositoryRequest): Promise<GitHubPullRequest[]>;
   getCommitHistory(request: GitCommitHistoryRequest): Promise<GitCommitGraphRow[]>;

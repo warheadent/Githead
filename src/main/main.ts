@@ -250,6 +250,10 @@ ipcMain.handle(IPC_CHANNELS.getGitHubWorkflowRuns, async (_event, request: GitHu
   return getGitHubService().getWorkflowRuns(request);
 });
 
+ipcMain.handle(IPC_CHANNELS.getGitHubOpenCounts, async (_event, request: GitHubRepositoryRequest) => {
+  return getGitHubService().getOpenCounts(request);
+});
+
 ipcMain.handle(IPC_CHANNELS.getGitHubIssues, async (_event, request: GitHubRepositoryRequest) => {
   return getGitHubService().getIssues(request);
 });

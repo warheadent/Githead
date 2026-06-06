@@ -34,6 +34,7 @@ import type {
   GitheadApi,
   AppUpdateState,
   AppWindowState,
+  GitHubOpenCounts,
   RepoChangedEvent,
   RepoTrustRequest,
   RepoSummary
@@ -62,6 +63,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.addRepoTrust, request) as ReturnType<GitheadApi["addRepoTrust"]>,
   getGitHubWorkflowRuns: (request: GitHubRepositoryRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubWorkflowRuns, request) as ReturnType<GitheadApi["getGitHubWorkflowRuns"]>,
+  getGitHubOpenCounts: (request: GitHubRepositoryRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getGitHubOpenCounts, request) as Promise<GitHubOpenCounts>,
   getGitHubIssues: (request: GitHubRepositoryRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubIssues, request) as ReturnType<GitheadApi["getGitHubIssues"]>,
   getGitHubPullRequests: (request: GitHubRepositoryRequest) =>

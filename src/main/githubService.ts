@@ -1,5 +1,6 @@
 import type {
   GitHubIssue,
+  GitHubOpenCounts,
   GitHubPullRequest,
   GitHubRepository,
   GitHubRepositoryRequest,
@@ -64,6 +65,10 @@ interface GitHubApiIssue {
 
 interface GitHubApiPullRequestsResponse extends Array<GitHubApiPullRequest> {}
 
+interface GitHubApiSearchResponse extends GitHubApiErrorResponse {
+  total_count?: number | null;
+}
+
 interface GitHubApiPullRequest {
   number?: number;
   title?: string | null;
@@ -124,6 +129,19 @@ export class GitHubService {
         }
       ];
     });
+  }
+
+  async getOpenCounts(request: GitHubRepositoryRequest): Promise<GitHubOpenCounts> {
+    const repository = await this.getRepository(request.repoPath);
+    const [issues, pullRequests] = await Promise.all([
+      this.getSearchCount(repository, `repo:${repository.fullName} is:open is:issue`),
+      this.getSearchCount(repository, `repo:${repository.fullName} is:open is:pr`)
+    ]);
+
+    return {
+      issues,
+      pullRequests
+    };
   }
 
   async getIssues(request: GitHubRepositoryRequest): Promise<GitHubIssue[]> {
@@ -190,6 +208,15 @@ export class GitHubService {
     }
 
     return repository;
+  }
+
+  private async getSearchCount(repository: GitHubRepository, query: string): Promise<number> {
+    const response = await this.fetchJson<GitHubApiSearchResponse>(
+      repository,
+      `/search/issues?q=${encodeURIComponent(query)}&per_page=1`
+    );
+
+    return Number.isFinite(response.total_count) ? Number(response.total_count) : 0;
   }
 
   private async fetchJson<T>(
