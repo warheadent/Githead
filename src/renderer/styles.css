@@ -1274,7 +1274,10 @@
 }
 
 .ref-badge {
+  display: inline-flex;
+  align-items: center;
   flex: 0 0 auto;
+  gap: 3px;
   max-width: 160px;
   overflow: hidden;
   border: 1px solid color-mix(in oklch, white 40%, transparent);
@@ -1286,6 +1289,12 @@
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.ref-badge svg {
+  width: 0.72rem;
+  height: 0.72rem;
+  flex: 0 0 auto;
 }
 
 .ref-badge.remote {

@@ -5405,6 +5405,7 @@ function HistoryRow({
             <span className="history-refs">
               {commit.refs.map((ref) => (
                 <span key={`${commit.hash}:${ref.kind}:${ref.name}`} className={`ref-badge ${ref.kind}`}>
+                  {ref.kind === "tag" ? <Tag aria-hidden="true" /> : null}
                   {ref.name}
                 </span>
               ))}

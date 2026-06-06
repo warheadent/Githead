@@ -147,7 +147,17 @@ describe("App", () => {
     const conventionalCommit = createCommit({
       hash: "a".repeat(40),
       shortHash: "aaaaaaa",
-      subject: "feat(ai): add attack pressure cooldown"
+      subject: "feat(ai): add attack pressure cooldown",
+      refs: [
+        {
+          name: "main",
+          kind: "branch"
+        },
+        {
+          name: "v1.2.3",
+          kind: "tag"
+        }
+      ]
     });
     const rawCommit = createCommit({
       hash: "b".repeat(40),
@@ -172,6 +182,12 @@ describe("App", () => {
     expect(historyBadge?.className).toContain("type-feat");
     expect(detailBadge?.className).toContain("commit-type-badge");
     expect(detailBadge?.className).toContain("type-feat");
+    const tagRefBadge = screen.getByText("v1.2.3").closest(".ref-badge");
+    const branchRefBadge = screen.getAllByText("main").find((element) => element.closest(".ref-badge"))?.closest(".ref-badge");
+    expect(tagRefBadge?.className).toContain("tag");
+    expect(tagRefBadge?.querySelector("svg")).toBeTruthy();
+    expect(branchRefBadge?.className).toContain("branch");
+    expect(branchRefBadge?.querySelector("svg")).toBeNull();
     expect(screen.getByTestId("commit-graph-svg")).toBeTruthy();
     expect(screen.getAllByTestId("commit-graph-node")).toHaveLength(2);
     expect(screen.getAllByText("ai:").some((scope) => scope.closest(".commit-title"))).toBe(true);
