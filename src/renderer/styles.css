@@ -700,6 +700,14 @@
   margin-right: 6px;
 }
 
+.repo-recent-menu-path {
+  max-width: 17rem;
+  overflow-wrap: anywhere;
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
 .status-text {
   min-height: 20px;
   margin-top: 4px;

@@ -2307,6 +2307,7 @@ describe("App", () => {
 
     await screen.findByText("Repository ready");
     fireEvent.contextMenu(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
+    expect(await screen.findByText(otherRepo)).toBeTruthy();
     await user.click(await screen.findByRole("menuitem", { name: "Show in Explorer" }));
 
     await waitFor(() => {

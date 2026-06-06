@@ -52,6 +52,7 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuLabel,
   ContextMenuSeparator,
   ContextMenuTrigger
 } from "@/components/ui/context-menu";
@@ -3657,25 +3658,18 @@ function RecentRepositoryRow({
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <div className={`repo-recent-row${active ? " is-active" : ""}`}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                className="repo-recent-main"
-                onClick={() => {
-                  onSelect(repoPath);
-                }}
-                disabled={disabled || active}
-                aria-current={active ? "true" : undefined}
-                aria-label={`Switch to ${repoPath}`}
-              >
-                <span className="repo-recent-name">{displayName}</span>
-              </button>
-            </TooltipTrigger>
-            <TooltipContent className="max-w-80 break-all">
-              {repoPath}
-            </TooltipContent>
-          </Tooltip>
+          <button
+            type="button"
+            className="repo-recent-main"
+            onClick={() => {
+              onSelect(repoPath);
+            }}
+            disabled={disabled || active}
+            aria-current={active ? "true" : undefined}
+            aria-label={`Switch to ${repoPath}`}
+          >
+            <span className="repo-recent-name">{displayName}</span>
+          </button>
           <Button
             type="button"
             variant="ghost"
@@ -3692,7 +3686,11 @@ function RecentRepositoryRow({
           </Button>
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-52">
+      <ContextMenuContent className="w-72">
+        <ContextMenuLabel className="repo-recent-menu-path" title={repoPath}>
+          {repoPath}
+        </ContextMenuLabel>
+        <ContextMenuSeparator />
         <ContextMenuItem disabled={disabled} onSelect={() => onShowInExplorer(repoPath)}>
           <MapPinned />
           Show in Explorer
