@@ -38,6 +38,7 @@ export const IPC_CHANNELS = {
   openExternalUrl: "external-url:open",
   openFile: "file:open",
   showInExplorer: "file:show-in-explorer",
+  showRepositoryInExplorer: "repo:show-in-explorer",
   copyPathToClipboard: "file:copy-path",
   copyTextToClipboard: "clipboard:copy-text",
   deleteFile: "file:delete",

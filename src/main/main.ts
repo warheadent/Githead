@@ -40,7 +40,7 @@ import type {
 } from "../shared/types";
 import { AiSettingsService } from "./aiSettingsService";
 import { CommitMessageService } from "./commitMessageService";
-import { deleteFiles, getStats, resolveRepoFilePath } from "./fileOperationService";
+import { deleteFiles, getStats, resolveRepoFilePath, showRepositoryInExplorer } from "./fileOperationService";
 import { GitService } from "./gitService";
 import { GitHubService } from "./githubService";
 import { NodeProcessRunner } from "./processRunner";
@@ -437,6 +437,10 @@ ipcMain.handle(IPC_CHANNELS.showInExplorer, async (_event, request: FileSystemPa
 
   shell.showItemInFolder(await getExplorerTarget(resolved.absolutePath, resolved.repoRoot));
   return createOperationSuccess(request.repoPath, "Shown in Explorer.");
+});
+
+ipcMain.handle(IPC_CHANNELS.showRepositoryInExplorer, async (_event, repoPath: string) => {
+  return showRepositoryInExplorer(repoPath, shell.openPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.copyPathToClipboard, async (_event, request: FileSystemPathRequest) => {

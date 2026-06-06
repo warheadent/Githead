@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { deleteFiles } from "./fileOperationService";
+import { deleteFiles, showRepositoryInExplorer } from "./fileOperationService";
 
 describe("fileOperationService", () => {
   it("moves multiple repo-relative files to the recycle bin sequentially", async () => {
@@ -63,6 +63,67 @@ describe("fileOperationService", () => {
       expect(result.stderr).toBe("File path must stay inside the repository.");
       expect(trashItem).not.toHaveBeenCalled();
     });
+  });
+
+  it("shows a repository folder in Explorer", async () => {
+    await withTempDir(async (repoRoot) => {
+      const openPath = vi.fn<(absolutePath: string) => Promise<string>>().mockResolvedValue("");
+
+      const result = await showRepositoryInExplorer(repoRoot, openPath);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("Shown in Explorer.");
+      expect(openPath).toHaveBeenCalledWith(path.resolve(repoRoot));
+    });
+  });
+
+  it("returns the Explorer open error for a valid repository folder", async () => {
+    await withTempDir(async (repoRoot) => {
+      const openPath = vi.fn<(absolutePath: string) => Promise<string>>().mockResolvedValue("Unable to open folder.");
+
+      const result = await showRepositoryInExplorer(repoRoot, openPath);
+
+      expect(result.exitCode).toBe(-1);
+      expect(result.stderr).toBe("Unable to open folder.");
+      expect(openPath).toHaveBeenCalledWith(path.resolve(repoRoot));
+    });
+  });
+
+  it("rejects a missing repository folder before opening Explorer", async () => {
+    await withTempDir(async (repoRoot) => {
+      const missingRepo = path.join(repoRoot, "missing");
+      const openPath = vi.fn<(absolutePath: string) => Promise<string>>().mockResolvedValue("");
+
+      const result = await showRepositoryInExplorer(missingRepo, openPath);
+
+      expect(result.exitCode).toBe(-1);
+      expect(result.stderr).toBe("Repository folder does not exist.");
+      expect(openPath).not.toHaveBeenCalled();
+    });
+  });
+
+  it("rejects a file path before opening Explorer", async () => {
+    await withTempDir(async (repoRoot) => {
+      const filePath = path.join(repoRoot, "tracked.ts");
+      await fs.writeFile(filePath, "tracked", "utf8");
+      const openPath = vi.fn<(absolutePath: string) => Promise<string>>().mockResolvedValue("");
+
+      const result = await showRepositoryInExplorer(filePath, openPath);
+
+      expect(result.exitCode).toBe(-1);
+      expect(result.stderr).toBe("Repository path must be a folder.");
+      expect(openPath).not.toHaveBeenCalled();
+    });
+  });
+
+  it("rejects a blank repository path before opening Explorer", async () => {
+    const openPath = vi.fn<(absolutePath: string) => Promise<string>>().mockResolvedValue("");
+
+    const result = await showRepositoryInExplorer("  ", openPath);
+
+    expect(result.exitCode).toBe(-1);
+    expect(result.stderr).toBe("Select a repository folder.");
+    expect(openPath).not.toHaveBeenCalled();
   });
 });
 

@@ -116,6 +116,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.openFile, request) as ReturnType<GitheadApi["openFile"]>,
   showInExplorer: (request: FileSystemPathRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.showInExplorer, request) as ReturnType<GitheadApi["showInExplorer"]>,
+  showRepositoryInExplorer: (repoPath: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.showRepositoryInExplorer, repoPath) as ReturnType<GitheadApi["showRepositoryInExplorer"]>,
   copyPathToClipboard: (request: FileSystemPathRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.copyPathToClipboard, request) as ReturnType<GitheadApi["copyPathToClipboard"]>,
   copyTextToClipboard: (request: ClipboardTextRequest) =>

@@ -7,6 +7,7 @@ import type {
 } from "../shared/types";
 
 type TrashItem = (absolutePath: string) => Promise<void>;
+type OpenPath = (absolutePath: string) => Promise<string>;
 
 export function resolveRepoFilePath(request: FileSystemPathRequest):
   | { repoRoot: string; absolutePath: string }
@@ -80,6 +81,32 @@ export async function deleteFiles(
     request.repoPath,
     resolvedPaths.length === 1 ? "File moved to Recycle Bin." : `${resolvedPaths.length} files moved to Recycle Bin.`
   );
+}
+
+export async function showRepositoryInExplorer(
+  repoPath: string,
+  openPath: OpenPath
+): Promise<GitOperationResult> {
+  if (!repoPath.trim()) {
+    return createOperationFailure(repoPath, "Select a repository folder.");
+  }
+
+  const resolvedRepoPath = path.resolve(repoPath);
+  const stats = await getStats(resolvedRepoPath);
+  if (!stats) {
+    return createOperationFailure(repoPath, "Repository folder does not exist.");
+  }
+
+  if (!stats.isDirectory()) {
+    return createOperationFailure(repoPath, "Repository path must be a folder.");
+  }
+
+  const error = await openPath(resolvedRepoPath);
+  if (error) {
+    return createOperationFailure(repoPath, error);
+  }
+
+  return createOperationSuccess(repoPath, "Shown in Explorer.");
 }
 
 export async function getStats(filePath: string): Promise<Awaited<ReturnType<typeof fs.stat>> | null> {

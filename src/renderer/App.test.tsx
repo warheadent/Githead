@@ -2291,6 +2291,30 @@ describe("App", () => {
     expect(githead.getRepoSummary).not.toHaveBeenCalledWith(otherRepo);
   });
 
+  it("shows a recent repository in Explorer from the context menu", async () => {
+    const user = userEvent.setup();
+    const otherRepo = "D:\\Work\\Other";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([
+      repoPath,
+      otherRepo
+    ]);
+    vi.mocked(githead.addRepoRecent).mockResolvedValue([
+      repoPath,
+      otherRepo
+    ]);
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    fireEvent.contextMenu(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
+    await user.click(await screen.findByRole("menuitem", { name: "Show in Explorer" }));
+
+    await waitFor(() => {
+      expect(githead.showRepositoryInExplorer).toHaveBeenCalledWith(otherRepo);
+    });
+    expect(githead.getRepoSummary).not.toHaveBeenCalledWith(otherRepo);
+  });
+
   it("adds a browsed valid repository to recents", async () => {
     const user = userEvent.setup();
     const browsedRepo = "D:\\Work\\Browsed";
@@ -2972,6 +2996,7 @@ function createGitheadMock(): GitheadApi {
     openExternalUrl: vi.fn().mockResolvedValue(undefined),
     openFile: vi.fn().mockResolvedValue(okOperation),
     showInExplorer: vi.fn().mockResolvedValue(okOperation),
+    showRepositoryInExplorer: vi.fn().mockResolvedValue(okOperation),
     copyPathToClipboard: vi.fn().mockResolvedValue(okOperation),
     copyTextToClipboard: vi.fn().mockResolvedValue(okOperation),
     deleteFile: vi.fn().mockResolvedValue(okOperation),

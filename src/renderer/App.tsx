@@ -1727,10 +1727,14 @@ export function App(): ReactNode {
   const runRepoOperation = useCallback(async (
     label: string,
     nextSelection: FileSelection | null | undefined,
-    operation: () => Promise<GitOperationResult>
+    operation: () => Promise<GitOperationResult>,
+    options: { requireValidRepo?: boolean } = {}
   ): Promise<void> => {
     const current = stateRef.current;
-    if (!current.summary?.isValid || isOperationRunning(current)) {
+    if ((options.requireValidRepo ?? true) && !current.summary?.isValid) {
+      return;
+    }
+    if (isOperationRunning(current)) {
       return;
     }
 
@@ -1781,6 +1785,17 @@ export function App(): ReactNode {
       await refreshRepo();
     }
   }, [appendOperationLog, refreshRepo, updateState]);
+
+  const showRecentRepositoryInExplorer = useCallback(async (repoPath: string): Promise<void> => {
+    await runRepoOperation(
+      "Showing repository in Explorer",
+      undefined,
+      () => window.githead.showRepositoryInExplorer(repoPath),
+      {
+        requireValidRepo: false
+      }
+    );
+  }, [runRepoOperation]);
 
   const openBranchDialog = useCallback((): void => {
     const current = stateRef.current;
@@ -2917,6 +2932,9 @@ export function App(): ReactNode {
           onRemoveRecent={(repoPath) => {
             void removeRecentRepo(repoPath);
           }}
+          onShowInExplorer={(repoPath) => {
+            void showRecentRepositoryInExplorer(repoPath);
+          }}
           onCloneDraftChange={updateCloneDraft}
           onCloneSourceChange={(draft) => {
             updateCloneDraft(draft);
@@ -2970,6 +2988,9 @@ export function App(): ReactNode {
             }}
             onRemoveRecent={(repoPath) => {
               void removeRecentRepo(repoPath);
+            }}
+            onShowInExplorer={(repoPath) => {
+              void showRecentRepositoryInExplorer(repoPath);
             }}
             onSwitchBranch={(branchName) => {
               void switchBranch(branchName);
@@ -3514,6 +3535,7 @@ function RepositorySetupScreen({
   onChooseRepo,
   onSelectRecent,
   onRemoveRecent,
+  onShowInExplorer,
   onCloneDraftChange,
   onCloneSourceChange,
   onChooseCloneParent,
@@ -3534,6 +3556,7 @@ function RepositorySetupScreen({
   onChooseRepo: () => void;
   onSelectRecent: (repoPath: string) => void;
   onRemoveRecent: (repoPath: string) => void;
+  onShowInExplorer: (repoPath: string) => void;
   onCloneDraftChange: (draft: CloneDraft) => void;
   onCloneSourceChange: (draft: CloneDraft) => void;
   onChooseCloneParent: () => void;
@@ -3601,6 +3624,7 @@ function RepositorySetupScreen({
                 disabled={running}
                 onSelect={onSelectRecent}
                 onRemove={onRemoveRecent}
+                onShowInExplorer={onShowInExplorer}
               />
             ))}
           </div>
@@ -3616,6 +3640,7 @@ interface RecentRepositoryRowProps {
   repoPath: string;
   onSelect: (repoPath: string) => void;
   onRemove: (repoPath: string) => void;
+  onShowInExplorer: (repoPath: string) => void;
 }
 
 function RecentRepositoryRow({
@@ -3623,46 +3648,57 @@ function RecentRepositoryRow({
   disabled,
   repoPath,
   onSelect,
-  onRemove
+  onRemove,
+  onShowInExplorer
 }: RecentRepositoryRowProps): ReactNode {
   const displayName = getRepoDisplayName(repoPath);
 
   return (
-    <div className={`repo-recent-row${active ? " is-active" : ""}`}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div className={`repo-recent-row${active ? " is-active" : ""}`}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="repo-recent-main"
+                onClick={() => {
+                  onSelect(repoPath);
+                }}
+                disabled={disabled || active}
+                aria-current={active ? "true" : undefined}
+                aria-label={`Switch to ${repoPath}`}
+              >
+                <span className="repo-recent-name">{displayName}</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-80 break-all">
+              {repoPath}
+            </TooltipContent>
+          </Tooltip>
+          <Button
             type="button"
-            className="repo-recent-main"
+            variant="ghost"
+            size="icon-xs"
+            className="repo-recent-remove"
             onClick={() => {
-              onSelect(repoPath);
+              onRemove(repoPath);
             }}
-            disabled={disabled || active}
-            aria-current={active ? "true" : undefined}
-            aria-label={`Switch to ${repoPath}`}
+            disabled={disabled}
+            aria-label={`Remove ${repoPath} from recent repositories`}
+            title="Remove recent repository"
           >
-            <span className="repo-recent-name">{displayName}</span>
-          </button>
-        </TooltipTrigger>
-        <TooltipContent className="max-w-80 break-all">
-          {repoPath}
-        </TooltipContent>
-      </Tooltip>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-xs"
-        className="repo-recent-remove"
-        onClick={() => {
-          onRemove(repoPath);
-        }}
-        disabled={disabled}
-        aria-label={`Remove ${repoPath} from recent repositories`}
-        title="Remove recent repository"
-      >
-        <X />
-      </Button>
-    </div>
+            <X />
+          </Button>
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-52">
+        <ContextMenuItem disabled={disabled} onSelect={() => onShowInExplorer(repoPath)}>
+          <MapPinned />
+          Show in Explorer
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
@@ -3891,6 +3927,7 @@ function RepositoryPanel({
   onChooseRepo,
   onSelectRecent,
   onRemoveRecent,
+  onShowInExplorer,
   onSwitchBranch,
   onOpenBranchDialog,
   onOpenUpstreamDialog,
@@ -3922,6 +3959,7 @@ function RepositoryPanel({
   onChooseRepo: () => void;
   onSelectRecent: (repoPath: string) => void;
   onRemoveRecent: (repoPath: string) => void;
+  onShowInExplorer: (repoPath: string) => void;
   onSwitchBranch: (branchName: string) => void;
   onOpenBranchDialog: () => void;
   onOpenUpstreamDialog: () => void;
@@ -4053,6 +4091,7 @@ function RepositoryPanel({
                   disabled={running}
                   onSelect={onSelectRecent}
                   onRemove={onRemoveRecent}
+                  onShowInExplorer={onShowInExplorer}
                 />
               );
             })}

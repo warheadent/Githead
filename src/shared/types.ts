@@ -490,6 +490,7 @@ export interface GitheadApi {
   openExternalUrl(request: ExternalUrlRequest): Promise<void>;
   openFile(request: FileSystemPathRequest): Promise<GitOperationResult>;
   showInExplorer(request: FileSystemPathRequest): Promise<GitOperationResult>;
+  showRepositoryInExplorer(repoPath: string): Promise<GitOperationResult>;
   copyPathToClipboard(request: FileSystemPathRequest): Promise<GitOperationResult>;
   copyTextToClipboard(request: ClipboardTextRequest): Promise<GitOperationResult>;
   deleteFile(request: FileSystemPathRequest): Promise<GitOperationResult>;
