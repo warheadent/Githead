@@ -24,10 +24,14 @@ export class RepoRecentsService {
 
     return this.enqueueMutation(async () => {
       const recents = await this.readRecents();
-      const next = dedupeRecents([
-        normalizedPath,
-        ...recents
-      ]).slice(0, MAX_REPO_RECENTS);
+      const existingKey = getRepoPathKey(normalizedPath);
+      const existing = recents.find((recent) => getRepoPathKey(recent) === existingKey);
+      const next = existing
+        ? recents
+        : [
+            ...recents,
+            normalizedPath
+          ].slice(0, MAX_REPO_RECENTS);
 
       await this.writeRecents(next);
       return next;
@@ -43,6 +47,43 @@ export class RepoRecentsService {
     return this.enqueueMutation(async () => {
       const key = getRepoPathKey(normalizedPath);
       const next = (await this.readRecents()).filter((recent) => getRepoPathKey(recent) !== key);
+
+      await this.writeRecents(next);
+      return next;
+    });
+  }
+
+  async reorderRecents(repoPaths: string[]): Promise<string[]> {
+    return this.enqueueMutation(async () => {
+      const recents = await this.readRecents();
+      const recentsByKey = new Map(recents.map((recent) => [
+        getRepoPathKey(recent),
+        recent
+      ]));
+      const requested = dedupeRecents(repoPaths.flatMap((repoPath) => {
+        const normalizedPath = normalizeRepoPath(repoPath);
+        return normalizedPath ? [
+          normalizedPath
+        ] : [];
+      }));
+      const requestedKeys = new Set<string>();
+      const ordered = requested.flatMap((repoPath) => {
+        const key = getRepoPathKey(repoPath);
+        const stored = recentsByKey.get(key);
+        if (!stored) {
+          return [];
+        }
+
+        requestedKeys.add(key);
+        return [
+          stored
+        ];
+      });
+      const missing = recents.filter((recent) => !requestedKeys.has(getRepoPathKey(recent)));
+      const next = [
+        ...ordered,
+        ...missing
+      ].slice(0, MAX_REPO_RECENTS);
 
       await this.writeRecents(next);
       return next;

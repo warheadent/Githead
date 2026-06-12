@@ -57,6 +57,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.addRepoRecent, repoPath) as ReturnType<GitheadApi["addRepoRecent"]>,
   removeRepoRecent: (repoPath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.removeRepoRecent, repoPath) as ReturnType<GitheadApi["removeRepoRecent"]>,
+  reorderRepoRecents: (repoPaths: string[]) =>
+    ipcRenderer.invoke(IPC_CHANNELS.reorderRepoRecents, repoPaths) as ReturnType<GitheadApi["reorderRepoRecents"]>,
   getRepoTrust: (request: RepoTrustRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getRepoTrust, request) as ReturnType<GitheadApi["getRepoTrust"]>,
   addRepoTrust: (request: RepoTrustRequest) =>

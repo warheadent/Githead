@@ -2275,7 +2275,7 @@ describe("App", () => {
     expect(await screen.findByText("Select a repository to continue.")).toBeTruthy();
     expect(screen.getByText("Selected folder is not a git repository.")).toBeTruthy();
     expect(screen.getByText("MissingRepo")).toBeTruthy();
-    const recents = screen.getByRole("region", { name: "Recent repositories" });
+    const recents = screen.getByRole("region", { name: "Repositories" });
     expect(within(recents).getByRole("button", { name: `Switch to ${invalidRepo}` })).toBeTruthy();
     expect(within(recents).queryByText(invalidRepo)).toBeNull();
   });
@@ -2287,15 +2287,10 @@ describe("App", () => {
       repoPath,
       otherRepo
     ]);
-    vi.mocked(githead.addRepoRecent).mockImplementation(async (requestedRepoPath) => requestedRepoPath === repoPath
-      ? [
-          repoPath,
-          otherRepo
-        ]
-      : [
-          requestedRepoPath,
-          repoPath
-        ]);
+    vi.mocked(githead.addRepoRecent).mockResolvedValue([
+      repoPath,
+      otherRepo
+    ]);
     vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
       repoPath: requestedRepoPath
     }));
@@ -2311,6 +2306,13 @@ describe("App", () => {
     await waitFor(() => {
       expect(githead.addRepoRecent).toHaveBeenCalledWith(otherRepo);
     });
+    const repositories = within(screen.getByRole("region", { name: "Repositories" })).getAllByRole("button", {
+      name: /^Switch to /
+    });
+    expect(repositories.map((button) => button.getAttribute("aria-label"))).toEqual([
+      `Switch to ${repoPath}`,
+      `Switch to ${otherRepo}`
+    ]);
   });
 
   it("removes a recent entry without switching repositories", async () => {
@@ -2341,6 +2343,121 @@ describe("App", () => {
     expect(githead.getRepoSummary).not.toHaveBeenCalledWith(otherRepo);
   });
 
+  it("reorders repositories with the keyboard handle", async () => {
+    const user = userEvent.setup();
+    const otherRepo = "D:\\Work\\Other";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([
+      repoPath,
+      otherRepo
+    ]);
+    vi.mocked(githead.addRepoRecent).mockResolvedValue([
+      repoPath,
+      otherRepo
+    ]);
+    vi.mocked(githead.reorderRepoRecents).mockImplementation(async (repoPaths) => repoPaths);
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    await user.click(screen.getByRole("button", { name: `Reorder ${otherRepo}` }));
+    await user.keyboard("{ArrowUp}");
+
+    await waitFor(() => {
+      expect(githead.reorderRepoRecents).toHaveBeenCalledWith([
+        otherRepo,
+        repoPath
+      ]);
+    });
+    const repositories = within(screen.getByRole("region", { name: "Repositories" })).getAllByRole("button", {
+      name: /^Switch to /
+    });
+    expect(repositories.map((button) => button.getAttribute("aria-label"))).toEqual([
+      `Switch to ${otherRepo}`,
+      `Switch to ${repoPath}`
+    ]);
+    expect(githead.getRepoSummary).not.toHaveBeenCalledWith(otherRepo);
+  });
+
+  it("reorders repositories with drag and drop", async () => {
+    const otherRepo = "D:\\Work\\Other";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([
+      repoPath,
+      otherRepo
+    ]);
+    vi.mocked(githead.addRepoRecent).mockResolvedValue([
+      repoPath,
+      otherRepo
+    ]);
+    vi.mocked(githead.reorderRepoRecents).mockImplementation(async (repoPaths) => repoPaths);
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    const dragHandle = screen.getByRole("button", { name: `Reorder ${otherRepo}` });
+    const targetRow = screen.getByRole("button", { name: `Switch to ${repoPath}` }).closest(".repo-recent-row");
+    if (!targetRow) {
+      throw new Error("Expected repository row.");
+    }
+
+    vi.spyOn(targetRow, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: 260,
+      bottom: 40,
+      width: 260,
+      height: 40,
+      toJSON: () => ({})
+    });
+    fireEvent.mouseDown(dragHandle);
+    fireEvent.mouseUp(targetRow, { clientY: 1 });
+
+    await waitFor(() => {
+      expect(githead.reorderRepoRecents).toHaveBeenCalledWith([
+        otherRepo,
+        repoPath
+      ]);
+    });
+    expect(githead.getRepoSummary).not.toHaveBeenCalledWith(otherRepo);
+  });
+
+  it("rolls back repository order when reordering fails", async () => {
+    const user = userEvent.setup();
+    const otherRepo = "D:\\Work\\Other";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([
+      repoPath,
+      otherRepo
+    ]);
+    vi.mocked(githead.addRepoRecent).mockResolvedValue([
+      repoPath,
+      otherRepo
+    ]);
+    vi.mocked(githead.reorderRepoRecents).mockRejectedValue(new Error("Unable to save order."));
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    await user.click(screen.getByRole("button", { name: `Reorder ${otherRepo}` }));
+    await user.keyboard("{ArrowUp}");
+
+    await waitFor(() => {
+      expect(githead.reorderRepoRecents).toHaveBeenCalledWith([
+        otherRepo,
+        repoPath
+      ]);
+    });
+    await waitFor(() => {
+      const repositories = within(screen.getByRole("region", { name: "Repositories" })).getAllByRole("button", {
+        name: /^Switch to /
+      });
+      expect(repositories.map((button) => button.getAttribute("aria-label"))).toEqual([
+        `Switch to ${repoPath}`,
+        `Switch to ${otherRepo}`
+      ]);
+    });
+  });
+
   it("shows a recent repository in Explorer from the context menu", async () => {
     const user = userEvent.setup();
     const otherRepo = "D:\\Work\\Other";
@@ -2366,7 +2483,7 @@ describe("App", () => {
     expect(githead.getRepoSummary).not.toHaveBeenCalledWith(otherRepo);
   });
 
-  it("adds a browsed valid repository to recents", async () => {
+  it("adds a browsed valid repository to the bottom of repositories", async () => {
     const user = userEvent.setup();
     const browsedRepo = "D:\\Work\\Browsed";
     vi.mocked(githead.chooseRepo).mockResolvedValue(browsedRepo);
@@ -2374,8 +2491,8 @@ describe("App", () => {
       repoPath: requestedRepoPath
     }));
     vi.mocked(githead.addRepoRecent).mockImplementation(async (requestedRepoPath) => [
-      requestedRepoPath,
-      repoPath
+      repoPath,
+      requestedRepoPath
     ]);
 
     render(<App />);
@@ -2391,9 +2508,16 @@ describe("App", () => {
     await waitFor(() => {
       expect(githead.addRepoRecent).toHaveBeenCalledWith(browsedRepo);
     });
+    const repositories = within(screen.getByRole("region", { name: "Repositories" })).getAllByRole("button", {
+      name: /^Switch to /
+    });
+    expect(repositories.map((button) => button.getAttribute("aria-label"))).toEqual([
+      `Switch to ${repoPath}`,
+      `Switch to ${browsedRepo}`
+    ]);
   });
 
-  it("does not add an invalid browsed repository to recents", async () => {
+  it("does not add an invalid browsed repository to repositories", async () => {
     const user = userEvent.setup();
     const invalidRepo = "D:\\NotARepo";
     vi.mocked(githead.chooseRepo).mockResolvedValue(invalidRepo);
@@ -2417,7 +2541,7 @@ describe("App", () => {
     expect(githead.addRepoRecent).not.toHaveBeenCalledWith(invalidRepo);
   });
 
-  it("clones a repository, validates the result, and adds it to recents", async () => {
+  it("clones a repository, validates the result, and adds it to repositories", async () => {
     const user = userEvent.setup();
     const clonedRepo = "D:\\Work\\repo";
     vi.mocked(githead.getRepoRecents).mockResolvedValue([]);
@@ -2674,8 +2798,8 @@ describe("App", () => {
       repoPath: requestedRepoPath
     }));
     vi.mocked(githead.addRepoRecent).mockImplementation(async (requestedRepoPath) => [
-      requestedRepoPath,
-      repoPath
+      repoPath,
+      requestedRepoPath
     ]);
 
     render(<App />);
@@ -2747,8 +2871,7 @@ describe("App", () => {
       firstRepo,
       secondRepo
     ]);
-    vi.mocked(githead.addRepoRecent).mockImplementation(async (requestedRepoPath) => [
-      requestedRepoPath,
+    vi.mocked(githead.addRepoRecent).mockImplementation(async (_requestedRepoPath) => [
       repoPath,
       firstRepo,
       secondRepo
@@ -3013,6 +3136,7 @@ function createGitheadMock(): GitheadApi {
       nextRepoPath
     ]),
     removeRepoRecent: vi.fn().mockResolvedValue([]),
+    reorderRepoRecents: vi.fn().mockImplementation(async (repoPaths: string[]) => repoPaths),
     getRepoTrust: vi.fn().mockResolvedValue({
       trusted: true
     }),

@@ -39,7 +39,7 @@ describe("RepoRecentsService", () => {
     });
   });
 
-  it("dedupes, orders, and caps recent repositories", async () => {
+  it("dedupes and caps repositories without promoting existing entries", async () => {
     await withTempDir(async (dir) => {
       const service = new RepoRecentsService(dir);
       const repoPaths = Array.from({ length: MAX_REPO_RECENTS + 2 }, (_value, index) => path.join(dir, `Repo${index}`));
@@ -48,13 +48,81 @@ describe("RepoRecentsService", () => {
         await service.addRecent(repoPath);
       }
 
-      expect(await service.getRecents()).toEqual(repoPaths.slice(2).reverse());
+      expect(await service.getRecents()).toEqual(repoPaths.slice(0, MAX_REPO_RECENTS));
 
       const promotedRepo = repoPaths[4]!;
       const duplicatePromotedRepo = process.platform === "win32" ? promotedRepo.toLocaleUpperCase() : promotedRepo;
-      expect(await service.addRecent(duplicatePromotedRepo)).toEqual([
-        duplicatePromotedRepo,
-        ...repoPaths.slice(2).reverse().filter((repoPath) => repoPath !== promotedRepo)
+      expect(await service.addRecent(duplicatePromotedRepo)).toEqual(repoPaths.slice(0, MAX_REPO_RECENTS));
+    });
+  });
+
+  it("appends new repositories to the bottom", async () => {
+    await withTempDir(async (dir) => {
+      const service = new RepoRecentsService(dir);
+      const firstRepo = path.join(dir, "First");
+      const secondRepo = path.join(dir, "Second");
+
+      await expect(service.addRecent(firstRepo)).resolves.toEqual([
+        firstRepo
+      ]);
+      await expect(service.addRecent(secondRepo)).resolves.toEqual([
+        firstRepo,
+        secondRepo
+      ]);
+    });
+  });
+
+  it("persists manual repository order", async () => {
+    await withTempDir(async (dir) => {
+      const service = new RepoRecentsService(dir);
+      const firstRepo = path.join(dir, "First");
+      const secondRepo = path.join(dir, "Second");
+      const thirdRepo = path.join(dir, "Third");
+
+      await service.addRecent(firstRepo);
+      await service.addRecent(secondRepo);
+      await service.addRecent(thirdRepo);
+
+      await expect(service.reorderRecents([
+        thirdRepo,
+        firstRepo,
+        secondRepo
+      ])).resolves.toEqual([
+        thirdRepo,
+        firstRepo,
+        secondRepo
+      ]);
+      await expect(service.getRecents()).resolves.toEqual([
+        thirdRepo,
+        firstRepo,
+        secondRepo
+      ]);
+    });
+  });
+
+  it("sanitizes reordered repositories and preserves stored entries missing from stale requests", async () => {
+    await withTempDir(async (dir) => {
+      const service = new RepoRecentsService(dir);
+      const firstRepo = path.join(dir, "First");
+      const secondRepo = path.join(dir, "Second");
+      const thirdRepo = path.join(dir, "Third");
+      const unknownRepo = path.join(dir, "Unknown");
+      const duplicateSecondRepo = process.platform === "win32" ? secondRepo.toLocaleUpperCase() : secondRepo;
+
+      await service.addRecent(firstRepo);
+      await service.addRecent(secondRepo);
+      await service.addRecent(thirdRepo);
+
+      await expect(service.reorderRecents([
+        thirdRepo,
+        "relative-repo",
+        unknownRepo,
+        duplicateSecondRepo,
+        secondRepo
+      ])).resolves.toEqual([
+        thirdRepo,
+        secondRepo,
+        firstRepo
       ]);
     });
   });

@@ -234,6 +234,10 @@ ipcMain.handle(IPC_CHANNELS.removeRepoRecent, async (_event, repoPath: string) =
   return getRepoRecentsService().removeRecent(repoPath);
 });
 
+ipcMain.handle(IPC_CHANNELS.reorderRepoRecents, async (_event, repoPaths: string[]) => {
+  return getRepoRecentsService().reorderRecents(repoPaths);
+});
+
 ipcMain.handle(IPC_CHANNELS.getRepoTrust, async (_event, request: RepoTrustRequest) => {
   return {
     trusted: await getRepoTrustService().isTrusted(request.repoPath)

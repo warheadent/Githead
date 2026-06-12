@@ -14,6 +14,7 @@ import {
   GitFork,
   GitBranch as GitBranchIcon,
   GitPullRequest,
+  GripVertical,
   History,
   ListTree,
   Loader2,
@@ -41,7 +42,9 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type DragEvent,
   type FormEvent,
+  type KeyboardEvent,
   type MouseEvent,
   type ReactNode
 } from "react";
@@ -1444,6 +1447,31 @@ export function App(): ReactNode {
           exitCode: -1,
           stdout: "",
           stderr: error instanceof Error ? error.message : "Unable to remove recent repository."
+        }
+      }));
+    }
+  }, [updateState]);
+
+  const reorderRepositories = useCallback(async (repoPaths: string[]): Promise<void> => {
+    const previousRepoRecents = stateRef.current.repoRecents;
+    updateState({
+      repoRecents: repoPaths
+    });
+
+    try {
+      const repoRecents = await window.githead.reorderRepoRecents(repoPaths);
+      updateState({
+        repoRecents
+      });
+    } catch (error) {
+      updateState((current) => ({
+        ...current,
+        repoRecents: previousRepoRecents,
+        lastOperationResult: {
+          repoPath: current.repoPath,
+          exitCode: -1,
+          stdout: "",
+          stderr: error instanceof Error ? error.message : "Unable to reorder repositories."
         }
       }));
     }
@@ -3000,6 +3028,9 @@ export function App(): ReactNode {
           onRemoveRecent={(repoPath) => {
             void removeRecentRepo(repoPath);
           }}
+          onReorderRepositories={(repoPaths) => {
+            void reorderRepositories(repoPaths);
+          }}
           onShowInExplorer={(repoPath) => {
             void showRecentRepositoryInExplorer(repoPath);
           }}
@@ -3056,6 +3087,9 @@ export function App(): ReactNode {
             }}
             onRemoveRecent={(repoPath) => {
               void removeRecentRepo(repoPath);
+            }}
+            onReorderRepositories={(repoPaths) => {
+              void reorderRepositories(repoPaths);
             }}
             onShowInExplorer={(repoPath) => {
               void showRecentRepositoryInExplorer(repoPath);
@@ -3617,6 +3651,7 @@ function RepositorySetupScreen({
   onChooseRepo,
   onSelectRecent,
   onRemoveRecent,
+  onReorderRepositories,
   onShowInExplorer,
   onCloneDraftChange,
   onCloneSourceChange,
@@ -3638,6 +3673,7 @@ function RepositorySetupScreen({
   onChooseRepo: () => void;
   onSelectRecent: (repoPath: string) => void;
   onRemoveRecent: (repoPath: string) => void;
+  onReorderRepositories: (repoPaths: string[]) => void;
   onShowInExplorer: (repoPath: string) => void;
   onCloneDraftChange: (draft: CloneDraft) => void;
   onCloneSourceChange: (draft: CloneDraft) => void;
@@ -3696,49 +3732,279 @@ function RepositorySetupScreen({
       </div>
 
       {repoRecents.length > 0 ? (
-        <section className="setup-recents" aria-label="Recent repositories">
-          <p className="repo-recents-label">Recent Repositories</p>
-          <div className="repo-recents-list">
-            {repoRecents.map((recentRepoPath) => (
-              <RecentRepositoryRow
-                key={getRepoPathKey(recentRepoPath)}
-                repoPath={recentRepoPath}
-                disabled={running}
-                onSelect={onSelectRecent}
-                onRemove={onRemoveRecent}
-                onShowInExplorer={onShowInExplorer}
-              />
-            ))}
-          </div>
-        </section>
+        <RepositoryList
+          className="setup-recents"
+          repoPath=""
+          repoPaths={repoRecents}
+          disabled={running}
+          onSelect={onSelectRecent}
+          onRemove={onRemoveRecent}
+          onReorder={onReorderRepositories}
+          onShowInExplorer={onShowInExplorer}
+        />
       ) : null}
     </section>
   );
 }
 
+interface RepositoryListProps {
+  className?: string;
+  disabled: boolean;
+  repoPath: string;
+  repoPaths: string[];
+  onSelect: (repoPath: string) => void;
+  onRemove: (repoPath: string) => void;
+  onReorder: (repoPaths: string[]) => void;
+  onShowInExplorer: (repoPath: string) => void;
+}
+
 interface RecentRepositoryRowProps {
   active?: boolean;
   disabled: boolean;
+  dropPosition: RepositoryDropPosition | null;
+  dragging: boolean;
   repoPath: string;
+  onDragEnd: () => void;
+  onDragStart: (event: DragEvent<HTMLButtonElement>, repoPath: string) => void;
+  onPointerDragStart: (repoPath: string) => void;
+  onKeyboardMove: (repoPath: string, direction: RepositoryMoveDirection) => void;
   onSelect: (repoPath: string) => void;
   onRemove: (repoPath: string) => void;
   onShowInExplorer: (repoPath: string) => void;
 }
 
+type RepositoryDropPosition = "before" | "after";
+type RepositoryMoveDirection = "up" | "down";
+
+function RepositoryList({
+  className = "repo-recents",
+  disabled,
+  repoPath,
+  repoPaths,
+  onSelect,
+  onRemove,
+  onReorder,
+  onShowInExplorer
+}: RepositoryListProps): ReactNode {
+  const draggedRepoPathRef = useRef<string | null>(null);
+  const [draggedRepoPath, setDraggedRepoPath] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ repoPath: string; position: RepositoryDropPosition } | null>(null);
+
+  const moveRepository = useCallback((fromRepoPath: string, toRepoPath: string, position: RepositoryDropPosition): void => {
+    if (disabled || isSameRepoPath(fromRepoPath, toRepoPath)) {
+      return;
+    }
+
+    const next = moveRepoPath(repoPaths, fromRepoPath, toRepoPath, position);
+    if (!areRepoPathListsEqual(repoPaths, next)) {
+      onReorder(next);
+    }
+  }, [disabled, onReorder, repoPaths]);
+
+  const moveRepositoryByKeyboard = useCallback((moveRepoPathValue: string, direction: RepositoryMoveDirection): void => {
+    if (disabled) {
+      return;
+    }
+
+    const index = repoPaths.findIndex((candidate) => isSameRepoPath(candidate, moveRepoPathValue));
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (index < 0 || targetIndex < 0 || targetIndex >= repoPaths.length) {
+      return;
+    }
+
+    const next = [...repoPaths];
+    const [moved] = next.splice(index, 1);
+    if (!moved) {
+      return;
+    }
+
+    next.splice(targetIndex, 0, moved);
+    onReorder(next);
+  }, [disabled, onReorder, repoPaths]);
+
+  const startDrag = (event: DragEvent<HTMLButtonElement>, dragRepoPath: string): void => {
+    if (disabled) {
+      event.preventDefault();
+      return;
+    }
+
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", dragRepoPath);
+    draggedRepoPathRef.current = dragRepoPath;
+    setDraggedRepoPath(dragRepoPath);
+  };
+
+  const startPointerDrag = (dragRepoPath: string): void => {
+    if (disabled) {
+      return;
+    }
+
+    draggedRepoPathRef.current = dragRepoPath;
+    setDraggedRepoPath(dragRepoPath);
+  };
+
+  const getDragTarget = (event: DragEvent<HTMLElement> | MouseEvent<HTMLElement>): { repoPath: string; element: HTMLElement } | null => {
+    const element = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-repo-path]");
+    const targetRepoPath = element?.dataset.repoPath;
+    return element && targetRepoPath
+      ? {
+          repoPath: targetRepoPath,
+          element
+        }
+      : null;
+  };
+
+  const updateDropTarget = (event: DragEvent<HTMLElement>, targetRepoPath: string, targetElement: HTMLElement): void => {
+    const sourceRepoPath = draggedRepoPathRef.current ?? draggedRepoPath ?? event.dataTransfer.getData("text/plain");
+    if (disabled || !sourceRepoPath || isSameRepoPath(sourceRepoPath, targetRepoPath)) {
+      return;
+    }
+
+    event.preventDefault();
+    const position = getDropPosition(event.clientY, targetElement);
+    event.dataTransfer.dropEffect = "move";
+    setDropTarget({
+      repoPath: targetRepoPath,
+      position
+    });
+  };
+
+  const dropRepository = (event: DragEvent<HTMLElement>, targetRepoPath: string, targetElement: HTMLElement): void => {
+    const sourceRepoPath = draggedRepoPathRef.current ?? draggedRepoPath ?? event.dataTransfer.getData("text/plain");
+    draggedRepoPathRef.current = null;
+    setDraggedRepoPath(null);
+    setDropTarget(null);
+    if (!sourceRepoPath) {
+      return;
+    }
+
+    event.preventDefault();
+    moveRepository(sourceRepoPath, targetRepoPath, getDropPosition(event.clientY, targetElement));
+  };
+
+  const finishPointerDrag = (event: MouseEvent<HTMLElement>): void => {
+    const sourceRepoPath = draggedRepoPathRef.current;
+    const target = getDragTarget(event);
+    draggedRepoPathRef.current = null;
+    setDraggedRepoPath(null);
+    setDropTarget(null);
+    if (!sourceRepoPath || !target) {
+      return;
+    }
+
+    moveRepository(sourceRepoPath, target.repoPath, getDropPosition(event.clientY, target.element));
+  };
+
+  return (
+    <section className={className} aria-label="Repositories">
+      <p className="repo-recents-label">Repositories</p>
+      <div
+        className="repo-recents-list"
+        onMouseUp={finishPointerDrag}
+        onDragOver={(event) => {
+          const target = getDragTarget(event);
+          if (target) {
+            updateDropTarget(event, target.repoPath, target.element);
+          }
+        }}
+        onDrop={(event) => {
+          const target = getDragTarget(event);
+          if (target) {
+            dropRepository(event, target.repoPath, target.element);
+          }
+        }}
+      >
+        {repoPaths.map((recentRepoPath) => {
+          const key = getRepoPathKey(recentRepoPath);
+          const active = repoPath ? isSameRepoPath(recentRepoPath, repoPath) : false;
+          const currentDropPosition = dropTarget && isSameRepoPath(dropTarget.repoPath, recentRepoPath)
+            ? dropTarget.position
+            : null;
+
+          return (
+            <RecentRepositoryRow
+              key={key}
+              repoPath={recentRepoPath}
+              active={active}
+              disabled={disabled}
+              dragging={Boolean(draggedRepoPath && isSameRepoPath(draggedRepoPath, recentRepoPath))}
+              dropPosition={currentDropPosition}
+              onDragStart={startDrag}
+              onPointerDragStart={startPointerDrag}
+              onDragEnd={() => {
+                draggedRepoPathRef.current = null;
+                setDraggedRepoPath(null);
+                setDropTarget(null);
+              }}
+              onKeyboardMove={moveRepositoryByKeyboard}
+              onSelect={onSelect}
+              onRemove={onRemove}
+              onShowInExplorer={onShowInExplorer}
+            />
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function RecentRepositoryRow({
   active = false,
   disabled,
+  dropPosition,
+  dragging,
   repoPath,
+  onDragEnd,
+  onDragStart,
+  onPointerDragStart,
+  onKeyboardMove,
   onSelect,
   onRemove,
   onShowInExplorer
 }: RecentRepositoryRowProps): ReactNode {
   const displayName = getRepoDisplayName(repoPath);
+  const rowClassName = [
+    "repo-recent-row",
+    active ? "is-active" : "",
+    dragging ? "is-dragging" : "",
+    dropPosition ? `is-drop-${dropPosition}` : ""
+  ].filter(Boolean).join(" ");
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>): void => {
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      onKeyboardMove(repoPath, "up");
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault();
+      onKeyboardMove(repoPath, "down");
+    }
+  };
 
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <div className={`repo-recent-row${active ? " is-active" : ""}`}>
+        <div
+          className={rowClassName}
+          data-repo-path={repoPath}
+        >
+          <button
+            type="button"
+            className="repo-recent-drag-handle"
+            draggable={!disabled}
+            onDragStart={(event) => {
+              onDragStart(event, repoPath);
+            }}
+            onMouseDown={() => {
+              onPointerDragStart(repoPath);
+            }}
+            onDragEnd={onDragEnd}
+            onKeyDown={handleKeyDown}
+            disabled={disabled}
+            aria-label={`Reorder ${repoPath}`}
+            title="Reorder repository"
+          >
+            <GripVertical />
+          </button>
           <button
             type="button"
             className="repo-recent-main"
@@ -4006,6 +4272,7 @@ function RepositoryPanel({
   onChooseRepo,
   onSelectRecent,
   onRemoveRecent,
+  onReorderRepositories,
   onShowInExplorer,
   onSwitchBranch,
   onOpenBranchDialog,
@@ -4038,6 +4305,7 @@ function RepositoryPanel({
   onChooseRepo: () => void;
   onSelectRecent: (repoPath: string) => void;
   onRemoveRecent: (repoPath: string) => void;
+  onReorderRepositories: (repoPaths: string[]) => void;
   onShowInExplorer: (repoPath: string) => void;
   onSwitchBranch: (branchName: string) => void;
   onOpenBranchDialog: () => void;
@@ -4156,26 +4424,15 @@ function RepositoryPanel({
       </div>
 
       {repoRecents.length > 0 ? (
-        <section className="repo-recents" aria-label="Recent repositories">
-          <p className="repo-recents-label">Recent Repositories</p>
-          <div className="repo-recents-list">
-            {repoRecents.map((recentRepoPath) => {
-              const active = isSameRepoPath(recentRepoPath, repoPath);
-
-              return (
-                <RecentRepositoryRow
-                  key={getRepoPathKey(recentRepoPath)}
-                  repoPath={recentRepoPath}
-                  active={active}
-                  disabled={running}
-                  onSelect={onSelectRecent}
-                  onRemove={onRemoveRecent}
-                  onShowInExplorer={onShowInExplorer}
-                />
-              );
-            })}
-          </div>
-        </section>
+        <RepositoryList
+          repoPath={repoPath}
+          repoPaths={repoRecents}
+          disabled={running}
+          onSelect={onSelectRecent}
+          onRemove={onRemoveRecent}
+          onReorder={onReorderRepositories}
+          onShowInExplorer={onShowInExplorer}
+        />
       ) : null}
 
       <dl className="repo-facts">
@@ -7356,8 +7613,39 @@ function isSameRepoPath(left: string, right: string): boolean {
   return getRepoPathKey(left) === getRepoPathKey(right);
 }
 
+function areRepoPathListsEqual(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((repoPath, index) => isSameRepoPath(repoPath, right[index] ?? ""));
+}
+
 function getRepoPathKey(repoPath: string): string {
   return repoPath.trim().replace(/[\\/]+$/, "").toLocaleLowerCase();
+}
+
+function moveRepoPath(repoPaths: string[], fromRepoPath: string, toRepoPath: string, position: RepositoryDropPosition): string[] {
+  const fromIndex = repoPaths.findIndex((repoPath) => isSameRepoPath(repoPath, fromRepoPath));
+  const toIndex = repoPaths.findIndex((repoPath) => isSameRepoPath(repoPath, toRepoPath));
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
+    return repoPaths;
+  }
+
+  const next = [...repoPaths];
+  const [moved] = next.splice(fromIndex, 1);
+  if (!moved) {
+    return repoPaths;
+  }
+
+  const adjustedToIndex = next.findIndex((repoPath) => isSameRepoPath(repoPath, toRepoPath));
+  if (adjustedToIndex < 0) {
+    return repoPaths;
+  }
+
+  next.splice(position === "before" ? adjustedToIndex : adjustedToIndex + 1, 0, moved);
+  return next;
+}
+
+function getDropPosition(clientY: number, element: HTMLElement): RepositoryDropPosition {
+  const bounds = element.getBoundingClientRect();
+  return clientY < bounds.top + bounds.height / 2 ? "before" : "after";
 }
 
 function getRepoDisplayName(repoPath: string): string {

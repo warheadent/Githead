@@ -638,9 +638,10 @@
 
 .repo-recent-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
   align-items: center;
   gap: 4px;
+  min-height: 36px;
   overflow: hidden;
   border: 1px solid transparent;
   border-radius: 8px;
@@ -656,6 +657,45 @@
 .repo-recent-row.is-active {
   border-color: color-mix(in oklch, var(--primary) 45%, var(--border));
   background: color-mix(in oklch, var(--primary) 12%, transparent);
+}
+
+.repo-recent-row.is-dragging {
+  opacity: 0.56;
+}
+
+.repo-recent-row.is-drop-before {
+  border-top-color: var(--primary);
+}
+
+.repo-recent-row.is-drop-after {
+  border-bottom-color: var(--primary);
+}
+
+.repo-recent-drag-handle {
+  display: grid;
+  width: 28px;
+  height: 34px;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+}
+
+.repo-recent-drag-handle:not(:disabled) {
+  cursor: grab;
+}
+
+.repo-recent-drag-handle:not(:disabled):active {
+  cursor: grabbing;
+}
+
+.repo-recent-drag-handle:disabled {
+  opacity: 0.5;
+}
+
+.repo-recent-drag-handle svg {
+  width: 16px;
+  height: 16px;
 }
 
 .repo-recent-main {
@@ -677,6 +717,7 @@
   opacity: 1;
 }
 
+.repo-recent-drag-handle:focus-visible,
 .repo-recent-main:focus-visible,
 .repo-recent-remove:focus-visible {
   outline: 2px solid var(--ring);

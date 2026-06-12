@@ -465,6 +465,7 @@ export interface GitheadApi {
   getRepoRecents(): Promise<string[]>;
   addRepoRecent(repoPath: string): Promise<string[]>;
   removeRepoRecent(repoPath: string): Promise<string[]>;
+  reorderRepoRecents(repoPaths: string[]): Promise<string[]>;
   getRepoTrust(request: RepoTrustRequest): Promise<RepoTrustResult>;
   addRepoTrust(request: RepoTrustRequest): Promise<RepoTrustResult>;
   getGitHubWorkflowRuns(request: GitHubRepositoryRequest): Promise<GitHubWorkflowRun[]>;
