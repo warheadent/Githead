@@ -37,6 +37,7 @@ import type {
   GitResetCommitRequest,
   GitRunRequest,
   GitRunResult,
+  RepoSyncStatus,
   GitStatusFile,
   GitUpstreamRequest,
   GitHubRepository,
@@ -170,6 +171,43 @@ export class GitService {
       actionsConfig,
       validationErrors: []
     };
+  }
+
+  async getRepoSyncStatuses(repoPaths: string[]): Promise<RepoSyncStatus[]> {
+    return Promise.all(repoPaths.map((repoPath) => this.getRepoSyncStatus(repoPath)));
+  }
+
+  async getRepoSyncStatus(repoPath: string): Promise<RepoSyncStatus> {
+    try {
+      const validation = await this.validateRepo(repoPath);
+      if (!validation.isValid) {
+        return createInvalidRepoSyncStatus(repoPath, validation.validationErrors.join(" "));
+      }
+
+      const statusResult = await this.runGit(repoPath, [
+        "status",
+        "--porcelain=v2",
+        "-z",
+        "--branch",
+        "--untracked-files=no"
+      ]);
+      if (statusResult.exitCode !== 0) {
+        return createInvalidRepoSyncStatus(repoPath, statusResult.stderr.trim() || "Unable to read repository sync status.");
+      }
+
+      const status = parsePorcelainStatus(statusResult.stdout);
+      const counts = parseAheadBehindCounts(status.statusLines);
+
+      return {
+        repoPath,
+        isValid: true,
+        ahead: counts?.ahead ?? 0,
+        behind: counts?.behind ?? 0,
+        error: ""
+      };
+    } catch (error) {
+      return createInvalidRepoSyncStatus(repoPath, error instanceof Error ? error.message : "Unable to read repository sync status.");
+    }
   }
 
   async getGitHubRepository(repoPath: string): Promise<GitHubRepository | null> {
@@ -2018,6 +2056,29 @@ function parsePorcelainStatus(text: string): { files: GitStatusFile[]; statusLin
       ...branchLines,
       ...files.map((file) => `${file.indexStatus}${file.worktreeStatus} ${file.path}`)
     ]
+  };
+}
+
+function parseAheadBehindCounts(statusLines: string[]): { ahead: number; behind: number } | null {
+  const aheadBehindLine = statusLines.find((line) => line.startsWith("# branch.ab "));
+  const match = /^# branch\.ab \+(?<ahead>\d+) -(?<behind>\d+)$/.exec(aheadBehindLine ?? "");
+  if (!match?.groups) {
+    return null;
+  }
+
+  return {
+    ahead: Number.parseInt(match.groups.ahead ?? "0", 10),
+    behind: Number.parseInt(match.groups.behind ?? "0", 10)
+  };
+}
+
+function createInvalidRepoSyncStatus(repoPath: string, error: string): RepoSyncStatus {
+  return {
+    repoPath,
+    isValid: false,
+    ahead: 0,
+    behind: 0,
+    error
   };
 }
 

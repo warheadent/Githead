@@ -32,6 +32,7 @@ import type {
   GitheadApi,
   GitOperationResult,
   RepoChangedEvent,
+  RepoSyncStatus,
   RepoSummary
 } from "../shared/types";
 
@@ -2245,6 +2246,75 @@ describe("App", () => {
     expect(githead.getRepoSummary).toHaveBeenCalledWith(recentRepo);
   });
 
+  it("shows local push and pull counts beside recent repositories", async () => {
+    const recentRepo = "D:\\Work\\Recent";
+    const otherRepo = "D:\\Work\\Other";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([
+      recentRepo,
+      otherRepo
+    ]);
+    vi.mocked(githead.addRepoRecent).mockResolvedValue([
+      recentRepo,
+      otherRepo
+    ]);
+    vi.mocked(githead.getRepoSyncStatuses).mockResolvedValue([
+      createRepoSyncStatus({
+        repoPath: recentRepo,
+        ahead: 1,
+        behind: 4
+      }),
+      createRepoSyncStatus({
+        repoPath: otherRepo,
+        behind: 2
+      })
+    ]);
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
+      repoPath: requestedRepoPath,
+      statusLines: [
+        "# branch.ab +1 -4"
+      ]
+    }));
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    expect(await screen.findByText("(1 ↑ 4 ↓)")).toBeTruthy();
+    expect(screen.getByText("(2 ↓)")).toBeTruthy();
+  });
+
+  it("leaves recent repository names unchanged when sync counts are zero or unavailable", async () => {
+    const recentRepo = "D:\\Work\\Recent";
+    const otherRepo = "D:\\Work\\Other";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([
+      recentRepo,
+      otherRepo
+    ]);
+    vi.mocked(githead.addRepoRecent).mockResolvedValue([
+      recentRepo,
+      otherRepo
+    ]);
+    vi.mocked(githead.getRepoSyncStatuses).mockResolvedValue([
+      createRepoSyncStatus({
+        repoPath: recentRepo
+      }),
+      createRepoSyncStatus({
+        repoPath: otherRepo,
+        isValid: false,
+        error: "Selected folder is not a git repository."
+      })
+    ]);
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
+      repoPath: requestedRepoPath
+    }));
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    expect(screen.getByText("Recent")).toBeTruthy();
+    expect(screen.getByText("Other")).toBeTruthy();
+    expect(screen.queryByText(/\d+ ↑|\d+ ↓/)).toBeNull();
+  });
+
   it("shows the setup screen on first run without probing the old hard-coded fallback", async () => {
     vi.mocked(githead.getRepoRecents).mockResolvedValue([]);
 
@@ -3132,6 +3202,9 @@ function createGitheadMock(): GitheadApi {
     getRepoRecents: vi.fn().mockResolvedValue([
       repoPath
     ]),
+    getRepoSyncStatuses: vi.fn().mockImplementation(async (repoPaths: string[]) => repoPaths.map((nextRepoPath) => createRepoSyncStatus({
+      repoPath: nextRepoPath
+    }))),
     addRepoRecent: vi.fn().mockImplementation(async (nextRepoPath: string) => [
       nextRepoPath
     ]),
@@ -3306,6 +3379,17 @@ function createSummary(
     validationErrors: [],
     ...overrides,
     actionsConfig
+  };
+}
+
+function createRepoSyncStatus(overrides: Partial<RepoSyncStatus> = {}): RepoSyncStatus {
+  return {
+    repoPath,
+    isValid: true,
+    ahead: 0,
+    behind: 0,
+    error: "",
+    ...overrides
   };
 }
 

@@ -226,6 +226,10 @@ ipcMain.handle(IPC_CHANNELS.getRepoRecents, async () => {
   return getRepoRecentsService().getRecents();
 });
 
+ipcMain.handle(IPC_CHANNELS.getRepoSyncStatuses, async (_event, repoPaths: string[]) => {
+  return gitService.getRepoSyncStatuses(repoPaths);
+});
+
 ipcMain.handle(IPC_CHANNELS.addRepoRecent, async (_event, repoPath: string) => {
   return getRepoRecentsService().addRecent(repoPath);
 });

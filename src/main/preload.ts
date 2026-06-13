@@ -53,6 +53,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.unwatchRepoChanges, repoPath) as ReturnType<GitheadApi["unwatchRepoChanges"]>,
   getRepoRecents: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getRepoRecents) as ReturnType<GitheadApi["getRepoRecents"]>,
+  getRepoSyncStatuses: (repoPaths: string[]) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getRepoSyncStatuses, repoPaths) as ReturnType<GitheadApi["getRepoSyncStatuses"]>,
   addRepoRecent: (repoPath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.addRepoRecent, repoPath) as ReturnType<GitheadApi["addRepoRecent"]>,
   removeRepoRecent: (repoPath: string) =>

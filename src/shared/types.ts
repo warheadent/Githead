@@ -183,6 +183,14 @@ export interface RepoSummary {
   actionsConfig: GitActionsConfig;
 }
 
+export interface RepoSyncStatus {
+  repoPath: string;
+  isValid: boolean;
+  ahead: number;
+  behind: number;
+  error: string;
+}
+
 export interface GitRunRequest {
   repoPath: string;
   action: GitAction;
@@ -463,6 +471,7 @@ export interface GitheadApi {
   watchRepoChanges(repoPath: string): Promise<void>;
   unwatchRepoChanges(repoPath?: string): Promise<void>;
   getRepoRecents(): Promise<string[]>;
+  getRepoSyncStatuses(repoPaths: string[]): Promise<RepoSyncStatus[]>;
   addRepoRecent(repoPath: string): Promise<string[]>;
   removeRepoRecent(repoPath: string): Promise<string[]>;
   reorderRepoRecents(repoPaths: string[]): Promise<string[]>;

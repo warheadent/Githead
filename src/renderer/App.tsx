@@ -122,12 +122,13 @@ import type {
   GitRepositoryAccessCheckResult,
   GitRunResult,
   GitStatusFile,
+  RepoSyncStatus,
   RepoTrustResult,
   RepoSummary
 } from "../shared/types";
 import { GIT_CONFIGURED_ACTION_SHELLS } from "../shared/types";
 import { parseCommitSubject } from "../shared/commitSubject";
-import { canPush, getPrimaryCommitAction, getPullableCommitCount, getPushableCommitCount, hasStagedChanges } from "./commitActions";
+import { canPush, getAheadBehindCounts, getPrimaryCommitAction, getPullableCommitCount, getPushableCommitCount, hasStagedChanges } from "./commitActions";
 import { buildCommitGraphLayout, type CommitGraphLayout } from "./commitGraph";
 import { groupDiffRowsByHunk, parseUnifiedDiff, type DiffRow, type DiffRowKind } from "./diffParser";
 import { highlightDiffCode } from "./syntaxHighlighter";
@@ -215,6 +216,7 @@ interface TagDialogState {
 interface AppState {
   repoPath: string;
   repoRecents: string[];
+  repoSyncStatuses: Record<string, RepoSyncStatus>;
   repoLoading: boolean;
   showSetup: boolean;
   setupError: string;
@@ -288,6 +290,7 @@ type AppStateUpdater = Partial<AppState> | ((state: AppState) => AppState);
 
 interface RequestIds {
   repo: number;
+  repoSyncStatuses: number;
   diff: number;
   history: number;
   commitDetails: number;
@@ -362,6 +365,7 @@ const TRUST_WORKSPACE_DESCRIPTION = "This is the first time Githead will run Git
 const initialState: AppState = {
   repoPath: "",
   repoRecents: [],
+  repoSyncStatuses: {},
   repoLoading: false,
   showSetup: true,
   setupError: "",
@@ -443,6 +447,7 @@ export function App(): ReactNode {
   const stateRef = useRef(state);
   const requestIds = useRef<RequestIds>({
     repo: 0,
+    repoSyncStatuses: 0,
     diff: 0,
     history: 0,
     commitDetails: 0,
@@ -967,6 +972,38 @@ export function App(): ReactNode {
     }
   }, [updateState]);
 
+  const loadRepoSyncStatuses = useCallback(async (repoPathsOverride?: string[]): Promise<void> => {
+    const repoPaths = repoPathsOverride ?? stateRef.current.repoRecents;
+    const requestId = requestIds.current.repoSyncStatuses + 1;
+    requestIds.current.repoSyncStatuses = requestId;
+
+    if (repoPaths.length === 0) {
+      updateState({
+        repoSyncStatuses: {}
+      });
+      return;
+    }
+
+    try {
+      const statuses = await window.githead.getRepoSyncStatuses(repoPaths);
+      if (requestId !== requestIds.current.repoSyncStatuses) {
+        return;
+      }
+
+      updateState((current) => ({
+        ...current,
+        repoSyncStatuses: createRepoSyncStatusMap(current.repoRecents, statuses, current.repoSyncStatuses)
+      }));
+    } catch {
+      if (requestId === requestIds.current.repoSyncStatuses) {
+        updateState((current) => ({
+          ...current,
+          repoSyncStatuses: pruneRepoSyncStatusMap(current.repoRecents, current.repoSyncStatuses)
+        }));
+      }
+    }
+  }, [updateState]);
+
   const refreshRepo = useCallback(async (options: {
     addToRecents?: boolean;
     silent?: boolean;
@@ -992,6 +1029,10 @@ export function App(): ReactNode {
       updateState((current) => reconcileGitHubState(reconcileSelection({
         ...current,
         summary,
+        repoSyncStatuses: {
+          ...current.repoSyncStatuses,
+          [getRepoPathKey(summary.repoPath)]: createRepoSyncStatusFromSummary(summary)
+        },
         showSetup: !summary.isValid,
         setupError: summary.isValid ? "" : summary.validationErrors.join(" ")
       }), current.summary));
@@ -1000,9 +1041,13 @@ export function App(): ReactNode {
         try {
           const repoRecents = await window.githead.addRepoRecent(summary.repoPath);
           if (requestId === requestIds.current.repo && isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+            const previousRepoRecents = stateRef.current.repoRecents;
             updateState({
               repoRecents
             });
+            if (!areRepoPathListsEqual(previousRepoRecents, repoRecents)) {
+              void loadRepoSyncStatuses(repoRecents);
+            }
           }
         } catch (error) {
           if (requestId === requestIds.current.repo && isSameRepoPath(repoPath, stateRef.current.repoPath)) {
@@ -1020,12 +1065,17 @@ export function App(): ReactNode {
       }
     } catch (error) {
       if (requestId === requestIds.current.repo && isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        const summary = createInvalidSummary(
+          stateRef.current.repoPath,
+          error instanceof Error ? error.message : "Unable to read repository state."
+        );
         updateState((current) => ({
           ...current,
-          summary: createInvalidSummary(
-            current.repoPath,
-            error instanceof Error ? error.message : "Unable to read repository state."
-          ),
+          summary,
+          repoSyncStatuses: {
+            ...current.repoSyncStatuses,
+            [getRepoPathKey(summary.repoPath)]: createRepoSyncStatusFromSummary(summary)
+          },
           showSetup: true,
           setupError: error instanceof Error ? error.message : "Unable to read repository state.",
           selection: null,
@@ -1063,7 +1113,7 @@ export function App(): ReactNode {
     if (latest.activeView === "issues") {
       await loadIssues(true);
     }
-  }, [loadCommitHistory, loadGitHubOpenCounts, loadIssues, loadPullRequests, loadWorkflowRuns, updateState]);
+  }, [loadCommitHistory, loadGitHubOpenCounts, loadIssues, loadPullRequests, loadRepoSyncStatuses, loadWorkflowRuns, updateState]);
 
   const refreshDirtyFileStatus = useCallback(async (options: { force?: boolean } = {}): Promise<void> => {
     const current = stateRef.current;
@@ -1120,6 +1170,7 @@ export function App(): ReactNode {
       void refreshDirtyFileStatus({
         force: true
       });
+      void loadRepoSyncStatuses();
     };
 
     window.addEventListener("blur", handleWindowBlur);
@@ -1128,7 +1179,7 @@ export function App(): ReactNode {
       window.removeEventListener("blur", handleWindowBlur);
       window.removeEventListener("focus", handleWindowFocus);
     };
-  }, [refreshDirtyFileStatus]);
+  }, [loadRepoSyncStatuses, refreshDirtyFileStatus]);
 
   const switchRepo = useCallback(async (repoPath: string, options: { addToRecents?: boolean } = {}): Promise<void> => {
     const nextRepoPath = repoPath.trim();
@@ -1194,16 +1245,19 @@ export function App(): ReactNode {
       ...current,
       repoPath: repoRecents[0] ?? "",
       repoRecents,
+      repoSyncStatuses: pruneRepoSyncStatusMap(repoRecents, current.repoSyncStatuses),
       showSetup: repoRecents.length === 0,
       setupError: repoRecents.length === 0 ? "" : current.setupError
     }));
+
+    void loadRepoSyncStatuses(repoRecents);
 
     if (repoRecents.length > 0) {
       await refreshRepo({
         addToRecents: true
       });
     }
-  }, [refreshRepo, updateState]);
+  }, [loadRepoSyncStatuses, refreshRepo, updateState]);
 
   const loadAiSettings = useCallback(async (): Promise<void> => {
     try {
@@ -1437,8 +1491,10 @@ export function App(): ReactNode {
     try {
       const repoRecents = await window.githead.removeRepoRecent(repoPath);
       updateState({
-        repoRecents
+        repoRecents,
+        repoSyncStatuses: pruneRepoSyncStatusMap(repoRecents, stateRef.current.repoSyncStatuses)
       });
+      void loadRepoSyncStatuses(repoRecents);
     } catch (error) {
       updateState((current) => ({
         ...current,
@@ -1461,8 +1517,10 @@ export function App(): ReactNode {
     try {
       const repoRecents = await window.githead.reorderRepoRecents(repoPaths);
       updateState({
-        repoRecents
+        repoRecents,
+        repoSyncStatuses: pruneRepoSyncStatusMap(repoRecents, stateRef.current.repoSyncStatuses)
       });
+      void loadRepoSyncStatuses(repoRecents);
     } catch (error) {
       updateState((current) => ({
         ...current,
@@ -3009,6 +3067,7 @@ export function App(): ReactNode {
       >
         <RepositorySetupScreen
           repoRecents={state.repoRecents}
+          repoSyncStatuses={state.repoSyncStatuses}
           selectedRepoPath={state.repoPath}
           setupError={state.setupError}
           cloneDraft={state.cloneDraft}
@@ -3066,6 +3125,7 @@ export function App(): ReactNode {
           <RepositoryPanel
             repoPath={state.repoPath}
             repoRecents={state.repoRecents}
+            repoSyncStatuses={state.repoSyncStatuses}
             repoHealth={repoHealth}
             summary={state.summary}
             running={running}
@@ -3638,6 +3698,7 @@ function WindowControlButton({
 
 function RepositorySetupScreen({
   repoRecents,
+  repoSyncStatuses,
   selectedRepoPath,
   setupError,
   cloneDraft,
@@ -3660,6 +3721,7 @@ function RepositorySetupScreen({
   onClone
 }: {
   repoRecents: string[];
+  repoSyncStatuses: Record<string, RepoSyncStatus>;
   selectedRepoPath: string;
   setupError: string;
   cloneDraft: CloneDraft;
@@ -3736,6 +3798,7 @@ function RepositorySetupScreen({
           className="setup-recents"
           repoPath=""
           repoPaths={repoRecents}
+          syncStatuses={repoSyncStatuses}
           disabled={running}
           onSelect={onSelectRecent}
           onRemove={onRemoveRecent}
@@ -3752,6 +3815,7 @@ interface RepositoryListProps {
   disabled: boolean;
   repoPath: string;
   repoPaths: string[];
+  syncStatuses: Record<string, RepoSyncStatus>;
   onSelect: (repoPath: string) => void;
   onRemove: (repoPath: string) => void;
   onReorder: (repoPaths: string[]) => void;
@@ -3764,6 +3828,7 @@ interface RecentRepositoryRowProps {
   dropPosition: RepositoryDropPosition | null;
   dragging: boolean;
   repoPath: string;
+  syncStatus: RepoSyncStatus | null;
   onDragEnd: () => void;
   onDragStart: (event: DragEvent<HTMLButtonElement>, repoPath: string) => void;
   onPointerDragStart: (repoPath: string) => void;
@@ -3781,6 +3846,7 @@ function RepositoryList({
   disabled,
   repoPath,
   repoPaths,
+  syncStatuses,
   onSelect,
   onRemove,
   onReorder,
@@ -3925,6 +3991,7 @@ function RepositoryList({
             <RecentRepositoryRow
               key={key}
               repoPath={recentRepoPath}
+              syncStatus={syncStatuses[key] ?? null}
               active={active}
               disabled={disabled}
               dragging={Boolean(draggedRepoPath && isSameRepoPath(draggedRepoPath, recentRepoPath))}
@@ -3954,6 +4021,7 @@ function RecentRepositoryRow({
   dropPosition,
   dragging,
   repoPath,
+  syncStatus,
   onDragEnd,
   onDragStart,
   onPointerDragStart,
@@ -3963,6 +4031,7 @@ function RecentRepositoryRow({
   onShowInExplorer
 }: RecentRepositoryRowProps): ReactNode {
   const displayName = getRepoDisplayName(repoPath);
+  const syncLabel = formatRepoSyncStatusLabel(syncStatus);
   const rowClassName = [
     "repo-recent-row",
     active ? "is-active" : "",
@@ -4015,7 +4084,10 @@ function RecentRepositoryRow({
             aria-current={active ? "true" : undefined}
             aria-label={`Switch to ${repoPath}`}
           >
-            <span className="repo-recent-name">{displayName}</span>
+            <span className="repo-recent-name">
+              <span>{displayName}</span>
+              {syncLabel ? <span className="repo-recent-sync">{syncLabel}</span> : null}
+            </span>
           </button>
           <Button
             type="button"
@@ -4256,6 +4328,7 @@ function CloneRepositoryForm({
 function RepositoryPanel({
   repoPath,
   repoRecents,
+  repoSyncStatuses,
   repoHealth,
   summary,
   running,
@@ -4289,6 +4362,7 @@ function RepositoryPanel({
 }: {
   repoPath: string;
   repoRecents: string[];
+  repoSyncStatuses: Record<string, RepoSyncStatus>;
   repoHealth: { text: string; state: "good" | "bad" | "neutral" };
   summary: RepoSummary | null;
   running: boolean;
@@ -4427,6 +4501,7 @@ function RepositoryPanel({
         <RepositoryList
           repoPath={repoPath}
           repoPaths={repoRecents}
+          syncStatuses={repoSyncStatuses}
           disabled={running}
           onSelect={onSelectRecent}
           onRemove={onRemoveRecent}
@@ -7619,6 +7694,70 @@ function areRepoPathListsEqual(left: string[], right: string[]): boolean {
 
 function getRepoPathKey(repoPath: string): string {
   return repoPath.trim().replace(/[\\/]+$/, "").toLocaleLowerCase();
+}
+
+function createRepoSyncStatusMap(
+  repoPaths: string[],
+  statuses: RepoSyncStatus[],
+  previous: Record<string, RepoSyncStatus> = {}
+): Record<string, RepoSyncStatus> {
+  const statusesByKey = new Map(statuses.map((status) => [
+    getRepoPathKey(status.repoPath),
+    status
+  ]));
+  const next: Record<string, RepoSyncStatus> = {};
+
+  for (const repoPath of repoPaths) {
+    const key = getRepoPathKey(repoPath);
+    const status = statusesByKey.get(key) ?? previous[key];
+    if (status) {
+      next[key] = status;
+    }
+  }
+
+  return next;
+}
+
+function pruneRepoSyncStatusMap(
+  repoPaths: string[],
+  statuses: Record<string, RepoSyncStatus>
+): Record<string, RepoSyncStatus> {
+  const next: Record<string, RepoSyncStatus> = {};
+
+  for (const repoPath of repoPaths) {
+    const key = getRepoPathKey(repoPath);
+    const status = statuses[key];
+    if (status) {
+      next[key] = status;
+    }
+  }
+
+  return next;
+}
+
+function createRepoSyncStatusFromSummary(summary: RepoSummary): RepoSyncStatus {
+  const counts = getAheadBehindCounts(summary);
+
+  return {
+    repoPath: summary.repoPath,
+    isValid: summary.isValid,
+    ahead: counts?.ahead ?? 0,
+    behind: counts?.behind ?? 0,
+    error: summary.isValid ? "" : summary.validationErrors.join(" ")
+  };
+}
+
+function formatRepoSyncStatusLabel(status: RepoSyncStatus | null): string {
+  if (!status?.isValid) {
+    return "";
+  }
+
+  const parts = [
+    status.ahead > 0 ? `${status.ahead} ↑` : "",
+    status.behind > 0 ? `${status.behind} ↓` : ""
+  ].filter(Boolean);
+
+  return parts.length > 0 ? `(${parts.join(" ")})` : "";
 }
 
 function moveRepoPath(repoPaths: string[], fromRepoPath: string, toRepoPath: string, position: RepositoryDropPosition): string[] {

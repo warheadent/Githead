@@ -619,6 +619,76 @@ describe("GitService", () => {
     ]);
   });
 
+  it("reads local ahead and behind counts for a repository", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok([
+        "# branch.oid 0123456789abcdef0123456789abcdef01234567",
+        "# branch.head main",
+        "# branch.upstream origin/main",
+        "# branch.ab +1 -4"
+      ].join("\0"))
+    ]);
+    const service = new GitService(runner);
+
+    const status = await service.getRepoSyncStatus("D:\\Repo");
+
+    expect(status).toEqual({
+      repoPath: "D:\\Repo",
+      isValid: true,
+      ahead: 1,
+      behind: 4,
+      error: ""
+    });
+    expect(runner.calls[1]).toMatchObject({
+      command: "git",
+      args: [
+        "-C",
+        "D:\\Repo",
+        "status",
+        "--porcelain=v2",
+        "-z",
+        "--branch",
+        "--untracked-files=no"
+      ]
+    });
+  });
+
+  it("returns zero sync counts when a repository has no ahead-behind status", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok([
+        "# branch.oid 0123456789abcdef0123456789abcdef01234567",
+        "# branch.head main"
+      ].join("\0"))
+    ]);
+    const service = new GitService(runner);
+
+    await expect(service.getRepoSyncStatus("D:\\Repo")).resolves.toEqual({
+      repoPath: "D:\\Repo",
+      isValid: true,
+      ahead: 0,
+      behind: 0,
+      error: ""
+    });
+  });
+
+  it("returns an invalid sync status without throwing for non-repositories", async () => {
+    const runner = new FakeRunner([
+      failure("fatal: not a git repository")
+    ]);
+    const service = new GitService(runner);
+
+    await expect(service.getRepoSyncStatus("D:\\Missing")).resolves.toEqual({
+      repoPath: "D:\\Missing",
+      isValid: false,
+      ahead: 0,
+      behind: 0,
+      error: "Selected folder is not a git repository."
+    });
+    expect(runner.calls).toHaveLength(1);
+  });
+
   it("reports no configured actions without a .githead folder", async () => {
     await withTempDir(async (dir) => {
       const runner = new FakeRunner(repoSummaryResults(dir));

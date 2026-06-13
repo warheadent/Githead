@@ -737,6 +737,12 @@
   line-height: 1.25;
 }
 
+.repo-recent-sync {
+  margin-left: 6px;
+  color: var(--muted-foreground);
+  font-weight: 650;
+}
+
 .repo-recent-remove {
   margin-right: 6px;
 }

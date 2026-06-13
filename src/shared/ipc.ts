@@ -6,6 +6,7 @@ export const IPC_CHANNELS = {
   unwatchRepoChanges: "repo:unwatch",
   repoChanged: "repo:changed",
   getRepoRecents: "repo-recents:get",
+  getRepoSyncStatuses: "repo-recents:sync-statuses",
   addRepoRecent: "repo-recents:add",
   removeRepoRecent: "repo-recents:remove",
   reorderRepoRecents: "repo-recents:reorder",
