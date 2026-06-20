@@ -2108,6 +2108,9 @@ describe("App", () => {
 
     render(<App />);
 
+    await user.click(await screen.findByRole("tab", { name: "Commit History" }));
+    expect(screen.getByRole("tab", { name: "Commit History" }).getAttribute("aria-selected")).toBe("true");
+
     await user.click(await screen.findByRole("button", { name: /^Push$/ }));
 
     await waitFor(() => {
@@ -2116,6 +2119,29 @@ describe("App", () => {
         action: "push"
       });
     });
+    expect(screen.getByRole("tab", { name: "Activity Log" }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("does not jump to the Activity Log when action trust is declined", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoTrust).mockResolvedValue({
+      trusted: false
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("tab", { name: "Commit History" }));
+    await user.click(await screen.findByRole("button", { name: /^Push$/ }));
+    await user.click(await screen.findByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => {
+      expect(githead.getRepoTrust).toHaveBeenCalledWith({
+        repoPath
+      });
+    });
+    expect(githead.runGitAction).not.toHaveBeenCalled();
+    expect(screen.getByRole("tab", { name: "Commit History" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: "Activity Log" }).getAttribute("aria-selected")).toBe("false");
   });
 
   it("opens the Repository Actions manager without a .githead folder and saves a shared action", async () => {
@@ -2175,6 +2201,9 @@ describe("App", () => {
 
     render(<App />);
 
+    await user.click(await screen.findByRole("tab", { name: "Commit History" }));
+    expect(screen.getByRole("tab", { name: "Commit History" }).getAttribute("aria-selected")).toBe("true");
+
     await user.click(await screen.findByRole("button", { name: "Repository actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Build" }));
 
@@ -2184,6 +2213,7 @@ describe("App", () => {
         name: "Build"
       });
     });
+    expect(screen.getByRole("tab", { name: "Activity Log" }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("shows configured action running and result headings", async () => {

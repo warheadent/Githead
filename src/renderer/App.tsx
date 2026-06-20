@@ -1761,6 +1761,7 @@ export function App(): ReactNode {
     updateState({
       runningAction: action,
       lastResult: null,
+      activeView: "activity",
       activityLog: createActivityLogState()
     });
 
@@ -1810,6 +1811,7 @@ export function App(): ReactNode {
     updateState({
       runningAction: action.name,
       lastResult: null,
+      activeView: "activity",
       activityLog: createActivityLogState()
     });
 
