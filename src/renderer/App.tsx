@@ -144,6 +144,8 @@ import { canPush, getAheadBehindCounts, getPrimaryCommitAction, getPullableCommi
 import { buildCommitGraphLayout, type CommitGraphLayout } from "./commitGraph";
 import { groupDiffRowsByHunk, parseUnifiedDiff, type DiffRow, type DiffRowKind } from "./diffParser";
 import { highlightDiffCode } from "./syntaxHighlighter";
+import gitIconUrl from "./assets/git-icon-white.svg";
+import loreIconUrl from "./assets/lore-icon-white.svg";
 
 const HISTORY_LIMIT = 200;
 
@@ -4406,10 +4408,8 @@ function RecentRepositoryRow({
             aria-label={`Switch to ${repoPath}`}
           >
             <span className="repo-recent-name">
-              <span>{displayName}</span>
-              {syncStatus?.kind === "lore" ? (
-                <Badge variant="outline" className="repo-recent-kind">Lore</Badge>
-              ) : null}
+              <span className="repo-recent-title">{displayName}</span>
+              {syncStatus?.isValid ? <RecentRepositoryVcsIcon kind={syncStatus.kind} /> : null}
               {syncLabel ? <span className="repo-recent-sync">{syncLabel}</span> : null}
             </span>
           </button>
@@ -4440,6 +4440,29 @@ function RecentRepositoryRow({
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
+  );
+}
+
+function RecentRepositoryVcsIcon({ kind }: { kind: RepoSyncStatus["kind"] }): ReactNode {
+  const icon = kind === "lore"
+    ? {
+      label: "Lore repository",
+      src: loreIconUrl
+    }
+    : {
+      label: "Git repository",
+      src: gitIconUrl
+    };
+
+  return (
+    <span
+      className={`repo-recent-vcs-icon ${kind === "lore" ? "is-lore" : "is-git"}`}
+      role="img"
+      aria-label={icon.label}
+      title={icon.label}
+    >
+      <img src={icon.src} alt="" aria-hidden="true" />
+    </span>
   );
 }
 

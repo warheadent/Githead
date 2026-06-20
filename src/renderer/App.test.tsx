@@ -2545,6 +2545,40 @@ describe("App", () => {
     expect(screen.getByText("(2 ↓)")).toBeTruthy();
   });
 
+  it("shows VCS icons beside recent repositories", async () => {
+    const loreRepo = "D:\\Work\\Story";
+    const gitRepo = "D:\\Work\\Git";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([
+      loreRepo,
+      gitRepo
+    ]);
+    vi.mocked(githead.addRepoRecent).mockResolvedValue([
+      loreRepo,
+      gitRepo
+    ]);
+    vi.mocked(githead.getRepoSyncStatuses).mockResolvedValue([
+      createRepoSyncStatus({
+        repoPath: loreRepo,
+        kind: "lore"
+      }),
+      createRepoSyncStatus({
+        repoPath: gitRepo
+      })
+    ]);
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
+      repoPath: requestedRepoPath,
+      kind: requestedRepoPath === loreRepo ? "lore" : "git"
+    }));
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    const repositories = within(screen.getByRole("region", { name: "Repositories" }));
+    expect(repositories.getByLabelText("Lore repository")).toBeTruthy();
+    expect(repositories.getByLabelText("Git repository")).toBeTruthy();
+    expect(repositories.queryByText("Lore")).toBeNull();
+  });
+
   it("leaves recent repository names unchanged when sync counts are zero or unavailable", async () => {
     const recentRepo = "D:\\Work\\Recent";
     const otherRepo = "D:\\Work\\Other";
