@@ -854,10 +854,43 @@
 }
 
 .repo-recent-sync {
+  display: inline-flex;
   flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
   margin-left: 6px;
+}
+
+.sync-count-chip {
+  display: inline-flex;
+  min-width: 1.35rem;
+  height: 1.15rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in oklch, currentColor 24%, transparent);
+  border-radius: 999px;
+  padding: 0 0.4rem;
+  background: color-mix(in oklch, currentColor 12%, transparent);
+  color: currentColor;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.repo-recent-sync .sync-count-chip {
+  min-width: 1.65rem;
   color: var(--muted-foreground);
-  font-weight: 650;
+}
+
+.repo-recent-sync .sync-count-chip.is-ahead {
+  color: var(--primary);
+}
+
+.repo-recent-sync .sync-count-chip.is-behind {
+  color: var(--accent-foreground);
 }
 
 .repo-recent-remove {

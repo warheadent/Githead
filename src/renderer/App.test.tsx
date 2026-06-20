@@ -2016,7 +2016,9 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByRole("button", { name: /^Pull \(3\)$/ })).toBeTruthy();
+    const pullButton = await screen.findByRole("button", { name: "Pull 3 commits" });
+    expect(pullButton).toBeTruthy();
+    expect(within(pullButton).getByText("3")).toBeTruthy();
   });
 
   it("does not show a zero count in the Pull action", async () => {
@@ -2058,7 +2060,24 @@ describe("App", () => {
 
     const actionsGroup = await screen.findByRole("group", { name: "Git actions" });
 
-    expect(within(actionsGroup).getByRole("button", { name: /^Push \(2\)$/ })).toBeTruthy();
+    const pushButton = within(actionsGroup).getByRole("button", { name: "Push 2 commits" });
+    expect(pushButton).toBeTruthy();
+    expect(within(pushButton).getByText("2")).toBeTruthy();
+  });
+
+  it("shows upstream commits ready to push in the primary commit action", async () => {
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      statusLines: [
+        "# branch.ab +5 -0"
+      ]
+    }));
+
+    render(<App />);
+
+    const commitPanel = await screen.findByLabelText("Commit staged files");
+    const pushButton = within(commitPanel).getByRole("button", { name: "Push 5 commits" });
+    expect(pushButton).toBeTruthy();
+    expect(within(pushButton).getByText("5")).toBeTruthy();
   });
 
   it("does not show a zero count in the Push action", async () => {
@@ -2583,8 +2602,13 @@ describe("App", () => {
     render(<App />);
 
     await screen.findByText("Repository ready");
-    expect(await screen.findByText("(1 ↑ 4 ↓)")).toBeTruthy();
-    expect(screen.getByText("(2 ↓)")).toBeTruthy();
+    const recentButton = await screen.findByRole("button", { name: `Switch to ${recentRepo}, 1 commit ahead, 4 commits behind` });
+    const otherButton = screen.getByRole("button", { name: `Switch to ${otherRepo}, 2 commits behind` });
+    expect(recentButton).toBeTruthy();
+    expect(otherButton).toBeTruthy();
+    expect(within(recentButton).getByTitle("1 commit ahead")).toBeTruthy();
+    expect(within(recentButton).getByTitle("4 commits behind")).toBeTruthy();
+    expect(within(otherButton).getByTitle("2 commits behind")).toBeTruthy();
   });
 
   it("shows VCS icons beside recent repositories", async () => {

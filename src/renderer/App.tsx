@@ -4355,7 +4355,7 @@ function RecentRepositoryRow({
   onShowInExplorer
 }: RecentRepositoryRowProps): ReactNode {
   const displayName = getRepoDisplayName(repoPath);
-  const syncLabel = formatRepoSyncStatusLabel(syncStatus);
+  const syncDescription = formatRepoSyncStatusDescription(syncStatus);
   const rowClassName = [
     "repo-recent-row",
     active ? "is-active" : "",
@@ -4406,12 +4406,12 @@ function RecentRepositoryRow({
             }}
             disabled={disabled || active}
             aria-current={active ? "true" : undefined}
-            aria-label={`Switch to ${repoPath}`}
+            aria-label={syncDescription ? `Switch to ${repoPath}, ${syncDescription}` : `Switch to ${repoPath}`}
           >
             <span className="repo-recent-name">
               <span className="repo-recent-title">{displayName}</span>
               {syncStatus?.isValid ? <RecentRepositoryVcsIcon kind={syncStatus.kind} /> : null}
-              {syncLabel ? <span className="repo-recent-sync">{syncLabel}</span> : null}
+              <RepoSyncStatusChips status={syncStatus} />
             </span>
           </button>
           <Button
@@ -4463,6 +4463,45 @@ function RecentRepositoryVcsIcon({ kind }: { kind: RepoSyncStatus["kind"] }): Re
       title={icon.label}
     >
       <img src={icon.src} alt="" aria-hidden="true" />
+    </span>
+  );
+}
+
+function SyncCountChip({
+  children,
+  className = "",
+  title
+}: {
+  children: ReactNode;
+  className?: string;
+  title?: string;
+}): ReactNode {
+  const classNames = ["sync-count-chip", className].filter(Boolean).join(" ");
+
+  return (
+    <span className={classNames} title={title} aria-hidden="true">
+      {children}
+    </span>
+  );
+}
+
+function RepoSyncStatusChips({ status }: { status: RepoSyncStatus | null }): ReactNode {
+  if (!status?.isValid || (status.ahead <= 0 && status.behind <= 0)) {
+    return null;
+  }
+
+  return (
+    <span className="repo-recent-sync" aria-hidden="true">
+      {status.ahead > 0 ? (
+        <SyncCountChip className="is-ahead" title={formatCommitCountLabel(status.ahead, "ahead")}>
+          {status.ahead} ↑
+        </SyncCountChip>
+      ) : null}
+      {status.behind > 0 ? (
+        <SyncCountChip className="is-behind" title={formatCommitCountLabel(status.behind, "behind")}>
+          {status.behind} ↓
+        </SyncCountChip>
+      ) : null}
     </span>
   );
 }
@@ -5107,11 +5146,14 @@ function ActionBar({
   const showFetch = capabilities?.fetch ?? true;
   const usesSync = capabilities?.sync ?? false;
   const pullableCommitCount = getPullableCommitCount(summary);
-  const pullLabel = usesSync
-    ? "Sync"
-    : pullableCommitCount > 0 ? `Pull (${pullableCommitCount})` : "Pull";
+  const pullLabel = usesSync ? "Sync" : "Pull";
+  const pullAriaLabel = !usesSync && pullableCommitCount > 0
+    ? formatActionCountLabel("Pull", pullableCommitCount)
+    : undefined;
   const pushableCommitCount = getPushableCommitCount(summary);
-  const pushLabel = pushableCommitCount > 0 ? `Push (${pushableCommitCount})` : "Push";
+  const pushAriaLabel = pushableCommitCount > 0
+    ? formatActionCountLabel("Push", pushableCommitCount)
+    : undefined;
   const actionsConfig = summary?.actionsConfig;
   const configuredActions = actionsConfig?.actions ?? [];
   const actionsConfigError = actionsConfig?.error.trim() ?? "";
@@ -5189,20 +5231,32 @@ function ActionBar({
           variant={runningAction === "pull" ? "secondary" : "outline"}
           disabled={disabled}
           onClick={() => onRunAction("pull")}
+          aria-label={pullAriaLabel}
           className="min-w-24"
         >
           {runningAction === "pull" ? <Loader2 className="animate-spin" /> : <Download />}
           {pullLabel}
+          {!usesSync && pullableCommitCount > 0 ? (
+            <SyncCountChip title={formatCommitCountLabel(pullableCommitCount, "behind")}>
+              {pullableCommitCount}
+            </SyncCountChip>
+          ) : null}
         </Button>
         <Button
           type="button"
           variant={runningAction === "push" ? "secondary" : "outline"}
           disabled={disabled}
           onClick={() => onRunAction("push")}
+          aria-label={pushAriaLabel}
           className="min-w-24"
         >
           {runningAction === "push" ? <Loader2 className="animate-spin" /> : <Upload />}
-          {pushLabel}
+          Push
+          {pushableCommitCount > 0 ? (
+            <SyncCountChip title={formatCommitCountLabel(pushableCommitCount, "ahead")}>
+              {pushableCommitCount}
+            </SyncCountChip>
+          ) : null}
         </Button>
       </div>
     </header>
@@ -6508,9 +6562,10 @@ function CommitPanel({
   const commitDisabled = disabled
     || primaryCommitAction === null
     || (primaryCommitAction === "commit" && !commitAllowed);
-  const primaryActionLabel = primaryCommitAction === "push"
-    ? `Push (${pushableCommitCount})`
-    : "Commit";
+  const primaryActionLabel = primaryCommitAction === "push" ? "Push" : "Commit";
+  const primaryActionAriaLabel = primaryCommitAction === "push" && pushableCommitCount > 0
+    ? formatActionCountLabel("Push", pushableCommitCount)
+    : undefined;
 
   return (
     <section className="grid min-h-0 gap-2.5 border-t bg-card px-6 py-4" aria-label="Commit staged files">
@@ -6532,10 +6587,16 @@ function CommitPanel({
             type="button"
             disabled={commitDisabled}
             onClick={onCommit}
+            aria-label={primaryActionAriaLabel}
             className={primaryCommitAction === "commit" ? "rounded-r-none" : ""}
           >
             {primaryCommitAction === "push" ? <Upload /> : <CheckCircle2 />}
             {primaryActionLabel}
+            {primaryCommitAction === "push" && pushableCommitCount > 0 ? (
+              <SyncCountChip title={formatCommitCountLabel(pushableCommitCount, "ahead")}>
+                {pushableCommitCount}
+              </SyncCountChip>
+            ) : null}
           </Button>
           {primaryCommitAction === "commit" ? (
             <DropdownMenu>
@@ -8351,17 +8412,23 @@ function createRepoSyncStatusFromSummary(summary: RepoSummary): RepoSyncStatus {
   };
 }
 
-function formatRepoSyncStatusLabel(status: RepoSyncStatus | null): string {
+function formatRepoSyncStatusDescription(status: RepoSyncStatus | null): string {
   if (!status?.isValid) {
     return "";
   }
 
-  const parts = [
-    status.ahead > 0 ? `${status.ahead} ↑` : "",
-    status.behind > 0 ? `${status.behind} ↓` : ""
-  ].filter(Boolean);
+  return [
+    status.ahead > 0 ? formatCommitCountLabel(status.ahead, "ahead") : "",
+    status.behind > 0 ? formatCommitCountLabel(status.behind, "behind") : ""
+  ].filter(Boolean).join(", ");
+}
 
-  return parts.length > 0 ? `(${parts.join(" ")})` : "";
+function formatActionCountLabel(action: "Pull" | "Push", count: number): string {
+  return `${action} ${count} ${count === 1 ? "commit" : "commits"}`;
+}
+
+function formatCommitCountLabel(count: number, direction: "ahead" | "behind"): string {
+  return `${count} ${count === 1 ? "commit" : "commits"} ${direction}`;
 }
 
 function moveRepoPath(repoPaths: string[], fromRepoPath: string, toRepoPath: string, position: RepositoryDropPosition): string[] {
