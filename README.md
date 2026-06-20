@@ -18,6 +18,7 @@ This is early development, and only tested on a handful of git repositories. Thi
 - **Branches** — view branches, switch the current branch, and create new branches.
 - **GitHub insight** — when `origin` is a GitHub remote, view recent **Workflow Runs**, open **Pull Requests**, and open **Issues**.
 - **Live updates** — the repository is watched on disk, so the UI refreshes automatically when files change.
+- **Lore support** - Early support for new VCS (https://github.com/EpicGames/lore) - requires Lore CLI installed.
 
 ## Current Gaps
 
@@ -31,6 +32,7 @@ This is early development, and only tested on a handful of git repositories. Thi
 - Github integration is extremely basic (needs filtering, more intelligent linking with PRs/Issues in commits)
 - AI Commit Message defaults could be better tuned to reduce on noise
 - Can't stage/unstage individual lines, yet
+- Lore support is experimental. Working on feature parity with Git. Expect broken features.
 
 ## Tech stack
 
