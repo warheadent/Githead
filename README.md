@@ -23,7 +23,7 @@ This is early development, and only tested on a handful of git repositories. Thi
 
 - Can't set remote, or multiple remotes
 - Doesn't handle local being ahead of remote at all
-- Console log sucks (doesn't support colors, for one)
+- ~~Console log sucks (doesn't support colors, for one)~~ (addressed in 0.13)
 - Some cursed layout sizing issues on smaller screens or extreme circumstances (huge commit messages)
 - Some UI/UX oddities that are "good enough functionally" but not great
 - Need to support a lot of different settings and configurations
