@@ -180,6 +180,7 @@ export interface RepoSummary {
   statusLines: string[];
   files: GitStatusFile[];
   validationErrors: string[];
+  safeDirectory: GitSafeDirectoryInfo | null;
   actionsConfig: GitActionsConfig;
 }
 
@@ -189,6 +190,16 @@ export interface RepoSyncStatus {
   ahead: number;
   behind: number;
   error: string;
+}
+
+export interface GitSafeDirectoryInfo {
+  required: boolean;
+  path: string;
+  message: string;
+}
+
+export interface GitSafeDirectoryRequest {
+  repoPath: string;
 }
 
 export interface GitRunRequest {
@@ -477,6 +488,7 @@ export interface GitheadApi {
   reorderRepoRecents(repoPaths: string[]): Promise<string[]>;
   getRepoTrust(request: RepoTrustRequest): Promise<RepoTrustResult>;
   addRepoTrust(request: RepoTrustRequest): Promise<RepoTrustResult>;
+  addSafeDirectory(request: GitSafeDirectoryRequest): Promise<GitOperationResult>;
   getGitHubWorkflowRuns(request: GitHubRepositoryRequest): Promise<GitHubWorkflowRun[]>;
   getGitHubOpenCounts(request: GitHubRepositoryRequest): Promise<GitHubOpenCounts>;
   getGitHubIssues(request: GitHubRepositoryRequest): Promise<GitHubIssue[]>;

@@ -28,6 +28,7 @@ const baseSummary: RepoSummary = {
   githubRepository: null,
   statusLines: [],
   files: [],
+  safeDirectory: null,
   actionsConfig: {
     hasGitheadDir: false,
     actions: [],

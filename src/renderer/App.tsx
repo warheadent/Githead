@@ -27,6 +27,7 @@ import {
   RotateCcw,
   Save,
   Settings,
+  ShieldAlert,
   Sparkles,
   Tag,
   Trash2,
@@ -121,6 +122,7 @@ import type {
   GitResetMode,
   GitRepositoryAccessCheckResult,
   GitRunResult,
+  GitSafeDirectoryInfo,
   GitStatusFile,
   RepoSyncStatus,
   RepoTrustResult,
@@ -220,6 +222,8 @@ interface AppState {
   repoLoading: boolean;
   showSetup: boolean;
   setupError: string;
+  safeDirectoryDialogOpen: boolean;
+  safeDirectoryRunning: boolean;
   cloneDraft: CloneDraft;
   cloneError: string;
   cloneRunning: boolean;
@@ -369,6 +373,8 @@ const initialState: AppState = {
   repoLoading: false,
   showSetup: true,
   setupError: "",
+  safeDirectoryDialogOpen: false,
+  safeDirectoryRunning: false,
   cloneDraft: emptyCloneDraft,
   cloneError: "",
   cloneRunning: false,
@@ -1202,6 +1208,8 @@ export function App(): ReactNode {
       repoLoading: true,
       showSetup: false,
       setupError: "",
+      safeDirectoryDialogOpen: false,
+      safeDirectoryRunning: false,
       cloneError: "",
       clonePanelOpen: false,
       summary: null,
@@ -1311,6 +1319,70 @@ export function App(): ReactNode {
       addToRecents: true
     });
   }, [switchRepo]);
+
+  const openSafeDirectoryDialog = useCallback((): void => {
+    const safeDirectory = stateRef.current.summary?.safeDirectory;
+    if (!safeDirectory?.required || isOperationRunning(stateRef.current)) {
+      return;
+    }
+
+    updateState({
+      safeDirectoryDialogOpen: true,
+      setupError: ""
+    });
+  }, [updateState]);
+
+  const closeSafeDirectoryDialog = useCallback((): void => {
+    if (stateRef.current.safeDirectoryRunning) {
+      return;
+    }
+
+    updateState({
+      safeDirectoryDialogOpen: false
+    });
+  }, [updateState]);
+
+  const allowSafeDirectory = useCallback(async (): Promise<void> => {
+    const current = stateRef.current;
+    const safeDirectory = current.summary?.safeDirectory;
+    if (!safeDirectory?.required || current.safeDirectoryRunning) {
+      return;
+    }
+
+    updateState({
+      safeDirectoryRunning: true,
+      setupError: ""
+    });
+
+    try {
+      const result = await window.githead.addSafeDirectory({
+        repoPath: safeDirectory.path
+      });
+
+      if (result.exitCode !== 0) {
+        updateState({
+          safeDirectoryDialogOpen: false,
+          safeDirectoryRunning: false,
+          setupError: getOperationFailureMessage(result, "Unable to add Git safe.directory exception.")
+        });
+        return;
+      }
+
+      updateState({
+        safeDirectoryDialogOpen: false,
+        safeDirectoryRunning: false
+      });
+      await refreshRepo({
+        addToRecents: true
+      });
+    } catch (error) {
+      updateState({
+        safeDirectoryDialogOpen: false,
+        safeDirectoryRunning: false,
+        setupError: error instanceof Error ? error.message : "Unable to add Git safe.directory exception."
+      });
+    }
+  }, [refreshRepo, updateState]);
 
   const chooseCloneParent = useCallback(async (): Promise<void> => {
     const parentPath = await window.githead.chooseCloneParent(stateRef.current.cloneDraft.parentPath);
@@ -3070,6 +3142,8 @@ export function App(): ReactNode {
           repoSyncStatuses={state.repoSyncStatuses}
           selectedRepoPath={state.repoPath}
           setupError={state.setupError}
+          safeDirectory={state.summary?.safeDirectory ?? null}
+          safeDirectoryRunning={state.safeDirectoryRunning}
           cloneDraft={state.cloneDraft}
           cloneError={state.cloneError}
           cloneRunning={state.cloneRunning}
@@ -3081,6 +3155,7 @@ export function App(): ReactNode {
           onChooseRepo={() => {
             void chooseRepo();
           }}
+          onOpenSafeDirectoryDialog={openSafeDirectoryDialog}
           onSelectRecent={(repoPath) => {
             void selectRecentRepo(repoPath);
           }}
@@ -3107,6 +3182,15 @@ export function App(): ReactNode {
           onClone={(event) => {
             event.preventDefault();
             void cloneRepository();
+          }}
+        />
+        <SafeDirectoryDialog
+          open={state.safeDirectoryDialogOpen}
+          safeDirectory={state.summary?.safeDirectory ?? null}
+          saving={state.safeDirectoryRunning}
+          onCancel={closeSafeDirectoryDialog}
+          onAllow={() => {
+            void allowSafeDirectory();
           }}
         />
       </AppChrome>
@@ -3701,6 +3785,8 @@ function RepositorySetupScreen({
   repoSyncStatuses,
   selectedRepoPath,
   setupError,
+  safeDirectory,
+  safeDirectoryRunning,
   cloneDraft,
   cloneError,
   cloneRunning,
@@ -3710,6 +3796,7 @@ function RepositorySetupScreen({
   cloneBranches,
   running,
   onChooseRepo,
+  onOpenSafeDirectoryDialog,
   onSelectRecent,
   onRemoveRecent,
   onReorderRepositories,
@@ -3724,6 +3811,8 @@ function RepositorySetupScreen({
   repoSyncStatuses: Record<string, RepoSyncStatus>;
   selectedRepoPath: string;
   setupError: string;
+  safeDirectory: GitSafeDirectoryInfo | null;
+  safeDirectoryRunning: boolean;
   cloneDraft: CloneDraft;
   cloneError: string;
   cloneRunning: boolean;
@@ -3733,6 +3822,7 @@ function RepositorySetupScreen({
   cloneBranches: string[];
   running: boolean;
   onChooseRepo: () => void;
+  onOpenSafeDirectoryDialog: () => void;
   onSelectRecent: (repoPath: string) => void;
   onRemoveRecent: (repoPath: string) => void;
   onReorderRepositories: (repoPaths: string[]) => void;
@@ -3768,6 +3858,26 @@ function RepositorySetupScreen({
           </Button>
           {setupError ? (
             <p className="setup-error" role="alert">{setupError}</p>
+          ) : null}
+          {safeDirectory?.required ? (
+            <div className="setup-safe-directory" role="status">
+              <div className="setup-safe-directory-heading">
+                <ShieldAlert />
+                <span>Git ownership check blocked this repository.</span>
+              </div>
+              <p>Allow an exception for this folder to add it to Git's global safe.directory list.</p>
+              <p className="setup-safe-directory-path">{safeDirectory.path}</p>
+              <Button
+                type="button"
+                variant="outline"
+                className="justify-center"
+                onClick={onOpenSafeDirectoryDialog}
+                disabled={running || safeDirectoryRunning}
+              >
+                {safeDirectoryRunning ? <Loader2 className="animate-spin" /> : <ShieldAlert />}
+                {safeDirectoryRunning ? "Adding Exception" : "Allow Git Exception"}
+              </Button>
+            </div>
           ) : null}
           {selectedRepoPath ? (
             <p className="setup-selected-path">{selectedRepoPath}</p>
@@ -6757,6 +6867,53 @@ function TrustWorkspaceDialog({
   );
 }
 
+function SafeDirectoryDialog({
+  open,
+  safeDirectory,
+  saving,
+  onCancel,
+  onAllow
+}: {
+  open: boolean;
+  safeDirectory: GitSafeDirectoryInfo | null;
+  saving: boolean;
+  onCancel: () => void;
+  onAllow: () => void;
+}): ReactNode {
+  return (
+    <Dialog open={open} onOpenChange={(nextOpen) => {
+      if (!nextOpen) {
+        onCancel();
+      }
+    }}>
+      <DialogContent className="sm:max-w-[520px]" showCloseButton={!saving}>
+        <DialogHeader>
+          <DialogTitle>Allow Git Ownership Exception?</DialogTitle>
+          <DialogDescription>
+            Git blocked this repository because its ownership differs from your current user. Githead will add this exact folder to Git's global safe.directory list.
+          </DialogDescription>
+        </DialogHeader>
+
+        {safeDirectory?.path ? (
+          <p className="rounded-md border bg-muted/50 px-3 py-2 text-sm font-medium text-muted-foreground">
+            {safeDirectory.path}
+          </p>
+        ) : null}
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onCancel} disabled={saving}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={onAllow} disabled={saving || !safeDirectory?.path} autoFocus>
+            {saving ? <Loader2 className="animate-spin" /> : <ShieldAlert />}
+            {saving ? "Adding Exception" : "Allow Exception"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function SettingsDialog({
   open,
   draft,
@@ -7256,6 +7413,7 @@ function createInvalidSummary(repoPath: string, message: string): RepoSummary {
     githubRepository: null,
     statusLines: [],
     files: [],
+    safeDirectory: null,
     actionsConfig: createEmptyRendererActionsConfig(),
     validationErrors: [
       message
@@ -7596,7 +7754,13 @@ function getGenerateMessageTitle(state: AppState): string {
 }
 
 function isOperationRunning(state: AppState): boolean {
-  return Boolean(state.runningAction || state.runningOperation || state.cloneRunning || state.cloneCheckRunning);
+  return Boolean(
+    state.runningAction ||
+    state.runningOperation ||
+    state.cloneRunning ||
+    state.cloneCheckRunning ||
+    state.safeDirectoryRunning
+  );
 }
 
 type AppUpdateAction = "check" | "download" | "install" | "none";

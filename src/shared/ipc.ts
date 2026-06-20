@@ -12,6 +12,7 @@ export const IPC_CHANNELS = {
   reorderRepoRecents: "repo-recents:reorder",
   getRepoTrust: "repo-trust:get",
   addRepoTrust: "repo-trust:add",
+  addSafeDirectory: "repo:safe-directory-add",
   getGitHubWorkflowRuns: "github:workflow-runs",
   getGitHubOpenCounts: "github:open-counts",
   getGitHubIssues: "github:issues",

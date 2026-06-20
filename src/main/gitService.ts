@@ -37,6 +37,8 @@ import type {
   GitResetCommitRequest,
   GitRunRequest,
   GitRunResult,
+  GitSafeDirectoryInfo,
+  GitSafeDirectoryRequest,
   RepoSyncStatus,
   GitStatusFile,
   GitUpstreamRequest,
@@ -65,7 +67,11 @@ export const GIT_ACTION_COMMANDS: Record<GitAction, string[]> = {
 
 export type GitOutputHandler = (event: GitOutputEvent) => void;
 
-const emptySummary = (repoPath: string, validationErrors: string[]): RepoSummary => ({
+const emptySummary = (
+  repoPath: string,
+  validationErrors: string[],
+  safeDirectory: GitSafeDirectoryInfo | null = null
+): RepoSummary => ({
   repoPath,
   isValid: false,
   branch: null,
@@ -77,6 +83,7 @@ const emptySummary = (repoPath: string, validationErrors: string[]): RepoSummary
   githubRepository: null,
   statusLines: [],
   files: [],
+  safeDirectory,
   actionsConfig: createEmptyActionsConfig(),
   validationErrors
 });
@@ -93,7 +100,7 @@ export class GitService {
     const validation = await this.validateRepo(repoPath);
 
     if (!validation.isValid) {
-      return emptySummary(repoPath, validation.validationErrors);
+      return emptySummary(repoPath, validation.validationErrors, validation.safeDirectory);
     }
 
     const [
@@ -169,7 +176,30 @@ export class GitService {
       statusLines: status.statusLines,
       files: status.files,
       actionsConfig,
+      safeDirectory: null,
       validationErrors: []
+    };
+  }
+
+  async addSafeDirectory(request: GitSafeDirectoryRequest): Promise<GitOperationResult> {
+    const safeDirectoryPath = normalizeSafeDirectoryPath(request.repoPath);
+    if ("error" in safeDirectoryPath) {
+      return this.createOperationFailure(request.repoPath, safeDirectoryPath.error);
+    }
+
+    const result = await this.runner.run("git", [
+      "config",
+      "--global",
+      "--add",
+      "safe.directory",
+      safeDirectoryPath.path
+    ]);
+
+    return {
+      repoPath: safeDirectoryPath.path,
+      exitCode: result.exitCode,
+      stdout: result.stdout,
+      stderr: result.error ? `${result.stderr}${result.error}` : result.stderr
     };
   }
 
@@ -1075,13 +1105,14 @@ export class GitService {
     return saveActionsConfigFile(rootResult.stdout.trim(), request);
   }
 
-  private async validateRepo(repoPath: string): Promise<Pick<RepoSummary, "isValid" | "validationErrors">> {
+  private async validateRepo(repoPath: string): Promise<Pick<RepoSummary, "isValid" | "validationErrors" | "safeDirectory">> {
     if (!repoPath.trim()) {
       return {
         isValid: false,
         validationErrors: [
           "Select a repository folder."
-        ]
+        ],
+        safeDirectory: null
       };
     }
 
@@ -1091,17 +1122,30 @@ export class GitService {
     ]);
 
     if (result.exitCode !== 0 || result.stdout.trim() !== "true") {
+      const safeDirectory = parseSafeDirectoryFailure(result.stderr, repoPath);
+      if (safeDirectory) {
+        return {
+          isValid: false,
+          validationErrors: [
+            safeDirectory.message
+          ],
+          safeDirectory
+        };
+      }
+
       return {
         isValid: false,
         validationErrors: [
           "Selected folder is not a git repository."
-        ]
+        ],
+        safeDirectory: null
       };
     }
 
     return {
       isValid: true,
-      validationErrors: []
+      validationErrors: [],
+      safeDirectory: null
     };
   }
 
@@ -1454,6 +1498,45 @@ function splitLines(text: string): string[] {
     .split(/\r?\n/)
     .map((line) => line.trimEnd())
     .filter((line) => line.length > 0);
+}
+
+function parseSafeDirectoryFailure(stderr: string, repoPath: string): GitSafeDirectoryInfo | null {
+  if (!/detected dubious ownership/i.test(stderr)) {
+    return null;
+  }
+
+  const recommendedPath = stderr.match(/safe\.directory\s+(.+?)(?:\r?\n|$)/i)?.[1]?.trim();
+  const repositoryPath = stderr.match(/repository at ['"](.+?)['"]/i)?.[1]?.trim();
+  const fallbackPath = normalizeSafeDirectoryPath(repoPath);
+  const safeDirectoryPath =
+    recommendedPath ||
+    repositoryPath ||
+    ("path" in fallbackPath ? fallbackPath.path : repoPath.trim());
+
+  return {
+    required: true,
+    path: safeDirectoryPath,
+    message: "Git blocked this repository because its ownership differs from your current user."
+  };
+}
+
+function normalizeSafeDirectoryPath(repoPath: string): { path: string } | { error: string } {
+  const trimmedRepoPath = repoPath.trim();
+  if (!trimmedRepoPath) {
+    return {
+      error: "Select a repository folder."
+    };
+  }
+
+  if (!path.isAbsolute(trimmedRepoPath)) {
+    return {
+      error: "Repository folder must be an absolute path."
+    };
+  }
+
+  return {
+    path: path.normalize(path.resolve(trimmedRepoPath)).replace(/\\/g, "/")
+  };
 }
 
 function createRunOptions(

@@ -410,6 +410,46 @@
   font-size: 0.86rem;
 }
 
+.setup-safe-directory {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--primary) 44%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--primary) 9%, transparent);
+  padding: 12px;
+}
+
+.setup-safe-directory-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  color: var(--foreground);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.setup-safe-directory-heading > svg {
+  width: 17px;
+  height: 17px;
+  color: var(--primary);
+}
+
+.setup-safe-directory p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.setup-safe-directory-path {
+  border-radius: 6px;
+  background: var(--muted);
+  padding: 8px 10px;
+  color: var(--muted-foreground) !important;
+  font-size: 0.82rem !important;
+  font-weight: 600;
+}
+
 .setup-selected-path {
   overflow-wrap: anywhere;
   font-size: 0.82rem;

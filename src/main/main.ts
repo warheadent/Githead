@@ -36,6 +36,7 @@ import type {
   GitResetCommitRequest,
   RepoTrustRequest,
   GitRunRequest,
+  GitSafeDirectoryRequest,
   GitUpstreamRequest
 } from "../shared/types";
 import { AiSettingsService } from "./aiSettingsService";
@@ -252,6 +253,10 @@ ipcMain.handle(IPC_CHANNELS.addRepoTrust, async (_event, request: RepoTrustReque
   return {
     trusted: await getRepoTrustService().trustRepo(request.repoPath)
   };
+});
+
+ipcMain.handle(IPC_CHANNELS.addSafeDirectory, async (_event, request: GitSafeDirectoryRequest) => {
+  return runExclusiveGitOperation(() => gitService.addSafeDirectory(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.getGitHubWorkflowRuns, async (_event, request: GitHubRepositoryRequest) => {

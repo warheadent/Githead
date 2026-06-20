@@ -2350,6 +2350,20 @@ describe("App", () => {
     expect(within(recents).queryByText(invalidRepo)).toBeNull();
   });
 
+  it("shows a safe.directory prompt for an initial recent repository blocked by dubious ownership", async () => {
+    const blockedRepo = "D:\\Work\\Blocked";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([
+      blockedRepo
+    ]);
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSafeDirectorySummary(blockedRepo));
+
+    render(<App />);
+
+    expect(await screen.findByText("Git ownership check blocked this repository.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Allow Git Exception" })).toBeTruthy();
+    expect(screen.getByText("D:/Work/Blocked")).toBeTruthy();
+  });
+
   it("switches repositories from a recent entry", async () => {
     const user = userEvent.setup();
     const otherRepo = "D:\\Work\\Other";
@@ -2609,6 +2623,93 @@ describe("App", () => {
     expect(await screen.findByText("Selected folder is not a git repository.")).toBeTruthy();
     expect(screen.getByText(invalidRepo)).toBeTruthy();
     expect(githead.addRepoRecent).not.toHaveBeenCalledWith(invalidRepo);
+  });
+
+  it("shows a safe.directory prompt for a browsed repository blocked by dubious ownership", async () => {
+    const user = userEvent.setup();
+    const blockedRepo = "D:\\Work\\Blocked";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([]);
+    vi.mocked(githead.chooseRepo).mockResolvedValue(blockedRepo);
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSafeDirectorySummary(blockedRepo));
+
+    render(<App />);
+
+    await screen.findByText("Select a repository to continue.");
+    await user.click(screen.getByRole("button", { name: "Browse for Repository" }));
+
+    expect(await screen.findByText("Git ownership check blocked this repository.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Allow Git Exception" })).toBeTruthy();
+    expect(githead.addRepoRecent).not.toHaveBeenCalledWith(blockedRepo);
+  });
+
+  it("does not add a safe.directory exception when the prompt is canceled", async () => {
+    const user = userEvent.setup();
+    const blockedRepo = "D:\\Work\\Blocked";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([]);
+    vi.mocked(githead.chooseRepo).mockResolvedValue(blockedRepo);
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSafeDirectorySummary(blockedRepo));
+
+    render(<App />);
+
+    await screen.findByText("Select a repository to continue.");
+    await user.click(screen.getByRole("button", { name: "Browse for Repository" }));
+    await user.click(await screen.findByRole("button", { name: "Allow Git Exception" }));
+    expect(screen.getByRole("heading", { name: "Allow Git Ownership Exception?" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => {
+      expect(githead.addSafeDirectory).not.toHaveBeenCalled();
+    });
+  });
+
+  it("adds a safe.directory exception, refreshes, and adds the repository to recents", async () => {
+    const user = userEvent.setup();
+    const blockedRepo = "D:\\Work\\Blocked";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([]);
+    vi.mocked(githead.chooseRepo).mockResolvedValue(blockedRepo);
+    vi.mocked(githead.getRepoSummary)
+      .mockResolvedValueOnce(createSafeDirectorySummary(blockedRepo))
+      .mockResolvedValueOnce(createSummary({
+        repoPath: blockedRepo
+      }));
+
+    render(<App />);
+
+    await screen.findByText("Select a repository to continue.");
+    await user.click(screen.getByRole("button", { name: "Browse for Repository" }));
+    await user.click(await screen.findByRole("button", { name: "Allow Git Exception" }));
+    await user.click(screen.getByRole("button", { name: "Allow Exception" }));
+
+    await screen.findByText("Repository ready");
+    expect(githead.addSafeDirectory).toHaveBeenCalledWith({
+      repoPath: "D:/Work/Blocked"
+    });
+    expect(githead.addRepoRecent).toHaveBeenCalledWith(blockedRepo);
+  });
+
+  it("keeps setup visible and shows the config error when safe.directory cannot be added", async () => {
+    const user = userEvent.setup();
+    const blockedRepo = "D:\\Work\\Blocked";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([]);
+    vi.mocked(githead.chooseRepo).mockResolvedValue(blockedRepo);
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSafeDirectorySummary(blockedRepo));
+    vi.mocked(githead.addSafeDirectory).mockResolvedValue(createOperationResult({
+      repoPath: "D:/Work/Blocked",
+      exitCode: 1,
+      stderr: "error: could not lock config file"
+    }));
+
+    render(<App />);
+
+    await screen.findByText("Select a repository to continue.");
+    await user.click(screen.getByRole("button", { name: "Browse for Repository" }));
+    await user.click(await screen.findByRole("button", { name: "Allow Git Exception" }));
+    await user.click(screen.getByRole("button", { name: "Allow Exception" }));
+
+    expect(await screen.findByText("error: could not lock config file")).toBeTruthy();
+    expect(screen.getByText("Select a repository to continue.")).toBeTruthy();
+    expect(githead.addRepoRecent).not.toHaveBeenCalledWith(blockedRepo);
   });
 
   it("clones a repository, validates the result, and adds it to repositories", async () => {
@@ -3216,6 +3317,7 @@ function createGitheadMock(): GitheadApi {
     addRepoTrust: vi.fn().mockResolvedValue({
       trusted: true
     }),
+    addSafeDirectory: vi.fn().mockResolvedValue(okOperation),
     getGitHubWorkflowRuns: vi.fn().mockResolvedValue([]),
     getGitHubOpenCounts: vi.fn().mockResolvedValue(createOpenCounts()),
     getGitHubIssues: vi.fn().mockResolvedValue([]),
@@ -3376,10 +3478,35 @@ function createSummary(
     githubRepository: null,
     statusLines: [],
     files: [],
+    safeDirectory: null,
     validationErrors: [],
     ...overrides,
     actionsConfig
   };
+}
+
+function createSafeDirectorySummary(repoPath: string): RepoSummary {
+  return createSummary({
+    repoPath,
+    isValid: false,
+    branch: null,
+    upstream: null,
+    branches: [],
+    hasHead: false,
+    remotes: [],
+    remoteBranches: [],
+    githubRepository: null,
+    statusLines: [],
+    files: [],
+    safeDirectory: {
+      required: true,
+      path: repoPath.replace(/\\/g, "/"),
+      message: "Git blocked this repository because its ownership differs from your current user."
+    },
+    validationErrors: [
+      "Git blocked this repository because its ownership differs from your current user."
+    ]
+  });
 }
 
 function createRepoSyncStatus(overrides: Partial<RepoSyncStatus> = {}): RepoSyncStatus {

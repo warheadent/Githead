@@ -30,6 +30,7 @@ import type {
   GitRepositoryAccessCheckRequest,
   GitResetCommitRequest,
   GitRunRequest,
+  GitSafeDirectoryRequest,
   GitUpstreamRequest,
   GitheadApi,
   AppUpdateState,
@@ -65,6 +66,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getRepoTrust, request) as ReturnType<GitheadApi["getRepoTrust"]>,
   addRepoTrust: (request: RepoTrustRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.addRepoTrust, request) as ReturnType<GitheadApi["addRepoTrust"]>,
+  addSafeDirectory: (request: GitSafeDirectoryRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.addSafeDirectory, request) as ReturnType<GitheadApi["addSafeDirectory"]>,
   getGitHubWorkflowRuns: (request: GitHubRepositoryRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubWorkflowRuns, request) as ReturnType<GitheadApi["getGitHubWorkflowRuns"]>,
   getGitHubOpenCounts: (request: GitHubRepositoryRequest) =>

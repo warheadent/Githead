@@ -63,6 +63,16 @@ const failure = (stderr = "fatal: failed"): ProcessResult => ({
   stderr
 });
 
+const dubiousOwnershipError = [
+  "fatal: detected dubious ownership in repository at 'D:/Repo'",
+  "'D:/Repo' is owned by:",
+  "\tEXAMPLE/owner (S-1-5-21-1000)",
+  "but the current user is:",
+  "\tEXAMPLE/current-user (S-1-5-21-2000)",
+  "To add an exception for this directory, call:",
+  "\tgit config --global --add safe.directory D:/Repo"
+].join("\n");
+
 const oid = "0123456789abcdef0123456789abcdef01234567";
 
 function trackedRecord(xy: string, path: string): string {
@@ -226,6 +236,94 @@ describe("GitService", () => {
     expect(summary.isValid).toBe(false);
     expect(summary.validationErrors).toContain("Selected folder is not a git repository.");
     expect(runner.calls).toHaveLength(1);
+  });
+
+  it("reports dubious ownership as a safe.directory requirement", async () => {
+    const runner = new FakeRunner([
+      failure(dubiousOwnershipError)
+    ]);
+    const service = new GitService(runner);
+
+    const summary = await service.getRepoSummary("D:\\Repo");
+
+    expect(summary.isValid).toBe(false);
+    expect(summary.validationErrors).toContain("Git blocked this repository because its ownership differs from your current user.");
+    expect(summary.validationErrors).not.toContain("Selected folder is not a git repository.");
+    expect(summary.safeDirectory).toEqual({
+      required: true,
+      path: "D:/Repo",
+      message: "Git blocked this repository because its ownership differs from your current user."
+    });
+  });
+
+  it("rejects blank safe.directory requests before spawning git", async () => {
+    const runner = new FakeRunner([]);
+    const service = new GitService(runner);
+
+    const result = await service.addSafeDirectory({
+      repoPath: " "
+    });
+
+    expect(result.exitCode).toBe(-1);
+    expect(result.stderr).toBe("Select a repository folder.");
+    expect(runner.calls).toHaveLength(0);
+  });
+
+  it("rejects relative safe.directory requests before spawning git", async () => {
+    const runner = new FakeRunner([]);
+    const service = new GitService(runner);
+
+    const result = await service.addSafeDirectory({
+      repoPath: "Repo"
+    });
+
+    expect(result.exitCode).toBe(-1);
+    expect(result.stderr).toBe("Repository folder must be an absolute path.");
+    expect(runner.calls).toHaveLength(0);
+  });
+
+  it("adds a safe.directory exception through global git config", async () => {
+    const runner = new FakeRunner([
+      ok()
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.addSafeDirectory({
+      repoPath: "D:\\Repo"
+    });
+
+    expect(result).toEqual({
+      repoPath: "D:/Repo",
+      exitCode: 0,
+      stdout: "",
+      stderr: ""
+    });
+    expect(runner.calls).toEqual([
+      {
+        command: "git",
+        args: [
+          "config",
+          "--global",
+          "--add",
+          "safe.directory",
+          "D:/Repo"
+        ]
+      }
+    ]);
+  });
+
+  it("returns safe.directory config failures without throwing", async () => {
+    const runner = new FakeRunner([
+      failure("error: could not lock config file")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.addSafeDirectory({
+      repoPath: "D:\\Repo"
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe("error: could not lock config file");
   });
 
   it("returns structured failures without throwing", async () => {
