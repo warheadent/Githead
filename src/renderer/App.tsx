@@ -1761,7 +1761,6 @@ export function App(): ReactNode {
     updateState({
       runningAction: action,
       lastResult: null,
-      activeView: "activity",
       activityLog: createActivityLogState()
     });
 

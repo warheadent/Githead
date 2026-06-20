@@ -2197,7 +2197,8 @@ describe("App", () => {
         action: "push"
       });
     });
-    expect(screen.getByRole("tab", { name: "Activity Log" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: "Commit History" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: "Activity Log" }).getAttribute("aria-selected")).toBe("false");
   });
 
   it("does not jump to the Activity Log when action trust is declined", async () => {
