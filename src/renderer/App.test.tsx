@@ -1681,6 +1681,123 @@ describe("App", () => {
     expect(screen.getByText("Empty")).toBeTruthy();
   });
 
+  it("renders ANSI output without repeating stream labels for adjacent chunks", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary());
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    gitOutputCallback?.({
+      runId: "run-1",
+      action: "fetch",
+      stream: "stdout",
+      text: "\u001B[36mcolored ",
+      timestamp: new Date().toISOString()
+    });
+    gitOutputCallback?.({
+      runId: "run-1",
+      action: "fetch",
+      stream: "stdout",
+      text: "output\u001B[39m\n",
+      timestamp: new Date().toISOString()
+    });
+
+    await user.click(screen.getByRole("tab", { name: "Activity Log" }));
+
+    expect((await screen.findByRole("log")).textContent).toContain("colored output");
+    expect(screen.queryByText(/\u001B/)).toBeNull();
+    expect(screen.getAllByText("stdout")).toHaveLength(1);
+  });
+
+  it("copies raw activity log output", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary());
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    gitOutputCallback?.({
+      runId: "run-1",
+      action: "fetch",
+      stream: "stdout",
+      text: "fetch output\n",
+      timestamp: new Date().toISOString()
+    });
+
+    await user.click(screen.getByRole("tab", { name: "Activity Log" }));
+    await user.click(await screen.findByRole("button", { name: "Copy Raw" }));
+
+    expect(githead.copyTextToClipboard).toHaveBeenCalledWith({
+      text: "[stdout] fetch output\n"
+    });
+  });
+
+  it("toggles activity log line wrapping", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary());
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    gitOutputCallback?.({
+      runId: "run-1",
+      action: "fetch",
+      stream: "stdout",
+      text: "long output\n",
+      timestamp: new Date().toISOString()
+    });
+
+    await user.click(screen.getByRole("tab", { name: "Activity Log" }));
+    const wrapButton = await screen.findByRole("button", { name: "Enable line wrap" });
+    expect(wrapButton.getAttribute("aria-pressed")).toBe("false");
+
+    await user.click(wrapButton);
+
+    expect(screen.getByRole("button", { name: "Disable line wrap" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("pauses activity log auto-scroll when the user scrolls away from the bottom", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary());
+
+    render(<App />);
+
+    await screen.findByText("Repository ready");
+    gitOutputCallback?.({
+      runId: "run-1",
+      action: "fetch",
+      stream: "stdout",
+      text: "fetch output\n",
+      timestamp: new Date().toISOString()
+    });
+
+    await user.click(screen.getByRole("tab", { name: "Activity Log" }));
+    const output = await screen.findByRole("log");
+    Object.defineProperty(output, "scrollHeight", {
+      configurable: true,
+      value: 1000
+    });
+    Object.defineProperty(output, "clientHeight", {
+      configurable: true,
+      value: 100
+    });
+    Object.defineProperty(output, "scrollTop", {
+      configurable: true,
+      writable: true,
+      value: 100
+    });
+
+    fireEvent.scroll(output);
+
+    expect(await screen.findByRole("button", { name: "Jump to latest" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Jump to latest" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Jump to latest" })).toBeNull();
+    });
+  });
+
   it("shows GitHub tabs only for repositories with a supported GitHub origin", async () => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary());
 

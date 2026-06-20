@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ProcessResult, ProcessRunOptions, ProcessRunner } from "./processRunner";
-import { GitService } from "./gitService";
+import { createTerminalColorEnv, GitService } from "./gitService";
 
 interface RunnerCall {
   command: string;
@@ -97,6 +97,38 @@ function stdinText(call: RunnerCall): string {
   return stdin?.toString("utf8") ?? "";
 }
 
+interface TerminalEnvSnapshot {
+  NO_COLOR: string | undefined;
+  FORCE_COLOR: string | undefined;
+  TERM: string | undefined;
+  COLORTERM: string | undefined;
+}
+
+function snapshotTerminalEnv(): TerminalEnvSnapshot {
+  return {
+    NO_COLOR: process.env.NO_COLOR,
+    FORCE_COLOR: process.env.FORCE_COLOR,
+    TERM: process.env.TERM,
+    COLORTERM: process.env.COLORTERM
+  };
+}
+
+function restoreTerminalEnv(snapshot: TerminalEnvSnapshot): void {
+  for (const key of [
+    "NO_COLOR",
+    "FORCE_COLOR",
+    "TERM",
+    "COLORTERM"
+  ] as const) {
+    const value = snapshot[key];
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+}
+
 async function withTempDir<T>(callback: (dir: string) => Promise<T>): Promise<T> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "githead-test-"));
 
@@ -125,6 +157,32 @@ function repoSummaryResults(repoRoot: string): ProcessResult[] {
 }
 
 describe("GitService", () => {
+  it("creates terminal color env with sensible defaults", () => {
+    expect(createTerminalColorEnv({})).toMatchObject({
+      FORCE_COLOR: "1",
+      TERM: "xterm-256color",
+      COLORTERM: "truecolor"
+    });
+  });
+
+  it("preserves existing terminal color env values", () => {
+    expect(createTerminalColorEnv({
+      FORCE_COLOR: "3",
+      TERM: "xterm-direct",
+      COLORTERM: "24bit"
+    })).toMatchObject({
+      FORCE_COLOR: "3",
+      TERM: "xterm-direct",
+      COLORTERM: "24bit"
+    });
+  });
+
+  it("honors NO_COLOR when creating terminal color env", () => {
+    expect(createTerminalColorEnv({
+      NO_COLOR: "1"
+    })).toBeUndefined();
+  });
+
   it.each([
     [
       "fetch",
@@ -236,6 +294,54 @@ describe("GitService", () => {
     expect(summary.isValid).toBe(false);
     expect(summary.validationErrors).toContain("Selected folder is not a git repository.");
     expect(runner.calls).toHaveLength(1);
+  });
+
+  it("adds terminal color environment hints to visible git action output", async () => {
+    const original = snapshotTerminalEnv();
+    delete process.env.NO_COLOR;
+    delete process.env.FORCE_COLOR;
+    delete process.env.TERM;
+    delete process.env.COLORTERM;
+
+    try {
+      const runner = new FakeRunner([
+        ok("true\n"),
+        ok("done\n")
+      ]);
+      const service = new GitService(runner);
+
+      await service.runGitAction({
+        repoPath: "D:\\Repo",
+        action: "fetch"
+      });
+
+      expect(runner.calls.at(-1)?.options?.env).toMatchObject({
+        FORCE_COLOR: "1",
+        TERM: "xterm-256color",
+        COLORTERM: "truecolor"
+      });
+    } finally {
+      restoreTerminalEnv(original);
+    }
+  });
+
+  it("does not add terminal color environment hints to parsed summary commands", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("main\n"),
+      ok("origin/main\n"),
+      ok(""),
+      ok("\0"),
+      ok(`${oid}\n`),
+      ok("main\torigin/main\t*\n"),
+      ok(""),
+      ok("D:\\Repo\n")
+    ]);
+    const service = new GitService(runner);
+
+    await service.getRepoSummary("D:\\Repo");
+
+    expect(runner.calls.some((call) => Boolean(call.options?.env))).toBe(false);
   });
 
   it("reports dubious ownership as a safe.directory requirement", async () => {

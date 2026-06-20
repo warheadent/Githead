@@ -1067,6 +1067,7 @@ export class GitService {
 
     const result = await this.runner.run(shellCommand.command, shellCommand.args, {
       cwd: repoRoot,
+      ...createTerminalColorRunOptions(),
       onOutput: (output) => {
         onOutput?.(this.createOutputEvent(runId, configuredAction.name, output.stream, output.text));
       }
@@ -1272,9 +1273,10 @@ export class GitService {
     repoPath: string,
     args: string[],
     onOutput?: (output: ProcessOutput) => void,
-    stdin?: string | Buffer
+    stdin?: string | Buffer,
+    env?: NodeJS.ProcessEnv
   ): Promise<ProcessResult> {
-    const options = createRunOptions(onOutput, stdin);
+    const options = createRunOptions(onOutput, stdin, env);
 
     return this.runner.run("git", [
       "-C",
@@ -1412,7 +1414,7 @@ export class GitService {
 
     return await this.runGit(request.repoPath, commandArgs, (output) => {
       onOutput?.(this.createOutputEvent(runId, request.action, output.stream, output.text));
-    });
+    }, undefined, createTerminalColorEnv());
   }
 
   private async runPushWithTags(
@@ -1550,16 +1552,36 @@ function normalizeSafeDirectoryPath(repoPath: string): { path: string } | { erro
 
 function createRunOptions(
   onOutput?: (output: ProcessOutput) => void,
-  stdin?: string | Buffer
-): { onOutput?: (output: ProcessOutput) => void; stdin?: string | Buffer } | undefined {
-  if (!onOutput && stdin === undefined) {
+  stdin?: string | Buffer,
+  env?: NodeJS.ProcessEnv
+): { onOutput?: (output: ProcessOutput) => void; stdin?: string | Buffer; env?: NodeJS.ProcessEnv } | undefined {
+  if (!onOutput && stdin === undefined && !env) {
     return undefined;
   }
 
   return {
     ...(onOutput ? { onOutput } : {}),
-    ...(stdin !== undefined ? { stdin } : {})
+    ...(stdin !== undefined ? { stdin } : {}),
+    ...(env ? { env } : {})
   };
+}
+
+export function createTerminalColorEnv(baseEnv: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv | undefined {
+  if (baseEnv.NO_COLOR) {
+    return undefined;
+  }
+
+  return {
+    ...baseEnv,
+    FORCE_COLOR: baseEnv.FORCE_COLOR || "1",
+    TERM: baseEnv.TERM || "xterm-256color",
+    COLORTERM: baseEnv.COLORTERM || "truecolor"
+  };
+}
+
+function createTerminalColorRunOptions(): { env?: NodeJS.ProcessEnv } {
+  const env = createTerminalColorEnv();
+  return env ? { env } : {};
 }
 
 interface ValidCloneRequest {

@@ -7,7 +7,6 @@ import {
   Clipboard,
   Copy,
   Download,
-  Eraser,
   ExternalLink,
   FileCode2,
   FolderOpen,
@@ -132,6 +131,15 @@ import type {
 } from "../shared/types";
 import { GIT_CONFIGURED_ACTION_SHELLS } from "../shared/types";
 import { parseCommitSubject } from "../shared/commitSubject";
+import { ActivityLogView } from "./ActivityLogView";
+import {
+  appendActivityLogEvent,
+  appendActivityOperationResult,
+  createActivityLogState,
+  getActivityLogRawText,
+  hasActivityLogOutput,
+  type ActivityLogState
+} from "./activityLog";
 import { canPush, getAheadBehindCounts, getPrimaryCommitAction, getPullableCommitCount, getPushableCommitCount, hasStagedChanges } from "./commitActions";
 import { buildCommitGraphLayout, type CommitGraphLayout } from "./commitGraph";
 import { groupDiffRowsByHunk, parseUnifiedDiff, type DiffRow, type DiffRowKind } from "./diffParser";
@@ -303,7 +311,7 @@ interface AppState {
   issuesLoading: boolean;
   issuesLoaded: boolean;
   issuesError: string;
-  logText: string;
+  activityLog: ActivityLogState;
   appUpdate: AppUpdateState;
 }
 
@@ -469,7 +477,7 @@ const initialState: AppState = {
   issuesLoading: false,
   issuesLoaded: false,
   issuesError: "",
-  logText: "",
+  activityLog: createActivityLogState(),
   appUpdate: createInitialRendererUpdateState()
 };
 
@@ -495,7 +503,6 @@ export function App(): ReactNode {
     pullRequests: 0,
     issues: 0
   });
-  const logOutputRef = useRef<HTMLPreElement | null>(null);
   const trustDialogResolveRef = useRef<((trusted: boolean) => void) | null>(null);
   const repoRefreshInFlightRef = useRef(false);
   const fileStatusDirtyRef = useRef(false);
@@ -517,10 +524,9 @@ export function App(): ReactNode {
   }, [state]);
 
   const appendLog = useCallback((event: GitOutputEvent): void => {
-    const prefix = event.stream === "system" ? "" : `[${event.stream}] `;
     updateState((current) => ({
       ...current,
-      logText: `${current.logText}${prefix}${event.text}`
+      activityLog: appendActivityLogEvent(current.activityLog, event)
     }));
   }, [updateState]);
 
@@ -537,9 +543,20 @@ export function App(): ReactNode {
   const appendOperationLog = useCallback((label: string, result: GitOperationResult): void => {
     updateState((current) => ({
       ...current,
-      logText: `${current.logText}${formatOperationLog(label, result)}`
+      activityLog: appendActivityOperationResult(current.activityLog, label, result)
     }));
   }, [updateState]);
+
+  const copyActivityLogRawText = useCallback(async (): Promise<void> => {
+    const text = getActivityLogRawText(stateRef.current.activityLog);
+    if (text.trim().length === 0) {
+      return;
+    }
+
+    await window.githead.copyTextToClipboard({
+      text
+    });
+  }, []);
 
   useEffect(() => {
     return window.githead.onGitOutput(appendLog);
@@ -592,12 +609,6 @@ export function App(): ReactNode {
       cleanupWindowState();
     };
   }, []);
-
-  useEffect(() => {
-    if (logOutputRef.current) {
-      logOutputRef.current.scrollTop = logOutputRef.current.scrollHeight;
-    }
-  }, [state.activeView, state.logText]);
 
   const loadCommitFileDiff = useCallback(async (hash: string, filePath: string): Promise<void> => {
     const requestId = requestIds.current.commitFileDiff + 1;
@@ -1747,7 +1758,7 @@ export function App(): ReactNode {
     updateState({
       runningAction: action,
       lastResult: null,
-      logText: ""
+      activityLog: createActivityLogState()
     });
 
     try {
@@ -1796,7 +1807,7 @@ export function App(): ReactNode {
     updateState({
       runningAction: action.name,
       lastResult: null,
-      logText: ""
+      activityLog: createActivityLogState()
     });
 
     try {
@@ -3621,14 +3632,17 @@ export function App(): ReactNode {
                 </>
               ) : null}
 
-              <TabsContent forceMount value="activity" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
+              <TabsContent value="activity" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
                 <ActivityLogView
-                  logText={state.logText}
-                  logOutputRef={logOutputRef}
+                  log={state.activityLog}
+                  statusLabel={getActivityLogStatus(state)}
                   onClearLog={() => {
                     updateState({
-                      logText: ""
+                      activityLog: createActivityLogState()
                     });
+                  }}
+                  onCopyRawLog={() => {
+                    void copyActivityLogRawText();
                   }}
                 />
               </TabsContent>
@@ -6487,34 +6501,6 @@ function CommitPanel({
   );
 }
 
-function ActivityLogView({
-  logText,
-  logOutputRef,
-  onClearLog
-}: {
-  logText: string;
-  logOutputRef: React.RefObject<HTMLPreElement | null>;
-  onClearLog: () => void;
-}): ReactNode {
-  const hasOutput = logText.trim().length > 0;
-
-  return (
-    <section className="activity-log-view" aria-label="Activity log">
-      <div className="activity-log-header">
-        <div className="min-w-0">
-          <p className="eyebrow">Activity Log</p>
-          <h2 className="text-sm font-semibold">{hasOutput ? "Output Available" : "Empty"}</h2>
-        </div>
-        <Button type="button" variant="secondary" disabled={!hasOutput} onClick={onClearLog}>
-          <Eraser />
-          Clear Log
-        </Button>
-      </div>
-      <pre ref={logOutputRef} className="log-output activity-log-output" aria-live="polite">{logText}</pre>
-    </section>
-  );
-}
-
 function BranchDialog({
   open,
   branchName,
@@ -8375,26 +8361,29 @@ function getActionHeading(state: AppState): string {
   return "Ready";
 }
 
+function getActivityLogStatus(state: AppState): string {
+  if (state.runningAction) {
+    return `${capitalize(state.runningAction)} running`;
+  }
+
+  if (state.runningOperation) {
+    return `${state.runningOperation} running`;
+  }
+
+  if (state.lastResult) {
+    return formatResultHeading(state.lastResult);
+  }
+
+  if (state.lastOperationResult) {
+    return state.lastOperationResult.exitCode === 0 ? "Operation complete" : "Operation failed";
+  }
+
+  return hasActivityLogOutput(state.activityLog) ? "Output Available" : "Empty";
+}
+
 function formatResultHeading(result: GitRunResult): string {
   const label = capitalize(result.action);
   return result.exitCode === 0 ? `${label} complete` : `${label} failed`;
-}
-
-function formatOperationLog(label: string, result: GitOperationResult): string {
-  const chunks = [
-    `> ${label}\n`
-  ];
-
-  if (result.stdout.trim().length > 0) {
-    chunks.push(formatStreamOutput("stdout", result.stdout));
-  }
-
-  if (result.stderr.trim().length > 0) {
-    chunks.push(formatStreamOutput("stderr", result.stderr));
-  }
-
-  chunks.push(`${label} exited with code ${result.exitCode}.\n\n`);
-  return chunks.join("");
 }
 
 function getOperationFailureMessage(result: GitOperationResult | null, fallback: string): string {
@@ -8403,10 +8392,6 @@ function getOperationFailureMessage(result: GitOperationResult | null, fallback:
 
 function getRepositoryAccessCheckFailureMessage(result: GitRepositoryAccessCheckResult): string {
   return result.stderr.trim() || result.stdout.trim() || "Unable to check repository access.";
-}
-
-function formatStreamOutput(stream: "stdout" | "stderr", text: string): string {
-  return `[${stream}] ${text.endsWith("\n") ? text : `${text}\n`}`;
 }
 
 function formatCompactCount(value: number): string {

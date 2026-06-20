@@ -14,6 +14,7 @@ export interface ProcessResult {
 
 export interface ProcessRunOptions {
   cwd?: string;
+  env?: NodeJS.ProcessEnv;
   stdin?: string | Buffer;
   timeoutMs?: number;
   onOutput?: (output: ProcessOutput) => void;
@@ -32,6 +33,7 @@ export class NodeProcessRunner implements ProcessRunner {
 
       const child = spawn(command, args, {
         cwd: options.cwd,
+        env: options.env,
         shell: false,
         windowsHide: true
       });
