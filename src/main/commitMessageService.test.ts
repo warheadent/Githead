@@ -132,10 +132,12 @@ describe("CommitMessageService", () => {
     expect(body.service_tier).toBe("flex");
     expect(body.messages.at(-1)?.content).toContain("+added");
     expect(body.messages[0]?.content).toContain("Return exactly the commit message text");
-    expect(body.messages[0]?.content).toContain("Use Conventional Commits style");
-    expect(body.messages[0]?.content).toContain("Describe the primary module touched");
-    expect(body.messages[0]?.content).toContain("Use bullet points for body details");
-    expect(body.messages[0]?.content).toContain("Do not predictively word-wrap lines");
+    expect(body.messages[0]?.content).toContain("Follow Conventional Commits format");
+    expect(body.messages[0]?.content).toContain("feat, fix, refactor, perf, docs, test, build, ci, chore, revert");
+    expect(body.messages[0]?.content).toContain("Set scope to the primary module only when one clearly dominates");
+    expect(body.messages[0]?.content).toContain("imperative mood, aim for under 50 characters");
+    expect(body.messages[0]?.content).toContain("BREAKING CHANGE: footer");
+    expect(body.messages[0]?.content).toContain("Do not insert manual line breaks");
     expect(body.messages.at(-1)?.content).toContain("Write a project-specific Git commit message.");
     expect(body.messages.at(-1)?.content).toContain("Prefer Conventional Commits.");
     expect(body.messages.at(-1)?.content).toContain("Staged diff:");

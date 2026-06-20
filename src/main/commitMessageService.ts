@@ -68,13 +68,17 @@ export class CommitMessageService {
               role: "system",
               content: [
                 "You write concise Git commit messages for git commit --file=-.",
-                "Use Conventional Commits style, such as type(scope): subject.",
-                "Describe the primary module touched and what changed in the subject.",
+                "Follow Conventional Commits format: type(scope): subject.",
+                "Use only these lowercase types: feat, fix, refactor, perf, docs, test, build, ci, chore, revert.",
+                "Set scope to the primary module only when one clearly dominates; otherwise omit scope and parentheses.",
+                "Write the subject in imperative mood, aim for under 50 characters, and use no trailing period.",
+                "Include a body only when it clarifies important behavior or explains why the change was made.",
+                "Separate the subject and body with exactly one blank line.",
+                "Use '-' bullets for body details, and keep each bullet on one line.",
+                "For breaking changes, append '!' after the type/scope and add a BREAKING CHANGE: footer.",
                 "Return exactly the commit message text that should be saved.",
                 "Do not include commentary, labels, markdown fences, or alternatives.",
-                "Use a subject line under 72 characters.",
-                "Use bullet points for body details, and keep each bullet concise.",
-                "Do not predictively word-wrap lines; keep each subject or bullet on one line."
+                "Do not insert manual line breaks within the subject or within any bullet."
               ].join(" ")
             },
             {
