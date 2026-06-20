@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
+import { createWriteStream } from "node:fs";
 import path from "node:path";
 import type {
   CommitRef,
@@ -48,6 +50,7 @@ import type {
 import { getSupportedGitHubOrigin, parseGitHubRemoteUrl } from "../shared/githubRemote";
 import { gitCapabilities, isGitAction } from "../shared/types";
 import { createEmptyActionsConfig, getActionKey, readActionsConfig, saveActionsConfigFile } from "./actionsConfig";
+import { validateCloneRequest } from "./cloneValidation";
 import type { ProcessOutput, ProcessResult, ProcessRunner } from "./processRunner";
 
 export const GIT_ACTION_COMMANDS: Record<GitAction, string[]> = {
@@ -331,6 +334,74 @@ export class GitService {
       stdout: redactRepositorySourceCredentials(result.stdout || (result.exitCode === 0 ? "Repository cloned." : ""), validation.source),
       stderr: redactRepositorySourceCredentials(result.error ? `${result.stderr}${result.error}` : result.stderr, validation.source)
     };
+  }
+
+  writeCommitFileVersionToPath(
+    repoPath: string,
+    hash: string,
+    filePath: string,
+    outputPath: string
+  ): Promise<{ exitCode: number; stderr: string; error?: string }> {
+    return new Promise((resolve) => {
+      const child = spawn("git", [
+        "-C",
+        repoPath,
+        "cat-file",
+        "blob",
+        `${hash}:${filePath}`
+      ], {
+        shell: false,
+        windowsHide: true
+      });
+      const output = createWriteStream(outputPath);
+      const stderrChunks: Buffer[] = [];
+      let processResult: { exitCode: number; stderr: string; error?: string } | null = null;
+      let outputFinished = false;
+      let resolved = false;
+
+      const maybeResolve = () => {
+        if (resolved || !processResult || !outputFinished) {
+          return;
+        }
+
+        resolved = true;
+        resolve(processResult);
+      };
+
+      child.stdout.pipe(output);
+      output.on("finish", () => {
+        outputFinished = true;
+        maybeResolve();
+      });
+      output.on("error", (error) => {
+        outputFinished = true;
+        processResult ??= {
+          exitCode: -1,
+          stderr: Buffer.concat(stderrChunks).toString("utf8"),
+          error: error.message
+        };
+        maybeResolve();
+      });
+      child.stderr.on("data", (chunk: Buffer) => {
+        stderrChunks.push(chunk);
+      });
+      child.on("error", (error) => {
+        processResult ??= {
+          exitCode: -1,
+          stderr: Buffer.concat(stderrChunks).toString("utf8"),
+          error: error.message
+        };
+        output.end();
+        maybeResolve();
+      });
+      child.on("close", (code) => {
+        processResult ??= {
+          exitCode: code ?? -1,
+          stderr: Buffer.concat(stderrChunks).toString("utf8")
+        };
+        maybeResolve();
+      });
+    });
   }
 
   async getFileDiff(request: GitFileDiffRequest): Promise<GitFileDiff> {
@@ -1587,116 +1658,6 @@ export function createTerminalColorEnv(baseEnv: NodeJS.ProcessEnv = process.env)
 function createTerminalColorRunOptions(): { env?: NodeJS.ProcessEnv } {
   const env = createTerminalColorEnv();
   return env ? { env } : {};
-}
-
-interface ValidCloneRequest {
-  source: string;
-  parentPath: string;
-  destinationPath: string;
-  branchName: string | null;
-  depth: number | null;
-}
-
-async function validateCloneRequest(request: GitCloneRequest): Promise<ValidCloneRequest | { error: string }> {
-  const source = request.source.trim();
-  if (!source) {
-    return {
-      error: "Enter a repository URL or path."
-    };
-  }
-
-  const parentPath = path.normalize(request.parentPath.trim());
-  if (!parentPath || !path.isAbsolute(parentPath)) {
-    return {
-      error: "Select an absolute destination folder."
-    };
-  }
-
-  const parentStats = await getStats(parentPath);
-  if (!parentStats?.isDirectory()) {
-    return {
-      error: "Destination folder does not exist."
-    };
-  }
-
-  const directoryName = request.directoryName.trim();
-  if (!directoryName) {
-    return {
-      error: "Enter a destination folder name."
-    };
-  }
-
-  if (
-    path.isAbsolute(directoryName) ||
-    directoryName === "." ||
-    directoryName === ".." ||
-    directoryName.includes("/") ||
-    directoryName.includes("\\") ||
-    path.normalize(directoryName) !== directoryName
-  ) {
-    return {
-      error: "Destination folder name cannot include a path."
-    };
-  }
-
-  const destinationPath = path.resolve(parentPath, directoryName);
-  const relativeDestination = path.relative(parentPath, destinationPath);
-  if (!relativeDestination || relativeDestination.startsWith("..") || path.isAbsolute(relativeDestination)) {
-    return {
-      error: "Destination folder must stay inside the selected folder."
-    };
-  }
-
-  const destinationStats = await getStats(destinationPath);
-  if (destinationStats) {
-    if (!destinationStats.isDirectory()) {
-      return {
-        error: "Destination path already exists and is not a folder."
-      };
-    }
-
-    const entries = await fs.readdir(destinationPath);
-    if (entries.length > 0) {
-      return {
-        error: "Destination folder already exists and is not empty."
-      };
-    }
-  }
-
-  const branchName = request.branchName?.trim() ?? "";
-  if (branchName.startsWith("-")) {
-    return {
-      error: "Branch name cannot start with a dash."
-    };
-  }
-
-  const requestedDepth = request.depth ?? null;
-  if (requestedDepth !== null && (!Number.isInteger(requestedDepth) || requestedDepth < 0)) {
-    return {
-      error: "Clone depth must be 0 or a positive whole number."
-    };
-  }
-  const depth = requestedDepth && requestedDepth > 0 ? requestedDepth : null;
-
-  return {
-    source,
-    parentPath,
-    destinationPath,
-    branchName: branchName || null,
-    depth
-  };
-}
-
-async function getStats(filePath: string): Promise<Awaited<ReturnType<typeof fs.stat>> | null> {
-  try {
-    return await fs.stat(filePath);
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return null;
-    }
-
-    throw error;
-  }
 }
 
 function createRepositoryAccessCheckFailure(source: string, message: string): GitRepositoryAccessCheckResult {

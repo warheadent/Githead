@@ -39,6 +39,7 @@ import type {
 } from "../shared/types";
 import { loreCapabilities } from "../shared/types";
 import { createEmptyActionsConfig, readActionsConfig } from "./actionsConfig";
+import { validateCloneRequest } from "./cloneValidation";
 import type { GitOutputHandler } from "./gitService";
 import type { ProcessResult, ProcessRunOptions, ProcessRunner } from "./processRunner";
 import type { VcsService } from "./vcsService";
@@ -97,18 +98,19 @@ export class LoreService implements VcsService {
     if (!validation.isValid) {
       return this.invalidSummary(repoPath, validation.error);
     }
+    const rootPath = validation.rootPath;
 
     const [statusResult, branchResult, actionsConfig, remoteUrl] = await Promise.all([
-      this.runLore(repoPath, [
+      this.runLore(rootPath, [
         "status",
         "--scan"
       ]),
-      this.runLore(repoPath, [
+      this.runLore(rootPath, [
         "branch",
         "list"
       ]),
-      readActionsConfig(repoPath).catch(() => createEmptyActionsConfig()),
-      this.readRemoteUrl(repoPath)
+      readActionsConfig(rootPath).catch(() => createEmptyActionsConfig()),
+      this.readRemoteUrl(rootPath)
     ]);
 
     const status = parseLoreStatus(statusResult.stdout);
@@ -129,7 +131,7 @@ export class LoreService implements VcsService {
       : [];
 
     return {
-      repoPath,
+      repoPath: rootPath,
       kind: "lore",
       capabilities: loreCapabilities(),
       isValid: true,
@@ -164,7 +166,7 @@ export class LoreService implements VcsService {
     // Lore is centralized; ahead/behind requires the server and is not derived
     // offline. Richer sync counts land in a later stage.
     return {
-      repoPath,
+      repoPath: validation.rootPath,
       kind: "lore",
       isValid: true,
       ahead: 0,
@@ -188,7 +190,7 @@ export class LoreService implements VcsService {
     }
 
     const limit = clampHistoryLimit(request.limit);
-    const result = await this.runLore(request.repoPath, [
+    const result = await this.runLore(validation.rootPath, [
       "history",
       String(limit)
     ]);
@@ -209,14 +211,19 @@ export class LoreService implements VcsService {
       throw new Error("Revision signature is invalid.");
     }
 
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      throw new Error(validation.error);
+    }
+
     const [infoResult, parent] = await Promise.all([
-      this.runLore(request.repoPath, [
+      this.runLore(validation.rootPath, [
         "revision",
         "info",
         hash,
         "--delta"
       ]),
-      this.getParentSignature(request.repoPath, hash)
+      this.getParentSignature(validation.rootPath, hash)
     ]);
 
     const revision = parseLoreRevision(infoResult.stdout);
@@ -260,7 +267,7 @@ export class LoreService implements VcsService {
 
     // Lore records staging as intent without materializing an index, so the
     // working-tree diff against the synced revision serves both sides.
-    const result = await this.runLore(request.repoPath, [
+    const result = await this.runLore(validation.rootPath, [
       "diff",
       request.path
     ]);
@@ -283,7 +290,12 @@ export class LoreService implements VcsService {
       return this.diffError(request.path, "unstaged", "Revision signature is invalid.");
     }
 
-    const parent = await this.getParentSignature(request.repoPath, hash);
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      return this.diffError(request.path, "unstaged", validation.error);
+    }
+
+    const parent = await this.getParentSignature(validation.rootPath, hash);
     if (!parent) {
       // A root revision has no earlier state, and Lore cannot diff against the
       // empty revision (`--source <zeros>` errors), so there is nothing to show.
@@ -295,7 +307,7 @@ export class LoreService implements VcsService {
       };
     }
 
-    const result = await this.runLore(request.repoPath, [
+    const result = await this.runLore(validation.rootPath, [
       "diff",
       "--source",
       parent,
@@ -322,7 +334,7 @@ export class LoreService implements VcsService {
       return this.failure(repoPath, validation.error);
     }
 
-    const result = await this.runLore(repoPath, [
+    const result = await this.runLore(validation.rootPath, [
       "diff"
     ]);
     return {
@@ -370,36 +382,67 @@ export class LoreService implements VcsService {
   }
 
   async cloneRepository(request: GitCloneRequest): Promise<GitOperationResult> {
-    const source = request.source.trim();
-    const directoryName = request.directoryName.trim();
-    const parentPath = request.parentPath.trim();
-    if (!source) {
-      return this.failure(parentPath, "Enter a Lore repository URL.");
-    }
-    if (!directoryName) {
-      return this.failure(parentPath, "Enter a destination folder name.");
+    const validation = await validateCloneRequest(request);
+    if ("error" in validation) {
+      return this.failure(request.parentPath, validation.error);
     }
 
-    const destinationPath = path.join(parentPath, directoryName);
-    const branch = request.branchName?.trim();
     const args = [
       "-P",
       "clone",
-      source,
-      directoryName,
-      ...(branch ? [
+      validation.source,
+      validation.directoryName,
+      ...(validation.branchName ? [
         "--branch",
-        branch
+        validation.branchName
       ] : [])
     ];
     const result = await this.runner.run("lore", args, {
-      cwd: parentPath
+      cwd: validation.parentPath
     });
 
     return {
-      repoPath: destinationPath,
+      repoPath: validation.destinationPath,
       exitCode: result.exitCode,
       stdout: result.stdout || (result.exitCode === 0 ? "Repository cloned." : ""),
+      stderr: combineStderr(result)
+    };
+  }
+
+  async writeCommitFileVersionToPath(
+    repoPath: string,
+    hash: string,
+    filePath: string,
+    outputPath: string
+  ): Promise<{ exitCode: number; stderr: string; error?: string }> {
+    const validation = await this.validateRepo(repoPath);
+    if (!validation.isValid) {
+      return {
+        exitCode: -1,
+        stderr: validation.error
+      };
+    }
+
+    const revision = sanitizeHash(hash);
+    if (!revision) {
+      return {
+        exitCode: -1,
+        stderr: "Revision signature is invalid."
+      };
+    }
+
+    const result = await this.runLore(validation.rootPath, [
+      "file",
+      "write",
+      "--path",
+      filePath,
+      "--revision",
+      revision,
+      "--output",
+      outputPath
+    ]);
+    return {
+      exitCode: result.exitCode,
       stderr: combineStderr(result)
     };
   }
@@ -425,7 +468,7 @@ export class LoreService implements VcsService {
     // The message is a positional argument (not `-m`); `shell: false` keeps a
     // multi-line message safe. Lore requires an identity in .lore/config.toml
     // and surfaces a clear error if it is missing, which we pass through.
-    const result = await this.runLore(request.repoPath, [
+    const result = await this.runLore(validation.rootPath, [
       "commit",
       request.message
     ]);
@@ -448,7 +491,7 @@ export class LoreService implements VcsService {
       return this.failure(request.repoPath, "No files to reset.");
     }
 
-    const result = await this.runLore(request.repoPath, [
+    const result = await this.runLore(validation.rootPath, [
       "reset",
       "--revision",
       hash,
@@ -474,7 +517,7 @@ export class LoreService implements VcsService {
 
     // Lore has a single reset behavior; the soft/mixed/hard mode does not apply
     // (capabilities.resetModes is false, so the UI hides the selector).
-    const result = await this.runLore(request.repoPath, [
+    const result = await this.runLore(validation.rootPath, [
       "branch",
       "reset",
       hash
@@ -493,7 +536,7 @@ export class LoreService implements VcsService {
       return this.failure(request.repoPath, "Revision signature is invalid.");
     }
 
-    const result = await this.runLore(request.repoPath, [
+    const result = await this.runLore(validation.rootPath, [
       "revision",
       "revert",
       hash
@@ -512,7 +555,7 @@ export class LoreService implements VcsService {
       return this.failure(request.repoPath, "Branch name is required.");
     }
 
-    const result = await this.runLore(request.repoPath, [
+    const result = await this.runLore(validation.rootPath, [
       "branch",
       "switch",
       branch
@@ -532,7 +575,7 @@ export class LoreService implements VcsService {
     }
 
     // Mirror `git checkout -b`: create the branch, then switch to it.
-    const created = await this.runLore(request.repoPath, [
+    const created = await this.runLore(validation.rootPath, [
       "branch",
       "create",
       branch
@@ -541,7 +584,7 @@ export class LoreService implements VcsService {
       return this.toOperationResult(request.repoPath, created);
     }
 
-    const switched = await this.runLore(request.repoPath, [
+    const switched = await this.runLore(validation.rootPath, [
       "branch",
       "switch",
       branch
@@ -586,7 +629,7 @@ export class LoreService implements VcsService {
           timestamp: new Date().toISOString()
         });
     }
-    const result = await this.runLore(request.repoPath, args, options);
+    const result = await this.runLore(validation.rootPath, args, options);
     const endedAt = new Date().toISOString();
     onOutput?.({
       runId,
@@ -681,7 +724,7 @@ export class LoreService implements VcsService {
       return this.failure(repoPath, emptyMessage);
     }
 
-    const result = await this.runLore(repoPath, [
+    const result = await this.runLore(validation.rootPath, [
       command,
       ...paths
     ]);
@@ -697,36 +740,42 @@ export class LoreService implements VcsService {
     };
   }
 
-  private async validateRepo(repoPath: string): Promise<{ isValid: boolean; error: string }> {
+  private async validateRepo(repoPath: string): Promise<
+    | { isValid: true; error: ""; rootPath: string }
+    | { isValid: false; error: string; rootPath: null }
+  > {
     if (!repoPath?.trim()) {
       return {
         isValid: false,
-        error: "Repository path is empty."
+        error: "Repository path is empty.",
+        rootPath: null
       };
     }
 
-    const loreDir = path.join(repoPath, ".lore");
-    const stats = await fs.stat(loreDir).catch(() => null);
-    if (!stats?.isDirectory()) {
+    const rootPath = await findLoreRoot(repoPath);
+    if (!rootPath) {
       return {
         isValid: false,
-        error: "Selected folder is not a Lore repository."
+        error: "Selected folder is not a Lore repository.",
+        rootPath: null
       };
     }
 
-    const status = await this.runLore(repoPath, [
+    const status = await this.runLore(rootPath, [
       "status"
     ]);
     if (status.exitCode !== 0) {
       return {
         isValid: false,
-        error: status.stderr.trim() || "Unable to read Lore repository status."
+        error: status.stderr.trim() || "Unable to read Lore repository status.",
+        rootPath: null
       };
     }
 
     return {
       isValid: true,
-      error: ""
+      error: "",
+      rootPath
     };
   }
 
@@ -839,6 +888,23 @@ function cleanPaths(paths: string[]): string[] {
 
 function combineStderr(result: ProcessResult): string {
   return result.error ? `${result.stderr}${result.error}` : result.stderr;
+}
+
+async function findLoreRoot(repoPath: string): Promise<string | null> {
+  let current = path.resolve(repoPath);
+
+  while (true) {
+    const stats = await fs.stat(path.join(current, ".lore")).catch(() => null);
+    if (stats?.isDirectory()) {
+      return current;
+    }
+
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return null;
+    }
+    current = parent;
+  }
 }
 
 function shortHash(signature: string): string {

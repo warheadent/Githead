@@ -1,7 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, safeStorage, screen, shell } from "electron";
-import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
-import { createWriteStream } from "node:fs";
 import path from "node:path";
 import { IPC_CHANNELS } from "../shared/ipc";
 import type {
@@ -762,7 +760,8 @@ async function openCommitFileVersion(request: GitCommitFileVersionRequest): Prom
 
   const tempDir = await fs.mkdtemp(path.join(app.getPath("temp"), "githead-commit-file-"));
   const tempPath = path.join(tempDir, path.basename(resolved.absolutePath));
-  const result = await writeCommitFileVersionToPath(
+  const service = await vcsRouter.serviceForRepo(request.repoPath);
+  const result = await service.writeCommitFileVersionToPath(
     request.repoPath,
     hash,
     request.path.replace(/\\/g, "/"),
@@ -785,74 +784,6 @@ async function openCommitFileVersion(request: GitCommitFileVersionRequest): Prom
   }
 
   return createOperationSuccess(request.repoPath, "Selected file version opened.");
-}
-
-function writeCommitFileVersionToPath(
-  repoPath: string,
-  hash: string,
-  filePath: string,
-  outputPath: string
-): Promise<{ exitCode: number; stderr: string; error?: string }> {
-  return new Promise((resolve) => {
-    const child = spawn("git", [
-      "-C",
-      repoPath,
-      "cat-file",
-      "blob",
-      `${hash}:${filePath}`
-    ], {
-      shell: false,
-      windowsHide: true
-    });
-    const output = createWriteStream(outputPath);
-    const stderrChunks: Buffer[] = [];
-    let processResult: { exitCode: number; stderr: string; error?: string } | null = null;
-    let outputFinished = false;
-    let resolved = false;
-
-    const maybeResolve = () => {
-      if (resolved || !processResult || !outputFinished) {
-        return;
-      }
-
-      resolved = true;
-      resolve(processResult);
-    };
-
-    child.stdout.pipe(output);
-    output.on("finish", () => {
-      outputFinished = true;
-      maybeResolve();
-    });
-    output.on("error", (error) => {
-      outputFinished = true;
-      processResult ??= {
-        exitCode: -1,
-        stderr: Buffer.concat(stderrChunks).toString("utf8"),
-        error: error.message
-      };
-      maybeResolve();
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderrChunks.push(chunk);
-    });
-    child.on("error", (error) => {
-      processResult ??= {
-        exitCode: -1,
-        stderr: Buffer.concat(stderrChunks).toString("utf8"),
-        error: error.message
-      };
-      output.end();
-      maybeResolve();
-    });
-    child.on("close", (code) => {
-      processResult ??= {
-        exitCode: code ?? -1,
-        stderr: Buffer.concat(stderrChunks).toString("utf8")
-      };
-      maybeResolve();
-    });
-  });
 }
 
 async function getExplorerTarget(absolutePath: string, repoRoot: string): Promise<string> {

@@ -56,6 +56,18 @@ async function withLoreRepo<T>(callback: (dir: string) => Promise<T>): Promise<T
   }
 }
 
+async function withTempDir<T>(callback: (dir: string) => Promise<T>): Promise<T> {
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "githead-lore-service-")));
+  try {
+    return await callback(dir);
+  } finally {
+    await fs.rm(dir, {
+      recursive: true,
+      force: true
+    });
+  }
+}
+
 const STATUS_MIXED = `Repository 019ee33ca6e07831a467dbc3dc6e148e
 On branch main revision 1 -> 7154881d5d929c4487cdee9d65fd7b9c6edb6de8994f819c80ac4191a8f08af4
 Changes staged for commit:
@@ -137,6 +149,39 @@ describe("LoreService", () => {
         "--scan"
       ]);
       expect(runner.calls[1]?.options?.cwd).toBe(dir);
+    });
+  });
+
+  it("resolves Lore repository roots when opened from a subfolder", async () => {
+    await withLoreRepo(async (dir) => {
+      const nested = path.join(dir, "Content", "Maps");
+      await fs.mkdir(nested, {
+        recursive: true
+      });
+      const runner = new FakeRunner([
+        ok("On branch main revision 1 -> abc"),
+        ok(STATUS_MIXED),
+        ok(BRANCH_LIST)
+      ]);
+      const service = new LoreService(runner);
+
+      const summary = await service.getRepoSummary(nested);
+
+      expect(summary.isValid).toBe(true);
+      expect(summary.repoPath).toBe(dir);
+      expect(runner.calls[0]?.args).toEqual([
+        "--repository",
+        dir,
+        "-P",
+        "status"
+      ]);
+      expect(runner.calls[1]?.args).toEqual([
+        "--repository",
+        dir,
+        "-P",
+        "status",
+        "--scan"
+      ]);
     });
   });
 
@@ -312,29 +357,116 @@ describe("LoreService", () => {
   });
 
   it("clones a lore:// url into the parent directory", async () => {
-    const runner = new FakeRunner([
-      ok("Repository cloned.")
-    ]);
-    const service = new LoreService(runner);
+    await withTempDir(async (dir) => {
+      const runner = new FakeRunner([
+        ok("Repository cloned.")
+      ]);
+      const service = new LoreService(runner);
 
-    const result = await service.cloneRepository({
-      source: "lore://127.0.0.1:41337/demo",
-      parentPath: "D:\\work",
-      directoryName: "demo"
+      const result = await service.cloneRepository({
+        source: "lore://127.0.0.1:41337/demo",
+        parentPath: dir,
+        directoryName: "demo"
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.repoPath).toBe(path.join(dir, "demo"));
+      expect(runner.calls[0]).toEqual({
+        command: "lore",
+        args: [
+          "-P",
+          "clone",
+          "lore://127.0.0.1:41337/demo",
+          "demo"
+        ],
+        options: {
+          cwd: dir
+        }
+      });
     });
+  });
 
-    expect(result.exitCode).toBe(0);
-    expect(runner.calls[0]).toEqual({
-      command: "lore",
-      args: [
-        "-P",
-        "clone",
-        "lore://127.0.0.1:41337/demo",
-        "demo"
-      ],
-      options: {
-        cwd: "D:\\work"
+  it("rejects unsafe Lore clone destinations before spawning lore", async () => {
+    await withTempDir(async (dir) => {
+      const nonEmptyDestination = path.join(dir, "existing");
+      await fs.mkdir(nonEmptyDestination);
+      await fs.writeFile(path.join(nonEmptyDestination, "file.txt"), "content", "utf8");
+
+      const cases = [
+        {
+          request: {
+            source: "lore://127.0.0.1:41337/demo",
+            parentPath: "relative",
+            directoryName: "demo"
+          },
+          error: "Select an absolute destination folder."
+        },
+        {
+          request: {
+            source: "lore://127.0.0.1:41337/demo",
+            parentPath: dir,
+            directoryName: "..\\demo"
+          },
+          error: "Destination folder name cannot include a path."
+        },
+        {
+          request: {
+            source: "lore://127.0.0.1:41337/demo",
+            parentPath: dir,
+            directoryName: "existing"
+          },
+          error: "Destination folder already exists and is not empty."
+        }
+      ];
+
+      for (const testCase of cases) {
+        const runner = new FakeRunner([]);
+        const service = new LoreService(runner);
+        const result = await service.cloneRepository(testCase.request);
+
+        expect(result.exitCode).toBe(-1);
+        expect(result.stderr).toBe(testCase.error);
+        expect(runner.calls).toHaveLength(0);
       }
+    });
+  });
+
+  it("writes a selected Lore revision file version to disk", async () => {
+    await withLoreRepo(async (dir) => {
+      const outputPath = path.join(dir, "version.txt");
+      const runner = new FakeRunner([
+        ok("ok"),
+        ok("Wrote file")
+      ]);
+      const service = new LoreService(runner);
+
+      const result = await service.writeCommitFileVersionToPath(
+        dir,
+        "7154881d5d929c4487cdee9d65fd7b9c6edb6de8994f819c80ac4191a8f08af4",
+        "hello.txt",
+        outputPath
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(runner.calls[1]).toEqual({
+        command: "lore",
+        args: [
+          "--repository",
+          dir,
+          "-P",
+          "file",
+          "write",
+          "--path",
+          "hello.txt",
+          "--revision",
+          "7154881d5d929c4487cdee9d65fd7b9c6edb6de8994f819c80ac4191a8f08af4",
+          "--output",
+          outputPath
+        ],
+        options: {
+          cwd: dir
+        }
+      });
     });
   });
 
@@ -450,27 +582,30 @@ describe("LoreService", () => {
   });
 
   it("returns a notice diff for a root commit (no parent)", async () => {
-    const runner = new FakeRunner([
-      // `history --revision <hash> 2` returns only the root revision -> no parent.
-      ok(`Revision  : 1
+    await withLoreRepo(async (dir) => {
+      const runner = new FakeRunner([
+        ok("ok"),
+        // `history --revision <hash> 2` returns only the root revision -> no parent.
+        ok(`Revision  : 1
 Signature : 7154881d5d929c4487cdee9d65fd7b9c6edb6de8994f819c80ac4191a8f08af4
 Date      : Sat, 20 Jun 2026 04:15:43 +0000
     Init commit
 Creator   : Bot <bot@example.com>
 Committer : Bot <bot@example.com>
 `)
-    ]);
-    const service = new LoreService(runner);
+      ]);
+      const service = new LoreService(runner);
 
-    const diff = await service.getCommitFileDiff({
-      repoPath: "D:\\Repo",
-      hash: "7154881d5d929c4487cdee9d65fd7b9c6edb6de8994f819c80ac4191a8f08af4",
-      path: "Config/DefaultEngine.ini"
+      const diff = await service.getCommitFileDiff({
+        repoPath: dir,
+        hash: "7154881d5d929c4487cdee9d65fd7b9c6edb6de8994f819c80ac4191a8f08af4",
+        path: "Config/DefaultEngine.ini"
+      });
+
+      expect(diff.kind).toBe("empty");
+      expect(diff.text.toLowerCase()).toContain("initial revision");
+      expect(runner.calls).toHaveLength(2);
     });
-
-    expect(diff.kind).toBe("empty");
-    expect(diff.text.toLowerCase()).toContain("initial revision");
-    expect(runner.calls).toHaveLength(1);
   });
 
   it("still reports hunk staging as unsupported", async () => {
