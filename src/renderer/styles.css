@@ -962,21 +962,49 @@
 }
 
 .status-chip {
+  --status-chip-bg: var(--muted-foreground);
+  --status-chip-fg: white;
   display: inline-grid;
   width: 28px;
   min-height: 22px;
   place-items: center;
   border: 0;
   border-radius: 4px;
-  color: white;
-  background: oklch(0.58 0.125 70);
+  color: var(--status-chip-fg);
+  background: var(--status-chip-bg);
   font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
   font-size: 0.76rem;
   font-weight: 700;
 }
 
-.status-chip.conflict {
-  background: var(--destructive);
+.status-chip-added {
+  --status-chip-bg: var(--primary);
+}
+
+.status-chip-untracked {
+  --status-chip-bg: oklch(0.52 0.11 210);
+}
+
+.status-chip-modified {
+  --status-chip-bg: oklch(0.58 0.125 70);
+}
+
+.status-chip-deleted,
+.status-chip-conflict {
+  --status-chip-bg: var(--destructive);
+}
+
+.status-chip-renamed {
+  --status-chip-bg: oklch(0.5 0.12 245);
+}
+
+.status-chip-copied {
+  --status-chip-bg: oklch(0.52 0.13 292);
+}
+
+.status-chip-neutral {
+  --status-chip-bg: var(--muted);
+  --status-chip-fg: var(--muted-foreground);
 }
 
 .file-path {

@@ -143,6 +143,7 @@ import {
 import { canPush, getAheadBehindCounts, getPrimaryCommitAction, getPullableCommitCount, getPushableCommitCount, hasStagedChanges } from "./commitActions";
 import { buildCommitGraphLayout, type CommitGraphLayout } from "./commitGraph";
 import { groupDiffRowsByHunk, parseUnifiedDiff, type DiffRow, type DiffRowKind } from "./diffParser";
+import { getCommitFileStatusVisuals, getFileStatusVisuals, type FileStatusVisuals } from "./fileStatusVisuals";
 import { highlightDiffCode } from "./syntaxHighlighter";
 import gitIconUrl from "./assets/git-icon-white.svg";
 import loreIconUrl from "./assets/lore-icon-white.svg";
@@ -5501,9 +5502,22 @@ function FileRow({
 }
 
 function StatusBadge({ file, side }: { file: GitStatusFile; side: GitDiffSide }): ReactNode {
+  return <StatusChip visuals={getFileStatusVisuals(file, side)} />;
+}
+
+function CommitFileStatusBadge({ status }: { status: string }): ReactNode {
+  return <StatusChip visuals={getCommitFileStatusVisuals(status)} />;
+}
+
+function StatusChip({ visuals }: { visuals: FileStatusVisuals }): ReactNode {
   return (
-    <Badge className={`status-chip ${file.isConflicted ? "conflict" : ""}`}>
-      {formatFileStatus(file, side)}
+    <Badge
+      className={`status-chip status-chip-${visuals.tone}`}
+      data-status-tone={visuals.tone}
+      title={visuals.label}
+      aria-label={visuals.label}
+    >
+      {visuals.code}
     </Badge>
   );
 }
@@ -6428,7 +6442,7 @@ function CommitFileRow({
           aria-selected={selected}
           onClick={() => onSelectCommitFile(file.path)}
         >
-          <Badge className="status-chip">{file.status}</Badge>
+          <CommitFileStatusBadge status={file.status} />
           <span className="file-path" title={file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}>
             {file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}
           </span>
@@ -8152,14 +8166,6 @@ function getSortedFiles(summary: RepoSummary | null, predicate: (file: GitStatus
   return [...(summary?.files ?? [])]
     .filter(predicate)
     .sort((left, right) => left.path.localeCompare(right.path));
-}
-
-function formatFileStatus(file: GitStatusFile, side: GitDiffSide): string {
-  if (file.isConflicted) {
-    return "UU";
-  }
-
-  return side === "staged" ? file.indexStatus : file.worktreeStatus === "?" ? "?" : file.worktreeStatus;
 }
 
 function canCommit(state: AppState): boolean {

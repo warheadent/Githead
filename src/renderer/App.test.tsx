@@ -117,6 +117,48 @@ describe("App", () => {
     expect(githead.closeWindow).toHaveBeenCalledTimes(1);
   });
 
+  it("marks file status badges with semantic tones", async () => {
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/added.ts", {
+          indexStatus: "A",
+          isStaged: true
+        }),
+        createStatusFile("src/modified.ts", {
+          worktreeStatus: "M",
+          isUnstaged: true
+        }),
+        createStatusFile("src/deleted.ts", {
+          worktreeStatus: "D",
+          isUnstaged: true
+        }),
+        createStatusFile("src/untracked.ts", {
+          indexStatus: "?",
+          worktreeStatus: "?",
+          isUnstaged: true
+        }),
+        createStatusFile("src/conflicted.ts", {
+          indexStatus: "U",
+          worktreeStatus: "U",
+          isStaged: true,
+          isUnstaged: true,
+          isConflicted: true
+        })
+      ]
+    }));
+
+    render(<App />);
+
+    const stagedFiles = await screen.findByRole("listbox", { name: "Staged files" });
+    const unstagedFiles = screen.getByRole("listbox", { name: "Unstaged files" });
+
+    expect(getStatusTone(within(stagedFiles).getByRole("option", { name: /src\/added\.ts/ }))).toBe("added");
+    expect(getStatusTone(within(unstagedFiles).getByRole("option", { name: /src\/modified\.ts/ }))).toBe("modified");
+    expect(getStatusTone(within(unstagedFiles).getByRole("option", { name: /src\/deleted\.ts/ }))).toBe("deleted");
+    expect(getStatusTone(within(unstagedFiles).getByRole("option", { name: /src\/untracked\.ts/ }))).toBe("untracked");
+    expect(getStatusTone(within(stagedFiles).getByRole("option", { name: /src\/conflicted\.ts/ }))).toBe("conflict");
+  });
+
   it("switches the maximize control to restore when the window is maximized", async () => {
     render(<App />);
 
@@ -4077,6 +4119,10 @@ function createTextDiff(path: string, value: string): GitFileDiff {
       `+${value}`
     ].join("\n")
   };
+}
+
+function getStatusTone(row: HTMLElement): string | null {
+  return row.querySelector(".status-chip")?.getAttribute("data-status-tone") ?? null;
 }
 
 async function flushRendererAsync(): Promise<void> {
