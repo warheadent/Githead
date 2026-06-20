@@ -3405,6 +3405,8 @@ describe("App", () => {
     expect(screen.queryByLabelText("Site URL")).toBeNull();
     expect(screen.queryByLabelText("Site Title")).toBeNull();
 
+    await user.click(screen.getByRole("tab", { name: "AI" }));
+
     const prompt = await screen.findByLabelText("Commit Message Prompt");
     expect(prompt).toBeTruthy();
 
@@ -3449,10 +3451,15 @@ describe("App", () => {
     });
     await user.click(screen.getByRole("button", { name: "Settings" }));
 
+    expect(screen.getByRole("tab", { name: "Git Identity", selected: true })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "AI", selected: false })).toBeTruthy();
     await screen.findByText("Git Identity", {
       selector: "h3"
     });
-    expect(screen.getByText("AI")).toBeTruthy();
+    expect(screen.queryByText("OpenRouter settings for generated commit messages.")).toBeNull();
+    await user.click(screen.getByRole("tab", { name: "AI" }));
+    expect(await screen.findByText("OpenRouter settings for generated commit messages.")).toBeTruthy();
+    await user.click(screen.getByRole("tab", { name: "Git Identity" }));
     await user.clear(screen.getByLabelText("Name"));
     await user.type(screen.getByLabelText("Name"), "Taylor");
     await user.clear(screen.getByLabelText("Email"));

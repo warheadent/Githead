@@ -7292,75 +7292,90 @@ function SettingsDialog({
             </DialogDescription>
           </DialogHeader>
 
-          <section className="grid gap-3">
-            <div>
-              <h3 className="text-sm font-semibold">Git Identity</h3>
-              <p className="text-sm text-muted-foreground">Used when Git needs author details for commits.</p>
-            </div>
-            <GitIdentityFields
-              idPrefix="settings-git-identity"
-              name={draft.gitIdentityName}
-              email={draft.gitIdentityEmail}
-              scope={draft.gitIdentityScope}
-              disabled={saving}
-              error={error}
-              onChange={(patch) => onDraftChange({
-                ...draft,
-                ...(patch.name !== undefined ? { gitIdentityName: patch.name } : {}),
-                ...(patch.email !== undefined ? { gitIdentityEmail: patch.email } : {}),
-                ...(patch.scope !== undefined ? { gitIdentityScope: patch.scope } : {})
-              })}
-            />
-          </section>
+          <Tabs defaultValue="git-identity" className="gap-4">
+            <TabsList className="grid h-11 w-full grid-cols-2">
+              <TabsTrigger value="git-identity" className="h-full min-h-0 focus-visible:ring-inset">
+                Git Identity
+              </TabsTrigger>
+              <TabsTrigger value="ai" className="h-full min-h-0 focus-visible:ring-inset">
+                AI
+              </TabsTrigger>
+            </TabsList>
 
-          <section className="grid gap-3 border-t pt-4">
-            <div>
-              <h3 className="text-sm font-semibold">AI</h3>
-              <p className="text-sm text-muted-foreground">OpenRouter settings for generated commit messages.</p>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="openrouter-api-key">API Key</Label>
-              <Input
-                id="openrouter-api-key"
-                type="password"
-                autoComplete="off"
-                placeholder="Leave blank to keep existing key"
-                value={draft.apiKey}
-                disabled={saving}
-                onChange={(event) => onDraftChange({
-                  ...draft,
-                  apiKey: event.target.value
-                })}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="openrouter-model">Model</Label>
-              <Input
-                id="openrouter-model"
-                type="text"
-                autoComplete="off"
-                value={draft.model}
-                disabled={saving}
-                onChange={(event) => onDraftChange({
-                  ...draft,
-                  model: event.target.value
-                })}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="openrouter-commit-message-prompt">Commit Message Prompt</Label>
-              <Textarea
-                id="openrouter-commit-message-prompt"
-                rows={7}
-                value={draft.commitMessagePrompt}
-                disabled={saving}
-                onChange={(event) => onDraftChange({
-                  ...draft,
-                  commitMessagePrompt: event.target.value
-                })}
-              />
-            </div>
-          </section>
+            <TabsContent value="git-identity" className="m-0">
+              <section className="grid gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold">Git Identity</h3>
+                  <p className="text-sm text-muted-foreground">Used when Git needs author details for commits.</p>
+                </div>
+                <GitIdentityFields
+                  idPrefix="settings-git-identity"
+                  name={draft.gitIdentityName}
+                  email={draft.gitIdentityEmail}
+                  scope={draft.gitIdentityScope}
+                  disabled={saving}
+                  error={error}
+                  onChange={(patch) => onDraftChange({
+                    ...draft,
+                    ...(patch.name !== undefined ? { gitIdentityName: patch.name } : {}),
+                    ...(patch.email !== undefined ? { gitIdentityEmail: patch.email } : {}),
+                    ...(patch.scope !== undefined ? { gitIdentityScope: patch.scope } : {})
+                  })}
+                />
+              </section>
+            </TabsContent>
+
+            <TabsContent value="ai" className="m-0">
+              <section className="grid gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold">AI</h3>
+                  <p className="text-sm text-muted-foreground">OpenRouter settings for generated commit messages.</p>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="openrouter-api-key">API Key</Label>
+                  <Input
+                    id="openrouter-api-key"
+                    type="password"
+                    autoComplete="off"
+                    placeholder="Leave blank to keep existing key"
+                    value={draft.apiKey}
+                    disabled={saving}
+                    onChange={(event) => onDraftChange({
+                      ...draft,
+                      apiKey: event.target.value
+                    })}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="openrouter-model">Model</Label>
+                  <Input
+                    id="openrouter-model"
+                    type="text"
+                    autoComplete="off"
+                    value={draft.model}
+                    disabled={saving}
+                    onChange={(event) => onDraftChange({
+                      ...draft,
+                      model: event.target.value
+                    })}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="openrouter-commit-message-prompt">Commit Message Prompt</Label>
+                  <Textarea
+                    id="openrouter-commit-message-prompt"
+                    rows={7}
+                    value={draft.commitMessagePrompt}
+                    disabled={saving}
+                    onChange={(event) => onDraftChange({
+                      ...draft,
+                      commitMessagePrompt: event.target.value
+                    })}
+                  />
+                </div>
+              </section>
+            </TabsContent>
+          </Tabs>
 
           <p id="settings-git-identity-error" className="min-h-5 text-sm text-destructive" role="alert">{error}</p>
           <DialogFooter>
