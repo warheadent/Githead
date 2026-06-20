@@ -129,7 +129,7 @@ import type {
   RepoTrustResult,
   RepoSummary
 } from "../shared/types";
-import { GIT_CONFIGURED_ACTION_SHELLS } from "../shared/types";
+import { GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
 import { parseCommitSubject } from "../shared/commitSubject";
 import { ActivityLogView } from "./ActivityLogView";
 import {
@@ -3818,6 +3818,7 @@ export function App(): ReactNode {
         commit={getCommitByHash(state.history, state.resetCommitDialog.hash)}
         branchName={state.summary?.branch ?? null}
         saving={state.runningOperation === "Resetting branch to commit"}
+        resetModesEnabled={state.summary?.capabilities.resetModes ?? true}
         onOpenChange={(open) => {
           if (!open) {
             closeResetCommitDialog();
@@ -4406,6 +4407,9 @@ function RecentRepositoryRow({
           >
             <span className="repo-recent-name">
               <span>{displayName}</span>
+              {syncStatus?.kind === "lore" ? (
+                <Badge variant="outline" className="repo-recent-kind">Lore</Badge>
+              ) : null}
               {syncLabel ? <span className="repo-recent-sync">{syncLabel}</span> : null}
             </span>
           </button>
@@ -4495,7 +4499,7 @@ function CloneRepositoryForm({
         <GitFork />
         <div>
           <h2>Clone repository</h2>
-          <p>Clone from any Git-supported HTTPS, SSH, or local source.</p>
+          <p>Clone from a Git (HTTPS, SSH, or local) or Lore (lore://) source.</p>
         </div>
       </div>
 
@@ -4838,14 +4842,16 @@ function RepositoryPanel({
           onSwitchBranch={onSwitchBranch}
           onCreateBranch={onOpenBranchDialog}
         />
-        <UpstreamFact
-          upstream={summary?.upstream ?? null}
-          currentBranch={summary?.branch ?? null}
-          remoteBranches={summary?.remoteBranches ?? []}
-          disabled={running || !summary?.isValid}
-          onChangeUpstream={onOpenUpstreamDialog}
-        />
-        <Fact label="Remotes" value={remotes} />
+        {(summary?.capabilities.setUpstream ?? true) ? (
+          <UpstreamFact
+            upstream={summary?.upstream ?? null}
+            currentBranch={summary?.branch ?? null}
+            remoteBranches={summary?.remoteBranches ?? []}
+            disabled={running || !summary?.isValid}
+            onChangeUpstream={onOpenUpstreamDialog}
+          />
+        ) : null}
+        <Fact label={(summary?.capabilities.multipleRemotes ?? true) ? "Remotes" : "Remote"} value={remotes} />
       </dl>
 
       <div className="mt-auto grid gap-2">
@@ -5072,8 +5078,14 @@ function ActionBar({
   onRunConfiguredAction: (action: GitConfiguredAction) => void;
   onManageActions: () => void;
 }): ReactNode {
+  const capabilities = summary?.capabilities ?? null;
+  // Lore is centralized: it has no "fetch", and "pull" maps to `lore sync`.
+  const showFetch = capabilities?.fetch ?? true;
+  const usesSync = capabilities?.sync ?? false;
   const pullableCommitCount = getPullableCommitCount(summary);
-  const pullLabel = pullableCommitCount > 0 ? `Pull (${pullableCommitCount})` : "Pull";
+  const pullLabel = usesSync
+    ? "Sync"
+    : pullableCommitCount > 0 ? `Pull (${pullableCommitCount})` : "Pull";
   const pushableCommitCount = getPushableCommitCount(summary);
   const pushLabel = pushableCommitCount > 0 ? `Push (${pushableCommitCount})` : "Push";
   const actionsConfig = summary?.actionsConfig;
@@ -5136,16 +5148,18 @@ function ActionBar({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <Button
-          type="button"
-          variant={runningAction === "fetch" ? "secondary" : "outline"}
-          disabled={disabled}
-          onClick={() => onRunAction("fetch")}
-          className="min-w-24"
-        >
-          {runningAction === "fetch" ? <Loader2 className="animate-spin" /> : <Download />}
-          Fetch
-        </Button>
+        {showFetch ? (
+          <Button
+            type="button"
+            variant={runningAction === "fetch" ? "secondary" : "outline"}
+            disabled={disabled}
+            onClick={() => onRunAction("fetch")}
+            className="min-w-24"
+          >
+            {runningAction === "fetch" ? <Loader2 className="animate-spin" /> : <Download />}
+            Fetch
+          </Button>
+        ) : null}
         <Button
           type="button"
           variant={runningAction === "pull" ? "secondary" : "outline"}
@@ -5205,7 +5219,13 @@ function StatusView({
   const selectedFile = selection
     ? getFilesForSide(summary, selection.side).find((file) => file.path === selection.path) ?? null
     : null;
-  const canApplyHunks = Boolean(selection && diff?.kind === "text" && !diff.truncated && !selectedFile?.isConflicted);
+  const canApplyHunks = Boolean(
+    selection &&
+    diff?.kind === "text" &&
+    !diff.truncated &&
+    !selectedFile?.isConflicted &&
+    (summary?.capabilities.hunkStaging ?? true)
+  );
 
   return (
     <ResizablePanelGroup orientation="horizontal" className="h-full min-h-0 bg-background">
@@ -5695,6 +5715,7 @@ function HistoryView({
                     key={commit.hash}
                     commit={commit}
                     selected={commit.hash === selectedCommitHash}
+                    tagsEnabled={summary?.capabilities.tags ?? true}
                     onSelectCommit={onSelectCommit}
                     onCommitContextAction={onCommitContextAction}
                   />
@@ -6118,11 +6139,13 @@ function CommitGraphSvg({
 function HistoryRow({
   commit,
   selected,
+  tagsEnabled,
   onSelectCommit,
   onCommitContextAction
 }: {
   commit: GitCommitGraphRow;
   selected: boolean;
+  tagsEnabled: boolean;
   onSelectCommit: (hash: string) => void;
   onCommitContextAction: (commit: GitCommitGraphRow, action: CommitContextActionKind) => void;
 }): ReactNode {
@@ -6168,10 +6191,12 @@ function HistoryRow({
         </button>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-64">
-        <ContextMenuItem onSelect={() => onCommitContextAction(commit, "tag")}>
-          <Tag />
-          Tag
-        </ContextMenuItem>
+        {tagsEnabled ? (
+          <ContextMenuItem onSelect={() => onCommitContextAction(commit, "tag")}>
+            <Tag />
+            Tag
+          </ContextMenuItem>
+        ) : null}
         <ContextMenuItem onSelect={() => onCommitContextAction(commit, "reset")}>
           <GitBranchIcon />
           Reset current branch to this commit
@@ -6765,6 +6790,7 @@ function ResetCommitDialog({
   commit,
   branchName,
   saving,
+  resetModesEnabled,
   onOpenChange,
   onStateChange,
   onReset
@@ -6773,6 +6799,7 @@ function ResetCommitDialog({
   commit: GitCommitGraphRow | null;
   branchName: string | null;
   saving: boolean;
+  resetModesEnabled: boolean;
   onOpenChange: (open: boolean) => void;
   onStateChange: (state: ResetCommitDialogState) => void;
   onReset: (event: FormEvent<HTMLFormElement>) => void;
@@ -6792,24 +6819,28 @@ function ResetCommitDialog({
             <span className="commit-action-value">{branchName ?? "No current branch"}</span>
             <Label>To commit</Label>
             <span className="commit-action-value">{commit ? getCommitSummaryLabel(commit) : state.hash}</span>
-            <Label htmlFor="reset-mode">Using mode</Label>
-            <select
-              id="reset-mode"
-              className="form-select"
-              value={state.mode}
-              disabled={saving}
-              onChange={(event) => {
-                onStateChange({
-                  ...state,
-                  mode: event.currentTarget.value as GitResetMode,
-                  error: ""
-                });
-              }}
-            >
-              <option value="soft">Soft - keep all local changes</option>
-              <option value="mixed">Mixed - keep working copy but reset index</option>
-              <option value="hard">Hard - discard all working copy changes</option>
-            </select>
+            {resetModesEnabled ? (
+              <>
+                <Label htmlFor="reset-mode">Using mode</Label>
+                <select
+                  id="reset-mode"
+                  className="form-select"
+                  value={state.mode}
+                  disabled={saving}
+                  onChange={(event) => {
+                    onStateChange({
+                      ...state,
+                      mode: event.currentTarget.value as GitResetMode,
+                      error: ""
+                    });
+                  }}
+                >
+                  <option value="soft">Soft - keep all local changes</option>
+                  <option value="mixed">Mixed - keep working copy but reset index</option>
+                  <option value="hard">Hard - discard all working copy changes</option>
+                </select>
+              </>
+            ) : null}
           </div>
           {state.error ? <p className="dialog-error">{state.error}</p> : null}
           <DialogFooter>
@@ -7780,6 +7811,8 @@ function createEmptyRendererActionsConfig(): RepoSummary["actionsConfig"] {
 function createInvalidSummary(repoPath: string, message: string): RepoSummary {
   return {
     repoPath,
+    kind: "git",
+    capabilities: gitCapabilities(),
     isValid: false,
     branch: null,
     upstream: null,
@@ -8281,6 +8314,7 @@ function createRepoSyncStatusFromSummary(summary: RepoSummary): RepoSyncStatus {
 
   return {
     repoPath: summary.repoPath,
+    kind: summary.kind,
     isValid: summary.isValid,
     ahead: counts?.ahead ?? 0,
     behind: counts?.behind ?? 0,

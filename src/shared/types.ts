@@ -167,8 +167,64 @@ export interface GitStatusFile {
   isConflicted: boolean;
 }
 
+export type VcsKind = "git" | "lore";
+
+/**
+ * Feature flags describing what a repository's backing VCS supports. The
+ * renderer gates VCS-specific UI on these rather than on `kind` directly so
+ * that adding a third VCS later does not require touching every call site.
+ */
+export interface RepoCapabilities {
+  hunkStaging: boolean;
+  tags: boolean;
+  multipleRemotes: boolean;
+  setUpstream: boolean;
+  fetch: boolean;
+  sync: boolean;
+  resetModes: boolean;
+  safeDirectory: boolean;
+  github: boolean;
+  ignoreFile: boolean;
+}
+
+export function gitCapabilities(): RepoCapabilities {
+  return {
+    hunkStaging: true,
+    tags: true,
+    multipleRemotes: true,
+    setUpstream: true,
+    fetch: true,
+    sync: false,
+    resetModes: true,
+    safeDirectory: true,
+    github: true,
+    ignoreFile: true
+  };
+}
+
+export function loreCapabilities(): RepoCapabilities {
+  return {
+    hunkStaging: false,
+    tags: false,
+    multipleRemotes: false,
+    setUpstream: false,
+    fetch: false,
+    sync: true,
+    resetModes: false,
+    safeDirectory: false,
+    github: false,
+    ignoreFile: false
+  };
+}
+
+export function capabilitiesForKind(kind: VcsKind): RepoCapabilities {
+  return kind === "lore" ? loreCapabilities() : gitCapabilities();
+}
+
 export interface RepoSummary {
   repoPath: string;
+  kind: VcsKind;
+  capabilities: RepoCapabilities;
   isValid: boolean;
   branch: string | null;
   upstream: string | null;
@@ -186,6 +242,7 @@ export interface RepoSummary {
 
 export interface RepoSyncStatus {
   repoPath: string;
+  kind: VcsKind;
   isValid: boolean;
   ahead: number;
   behind: number;
