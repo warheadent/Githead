@@ -3,7 +3,6 @@ import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import type { AiSettings } from "../shared/types";
 import { CommitMessageService } from "./commitMessageService";
 import type { AiSettingsService } from "./aiSettingsService";
-import type { GitService } from "./gitService";
 
 class FakeAiSettingsService {
   constructor(
@@ -89,7 +88,7 @@ function createService(params: {
 
   return {
     service: new CommitMessageService(
-      new FakeGitService(params.diff) as unknown as GitService,
+      () => new FakeGitService(params.diff),
       new FakeAiSettingsService(
         settings,
         Object.hasOwn(params, "apiKey") ? params.apiKey ?? null : "sk-or-key"
@@ -154,7 +153,7 @@ describe("CommitMessageService", () => {
       ]
     });
     const service = new CommitMessageService(
-      new FakeGitService("diff --git a/a.ts b/a.ts\n+added\n") as unknown as GitService,
+      () => new FakeGitService("diff --git a/a.ts b/a.ts\n+added\n"),
       new FakeAiSettingsService({
         ...settings,
         commitMessagePrompt: ""

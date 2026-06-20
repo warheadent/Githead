@@ -67,6 +67,19 @@ describe("RepoWatchService", () => {
     expect(fixture.send).not.toHaveBeenCalled();
   });
 
+  it("ignores internal .lore writes produced by status scans", async () => {
+    const fixture = createWatchFixture();
+
+    fixture.service.watchRepo(repoPath);
+    fixture.emitChange(0, ".lore");
+    fixture.emitChange(0, ".lore\\instance");
+    fixture.emitChange(0, ".lore\\view\\staged");
+
+    await vi.advanceTimersByTimeAsync(750);
+
+    expect(fixture.send).not.toHaveBeenCalled();
+  });
+
   it("closes the previous watcher when switching repositories", () => {
     const fixture = createWatchFixture();
     const nextRepoPath = "D:\\Other";

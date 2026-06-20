@@ -46,17 +46,25 @@ import { deleteFiles, getStats, resolveRepoFilePath, showRepositoryInExplorer } 
 import { GitIdentityService } from "./gitIdentityService";
 import { GitService } from "./gitService";
 import { GitHubService } from "./githubService";
+import { LoreService } from "./loreService";
 import { NodeProcessRunner } from "./processRunner";
 import { getOpenRepositoryFileError } from "./openFilePolicy";
 import { RepoRecentsService } from "./repoRecentsService";
 import { RepoTrustService } from "./repoTrustService";
 import { RepoWatchService } from "./repoWatchService";
 import { AppUpdateService } from "./updateService";
+import { VcsRouter } from "./vcsRouter";
 import { MIN_WINDOW_BOUNDS, WindowStateService } from "./windowStateService";
 
 const DEFAULT_REPO_PATH = "D:\\Githead";
 const processRunner = new NodeProcessRunner();
 const gitService = new GitService(processRunner);
+const loreService = new LoreService(processRunner);
+const vcsRouter = new VcsRouter(gitService, loreService);
+
+function isLoreSource(source: string): boolean {
+  return source.trim().toLowerCase().startsWith("lore://");
+}
 
 let mainWindow: BrowserWindow | null = null;
 let commandRunning = false;
@@ -215,7 +223,7 @@ ipcMain.handle(IPC_CHANNELS.chooseCloneParent, async (_event, defaultPath?: stri
 });
 
 ipcMain.handle(IPC_CHANNELS.getRepoSummary, async (_event, repoPath: string) => {
-  return gitService.getRepoSummary(repoPath);
+  return (await vcsRouter.serviceForRepo(repoPath)).getRepoSummary(repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.watchRepoChanges, async (_event, repoPath: string) => {
@@ -231,7 +239,7 @@ ipcMain.handle(IPC_CHANNELS.getRepoRecents, async () => {
 });
 
 ipcMain.handle(IPC_CHANNELS.getRepoSyncStatuses, async (_event, repoPaths: string[]) => {
-  return gitService.getRepoSyncStatuses(repoPaths);
+  return vcsRouter.getRepoSyncStatuses(repoPaths);
 });
 
 ipcMain.handle(IPC_CHANNELS.addRepoRecent, async (_event, repoPath: string) => {
@@ -259,7 +267,7 @@ ipcMain.handle(IPC_CHANNELS.addRepoTrust, async (_event, request: RepoTrustReque
 });
 
 ipcMain.handle(IPC_CHANNELS.addSafeDirectory, async (_event, request: GitSafeDirectoryRequest) => {
-  return runExclusiveGitOperation(() => gitService.addSafeDirectory(request), request.repoPath);
+  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).addSafeDirectory(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.getGitHubWorkflowRuns, async (_event, request: GitHubRepositoryRequest) => {
@@ -279,19 +287,19 @@ ipcMain.handle(IPC_CHANNELS.getGitHubPullRequests, async (_event, request: GitHu
 });
 
 ipcMain.handle(IPC_CHANNELS.getCommitHistory, async (_event, request: GitCommitHistoryRequest) => {
-  return gitService.getCommitHistory(request);
+  return (await vcsRouter.serviceForRepo(request.repoPath)).getCommitHistory(request);
 });
 
 ipcMain.handle(IPC_CHANNELS.getCommitDetails, async (_event, request: GitCommitDetailsRequest) => {
-  return gitService.getCommitDetails(request);
+  return (await vcsRouter.serviceForRepo(request.repoPath)).getCommitDetails(request);
 });
 
 ipcMain.handle(IPC_CHANNELS.getCommitFileDiff, async (_event, request: GitCommitFileDiffRequest) => {
-  return gitService.getCommitFileDiff(request);
+  return (await vcsRouter.serviceForRepo(request.repoPath)).getCommitFileDiff(request);
 });
 
-ipcMain.handle(IPC_CHANNELS.getFileDiff, async (_event, request) => {
-  return gitService.getFileDiff(request);
+ipcMain.handle(IPC_CHANNELS.getFileDiff, async (_event, request: GitFileDiffRequest) => {
+  return (await vcsRouter.serviceForRepo(request.repoPath)).getFileDiff(request);
 });
 
 ipcMain.handle(IPC_CHANNELS.resetFilesToCommit, async (_event, request: GitCommitFileResetRequest) => {
@@ -300,7 +308,7 @@ ipcMain.handle(IPC_CHANNELS.resetFilesToCommit, async (_event, request: GitCommi
     return trusted;
   }
 
-  return runExclusiveGitOperation(() => gitService.resetFilesToCommit(request), request.repoPath);
+  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).resetFilesToCommit(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.openCommitFileVersion, async (_event, request: GitCommitFileVersionRequest) => {
@@ -308,19 +316,19 @@ ipcMain.handle(IPC_CHANNELS.openCommitFileVersion, async (_event, request: GitCo
 });
 
 ipcMain.handle(IPC_CHANNELS.stageFiles, async (_event, request: GitPathRequest) => {
-  return runExclusiveGitOperation(() => gitService.stageFiles(request), request.repoPath);
+  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).stageFiles(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.unstageFiles, async (_event, request: GitPathRequest) => {
-  return runExclusiveGitOperation(() => gitService.unstageFiles(request), request.repoPath);
+  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).unstageFiles(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.stageHunk, async (_event, request: GitHunkRequest) => {
-  return runExclusiveGitOperation(() => gitService.stageHunk(request), request.repoPath);
+  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).stageHunk(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.unstageHunk, async (_event, request: GitHunkRequest) => {
-  return runExclusiveGitOperation(() => gitService.unstageHunk(request), request.repoPath);
+  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).unstageHunk(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.commitChanges, async (_event, request: GitCommitRequest) => {
@@ -329,7 +337,7 @@ ipcMain.handle(IPC_CHANNELS.commitChanges, async (_event, request: GitCommitRequ
     return trusted;
   }
 
-  return runExclusiveGitOperation(() => gitService.commitChanges(request), request.repoPath);
+  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).commitChanges(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.copyCommitShaToClipboard, async (_event, request: GitCommitHashRequest) => {
@@ -343,7 +351,7 @@ ipcMain.handle(IPC_CHANNELS.resetBranchToCommit, async (_event, request: GitRese
     return trusted;
   }
 
-  return runExclusiveGitOperation(() => gitService.resetBranchToCommit(request), request.repoPath);
+  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).resetBranchToCommit(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.revertCommit, async (_event, request: GitCommitHashRequest) => {
@@ -352,7 +360,7 @@ ipcMain.handle(IPC_CHANNELS.revertCommit, async (_event, request: GitCommitHashR
     return trusted;
   }
 
-  return runExclusiveGitOperation(() => gitService.revertCommit(request), request.repoPath);
+  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).revertCommit(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.createTag, async (_event, request: GitCreateTagRequest) => {
@@ -361,7 +369,7 @@ ipcMain.handle(IPC_CHANNELS.createTag, async (_event, request: GitCreateTagReque
     return trusted;
   }
 
-  return runExclusiveGitOperation(() => gitService.createTag(request), request.repoPath);
+  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).createTag(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.deleteTag, async (_event, request: GitDeleteTagRequest) => {
@@ -370,7 +378,7 @@ ipcMain.handle(IPC_CHANNELS.deleteTag, async (_event, request: GitDeleteTagReque
     return trusted;
   }
 
-  return runExclusiveGitOperation(() => gitService.deleteTag(request), request.repoPath);
+  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).deleteTag(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.switchBranch, async (_event, request: GitBranchRequest) => {
@@ -379,7 +387,7 @@ ipcMain.handle(IPC_CHANNELS.switchBranch, async (_event, request: GitBranchReque
     return trusted;
   }
 
-  return runExclusiveGitOperation(() => gitService.switchBranch(request), request.repoPath);
+  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).switchBranch(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.createBranch, async (_event, request: GitBranchRequest) => {
@@ -388,7 +396,7 @@ ipcMain.handle(IPC_CHANNELS.createBranch, async (_event, request: GitBranchReque
     return trusted;
   }
 
-  return runExclusiveGitOperation(() => gitService.createBranch(request), request.repoPath);
+  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).createBranch(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.setBranchUpstream, async (_event, request: GitUpstreamRequest) => {
@@ -397,7 +405,7 @@ ipcMain.handle(IPC_CHANNELS.setBranchUpstream, async (_event, request: GitUpstre
     return trusted;
   }
 
-  return runExclusiveGitOperation(() => gitService.setBranchUpstream(request), request.repoPath);
+  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).setBranchUpstream(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.getGitIdentity, async (_event, repoPath: string) => {
@@ -517,15 +525,16 @@ ipcMain.handle(IPC_CHANNELS.deleteFiles, async (_event, request: FileSystemPathL
 });
 
 ipcMain.handle(IPC_CHANNELS.revertFileChanges, async (_event, request: GitFileChangesRequest) => {
-  return runExclusiveGitOperation(() => gitService.revertFileChanges(request), request.repoPath);
+  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).revertFileChanges(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.addPathToIgnore, async (_event, request: GitIgnorePathRequest) => {
-  return runExclusiveGitOperation(() => gitService.addPathToIgnore(request), request.repoPath);
+  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).addPathToIgnore(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.cloneRepository, async (_event, request: GitCloneRequest) => {
-  return runExclusiveGitOperation(() => gitService.cloneRepository(request), request.parentPath);
+  const service = isLoreSource(request.source) ? loreService : gitService;
+  return runExclusiveGitOperation(() => service.cloneRepository(request), request.parentPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.checkRepositoryAccess, async (_event, request: GitRepositoryAccessCheckRequest) => {
@@ -543,7 +552,8 @@ ipcMain.handle(IPC_CHANNELS.checkRepositoryAccess, async (_event, request: GitRe
   commandRunning = true;
 
   try {
-    return await gitService.checkRepositoryAccess(request);
+    const service = isLoreSource(request.source) ? loreService : gitService;
+    return await service.checkRepositoryAccess(request);
   } finally {
     commandRunning = false;
   }
@@ -582,7 +592,8 @@ ipcMain.handle(IPC_CHANNELS.runGitAction, async (_event, request: GitRunRequest)
   commandRunning = true;
 
   try {
-    return await gitService.runGitAction(request, sendGitOutput);
+    const service = await vcsRouter.serviceForRepo(request.repoPath);
+    return await service.runGitAction(request, sendGitOutput);
   } finally {
     commandRunning = false;
   }
@@ -622,14 +633,15 @@ ipcMain.handle(IPC_CHANNELS.runConfiguredAction, async (_event, request: GitConf
   commandRunning = true;
 
   try {
-    return await gitService.runConfiguredAction(request, sendGitOutput);
+    const service = await vcsRouter.serviceForRepo(request.repoPath);
+    return await service.runConfiguredAction(request, sendGitOutput);
   } finally {
     commandRunning = false;
   }
 });
 
 ipcMain.handle(IPC_CHANNELS.saveConfiguredActions, async (_event, request: GitConfiguredActionSaveRequest) => {
-  return runExclusiveGitOperation(() => gitService.saveConfiguredActions(request), request.repoPath);
+  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).saveConfiguredActions(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.getUpdateState, async () => {
@@ -901,7 +913,10 @@ function getGitIdentityService(): GitIdentityService {
 }
 
 function getCommitMessageService(): CommitMessageService {
-  commitMessageService ??= new CommitMessageService(gitService, getAiSettingsService());
+  commitMessageService ??= new CommitMessageService(
+    (repoPath) => vcsRouter.serviceForRepo(repoPath),
+    getAiSettingsService()
+  );
   return commitMessageService;
 }
 

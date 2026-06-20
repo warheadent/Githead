@@ -839,6 +839,7 @@ describe("GitService", () => {
 
     expect(status).toEqual({
       repoPath: "D:\\Repo",
+      kind: "git",
       isValid: true,
       ahead: 1,
       behind: 4,
@@ -870,6 +871,7 @@ describe("GitService", () => {
 
     await expect(service.getRepoSyncStatus("D:\\Repo")).resolves.toEqual({
       repoPath: "D:\\Repo",
+      kind: "git",
       isValid: true,
       ahead: 0,
       behind: 0,
@@ -885,6 +887,7 @@ describe("GitService", () => {
 
     await expect(service.getRepoSyncStatus("D:\\Missing")).resolves.toEqual({
       repoPath: "D:\\Missing",
+      kind: "git",
       isValid: false,
       ahead: 0,
       behind: 0,

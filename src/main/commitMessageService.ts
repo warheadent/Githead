@@ -1,7 +1,10 @@
 import type { GitOperationResult, GenerateCommitMessageRequest } from "../shared/types";
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import type { AiSettingsService } from "./aiSettingsService";
-import type { GitService } from "./gitService";
+import type { VcsService } from "./vcsService";
+
+/** Whichever VCS backend owns the repo supplies the staged diff for the model. */
+type StagedDiffProvider = Pick<VcsService, "getStagedDiff">;
 
 const OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions";
 const OPENROUTER_PREFERRED_SERVICE_TIER = "flex";
@@ -24,7 +27,7 @@ interface OpenRouterResponse {
 
 export class CommitMessageService {
   constructor(
-    private readonly gitService: GitService,
+    private readonly resolveService: (repoPath: string) => StagedDiffProvider | Promise<StagedDiffProvider>,
     private readonly settingsService: AiSettingsService,
     private readonly fetchImpl: Fetch = fetch
   ) {}
@@ -47,7 +50,8 @@ export class CommitMessageService {
         return createFailure(request.repoPath, "OpenRouter model is not configured.");
       }
 
-      const diffResult = await this.gitService.getStagedDiff(request.repoPath);
+      const service = await this.resolveService(request.repoPath);
+      const diffResult = await service.getStagedDiff(request.repoPath);
       if (diffResult.exitCode !== 0) {
         return diffResult;
       }

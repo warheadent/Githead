@@ -36,6 +36,7 @@ import type {
   RepoSyncStatus,
   RepoSummary
 } from "../shared/types";
+import { gitCapabilities } from "../shared/types";
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -3787,6 +3788,8 @@ function createSummary(
 
   return {
     repoPath,
+    kind: "git",
+    capabilities: gitCapabilities(),
     isValid: true,
     branch: "main",
     upstream: "origin/main",
@@ -3849,6 +3852,7 @@ function createSafeDirectorySummary(repoPath: string): RepoSummary {
 function createRepoSyncStatus(overrides: Partial<RepoSyncStatus> = {}): RepoSyncStatus {
   return {
     repoPath,
+    kind: "git",
     isValid: true,
     ahead: 0,
     behind: 0,

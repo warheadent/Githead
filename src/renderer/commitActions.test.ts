@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RepoSummary } from "../shared/types";
+import { gitCapabilities } from "../shared/types";
 import {
   canPush,
   getAheadBehindCounts,
@@ -12,6 +13,8 @@ import {
 
 const baseSummary: RepoSummary = {
   repoPath: "D:\\Repo",
+  kind: "git",
+  capabilities: gitCapabilities(),
   isValid: true,
   branch: "main",
   upstream: "origin/main",

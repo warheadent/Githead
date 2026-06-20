@@ -58,7 +58,7 @@ export class RepoWatchService {
       this.watcher = this.watchFactory(nextRepoPath, {
         recursive: true
       }, (_eventType, filename) => {
-        if (isGitStatusReadWatchEvent(filename)) {
+        if (isInternalVcsWatchEvent(filename)) {
           return;
         }
 
@@ -146,12 +146,27 @@ function isSameRepoPath(left: string, right: string): boolean {
   return normalizeRepoPath(left)?.toLocaleLowerCase() === normalizeRepoPath(right)?.toLocaleLowerCase();
 }
 
-function isGitStatusReadWatchEvent(filename: string | Buffer | null): boolean {
+function isInternalVcsWatchEvent(filename: string | Buffer | null): boolean {
   if (!filename) {
     return false;
   }
 
   const normalizedFileName = filename.toString().replaceAll("\\", "/").toLocaleLowerCase();
+
+  // Lore persists dirty/staged flags into `.lore` whenever `lore status --scan`
+  // runs (which Githead does on every summary load). Ignoring all internal
+  // `.lore` writes prevents a scan -> repoChanged -> reload -> scan loop. Git
+  // mutates `.git` constantly too; only its noisy index reads are ignored so
+  // that ref changes (commits, branch switches) still refresh the view.
+  if (
+    normalizedFileName === ".lore" ||
+    normalizedFileName.startsWith(".lore/") ||
+    normalizedFileName.endsWith("/.lore") ||
+    normalizedFileName.includes("/.lore/")
+  ) {
+    return true;
+  }
+
   return (
     normalizedFileName === ".git" ||
     normalizedFileName === ".git/index" ||

@@ -46,7 +46,7 @@ import type {
   RepoSummary
 } from "../shared/types";
 import { getSupportedGitHubOrigin, parseGitHubRemoteUrl } from "../shared/githubRemote";
-import { isGitAction } from "../shared/types";
+import { gitCapabilities, isGitAction } from "../shared/types";
 import { createEmptyActionsConfig, getActionKey, readActionsConfig, saveActionsConfigFile } from "./actionsConfig";
 import type { ProcessOutput, ProcessResult, ProcessRunner } from "./processRunner";
 
@@ -73,6 +73,8 @@ const emptySummary = (
   safeDirectory: GitSafeDirectoryInfo | null = null
 ): RepoSummary => ({
   repoPath,
+  kind: "git",
+  capabilities: gitCapabilities(),
   isValid: false,
   branch: null,
   upstream: null,
@@ -165,6 +167,8 @@ export class GitService {
 
     return {
       repoPath,
+      kind: "git",
+      capabilities: gitCapabilities(),
       isValid: true,
       branch,
       upstream: upstreamResult.exitCode === 0 ? upstreamResult.stdout.trim() || null : null,
@@ -230,6 +234,7 @@ export class GitService {
 
       return {
         repoPath,
+        kind: "git",
         isValid: true,
         ahead: counts?.ahead ?? 0,
         behind: counts?.behind ?? 0,
@@ -2199,6 +2204,7 @@ function parseAheadBehindCounts(statusLines: string[]): { ahead: number; behind:
 function createInvalidRepoSyncStatus(repoPath: string, error: string): RepoSyncStatus {
   return {
     repoPath,
+    kind: "git",
     isValid: false,
     ahead: 0,
     behind: 0,
