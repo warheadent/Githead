@@ -3669,6 +3669,10 @@ describe("App", () => {
     });
     await user.click(screen.getByRole("button", { name: "Settings" }));
 
+    const settingsDialog = screen.getByRole("dialog", { name: "Settings" });
+    expect(settingsDialog.className).toContain("sm:max-w-[720px]");
+    expect(settingsDialog.className).toContain("h-[min(760px,calc(100vh-2rem))]");
+    expect(settingsDialog.className).toContain("overflow-hidden");
     expect(screen.getByRole("tab", { name: "Git Identity", selected: true })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "AI", selected: false })).toBeTruthy();
     await screen.findByText("Git Identity", {
@@ -3677,6 +3681,9 @@ describe("App", () => {
     expect(screen.queryByText("OpenRouter settings for generated commit messages.")).toBeNull();
     await user.click(screen.getByRole("tab", { name: "AI" }));
     expect(await screen.findByText("OpenRouter settings for generated commit messages.")).toBeTruthy();
+    const prompt = screen.getByLabelText("Commit Message Prompt");
+    expect(prompt.className).toContain("field-sizing-fixed");
+    expect(prompt.className).toContain("h-72");
     await user.click(screen.getByRole("tab", { name: "Git Identity" }));
     await user.clear(screen.getByLabelText("Name"));
     await user.type(screen.getByLabelText("Name"), "Taylor");

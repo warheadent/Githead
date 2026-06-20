@@ -7397,8 +7397,8 @@ function SettingsDialog({
 }): ReactNode {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[560px]">
-        <form className="grid gap-4" onSubmit={onSave}>
+      <DialogContent className="h-[min(760px,calc(100vh-2rem))] max-h-[min(760px,calc(100vh-2rem))] overflow-hidden sm:max-w-[720px]">
+        <form className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto_auto] gap-4" onSubmit={onSave}>
           <DialogHeader>
             <p className="eyebrow">Preferences</p>
             <DialogTitle>Settings</DialogTitle>
@@ -7407,7 +7407,7 @@ function SettingsDialog({
             </DialogDescription>
           </DialogHeader>
 
-          <Tabs defaultValue="git-identity" className="gap-4">
+          <Tabs defaultValue="git-identity" className="min-h-0 gap-4">
             <TabsList className="grid h-11 w-full grid-cols-2">
               <TabsTrigger value="git-identity" className="h-full min-h-0 focus-visible:ring-inset">
                 Git Identity
@@ -7417,7 +7417,7 @@ function SettingsDialog({
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="git-identity" className="m-0">
+            <TabsContent value="git-identity" className="m-0 min-h-0 overflow-y-auto pr-1">
               <section className="grid gap-3">
                 <div>
                   <h3 className="text-sm font-semibold">Git Identity</h3>
@@ -7440,7 +7440,7 @@ function SettingsDialog({
               </section>
             </TabsContent>
 
-            <TabsContent value="ai" className="m-0">
+            <TabsContent value="ai" className="m-0 min-h-0 overflow-y-auto pr-1">
               <section className="grid gap-3">
                 <div>
                   <h3 className="text-sm font-semibold">AI</h3>
@@ -7479,6 +7479,7 @@ function SettingsDialog({
                   <Label htmlFor="openrouter-commit-message-prompt">Commit Message Prompt</Label>
                   <Textarea
                     id="openrouter-commit-message-prompt"
+                    className="h-72 resize-y field-sizing-fixed"
                     rows={7}
                     value={draft.commitMessagePrompt}
                     disabled={saving}
@@ -7499,7 +7500,7 @@ function SettingsDialog({
             </Button>
             <Button type="submit" disabled={saving}>
               {saving ? <Loader2 className="animate-spin" /> : <Save />}
-              {saving ? "Saving" : "Save"}
+              {saving ? "Saving…" : "Save"}
             </Button>
           </DialogFooter>
         </form>
