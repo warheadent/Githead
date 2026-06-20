@@ -7,6 +7,7 @@ import type {
   AppUpdateActionResult,
   AppUpdateCheckResult,
   AppUpdateErrorContext,
+  AppUpdateReleaseNotes,
   AppUpdateState
 } from "../shared/types";
 import {
@@ -21,11 +22,14 @@ import {
   reduceAppUpdateStateOnDownloadStart,
   reduceAppUpdateStateOnInstallFailure,
   reduceAppUpdateStateOnNoUpdate,
+  reduceAppUpdateStateOnReleaseNotesFailure,
+  reduceAppUpdateStateOnReleaseNotesLoaded,
   reduceAppUpdateStateOnUpdateAvailable
 } from "./updateMachine";
 
 const STARTUP_CHECK_DELAY_MS = 15_000;
 const UPDATE_POLL_INTERVAL_MS = 4 * 60_000;
+const GITHEAD_RELEASES_API_BASE = "https://api.github.com/repos/warheadent/Githead/releases/tags";
 
 export interface AutoUpdaterLike {
   autoDownload: boolean;
@@ -42,9 +46,21 @@ interface AppUpdateRuntime {
   isPackaged: boolean;
 }
 
+interface ReleaseNotesResponseLike {
+  ok: boolean;
+  status: number;
+  json(): Promise<unknown>;
+}
+
+type ReleaseNotesFetch = (
+  url: string,
+  init: { headers: Record<string, string> }
+) => Promise<ReleaseNotesResponseLike>;
+
 export interface AppUpdateServiceOptions {
   runtime?: AppUpdateRuntime;
   updater?: AutoUpdaterLike;
+  releaseNotesFetch?: ReleaseNotesFetch;
   getWindows: () => BrowserWindow[];
   startupDelayMs?: number;
   pollIntervalMs?: number;
@@ -58,6 +74,7 @@ export interface AppUpdateServiceOptions {
 export class AppUpdateService {
   private readonly runtime: AppUpdateRuntime;
   private readonly updater: AutoUpdaterLike;
+  private readonly releaseNotesFetch: ReleaseNotesFetch;
   private readonly getWindows: () => BrowserWindow[];
   private readonly startupDelayMs: number;
   private readonly pollIntervalMs: number;
@@ -71,12 +88,15 @@ export class AppUpdateService {
   private checkInFlight = false;
   private downloadInFlight = false;
   private installInFlight = false;
+  private releaseNotesInFlightVersion: string | null = null;
+  private releaseNotesRequestId = 0;
   private startupTimer: NodeJS.Timeout | null = null;
   private pollTimer: NodeJS.Timeout | null = null;
 
   constructor(options: AppUpdateServiceOptions) {
     this.runtime = options.runtime ?? app;
     this.updater = options.updater ?? autoUpdater;
+    this.releaseNotesFetch = options.releaseNotesFetch ?? fetchReleaseNotesResponse;
     this.getWindows = options.getWindows;
     this.startupDelayMs = options.startupDelayMs ?? STARTUP_CHECK_DELAY_MS;
     this.pollIntervalMs = options.pollIntervalMs ?? UPDATE_POLL_INTERVAL_MS;
@@ -257,7 +277,9 @@ export class AppUpdateService {
     });
 
     this.updater.on("update-available", (info) => {
-      this.setState(reduceAppUpdateStateOnUpdateAvailable(this.state, readUpdateVersion(info), this.now()));
+      const version = readUpdateVersion(info);
+      this.setState(reduceAppUpdateStateOnUpdateAvailable(this.state, version, this.now()));
+      void this.loadReleaseNotes(version);
     });
 
     this.updater.on("update-not-available", () => {
@@ -269,7 +291,9 @@ export class AppUpdateService {
     });
 
     this.updater.on("update-downloaded", (info) => {
-      this.setState(reduceAppUpdateStateOnDownloadComplete(this.state, readUpdateVersion(info)));
+      const version = readUpdateVersion(info);
+      this.setState(reduceAppUpdateStateOnDownloadComplete(this.state, version));
+      void this.loadReleaseNotes(version);
     });
 
     this.updater.on("error", (error) => {
@@ -316,6 +340,42 @@ export class AppUpdateService {
     this.emitState();
   }
 
+  private async loadReleaseNotes(version: string): Promise<void> {
+    if (version === "unknown") {
+      return;
+    }
+
+    if (this.releaseNotesInFlightVersion === version) {
+      return;
+    }
+
+    if (!this.state.releaseNotes || this.state.releaseNotes.version !== version || !this.state.releaseNotes.loading) {
+      return;
+    }
+
+    this.releaseNotesInFlightVersion = version;
+    const requestId = ++this.releaseNotesRequestId;
+
+    try {
+      const releaseNotes = await fetchGitHubReleaseNotes(version, this.releaseNotesFetch);
+      if (this.releaseNotesRequestId === requestId) {
+        this.setState(reduceAppUpdateStateOnReleaseNotesLoaded(this.state, releaseNotes));
+      }
+    } catch (error) {
+      if (this.releaseNotesRequestId === requestId) {
+        this.setState(reduceAppUpdateStateOnReleaseNotesFailure(
+          this.state,
+          version,
+          getReleaseNotesErrorMessage(error)
+        ));
+      }
+    } finally {
+      if (this.releaseNotesRequestId === requestId) {
+        this.releaseNotesInFlightVersion = null;
+      }
+    }
+  }
+
   private emitState(): void {
     for (const window of this.getWindows()) {
       window.webContents.send(IPC_CHANNELS.updateState, this.state);
@@ -339,6 +399,60 @@ async function hasUpdateFeedConfig(resourcesPath: string): Promise<boolean> {
 function getElectronResourcesPath(): string {
   const electronProcess = process as NodeJS.Process & { resourcesPath?: string };
   return electronProcess.resourcesPath ?? path.dirname(app.getPath("exe"));
+}
+
+async function fetchGitHubReleaseNotes(
+  version: string,
+  releaseNotesFetch: ReleaseNotesFetch
+): Promise<AppUpdateReleaseNotes> {
+  const response = await releaseNotesFetch(`${GITHEAD_RELEASES_API_BASE}/${encodeURIComponent(`v${version}`)}`, {
+    headers: {
+      Accept: "application/vnd.github+json",
+      "User-Agent": "Githead"
+    }
+  });
+
+  if (!response.ok) {
+    throw new ReleaseNotesRequestError(response.status);
+  }
+
+  const payload = await response.json();
+
+  return {
+    version,
+    url: readStringProperty(payload, "html_url"),
+    title: readStringProperty(payload, "name") || readStringProperty(payload, "tag_name"),
+    body: readStringProperty(payload, "body"),
+    loading: false,
+    error: null
+  };
+}
+
+async function fetchReleaseNotesResponse(
+  url: string,
+  init: { headers: Record<string, string> }
+): Promise<ReleaseNotesResponseLike> {
+  return fetch(url, init);
+}
+
+class ReleaseNotesRequestError extends Error {
+  constructor(readonly status: number) {
+    super(`Release notes request failed with status ${status}.`);
+  }
+}
+
+function getReleaseNotesErrorMessage(error: unknown): string {
+  if (error instanceof ReleaseNotesRequestError) {
+    if (error.status === 404) {
+      return "Release notes are not published for this version.";
+    }
+
+    if (error.status === 401 || error.status === 403) {
+      return "GitHub release notes are not publicly available.";
+    }
+  }
+
+  return "Could not load release notes. Check your network connection and try again.";
 }
 
 function getUpdateErrorMessage(context: NonNullable<AppUpdateErrorContext>, error: unknown): string {
@@ -393,4 +507,13 @@ function readDownloadPercent(progress: unknown): number {
   }
 
   return 0;
+}
+
+function readStringProperty(value: unknown, property: string): string | null {
+  if (!value || typeof value !== "object" || !(property in value)) {
+    return null;
+  }
+
+  const propertyValue = (value as Record<string, unknown>)[property];
+  return typeof propertyValue === "string" && propertyValue.trim() ? propertyValue : null;
 }

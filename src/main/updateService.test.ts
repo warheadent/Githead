@@ -6,7 +6,7 @@ import type { BrowserWindow } from "electron";
 import { describe, expect, it, vi } from "vitest";
 import { IPC_CHANNELS } from "../shared/ipc";
 import type { AppUpdateState } from "../shared/types";
-import { AppUpdateService, type AutoUpdaterLike } from "./updateService";
+import { AppUpdateService, type AppUpdateServiceOptions, type AutoUpdaterLike } from "./updateService";
 
 class FakeUpdater extends EventEmitter implements AutoUpdaterLike {
   autoDownload = true;
@@ -31,6 +31,13 @@ interface ServiceFixture {
 interface ServiceFixtureOptions {
   appImagePath?: string;
   platform?: NodeJS.Platform;
+  releaseNotesFetch?: AppUpdateServiceOptions["releaseNotesFetch"];
+}
+
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve(value: T): void;
+  reject(error: unknown): void;
 }
 
 async function withTempDir<T>(callback: (dir: string) => Promise<T>): Promise<T> {
@@ -68,6 +75,7 @@ async function createServiceFixture(
     resourcesPath,
     platform: options.platform ?? "win32",
     appImagePath: options.appImagePath,
+    ...(options.releaseNotesFetch ? { releaseNotesFetch: options.releaseNotesFetch } : {}),
     startupDelayMs: 60_000,
     pollIntervalMs: 60_000,
     clock: () => new Date("2026-05-31T10:00:00Z")
@@ -78,6 +86,45 @@ async function createServiceFixture(
     service,
     updater,
     send
+  };
+}
+
+function createReleaseNotesFetch(response: unknown, status = 200): NonNullable<AppUpdateServiceOptions["releaseNotesFetch"]> {
+  return vi.fn(async () => ({
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => response
+  }));
+}
+
+async function waitForUpdateState(
+  service: AppUpdateService,
+  predicate: (state: AppUpdateState) => boolean
+): Promise<AppUpdateState> {
+  for (let index = 0; index < 20; index += 1) {
+    const state = service.getState();
+    if (predicate(state)) {
+      return state;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  return service.getState();
+}
+
+function createDeferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+
+  return {
+    promise,
+    resolve,
+    reject
   };
 }
 
@@ -210,6 +257,175 @@ describe("AppUpdateService", () => {
           checkedAt: "2026-05-31T10:00:00.000Z"
         }
       });
+      service.stop();
+    });
+  });
+
+  it("loads GitHub release notes when an update is found", async () => {
+    await withTempDir(async (dir) => {
+      const releaseNotesFetch = createReleaseNotesFetch({
+        html_url: "https://github.com/warheadent/Githead/releases/tag/v0.1.1",
+        name: "Githead 0.1.1",
+        body: "## Changes\n\n- Faster updates"
+      });
+      const { service, updater } = await createServiceFixture(dir, { releaseNotesFetch });
+      updater.checkForUpdates.mockImplementation(async () => {
+        updater.emit("update-available", {
+          version: "0.1.1"
+        });
+      });
+
+      await service.checkForUpdates();
+
+      expect(service.getState()).toMatchObject({
+        status: "available",
+        releaseNotes: {
+          version: "0.1.1",
+          loading: true
+        }
+      });
+      const state = await waitForUpdateState(service, (nextState) => nextState.releaseNotes?.loading === false);
+      expect(releaseNotesFetch).toHaveBeenCalledWith(
+        "https://api.github.com/repos/warheadent/Githead/releases/tags/v0.1.1",
+        {
+          headers: {
+            Accept: "application/vnd.github+json",
+            "User-Agent": "Githead"
+          }
+        }
+      );
+      expect(state).toMatchObject({
+        status: "available",
+        availableVersion: "0.1.1",
+        releaseNotes: {
+          version: "0.1.1",
+          url: "https://github.com/warheadent/Githead/releases/tag/v0.1.1",
+          title: "Githead 0.1.1",
+          body: "## Changes\n\n- Faster updates",
+          loading: false,
+          error: null
+        }
+      });
+      service.stop();
+    });
+  });
+
+  it("keeps update status available when release notes fail to load", async () => {
+    await withTempDir(async (dir) => {
+      const { service, updater } = await createServiceFixture(dir, {
+        releaseNotesFetch: createReleaseNotesFetch({
+          message: "Not Found"
+        }, 404)
+      });
+      updater.checkForUpdates.mockImplementation(async () => {
+        updater.emit("update-available", {
+          version: "0.1.1"
+        });
+      });
+
+      await service.checkForUpdates();
+
+      const state = await waitForUpdateState(service, (nextState) => nextState.releaseNotes?.loading === false);
+      expect(state).toMatchObject({
+        status: "available",
+        availableVersion: "0.1.1",
+        releaseNotes: {
+          version: "0.1.1",
+          loading: false,
+          error: "Release notes are not published for this version."
+        }
+      });
+      service.stop();
+    });
+  });
+
+  it("ignores stale release notes when a newer update arrives", async () => {
+    await withTempDir(async (dir) => {
+      const first = createDeferred<{
+        ok: boolean;
+        status: number;
+        json(): Promise<unknown>;
+      }>();
+      const releaseNotesFetch = vi.fn<NonNullable<AppUpdateServiceOptions["releaseNotesFetch"]>>()
+        .mockReturnValueOnce(first.promise)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            html_url: "https://github.com/warheadent/Githead/releases/tag/v0.1.2",
+            name: "Githead 0.1.2",
+            body: "Newer notes"
+          })
+        });
+      const { service, updater } = await createServiceFixture(dir, { releaseNotesFetch });
+
+      updater.emit("update-available", {
+        version: "0.1.1"
+      });
+      updater.emit("update-available", {
+        version: "0.1.2"
+      });
+
+      const newerState = await waitForUpdateState(service, (nextState) => (
+        nextState.releaseNotes?.version === "0.1.2" &&
+        nextState.releaseNotes.loading === false
+      ));
+      first.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          html_url: "https://github.com/warheadent/Githead/releases/tag/v0.1.1",
+          name: "Githead 0.1.1",
+          body: "Stale notes"
+        })
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(newerState.releaseNotes).toMatchObject({
+        version: "0.1.2",
+        title: "Githead 0.1.2",
+        body: "Newer notes"
+      });
+      expect(service.getState().releaseNotes).toMatchObject({
+        version: "0.1.2",
+        title: "Githead 0.1.2",
+        body: "Newer notes"
+      });
+      service.stop();
+    });
+  });
+
+  it("keeps release notes when the same version finishes downloading", async () => {
+    await withTempDir(async (dir) => {
+      const releaseNotesFetch = createReleaseNotesFetch({
+        html_url: "https://github.com/warheadent/Githead/releases/tag/v0.1.1",
+        name: "Githead 0.1.1",
+        body: "Downloaded notes"
+      });
+      const { service, updater } = await createServiceFixture(dir, { releaseNotesFetch });
+      updater.emit("update-available", {
+        version: "0.1.1"
+      });
+      await waitForUpdateState(service, (nextState) => nextState.releaseNotes?.loading === false);
+      updater.downloadUpdate.mockImplementation(async () => {
+        updater.emit("update-downloaded", {
+          version: "0.1.1"
+        });
+      });
+
+      await service.downloadUpdate();
+
+      expect(service.getState()).toMatchObject({
+        status: "downloaded",
+        downloadedVersion: "0.1.1",
+        releaseNotes: {
+          version: "0.1.1",
+          title: "Githead 0.1.1",
+          body: "Downloaded notes",
+          loading: false
+        }
+      });
+      expect(releaseNotesFetch).toHaveBeenCalledTimes(1);
       service.stop();
     });
   });

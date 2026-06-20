@@ -1661,6 +1661,84 @@ describe("App", () => {
     });
   });
 
+  it("shows app release notes in a popover beside the update version", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getUpdateState).mockResolvedValue(createUpdateState({
+      status: "downloaded",
+      availableVersion: "0.1.1",
+      downloadedVersion: "0.1.1",
+      downloadPercent: 100,
+      releaseNotes: {
+        version: "0.1.1",
+        url: "https://github.com/warheadent/Githead/releases/tag/v0.1.1",
+        title: "Githead 0.1.1",
+        body: "## Changes\n\n- Fixed update UI\n\n<strong>hidden</strong>",
+        loading: false,
+        error: null
+      }
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByText("Version 0.1.1")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Release Notes" }));
+
+    expect(await screen.findByRole("heading", { name: "Githead 0.1.1" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Changes" })).toBeTruthy();
+    expect(screen.getByText("Fixed update UI")).toBeTruthy();
+    expect(document.querySelector("strong")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Open on GitHub" }));
+    expect(githead.openExternalUrl).toHaveBeenCalledWith({
+      url: "https://github.com/warheadent/Githead/releases/tag/v0.1.1"
+    });
+  });
+
+  it("shows app release notes loading state", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getUpdateState).mockResolvedValue(createUpdateState({
+      status: "available",
+      availableVersion: "0.1.1",
+      releaseNotes: {
+        version: "0.1.1",
+        url: null,
+        title: null,
+        body: null,
+        loading: true,
+        error: null
+      }
+    }));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Release Notes" }));
+
+    expect((await screen.findByRole("status")).textContent).toBe("Loading…");
+  });
+
+  it("shows app release notes errors without hiding update actions", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getUpdateState).mockResolvedValue(createUpdateState({
+      status: "available",
+      availableVersion: "0.1.1",
+      releaseNotes: {
+        version: "0.1.1",
+        url: null,
+        title: null,
+        body: null,
+        loading: false,
+        error: "Release notes are not published for this version."
+      }
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByRole("button", { name: "Update available" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Release Notes" }));
+
+    expect((await screen.findByRole("status")).textContent).toBe("Release notes are not published for this version.");
+  });
+
   it("retries app update checks from an error state", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getUpdateState).mockResolvedValue(createUpdateState({
@@ -3910,6 +3988,7 @@ function createUpdateState(overrides: Partial<AppUpdateState> = {}): AppUpdateSt
     downloadPercent: null,
     checkedAt: null,
     message: null,
+    releaseNotes: null,
     errorContext: null,
     canRetry: false,
     ...overrides

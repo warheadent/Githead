@@ -523,6 +523,15 @@ export type AppUpdateStatus =
 
 export type AppUpdateErrorContext = "check" | "download" | "install" | null;
 
+export interface AppUpdateReleaseNotes {
+  version: string;
+  url: string | null;
+  title: string | null;
+  body: string | null;
+  loading: boolean;
+  error: string | null;
+}
+
 export interface AppUpdateState {
   enabled: boolean;
   status: AppUpdateStatus;
@@ -532,6 +541,7 @@ export interface AppUpdateState {
   downloadPercent: number | null;
   checkedAt: string | null;
   message: string | null;
+  releaseNotes: AppUpdateReleaseNotes | null;
   errorContext: AppUpdateErrorContext;
   canRetry: boolean;
 }

@@ -5121,8 +5121,69 @@ function AppUpdateControl({
           {label}
         </Button>
       )}
-      {version ? <p className="app-update-version">Version {version}</p> : null}
+      {version ? (
+        <div className="app-update-version-row">
+          <p className="app-update-version">Version {version}</p>
+          {state.releaseNotes ? <AppUpdateReleaseNotesPopover state={state} /> : null}
+        </div>
+      ) : null}
     </section>
+  );
+}
+
+function AppUpdateReleaseNotesPopover({ state }: { state: AppUpdateState }): ReactNode {
+  const releaseNotes = state.releaseNotes;
+  if (!releaseNotes) {
+    return null;
+  }
+
+  const openReleaseNotes = (): void => {
+    if (releaseNotes.url) {
+      void window.githead.openExternalUrl({ url: releaseNotes.url });
+    }
+  };
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button type="button" variant="ghost" size="sm" className="app-update-release-notes-trigger">
+          Release Notes
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="app-update-release-notes-popover" align="end">
+        <div className="app-update-release-notes-header">
+          <div className="min-w-0">
+            <p className="eyebrow">Release</p>
+            <h3>{releaseNotes.title || `Version ${releaseNotes.version}`}</h3>
+          </div>
+          {releaseNotes.url ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              onClick={openReleaseNotes}
+            >
+              <ExternalLink />
+              Open on GitHub
+            </Button>
+          ) : null}
+        </div>
+        {releaseNotes.loading ? (
+          <p className="app-update-release-notes-status" role="status" aria-live="polite">Loading…</p>
+        ) : releaseNotes.error ? (
+          <p className="app-update-release-notes-error" role="status" aria-live="polite">{releaseNotes.error}</p>
+        ) : releaseNotes.body ? (
+          <div className="app-update-release-notes-body">
+            <ReactMarkdown skipHtml>
+              {releaseNotes.body}
+            </ReactMarkdown>
+          </div>
+        ) : (
+          <p className="app-update-release-notes-status">No release notes published for this version.</p>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -7942,6 +8003,7 @@ function createInitialRendererUpdateState(): AppUpdateState {
     downloadPercent: null,
     checkedAt: null,
     message: null,
+    releaseNotes: null,
     errorContext: null,
     canRetry: false
   };

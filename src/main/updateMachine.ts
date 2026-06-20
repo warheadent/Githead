@@ -1,4 +1,4 @@
-import type { AppUpdateState, AppUpdateStatus } from "../shared/types";
+import type { AppUpdateReleaseNotes, AppUpdateState, AppUpdateStatus } from "../shared/types";
 
 export function createInitialAppUpdateState(currentVersion: string): AppUpdateState {
   return {
@@ -10,6 +10,7 @@ export function createInitialAppUpdateState(currentVersion: string): AppUpdateSt
     downloadPercent: null,
     checkedAt: null,
     message: null,
+    releaseNotes: null,
     errorContext: null,
     canRetry: false
   };
@@ -32,6 +33,7 @@ export function disableAppUpdateState(state: AppUpdateState, message: string): A
     enabled: false,
     status: "disabled",
     message,
+    releaseNotes: null,
     errorContext: null,
     canRetry: false
   };
@@ -47,6 +49,7 @@ export function reduceAppUpdateStateOnCheckStart(
     checkedAt,
     message: null,
     downloadPercent: null,
+    releaseNotes: null,
     errorContext: null,
     canRetry: false
   };
@@ -81,6 +84,7 @@ export function reduceAppUpdateStateOnUpdateAvailable(
     downloadPercent: null,
     checkedAt,
     message: null,
+    releaseNotes: getReleaseNotesForVersion(state, version) ?? createReleaseNotesForVersion(version),
     errorContext: null,
     canRetry: false
   };
@@ -98,6 +102,7 @@ export function reduceAppUpdateStateOnNoUpdate(
     downloadPercent: null,
     checkedAt,
     message: null,
+    releaseNotes: null,
     errorContext: null,
     canRetry: false
   };
@@ -153,8 +158,45 @@ export function reduceAppUpdateStateOnDownloadComplete(
     downloadedVersion: version,
     downloadPercent: 100,
     message: null,
+    releaseNotes: getReleaseNotesForVersion(state, version) ?? createReleaseNotesForVersion(version),
     errorContext: null,
     canRetry: true
+  };
+}
+
+export function reduceAppUpdateStateOnReleaseNotesLoaded(
+  state: AppUpdateState,
+  releaseNotes: AppUpdateReleaseNotes
+): AppUpdateState {
+  if (!state.releaseNotes || state.releaseNotes.version !== releaseNotes.version) {
+    return state;
+  }
+
+  return {
+    ...state,
+    releaseNotes: {
+      ...releaseNotes,
+      loading: false
+    }
+  };
+}
+
+export function reduceAppUpdateStateOnReleaseNotesFailure(
+  state: AppUpdateState,
+  version: string,
+  error: string
+): AppUpdateState {
+  if (!state.releaseNotes || state.releaseNotes.version !== version) {
+    return state;
+  }
+
+  return {
+    ...state,
+    releaseNotes: {
+      ...state.releaseNotes,
+      loading: false,
+      error
+    }
   };
 }
 
@@ -173,4 +215,26 @@ export function reduceAppUpdateStateOnInstallFailure(
 
 function getStatusAfterDownloadFailure(state: AppUpdateState): AppUpdateStatus {
   return state.availableVersion ? "available" : "error";
+}
+
+function createLoadingReleaseNotes(version: string): AppUpdateReleaseNotes {
+  return {
+    version,
+    url: null,
+    title: null,
+    body: null,
+    loading: true,
+    error: null
+  };
+}
+
+function createReleaseNotesForVersion(version: string): AppUpdateReleaseNotes | null {
+  return version === "unknown" ? null : createLoadingReleaseNotes(version);
+}
+
+function getReleaseNotesForVersion(
+  state: AppUpdateState,
+  version: string
+): AppUpdateReleaseNotes | null {
+  return state.releaseNotes?.version === version ? state.releaseNotes : null;
 }
