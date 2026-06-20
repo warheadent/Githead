@@ -74,6 +74,8 @@ const dubiousOwnershipError = [
 ].join("\n");
 
 const oid = "0123456789abcdef0123456789abcdef01234567";
+const safeDirectoryRepoPath = path.join(path.parse(process.cwd()).root, "Repo");
+const normalizedSafeDirectoryRepoPath = path.normalize(safeDirectoryRepoPath).replace(/\\/g, "/");
 
 function trackedRecord(xy: string, path: string): string {
   return `1 ${xy} N... 100644 100644 100644 ${oid} ${oid} ${path}`;
@@ -395,11 +397,11 @@ describe("GitService", () => {
     const service = new GitService(runner);
 
     const result = await service.addSafeDirectory({
-      repoPath: "D:\\Repo"
+      repoPath: safeDirectoryRepoPath
     });
 
     expect(result).toEqual({
-      repoPath: "D:/Repo",
+      repoPath: normalizedSafeDirectoryRepoPath,
       exitCode: 0,
       stdout: "",
       stderr: ""
@@ -412,7 +414,7 @@ describe("GitService", () => {
           "--global",
           "--add",
           "safe.directory",
-          "D:/Repo"
+          normalizedSafeDirectoryRepoPath
         ]
       }
     ]);
@@ -425,7 +427,7 @@ describe("GitService", () => {
     const service = new GitService(runner);
 
     const result = await service.addSafeDirectory({
-      repoPath: "D:\\Repo"
+      repoPath: safeDirectoryRepoPath
     });
 
     expect(result.exitCode).toBe(1);
