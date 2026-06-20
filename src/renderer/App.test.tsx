@@ -29,6 +29,7 @@ import type {
   GitHubOpenCounts,
   GitHubPullRequest,
   GitHubWorkflowRun,
+  GitIdentitySettings,
   GitheadApi,
   GitOperationResult,
   RepoChangedEvent,
@@ -1381,6 +1382,150 @@ describe("App", () => {
     });
     expect(githead.addRepoTrust).not.toHaveBeenCalled();
     expect(githead.commitChanges).not.toHaveBeenCalled();
+  });
+
+  it("prompts for Git identity when commit fails with missing author identity and retries after saving", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/renderer/App.tsx", {
+          indexStatus: "A",
+          isStaged: true
+        })
+      ]
+    }));
+    vi.mocked(githead.commitChanges)
+      .mockResolvedValueOnce(createOperationResult({
+        exitCode: 1,
+        stderr: "Author identity unknown",
+        errorKind: "missing-author-identity"
+      }))
+      .mockResolvedValueOnce(createOperationResult({
+        stdout: "[main abc123] feat: identify author\n"
+      }));
+
+    render(<App />);
+
+    await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
+    await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: identify author");
+    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+
+    expect(await screen.findByRole("dialog", { name: "Set Git Author Identity" })).toBeTruthy();
+    await user.type(screen.getByLabelText("Name"), "Taylor");
+    await user.type(screen.getByLabelText("Email"), "taylor@example.test");
+    await user.click(screen.getByRole("button", { name: "Save and Retry Commit" }));
+
+    await waitFor(() => {
+      expect(githead.saveGitIdentity).toHaveBeenCalledWith({
+        repoPath,
+        name: "Taylor",
+        email: "taylor@example.test",
+        scope: "repository"
+      });
+      expect(githead.commitChanges).toHaveBeenCalledTimes(2);
+      expect(githead.commitChanges).toHaveBeenLastCalledWith({
+        repoPath,
+        message: "feat: identify author"
+      });
+    });
+    expect((screen.getByPlaceholderText("Summarize staged changes...") as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("saves missing Git identity globally when selected", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/renderer/App.tsx", {
+          indexStatus: "A",
+          isStaged: true
+        })
+      ]
+    }));
+    vi.mocked(githead.commitChanges)
+      .mockResolvedValueOnce(createOperationResult({
+        exitCode: 1,
+        stderr: "fatal: unable to auto-detect email address",
+        errorKind: "missing-author-identity"
+      }))
+      .mockResolvedValueOnce(createOperationResult());
+
+    render(<App />);
+
+    await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
+    await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: global identity");
+    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await screen.findByRole("dialog", { name: "Set Git Author Identity" });
+    await user.type(screen.getByLabelText("Name"), "Taylor");
+    await user.type(screen.getByLabelText("Email"), "taylor@example.test");
+    await user.click(screen.getByRole("radio", { name: "Global" }));
+    await user.click(screen.getByRole("button", { name: "Save and Retry Commit" }));
+
+    await waitFor(() => {
+      expect(githead.saveGitIdentity).toHaveBeenCalledWith(expect.objectContaining({
+        scope: "global"
+      }));
+    });
+  });
+
+  it("keeps the Git identity prompt open when saving identity fails", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/renderer/App.tsx", {
+          indexStatus: "A",
+          isStaged: true
+        })
+      ]
+    }));
+    vi.mocked(githead.commitChanges).mockResolvedValue(createOperationResult({
+      exitCode: 1,
+      stderr: "Author identity unknown",
+      errorKind: "missing-author-identity"
+    }));
+    vi.mocked(githead.saveGitIdentity).mockRejectedValue(new Error("error: could not lock config file"));
+
+    render(<App />);
+
+    await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
+    await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: identity failure");
+    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.type(await screen.findByLabelText("Name"), "Taylor");
+    await user.type(screen.getByLabelText("Email"), "taylor@example.test");
+    await user.click(screen.getByRole("button", { name: "Save and Retry Commit" }));
+
+    expect(await screen.findByText("error: could not lock config file")).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Set Git Author Identity" })).toBeTruthy();
+    expect(githead.commitChanges).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry the commit when the Git identity prompt is canceled", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/renderer/App.tsx", {
+          indexStatus: "A",
+          isStaged: true
+        })
+      ]
+    }));
+    vi.mocked(githead.commitChanges).mockResolvedValue(createOperationResult({
+      exitCode: 1,
+      stderr: "Author identity unknown",
+      errorKind: "missing-author-identity"
+    }));
+
+    render(<App />);
+
+    await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
+    await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: cancel identity");
+    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.click(await screen.findByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Set Git Author Identity" })).toBeNull();
+    });
+    expect(githead.saveGitIdentity).not.toHaveBeenCalled();
+    expect(githead.commitChanges).toHaveBeenCalledTimes(1);
   });
 
   it("subscribes to git output and removes the listener on unmount", async () => {
@@ -3279,6 +3424,51 @@ describe("App", () => {
       });
     });
   });
+
+  it("shows Git Identity and AI settings sections and saves identity fields", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getGitIdentity).mockResolvedValue({
+      scope: "global",
+      name: "Existing User",
+      email: "existing@example.test",
+      repository: {
+        name: "",
+        email: ""
+      },
+      global: {
+        name: "Existing User",
+        email: "existing@example.test"
+      }
+    });
+
+    render(<App />);
+
+    await screen.findByRole("button", { name: "Settings" });
+    await waitFor(() => {
+      expect(githead.getGitIdentity).toHaveBeenCalled();
+    });
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+
+    await screen.findByText("Git Identity", {
+      selector: "h3"
+    });
+    expect(screen.getByText("AI")).toBeTruthy();
+    await user.clear(screen.getByLabelText("Name"));
+    await user.type(screen.getByLabelText("Name"), "Taylor");
+    await user.clear(screen.getByLabelText("Email"));
+    await user.type(screen.getByLabelText("Email"), "taylor@example.test");
+    await user.click(screen.getByRole("radio", { name: "This repository" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(githead.saveGitIdentity).toHaveBeenCalledWith({
+        repoPath,
+        name: "Taylor",
+        email: "taylor@example.test",
+        scope: "repository"
+      });
+    });
+  });
 });
 
 function createGitheadMock(): GitheadApi {
@@ -3292,6 +3482,19 @@ function createGitheadMock(): GitheadApi {
     hasApiKey: true,
     model: "openai/gpt-5-mini",
     commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT
+  };
+  const gitIdentity: GitIdentitySettings = {
+    scope: "repository",
+    name: "",
+    email: "",
+    repository: {
+      name: "",
+      email: ""
+    },
+    global: {
+      name: "",
+      email: ""
+    }
   };
 
   return {
@@ -3341,6 +3544,16 @@ function createGitheadMock(): GitheadApi {
     switchBranch: vi.fn().mockResolvedValue(okOperation),
     createBranch: vi.fn().mockResolvedValue(okOperation),
     setBranchUpstream: vi.fn().mockResolvedValue(okOperation),
+    getGitIdentity: vi.fn().mockResolvedValue(gitIdentity),
+    saveGitIdentity: vi.fn().mockResolvedValue({
+      ...gitIdentity,
+      name: "Taylor",
+      email: "taylor@example.test",
+      repository: {
+        name: "Taylor",
+        email: "taylor@example.test"
+      }
+    }),
     getAiSettings: vi.fn().mockResolvedValue(aiSettings),
     saveAiSettings: vi.fn().mockResolvedValue(aiSettings),
     generateCommitMessage: vi.fn().mockResolvedValue(okOperation),

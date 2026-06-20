@@ -630,10 +630,19 @@ export class GitService {
       return this.createOperationFailure(request.repoPath, "Enter a commit message.");
     }
 
-    return this.runGitOperation(request.repoPath, [
+    const result = await this.runGitOperation(request.repoPath, [
       "commit",
       "--file=-"
     ], undefined, `${request.message.trimEnd()}\n`);
+
+    if (isMissingAuthorIdentityError(result)) {
+      return {
+        ...result,
+        errorKind: "missing-author-identity"
+      };
+    }
+
+    return result;
   }
 
   async resetBranchToCommit(request: GitResetCommitRequest): Promise<GitOperationResult> {
@@ -1761,6 +1770,16 @@ function sanitizeSingleRepoPath(filePath: string): { path: string } | { error: s
   return {
     path: trimmedPath
   };
+}
+
+function isMissingAuthorIdentityError(result: GitOperationResult): boolean {
+  if (result.exitCode === 0) {
+    return false;
+  }
+
+  const output = `${result.stderr}\n${result.stdout}`.toLowerCase();
+  return output.includes("author identity unknown")
+    || output.includes("unable to auto-detect email address");
 }
 
 function sanitizeCommitHash(hash: string): { hash: string } | { error: string } {

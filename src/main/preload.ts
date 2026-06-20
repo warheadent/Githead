@@ -24,6 +24,7 @@ import type {
   GitFileDiffRequest,
   GitHunkRequest,
   GitHubRepositoryRequest,
+  GitIdentitySaveRequest,
   GitIgnorePathRequest,
   GitOutputEvent,
   GitPathRequest,
@@ -114,6 +115,10 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.createBranch, request) as ReturnType<GitheadApi["createBranch"]>,
   setBranchUpstream: (request: GitUpstreamRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.setBranchUpstream, request) as ReturnType<GitheadApi["setBranchUpstream"]>,
+  getGitIdentity: (repoPath: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getGitIdentity, repoPath) as ReturnType<GitheadApi["getGitIdentity"]>,
+  saveGitIdentity: (request: GitIdentitySaveRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.saveGitIdentity, request) as ReturnType<GitheadApi["saveGitIdentity"]>,
   getAiSettings: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getAiSettings) as ReturnType<GitheadApi["getAiSettings"]>,
   saveAiSettings: (request: AiSettingsSaveRequest) =>

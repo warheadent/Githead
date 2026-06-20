@@ -353,6 +353,24 @@ export interface GitUpstreamRequest {
   upstream: string | null;
 }
 
+export type GitIdentityScope = "repository" | "global";
+
+export interface GitIdentityValue {
+  name: string;
+  email: string;
+}
+
+export interface GitIdentitySettings extends GitIdentityValue {
+  scope: GitIdentityScope;
+  repository: GitIdentityValue;
+  global: GitIdentityValue;
+}
+
+export interface GitIdentitySaveRequest extends GitIdentityValue {
+  repoPath: string;
+  scope: GitIdentityScope;
+}
+
 export interface AiSettings {
   hasApiKey: boolean;
   model: string;
@@ -406,6 +424,7 @@ export interface GitOperationResult {
   exitCode: number;
   stdout: string;
   stderr: string;
+  errorKind?: "missing-author-identity";
 }
 
 export interface GitRunResult {
@@ -512,6 +531,8 @@ export interface GitheadApi {
   switchBranch(request: GitBranchRequest): Promise<GitOperationResult>;
   createBranch(request: GitBranchRequest): Promise<GitOperationResult>;
   setBranchUpstream(request: GitUpstreamRequest): Promise<GitOperationResult>;
+  getGitIdentity(repoPath: string): Promise<GitIdentitySettings>;
+  saveGitIdentity(request: GitIdentitySaveRequest): Promise<GitIdentitySettings>;
   getAiSettings(): Promise<AiSettings>;
   saveAiSettings(request: AiSettingsSaveRequest): Promise<AiSettings>;
   generateCommitMessage(request: GenerateCommitMessageRequest): Promise<GitOperationResult>;

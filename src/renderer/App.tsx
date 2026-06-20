@@ -116,6 +116,8 @@ import type {
   GitHubPullRequest,
   GitHubWorkflowRun,
   AppWindowState,
+  GitIdentityScope,
+  GitIdentitySettings,
   GitOperationResult,
   GitOutputEvent,
   GitRemoteBranch,
@@ -155,6 +157,18 @@ interface SettingsDraft {
   apiKey: string;
   model: string;
   commitMessagePrompt: string;
+  gitIdentityName: string;
+  gitIdentityEmail: string;
+  gitIdentityScope: GitIdentityScope;
+}
+
+interface GitIdentityPromptState {
+  open: boolean;
+  name: string;
+  email: string;
+  scope: GitIdentityScope;
+  error: string;
+  retryMessage: string;
 }
 
 interface RepositoryActionDraft extends GitConfiguredAction {
@@ -248,10 +262,13 @@ interface AppState {
   diffLoading: boolean;
   commitMessage: string;
   aiSettings: AiSettings | null;
+  gitIdentity: GitIdentitySettings | null;
   settingsOpen: boolean;
   settingsDraft: SettingsDraft;
   settingsError: string;
   settingsSaving: boolean;
+  gitIdentityPrompt: GitIdentityPromptState;
+  gitIdentitySaving: boolean;
   actionManager: RepositoryActionManagerState;
   activeView: WorkspaceView;
   history: GitCommitGraphRow[];
@@ -308,7 +325,19 @@ interface RequestIds {
 const emptySettingsDraft: SettingsDraft = {
   apiKey: "",
   model: "",
-  commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT
+  commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT,
+  gitIdentityName: "",
+  gitIdentityEmail: "",
+  gitIdentityScope: "repository"
+};
+
+const emptyGitIdentityPrompt: GitIdentityPromptState = {
+  open: false,
+  name: "",
+  email: "",
+  scope: "repository",
+  error: "",
+  retryMessage: ""
 };
 
 const emptyActionManager: RepositoryActionManagerState = {
@@ -399,10 +428,13 @@ const initialState: AppState = {
   diffLoading: false,
   commitMessage: "",
   aiSettings: null,
+  gitIdentity: null,
   settingsOpen: false,
   settingsDraft: emptySettingsDraft,
   settingsError: "",
   settingsSaving: false,
+  gitIdentityPrompt: emptyGitIdentityPrompt,
+  gitIdentitySaving: false,
   actionManager: emptyActionManager,
   activeView: "status",
   history: [],
@@ -1221,6 +1253,9 @@ export function App(): ReactNode {
       upstreamError: "",
       lastResult: null,
       lastOperationResult: null,
+      gitIdentity: null,
+      gitIdentityPrompt: emptyGitIdentityPrompt,
+      gitIdentitySaving: false,
       activeView: isGitHubView(current.activeView) ? "status" : current.activeView,
       selection: null,
       diff: null,
@@ -1287,10 +1322,36 @@ export function App(): ReactNode {
     }
   }, [updateState]);
 
+  const loadGitIdentity = useCallback(async (repoPath: string): Promise<GitIdentitySettings | null> => {
+    try {
+      const gitIdentity = await window.githead.getGitIdentity(repoPath);
+      updateState({
+        gitIdentity
+      });
+      return gitIdentity;
+    } catch (error) {
+      updateState((current) => ({
+        ...current,
+        gitIdentity: null,
+        lastOperationResult: {
+          repoPath: current.repoPath,
+          exitCode: -1,
+          stdout: "",
+          stderr: error instanceof Error ? error.message : "Unable to load Git identity."
+        }
+      }));
+      return null;
+    }
+  }, [updateState]);
+
   useEffect(() => {
     void initializeRepository();
     void loadAiSettings();
   }, [initializeRepository, loadAiSettings]);
+
+  useEffect(() => {
+    void loadGitIdentity(state.repoPath);
+  }, [loadGitIdentity, state.repoPath]);
 
   useEffect(() => {
     if (!state.summary?.isValid) {
@@ -2254,6 +2315,21 @@ export function App(): ReactNode {
     );
   }, [runRepoOperation]);
 
+  const openGitIdentityPrompt = useCallback(async (retryMessage: string): Promise<void> => {
+    const gitIdentity = stateRef.current.gitIdentity ?? await loadGitIdentity(stateRef.current.repoPath);
+
+    updateState({
+      gitIdentityPrompt: {
+        open: true,
+        name: gitIdentity?.name ?? "",
+        email: gitIdentity?.email ?? "",
+        scope: gitIdentity?.scope ?? "repository",
+        error: "",
+        retryMessage
+      }
+    });
+  }, [loadGitIdentity, updateState]);
+
   const commitChanges = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
     if (!current.summary?.isValid || isOperationRunning(current) || !canCommit(current)) {
@@ -2271,12 +2347,18 @@ export function App(): ReactNode {
       })
     );
 
-    if (stateRef.current.lastOperationResult?.exitCode === 0) {
+    const result = stateRef.current.lastOperationResult;
+    if (result?.exitCode === 0) {
       updateState({
         commitMessage: ""
       });
+      return;
     }
-  }, [ensureTrustedRepo, runRepoOperation, updateState]);
+
+    if (result?.errorKind === "missing-author-identity") {
+      await openGitIdentityPrompt(stateRef.current.commitMessage);
+    }
+  }, [ensureTrustedRepo, openGitIdentityPrompt, runRepoOperation, updateState]);
 
   const commitAndPush = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
@@ -2337,13 +2419,17 @@ export function App(): ReactNode {
 
   const openSettingsDialog = useCallback((): void => {
     const settings = stateRef.current.aiSettings;
+    const gitIdentity = stateRef.current.gitIdentity;
     updateState({
       settingsOpen: true,
       settingsError: "",
       settingsDraft: {
         apiKey: "",
         model: settings?.model ?? "",
-        commitMessagePrompt: settings?.commitMessagePrompt ?? DEFAULT_COMMIT_MESSAGE_PROMPT
+        commitMessagePrompt: settings?.commitMessagePrompt ?? DEFAULT_COMMIT_MESSAGE_PROMPT,
+        gitIdentityName: gitIdentity?.name ?? "",
+        gitIdentityEmail: gitIdentity?.email ?? "",
+        gitIdentityScope: gitIdentity?.scope ?? "repository"
       }
     });
   }, [updateState]);
@@ -2371,12 +2457,32 @@ export function App(): ReactNode {
 
     try {
       const draft = stateRef.current.settingsDraft;
+      const shouldSaveGitIdentity = draft.gitIdentityName.trim().length > 0 || draft.gitIdentityEmail.trim().length > 0;
+      let gitIdentity = stateRef.current.gitIdentity;
+
+      if (shouldSaveGitIdentity && draft.gitIdentityScope === "repository" && !(await ensureTrustedRepo())) {
+        updateState({
+          settingsSaving: false
+        });
+        return;
+      }
+
+      if (shouldSaveGitIdentity) {
+        gitIdentity = await window.githead.saveGitIdentity({
+          repoPath: stateRef.current.repoPath,
+          name: draft.gitIdentityName,
+          email: draft.gitIdentityEmail,
+          scope: draft.gitIdentityScope
+        });
+      }
+
       const aiSettings = await window.githead.saveAiSettings({
         apiKey: draft.apiKey,
         model: draft.model,
         commitMessagePrompt: draft.commitMessagePrompt
       });
       updateState({
+        gitIdentity,
         aiSettings,
         settingsOpen: false
       });
@@ -2389,7 +2495,77 @@ export function App(): ReactNode {
         settingsSaving: false
       });
     }
+  }, [ensureTrustedRepo, updateState]);
+
+  const closeGitIdentityPrompt = useCallback((): void => {
+    if (stateRef.current.gitIdentitySaving) {
+      return;
+    }
+
+    updateState({
+      gitIdentityPrompt: emptyGitIdentityPrompt
+    });
   }, [updateState]);
+
+  const saveGitIdentityPrompt = useCallback(async (): Promise<void> => {
+    const current = stateRef.current;
+    const prompt = current.gitIdentityPrompt;
+    if (!prompt.open || current.gitIdentitySaving) {
+      return;
+    }
+
+    if (prompt.scope === "repository" && !(await ensureTrustedRepo())) {
+      return;
+    }
+
+    updateState({
+      gitIdentitySaving: true,
+      gitIdentityPrompt: {
+        ...prompt,
+        error: ""
+      }
+    });
+
+    try {
+      const gitIdentity = await window.githead.saveGitIdentity({
+        repoPath: stateRef.current.repoPath,
+        name: stateRef.current.gitIdentityPrompt.name,
+        email: stateRef.current.gitIdentityPrompt.email,
+        scope: stateRef.current.gitIdentityPrompt.scope
+      });
+      const retryMessage = stateRef.current.gitIdentityPrompt.retryMessage;
+
+      updateState({
+        gitIdentity,
+        gitIdentityPrompt: emptyGitIdentityPrompt
+      });
+
+      await runRepoOperation("Committing changes", null, () =>
+        window.githead.commitChanges({
+          repoPath: stateRef.current.repoPath,
+          message: retryMessage
+        })
+      );
+
+      if (stateRef.current.lastOperationResult?.exitCode === 0) {
+        updateState({
+          commitMessage: ""
+        });
+      }
+    } catch (error) {
+      updateState((latest) => ({
+        ...latest,
+        gitIdentityPrompt: {
+          ...latest.gitIdentityPrompt,
+          error: error instanceof Error ? error.message : "Unable to save Git identity."
+        }
+      }));
+    } finally {
+      updateState({
+        gitIdentitySaving: false
+      });
+    }
+  }, [ensureTrustedRepo, runRepoOperation, updateState]);
 
   const openExternalUrl = useCallback((url: string): void => {
     void window.githead.openExternalUrl({
@@ -3509,6 +3685,26 @@ export function App(): ReactNode {
         onSave={(event) => {
           event.preventDefault();
           void saveAiSettings();
+        }}
+      />
+
+      <GitIdentityDialog
+        open={state.gitIdentityPrompt.open}
+        state={state.gitIdentityPrompt}
+        saving={state.gitIdentitySaving}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeGitIdentityPrompt();
+          }
+        }}
+        onStateChange={(gitIdentityPrompt) => {
+          updateState({
+            gitIdentityPrompt
+          });
+        }}
+        onSave={(event) => {
+          event.preventDefault();
+          void saveGitIdentityPrompt();
         }}
       />
 
@@ -6914,6 +7110,159 @@ function SafeDirectoryDialog({
   );
 }
 
+export interface GitIdentityFieldsProps {
+  idPrefix: string;
+  name: string;
+  email: string;
+  scope: GitIdentityScope;
+  disabled: boolean;
+  error?: string;
+  autoFocusName?: boolean;
+  onChange: (patch: Partial<{
+    name: string;
+    email: string;
+    scope: GitIdentityScope;
+  }>) => void;
+}
+
+function GitIdentityFields({
+  idPrefix,
+  name,
+  email,
+  scope,
+  disabled,
+  error = "",
+  autoFocusName = false,
+  onChange
+}: GitIdentityFieldsProps): ReactNode {
+  const hasError = Boolean(error);
+  const errorId = `${idPrefix}-error`;
+
+  return (
+    <fieldset className="grid gap-3" disabled={disabled}>
+      <legend className="sr-only">Git Identity</legend>
+      <div className="grid gap-2">
+        <Label htmlFor={`${idPrefix}-name`}>Name</Label>
+        <Input
+          id={`${idPrefix}-name`}
+          type="text"
+          autoComplete="name"
+          value={name}
+          autoFocus={autoFocusName}
+          aria-invalid={hasError}
+          aria-describedby={hasError ? errorId : undefined}
+          onChange={(event) => onChange({
+            name: event.target.value
+          })}
+        />
+      </div>
+      <div className="grid gap-2">
+        <Label htmlFor={`${idPrefix}-email`}>Email</Label>
+        <Input
+          id={`${idPrefix}-email`}
+          type="email"
+          autoComplete="email"
+          value={email}
+          aria-invalid={hasError}
+          aria-describedby={hasError ? errorId : undefined}
+          onChange={(event) => onChange({
+            email: event.target.value
+          })}
+        />
+      </div>
+      <div className="grid gap-2">
+        <p className="text-sm font-medium">Save identity to</p>
+        <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Save Git identity to">
+          <Label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm has-[:checked]:border-primary has-[:checked]:bg-primary/10">
+            <input
+              type="radio"
+              name={`${idPrefix}-scope`}
+              value="repository"
+              checked={scope === "repository"}
+              onChange={() => onChange({
+                scope: "repository"
+              })}
+              className="size-4"
+            />
+            This repository
+          </Label>
+          <Label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm has-[:checked]:border-primary has-[:checked]:bg-primary/10">
+            <input
+              type="radio"
+              name={`${idPrefix}-scope`}
+              value="global"
+              checked={scope === "global"}
+              onChange={() => onChange({
+                scope: "global"
+              })}
+              className="size-4"
+            />
+            Global
+          </Label>
+        </div>
+      </div>
+    </fieldset>
+  );
+}
+
+function GitIdentityDialog({
+  open,
+  state,
+  saving,
+  onOpenChange,
+  onStateChange,
+  onSave
+}: {
+  open: boolean;
+  state: GitIdentityPromptState;
+  saving: boolean;
+  onOpenChange: (open: boolean) => void;
+  onStateChange: (state: GitIdentityPromptState) => void;
+  onSave: (event: FormEvent<HTMLFormElement>) => void;
+}): ReactNode {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[520px]">
+        <form className="grid gap-4" onSubmit={onSave}>
+          <DialogHeader>
+            <p className="eyebrow">Git Identity</p>
+            <DialogTitle>Set Git Author Identity</DialogTitle>
+            <DialogDescription>
+              Git needs a name and email before it can create commits.
+            </DialogDescription>
+          </DialogHeader>
+
+          <GitIdentityFields
+            idPrefix="git-identity-prompt"
+            name={state.name}
+            email={state.email}
+            scope={state.scope}
+            disabled={saving}
+            error={state.error}
+            autoFocusName
+            onChange={(patch) => onStateChange({
+              ...state,
+              ...patch,
+              error: ""
+            })}
+          />
+
+          <p id="git-identity-prompt-error" className="min-h-5 text-sm text-destructive" role="alert">{state.error}</p>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? <Loader2 className="animate-spin" /> : <Save />}
+              {saving ? "Saving" : "Save and Retry Commit"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function SettingsDialog({
   open,
   draft,
@@ -6933,60 +7282,87 @@ function SettingsDialog({
 }): ReactNode {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[520px]">
+      <DialogContent className="sm:max-w-[560px]">
         <form className="grid gap-4" onSubmit={onSave}>
           <DialogHeader>
-            <p className="eyebrow">OpenRouter</p>
-            <DialogTitle>AI Settings</DialogTitle>
-            <DialogDescription className="sr-only">
-              Configure OpenRouter credentials and model settings.
+            <p className="eyebrow">Preferences</p>
+            <DialogTitle>Settings</DialogTitle>
+            <DialogDescription>
+              Configure Git identity and OpenRouter commit message generation.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-2">
-            <Label htmlFor="openrouter-api-key">API Key</Label>
-            <Input
-              id="openrouter-api-key"
-              type="password"
-              autoComplete="off"
-              placeholder="Leave blank to keep existing key"
-              value={draft.apiKey}
+          <section className="grid gap-3">
+            <div>
+              <h3 className="text-sm font-semibold">Git Identity</h3>
+              <p className="text-sm text-muted-foreground">Used when Git needs author details for commits.</p>
+            </div>
+            <GitIdentityFields
+              idPrefix="settings-git-identity"
+              name={draft.gitIdentityName}
+              email={draft.gitIdentityEmail}
+              scope={draft.gitIdentityScope}
               disabled={saving}
-              onChange={(event) => onDraftChange({
+              error={error}
+              onChange={(patch) => onDraftChange({
                 ...draft,
-                apiKey: event.target.value
+                ...(patch.name !== undefined ? { gitIdentityName: patch.name } : {}),
+                ...(patch.email !== undefined ? { gitIdentityEmail: patch.email } : {}),
+                ...(patch.scope !== undefined ? { gitIdentityScope: patch.scope } : {})
               })}
             />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="openrouter-model">Model</Label>
-            <Input
-              id="openrouter-model"
-              type="text"
-              autoComplete="off"
-              value={draft.model}
-              disabled={saving}
-              onChange={(event) => onDraftChange({
-                ...draft,
-                model: event.target.value
-              })}
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="openrouter-commit-message-prompt">Commit Message Prompt</Label>
-            <Textarea
-              id="openrouter-commit-message-prompt"
-              rows={8}
-              value={draft.commitMessagePrompt}
-              disabled={saving}
-              onChange={(event) => onDraftChange({
-                ...draft,
-                commitMessagePrompt: event.target.value
-              })}
-            />
-          </div>
+          </section>
 
-          <p className="min-h-5 text-sm text-destructive" role="alert">{error}</p>
+          <section className="grid gap-3 border-t pt-4">
+            <div>
+              <h3 className="text-sm font-semibold">AI</h3>
+              <p className="text-sm text-muted-foreground">OpenRouter settings for generated commit messages.</p>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="openrouter-api-key">API Key</Label>
+              <Input
+                id="openrouter-api-key"
+                type="password"
+                autoComplete="off"
+                placeholder="Leave blank to keep existing key"
+                value={draft.apiKey}
+                disabled={saving}
+                onChange={(event) => onDraftChange({
+                  ...draft,
+                  apiKey: event.target.value
+                })}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="openrouter-model">Model</Label>
+              <Input
+                id="openrouter-model"
+                type="text"
+                autoComplete="off"
+                value={draft.model}
+                disabled={saving}
+                onChange={(event) => onDraftChange({
+                  ...draft,
+                  model: event.target.value
+                })}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="openrouter-commit-message-prompt">Commit Message Prompt</Label>
+              <Textarea
+                id="openrouter-commit-message-prompt"
+                rows={7}
+                value={draft.commitMessagePrompt}
+                disabled={saving}
+                onChange={(event) => onDraftChange({
+                  ...draft,
+                  commitMessagePrompt: event.target.value
+                })}
+              />
+            </div>
+          </section>
+
+          <p id="settings-git-identity-error" className="min-h-5 text-sm text-destructive" role="alert">{error}</p>
           <DialogFooter>
             <Button type="button" variant="outline" disabled={saving} onClick={() => onOpenChange(false)}>
               Cancel

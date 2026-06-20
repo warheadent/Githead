@@ -28,6 +28,7 @@ import type {
   GitFileDiffRequest,
   GitHunkRequest,
   GitHubRepositoryRequest,
+  GitIdentitySaveRequest,
   GitIgnorePathRequest,
   GitOperationResult,
   GitOutputEvent,
@@ -42,6 +43,7 @@ import type {
 import { AiSettingsService } from "./aiSettingsService";
 import { CommitMessageService } from "./commitMessageService";
 import { deleteFiles, getStats, resolveRepoFilePath, showRepositoryInExplorer } from "./fileOperationService";
+import { GitIdentityService } from "./gitIdentityService";
 import { GitService } from "./gitService";
 import { GitHubService } from "./githubService";
 import { NodeProcessRunner } from "./processRunner";
@@ -59,6 +61,7 @@ const gitService = new GitService(processRunner);
 let mainWindow: BrowserWindow | null = null;
 let commandRunning = false;
 let aiSettingsService: AiSettingsService | null = null;
+let gitIdentityService: GitIdentityService | null = null;
 let commitMessageService: CommitMessageService | null = null;
 let githubService: GitHubService | null = null;
 let repoRecentsService: RepoRecentsService | null = null;
@@ -395,6 +398,31 @@ ipcMain.handle(IPC_CHANNELS.setBranchUpstream, async (_event, request: GitUpstre
   }
 
   return runExclusiveGitOperation(() => gitService.setBranchUpstream(request), request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.getGitIdentity, async (_event, repoPath: string) => {
+  return getGitIdentityService().getIdentity(repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.saveGitIdentity, async (_event, request: GitIdentitySaveRequest) => {
+  if (request.scope === "repository") {
+    const trusted = await requireTrustedRepo(request.repoPath);
+    if (trusted) {
+      throw new Error(trusted.stderr);
+    }
+  }
+
+  if (commandRunning) {
+    throw new Error("Another git command is already running.");
+  }
+
+  commandRunning = true;
+
+  try {
+    return await getGitIdentityService().saveIdentity(request);
+  } finally {
+    commandRunning = false;
+  }
 });
 
 ipcMain.handle(IPC_CHANNELS.getAiSettings, async () => {
@@ -865,6 +893,11 @@ function sendWindowState(window: BrowserWindow | null): void {
 function getAiSettingsService(): AiSettingsService {
   aiSettingsService ??= new AiSettingsService(app.getPath("userData"), safeStorage);
   return aiSettingsService;
+}
+
+function getGitIdentityService(): GitIdentityService {
+  gitIdentityService ??= new GitIdentityService(app.getPath("userData"), processRunner);
+  return gitIdentityService;
 }
 
 function getCommitMessageService(): CommitMessageService {

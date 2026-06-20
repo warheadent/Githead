@@ -1719,6 +1719,44 @@ describe("GitService", () => {
     expect(stdinText(runner.calls.at(-1)!)).toBe("subject\n\nbody\n");
   });
 
+  it("marks missing author identity commit failures", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      failure([
+        "Author identity unknown",
+        "",
+        "*** Please tell me who you are.",
+        "fatal: unable to auto-detect email address"
+      ].join("\n"))
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.commitChanges({
+      repoPath: "D:\\Repo",
+      message: "subject"
+    });
+
+    expect(result).toMatchObject({
+      exitCode: 1,
+      errorKind: "missing-author-identity"
+    });
+  });
+
+  it("leaves normal commit failures unclassified", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      failure("fatal: cannot lock ref")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.commitChanges({
+      repoPath: "D:\\Repo",
+      message: "subject"
+    });
+
+    expect(result.errorKind).toBeUndefined();
+  });
+
   it("switches branches without remote guessing", async () => {
     const runner = new FakeRunner([
       ok("true\n"),
