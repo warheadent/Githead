@@ -171,6 +171,43 @@ describe("CommitMessageService", () => {
     expect(body.messages.at(-1)?.content).toContain(DEFAULT_COMMIT_MESSAGE_PROMPT);
   });
 
+  it("includes additional user context in the prompt when provided", async () => {
+    const { service, calls } = createService({
+      diff: "diff --git a/a.ts b/a.ts\n+added\n"
+    });
+
+    await service.generateCommitMessage({
+      repoPath: "D:\\Repo",
+      additionalContext: "  This preserves legacy project naming.  "
+    });
+
+    const body = JSON.parse(String(calls[0]?.init?.body)) as {
+      messages: Array<{ content: string }>;
+    };
+    const prompt = body.messages.at(-1)?.content ?? "";
+    expect(prompt).toContain("Additional context from the user:");
+    expect(prompt).toContain("This preserves legacy project naming.");
+    expect(prompt).not.toContain("  This preserves legacy project naming.  ");
+    expect(prompt.indexOf("Additional context from the user:")).toBeLessThan(prompt.indexOf("Staged diff:"));
+  });
+
+  it("omits whitespace-only additional context from the prompt", async () => {
+    const { service, calls } = createService({
+      diff: "diff --git a/a.ts b/a.ts\n+added\n"
+    });
+
+    await service.generateCommitMessage({
+      repoPath: "D:\\Repo",
+      additionalContext: "   "
+    });
+
+    const body = JSON.parse(String(calls[0]?.init?.body)) as {
+      messages: Array<{ content: string }>;
+    };
+    const prompt = body.messages.at(-1)?.content ?? "";
+    expect(prompt).not.toContain("Additional context from the user:");
+  });
+
   it("caps large staged diffs before sending them to OpenRouter", async () => {
     const { service, calls } = createService({
       diff: `diff --git a/a.ts b/a.ts\n${"x".repeat(70_000)}`

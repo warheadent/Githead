@@ -87,7 +87,7 @@ export class CommitMessageService {
             },
             {
               role: "user",
-              content: createPrompt(settings.commitMessagePrompt, diff)
+              content: createPrompt(settings.commitMessagePrompt, diff, request.additionalContext)
             }
           ],
           temperature: 0.2,
@@ -132,14 +132,17 @@ function createHeaders(apiKey: string): Record<string, string> {
   };
 }
 
-function createPrompt(commitMessagePrompt: string, diff: string): string {
+function createPrompt(commitMessagePrompt: string, diff: string, additionalContext?: string): string {
   const truncated = diff.length > MAX_DIFF_CHARS;
   const promptDiff = truncated ? diff.slice(0, MAX_DIFF_CHARS) : diff;
   const instructions = commitMessagePrompt.trim() || DEFAULT_COMMIT_MESSAGE_PROMPT;
+  const trimmedContext = additionalContext?.trim() ?? "";
 
   return [
     instructions,
     truncated ? "The diff was truncated; summarize only the visible staged changes." : "",
+    trimmedContext ? "Additional context from the user:" : "",
+    trimmedContext,
     "",
     "Staged diff:",
     promptDiff

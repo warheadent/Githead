@@ -240,6 +240,11 @@ interface TagDialogState {
   error: string;
 }
 
+interface GenerateContextDialogState {
+  open: boolean;
+  context: string;
+}
+
 interface AppState {
   repoPath: string;
   repoRecents: string[];
@@ -272,6 +277,7 @@ interface AppState {
   diff: GitFileDiff | null;
   diffLoading: boolean;
   commitMessage: string;
+  generateContextDialog: GenerateContextDialogState;
   aiSettings: AiSettings | null;
   gitIdentity: GitIdentitySettings | null;
   settingsOpen: boolean;
@@ -403,6 +409,11 @@ const emptyTagDialog: TagDialogState = {
   error: ""
 };
 
+const emptyGenerateContextDialog: GenerateContextDialogState = {
+  open: false,
+  context: ""
+};
+
 const TRUST_WORKSPACE_TITLE = "Do you trust this workspace?";
 const TRUST_WORKSPACE_DESCRIPTION = "This is the first time Githead will run Git operations here that may execute configured hooks or local Git configuration.";
 
@@ -438,6 +449,7 @@ const initialState: AppState = {
   diff: null,
   diffLoading: false,
   commitMessage: "",
+  generateContextDialog: emptyGenerateContextDialog,
   aiSettings: null,
   gitIdentity: null,
   settingsOpen: false,
@@ -2387,10 +2399,10 @@ export function App(): ReactNode {
     }
   }, [commitChanges, runAction]);
 
-  const generateCommitMessage = useCallback(async (): Promise<void> => {
+  const generateCommitMessage = useCallback(async (additionalContext?: string): Promise<boolean> => {
     const current = stateRef.current;
     if (!current.summary?.isValid || isOperationRunning(current) || !canGenerateCommitMessage(current)) {
-      return;
+      return false;
     }
 
     updateState({
@@ -2399,8 +2411,10 @@ export function App(): ReactNode {
     });
 
     try {
+      const trimmedContext = additionalContext?.trim();
       const result = await window.githead.generateCommitMessage({
-        repoPath: stateRef.current.repoPath
+        repoPath: stateRef.current.repoPath,
+        ...(trimmedContext ? { additionalContext: trimmedContext } : {})
       });
       const generatedMessage = result.exitCode === 0 ? result.stdout.trim() : stateRef.current.commitMessage;
       updateState({
@@ -2413,6 +2427,7 @@ export function App(): ReactNode {
         commitMessage: generatedMessage
       });
       appendOperationLog("Generating commit message", result);
+      return result.exitCode === 0;
     } catch (error) {
       const lastOperationResult: GitOperationResult = {
         repoPath: stateRef.current.repoPath,
@@ -2425,6 +2440,7 @@ export function App(): ReactNode {
         lastOperationResult
       });
       appendOperationLog("Generating commit message", lastOperationResult);
+      return false;
     } finally {
       updateState({
         runningOperation: null
@@ -3674,6 +3690,14 @@ export function App(): ReactNode {
                 onGenerateMessage={() => {
                   void generateCommitMessage();
                 }}
+                onOpenGenerateWithContext={() => {
+                  updateState({
+                    generateContextDialog: {
+                      open: true,
+                      context: ""
+                    }
+                  });
+                }}
                 onCommitMessageChange={(commitMessage) => {
                   updateState({
                     commitMessage
@@ -3684,6 +3708,45 @@ export function App(): ReactNode {
           </section>
         </ResizablePanel>
       </ResizablePanelGroup>
+
+      <GenerateWithContextDialog
+        open={state.generateContextDialog.open}
+        context={state.generateContextDialog.context}
+        generating={state.runningOperation === "Generating commit message"}
+        onOpenChange={(open) => {
+          if (!open) {
+            if (state.runningOperation === "Generating commit message") {
+              return;
+            }
+
+            updateState({
+              generateContextDialog: emptyGenerateContextDialog
+            });
+          }
+        }}
+        onContextChange={(context) => {
+          updateState({
+            generateContextDialog: {
+              ...stateRef.current.generateContextDialog,
+              context
+            }
+          });
+        }}
+        onGenerate={async (event) => {
+          event.preventDefault();
+          const context = stateRef.current.generateContextDialog.context.trim();
+          if (!context) {
+            return;
+          }
+
+          const generated = await generateCommitMessage(context);
+          if (generated) {
+            updateState({
+              generateContextDialog: emptyGenerateContextDialog
+            });
+          }
+        }}
+      />
 
       <SettingsDialog
         open={state.settingsOpen}
@@ -6607,6 +6670,7 @@ function CommitPanel({
   onCommit,
   onCommitAndPush,
   onGenerateMessage,
+  onOpenGenerateWithContext,
   onCommitMessageChange
 }: {
   commitMessage: string;
@@ -6619,6 +6683,7 @@ function CommitPanel({
   onCommit: () => void;
   onCommitAndPush: () => void;
   onGenerateMessage: () => void;
+  onOpenGenerateWithContext: () => void;
   onCommitMessageChange: (message: string) => void;
 }): ReactNode {
   const commitDisabled = disabled
@@ -6628,6 +6693,7 @@ function CommitPanel({
   const primaryActionAriaLabel = primaryCommitAction === "push" && pushableCommitCount > 0
     ? formatActionCountLabel("Push", pushableCommitCount)
     : undefined;
+  const generateDisabled = disabled || !generateAllowed;
 
   return (
     <section className="grid min-h-0 gap-2.5 border-t bg-card px-6 py-4" aria-label="Commit staged files">
@@ -6640,10 +6706,39 @@ function CommitPanel({
         onChange={(event) => onCommitMessageChange(event.target.value)}
       />
       <div className="flex flex-wrap justify-end gap-2">
-        <Button type="button" variant="secondary" disabled={disabled || !generateAllowed} title={generateTitle} onClick={onGenerateMessage}>
-          <Sparkles />
-          Generate
-        </Button>
+        <div className="flex items-stretch">
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={generateDisabled}
+            title={generateTitle}
+            onClick={onGenerateMessage}
+            className="rounded-r-none"
+          >
+            <Sparkles />
+            Generate
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={generateDisabled}
+                title={generateTitle}
+                aria-label="More generate actions"
+                className="rounded-l-none border-l-secondary-foreground/20 px-2"
+              >
+                <ChevronDown />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" side="top">
+              <DropdownMenuItem onSelect={onOpenGenerateWithContext}>
+                <Sparkles />
+                Generate with Context
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
         <div className="flex items-stretch">
           <Button
             type="button"
@@ -6683,6 +6778,60 @@ function CommitPanel({
         </div>
       </div>
     </section>
+  );
+}
+
+function GenerateWithContextDialog({
+  open,
+  context,
+  generating,
+  onOpenChange,
+  onContextChange,
+  onGenerate
+}: {
+  open: boolean;
+  context: string;
+  generating: boolean;
+  onOpenChange: (open: boolean) => void;
+  onContextChange: (context: string) => void;
+  onGenerate: (event: FormEvent<HTMLFormElement>) => void;
+}): ReactNode {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[460px]">
+        <form className="grid gap-4" onSubmit={onGenerate}>
+          <DialogHeader>
+            <DialogTitle>Generate with Context</DialogTitle>
+            <DialogDescription className="sr-only">
+              Add context that is not obvious from the staged code changes.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-2">
+            <Label htmlFor="generate-change-context">Change Context</Label>
+            <Textarea
+              id="generate-change-context"
+              name="changeContext"
+              value={context}
+              rows={4}
+              disabled={generating}
+              placeholder="Explain why this change was made..."
+              onChange={(event) => onContextChange(event.currentTarget.value)}
+            />
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="secondary" disabled={generating} onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={generating || context.trim().length === 0}>
+              <Sparkles />
+              Generate
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

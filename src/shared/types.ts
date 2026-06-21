@@ -443,6 +443,7 @@ export interface AiSettingsSaveRequest {
 
 export interface GenerateCommitMessageRequest {
   repoPath: string;
+  additionalContext?: string;
 }
 
 export interface ExternalUrlRequest {

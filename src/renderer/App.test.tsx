@@ -1357,6 +1357,140 @@ describe("App", () => {
     expect(screen.getByText(/create mode 100644 src\/renderer\/App\.tsx/)).toBeTruthy();
   });
 
+  it("generates a commit message from the primary Generate button", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/renderer/App.tsx", {
+          indexStatus: "A",
+          isStaged: true
+        })
+      ]
+    }));
+    vi.mocked(githead.generateCommitMessage).mockResolvedValue({
+      repoPath,
+      exitCode: 0,
+      stdout: "feat: add generated context menu",
+      stderr: ""
+    });
+
+    render(<App />);
+
+    const commitPanel = await screen.findByLabelText("Commit staged files");
+    await user.click(within(commitPanel).getByRole("button", { name: /^Generate$/ }));
+
+    await waitFor(() => {
+      expect(githead.generateCommitMessage).toHaveBeenCalledWith({
+        repoPath
+      });
+    });
+    expect((screen.getByPlaceholderText("Summarize staged changes...") as HTMLTextAreaElement).value).toBe("feat: add generated context menu");
+  });
+
+  it("opens Generate with Context and sends trimmed context with the request", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/renderer/App.tsx", {
+          indexStatus: "A",
+          isStaged: true
+        })
+      ]
+    }));
+    vi.mocked(githead.generateCommitMessage).mockResolvedValue({
+      repoPath,
+      exitCode: 0,
+      stdout: "fix: preserve project naming",
+      stderr: ""
+    });
+
+    render(<App />);
+
+    const commitPanel = await screen.findByLabelText("Commit staged files");
+    await user.click(within(commitPanel).getByRole("button", { name: "More generate actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Generate with Context" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Generate with Context" });
+    await user.type(within(dialog).getByLabelText("Change Context"), "  Preserve legacy project naming.  ");
+    await user.click(within(dialog).getByRole("button", { name: /^Generate$/ }));
+
+    await waitFor(() => {
+      expect(githead.generateCommitMessage).toHaveBeenCalledWith({
+        repoPath,
+        additionalContext: "Preserve legacy project naming."
+      });
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Generate with Context" })).toBeNull();
+    });
+  });
+
+  it("keeps Generate with Context open when generation fails", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/renderer/App.tsx", {
+          indexStatus: "A",
+          isStaged: true
+        })
+      ]
+    }));
+    vi.mocked(githead.generateCommitMessage).mockResolvedValue({
+      repoPath,
+      exitCode: -1,
+      stdout: "",
+      stderr: "OpenRouter request failed."
+    });
+
+    render(<App />);
+
+    const commitPanel = await screen.findByLabelText("Commit staged files");
+    await user.click(within(commitPanel).getByRole("button", { name: "More generate actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Generate with Context" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Generate with Context" });
+    const contextInput = within(dialog).getByLabelText("Change Context") as HTMLTextAreaElement;
+    await user.type(contextInput, "Important product context");
+    await user.click(within(dialog).getByRole("button", { name: /^Generate$/ }));
+
+    await waitFor(() => {
+      expect(githead.generateCommitMessage).toHaveBeenCalledWith({
+        repoPath,
+        additionalContext: "Important product context"
+      });
+    });
+    expect(await screen.findByRole("dialog", { name: "Generate with Context" })).toBeTruthy();
+    expect(contextInput.value).toBe("Important product context");
+  });
+
+  it("keeps Generate with Context disabled until context is provided", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/renderer/App.tsx", {
+          indexStatus: "A",
+          isStaged: true
+        })
+      ]
+    }));
+
+    render(<App />);
+
+    const commitPanel = await screen.findByLabelText("Commit staged files");
+    await user.click(within(commitPanel).getByRole("button", { name: "More generate actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Generate with Context" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Generate with Context" });
+    const submitButton = within(dialog).getByRole("button", { name: /^Generate$/ });
+    expect((submitButton as HTMLButtonElement).disabled).toBe(true);
+
+    await user.type(within(dialog).getByLabelText("Change Context"), "   ");
+    expect((submitButton as HTMLButtonElement).disabled).toBe(true);
+
+    await user.type(within(dialog).getByLabelText("Change Context"), "why");
+    expect((submitButton as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("prompts to trust a repository before committing and remembers the decision", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoTrust).mockResolvedValueOnce({
