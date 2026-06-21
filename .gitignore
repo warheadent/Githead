@@ -48,6 +48,12 @@ Thumbs.db
 
 # Local agent/tool workspaces
 .agents/
+!.agents/
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/githead-actions/
+!.agents/skills/githead-actions/SKILL.md
 .claude/
 .codex/
 .junie/
