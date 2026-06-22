@@ -434,16 +434,54 @@ export interface GitIdentitySaveRequest extends GitIdentityValue {
   scope: GitIdentityScope;
 }
 
-export interface AiSettings {
-  hasApiKey: boolean;
+export const AI_COMMIT_MESSAGE_PROVIDERS = [
+  "openrouter",
+  "openai",
+  "codex-cli",
+  "anthropic",
+  "claude-code"
+] as const;
+
+export type AiCommitMessageProvider = (typeof AI_COMMIT_MESSAGE_PROVIDERS)[number];
+
+export const AI_API_KEY_PROVIDERS = [
+  "openrouter",
+  "openai",
+  "anthropic"
+] as const;
+
+export type AiApiKeyProvider = (typeof AI_API_KEY_PROVIDERS)[number];
+
+export const AI_CLI_PROVIDERS = [
+  "codex-cli",
+  "claude-code"
+] as const;
+
+export type AiCliProvider = (typeof AI_CLI_PROVIDERS)[number];
+
+export interface AiProviderSettings {
   model: string;
+  hasApiKey: boolean;
+}
+
+export interface AiCliProviderStatus {
+  detected: boolean;
+  authenticated: boolean;
+  message: string;
+}
+
+export interface AiSettings {
+  selectedProvider: AiCommitMessageProvider;
+  providers: Record<AiCommitMessageProvider, AiProviderSettings>;
+  cliStatus: Record<AiCliProvider, AiCliProviderStatus>;
   commitMessagePrompt: string;
 }
 
 export interface AiSettingsSaveRequest {
-  apiKey?: string;
-  clearApiKey?: boolean;
-  model: string;
+  selectedProvider: AiCommitMessageProvider;
+  providerModels: Record<AiCommitMessageProvider, string>;
+  apiKeys?: Partial<Record<AiApiKeyProvider, string>>;
+  clearApiKeys?: Partial<Record<AiApiKeyProvider, boolean>>;
   commitMessagePrompt: string;
 }
 

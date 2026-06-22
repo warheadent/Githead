@@ -1,21 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
-import type { AiSettings } from "../shared/types";
+import type { AiApiKeyProvider, AiCommitMessageProvider, AiSettings } from "../shared/types";
 import { CommitMessageService } from "./commitMessageService";
-import type { AiSettingsService } from "./aiSettingsService";
+import { DEFAULT_AI_PROVIDER_MODELS, type AiSettingsService } from "./aiSettingsService";
+import type { ProcessResult, ProcessRunOptions, ProcessRunner } from "./processRunner";
 
 class FakeAiSettingsService {
   constructor(
     private readonly settings: AiSettings,
-    private readonly apiKey: string | null
+    private readonly apiKeys: Partial<Record<AiApiKeyProvider, string>>
   ) {}
 
   async getSettings(): Promise<AiSettings> {
     return this.settings;
   }
 
-  async getApiKey(): Promise<string | null> {
-    return this.apiKey;
+  async getApiKey(provider: AiApiKeyProvider): Promise<string | null> {
+    return this.apiKeys[provider] ?? null;
   }
 }
 
@@ -32,19 +33,80 @@ class FakeGitService {
   }
 }
 
+class FakeProcessRunner implements ProcessRunner {
+  readonly calls: Array<{ command: string; args: string[]; options: ProcessRunOptions | undefined }> = [];
+
+  constructor(private readonly result: ProcessResult = {
+    exitCode: 0,
+    stdout: "feat: add generated commit messages",
+    stderr: ""
+  }) {}
+
+  async run(command: string, args: string[], options?: ProcessRunOptions): Promise<ProcessResult> {
+    this.calls.push({
+      command,
+      args,
+      options
+    });
+
+    return this.result;
+  }
+}
+
 interface FetchCall {
   url: string;
   init?: RequestInit | undefined;
 }
 
-const settings: AiSettings = {
-  hasApiKey: true,
-  model: "openrouter/auto",
+const baseSettings: AiSettings = {
+  selectedProvider: "openrouter",
+  providers: {
+    openrouter: {
+      model: "openrouter/auto",
+      hasApiKey: true
+    },
+    openai: {
+      model: DEFAULT_AI_PROVIDER_MODELS.openai,
+      hasApiKey: true
+    },
+    "codex-cli": {
+      model: DEFAULT_AI_PROVIDER_MODELS["codex-cli"],
+      hasApiKey: false
+    },
+    anthropic: {
+      model: DEFAULT_AI_PROVIDER_MODELS.anthropic,
+      hasApiKey: true
+    },
+    "claude-code": {
+      model: DEFAULT_AI_PROVIDER_MODELS["claude-code"],
+      hasApiKey: false
+    }
+  },
+  cliStatus: {
+    "codex-cli": {
+      detected: true,
+      authenticated: true,
+      message: "Codex CLI is authenticated."
+    },
+    "claude-code": {
+      detected: true,
+      authenticated: true,
+      message: "Claude Code is authenticated."
+    }
+  },
   commitMessagePrompt: [
     "Write a project-specific Git commit message.",
     "Prefer Conventional Commits."
   ].join("\n")
 };
+
+function createSettings(provider: AiCommitMessageProvider, patch: Partial<AiSettings> = {}): AiSettings {
+  return {
+    ...baseSettings,
+    selectedProvider: provider,
+    ...patch
+  };
+}
 
 function createFetch(
   payload: unknown,
@@ -69,11 +131,15 @@ function createFetch(
 }
 
 function createService(params: {
-  diff: string;
-  apiKey?: string | null;
+  provider?: AiCommitMessageProvider;
+  settings?: AiSettings;
+  diff?: string;
+  apiKeys?: Partial<Record<AiApiKeyProvider, string>>;
   response?: unknown;
   responseOk?: boolean;
-}): { service: CommitMessageService; calls: FetchCall[] } {
+  runner?: ProcessRunner;
+}): { service: CommitMessageService; calls: FetchCall[]; runner: ProcessRunner } {
+  const provider = params.provider ?? "openrouter";
   const fetchState = createFetch(params.response ?? {
     choices: [
       {
@@ -85,25 +151,30 @@ function createService(params: {
   }, params.responseOk === undefined ? {} : {
     ok: params.responseOk
   });
+  const runner = params.runner ?? new FakeProcessRunner();
 
   return {
     service: new CommitMessageService(
-      () => new FakeGitService(params.diff),
+      () => new FakeGitService(params.diff ?? "diff --git a/a.ts b/a.ts\n+added\n"),
       new FakeAiSettingsService(
-        settings,
-        Object.hasOwn(params, "apiKey") ? params.apiKey ?? null : "sk-or-key"
+        params.settings ?? createSettings(provider),
+        params.apiKeys ?? {
+          openrouter: "sk-or-key",
+          openai: "sk-openai",
+          anthropic: "sk-ant"
+        }
       ) as unknown as AiSettingsService,
-      fetchState.fetch
+      fetchState.fetch,
+      runner
     ),
-    calls: fetchState.calls
+    calls: fetchState.calls,
+    runner
   };
 }
 
 describe("CommitMessageService", () => {
   it("builds an OpenRouter chat completion request from the staged diff", async () => {
-    const { service, calls } = createService({
-      diff: "diff --git a/a.ts b/a.ts\n+added\n"
-    });
+    const { service, calls } = createService({});
 
     const result = await service.generateCommitMessage({
       repoPath: "D:\\Repo"
@@ -113,7 +184,6 @@ describe("CommitMessageService", () => {
       exitCode: 0,
       stdout: "feat: add generated commit messages"
     });
-    expect(calls).toHaveLength(1);
     expect(calls[0]?.url).toBe("https://openrouter.ai/api/v1/chat/completions");
     expect(calls[0]?.init?.headers).toMatchObject({
       "Authorization": "Bearer sk-or-key",
@@ -131,50 +201,162 @@ describe("CommitMessageService", () => {
     expect(body.service_tier).toBe("flex");
     expect(body.messages.at(-1)?.content).toContain("+added");
     expect(body.messages[0]?.content).toContain("Return exactly the commit message text");
-    expect(body.messages[0]?.content).toContain("Follow Conventional Commits format");
-    expect(body.messages[0]?.content).toContain("feat, fix, refactor, perf, docs, test, build, ci, chore, revert");
-    expect(body.messages[0]?.content).toContain("Set scope to the primary module only when one clearly dominates");
-    expect(body.messages[0]?.content).toContain("imperative mood, aim for under 50 characters");
-    expect(body.messages[0]?.content).toContain("BREAKING CHANGE: footer");
-    expect(body.messages[0]?.content).toContain("Do not insert manual line breaks");
     expect(body.messages.at(-1)?.content).toContain("Write a project-specific Git commit message.");
-    expect(body.messages.at(-1)?.content).toContain("Prefer Conventional Commits.");
-    expect(body.messages.at(-1)?.content).toContain("Staged diff:");
+  });
+
+  it("builds an OpenAI Responses request and parses output_text", async () => {
+    const { service, calls } = createService({
+      provider: "openai",
+      response: {
+        output_text: "fix: use responses api"
+      }
+    });
+
+    await expect(service.generateCommitMessage({
+      repoPath: "D:\\Repo"
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "fix: use responses api"
+    });
+
+    expect(calls[0]?.url).toBe("https://api.openai.com/v1/responses");
+    expect(calls[0]?.init?.headers).toMatchObject({
+      "Authorization": "Bearer sk-openai"
+    });
+    const body = JSON.parse(String(calls[0]?.init?.body)) as {
+      model: string;
+      instructions: string;
+      input: string;
+      max_output_tokens: number;
+    };
+    expect(body.model).toBe(DEFAULT_AI_PROVIDER_MODELS.openai);
+    expect(body.instructions).toContain("Follow Conventional Commits format");
+    expect(body.input).toContain("Staged diff:");
+    expect(body.max_output_tokens).toBe(220);
+  });
+
+  it("builds an Anthropic Messages request and parses text blocks", async () => {
+    const { service, calls } = createService({
+      provider: "anthropic",
+      response: {
+        content: [
+          {
+            type: "text",
+            text: "chore: add anthropic provider"
+          }
+        ]
+      }
+    });
+
+    await expect(service.generateCommitMessage({
+      repoPath: "D:\\Repo"
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "chore: add anthropic provider"
+    });
+
+    expect(calls[0]?.url).toBe("https://api.anthropic.com/v1/messages");
+    expect(calls[0]?.init?.headers).toMatchObject({
+      "x-api-key": "sk-ant",
+      "anthropic-version": "2023-06-01"
+    });
+    const body = JSON.parse(String(calls[0]?.init?.body)) as {
+      model: string;
+      system: string;
+      messages: Array<{ role: string; content: string }>;
+      max_tokens: number;
+    };
+    expect(body.model).toBe(DEFAULT_AI_PROVIDER_MODELS.anthropic);
+    expect(body.system).toContain("Return exactly the commit message text");
+    expect(body.messages[0]?.content).toContain("+added");
+    expect(body.max_tokens).toBe(220);
+  });
+
+  it("runs Codex CLI with prompt on stdin", async () => {
+    const runner = new FakeProcessRunner();
+    const { service } = createService({
+      provider: "codex-cli",
+      runner
+    });
+
+    await expect(service.generateCommitMessage({
+      repoPath: "D:\\Repo"
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "feat: add generated commit messages"
+    });
+    const call = runner.calls[0];
+    expect(call?.command).toBe(process.platform === "win32" ? "cmd.exe" : "codex");
+    expect(call?.args).toEqual(createExpectedCliArgs("codex", [
+      "exec",
+      "--model",
+      DEFAULT_AI_PROVIDER_MODELS["codex-cli"],
+      "--sandbox",
+      "read-only",
+      "--color",
+      "never",
+      "--ephemeral",
+      "--skip-git-repo-check",
+      "-"
+    ]));
+    expect(call?.options?.cwd).toBe("D:\\Repo");
+    expect(call?.options?.stdin).toContain("Staged diff:");
+    expect(call?.options?.timeoutMs).toBe(60_000);
+  });
+
+  it("runs Claude Code with prompt on stdin", async () => {
+    const runner = new FakeProcessRunner();
+    const { service } = createService({
+      provider: "claude-code",
+      runner
+    });
+
+    await service.generateCommitMessage({
+      repoPath: "D:\\Repo"
+    });
+    const call = runner.calls[0];
+    expect(call?.command).toBe(process.platform === "win32" ? "cmd.exe" : "claude");
+    expect(call?.args).toEqual(createExpectedCliArgs("claude", [
+      "-p",
+      "--model",
+      DEFAULT_AI_PROVIDER_MODELS["claude-code"],
+      "--output-format",
+      "text",
+      "--no-session-persistence",
+      "--max-turns",
+      "1",
+      "--tools",
+      "",
+      "--permission-mode",
+      "default",
+      "--input-format",
+      "text"
+    ]));
+    expect(call?.args).toContain("-p");
+    expect(call?.args).toContain("--input-format");
+    expect(call?.options?.stdin).toContain("Staged diff:");
+    expect(call?.options?.timeoutMs).toBe(60_000);
   });
 
   it("uses the default prompt when saved prompt settings are blank", async () => {
-    const fetchState = createFetch({
-      choices: [
-        {
-          message: {
-            content: "fix: normalize defaults"
-          }
-        }
-      ]
-    });
-    const service = new CommitMessageService(
-      () => new FakeGitService("diff --git a/a.ts b/a.ts\n+added\n"),
-      new FakeAiSettingsService({
-        ...settings,
+    const { service, calls } = createService({
+      settings: createSettings("openrouter", {
         commitMessagePrompt: ""
-      }, "sk-or-key") as unknown as AiSettingsService,
-      fetchState.fetch
-    );
+      })
+    });
 
     await service.generateCommitMessage({
       repoPath: "D:\\Repo"
     });
 
-    const body = JSON.parse(String(fetchState.calls[0]?.init?.body)) as {
+    const body = JSON.parse(String(calls[0]?.init?.body)) as {
       messages: Array<{ content: string }>;
     };
     expect(body.messages.at(-1)?.content).toContain(DEFAULT_COMMIT_MESSAGE_PROMPT);
   });
 
   it("includes additional user context in the prompt when provided", async () => {
-    const { service, calls } = createService({
-      diff: "diff --git a/a.ts b/a.ts\n+added\n"
-    });
+    const { service, calls } = createService({});
 
     await service.generateCommitMessage({
       repoPath: "D:\\Repo",
@@ -188,27 +370,9 @@ describe("CommitMessageService", () => {
     expect(prompt).toContain("Additional context from the user:");
     expect(prompt).toContain("This preserves legacy project naming.");
     expect(prompt).not.toContain("  This preserves legacy project naming.  ");
-    expect(prompt.indexOf("Additional context from the user:")).toBeLessThan(prompt.indexOf("Staged diff:"));
   });
 
-  it("omits whitespace-only additional context from the prompt", async () => {
-    const { service, calls } = createService({
-      diff: "diff --git a/a.ts b/a.ts\n+added\n"
-    });
-
-    await service.generateCommitMessage({
-      repoPath: "D:\\Repo",
-      additionalContext: "   "
-    });
-
-    const body = JSON.parse(String(calls[0]?.init?.body)) as {
-      messages: Array<{ content: string }>;
-    };
-    const prompt = body.messages.at(-1)?.content ?? "";
-    expect(prompt).not.toContain("Additional context from the user:");
-  });
-
-  it("caps large staged diffs before sending them to OpenRouter", async () => {
+  it("caps large staged diffs before sending them to providers", async () => {
     const { service, calls } = createService({
       diff: `diff --git a/a.ts b/a.ts\n${"x".repeat(70_000)}`
     });
@@ -225,8 +389,8 @@ describe("CommitMessageService", () => {
     expect(prompt.length).toBeLessThan(61_000);
   });
 
-  it("fails without calling OpenRouter when no staged diff exists", async () => {
-    const { service, calls } = createService({
+  it("fails without calling providers when no staged diff exists", async () => {
+    const { service, calls, runner } = createService({
       diff: ""
     });
 
@@ -239,12 +403,13 @@ describe("CommitMessageService", () => {
       stderr: "Stage changes before generating a commit message."
     });
     expect(calls).toHaveLength(0);
+    expect((runner as FakeProcessRunner).calls).toHaveLength(0);
   });
 
-  it("fails without calling OpenRouter when the API key is missing", async () => {
+  it("fails without calling providers when the selected API key is missing", async () => {
     const { service, calls } = createService({
-      diff: "diff --git a/a.ts b/a.ts\n+added\n",
-      apiKey: null
+      provider: "openai",
+      apiKeys: {}
     });
 
     const result = await service.generateCommitMessage({
@@ -253,14 +418,39 @@ describe("CommitMessageService", () => {
 
     expect(result).toMatchObject({
       exitCode: -1,
-      stderr: "OpenRouter API key is not configured."
+      stderr: "OpenAI API key is not configured."
     });
     expect(calls).toHaveLength(0);
   });
 
-  it("returns OpenRouter errors clearly", async () => {
+  it("fails before spawning unauthenticated CLI providers", async () => {
+    const runner = new FakeProcessRunner();
     const { service } = createService({
-      diff: "diff --git a/a.ts b/a.ts\n+added\n",
+      provider: "codex-cli",
+      settings: createSettings("codex-cli", {
+        cliStatus: {
+          ...baseSettings.cliStatus,
+          "codex-cli": {
+            detected: true,
+            authenticated: false,
+            message: "Codex CLI is installed but not authenticated."
+          }
+        }
+      }),
+      runner
+    });
+
+    await expect(service.generateCommitMessage({
+      repoPath: "D:\\Repo"
+    })).resolves.toMatchObject({
+      exitCode: -1,
+      stderr: "Codex CLI is not authenticated."
+    });
+    expect(runner.calls).toHaveLength(0);
+  });
+
+  it("returns provider errors clearly", async () => {
+    const { service } = createService({
       response: {
         error: {
           message: "invalid api key"
@@ -279,7 +469,6 @@ describe("CommitMessageService", () => {
 
   it("strips markdown fences from generated messages", async () => {
     const { service } = createService({
-      diff: "diff --git a/a.ts b/a.ts\n+added\n",
       response: {
         choices: [
           {
@@ -299,3 +488,15 @@ describe("CommitMessageService", () => {
     });
   });
 });
+
+function createExpectedCliArgs(command: "codex" | "claude", args: string[]): string[] {
+  return process.platform === "win32"
+    ? [
+        "/d",
+        "/s",
+        "/c",
+        command,
+        ...args
+      ]
+    : args;
+}

@@ -30,26 +30,7 @@ export class NodeProcessRunner implements ProcessRunner {
       const stdoutChunks: string[] = [];
       const stderrChunks: string[] = [];
       let completed = false;
-
-      const child = spawn(command, args, {
-        cwd: options.cwd,
-        env: options.env,
-        shell: false,
-        windowsHide: true
-      });
-      const timeout = options.timeoutMs
-        ? setTimeout(() => {
-            child.kill();
-            finish({
-              exitCode: -1,
-              stdout: stdoutChunks.join(""),
-              stderr: stderrChunks.join(""),
-              error: `Command timed out after ${options.timeoutMs}ms.`
-            });
-          }, options.timeoutMs)
-        : null;
-
-      child.stdin?.end(options.stdin);
+      let timeout: NodeJS.Timeout | null = null;
 
       const finish = (result: ProcessResult) => {
         if (completed) {
@@ -62,6 +43,38 @@ export class NodeProcessRunner implements ProcessRunner {
         }
         resolve(result);
       };
+
+      let child: ReturnType<typeof spawn>;
+      try {
+        child = spawn(command, args, {
+          cwd: options.cwd,
+          env: options.env,
+          shell: false,
+          windowsHide: true
+        });
+      } catch (error) {
+        finish({
+          exitCode: -1,
+          stdout: "",
+          stderr: "",
+          error: error instanceof Error ? error.message : "Unable to start command."
+        });
+        return;
+      }
+
+      timeout = options.timeoutMs
+        ? setTimeout(() => {
+            child.kill();
+            finish({
+              exitCode: -1,
+              stdout: stdoutChunks.join(""),
+              stderr: stderrChunks.join(""),
+              error: `Command timed out after ${options.timeoutMs}ms.`
+            });
+          }, options.timeoutMs)
+        : null;
+
+      child.stdin?.end(options.stdin);
 
       child.stdout?.on("data", (chunk: Buffer) => {
         const text = chunk.toString();

@@ -40,6 +40,7 @@ import type {
   GitSafeDirectoryRequest,
   GitUpstreamRequest
 } from "../shared/types";
+import { AiCliStatusService } from "./aiCliStatusService";
 import { AiSettingsService } from "./aiSettingsService";
 import { AppSettingsService } from "./appSettingsService";
 import { CommitMessageService } from "./commitMessageService";
@@ -69,6 +70,7 @@ function isLoreSource(source: string): boolean {
 
 let mainWindow: BrowserWindow | null = null;
 let commandRunning = false;
+let aiCliStatusService: AiCliStatusService | null = null;
 let aiSettingsService: AiSettingsService | null = null;
 let appSettingsService: AppSettingsService | null = null;
 let gitIdentityService: GitIdentityService | null = null;
@@ -855,8 +857,17 @@ function sendWindowState(window: BrowserWindow | null): void {
 }
 
 function getAiSettingsService(): AiSettingsService {
-  aiSettingsService ??= new AiSettingsService(app.getPath("userData"), safeStorage);
+  aiSettingsService ??= new AiSettingsService(
+    app.getPath("userData"),
+    safeStorage,
+    () => getAiCliStatusService().getStatus()
+  );
   return aiSettingsService;
+}
+
+function getAiCliStatusService(): AiCliStatusService {
+  aiCliStatusService ??= new AiCliStatusService(processRunner);
+  return aiCliStatusService;
 }
 
 function getAppSettingsService(): AppSettingsService {
@@ -872,7 +883,9 @@ function getGitIdentityService(): GitIdentityService {
 function getCommitMessageService(): CommitMessageService {
   commitMessageService ??= new CommitMessageService(
     (repoPath) => vcsRouter.serviceForRepo(repoPath),
-    getAiSettingsService()
+    getAiSettingsService(),
+    fetch,
+    processRunner
   );
   return commitMessageService;
 }

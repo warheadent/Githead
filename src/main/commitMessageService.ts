@@ -1,53 +1,57 @@
-import type { GitOperationResult, GenerateCommitMessageRequest } from "../shared/types";
-import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
-import type { AiSettingsService } from "./aiSettingsService";
+import type { AiApiKeyProvider, AiCommitMessageProvider, GenerateCommitMessageRequest, GitOperationResult } from "../shared/types";
+import { getProviderLabel, isApiKeyProvider, isCliProvider, type AiSettingsService } from "./aiSettingsService";
+import {
+  AnthropicCommitMessageProvider,
+  ClaudeCodeCommitMessageProvider,
+  CodexCliCommitMessageProvider,
+  OpenAiCommitMessageProvider,
+  OpenRouterCommitMessageProvider,
+  type CommitMessageProvider
+} from "./commitMessageProviders";
+import {
+  createCommitMessageSystemPrompt,
+  createCommitMessageUserPrompt,
+  normalizeGeneratedMessage
+} from "./commitMessagePromptBuilder";
+import type { ProcessRunner } from "./processRunner";
 import type { VcsService } from "./vcsService";
 
 /** Whichever VCS backend owns the repo supplies the staged diff for the model. */
 type StagedDiffProvider = Pick<VcsService, "getStagedDiff">;
 
-const OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions";
-const OPENROUTER_PREFERRED_SERVICE_TIER = "flex";
-const OPENROUTER_SITE_URL = "https://github.com/warheadent/Githead#readme";
-const OPENROUTER_SITE_TITLE = "Githead";
-const MAX_DIFF_CHARS = 60_000;
-
 type Fetch = typeof fetch;
-
-interface OpenRouterResponse {
-  choices?: Array<{
-    message?: {
-      content?: string;
-    };
-  }>;
-  error?: {
-    message?: string;
-  };
-}
 
 export class CommitMessageService {
   constructor(
     private readonly resolveService: (repoPath: string) => StagedDiffProvider | Promise<StagedDiffProvider>,
     private readonly settingsService: AiSettingsService,
-    private readonly fetchImpl: Fetch = fetch
+    private readonly fetchImpl: Fetch = fetch,
+    private readonly runner?: ProcessRunner
   ) {}
 
   async generateCommitMessage(request: GenerateCommitMessageRequest): Promise<GitOperationResult> {
     try {
-      const [
-        settings,
-        apiKey
-      ] = await Promise.all([
-        this.settingsService.getSettings(),
-        this.settingsService.getApiKey()
-      ]);
+      const settings = await this.settingsService.getSettings();
+      const selectedProvider = settings.selectedProvider;
+      const providerSettings = settings.providers[selectedProvider];
+      const providerLabel = getProviderLabel(selectedProvider);
 
-      if (!apiKey) {
-        return createFailure(request.repoPath, "OpenRouter API key is not configured.");
+      if (!providerSettings.model.trim()) {
+        return createFailure(request.repoPath, `${providerLabel} model is not configured.`);
       }
 
-      if (!settings.model.trim()) {
-        return createFailure(request.repoPath, "OpenRouter model is not configured.");
+      const apiKey = isApiKeyProvider(selectedProvider)
+        ? await this.settingsService.getApiKey(selectedProvider)
+        : null;
+      if (isApiKeyProvider(selectedProvider) && !apiKey) {
+        return createFailure(request.repoPath, `${providerLabel} API key is not configured.`);
+      }
+
+      if (isCliProvider(selectedProvider)) {
+        const status = settings.cliStatus[selectedProvider];
+        if (!status.detected || !status.authenticated) {
+          return createFailure(request.repoPath, `${providerLabel} is not authenticated.`);
+        }
       }
 
       const service = await this.resolveService(request.repoPath);
@@ -61,51 +65,19 @@ export class CommitMessageService {
         return createFailure(request.repoPath, "Stage changes before generating a commit message.");
       }
 
-      const response = await this.fetchImpl(OPENROUTER_CHAT_COMPLETIONS_URL, {
-        method: "POST",
-        headers: createHeaders(apiKey),
-        body: JSON.stringify({
-          model: settings.model,
-          service_tier: OPENROUTER_PREFERRED_SERVICE_TIER,
-          messages: [
-            {
-              role: "system",
-              content: [
-                "You write concise Git commit messages for git commit --file=-.",
-                "Follow Conventional Commits format: type(scope): subject.",
-                "Use only these lowercase types: feat, fix, refactor, perf, docs, test, build, ci, chore, revert.",
-                "Set scope to the primary module only when one clearly dominates; otherwise omit scope and parentheses.",
-                "Write the subject in imperative mood, aim for under 50 characters, and use no trailing period.",
-                "Include a body only when it clarifies important behavior or explains why the change was made.",
-                "Separate the subject and body with exactly one blank line.",
-                "Use '-' bullets for body details, and keep each bullet on one line.",
-                "For breaking changes, append '!' after the type/scope and add a BREAKING CHANGE: footer.",
-                "Return exactly the commit message text that should be saved.",
-                "Do not include commentary, labels, markdown fences, or alternatives.",
-                "Do not insert manual line breaks within the subject or within any bullet."
-              ].join(" ")
-            },
-            {
-              role: "user",
-              content: createPrompt(settings.commitMessagePrompt, diff, request.additionalContext)
-            }
-          ],
-          temperature: 0.2,
-          max_tokens: 220
-        })
-      });
-
-      const payload = await parseOpenRouterResponse(response);
-      if (!response.ok) {
-        return createFailure(
-          request.repoPath,
-          payload.error?.message || `OpenRouter request failed with status ${response.status}.`
-        );
-      }
-
-      const message = normalizeGeneratedMessage(payload.choices?.[0]?.message?.content ?? "");
+      const provider = this.createProvider(selectedProvider, apiKey);
+      const message = normalizeGeneratedMessage(await provider.generate({
+        repoPath: request.repoPath,
+        model: providerSettings.model,
+        systemPrompt: createCommitMessageSystemPrompt(),
+        userPrompt: createCommitMessageUserPrompt(
+          settings.commitMessagePrompt,
+          diff,
+          request.additionalContext
+        )
+      }));
       if (!message) {
-        return createFailure(request.repoPath, "OpenRouter returned an empty commit message.");
+        return createFailure(request.repoPath, `${providerLabel} returned an empty commit message.`);
       }
 
       return {
@@ -121,48 +93,35 @@ export class CommitMessageService {
       );
     }
   }
-}
 
-function createHeaders(apiKey: string): Record<string, string> {
-  return {
-    "Authorization": `Bearer ${apiKey}`,
-    "Content-Type": "application/json",
-    "HTTP-Referer": OPENROUTER_SITE_URL,
-    "X-Title": OPENROUTER_SITE_TITLE
-  };
-}
-
-function createPrompt(commitMessagePrompt: string, diff: string, additionalContext?: string): string {
-  const truncated = diff.length > MAX_DIFF_CHARS;
-  const promptDiff = truncated ? diff.slice(0, MAX_DIFF_CHARS) : diff;
-  const instructions = commitMessagePrompt.trim() || DEFAULT_COMMIT_MESSAGE_PROMPT;
-  const trimmedContext = additionalContext?.trim() ?? "";
-
-  return [
-    instructions,
-    truncated ? "The diff was truncated; summarize only the visible staged changes." : "",
-    trimmedContext ? "Additional context from the user:" : "",
-    trimmedContext,
-    "",
-    "Staged diff:",
-    promptDiff
-  ].filter((line) => line.length > 0).join("\n");
-}
-
-async function parseOpenRouterResponse(response: Response): Promise<OpenRouterResponse> {
-  try {
-    return await response.json() as OpenRouterResponse;
-  } catch {
-    return {};
+  private createProvider(provider: AiCommitMessageProvider, apiKey: string | null): CommitMessageProvider {
+    switch (provider) {
+      case "openrouter":
+        return new OpenRouterCommitMessageProvider(requireApiKey(provider, apiKey), this.fetchImpl);
+      case "openai":
+        return new OpenAiCommitMessageProvider(requireApiKey(provider, apiKey), this.fetchImpl);
+      case "anthropic":
+        return new AnthropicCommitMessageProvider(requireApiKey(provider, apiKey), this.fetchImpl);
+      case "codex-cli":
+        if (!this.runner) {
+          throw new Error("Codex CLI runner is not configured.");
+        }
+        return new CodexCliCommitMessageProvider(this.runner);
+      case "claude-code":
+        if (!this.runner) {
+          throw new Error("Claude Code runner is not configured.");
+        }
+        return new ClaudeCodeCommitMessageProvider(this.runner);
+    }
   }
 }
 
-function normalizeGeneratedMessage(message: string): string {
-  return message
-    .trim()
-    .replace(/^```(?:gitcommit|text)?\s*/i, "")
-    .replace(/\s*```$/i, "")
-    .trim();
+function requireApiKey(provider: AiApiKeyProvider, apiKey: string | null): string {
+  if (!apiKey) {
+    throw new Error(`${getProviderLabel(provider)} API key is not configured.`);
+  }
+
+  return apiKey;
 }
 
 function createFailure(repoPath: string, stderr: string): GitOperationResult {

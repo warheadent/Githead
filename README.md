@@ -120,13 +120,17 @@ Use **Manage Repository Actions** in the Actions menu to create, edit, delete, a
 
 ### AI commit messages
 
-Commit message generation uses the OpenRouter Chat Completions API. Open **Settings** in the app and provide:
+Commit message generation supports multiple providers. Open **Settings** in the app, choose a provider, and configure the model and credentials required by that provider.
 
-- an **OpenRouter API key**
-- a **model** (e.g. an OpenRouter model slug)
-- a **commit message prompt** used to guide generated messages
+Supported providers and defaults:
 
-The API key is stored by the app; the configured prompt and staged diff are sent to OpenRouter to produce a suggested message.
+- **OpenRouter**: `openai/gpt-4.1-mini`
+- **OpenAI API**: `gpt-5.4-nano`
+- **Codex CLI**: `gpt-5.4-mini` when `codex` is installed and `codex login status` succeeds
+- **Anthropic API**: `claude-haiku-4-5-20251001`
+- **Claude Code**: `haiku` when `claude` is installed and `claude auth status` succeeds
+
+Direct API providers require an API key stored by the app. CLI providers use the local CLI credentials already configured on the machine. The configured prompt and staged diff are sent to the selected provider to produce a suggested message.
 
 ### GitHub access
 
@@ -137,8 +141,8 @@ The Workflow Runs, Pull Requests, and Issues tabs query the public GitHub REST A
 - Githead runs Git commands locally against repositories selected by the user.
 - Repository paths, branch names, remotes, diffs, commit messages, and command output can contain sensitive information. Review logs before sharing them publicly.
 - GitHub insight calls the GitHub REST API for the repository behind `origin`. If the GitHub CLI is authenticated or `GITHUB_TOKEN` / `GH_TOKEN` is set, Githead may use that authentication for private repositories or higher rate limits.
-- AI commit message generation is optional. When used, Githead sends the staged diff to OpenRouter and receives a suggested commit message.
-- OpenRouter API keys are stored locally by the app and encrypted when the operating system provides encryption support.
+- AI commit message generation is optional. When used, Githead sends the staged diff to the selected provider or selected CLI-backed provider and receives a suggested commit message.
+- OpenRouter, OpenAI, and Anthropic API keys are stored locally by the app and encrypted when the operating system provides encryption support. Codex CLI and Claude Code use their own local authentication.
 
 ## Project layout
 

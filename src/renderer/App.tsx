@@ -98,6 +98,9 @@ import {
 } from "@/components/ui/tooltip";
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import type {
+  AiApiKeyProvider,
+  AiCliProvider,
+  AiCommitMessageProvider,
   AiSettings,
   AppSettings,
   AppUpdateState,
@@ -130,7 +133,7 @@ import type {
   RepoTrustResult,
   RepoSummary
 } from "../shared/types";
-import { GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
+import { AI_API_KEY_PROVIDERS, AI_CLI_PROVIDERS, AI_COMMIT_MESSAGE_PROVIDERS, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
 import { parseCommitSubject } from "../shared/commitSubject";
 import { ActivityLogView } from "./ActivityLogView";
 import {
@@ -166,8 +169,10 @@ interface FileSelectionModifiers {
 }
 
 interface SettingsDraft {
-  apiKey: string;
-  model: string;
+  selectedProvider: AiCommitMessageProvider;
+  providerModels: Record<AiCommitMessageProvider, string>;
+  apiKeys: Partial<Record<AiApiKeyProvider, string>>;
+  clearApiKeys: Partial<Record<AiApiKeyProvider, boolean>>;
   commitMessagePrompt: string;
   autoFetchIntervalMinutes: string;
   gitIdentityName: string;
@@ -346,8 +351,16 @@ interface RequestIds {
 }
 
 const emptySettingsDraft: SettingsDraft = {
-  apiKey: "",
-  model: "",
+  selectedProvider: "openrouter",
+  providerModels: {
+    openrouter: "",
+    openai: "",
+    "codex-cli": "",
+    anthropic: "",
+    "claude-code": ""
+  },
+  apiKeys: {},
+  clearApiKeys: {},
   commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT,
   autoFetchIntervalMinutes: "10",
   gitIdentityName: "",
@@ -2728,8 +2741,10 @@ export function App(): ReactNode {
       settingsOpen: true,
       settingsError: "",
       settingsDraft: {
-        apiKey: "",
-        model: settings?.model ?? "",
+        selectedProvider: settings?.selectedProvider ?? "openrouter",
+        providerModels: createSettingsDraftProviderModels(settings),
+        apiKeys: {},
+        clearApiKeys: {},
         commitMessagePrompt: settings?.commitMessagePrompt ?? DEFAULT_COMMIT_MESSAGE_PROMPT,
         autoFetchIntervalMinutes: String(appSettings?.autoFetchIntervalMinutes ?? 10),
         gitIdentityName: gitIdentity?.name ?? "",
@@ -2783,8 +2798,10 @@ export function App(): ReactNode {
       }
 
       const aiSettings = await window.githead.saveAiSettings({
-        apiKey: draft.apiKey,
-        model: draft.model,
+        selectedProvider: draft.selectedProvider,
+        providerModels: draft.providerModels,
+        apiKeys: draft.apiKeys,
+        clearApiKeys: draft.clearApiKeys,
         commitMessagePrompt: draft.commitMessagePrompt
       });
       const appSettings = await window.githead.saveAppSettings({
@@ -4030,6 +4047,7 @@ export function App(): ReactNode {
       <SettingsDialog
         open={state.settingsOpen}
         draft={state.settingsDraft}
+        aiSettings={state.aiSettings}
         saving={state.settingsSaving}
         error={state.settingsError}
         onOpenChange={(open) => {
@@ -7970,6 +7988,7 @@ function GitIdentityDialog({
 function SettingsDialog({
   open,
   draft,
+  aiSettings,
   saving,
   error,
   onOpenChange,
@@ -7978,6 +7997,7 @@ function SettingsDialog({
 }: {
   open: boolean;
   draft: SettingsDraft;
+  aiSettings: AiSettings | null;
   saving: boolean;
   error: string;
   onOpenChange: (open: boolean) => void;
@@ -7992,7 +8012,7 @@ function SettingsDialog({
             <p className="eyebrow">Preferences</p>
             <DialogTitle>Settings</DialogTitle>
             <DialogDescription>
-              Configure Git identity, sync behavior, and OpenRouter commit message generation.
+              Configure Git identity, sync behavior, and AI commit message generation.
             </DialogDescription>
           </DialogHeader>
 
@@ -8062,41 +8082,82 @@ function SettingsDialog({
               <section className="grid gap-3">
                 <div>
                   <h3 className="text-sm font-semibold">AI</h3>
-                  <p className="text-sm text-muted-foreground">OpenRouter settings for generated commit messages.</p>
+                  <p className="text-sm text-muted-foreground">Provider settings for generated commit messages.</p>
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="openrouter-api-key">API Key</Label>
-                  <Input
-                    id="openrouter-api-key"
-                    type="password"
-                    autoComplete="off"
-                    placeholder="Leave blank to keep existing key"
-                    value={draft.apiKey}
+                  <Label htmlFor="ai-provider">Provider</Label>
+                  <select
+                    id="ai-provider"
+                    className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                    value={draft.selectedProvider}
                     disabled={saving}
                     onChange={(event) => onDraftChange({
                       ...draft,
-                      apiKey: event.target.value
+                      selectedProvider: event.target.value as AiCommitMessageProvider
                     })}
-                  />
+                  >
+                    {AI_COMMIT_MESSAGE_PROVIDERS.map((provider) => (
+                      <option key={provider} value={provider}>{getAiProviderLabel(provider)}</option>
+                    ))}
+                  </select>
                 </div>
+                {isCliProvider(draft.selectedProvider) ? (
+                  <div className="grid gap-2 rounded-md border border-border p-3 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-medium">{getAiProviderLabel(draft.selectedProvider)} status</span>
+                      <Badge variant={draft.selectedProvider === "codex-cli" ? "secondary" : "outline"}>
+                        CLI
+                      </Badge>
+                    </div>
+                    <p className="text-muted-foreground">
+                      {getCliStatusMessage(aiSettings, draft.selectedProvider)}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid gap-2">
+                    <Label htmlFor="ai-api-key">{getAiProviderLabel(draft.selectedProvider)} API Key</Label>
+                    <Input
+                      id="ai-api-key"
+                      type="password"
+                      autoComplete="off"
+                      placeholder="Leave blank to keep existing key"
+                      value={draft.apiKeys[draft.selectedProvider] ?? ""}
+                      disabled={saving}
+                      onChange={(event) => onDraftChange({
+                        ...draft,
+                        apiKeys: {
+                          ...draft.apiKeys,
+                          [draft.selectedProvider]: event.target.value
+                        },
+                        clearApiKeys: {
+                          ...draft.clearApiKeys,
+                          [draft.selectedProvider]: false
+                        }
+                      })}
+                    />
+                  </div>
+                )}
                 <div className="grid gap-2">
-                  <Label htmlFor="openrouter-model">Model</Label>
+                  <Label htmlFor="ai-model">Model</Label>
                   <Input
-                    id="openrouter-model"
+                    id="ai-model"
                     type="text"
                     autoComplete="off"
-                    value={draft.model}
+                    value={draft.providerModels[draft.selectedProvider]}
                     disabled={saving}
                     onChange={(event) => onDraftChange({
                       ...draft,
-                      model: event.target.value
+                      providerModels: {
+                        ...draft.providerModels,
+                        [draft.selectedProvider]: event.target.value
+                      }
                     })}
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="openrouter-commit-message-prompt">Commit Message Prompt</Label>
+                  <Label htmlFor="ai-commit-message-prompt">Commit Message Prompt</Label>
                   <Textarea
-                    id="openrouter-commit-message-prompt"
+                    id="ai-commit-message-prompt"
                     className="h-72 resize-y field-sizing-fixed"
                     rows={7}
                     value={draft.commitMessagePrompt}
@@ -8883,16 +8944,69 @@ function getSortedFiles(summary: RepoSummary | null, predicate: (file: GitStatus
     .sort((left, right) => left.path.localeCompare(right.path));
 }
 
+function createSettingsDraftProviderModels(settings: AiSettings | null): Record<AiCommitMessageProvider, string> {
+  return AI_COMMIT_MESSAGE_PROVIDERS.reduce((models, provider) => {
+    models[provider] = settings?.providers[provider]?.model ?? "";
+    return models;
+  }, {} as Record<AiCommitMessageProvider, string>);
+}
+
+function isApiKeyProvider(provider: AiCommitMessageProvider): provider is AiApiKeyProvider {
+  return AI_API_KEY_PROVIDERS.includes(provider as AiApiKeyProvider);
+}
+
+function isCliProvider(provider: AiCommitMessageProvider): provider is AiCliProvider {
+  return AI_CLI_PROVIDERS.includes(provider as AiCliProvider);
+}
+
+function getAiProviderLabel(provider: AiCommitMessageProvider): string {
+  switch (provider) {
+    case "openrouter":
+      return "OpenRouter";
+    case "openai":
+      return "OpenAI";
+    case "codex-cli":
+      return "Codex CLI";
+    case "anthropic":
+      return "Anthropic";
+    case "claude-code":
+      return "Claude Code";
+  }
+}
+
+function getCliStatusMessage(aiSettings: AiSettings | null, provider: AiCliProvider): string {
+  return aiSettings?.cliStatus[provider]?.message ?? `${getAiProviderLabel(provider)} status is unavailable.`;
+}
+
 function canCommit(state: AppState): boolean {
   return hasStagedChanges(state.summary) && state.commitMessage.trim().length > 0;
 }
 
 function canGenerateCommitMessage(state: AppState): boolean {
-  return hasStagedChanges(state.summary) && hasCompleteAiSettings(state.aiSettings);
+  return hasStagedChanges(state.summary) && canUseSelectedAiProvider(state.aiSettings);
 }
 
-function hasCompleteAiSettings(aiSettings: AiSettings | null): boolean {
-  return Boolean(aiSettings?.hasApiKey && aiSettings.model.trim() && aiSettings.commitMessagePrompt.trim());
+function canUseSelectedAiProvider(aiSettings: AiSettings | null): boolean {
+  if (!aiSettings?.commitMessagePrompt.trim()) {
+    return false;
+  }
+
+  const provider = aiSettings.selectedProvider;
+  const providerSettings = aiSettings.providers[provider];
+  if (!providerSettings?.model.trim()) {
+    return false;
+  }
+
+  if (isApiKeyProvider(provider)) {
+    return providerSettings.hasApiKey;
+  }
+
+  if (isCliProvider(provider)) {
+    const status = aiSettings.cliStatus[provider];
+    return Boolean(status?.detected && status.authenticated);
+  }
+
+  return false;
 }
 
 function parseAutoFetchIntervalDraft(value: string): number {
@@ -8926,8 +9040,13 @@ function getGenerateMessageTitle(state: AppState): string {
     return "Stage changes before generating a commit message.";
   }
 
-  if (!hasCompleteAiSettings(state.aiSettings)) {
-    return "Configure OpenRouter settings before generating a commit message.";
+  if (!canUseSelectedAiProvider(state.aiSettings)) {
+    const provider = state.aiSettings?.selectedProvider ?? "openrouter";
+    if (isCliProvider(provider)) {
+      return `Install and authenticate ${getAiProviderLabel(provider)} before generating a commit message.`;
+    }
+
+    return `Configure ${getAiProviderLabel(provider)} settings before generating a commit message.`;
   }
 
   return "Generate a commit message from staged changes.";

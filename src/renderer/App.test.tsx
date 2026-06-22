@@ -38,7 +38,7 @@ import type {
   RepoSyncStatus,
   RepoSummary
 } from "../shared/types";
-import { gitCapabilities } from "../shared/types";
+import { gitCapabilities, type AiCommitMessageProvider } from "../shared/types";
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -56,6 +56,59 @@ let gitOutputCallback: Parameters<GitheadApi["onGitOutput"]>[0] | null;
 let updateStateCallback: Parameters<GitheadApi["onUpdateState"]>[0] | null;
 let repoChangedCallback: Parameters<GitheadApi["onRepoChanged"]>[0] | null;
 let windowStateCallback: Parameters<GitheadApi["onWindowState"]>[0] | null;
+
+const defaultProviderModels: Record<AiCommitMessageProvider, string> = {
+  openrouter: "openai/gpt-4.1-mini",
+  openai: "gpt-5.4-nano",
+  "codex-cli": "gpt-5.4-mini",
+  anthropic: "claude-haiku-4-5-20251001",
+  "claude-code": "haiku"
+};
+
+function createAiSettings(
+  selectedProvider: AiCommitMessageProvider = "openrouter",
+  patch: Partial<AiSettings> = {}
+): AiSettings {
+  return {
+    selectedProvider,
+    providers: {
+      openrouter: {
+        model: defaultProviderModels.openrouter,
+        hasApiKey: true
+      },
+      openai: {
+        model: defaultProviderModels.openai,
+        hasApiKey: true
+      },
+      "codex-cli": {
+        model: defaultProviderModels["codex-cli"],
+        hasApiKey: false
+      },
+      anthropic: {
+        model: defaultProviderModels.anthropic,
+        hasApiKey: true
+      },
+      "claude-code": {
+        model: defaultProviderModels["claude-code"],
+        hasApiKey: false
+      }
+    },
+    cliStatus: {
+      "codex-cli": {
+        detected: true,
+        authenticated: true,
+        message: "Codex CLI is authenticated."
+      },
+      "claude-code": {
+        detected: false,
+        authenticated: false,
+        message: "Claude Code was not detected."
+      }
+    },
+    commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT,
+    ...patch
+  };
+}
 
 beforeEach(() => {
   cleanupGitOutput = vi.fn<() => void>();
@@ -4320,11 +4373,16 @@ describe("App", () => {
 
   it("saves OpenRouter settings with a commit message prompt instead of site attribution fields", async () => {
     const user = userEvent.setup();
-    const savedSettings: AiSettings = {
-      hasApiKey: true,
-      model: "openrouter/auto",
+    const savedSettings = createAiSettings("openrouter", {
+      providers: {
+        ...createAiSettings().providers,
+        openrouter: {
+          model: "openrouter/auto",
+          hasApiKey: true
+        }
+      },
       commitMessagePrompt: "Write concise commit messages."
-    };
+    });
     vi.mocked(githead.getAiSettings).mockResolvedValue(savedSettings);
     vi.mocked(githead.saveAiSettings).mockResolvedValue(savedSettings);
 
@@ -4341,8 +4399,8 @@ describe("App", () => {
     const prompt = await screen.findByLabelText("Commit Message Prompt");
     expect(prompt).toBeTruthy();
 
-    await user.clear(screen.getByLabelText("API Key"));
-    await user.type(screen.getByLabelText("API Key"), "sk-or-key");
+    await user.clear(screen.getByLabelText("OpenRouter API Key"));
+    await user.type(screen.getByLabelText("OpenRouter API Key"), "sk-or-key");
     await user.clear(screen.getByLabelText("Model"));
     await user.type(screen.getByLabelText("Model"), "openrouter/auto");
     await user.clear(prompt);
@@ -4351,14 +4409,43 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(githead.saveAiSettings).toHaveBeenCalledWith({
-        apiKey: "sk-or-key",
-        model: "openrouter/auto",
+        selectedProvider: "openrouter",
+        providerModels: {
+          openrouter: "openrouter/auto",
+          openai: defaultProviderModels.openai,
+          "codex-cli": defaultProviderModels["codex-cli"],
+          anthropic: defaultProviderModels.anthropic,
+          "claude-code": defaultProviderModels["claude-code"]
+        },
+        apiKeys: {
+          openrouter: "sk-or-key"
+        },
+        clearApiKeys: {
+          openrouter: false
+        },
         commitMessagePrompt: "Write a single-line commit message."
       });
     });
     expect(githead.saveAppSettings).toHaveBeenCalledWith({
       autoFetchIntervalMinutes: 10
     });
+  });
+
+  it("shows provider selection and CLI provider status in AI settings", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await screen.findByRole("button", { name: "Settings" });
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("tab", { name: "AI" }));
+
+    const provider = await screen.findByLabelText("Provider");
+    expect(provider).toBeTruthy();
+    await user.selectOptions(provider, "claude-code");
+
+    expect(await screen.findByText("Claude Code status")).toBeTruthy();
+    expect(screen.getByText("Claude Code was not detected.")).toBeTruthy();
   });
 
   it("shows Git Identity and AI settings sections and saves identity fields", async () => {
@@ -4395,11 +4482,11 @@ describe("App", () => {
     await screen.findByText("Git Identity", {
       selector: "h3"
     });
-    expect(screen.queryByText("OpenRouter settings for generated commit messages.")).toBeNull();
+    expect(screen.queryByText("Provider settings for generated commit messages.")).toBeNull();
     await user.click(screen.getByRole("tab", { name: "Sync" }));
     expect((screen.getByLabelText("Auto-fetch interval") as HTMLInputElement).value).toBe("10");
     await user.click(screen.getByRole("tab", { name: "AI" }));
-    expect(await screen.findByText("OpenRouter settings for generated commit messages.")).toBeTruthy();
+    expect(await screen.findByText("Provider settings for generated commit messages.")).toBeTruthy();
     const prompt = screen.getByLabelText("Commit Message Prompt");
     expect(prompt.className).toContain("field-sizing-fixed");
     expect(prompt.className).toContain("h-72");
@@ -4450,11 +4537,15 @@ function createGitheadMock(): GitheadApi {
     stdout: "",
     stderr: ""
   };
-  const aiSettings: AiSettings = {
-    hasApiKey: true,
-    model: "openai/gpt-5-mini",
-    commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT
-  };
+  const aiSettings = createAiSettings("openai", {
+    providers: {
+      ...createAiSettings().providers,
+      openai: {
+        model: "openai/gpt-5-mini",
+        hasApiKey: true
+      }
+    }
+  });
   const appSettings: AppSettings = {
     autoFetchIntervalMinutes: 10
   };

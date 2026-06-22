@@ -3,9 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
+import type { AiCliProvider, AiCliProviderStatus } from "../shared/types";
 import {
   AiSettingsService,
-  DEFAULT_OPENROUTER_MODEL,
+  DEFAULT_AI_PROVIDER_MODELS,
   type SecretStorage
 } from "./aiSettingsService";
 
@@ -25,6 +26,19 @@ class FakeSecretStorage implements SecretStorage {
   }
 }
 
+const cliStatus: Record<AiCliProvider, AiCliProviderStatus> = {
+  "codex-cli": {
+    detected: true,
+    authenticated: true,
+    message: "Codex CLI is authenticated."
+  },
+  "claude-code": {
+    detected: false,
+    authenticated: false,
+    message: "Claude Code was not detected."
+  }
+};
+
 async function withTempDir<T>(callback: (dir: string) => Promise<T>): Promise<T> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "githead-ai-settings-test-"));
 
@@ -38,112 +52,181 @@ async function withTempDir<T>(callback: (dir: string) => Promise<T>): Promise<T>
   }
 }
 
+function createService(dir: string, secretStorage: SecretStorage = new FakeSecretStorage()): AiSettingsService {
+  return new AiSettingsService(dir, secretStorage, async () => cliStatus);
+}
+
 describe("AiSettingsService", () => {
-  it("uses the default OpenRouter model when no model is stored", async () => {
+  it("uses provider defaults when no settings are stored", async () => {
     await withTempDir(async (dir) => {
-      const service = new AiSettingsService(dir, new FakeSecretStorage());
+      const service = createService(dir);
 
       await expect(service.getSettings()).resolves.toEqual({
-        hasApiKey: false,
-        model: DEFAULT_OPENROUTER_MODEL,
+        selectedProvider: "openrouter",
+        providers: {
+          openrouter: {
+            model: DEFAULT_AI_PROVIDER_MODELS.openrouter,
+            hasApiKey: false
+          },
+          openai: {
+            model: DEFAULT_AI_PROVIDER_MODELS.openai,
+            hasApiKey: false
+          },
+          "codex-cli": {
+            model: DEFAULT_AI_PROVIDER_MODELS["codex-cli"],
+            hasApiKey: false
+          },
+          anthropic: {
+            model: DEFAULT_AI_PROVIDER_MODELS.anthropic,
+            hasApiKey: false
+          },
+          "claude-code": {
+            model: DEFAULT_AI_PROVIDER_MODELS["claude-code"],
+            hasApiKey: false
+          }
+        },
+        cliStatus,
         commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT
       });
     });
   });
 
-  it("persists encrypted API keys and exposes only key presence", async () => {
-    await withTempDir(async (dir) => {
-      const service = new AiSettingsService(dir, new FakeSecretStorage());
-
-      const saved = await service.saveSettings({
-        apiKey: "sk-or-key",
-        model: "openrouter/auto",
-        commitMessagePrompt: "  Write a focused commit message.  "
-      });
-
-      expect(saved).toEqual({
-        hasApiKey: true,
-        model: "openrouter/auto",
-        commitMessagePrompt: "Write a focused commit message."
-      });
-      await expect(service.getApiKey()).resolves.toBe("sk-or-key");
-      await expect(fs.readFile(path.join(dir, "ai-settings.json"), "utf8"))
-        .resolves.not.toContain("sk-or-key");
-      await expect(fs.readFile(path.join(dir, "ai-settings.json"), "utf8"))
-        .resolves.toContain("Write a focused commit message.");
-    });
-  });
-
-  it("ignores legacy attribution fields and defaults a missing prompt", async () => {
+  it("migrates legacy OpenRouter model and encrypted API key", async () => {
     await withTempDir(async (dir) => {
       await fs.writeFile(path.join(dir, "ai-settings.json"), JSON.stringify({
         model: "openrouter/auto",
+        encryptedApiKey: Buffer.from("encrypted:sk-or-key", "utf8").toString("base64"),
         siteUrl: "https://example.test",
         siteTitle: "Githead Test"
       }), "utf8");
-      const service = new AiSettingsService(dir, new FakeSecretStorage());
+      const service = createService(dir);
 
-      await expect(service.getSettings()).resolves.toEqual({
-        hasApiKey: false,
+      const settings = await service.getSettings();
+
+      expect(settings.selectedProvider).toBe("openrouter");
+      expect(settings.providers.openrouter).toEqual({
         model: "openrouter/auto",
+        hasApiKey: true
+      });
+      expect(settings.commitMessagePrompt).toBe(DEFAULT_COMMIT_MESSAGE_PROMPT);
+      await expect(service.getApiKey("openrouter")).resolves.toBe("sk-or-key");
+    });
+  });
+
+  it("persists multiple encrypted API keys and exposes only key presence", async () => {
+    await withTempDir(async (dir) => {
+      const service = createService(dir);
+
+      const saved = await service.saveSettings({
+        selectedProvider: "anthropic",
+        providerModels: {
+          ...DEFAULT_AI_PROVIDER_MODELS,
+          anthropic: "claude-haiku-4-5-20251001"
+        },
+        apiKeys: {
+          openai: "sk-openai",
+          anthropic: "sk-ant"
+        },
+        commitMessagePrompt: "  Write a focused commit message.  "
+      });
+
+      expect(saved.providers.openai.hasApiKey).toBe(true);
+      expect(saved.providers.anthropic.hasApiKey).toBe(true);
+      expect(saved.providers.openrouter.hasApiKey).toBe(false);
+      expect(saved.commitMessagePrompt).toBe("Write a focused commit message.");
+      await expect(service.getApiKey("openai")).resolves.toBe("sk-openai");
+      await expect(service.getApiKey("anthropic")).resolves.toBe("sk-ant");
+      await expect(fs.readFile(path.join(dir, "ai-settings.json"), "utf8"))
+        .resolves.not.toContain("sk-openai");
+    });
+  });
+
+  it("preserves existing keys on blank saves and clears only requested providers", async () => {
+    await withTempDir(async (dir) => {
+      const service = createService(dir);
+
+      await service.saveSettings({
+        selectedProvider: "openai",
+        providerModels: DEFAULT_AI_PROVIDER_MODELS,
+        apiKeys: {
+          openai: "sk-openai",
+          anthropic: "sk-ant"
+        },
         commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT
+      });
+      const saved = await service.saveSettings({
+        selectedProvider: "openai",
+        providerModels: {
+          ...DEFAULT_AI_PROVIDER_MODELS,
+          openai: "gpt-5.4-mini"
+        },
+        apiKeys: {
+          openai: ""
+        },
+        clearApiKeys: {
+          anthropic: true
+        },
+        commitMessagePrompt: "Use one-line commit messages."
+      });
+
+      expect(saved.providers.openai.hasApiKey).toBe(true);
+      expect(saved.providers.anthropic.hasApiKey).toBe(false);
+      expect(saved.providers.openai.model).toBe("gpt-5.4-mini");
+      await expect(service.getApiKey("openai")).resolves.toBe("sk-openai");
+      await expect(service.getApiKey("anthropic")).resolves.toBeNull();
+    });
+  });
+
+  it("does not require an API key for CLI providers", async () => {
+    await withTempDir(async (dir) => {
+      const service = createService(dir);
+
+      await expect(service.saveSettings({
+        selectedProvider: "codex-cli",
+        providerModels: DEFAULT_AI_PROVIDER_MODELS,
+        apiKeys: {},
+        commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT
+      })).resolves.toMatchObject({
+        selectedProvider: "codex-cli"
       });
     });
   });
 
-  it("preserves an existing API key when saving a blank key", async () => {
+  it("requires an API key for the selected direct API provider", async () => {
     await withTempDir(async (dir) => {
-      const service = new AiSettingsService(dir, new FakeSecretStorage());
+      const service = createService(dir);
 
-      await service.saveSettings({
-        apiKey: "sk-or-key",
-        model: "openrouter/auto",
+      await expect(service.saveSettings({
+        selectedProvider: "openai",
+        providerModels: DEFAULT_AI_PROVIDER_MODELS,
+        apiKeys: {},
         commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT
-      });
-      const saved = await service.saveSettings({
-        apiKey: "",
-        model: "anthropic/claude-sonnet-4",
-        commitMessagePrompt: "Use one-line commit messages."
-      });
-
-      expect(saved.hasApiKey).toBe(true);
-      expect(saved.model).toBe("anthropic/claude-sonnet-4");
-      expect(saved.commitMessagePrompt).toBe("Use one-line commit messages.");
-      await expect(service.getApiKey()).resolves.toBe("sk-or-key");
+      })).rejects.toThrow("Enter an OpenAI API key.");
     });
   });
 
   it("fails clearly when secure storage is unavailable for a new key", async () => {
     await withTempDir(async (dir) => {
-      const service = new AiSettingsService(dir, new FakeSecretStorage(false));
+      const service = createService(dir, new FakeSecretStorage(false));
 
       await expect(service.saveSettings({
-        apiKey: "sk-or-key",
-        model: "openrouter/auto",
+        selectedProvider: "openrouter",
+        providerModels: DEFAULT_AI_PROVIDER_MODELS,
+        apiKeys: {
+          openrouter: "sk-or-key"
+        },
         commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT
       })).rejects.toThrow("Secure API key storage is not available on this system.");
     });
   });
 
-  it("requires an API key when no key has been stored", async () => {
-    await withTempDir(async (dir) => {
-      const service = new AiSettingsService(dir, new FakeSecretStorage());
-
-      await expect(service.saveSettings({
-        apiKey: "",
-        model: "openrouter/auto",
-        commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT
-      })).rejects.toThrow("Enter an OpenRouter API key.");
-    });
-  });
-
   it("requires a commit message prompt when saving settings", async () => {
     await withTempDir(async (dir) => {
-      const service = new AiSettingsService(dir, new FakeSecretStorage());
+      const service = createService(dir);
 
       await expect(service.saveSettings({
-        apiKey: "sk-or-key",
-        model: "openrouter/auto",
+        selectedProvider: "codex-cli",
+        providerModels: DEFAULT_AI_PROVIDER_MODELS,
         commitMessagePrompt: " "
       })).rejects.toThrow("Enter a commit message prompt.");
     });
