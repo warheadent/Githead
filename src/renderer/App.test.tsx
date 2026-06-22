@@ -20,6 +20,7 @@ import { App } from "./App";
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import type {
   AiSettings,
+  AppSettings,
   AppUpdateState,
   AppWindowState,
   GitCommitDetails,
@@ -30,6 +31,7 @@ import type {
   GitHubPullRequest,
   GitHubWorkflowRun,
   GitIdentitySettings,
+  GitRunResult,
   GitheadApi,
   GitOperationResult,
   RepoChangedEvent,
@@ -2648,6 +2650,178 @@ describe("App", () => {
     await flushRendererAsync();
 
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(9 * 60_000);
+    });
+    await flushRendererAsync();
+
+    expect(githead.runGitAction).toHaveBeenCalledWith({
+      repoPath,
+      action: "fetch"
+    });
+  });
+
+  it("auto-fetches the active repository after the default interval", async () => {
+    vi.useFakeTimers();
+
+    render(<App />);
+    await flushRendererAsync();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+    });
+    await flushRendererAsync();
+
+    expect(githead.runGitAction).toHaveBeenCalledWith({
+      repoPath,
+      action: "fetch"
+    });
+  });
+
+  it("does not auto-fetch immediately on startup", async () => {
+    vi.useFakeTimers();
+
+    render(<App />);
+    await flushRendererAsync();
+
+    expect(githead.runGitAction).not.toHaveBeenCalled();
+  });
+
+  it("refreshes repository state after a successful auto-fetch", async () => {
+    vi.useFakeTimers();
+
+    render(<App />);
+    await flushRendererAsync();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+    });
+    await flushRendererAsync();
+
+    expect(githead.getRepoSummary).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not auto-fetch while another repository operation is running", async () => {
+    vi.useFakeTimers();
+    const pendingStage = defer<GitOperationResult>();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/pending.ts", {
+          isUnstaged: true,
+          worktreeStatus: "M"
+        })
+      ]
+    }));
+    vi.mocked(githead.stageFiles).mockReturnValue(pendingStage.promise);
+
+    render(<App />);
+    await flushRendererAsync();
+    fireEvent.click(screen.getByRole("option", { name: /src\/pending\.ts/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Stage$/ }));
+    await flushRendererAsync();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+    });
+    await flushRendererAsync();
+
+    expect(githead.runGitAction).not.toHaveBeenCalled();
+    pendingStage.resolve(createOperationResult());
+    await flushRendererAsync();
+  });
+
+  it("does not auto-fetch invalid repositories", async () => {
+    vi.useFakeTimers();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      isValid: false,
+      validationErrors: [
+        "Not a git repository."
+      ],
+      remotes: []
+    }));
+
+    render(<App />);
+    await flushRendererAsync();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+    });
+    await flushRendererAsync();
+
+    expect(githead.runGitAction).not.toHaveBeenCalled();
+  });
+
+  it("does not auto-fetch repositories without fetch capability", async () => {
+    vi.useFakeTimers();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      capabilities: {
+        ...gitCapabilities(),
+        fetch: false
+      }
+    }));
+
+    render(<App />);
+    await flushRendererAsync();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+    });
+    await flushRendererAsync();
+
+    expect(githead.runGitAction).not.toHaveBeenCalled();
+  });
+
+  it("does not auto-fetch repositories without fetch remotes", async () => {
+    vi.useFakeTimers();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      remotes: []
+    }));
+
+    render(<App />);
+    await flushRendererAsync();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+    });
+    await flushRendererAsync();
+
+    expect(githead.runGitAction).not.toHaveBeenCalled();
+  });
+
+  it("skips untrusted repositories during auto-fetch without prompting", async () => {
+    vi.useFakeTimers();
+    vi.mocked(githead.getRepoTrust).mockResolvedValue({
+      trusted: false
+    });
+
+    render(<App />);
+    await flushRendererAsync();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+    });
+    await flushRendererAsync();
+
+    expect(githead.runGitAction).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog", { name: "Do you trust this workspace?" })).toBeNull();
+  });
+
+  it("does not auto-fetch when the interval is disabled", async () => {
+    vi.useFakeTimers();
+    vi.mocked(githead.getAppSettings).mockResolvedValue({
+      autoFetchIntervalMinutes: 0
+    });
+
+    render(<App />);
+    await flushRendererAsync();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+    });
+    await flushRendererAsync();
+
+    expect(githead.runGitAction).not.toHaveBeenCalled();
   });
 
   it("refreshes File Status when the window is refocused", async () => {
@@ -3886,6 +4060,9 @@ describe("App", () => {
         commitMessagePrompt: "Write a single-line commit message."
       });
     });
+    expect(githead.saveAppSettings).toHaveBeenCalledWith({
+      autoFetchIntervalMinutes: 10
+    });
   });
 
   it("shows Git Identity and AI settings sections and saves identity fields", async () => {
@@ -3917,11 +4094,14 @@ describe("App", () => {
     expect(settingsDialog.className).toContain("h-[min(760px,calc(100vh-2rem))]");
     expect(settingsDialog.className).toContain("overflow-hidden");
     expect(screen.getByRole("tab", { name: "Git Identity", selected: true })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Sync", selected: false })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "AI", selected: false })).toBeTruthy();
     await screen.findByText("Git Identity", {
       selector: "h3"
     });
     expect(screen.queryByText("OpenRouter settings for generated commit messages.")).toBeNull();
+    await user.click(screen.getByRole("tab", { name: "Sync" }));
+    expect((screen.getByLabelText("Auto-fetch interval") as HTMLInputElement).value).toBe("10");
     await user.click(screen.getByRole("tab", { name: "AI" }));
     expect(await screen.findByText("OpenRouter settings for generated commit messages.")).toBeTruthy();
     const prompt = screen.getByLabelText("Commit Message Prompt");
@@ -3944,6 +4124,27 @@ describe("App", () => {
       });
     });
   });
+
+  it("saves the auto-fetch interval from Sync settings", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await screen.findByRole("button", { name: "Settings" });
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("tab", { name: "Sync" }));
+
+    const interval = screen.getByLabelText("Auto-fetch interval");
+    await user.clear(interval);
+    await user.type(interval, "15");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(githead.saveAppSettings).toHaveBeenCalledWith({
+        autoFetchIntervalMinutes: 15
+      });
+    });
+  });
 });
 
 function createGitheadMock(): GitheadApi {
@@ -3957,6 +4158,9 @@ function createGitheadMock(): GitheadApi {
     hasApiKey: true,
     model: "openai/gpt-5-mini",
     commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT
+  };
+  const appSettings: AppSettings = {
+    autoFetchIntervalMinutes: 10
   };
   const gitIdentity: GitIdentitySettings = {
     scope: "repository",
@@ -4031,6 +4235,8 @@ function createGitheadMock(): GitheadApi {
     }),
     getAiSettings: vi.fn().mockResolvedValue(aiSettings),
     saveAiSettings: vi.fn().mockResolvedValue(aiSettings),
+    getAppSettings: vi.fn().mockResolvedValue(appSettings),
+    saveAppSettings: vi.fn().mockResolvedValue(appSettings),
     generateCommitMessage: vi.fn().mockResolvedValue(okOperation),
     openExternalUrl: vi.fn().mockResolvedValue(undefined),
     openFile: vi.fn().mockResolvedValue(okOperation),
@@ -4051,7 +4257,7 @@ function createGitheadMock(): GitheadApi {
       branches: [],
       defaultBranch: null
     }),
-    runGitAction: vi.fn(),
+    runGitAction: vi.fn().mockResolvedValue(createRunResult("fetch")),
     runConfiguredAction: vi.fn(),
     saveConfiguredActions: vi.fn().mockResolvedValue(okOperation),
     getUpdateState: vi.fn().mockResolvedValue(createUpdateState()),
@@ -4379,6 +4585,20 @@ function createOperationResult(overrides: Partial<GitOperationResult> = {}): Git
     exitCode: 0,
     stdout: "",
     stderr: "",
+    ...overrides
+  };
+}
+
+function createRunResult(action: string, overrides: Partial<GitRunResult> = {}): GitRunResult {
+  return {
+    runId: `run-${action}`,
+    action,
+    repoPath,
+    exitCode: 0,
+    stdout: "",
+    stderr: "",
+    startedAt: "2026-05-31T10:00:00.000Z",
+    endedAt: "2026-05-31T10:00:01.000Z",
     ...overrides
   };
 }

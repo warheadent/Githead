@@ -4,6 +4,7 @@ import path from "node:path";
 import { IPC_CHANNELS } from "../shared/ipc";
 import type {
   AiSettingsSaveRequest,
+  AppSettingsSaveRequest,
   ClipboardTextRequest,
   ExternalUrlRequest,
   FileSystemPathListRequest,
@@ -39,6 +40,7 @@ import type {
   GitUpstreamRequest
 } from "../shared/types";
 import { AiSettingsService } from "./aiSettingsService";
+import { AppSettingsService } from "./appSettingsService";
 import { CommitMessageService } from "./commitMessageService";
 import { deleteFiles, getStats, resolveRepoFilePath, showRepositoryInExplorer } from "./fileOperationService";
 import { GitIdentityService } from "./gitIdentityService";
@@ -67,6 +69,7 @@ function isLoreSource(source: string): boolean {
 let mainWindow: BrowserWindow | null = null;
 let commandRunning = false;
 let aiSettingsService: AiSettingsService | null = null;
+let appSettingsService: AppSettingsService | null = null;
 let gitIdentityService: GitIdentityService | null = null;
 let commitMessageService: CommitMessageService | null = null;
 let githubService: GitHubService | null = null;
@@ -437,6 +440,14 @@ ipcMain.handle(IPC_CHANNELS.getAiSettings, async () => {
 
 ipcMain.handle(IPC_CHANNELS.saveAiSettings, async (_event, request: AiSettingsSaveRequest) => {
   return getAiSettingsService().saveSettings(request);
+});
+
+ipcMain.handle(IPC_CHANNELS.getAppSettings, async () => {
+  return getAppSettingsService().getSettings();
+});
+
+ipcMain.handle(IPC_CHANNELS.saveAppSettings, async (_event, request: AppSettingsSaveRequest) => {
+  return getAppSettingsService().saveSettings(request);
 });
 
 ipcMain.handle(IPC_CHANNELS.generateCommitMessage, async (_event, request: GenerateCommitMessageRequest) => {
@@ -836,6 +847,11 @@ function sendWindowState(window: BrowserWindow | null): void {
 function getAiSettingsService(): AiSettingsService {
   aiSettingsService ??= new AiSettingsService(app.getPath("userData"), safeStorage);
   return aiSettingsService;
+}
+
+function getAppSettingsService(): AppSettingsService {
+  appSettingsService ??= new AppSettingsService(app.getPath("userData"));
+  return appSettingsService;
 }
 
 function getGitIdentityService(): GitIdentityService {

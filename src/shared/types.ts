@@ -441,6 +441,14 @@ export interface AiSettingsSaveRequest {
   commitMessagePrompt: string;
 }
 
+export interface AppSettings {
+  autoFetchIntervalMinutes: number;
+}
+
+export interface AppSettingsSaveRequest {
+  autoFetchIntervalMinutes: number;
+}
+
 export interface GenerateCommitMessageRequest {
   repoPath: string;
   additionalContext?: string;
@@ -603,6 +611,8 @@ export interface GitheadApi {
   saveGitIdentity(request: GitIdentitySaveRequest): Promise<GitIdentitySettings>;
   getAiSettings(): Promise<AiSettings>;
   saveAiSettings(request: AiSettingsSaveRequest): Promise<AiSettings>;
+  getAppSettings(): Promise<AppSettings>;
+  saveAppSettings(request: AppSettingsSaveRequest): Promise<AppSettings>;
   generateCommitMessage(request: GenerateCommitMessageRequest): Promise<GitOperationResult>;
   openExternalUrl(request: ExternalUrlRequest): Promise<void>;
   openFile(request: FileSystemPathRequest): Promise<GitOperationResult>;

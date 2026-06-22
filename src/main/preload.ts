@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import { IPC_CHANNELS } from "../shared/ipc";
 import type {
   AiSettingsSaveRequest,
+  AppSettingsSaveRequest,
   ClipboardTextRequest,
   ExternalUrlRequest,
   FileSystemPathListRequest,
@@ -123,6 +124,10 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getAiSettings) as ReturnType<GitheadApi["getAiSettings"]>,
   saveAiSettings: (request: AiSettingsSaveRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.saveAiSettings, request) as ReturnType<GitheadApi["saveAiSettings"]>,
+  getAppSettings: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.getAppSettings) as ReturnType<GitheadApi["getAppSettings"]>,
+  saveAppSettings: (request: AppSettingsSaveRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.saveAppSettings, request) as ReturnType<GitheadApi["saveAppSettings"]>,
   generateCommitMessage: (request: GenerateCommitMessageRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.generateCommitMessage, request) as ReturnType<GitheadApi["generateCommitMessage"]>,
   openExternalUrl: (request: ExternalUrlRequest) =>

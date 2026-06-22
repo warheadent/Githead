@@ -99,6 +99,7 @@ import {
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import type {
   AiSettings,
+  AppSettings,
   AppUpdateState,
   GitBranch,
   GitAction,
@@ -168,6 +169,7 @@ interface SettingsDraft {
   apiKey: string;
   model: string;
   commitMessagePrompt: string;
+  autoFetchIntervalMinutes: string;
   gitIdentityName: string;
   gitIdentityEmail: string;
   gitIdentityScope: GitIdentityScope;
@@ -279,6 +281,7 @@ interface AppState {
   commitMessage: string;
   generateContextDialog: GenerateContextDialogState;
   aiSettings: AiSettings | null;
+  appSettings: AppSettings | null;
   gitIdentity: GitIdentitySettings | null;
   settingsOpen: boolean;
   settingsDraft: SettingsDraft;
@@ -343,6 +346,7 @@ const emptySettingsDraft: SettingsDraft = {
   apiKey: "",
   model: "",
   commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT,
+  autoFetchIntervalMinutes: "10",
   gitIdentityName: "",
   gitIdentityEmail: "",
   gitIdentityScope: "repository"
@@ -451,6 +455,7 @@ const initialState: AppState = {
   commitMessage: "",
   generateContextDialog: emptyGenerateContextDialog,
   aiSettings: null,
+  appSettings: null,
   gitIdentity: null,
   settingsOpen: false,
   settingsDraft: emptySettingsDraft,
@@ -1348,6 +1353,28 @@ export function App(): ReactNode {
     }
   }, [updateState]);
 
+  const loadAppSettings = useCallback(async (): Promise<void> => {
+    try {
+      const appSettings = await window.githead.getAppSettings();
+      updateState({
+        appSettings
+      });
+    } catch (error) {
+      updateState((current) => ({
+        ...current,
+        appSettings: {
+          autoFetchIntervalMinutes: 10
+        },
+        lastOperationResult: {
+          repoPath: current.repoPath,
+          exitCode: -1,
+          stdout: "",
+          stderr: error instanceof Error ? error.message : "Unable to load app settings."
+        }
+      }));
+    }
+  }, [updateState]);
+
   const loadGitIdentity = useCallback(async (repoPath: string): Promise<GitIdentitySettings | null> => {
     try {
       const gitIdentity = await window.githead.getGitIdentity(repoPath);
@@ -1373,7 +1400,8 @@ export function App(): ReactNode {
   useEffect(() => {
     void initializeRepository();
     void loadAiSettings();
-  }, [initializeRepository, loadAiSettings]);
+    void loadAppSettings();
+  }, [initializeRepository, loadAiSettings, loadAppSettings]);
 
   useEffect(() => {
     void loadGitIdentity(state.repoPath);
@@ -1808,6 +1836,112 @@ export function App(): ReactNode {
       await refreshRepo();
     }
   }, [appendSystemLine, ensureTrustedRepo, refreshRepo, updateState]);
+
+  const runAutomaticFetch = useCallback(async (): Promise<void> => {
+    const current = stateRef.current;
+    const summary = current.summary;
+    if (
+      !summary?.isValid ||
+      !summary.capabilities.fetch ||
+      !hasFetchRemote(summary) ||
+      isOperationRunning(current) ||
+      repoRefreshInFlightRef.current
+    ) {
+      return;
+    }
+
+    const repoPath = summary.repoPath;
+    try {
+      const trust = await window.githead.getRepoTrust({
+        repoPath
+      });
+      if (!trust.trusted || !isSameRepoPath(repoPath, stateRef.current.summary?.repoPath ?? "")) {
+        return;
+      }
+    } catch {
+      return;
+    }
+
+    updateState({
+      runningAction: "fetch",
+      lastResult: null
+    });
+
+    try {
+      const lastResult = await window.githead.runGitAction({
+        repoPath,
+        action: "fetch"
+      });
+      if (isSameRepoPath(repoPath, stateRef.current.summary?.repoPath ?? "")) {
+        updateState({
+          lastResult
+        });
+      }
+    } catch (error) {
+      if (isSameRepoPath(repoPath, stateRef.current.summary?.repoPath ?? "")) {
+        const message = error instanceof Error ? error.message : "Git command failed.";
+        updateState((latest) => ({
+          ...latest,
+          lastResult: {
+            runId: "renderer-error",
+            action: "fetch",
+            repoPath: latest.repoPath,
+            exitCode: -1,
+            stdout: "",
+            stderr: message,
+            startedAt: new Date().toISOString(),
+            endedAt: new Date().toISOString()
+          }
+        }));
+      }
+    } finally {
+      if (!isSameRepoPath(repoPath, stateRef.current.summary?.repoPath ?? "")) {
+        return;
+      }
+
+      updateState((latest) => {
+        const next = {
+          ...latest,
+          runningAction: null
+        };
+
+        return latest.lastResult?.exitCode === 0 ? invalidateHistory(next) : next;
+      });
+      await refreshRepo({
+        silent: true
+      });
+      void loadRepoSyncStatuses();
+    }
+  }, [loadRepoSyncStatuses, refreshRepo, updateState]);
+
+  useEffect(() => {
+    const intervalMinutes = state.appSettings?.autoFetchIntervalMinutes;
+    const summary = state.summary;
+    if (
+      intervalMinutes === undefined ||
+      intervalMinutes <= 0 ||
+      !summary?.isValid ||
+      !summary.capabilities.fetch ||
+      !hasFetchRemote(summary)
+    ) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void runAutomaticFetch();
+    }, intervalMinutes * 60_000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [
+    runAutomaticFetch,
+    state.appSettings?.autoFetchIntervalMinutes,
+    state.summary?.capabilities.fetch,
+    state.summary?.isValid,
+    state.summary?.repoPath,
+    state.summary?.remotes
+  ]);
 
   const runConfiguredAction = useCallback(async (action: GitConfiguredAction): Promise<void> => {
     const current = stateRef.current;
@@ -2450,6 +2584,7 @@ export function App(): ReactNode {
 
   const openSettingsDialog = useCallback((): void => {
     const settings = stateRef.current.aiSettings;
+    const appSettings = stateRef.current.appSettings;
     const gitIdentity = stateRef.current.gitIdentity;
     updateState({
       settingsOpen: true,
@@ -2458,6 +2593,7 @@ export function App(): ReactNode {
         apiKey: "",
         model: settings?.model ?? "",
         commitMessagePrompt: settings?.commitMessagePrompt ?? DEFAULT_COMMIT_MESSAGE_PROMPT,
+        autoFetchIntervalMinutes: String(appSettings?.autoFetchIntervalMinutes ?? 10),
         gitIdentityName: gitIdentity?.name ?? "",
         gitIdentityEmail: gitIdentity?.email ?? "",
         gitIdentityScope: gitIdentity?.scope ?? "repository"
@@ -2476,7 +2612,7 @@ export function App(): ReactNode {
     });
   }, [updateState]);
 
-  const saveAiSettings = useCallback(async (): Promise<void> => {
+  const saveSettings = useCallback(async (): Promise<void> => {
     if (stateRef.current.settingsSaving) {
       return;
     }
@@ -2488,6 +2624,7 @@ export function App(): ReactNode {
 
     try {
       const draft = stateRef.current.settingsDraft;
+      const autoFetchIntervalMinutes = parseAutoFetchIntervalDraft(draft.autoFetchIntervalMinutes);
       const shouldSaveGitIdentity = draft.gitIdentityName.trim().length > 0 || draft.gitIdentityEmail.trim().length > 0;
       let gitIdentity = stateRef.current.gitIdentity;
 
@@ -2512,14 +2649,18 @@ export function App(): ReactNode {
         model: draft.model,
         commitMessagePrompt: draft.commitMessagePrompt
       });
+      const appSettings = await window.githead.saveAppSettings({
+        autoFetchIntervalMinutes
+      });
       updateState({
         gitIdentity,
         aiSettings,
+        appSettings,
         settingsOpen: false
       });
     } catch (error) {
       updateState({
-        settingsError: error instanceof Error ? error.message : "Unable to save AI settings."
+        settingsError: error instanceof Error ? error.message : "Unable to save settings."
       });
     } finally {
       updateState({
@@ -3765,7 +3906,7 @@ export function App(): ReactNode {
         }}
         onSave={(event) => {
           event.preventDefault();
-          void saveAiSettings();
+          void saveSettings();
         }}
       />
 
@@ -7614,14 +7755,17 @@ function SettingsDialog({
             <p className="eyebrow">Preferences</p>
             <DialogTitle>Settings</DialogTitle>
             <DialogDescription>
-              Configure Git identity and OpenRouter commit message generation.
+              Configure Git identity, sync behavior, and OpenRouter commit message generation.
             </DialogDescription>
           </DialogHeader>
 
           <Tabs defaultValue="git-identity" className="min-h-0 gap-4">
-            <TabsList className="grid h-11 w-full grid-cols-2">
+            <TabsList className="grid h-11 w-full grid-cols-3">
               <TabsTrigger value="git-identity" className="h-full min-h-0 focus-visible:ring-inset">
                 Git Identity
+              </TabsTrigger>
+              <TabsTrigger value="sync" className="h-full min-h-0 focus-visible:ring-inset">
+                Sync
               </TabsTrigger>
               <TabsTrigger value="ai" className="h-full min-h-0 focus-visible:ring-inset">
                 AI
@@ -7648,6 +7792,32 @@ function SettingsDialog({
                     ...(patch.scope !== undefined ? { gitIdentityScope: patch.scope } : {})
                   })}
                 />
+              </section>
+            </TabsContent>
+
+            <TabsContent value="sync" className="m-0 min-h-0 overflow-y-auto pr-1">
+              <section className="grid gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold">Sync</h3>
+                  <p className="text-sm text-muted-foreground">Automatic remote fetch behavior while Githead is open.</p>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="auto-fetch-interval">Auto-fetch interval</Label>
+                  <Input
+                    id="auto-fetch-interval"
+                    type="number"
+                    min={0}
+                    max={1440}
+                    step={1}
+                    value={draft.autoFetchIntervalMinutes}
+                    disabled={saving}
+                    onChange={(event) => onDraftChange({
+                      ...draft,
+                      autoFetchIntervalMinutes: event.target.value
+                    })}
+                  />
+                  <p className="text-sm text-muted-foreground">Use 0 to disable automatic fetch.</p>
+                </div>
               </section>
             </TabsContent>
 
@@ -8452,6 +8622,32 @@ function canGenerateCommitMessage(state: AppState): boolean {
 
 function hasCompleteAiSettings(aiSettings: AiSettings | null): boolean {
   return Boolean(aiSettings?.hasApiKey && aiSettings.model.trim() && aiSettings.commitMessagePrompt.trim());
+}
+
+function parseAutoFetchIntervalDraft(value: string): number {
+  const trimmedValue = value.trim();
+  if (!trimmedValue) {
+    throw new Error("Enter an auto-fetch interval.");
+  }
+
+  const parsed = Number(trimmedValue);
+  if (!Number.isInteger(parsed)) {
+    throw new Error("Auto-fetch interval must be a whole number of minutes.");
+  }
+
+  if (parsed < 0) {
+    throw new Error("Auto-fetch interval cannot be negative.");
+  }
+
+  if (parsed > 1440) {
+    throw new Error("Auto-fetch interval cannot exceed 1440 minutes.");
+  }
+
+  return parsed;
+}
+
+function hasFetchRemote(summary: RepoSummary): boolean {
+  return summary.remotes.some((remote) => remote.direction === "fetch");
 }
 
 function getGenerateMessageTitle(state: AppState): string {
