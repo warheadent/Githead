@@ -271,6 +271,9 @@ interface AppState {
   upstreamDialogOpen: boolean;
   upstreamDraft: string | null;
   upstreamError: string;
+  publishDialogOpen: boolean;
+  publishRemoteDraft: string;
+  publishError: string;
   runningAction: string | null;
   runningOperation: string | null;
   lastResult: GitRunResult | null;
@@ -445,6 +448,9 @@ const initialState: AppState = {
   upstreamDialogOpen: false,
   upstreamDraft: null,
   upstreamError: "",
+  publishDialogOpen: false,
+  publishRemoteDraft: "",
+  publishError: "",
   runningAction: null,
   runningOperation: null,
   lastResult: null,
@@ -1283,6 +1289,9 @@ export function App(): ReactNode {
       upstreamDialogOpen: false,
       upstreamDraft: null,
       upstreamError: "",
+      publishDialogOpen: false,
+      publishRemoteDraft: "",
+      publishError: "",
       lastResult: null,
       lastOperationResult: null,
       gitIdentity: null,
@@ -1795,10 +1804,20 @@ export function App(): ReactNode {
       return;
     }
 
+    if (action === "push" && shouldPublishInsteadOfPush(current.summary)) {
+      updateState({
+        publishDialogOpen: true,
+        publishRemoteDraft: getDefaultPublishRemote(current.summary),
+        publishError: ""
+      });
+      return;
+    }
+
     if (!(await ensureTrustedRepo())) {
       return;
     }
 
+    let completedResult: GitRunResult | null = null;
     updateState({
       runningAction: action,
       lastResult: null,
@@ -1813,19 +1832,25 @@ export function App(): ReactNode {
       updateState({
         lastResult
       });
+      completedResult = lastResult;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Git command failed.";
+      const rendererResult: GitRunResult = {
+        runId: "renderer-error",
+        action,
+        repoPath: stateRef.current.repoPath,
+        exitCode: -1,
+        stdout: "",
+        stderr: message,
+        startedAt: new Date().toISOString(),
+        endedAt: new Date().toISOString()
+      };
+      completedResult = rendererResult;
       updateState((latest) => ({
         ...latest,
         lastResult: {
-          runId: "renderer-error",
-          action,
-          repoPath: latest.repoPath,
-          exitCode: -1,
-          stdout: "",
-          stderr: message,
-          startedAt: new Date().toISOString(),
-          endedAt: new Date().toISOString()
+          ...rendererResult,
+          repoPath: latest.repoPath
         }
       }));
       appendSystemLine(message);
@@ -1835,6 +1860,19 @@ export function App(): ReactNode {
         runningAction: null
       }));
       await refreshRepo();
+      if (
+        action === "push" &&
+        completedResult &&
+        completedResult.exitCode !== 0 &&
+        shouldOfferPublishAfterFailedPush(completedResult, stateRef.current.summary)
+      ) {
+        const summary = stateRef.current.summary;
+        updateState({
+          publishDialogOpen: true,
+          publishRemoteDraft: summary ? getDefaultPublishRemote(summary) : "",
+          publishError: "This branch has no upstream. Publish it to set one."
+        });
+      }
     }
   }, [appendSystemLine, ensureTrustedRepo, refreshRepo, updateState]);
 
@@ -2305,6 +2343,17 @@ export function App(): ReactNode {
     });
   }, [updateState]);
 
+  const closePublishDialog = useCallback((): void => {
+    if (isOperationRunning(stateRef.current)) {
+      return;
+    }
+
+    updateState({
+      publishDialogOpen: false,
+      publishError: ""
+    });
+  }, [updateState]);
+
   const switchBranch = useCallback(async (branchName: string): Promise<void> => {
     const current = stateRef.current;
     const nextBranchName = branchName.trim();
@@ -2384,6 +2433,92 @@ export function App(): ReactNode {
       upstreamError: getOperationFailureMessage(result, "Unable to change upstream.")
     });
   }, [ensureTrustedRepo, runRepoOperation, updateState]);
+
+  const publishBranch = useCallback(async (): Promise<void> => {
+    const current = stateRef.current;
+    const summary = current.summary;
+
+    if (!summary?.isValid || isOperationRunning(current) || !summary.branch) {
+      return;
+    }
+
+    const pushRemotes = getPushRemotes(summary);
+    const remoteName = current.publishRemoteDraft.trim();
+    if (!remoteName || !pushRemotes.includes(remoteName)) {
+      updateState({
+        publishError: pushRemotes.length === 0 ? "No push remote is configured." : "Select a push remote."
+      });
+      return;
+    }
+
+    if (!(await ensureTrustedRepo())) {
+      updateState({
+        publishError: "Repository trust is required before publishing branches."
+      });
+      return;
+    }
+
+    let completedResult: GitRunResult | null = null;
+    updateState({
+      runningAction: "publish",
+      lastResult: null,
+      activityLog: createActivityLogState(),
+      publishError: ""
+    });
+
+    try {
+      const lastResult = await window.githead.publishBranch({
+        repoPath: stateRef.current.repoPath,
+        branchName: summary.branch,
+        remoteName
+      });
+      completedResult = lastResult;
+      updateState({
+        lastResult
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to publish branch.";
+      completedResult = {
+        runId: "renderer-error",
+        action: "publish",
+        repoPath: stateRef.current.repoPath,
+        exitCode: -1,
+        stdout: "",
+        stderr: message,
+        startedAt: new Date().toISOString(),
+        endedAt: new Date().toISOString()
+      };
+      updateState({
+        lastResult: completedResult
+      });
+      appendSystemLine(message);
+    } finally {
+      updateState((latest) => invalidateHistory({
+        ...latest,
+        runningAction: null
+      }));
+      await refreshRepo();
+
+      const latestSummary = stateRef.current.summary;
+      const branchPublished = Boolean(
+        latestSummary?.isValid &&
+        latestSummary.branch === summary.branch &&
+        latestSummary.upstream
+      );
+      if (completedResult?.exitCode === 0 || branchPublished) {
+        updateState({
+          publishDialogOpen: false,
+          publishRemoteDraft: "",
+          publishError: ""
+        });
+        return;
+      }
+
+      updateState({
+        publishError: completedResult?.stderr.trim() || "Unable to publish branch."
+      });
+    }
+  }, [appendSystemLine, ensureTrustedRepo, refreshRepo, updateState]);
 
   const createBranch = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
@@ -3999,6 +4134,30 @@ export function App(): ReactNode {
         }}
       />
 
+      <PublishBranchDialog
+        open={state.publishDialogOpen}
+        branchName={state.summary?.branch ?? null}
+        remotes={getPushRemotes(state.summary)}
+        remote={state.publishRemoteDraft}
+        saving={state.runningAction === "publish"}
+        error={state.publishError}
+        onOpenChange={(open) => {
+          if (!open) {
+            closePublishDialog();
+          }
+        }}
+        onRemoteChange={(publishRemoteDraft) => {
+          updateState({
+            publishRemoteDraft,
+            publishError: ""
+          });
+        }}
+        onPublish={(event) => {
+          event.preventDefault();
+          void publishBranch();
+        }}
+      />
+
       <TagDialog
         state={state.tagDialog}
         commit={getCommitByHash(state.history, state.tagDialog.hash)}
@@ -5419,8 +5578,11 @@ function ActionBar({
   const pullAriaLabel = !usesSync && pullableCommitCount > 0
     ? formatActionCountLabel("Pull", pullableCommitCount)
     : undefined;
+  const publishInsteadOfPush = shouldPublishInsteadOfPush(summary);
   const pushableCommitCount = getPushableCommitCount(summary);
-  const pushAriaLabel = pushableCommitCount > 0
+  const pushAriaLabel = publishInsteadOfPush
+    ? "Publish branch"
+    : pushableCommitCount > 0
     ? formatActionCountLabel("Push", pushableCommitCount)
     : undefined;
   const actionsConfig = summary?.actionsConfig;
@@ -5520,8 +5682,8 @@ function ActionBar({
           className="min-w-24"
         >
           {runningAction === "push" ? <Loader2 className="animate-spin" /> : <Upload />}
-          Push
-          {pushableCommitCount > 0 ? (
+          {publishInsteadOfPush ? "Publish" : "Push"}
+          {!publishInsteadOfPush && pushableCommitCount > 0 ? (
             <SyncCountChip title={formatCommitCountLabel(pushableCommitCount, "ahead")}>
               {pushableCommitCount}
             </SyncCountChip>
@@ -7489,6 +7651,78 @@ function UpstreamDialog({
   );
 }
 
+function PublishBranchDialog({
+  open,
+  branchName,
+  remotes,
+  remote,
+  saving,
+  error,
+  onOpenChange,
+  onRemoteChange,
+  onPublish
+}: {
+  open: boolean;
+  branchName: string | null;
+  remotes: string[];
+  remote: string;
+  saving: boolean;
+  error: string;
+  onOpenChange: (open: boolean) => void;
+  onRemoteChange: (remote: string) => void;
+  onPublish: (event: FormEvent<HTMLFormElement>) => void;
+}): ReactNode {
+  const hasRemote = remotes.length > 0;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[420px]">
+        <form className="grid gap-4" onSubmit={onPublish}>
+          <DialogHeader>
+            <DialogTitle>Publish Branch</DialogTitle>
+            <DialogDescription className="sr-only">
+              Choose the remote where the current branch will be pushed and tracked.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-2">
+            <Label>Branch</Label>
+            <div className="commit-action-value">{branchName ?? "No current branch"}</div>
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="publish-branch-remote">Remote</Label>
+            <select
+              id="publish-branch-remote"
+              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+              value={remote}
+              disabled={saving || remotes.length <= 1}
+              onChange={(event) => onRemoteChange(event.currentTarget.value)}
+            >
+              {hasRemote ? remotes.map((remoteName) => (
+                <option key={remoteName} value={remoteName}>{remoteName}</option>
+              )) : (
+                <option value="">No push remote configured</option>
+              )}
+            </select>
+          </div>
+
+          <p className="min-h-5 text-sm text-destructive" role="alert">{error}</p>
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={saving} onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving || !branchName || !hasRemote}>
+              {saving ? <Loader2 className="animate-spin" /> : <Upload />}
+              {saving ? "Publishing" : "Publish"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function TrustWorkspaceDialog({
   open,
   repoPath,
@@ -8499,6 +8733,40 @@ function getPushRemotes(summary: RepoSummary | null): string[] {
   }
 
   return [...new Set(summary.remotes.filter((remote) => remote.direction === "push").map((remote) => remote.name))];
+}
+
+function shouldPublishInsteadOfPush(summary: RepoSummary | null): summary is RepoSummary {
+  return Boolean(
+    summary?.isValid &&
+    (summary.capabilities.setUpstream ?? true) &&
+    summary.branch &&
+    !summary.upstream &&
+    getPushRemotes(summary).length > 0
+  );
+}
+
+function getDefaultPublishRemote(summary: RepoSummary): string {
+  const pushRemotes = getPushRemotes(summary);
+  return pushRemotes.includes("origin") ? "origin" : pushRemotes[0] ?? "";
+}
+
+function isMissingUpstreamPushFailure(result: GitRunResult): boolean {
+  if (result.action !== "push" || result.exitCode === 0) {
+    return false;
+  }
+
+  const output = `${result.stderr}\n${result.stdout}`.toLowerCase();
+  return output.includes("has no upstream branch") ||
+    output.includes("no upstream branch") ||
+    output.includes("no upstream configured");
+}
+
+function shouldOfferPublishAfterFailedPush(result: GitRunResult, summary: RepoSummary | null): boolean {
+  if (!shouldPublishInsteadOfPush(summary)) {
+    return false;
+  }
+
+  return isMissingUpstreamPushFailure(result);
 }
 
 function getStagedFiles(summary: RepoSummary | null): GitStatusFile[] {

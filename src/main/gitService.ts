@@ -32,6 +32,7 @@ import type {
   GitOperationResult,
   GitOutputEvent,
   GitPathRequest,
+  GitPublishBranchRequest,
   GitRemoteBranch,
   GitRemote,
   GitRepositoryAccessCheckRequest,
@@ -907,6 +908,116 @@ export class GitService {
     ]);
   }
 
+  async publishBranch(
+    request: GitPublishBranchRequest,
+    onOutput?: GitOutputHandler
+  ): Promise<GitRunResult> {
+    const startedAt = new Date().toISOString();
+    const runId = randomUUID();
+    const action = "publish";
+
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      return this.createImmediateFailure({
+        runId,
+        action,
+        repoPath: request.repoPath,
+        startedAt,
+        message: validation.validationErrors.join(" ")
+      });
+    }
+
+    const branchResult = await this.validateBranchName(request.repoPath, request.branchName);
+    if ("error" in branchResult) {
+      return this.createImmediateFailure({
+        runId,
+        action,
+        repoPath: request.repoPath,
+        startedAt,
+        message: branchResult.error
+      });
+    }
+
+    const existingResult = await this.runGit(request.repoPath, [
+      "show-ref",
+      "--verify",
+      "--quiet",
+      `refs/heads/${branchResult.branchName}`
+    ]);
+    if (existingResult.exitCode !== 0) {
+      return this.createImmediateFailure({
+        runId,
+        action,
+        repoPath: request.repoPath,
+        startedAt,
+        message: "Branch does not exist."
+      });
+    }
+
+    const remoteResult = await this.validateRemoteName(request.repoPath, request.remoteName);
+    if ("error" in remoteResult) {
+      return this.createImmediateFailure({
+        runId,
+        action,
+        repoPath: request.repoPath,
+        startedAt,
+        message: remoteResult.error
+      });
+    }
+
+    const currentBranchResult = await this.runGit(request.repoPath, [
+      "branch",
+      "--show-current"
+    ]);
+    if (currentBranchResult.exitCode !== 0 || currentBranchResult.stdout.trim() !== branchResult.branchName) {
+      return this.createImmediateFailure({
+        runId,
+        action,
+        repoPath: request.repoPath,
+        startedAt,
+        message: "Current branch changed before publishing. Refresh and try again."
+      });
+    }
+
+    const publishResult = await this.runNamedActionCommand(request.repoPath, action, runId, [
+      "push",
+      "--set-upstream",
+      remoteResult.remoteName,
+      branchResult.branchName
+    ], onOutput);
+
+    if (publishResult.exitCode !== 0) {
+      return this.createRunResult({
+        runId,
+        action,
+        repoPath: request.repoPath,
+        startedAt,
+        result: publishResult,
+        ...(onOutput ? { onOutput } : {})
+      });
+    }
+
+    const tagResult = await this.runNamedActionCommand(request.repoPath, action, runId, [
+      "push",
+      remoteResult.remoteName,
+      "--tags"
+    ], onOutput);
+
+    return this.createRunResult({
+      runId,
+      action,
+      repoPath: request.repoPath,
+      startedAt,
+      result: {
+        exitCode: tagResult.exitCode,
+        stdout: `${publishResult.stdout}${tagResult.stdout}`,
+        stderr: `${publishResult.stderr}${tagResult.stderr}`,
+        ...(tagResult.error ? { error: tagResult.error } : {})
+      },
+      ...(onOutput ? { onOutput } : {})
+    });
+  }
+
   async getStagedDiff(repoPath: string): Promise<GitOperationResult> {
     const validation = await this.validateRepo(repoPath);
     if (!validation.isValid) {
@@ -1485,11 +1596,21 @@ export class GitService {
     commandArgs: string[],
     onOutput?: GitOutputHandler
   ): Promise<ProcessResult> {
-    const displayCommand = `git -C "${request.repoPath}" ${commandArgs.join(" ")}`;
-    onOutput?.(this.createOutputEvent(runId, request.action, "system", `> ${displayCommand}\n`));
+    return this.runNamedActionCommand(request.repoPath, request.action, runId, commandArgs, onOutput);
+  }
 
-    return await this.runGit(request.repoPath, commandArgs, (output) => {
-      onOutput?.(this.createOutputEvent(runId, request.action, output.stream, output.text));
+  private async runNamedActionCommand(
+    repoPath: string,
+    action: string,
+    runId: string,
+    commandArgs: string[],
+    onOutput?: GitOutputHandler
+  ): Promise<ProcessResult> {
+    const displayCommand = `git -C "${repoPath}" ${commandArgs.join(" ")}`;
+    onOutput?.(this.createOutputEvent(runId, action, "system", `> ${displayCommand}\n`));
+
+    return await this.runGit(repoPath, commandArgs, (output) => {
+      onOutput?.(this.createOutputEvent(runId, action, output.stream, output.text));
     }, undefined, createTerminalColorEnv());
   }
 
@@ -1561,6 +1682,36 @@ export class GitService {
       stderr: params.message,
       startedAt: params.startedAt,
       endedAt: new Date().toISOString()
+    };
+  }
+
+  private createRunResult(params: {
+    runId: string;
+    action: string;
+    repoPath: string;
+    startedAt: string;
+    result: ProcessResult;
+    onOutput?: GitOutputHandler;
+  }): GitRunResult {
+    const endedAt = new Date().toISOString();
+    params.onOutput?.(
+      this.createOutputEvent(
+        params.runId,
+        params.action,
+        "system",
+        `\n${params.action} exited with code ${params.result.exitCode}.\n`
+      )
+    );
+
+    return {
+      runId: params.runId,
+      action: params.action,
+      repoPath: params.repoPath,
+      exitCode: params.result.exitCode,
+      stdout: params.result.stdout,
+      stderr: params.result.error ? `${params.result.stderr}${params.result.error}` : params.result.stderr,
+      startedAt: params.startedAt,
+      endedAt
     };
   }
 

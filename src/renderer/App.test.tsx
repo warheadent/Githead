@@ -2337,6 +2337,242 @@ describe("App", () => {
     expect(screen.getByRole("tab", { name: "Activity Log" }).getAttribute("aria-selected")).toBe("false");
   });
 
+  it("shows Publish instead of Push when the current branch has no upstream", async () => {
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      upstream: null,
+      remotes: [
+        {
+          name: "origin",
+          url: "https://example.test/repo.git",
+          direction: "push"
+        }
+      ]
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByRole("button", { name: "Publish branch" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Push$/ })).toBeNull();
+  });
+
+  it("opens the publish dialog instead of running plain push", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      branch: "feature/publish",
+      upstream: null,
+      remotes: [
+        {
+          name: "origin",
+          url: "https://example.test/repo.git",
+          direction: "push"
+        }
+      ]
+    }));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Publish branch" }));
+
+    expect(await screen.findByRole("heading", { name: "Publish Branch" })).toBeTruthy();
+    expect(screen.getAllByText("feature/publish").length).toBeGreaterThan(0);
+    expect(githead.runGitAction).not.toHaveBeenCalled();
+  });
+
+  it("publishes a branch to origin by default", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      branch: "feature/publish",
+      upstream: null,
+      remotes: [
+        {
+          name: "origin",
+          url: "https://example.test/repo.git",
+          direction: "push"
+        },
+        {
+          name: "upstream",
+          url: "https://example.test/upstream.git",
+          direction: "push"
+        }
+      ]
+    }));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Publish branch" }));
+    await user.click(await screen.findByRole("button", { name: "Publish" }));
+
+    await waitFor(() => {
+      expect(githead.publishBranch).toHaveBeenCalledWith({
+        repoPath,
+        branchName: "feature/publish",
+        remoteName: "origin"
+      });
+    });
+  });
+
+  it("lets the user choose among multiple publish remotes", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      branch: "feature/publish",
+      upstream: null,
+      remotes: [
+        {
+          name: "origin",
+          url: "https://example.test/repo.git",
+          direction: "push"
+        },
+        {
+          name: "upstream",
+          url: "https://example.test/upstream.git",
+          direction: "push"
+        }
+      ]
+    }));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Publish branch" }));
+    await user.selectOptions(await screen.findByLabelText("Remote"), "upstream");
+    await user.click(screen.getByRole("button", { name: "Publish" }));
+
+    await waitFor(() => {
+      expect(githead.publishBranch).toHaveBeenCalledWith({
+        repoPath,
+        branchName: "feature/publish",
+        remoteName: "upstream"
+      });
+    });
+  });
+
+  it("keeps the publish dialog open when publishing fails", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      branch: "feature/publish",
+      upstream: null,
+      remotes: [
+        {
+          name: "origin",
+          url: "https://example.test/repo.git",
+          direction: "push"
+        }
+      ]
+    }));
+    vi.mocked(githead.publishBranch).mockResolvedValue(createRunResult("publish", {
+      exitCode: 1,
+      stderr: "fatal: rejected"
+    }));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Publish branch" }));
+    await user.click(await screen.findByRole("button", { name: "Publish" }));
+
+    expect(await screen.findByText("fatal: rejected")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Publish Branch" })).toBeTruthy();
+  });
+
+  it("opens the publish dialog after a stale plain push no-upstream failure", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary)
+      .mockResolvedValueOnce(createSummary({
+        upstream: "origin/main",
+        remotes: [
+          {
+            name: "origin",
+            url: "https://example.test/repo.git",
+            direction: "push"
+          }
+        ]
+      }))
+      .mockResolvedValue(createSummary({
+        branch: "feature/publish",
+        upstream: null,
+        remotes: [
+          {
+            name: "origin",
+            url: "https://example.test/repo.git",
+            direction: "push"
+          }
+        ]
+      }));
+    vi.mocked(githead.runGitAction).mockResolvedValue(createRunResult("push", {
+      exitCode: 1,
+      stderr: "fatal: The current branch feature/publish has no upstream branch."
+    }));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: /^Push$/ }));
+
+    expect(await screen.findByText("This branch has no upstream. Publish it to set one.")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Publish Branch" })).toBeTruthy();
+  });
+
+  it("does not open the publish dialog after unrelated push failures", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary)
+      .mockResolvedValueOnce(createSummary({
+        upstream: "origin/main",
+        remotes: [
+          {
+            name: "origin",
+            url: "https://example.test/repo.git",
+            direction: "push"
+          }
+        ]
+      }))
+      .mockResolvedValue(createSummary({
+        branch: "feature/publish",
+        upstream: null,
+        remotes: [
+          {
+            name: "origin",
+            url: "https://example.test/repo.git",
+            direction: "push"
+          }
+        ]
+      }));
+    vi.mocked(githead.runGitAction).mockResolvedValue(createRunResult("push", {
+      exitCode: 1,
+      stderr: "fatal: Authentication failed"
+    }));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: /^Push$/ }));
+
+    await waitFor(() => {
+      expect(githead.runGitAction).toHaveBeenCalledWith({
+        repoPath,
+        action: "push"
+      });
+    });
+    expect(screen.queryByRole("heading", { name: "Publish Branch" })).toBeNull();
+  });
+
+  it("does not show Publish when set upstream is not supported", async () => {
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      upstream: null,
+      capabilities: {
+        ...gitCapabilities(),
+        setUpstream: false
+      },
+      remotes: [
+        {
+          name: "origin",
+          url: "https://example.test/repo.git",
+          direction: "push"
+        }
+      ]
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByRole("button", { name: /^Push$/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Publish branch" })).toBeNull();
+  });
+
   it("does not jump to the Activity Log when action trust is declined", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoTrust).mockResolvedValue({
@@ -4283,6 +4519,7 @@ function createGitheadMock(): GitheadApi {
     switchBranch: vi.fn().mockResolvedValue(okOperation),
     createBranch: vi.fn().mockResolvedValue(okOperation),
     setBranchUpstream: vi.fn().mockResolvedValue(okOperation),
+    publishBranch: vi.fn().mockResolvedValue(createRunResult("publish")),
     getGitIdentity: vi.fn().mockResolvedValue(gitIdentity),
     saveGitIdentity: vi.fn().mockResolvedValue({
       ...gitIdentity,

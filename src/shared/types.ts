@@ -410,6 +410,12 @@ export interface GitUpstreamRequest {
   upstream: string | null;
 }
 
+export interface GitPublishBranchRequest {
+  repoPath: string;
+  branchName: string;
+  remoteName: string;
+}
+
 export type GitIdentityScope = "repository" | "global";
 
 export interface GitIdentityValue {
@@ -607,6 +613,7 @@ export interface GitheadApi {
   switchBranch(request: GitBranchRequest): Promise<GitOperationResult>;
   createBranch(request: GitBranchRequest): Promise<GitOperationResult>;
   setBranchUpstream(request: GitUpstreamRequest): Promise<GitOperationResult>;
+  publishBranch(request: GitPublishBranchRequest): Promise<GitRunResult>;
   getGitIdentity(repoPath: string): Promise<GitIdentitySettings>;
   saveGitIdentity(request: GitIdentitySaveRequest): Promise<GitIdentitySettings>;
   getAiSettings(): Promise<AiSettings>;

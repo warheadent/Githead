@@ -29,6 +29,7 @@ import type {
   GitIgnorePathRequest,
   GitOutputEvent,
   GitPathRequest,
+  GitPublishBranchRequest,
   GitRepositoryAccessCheckRequest,
   GitResetCommitRequest,
   GitRunRequest,
@@ -116,6 +117,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.createBranch, request) as ReturnType<GitheadApi["createBranch"]>,
   setBranchUpstream: (request: GitUpstreamRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.setBranchUpstream, request) as ReturnType<GitheadApi["setBranchUpstream"]>,
+  publishBranch: (request: GitPublishBranchRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.publishBranch, request) as ReturnType<GitheadApi["publishBranch"]>,
   getGitIdentity: (repoPath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitIdentity, repoPath) as ReturnType<GitheadApi["getGitIdentity"]>,
   saveGitIdentity: (request: GitIdentitySaveRequest) =>

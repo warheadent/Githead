@@ -508,6 +508,22 @@ describe("LoreService", () => {
     });
   });
 
+  it("returns unsupported failure when publishing a branch", async () => {
+    await withLoreRepo(async (dir) => {
+      const service = new LoreService(new FakeRunner([]));
+
+      const result = await service.publishBranch({
+        repoPath: dir,
+        branchName: "feature",
+        remoteName: "origin"
+      });
+
+      expect(result.action).toBe("publish");
+      expect(result.exitCode).toBe(-1);
+      expect(result.stderr).toBe("Publishing branches is not supported for Lore repositories.");
+    });
+  });
+
   it("creates a branch and switches to it", async () => {
     await withLoreRepo(async (dir) => {
       const runner = new FakeRunner([

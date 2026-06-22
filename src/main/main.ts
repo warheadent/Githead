@@ -32,6 +32,7 @@ import type {
   GitOperationResult,
   GitOutputEvent,
   GitPathRequest,
+  GitPublishBranchRequest,
   GitRepositoryAccessCheckRequest,
   GitResetCommitRequest,
   RepoTrustRequest,
@@ -407,6 +408,15 @@ ipcMain.handle(IPC_CHANNELS.setBranchUpstream, async (_event, request: GitUpstre
   }
 
   return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).setBranchUpstream(request), request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.publishBranch, async (_event, request: GitPublishBranchRequest) => {
+  const trusted = await requireTrustedRepo(request.repoPath);
+  if (trusted) {
+    return trusted;
+  }
+
+  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).publishBranch(request, sendGitOutput), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.getGitIdentity, async (_event, repoPath: string) => {

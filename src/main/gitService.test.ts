@@ -285,6 +285,233 @@ describe("GitService", () => {
     });
   });
 
+  it("publishes a branch with upstream before pushing tags to the same remote", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("feature/x\n"),
+      ok(""),
+      ok("origin\n"),
+      ok("feature/x\n"),
+      ok("branch published\n"),
+      ok("tags pushed\n")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.publishBranch({
+      repoPath: "D:\\Repo",
+      branchName: "feature/x",
+      remoteName: "origin"
+    });
+
+    expect(result.action).toBe("publish");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("branch published\ntags pushed\n");
+    expect(runner.calls).toMatchObject([
+      {
+        command: "git",
+        args: [
+          "-C",
+          "D:\\Repo",
+          "rev-parse",
+          "--is-inside-work-tree"
+        ]
+      },
+      {
+        command: "git",
+        args: [
+          "-C",
+          "D:\\Repo",
+          "check-ref-format",
+          "--branch",
+          "feature/x"
+        ]
+      },
+      {
+        command: "git",
+        args: [
+          "-C",
+          "D:\\Repo",
+          "show-ref",
+          "--verify",
+          "--quiet",
+          "refs/heads/feature/x"
+        ]
+      },
+      {
+        command: "git",
+        args: [
+          "-C",
+          "D:\\Repo",
+          "remote"
+        ]
+      },
+      {
+        command: "git",
+        args: [
+          "-C",
+          "D:\\Repo",
+          "branch",
+          "--show-current"
+        ]
+      },
+      {
+        command: "git",
+        args: [
+          "-C",
+          "D:\\Repo",
+          "push",
+          "--set-upstream",
+          "origin",
+          "feature/x"
+        ]
+      },
+      {
+        command: "git",
+        args: [
+          "-C",
+          "D:\\Repo",
+          "push",
+          "origin",
+          "--tags"
+        ]
+      }
+    ]);
+  });
+
+  it("does not push tags when publishing a branch fails", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("feature/x\n"),
+      ok(""),
+      ok("origin\n"),
+      ok("feature/x\n"),
+      failure("fatal: rejected")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.publishBranch({
+      repoPath: "D:\\Repo",
+      branchName: "feature/x",
+      remoteName: "origin"
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("fatal: rejected");
+    expect(runner.calls).toHaveLength(6);
+  });
+
+  it("reports tag push failure after a branch is published", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("feature/x\n"),
+      ok(""),
+      ok("upstream\norigin\n"),
+      ok("feature/x\n"),
+      ok("branch published\n"),
+      failure("fatal: tag rejected")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.publishBranch({
+      repoPath: "D:\\Repo",
+      branchName: "feature/x",
+      remoteName: "upstream"
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("branch published\n");
+    expect(result.stderr).toBe("fatal: tag rejected");
+    expect(runner.calls.at(-1)).toMatchObject({
+      command: "git",
+      args: [
+        "-C",
+        "D:\\Repo",
+        "push",
+        "upstream",
+        "--tags"
+      ]
+    });
+  });
+
+  it("rejects invalid publish remotes", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("feature/x\n"),
+      ok(""),
+      ok("origin\n")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.publishBranch({
+      repoPath: "D:\\Repo",
+      branchName: "feature/x",
+      remoteName: "missing"
+    });
+
+    expect(result.exitCode).toBe(-1);
+    expect(result.stderr).toBe("Remote is invalid.");
+    expect(runner.calls).toHaveLength(4);
+  });
+
+  it("rejects publishing when the current branch changed", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("feature/x\n"),
+      ok(""),
+      ok("origin\n"),
+      ok("main\n")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.publishBranch({
+      repoPath: "D:\\Repo",
+      branchName: "feature/x",
+      remoteName: "origin"
+    });
+
+    expect(result.exitCode).toBe(-1);
+    expect(result.stderr).toBe("Current branch changed before publishing. Refresh and try again.");
+    expect(runner.calls).toHaveLength(5);
+  });
+
+  it("rejects publishing from detached HEAD", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("feature/x\n"),
+      ok(""),
+      ok("origin\n"),
+      ok("")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.publishBranch({
+      repoPath: "D:\\Repo",
+      branchName: "feature/x",
+      remoteName: "origin"
+    });
+
+    expect(result.exitCode).toBe(-1);
+    expect(result.stderr).toBe("Current branch changed before publishing. Refresh and try again.");
+    expect(runner.calls).toHaveLength(5);
+  });
+
+  it("rejects publish branch names that start with a dash", async () => {
+    const runner = new FakeRunner([
+      ok("true\n")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.publishBranch({
+      repoPath: "D:\\Repo",
+      branchName: "-bad",
+      remoteName: "origin"
+    });
+
+    expect(result.exitCode).toBe(-1);
+    expect(result.stderr).toBe("Branch name cannot start with a dash.");
+    expect(runner.calls).toHaveLength(1);
+  });
+
   it("rejects non-repository folders in summaries", async () => {
     const runner = new FakeRunner([
       failure("fatal: not a git repository")

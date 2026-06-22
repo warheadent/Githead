@@ -37,6 +37,7 @@ export type VcsService = Pick<
   | "switchBranch"
   | "createBranch"
   | "setBranchUpstream"
+  | "publishBranch"
   | "revertFileChanges"
   | "addPathToIgnore"
   | "addSafeDirectory"

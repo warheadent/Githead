@@ -26,6 +26,7 @@ import type {
   GitIgnorePathRequest,
   GitOperationResult,
   GitPathRequest,
+  GitPublishBranchRequest,
   GitRemote,
   GitRepositoryAccessCheckRequest,
   GitRepositoryAccessCheckResult,
@@ -679,6 +680,10 @@ export class LoreService implements VcsService {
 
   async setBranchUpstream(request: GitUpstreamRequest): Promise<GitOperationResult> {
     return this.failure(request.repoPath, "Setting an upstream is not supported for Lore repositories.");
+  }
+
+  async publishBranch(request: GitPublishBranchRequest): Promise<GitRunResult> {
+    return this.runFailure(request.repoPath, "publish", "Publishing branches is not supported for Lore repositories.");
   }
 
   async addPathToIgnore(request: GitIgnorePathRequest): Promise<GitOperationResult> {
