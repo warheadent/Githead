@@ -525,6 +525,7 @@ export function App(): ReactNode {
   });
   const trustDialogResolveRef = useRef<((trusted: boolean) => void) | null>(null);
   const repoRefreshInFlightRef = useRef(false);
+  const autoFetchInFlightRef = useRef(false);
   const fileStatusDirtyRef = useRef(false);
   const windowFocusedRef = useRef(true);
   const [trustDialogOpen, setTrustDialogOpen] = useState(false);
@@ -1838,36 +1839,45 @@ export function App(): ReactNode {
   }, [appendSystemLine, ensureTrustedRepo, refreshRepo, updateState]);
 
   const runAutomaticFetch = useCallback(async (): Promise<void> => {
-    const current = stateRef.current;
-    const summary = current.summary;
-    if (
-      !summary?.isValid ||
-      !summary.capabilities.fetch ||
-      !hasFetchRemote(summary) ||
-      isOperationRunning(current) ||
-      repoRefreshInFlightRef.current
-    ) {
+    if (autoFetchInFlightRef.current) {
       return;
     }
 
-    const repoPath = summary.repoPath;
+    autoFetchInFlightRef.current = true;
+    let repoPath = "";
+    let fetchStarted = false;
     try {
+      const current = stateRef.current;
+      const summary = current.summary;
+      if (
+        !summary?.isValid ||
+        !summary.capabilities.fetch ||
+        !hasFetchRemote(summary) ||
+        isOperationRunning(current) ||
+        repoRefreshInFlightRef.current
+      ) {
+        return;
+      }
+
+      repoPath = summary.repoPath;
       const trust = await window.githead.getRepoTrust({
         repoPath
       });
-      if (!trust.trusted || !isSameRepoPath(repoPath, stateRef.current.summary?.repoPath ?? "")) {
+      const latest = stateRef.current;
+      if (
+        !trust.trusted ||
+        !isSameRepoPath(repoPath, latest.summary?.repoPath ?? "") ||
+        isOperationRunning(latest) ||
+        repoRefreshInFlightRef.current
+      ) {
         return;
       }
-    } catch {
-      return;
-    }
 
-    updateState({
-      runningAction: "fetch",
-      lastResult: null
-    });
+      updateState({
+        runningAction: "fetch"
+      });
+      fetchStarted = true;
 
-    try {
       const lastResult = await window.githead.runGitAction({
         repoPath,
         action: "fetch"
@@ -1895,35 +1905,31 @@ export function App(): ReactNode {
         }));
       }
     } finally {
-      if (!isSameRepoPath(repoPath, stateRef.current.summary?.repoPath ?? "")) {
-        return;
+      autoFetchInFlightRef.current = false;
+      if (fetchStarted && repoPath && isSameRepoPath(repoPath, stateRef.current.summary?.repoPath ?? "")) {
+        updateState((latest) => {
+          const next = {
+            ...latest,
+            runningAction: latest.runningAction === "fetch" ? null : latest.runningAction
+          };
+
+          return latest.lastResult?.exitCode === 0 ? invalidateHistory(next) : next;
+        });
+        await refreshRepo({
+          silent: true
+        });
+        void loadRepoSyncStatuses();
       }
-
-      updateState((latest) => {
-        const next = {
-          ...latest,
-          runningAction: null
-        };
-
-        return latest.lastResult?.exitCode === 0 ? invalidateHistory(next) : next;
-      });
-      await refreshRepo({
-        silent: true
-      });
-      void loadRepoSyncStatuses();
     }
   }, [loadRepoSyncStatuses, refreshRepo, updateState]);
 
+  const autoFetchRepoPath = state.summary?.isValid && state.summary.capabilities.fetch && hasFetchRemote(state.summary)
+    ? state.summary.repoPath
+    : "";
+
   useEffect(() => {
     const intervalMinutes = state.appSettings?.autoFetchIntervalMinutes;
-    const summary = state.summary;
-    if (
-      intervalMinutes === undefined ||
-      intervalMinutes <= 0 ||
-      !summary?.isValid ||
-      !summary.capabilities.fetch ||
-      !hasFetchRemote(summary)
-    ) {
+    if (intervalMinutes === undefined || intervalMinutes <= 0 || !autoFetchRepoPath) {
       return;
     }
 
@@ -1935,12 +1941,9 @@ export function App(): ReactNode {
       window.clearInterval(timer);
     };
   }, [
+    autoFetchRepoPath,
     runAutomaticFetch,
-    state.appSettings?.autoFetchIntervalMinutes,
-    state.summary?.capabilities.fetch,
-    state.summary?.isValid,
-    state.summary?.repoPath,
-    state.summary?.remotes
+    state.appSettings?.autoFetchIntervalMinutes
   ]);
 
   const runConfiguredAction = useCallback(async (action: GitConfiguredAction): Promise<void> => {

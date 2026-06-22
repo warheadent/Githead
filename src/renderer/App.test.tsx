@@ -2702,6 +2702,29 @@ describe("App", () => {
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps the auto-fetch countdown after an intervening repository refresh", async () => {
+    vi.useFakeTimers();
+
+    render(<App />);
+    await flushRendererAsync();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+    });
+    emitRepoChanged();
+    await flushRendererAsync();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+    });
+    await flushRendererAsync();
+
+    expect(githead.runGitAction).toHaveBeenCalledWith({
+      repoPath,
+      action: "fetch"
+    });
+  });
+
   it("does not auto-fetch while another repository operation is running", async () => {
     vi.useFakeTimers();
     const pendingStage = defer<GitOperationResult>();
@@ -2723,6 +2746,43 @@ describe("App", () => {
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(10 * 60_000);
+    });
+    await flushRendererAsync();
+
+    expect(githead.runGitAction).not.toHaveBeenCalled();
+    pendingStage.resolve(createOperationResult());
+    await flushRendererAsync();
+  });
+
+  it("does not start auto-fetch if an operation begins while trust is loading", async () => {
+    vi.useFakeTimers();
+    const pendingTrust = defer<{ trusted: boolean }>();
+    const pendingStage = defer<GitOperationResult>();
+    vi.mocked(githead.getRepoTrust).mockReturnValueOnce(pendingTrust.promise);
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/race.ts", {
+          isUnstaged: true,
+          worktreeStatus: "M"
+        })
+      ]
+    }));
+    vi.mocked(githead.stageFiles).mockReturnValue(pendingStage.promise);
+
+    render(<App />);
+    await flushRendererAsync();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+    });
+    await flushRendererAsync();
+
+    fireEvent.click(screen.getByRole("option", { name: /src\/race\.ts/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Stage$/ }));
+    await flushRendererAsync();
+
+    pendingTrust.resolve({
+      trusted: true
     });
     await flushRendererAsync();
 
