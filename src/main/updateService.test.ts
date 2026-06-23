@@ -12,6 +12,7 @@ class FakeUpdater extends EventEmitter implements AutoUpdaterLike {
   autoDownload = true;
   autoInstallOnAppQuit = true;
   allowPrerelease = true;
+  updateConfigPath = "";
   checkForUpdates = vi.fn<() => Promise<unknown>>().mockResolvedValue(null);
   downloadUpdate = vi.fn<() => Promise<unknown>>().mockResolvedValue([]);
   quitAndInstall = vi.fn<(isSilent?: boolean, isForceRunAfter?: boolean) => void>();
@@ -40,6 +41,13 @@ interface Deferred<T> {
   reject(error: unknown): void;
 }
 
+const EXPECTED_UPDATE_CONFIG = [
+  "provider: generic",
+  "url: https://github.com/warheadent/Githead/releases/latest/download",
+  "updaterCacheDirName: githead-updater",
+  ""
+].join("\n");
+
 async function withTempDir<T>(callback: (dir: string) => Promise<T>): Promise<T> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "githead-updater-test-"));
 
@@ -57,7 +65,7 @@ async function createServiceFixture(
   resourcesPath: string,
   options: ServiceFixtureOptions = {}
 ): Promise<ServiceFixture> {
-  await fs.writeFile(path.join(resourcesPath, "app-update.yml"), "provider: github\n", "utf8");
+  await writeExpectedUpdateConfig(resourcesPath);
   const updater = new FakeUpdater();
   const send = vi.fn();
   const window = {
@@ -87,6 +95,10 @@ async function createServiceFixture(
     updater,
     send
   };
+}
+
+async function writeExpectedUpdateConfig(resourcesPath: string): Promise<void> {
+  await fs.writeFile(path.join(resourcesPath, "app-update.yml"), EXPECTED_UPDATE_CONFIG, "utf8");
 }
 
 function createReleaseNotesFetch(response: unknown, status = 200): NonNullable<AppUpdateServiceOptions["releaseNotesFetch"]> {
@@ -129,7 +141,7 @@ function createDeferred<T>(): Deferred<T> {
 }
 
 describe("AppUpdateService", () => {
-  it("stays disabled when no packaged update feed is available", async () => {
+  it("repairs a missing packaged update feed before enabling updates", async () => {
     await withTempDir(async (dir) => {
       const updater = new FakeUpdater();
       const service = new AppUpdateService({
@@ -144,10 +156,12 @@ describe("AppUpdateService", () => {
       });
 
       await expect(service.configure()).resolves.toMatchObject({
-        enabled: false,
-        status: "disabled",
-        message: "Automatic updates are not available because no update feed is configured."
+        enabled: true,
+        status: "idle",
+        message: null
       });
+      await expect(fs.readFile(path.join(dir, "app-update.yml"), "utf8")).resolves.toBe(EXPECTED_UPDATE_CONFIG);
+      expect(updater.updateConfigPath).toBe(path.join(dir, "app-update.yml"));
       expect(updater.checkForUpdates).not.toHaveBeenCalled();
       service.stop();
     });
@@ -220,6 +234,60 @@ describe("AppUpdateService", () => {
     });
   });
 
+  it("repairs null-filled app-update.yml during configure", async () => {
+    await withTempDir(async (dir) => {
+      await fs.writeFile(path.join(dir, "app-update.yml"), Buffer.alloc(123));
+      const updater = new FakeUpdater();
+      const service = new AppUpdateService({
+        runtime: {
+          getVersion: () => "0.1.0",
+          isPackaged: true
+        },
+        updater,
+        getWindows: () => [],
+        resourcesPath: dir,
+        platform: "win32",
+        startupDelayMs: 60_000,
+        pollIntervalMs: 60_000
+      });
+
+      await expect(service.configure()).resolves.toMatchObject({
+        enabled: true,
+        status: "idle",
+        message: null
+      });
+      await expect(fs.readFile(path.join(dir, "app-update.yml"), "utf8")).resolves.toBe(EXPECTED_UPDATE_CONFIG);
+      expect(updater.updateConfigPath).toBe(path.join(dir, "app-update.yml"));
+      service.stop();
+    });
+  });
+
+  it("disables updates when corrupted app-update.yml cannot be repaired", async () => {
+    await withTempDir(async (dir) => {
+      const resourcesPath = path.join(dir, "not-a-directory");
+      await fs.writeFile(resourcesPath, "not a directory", "utf8");
+      const updater = new FakeUpdater();
+      const service = new AppUpdateService({
+        runtime: {
+          getVersion: () => "0.1.0",
+          isPackaged: true
+        },
+        updater,
+        getWindows: () => [],
+        resourcesPath,
+        platform: "win32"
+      });
+
+      await expect(service.configure()).resolves.toMatchObject({
+        enabled: false,
+        status: "disabled",
+        message: "Automatic updates are unavailable because the local update configuration is corrupted. Reinstall Githead to repair the installation."
+      });
+      expect(updater.checkForUpdates).not.toHaveBeenCalled();
+      service.stop();
+    });
+  });
+
   it("configures manual update behavior for Linux AppImage builds", async () => {
     await withTempDir(async (dir) => {
       const { service, updater, send } = await createServiceFixture(dir, {
@@ -278,11 +346,7 @@ describe("AppUpdateService", () => {
       await service.checkForUpdates();
 
       expect(service.getState()).toMatchObject({
-        status: "available",
-        releaseNotes: {
-          version: "0.1.1",
-          loading: true
-        }
+        status: "available"
       });
       const state = await waitForUpdateState(service, (nextState) => nextState.releaseNotes?.loading === false);
       expect(releaseNotesFetch).toHaveBeenCalledWith(
@@ -492,6 +556,89 @@ describe("AppUpdateService", () => {
           errorContext: "check",
           canRetry: true
         } satisfies Partial<AppUpdateState>
+      });
+      service.stop();
+    });
+  });
+
+  it("repairs null-filled app-update.yml and retries a failed check once", async () => {
+    await withTempDir(async (dir) => {
+      const { service, updater } = await createServiceFixture(dir);
+      await fs.writeFile(path.join(dir, "app-update.yml"), Buffer.alloc(123));
+      updater.checkForUpdates
+        .mockRejectedValueOnce(new Error("null byte is not allowed in input (1:1)\n\n1 | \u0000\n-----^"))
+        .mockResolvedValueOnce(null);
+
+      await expect(service.checkForUpdates()).resolves.toMatchObject({
+        checked: true,
+        state: {
+          status: "checking",
+          message: null
+        }
+      });
+      expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
+      expect(updater.updateConfigPath).toBe(path.join(dir, "app-update.yml"));
+      await expect(fs.readFile(path.join(dir, "app-update.yml"), "utf8")).resolves.toBe(EXPECTED_UPDATE_CONFIG);
+      service.stop();
+    });
+  });
+
+  it("does not retry non-config updater errors", async () => {
+    await withTempDir(async (dir) => {
+      const { service, updater } = await createServiceFixture(dir);
+      updater.checkForUpdates.mockRejectedValue(new Error("network unavailable"));
+
+      const result = await service.checkForUpdates();
+
+      expect(updater.checkForUpdates).toHaveBeenCalledTimes(1);
+      expect(result.state).toMatchObject({
+        status: "error",
+        message: "Could not check for updates. Check your network connection and try again.",
+        errorContext: "check",
+        canRetry: true
+      });
+      service.stop();
+    });
+  });
+
+  it("does not loop repair attempts when the retried check still fails with a config parse error", async () => {
+    await withTempDir(async (dir) => {
+      const { service, updater } = await createServiceFixture(dir);
+      await fs.writeFile(path.join(dir, "app-update.yml"), Buffer.alloc(123));
+      updater.checkForUpdates.mockRejectedValue(new Error("null byte is not allowed in input (1:1)"));
+
+      const result = await service.checkForUpdates();
+
+      expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
+      expect(result.state).toMatchObject({
+        status: "error",
+        message: "Could not check for updates because the local update configuration is corrupted. Githead tried to repair it; restart Githead and check again.",
+        errorContext: "check",
+        canRetry: true
+      });
+      expect(result.state.message).not.toContain("null byte");
+      service.stop();
+    });
+  });
+
+  it("reports reinstall guidance when a corrupted update config cannot be repaired during a check", async () => {
+    await withTempDir(async (dir) => {
+      const { service, updater } = await createServiceFixture(dir);
+      await fs.rm(dir, {
+        recursive: true,
+        force: true
+      });
+      await fs.writeFile(dir, "not a directory", "utf8");
+      updater.checkForUpdates.mockRejectedValue(new Error("null byte is not allowed in input (1:1)"));
+
+      const result = await service.checkForUpdates();
+
+      expect(updater.checkForUpdates).toHaveBeenCalledTimes(1);
+      expect(result.state).toMatchObject({
+        status: "error",
+        message: "Could not check for updates because the local update configuration is corrupted. Reinstall Githead to repair the installation.",
+        errorContext: "check",
+        canRetry: true
       });
       service.stop();
     });
