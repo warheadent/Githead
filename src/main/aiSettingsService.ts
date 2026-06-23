@@ -14,7 +14,7 @@ import {
   type AiSettingsSaveRequest
 } from "../shared/types";
 
-export const DEFAULT_OPENROUTER_MODEL = "openai/gpt-4.1-mini";
+export const DEFAULT_OPENROUTER_MODEL = "openai/gpt-5.4-nano";
 export const DEFAULT_OPENAI_MODEL = "gpt-5.4-nano";
 export const DEFAULT_CODEX_CLI_MODEL = "gpt-5.4-mini";
 export const DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";

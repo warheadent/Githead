@@ -58,7 +58,7 @@ let repoChangedCallback: Parameters<GitheadApi["onRepoChanged"]>[0] | null;
 let windowStateCallback: Parameters<GitheadApi["onWindowState"]>[0] | null;
 
 const defaultProviderModels: Record<AiCommitMessageProvider, string> = {
-  openrouter: "openai/gpt-4.1-mini",
+  openrouter: "openai/gpt-5.4-nano",
   openai: "gpt-5.4-nano",
   "codex-cli": "gpt-5.4-mini",
   anthropic: "claude-haiku-4-5-20251001",

@@ -124,7 +124,7 @@ Commit message generation supports multiple providers. Open **Settings** in the 
 
 Supported providers and defaults:
 
-- **OpenRouter**: `openai/gpt-4.1-mini`
+- **OpenRouter**: `openai/gpt-5.4-nano`
 - **OpenAI API**: `gpt-5.4-nano`
 - **Codex CLI**: `gpt-5.4-mini` when `codex` is installed and `codex login status` succeeds
 - **Anthropic API**: `claude-haiku-4-5-20251001`
