@@ -8221,8 +8221,8 @@ function RepositoryActionsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-4xl">
-        <div className="flex min-h-0 flex-col gap-4">
+      <DialogContent className="h-[min(820px,calc(100vh-2rem))] max-h-[min(820px,calc(100vh-2rem))] overflow-hidden sm:max-w-4xl">
+        <div className="flex h-full min-h-0 flex-col gap-4">
           <DialogHeader>
             <p className="eyebrow">Repository</p>
             <DialogTitle>Repository Actions</DialogTitle>
@@ -8231,7 +8231,7 @@ function RepositoryActionsDialog({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid min-h-0 gap-4 overflow-y-auto pr-1 lg:grid-cols-2">
+          <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto pr-1 lg:grid-cols-2" data-testid="repository-actions-scroll-area">
             <RepositoryActionFileSection
               target="shared"
               title="Shared"

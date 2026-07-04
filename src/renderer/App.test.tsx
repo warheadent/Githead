@@ -2676,6 +2676,41 @@ describe("App", () => {
     });
   });
 
+  it("keeps the Repository Actions body scrollable when many actions are configured", async () => {
+    const user = userEvent.setup();
+    const sharedActions = Array.from({ length: 14 }, (_, index) => ({
+      name: `Action ${index + 1}`,
+      command: `npm run action-${index + 1}`,
+      shell: "powershell" as const
+    }));
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      actionsConfig: {
+        hasGitheadDir: true,
+        shared: {
+          exists: true,
+          actions: sharedActions
+        },
+        actions: sharedActions
+      }
+    }));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Repository actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
+
+    const actionsDialog = await screen.findByRole("dialog", { name: "Repository Actions" });
+    expect(actionsDialog.className).toContain("h-[min(820px,calc(100vh-2rem))]");
+    expect(actionsDialog.className).toContain("max-h-[min(820px,calc(100vh-2rem))]");
+    expect(actionsDialog.className).toContain("overflow-hidden");
+
+    const scrollArea = screen.getByTestId("repository-actions-scroll-area");
+    expect(scrollArea.className).toContain("flex-1");
+    expect(scrollArea.className).toContain("min-h-0");
+    expect(scrollArea.className).toContain("overflow-y-auto");
+    expect(screen.getByDisplayValue("Action 14")).toBeTruthy();
+  });
+
   it("renders and runs configured repository actions", async () => {
     const user = userEvent.setup();
     const action = {
