@@ -4,7 +4,9 @@ import type {
   AiSettingsSaveRequest,
   AppSettingsSaveRequest,
   ClipboardTextRequest,
+  CreatePullRequestRequest,
   ExternalUrlRequest,
+  GeneratePrDescriptionRequest,
   FileSystemPathListRequest,
   FileSystemPathRequest,
   GitBranchRequest,
@@ -79,6 +81,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubIssues, request) as ReturnType<GitheadApi["getGitHubIssues"]>,
   getGitHubPullRequests: (request: GitHubRepositoryRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubPullRequests, request) as ReturnType<GitheadApi["getGitHubPullRequests"]>,
+  createGitHubPullRequest: (request: CreatePullRequestRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.createGitHubPullRequest, request) as ReturnType<GitheadApi["createGitHubPullRequest"]>,
   getCommitHistory: (request: GitCommitHistoryRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getCommitHistory, request) as ReturnType<GitheadApi["getCommitHistory"]>,
   getCommitDetails: (request: GitCommitDetailsRequest) =>
@@ -133,6 +137,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.saveAppSettings, request) as ReturnType<GitheadApi["saveAppSettings"]>,
   generateCommitMessage: (request: GenerateCommitMessageRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.generateCommitMessage, request) as ReturnType<GitheadApi["generateCommitMessage"]>,
+  generatePrDescription: (request: GeneratePrDescriptionRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.generatePrDescription, request) as ReturnType<GitheadApi["generatePrDescription"]>,
   openExternalUrl: (request: ExternalUrlRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.openExternalUrl, request) as ReturnType<GitheadApi["openExternalUrl"]>,
   openFile: (request: FileSystemPathRequest) =>

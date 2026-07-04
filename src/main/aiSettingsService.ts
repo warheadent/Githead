@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
+import { DEFAULT_PR_DESCRIPTION_PROMPT } from "../shared/prDescriptionPrompt";
 import {
   AI_API_KEY_PROVIDERS,
   AI_CLI_PROVIDERS,
@@ -31,8 +32,10 @@ export const DEFAULT_AI_PROVIDER_MODELS: Record<AiCommitMessageProvider, string>
 interface StoredAiSettings {
   selectedProvider?: AiCommitMessageProvider;
   providerModels?: Partial<Record<AiCommitMessageProvider, string>>;
+  prDescriptionModels?: Partial<Record<AiCommitMessageProvider, string>>;
   encryptedApiKeys?: Partial<Record<AiApiKeyProvider, string>>;
   commitMessagePrompt?: string;
+  prDescriptionPrompt?: string;
 
   model?: string;
   siteUrl?: string;
@@ -87,7 +90,8 @@ export class AiSettingsService {
       selectedProvider: sanitizeProvider(stored.selectedProvider) ?? "openrouter",
       providers: createProviderSettings(stored, encryptedApiKeys),
       cliStatus,
-      commitMessagePrompt: sanitizePrompt(stored.commitMessagePrompt) || DEFAULT_COMMIT_MESSAGE_PROMPT
+      commitMessagePrompt: sanitizePrompt(stored.commitMessagePrompt) || DEFAULT_COMMIT_MESSAGE_PROMPT,
+      prDescriptionPrompt: sanitizePrompt(stored.prDescriptionPrompt) || DEFAULT_PR_DESCRIPTION_PROMPT
     };
   }
 
@@ -132,10 +136,19 @@ export class AiSettingsService {
       throw new Error(`Enter ${getProviderArticle(selectedProvider)} ${getProviderLabel(selectedProvider)} API key.`);
     }
 
+    const prDescriptionModels = createSavedPrDescriptionModels(
+      request.prDescriptionModels ?? existing.prDescriptionModels
+    );
+    const prDescriptionPrompt = request.prDescriptionPrompt === undefined
+      ? sanitizePrompt(existing.prDescriptionPrompt)
+      : sanitizePrompt(request.prDescriptionPrompt);
+
     const stored: StoredAiSettings = {
       selectedProvider,
       providerModels,
       commitMessagePrompt,
+      ...(Object.keys(prDescriptionModels).length > 0 ? { prDescriptionModels } : {}),
+      ...(prDescriptionPrompt ? { prDescriptionPrompt } : {}),
       ...(Object.keys(encryptedApiKeys).length > 0 ? { encryptedApiKeys } : {})
     };
 
@@ -186,10 +199,23 @@ function createProviderSettings(
   return AI_COMMIT_MESSAGE_PROVIDERS.reduce((providers, provider) => {
     providers[provider] = {
       model: models[provider],
+      prDescriptionModel: sanitizeSetting(stored.prDescriptionModels?.[provider]),
       hasApiKey: isApiKeyProvider(provider) ? Boolean(encryptedApiKeys[provider]) : false
     };
     return providers;
   }, {} as Record<AiCommitMessageProvider, AiProviderSettings>);
+}
+
+function createSavedPrDescriptionModels(
+  models: Partial<Record<AiCommitMessageProvider, string>> | undefined
+): Partial<Record<AiCommitMessageProvider, string>> {
+  return AI_COMMIT_MESSAGE_PROVIDERS.reduce((saved, provider) => {
+    const model = sanitizeSetting(models?.[provider]);
+    if (model) {
+      saved[provider] = model;
+    }
+    return saved;
+  }, {} as Partial<Record<AiCommitMessageProvider, string>>);
 }
 
 function createSavedProviderModels(

@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
+import { DEFAULT_PR_DESCRIPTION_PROMPT } from "../shared/prDescriptionPrompt";
 import type { AiCliProvider, AiCliProviderStatus } from "../shared/types";
 import {
   AiSettingsService,
@@ -66,27 +67,33 @@ describe("AiSettingsService", () => {
         providers: {
           openrouter: {
             model: DEFAULT_AI_PROVIDER_MODELS.openrouter,
+            prDescriptionModel: "",
             hasApiKey: false
           },
           openai: {
             model: DEFAULT_AI_PROVIDER_MODELS.openai,
+            prDescriptionModel: "",
             hasApiKey: false
           },
           "codex-cli": {
             model: DEFAULT_AI_PROVIDER_MODELS["codex-cli"],
+            prDescriptionModel: "",
             hasApiKey: false
           },
           anthropic: {
             model: DEFAULT_AI_PROVIDER_MODELS.anthropic,
+            prDescriptionModel: "",
             hasApiKey: false
           },
           "claude-code": {
             model: DEFAULT_AI_PROVIDER_MODELS["claude-code"],
+            prDescriptionModel: "",
             hasApiKey: false
           }
         },
         cliStatus,
-        commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT
+        commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT,
+        prDescriptionPrompt: DEFAULT_PR_DESCRIPTION_PROMPT
       });
     });
   });
@@ -106,9 +113,11 @@ describe("AiSettingsService", () => {
       expect(settings.selectedProvider).toBe("openrouter");
       expect(settings.providers.openrouter).toEqual({
         model: "openrouter/auto",
+        prDescriptionModel: "",
         hasApiKey: true
       });
       expect(settings.commitMessagePrompt).toBe(DEFAULT_COMMIT_MESSAGE_PROMPT);
+      expect(settings.prDescriptionPrompt).toBe(DEFAULT_PR_DESCRIPTION_PROMPT);
       await expect(service.getApiKey("openrouter")).resolves.toBe("sk-or-key");
     });
   });

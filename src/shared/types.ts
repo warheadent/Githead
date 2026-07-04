@@ -232,6 +232,8 @@ export interface RepoSummary {
   hasHead: boolean;
   remotes: GitRemote[];
   remoteBranches: GitRemoteBranch[];
+  defaultRemoteBranch: GitRemoteBranch | null;
+  commitsAheadOfDefaultBranch: number | null;
   githubRepository: GitHubRepository | null;
   statusLines: string[];
   files: GitStatusFile[];
@@ -277,6 +279,22 @@ export interface GitConfiguredActionSaveRequest {
 
 export interface GitHubRepositoryRequest {
   repoPath: string;
+}
+
+export interface CreatePullRequestRequest {
+  repoPath: string;
+  title: string;
+  body: string;
+  baseBranch: string;
+  headBranch: string;
+  draft: boolean;
+}
+
+export interface CreatePullRequestResult {
+  number: number;
+  url: string;
+  title: string;
+  draft: boolean;
 }
 
 export interface GitCommitHistoryRequest {
@@ -461,6 +479,8 @@ export type AiCliProvider = (typeof AI_CLI_PROVIDERS)[number];
 
 export interface AiProviderSettings {
   model: string;
+  /** Model used for PR descriptions; empty string falls back to `model`. */
+  prDescriptionModel: string;
   hasApiKey: boolean;
 }
 
@@ -475,14 +495,17 @@ export interface AiSettings {
   providers: Record<AiCommitMessageProvider, AiProviderSettings>;
   cliStatus: Record<AiCliProvider, AiCliProviderStatus>;
   commitMessagePrompt: string;
+  prDescriptionPrompt: string;
 }
 
 export interface AiSettingsSaveRequest {
   selectedProvider: AiCommitMessageProvider;
   providerModels: Record<AiCommitMessageProvider, string>;
+  prDescriptionModels?: Partial<Record<AiCommitMessageProvider, string>>;
   apiKeys?: Partial<Record<AiApiKeyProvider, string>>;
   clearApiKeys?: Partial<Record<AiApiKeyProvider, boolean>>;
   commitMessagePrompt: string;
+  prDescriptionPrompt?: string;
 }
 
 export interface AppSettings {
@@ -496,6 +519,15 @@ export interface AppSettingsSaveRequest {
 export interface GenerateCommitMessageRequest {
   repoPath: string;
   additionalContext?: string;
+}
+
+export interface GeneratePrDescriptionRequest {
+  repoPath: string;
+  /** Remote-qualified base ref, e.g. "origin/main". */
+  baseRef: string;
+  /** Local head branch name. */
+  headRef: string;
+  title?: string;
 }
 
 export interface ExternalUrlRequest {
@@ -632,6 +664,7 @@ export interface GitheadApi {
   getGitHubOpenCounts(request: GitHubRepositoryRequest): Promise<GitHubOpenCounts>;
   getGitHubIssues(request: GitHubRepositoryRequest): Promise<GitHubIssue[]>;
   getGitHubPullRequests(request: GitHubRepositoryRequest): Promise<GitHubPullRequest[]>;
+  createGitHubPullRequest(request: CreatePullRequestRequest): Promise<CreatePullRequestResult>;
   getCommitHistory(request: GitCommitHistoryRequest): Promise<GitCommitGraphRow[]>;
   getCommitDetails(request: GitCommitDetailsRequest): Promise<GitCommitDetails>;
   getCommitFileDiff(request: GitCommitFileDiffRequest): Promise<GitFileDiff>;
@@ -659,6 +692,7 @@ export interface GitheadApi {
   getAppSettings(): Promise<AppSettings>;
   saveAppSettings(request: AppSettingsSaveRequest): Promise<AppSettings>;
   generateCommitMessage(request: GenerateCommitMessageRequest): Promise<GitOperationResult>;
+  generatePrDescription(request: GeneratePrDescriptionRequest): Promise<GitOperationResult>;
   openExternalUrl(request: ExternalUrlRequest): Promise<void>;
   openFile(request: FileSystemPathRequest): Promise<GitOperationResult>;
   showInExplorer(request: FileSystemPathRequest): Promise<GitOperationResult>;

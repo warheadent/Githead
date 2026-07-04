@@ -1,4 +1,6 @@
 import type {
+  CreatePullRequestRequest,
+  CreatePullRequestResult,
   GitHubIssue,
   GitHubOpenCounts,
   GitHubPullRequest,
@@ -22,6 +24,14 @@ interface GitHubRepositoryProvider {
 
 interface GitHubApiErrorResponse {
   message?: string;
+  errors?: Array<string | {
+    message?: string;
+  }>;
+}
+
+interface GitHubRequestOptions {
+  method?: "GET" | "POST";
+  body?: unknown;
 }
 
 interface GitHubApiWorkflowRunsResponse extends GitHubApiErrorResponse {
@@ -201,6 +211,35 @@ export class GitHubService {
     });
   }
 
+  async createPullRequest(request: CreatePullRequestRequest): Promise<CreatePullRequestResult> {
+    const repository = await this.getRepository(request.repoPath);
+    const response = await this.fetchJson<GitHubApiPullRequest>(
+      repository,
+      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/pulls`,
+      {
+        method: "POST",
+        body: {
+          title: request.title,
+          head: request.headBranch,
+          base: request.baseBranch,
+          body: request.body,
+          draft: request.draft
+        }
+      }
+    );
+
+    if (!Number.isFinite(response.number)) {
+      throw new Error("GitHub returned an unexpected response while creating the pull request.");
+    }
+
+    return {
+      number: Number(response.number),
+      url: normalizeText(response.html_url, repository.webUrl),
+      title: normalizeText(response.title, request.title),
+      draft: response.draft === true
+    };
+  }
+
   private async getRepository(repoPath: string): Promise<GitHubRepository> {
     const repository = await this.repositoryProvider.getGitHubRepository(repoPath);
     if (!repository) {
@@ -221,26 +260,33 @@ export class GitHubService {
 
   private async fetchJson<T>(
     repository: GitHubRepository,
-    path: string
+    path: string,
+    options: GitHubRequestOptions = {}
   ): Promise<T> {
-    const ghResult = await this.fetchJsonWithGitHubCli<T>(path);
+    const ghResult = await this.fetchJsonWithGitHubCli<T>(path, options);
     if (ghResult.kind === "success") {
       return ghResult.payload;
     }
 
+    const body = options.body === undefined ? undefined : JSON.stringify(options.body);
     const response = await this.fetchImpl(`${GITHUB_API_BASE_URL}${path}`, {
-      headers: createGitHubHeaders()
+      method: options.method ?? "GET",
+      headers: {
+        ...createGitHubHeaders(),
+        ...(body === undefined ? {} : { "Content-Type": "application/json" })
+      },
+      ...(body === undefined ? {} : { body })
     });
     const payload = await parseJson<T & GitHubApiErrorResponse>(response);
 
     if (!response.ok) {
-      throw new Error(createGitHubRequestError(repository, response.status, payload.message, ghResult.error));
+      throw new Error(createGitHubRequestError(repository, response.status, payload, ghResult.error));
     }
 
     return payload as T;
   }
 
-  private async fetchJsonWithGitHubCli<T>(path: string): Promise<
+  private async fetchJsonWithGitHubCli<T>(path: string, options: GitHubRequestOptions = {}): Promise<
     | { kind: "success"; payload: T }
     | { kind: "unavailable"; error: string }
     | { kind: "failed"; error: string }
@@ -252,16 +298,18 @@ export class GitHubService {
       };
     }
 
+    const body = options.body === undefined ? undefined : JSON.stringify(options.body);
     const result = await this.runner.run("gh", [
       "api",
       "--method",
-      "GET",
+      options.method ?? "GET",
       path,
       "--header",
       "Accept: application/vnd.github+json",
       "--header",
-      `X-GitHub-Api-Version: ${GITHUB_API_VERSION}`
-    ]);
+      `X-GitHub-Api-Version: ${GITHUB_API_VERSION}`,
+      ...(body === undefined ? [] : ["--input", "-"])
+    ], body === undefined ? undefined : { stdin: body });
     const error = `${result.stderr}${result.error ?? ""}`.trim();
 
     if (result.exitCode !== 0) {
@@ -311,7 +359,7 @@ function createGitHubHeaders(): Record<string, string> {
 function createGitHubRequestError(
   repository: GitHubRepository,
   status: number,
-  message: string | undefined,
+  payload: GitHubApiErrorResponse,
   cliError: string
 ): string {
   if (status === 404) {
@@ -321,8 +369,26 @@ function createGitHubRequestError(
     ].join(" ");
   }
 
-  const baseMessage = message || `GitHub request for ${repository.fullName} failed with status ${status}.`;
+  if (status === 401 || status === 403) {
+    return [
+      payload.message?.trim() || `GitHub rejected the request for ${repository.fullName} with status ${status}.`,
+      "Authenticate GitHub CLI with gh auth login or set GITHUB_TOKEN, then try again."
+    ].join(" ");
+  }
+
+  const details = getErrorDetails(payload);
+  const baseMessage = [payload.message?.trim(), details]
+    .filter((part): part is string => Boolean(part))
+    .join(" ")
+    || `GitHub request for ${repository.fullName} failed with status ${status}.`;
   return cliError ? `${baseMessage} GitHub CLI fallback also failed: ${cliError}` : baseMessage;
+}
+
+function getErrorDetails(payload: GitHubApiErrorResponse): string {
+  return (payload.errors ?? [])
+    .map((error) => (typeof error === "string" ? error : error.message ?? "").trim())
+    .filter((message) => message.length > 0)
+    .join(" ");
 }
 
 function normalizeText(value: string | null | undefined, fallback: string): string {

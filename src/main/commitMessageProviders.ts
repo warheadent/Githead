@@ -11,6 +11,7 @@ const ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
 const API_TIMEOUT_MS = 60_000;
 const CLI_TIMEOUT_MS = 60_000;
+const DEFAULT_MAX_TOKENS = 220;
 
 type Fetch = typeof fetch;
 
@@ -19,6 +20,8 @@ export interface CommitMessageProviderInput {
   model: string;
   systemPrompt: string;
   userPrompt: string;
+  /** Response token budget for API providers; CLI providers ignore it. */
+  maxTokens?: number;
 }
 
 export interface CommitMessageProvider {
@@ -88,7 +91,7 @@ export class OpenRouterCommitMessageProvider implements CommitMessageProvider {
           }
         ],
         temperature: 0.2,
-        max_tokens: 220
+        max_tokens: input.maxTokens ?? DEFAULT_MAX_TOKENS
       })
     });
     const payload = await parseJson<OpenRouterResponse>(response);
@@ -118,7 +121,7 @@ export class OpenAiCommitMessageProvider implements CommitMessageProvider {
         instructions: input.systemPrompt,
         input: input.userPrompt,
         temperature: 0.2,
-        max_output_tokens: 220
+        max_output_tokens: input.maxTokens ?? DEFAULT_MAX_TOKENS
       })
     });
     const payload = await parseJson<OpenAiResponse>(response);
@@ -154,7 +157,7 @@ export class AnthropicCommitMessageProvider implements CommitMessageProvider {
           }
         ],
         temperature: 0.2,
-        max_tokens: 220
+        max_tokens: input.maxTokens ?? DEFAULT_MAX_TOKENS
       })
     });
     const payload = await parseJson<AnthropicResponse>(response);

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { GitHubRepository } from "../shared/types";
-import type { ProcessResult, ProcessRunner } from "./processRunner";
+import type { ProcessResult, ProcessRunner, ProcessRunOptions } from "./processRunner";
 import { GitHubService } from "./githubService";
 
 const repository: GitHubRepository = {
@@ -286,11 +286,146 @@ describe("GitHubService", () => {
       repoPath: "D:\\Repo"
     })).rejects.toThrow("Selected repository does not have a supported GitHub origin.");
   });
+
+  it("creates a pull request with REST fallback", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      number: 12,
+      title: "Add pull request creation",
+      html_url: "https://github.com/openai/githead/pull/12",
+      draft: true
+    }, {
+      status: 201
+    }));
+    const service = new GitHubService(createRepositoryProvider(repository), fetchImpl);
+
+    await expect(service.createPullRequest({
+      repoPath: "D:\\Repo",
+      title: "Add pull request creation",
+      body: "Adds a Create PR dialog.",
+      baseBranch: "main",
+      headBranch: "feature/create-pr",
+      draft: true
+    })).resolves.toEqual({
+      number: 12,
+      title: "Add pull request creation",
+      url: "https://github.com/openai/githead/pull/12",
+      draft: true
+    });
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://api.github.com/repos/openai/githead/pulls",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "Accept": "application/vnd.github+json",
+          "Content-Type": "application/json"
+        })
+      })
+    );
+    const init = fetchImpl.mock.calls[0]?.[1];
+    expect(JSON.parse(String(init?.body))).toEqual({
+      title: "Add pull request creation",
+      head: "feature/create-pr",
+      base: "main",
+      body: "Adds a Create PR dialog.",
+      draft: true
+    });
+  });
+
+  it("creates a pull request through GitHub CLI with the payload on stdin", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const runner = new FakeRunner([
+      ok(JSON.stringify({
+        number: 5,
+        title: "CLI pull request",
+        html_url: "https://github.com/openai/githead/pull/5",
+        draft: false
+      }))
+    ]);
+    const service = new GitHubService(createRepositoryProvider(repository), fetchImpl, runner);
+
+    await expect(service.createPullRequest({
+      repoPath: "D:\\Repo",
+      title: "CLI pull request",
+      body: "",
+      baseBranch: "main",
+      headBranch: "feature/cli",
+      draft: false
+    })).resolves.toEqual({
+      number: 5,
+      title: "CLI pull request",
+      url: "https://github.com/openai/githead/pull/5",
+      draft: false
+    });
+
+    expect(runner.calls[0]?.args).toEqual([
+      "api",
+      "--method",
+      "POST",
+      "/repos/openai/githead/pulls",
+      "--header",
+      "Accept: application/vnd.github+json",
+      "--header",
+      "X-GitHub-Api-Version: 2022-11-28",
+      "--input",
+      "-"
+    ]);
+    expect(JSON.parse(String(runner.calls[0]?.options?.stdin))).toEqual({
+      title: "CLI pull request",
+      head: "feature/cli",
+      base: "main",
+      body: "",
+      draft: false
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("surfaces validation details when pull request creation fails with 422", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      message: "Validation Failed",
+      errors: [
+        {
+          message: "A pull request already exists for openai:feature/create-pr."
+        }
+      ]
+    }, {
+      status: 422
+    }));
+    const service = new GitHubService(createRepositoryProvider(repository), fetchImpl);
+
+    await expect(service.createPullRequest({
+      repoPath: "D:\\Repo",
+      title: "Duplicate",
+      body: "",
+      baseBranch: "main",
+      headBranch: "feature/create-pr",
+      draft: false
+    })).rejects.toThrow("A pull request already exists for openai:feature/create-pr.");
+  });
+
+  it("adds an authentication hint when pull request creation is unauthorized", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      message: "Requires authentication"
+    }, {
+      status: 401
+    }));
+    const service = new GitHubService(createRepositoryProvider(repository), fetchImpl);
+
+    await expect(service.createPullRequest({
+      repoPath: "D:\\Repo",
+      title: "Needs auth",
+      body: "",
+      baseBranch: "main",
+      headBranch: "feature/auth",
+      draft: false
+    })).rejects.toThrow("Authenticate GitHub CLI with gh auth login or set GITHUB_TOKEN, then try again.");
+  });
 });
 
 interface RunnerCall {
   command: string;
   args: string[];
+  options?: ProcessRunOptions;
 }
 
 class FakeRunner implements ProcessRunner {
@@ -298,10 +433,11 @@ class FakeRunner implements ProcessRunner {
 
   constructor(private readonly results: ProcessResult[]) {}
 
-  async run(command: string, args: string[]): Promise<ProcessResult> {
+  async run(command: string, args: string[], options?: ProcessRunOptions): Promise<ProcessResult> {
     this.calls.push({
       command,
-      args
+      args,
+      ...(options ? { options } : {})
     });
 
     const result = this.results.shift();

@@ -1,4 +1,4 @@
-import type { AiApiKeyProvider, AiCommitMessageProvider, GenerateCommitMessageRequest, GitOperationResult } from "../shared/types";
+import type { AiApiKeyProvider, AiCommitMessageProvider, AiSettings, GenerateCommitMessageRequest, GitOperationResult } from "../shared/types";
 import { getProviderLabel, isApiKeyProvider, isCliProvider, type AiSettingsService } from "./aiSettingsService";
 import {
   AnthropicCommitMessageProvider,
@@ -36,22 +36,15 @@ export class CommitMessageService {
       const providerSettings = settings.providers[selectedProvider];
       const providerLabel = getProviderLabel(selectedProvider);
 
-      if (!providerSettings.model.trim()) {
-        return createFailure(request.repoPath, `${providerLabel} model is not configured.`);
-      }
-
-      const apiKey = isApiKeyProvider(selectedProvider)
-        ? await this.settingsService.getApiKey(selectedProvider)
-        : null;
-      if (isApiKeyProvider(selectedProvider) && !apiKey) {
-        return createFailure(request.repoPath, `${providerLabel} API key is not configured.`);
-      }
-
-      if (isCliProvider(selectedProvider)) {
-        const status = settings.cliStatus[selectedProvider];
-        if (!status.detected || !status.authenticated) {
-          return createFailure(request.repoPath, `${providerLabel} is not authenticated.`);
-        }
+      const resolution = await resolveAiProvider(
+        settings,
+        providerSettings.model,
+        this.settingsService,
+        this.fetchImpl,
+        this.runner
+      );
+      if (resolution.kind === "error") {
+        return createFailure(request.repoPath, resolution.message);
       }
 
       const service = await this.resolveService(request.repoPath);
@@ -65,8 +58,7 @@ export class CommitMessageService {
         return createFailure(request.repoPath, "Stage changes before generating a commit message.");
       }
 
-      const provider = this.createProvider(selectedProvider, apiKey);
-      const message = normalizeGeneratedMessage(await provider.generate({
+      const message = normalizeGeneratedMessage(await resolution.provider.generate({
         repoPath: request.repoPath,
         model: providerSettings.model,
         systemPrompt: createCommitMessageSystemPrompt(),
@@ -93,26 +85,75 @@ export class CommitMessageService {
       );
     }
   }
+}
 
-  private createProvider(provider: AiCommitMessageProvider, apiKey: string | null): CommitMessageProvider {
-    switch (provider) {
-      case "openrouter":
-        return new OpenRouterCommitMessageProvider(requireApiKey(provider, apiKey), this.fetchImpl);
-      case "openai":
-        return new OpenAiCommitMessageProvider(requireApiKey(provider, apiKey), this.fetchImpl);
-      case "anthropic":
-        return new AnthropicCommitMessageProvider(requireApiKey(provider, apiKey), this.fetchImpl);
-      case "codex-cli":
-        if (!this.runner) {
-          throw new Error("Codex CLI runner is not configured.");
-        }
-        return new CodexCliCommitMessageProvider(this.runner);
-      case "claude-code":
-        if (!this.runner) {
-          throw new Error("Claude Code runner is not configured.");
-        }
-        return new ClaudeCodeCommitMessageProvider(this.runner);
+export type AiProviderResolution =
+  | { kind: "ready"; provider: CommitMessageProvider }
+  | { kind: "error"; message: string };
+
+/**
+ * Shared preflight for AI generation features: verifies the selected
+ * provider's model, API key, and CLI authentication, then constructs the
+ * provider. `model` is passed in because callers resolve it differently
+ * (e.g. PR descriptions fall back to the commit message model).
+ */
+export async function resolveAiProvider(
+  settings: AiSettings,
+  model: string,
+  settingsService: AiSettingsService,
+  fetchImpl: Fetch,
+  runner?: ProcessRunner
+): Promise<AiProviderResolution> {
+  const selectedProvider = settings.selectedProvider;
+  const providerLabel = getProviderLabel(selectedProvider);
+
+  if (!model.trim()) {
+    return { kind: "error", message: `${providerLabel} model is not configured.` };
+  }
+
+  const apiKey = isApiKeyProvider(selectedProvider)
+    ? await settingsService.getApiKey(selectedProvider)
+    : null;
+  if (isApiKeyProvider(selectedProvider) && !apiKey) {
+    return { kind: "error", message: `${providerLabel} API key is not configured.` };
+  }
+
+  if (isCliProvider(selectedProvider)) {
+    const status = settings.cliStatus[selectedProvider];
+    if (!status.detected || !status.authenticated) {
+      return { kind: "error", message: `${providerLabel} is not authenticated.` };
     }
+  }
+
+  return {
+    kind: "ready",
+    provider: createProvider(selectedProvider, apiKey, fetchImpl, runner)
+  };
+}
+
+function createProvider(
+  provider: AiCommitMessageProvider,
+  apiKey: string | null,
+  fetchImpl: Fetch,
+  runner?: ProcessRunner
+): CommitMessageProvider {
+  switch (provider) {
+    case "openrouter":
+      return new OpenRouterCommitMessageProvider(requireApiKey(provider, apiKey), fetchImpl);
+    case "openai":
+      return new OpenAiCommitMessageProvider(requireApiKey(provider, apiKey), fetchImpl);
+    case "anthropic":
+      return new AnthropicCommitMessageProvider(requireApiKey(provider, apiKey), fetchImpl);
+    case "codex-cli":
+      if (!runner) {
+        throw new Error("Codex CLI runner is not configured.");
+      }
+      return new CodexCliCommitMessageProvider(runner);
+    case "claude-code":
+      if (!runner) {
+        throw new Error("Claude Code runner is not configured.");
+      }
+      return new ClaudeCodeCommitMessageProvider(runner);
   }
 }
 

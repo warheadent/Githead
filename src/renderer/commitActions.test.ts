@@ -28,6 +28,8 @@ const baseSummary: RepoSummary = {
   hasHead: true,
   remotes: [],
   remoteBranches: [],
+  defaultRemoteBranch: null,
+  commitsAheadOfDefaultBranch: null,
   githubRepository: null,
   statusLines: [],
   files: [],

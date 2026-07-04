@@ -6,7 +6,9 @@ import type {
   AiSettingsSaveRequest,
   AppSettingsSaveRequest,
   ClipboardTextRequest,
+  CreatePullRequestRequest,
   ExternalUrlRequest,
+  GeneratePrDescriptionRequest,
   FileSystemPathListRequest,
   FileSystemPathRequest,
   GitBranchRequest,
@@ -50,6 +52,7 @@ import { GitService } from "./gitService";
 import { GitHubService } from "./githubService";
 import { LoreService } from "./loreService";
 import { NodeProcessRunner } from "./processRunner";
+import { PrDescriptionService } from "./prDescriptionService";
 import { getOpenRepositoryFileError } from "./openFilePolicy";
 import { RepoRecentsService } from "./repoRecentsService";
 import { RepoTrustService } from "./repoTrustService";
@@ -75,6 +78,7 @@ let aiSettingsService: AiSettingsService | null = null;
 let appSettingsService: AppSettingsService | null = null;
 let gitIdentityService: GitIdentityService | null = null;
 let commitMessageService: CommitMessageService | null = null;
+let prDescriptionService: PrDescriptionService | null = null;
 let githubService: GitHubService | null = null;
 let repoRecentsService: RepoRecentsService | null = null;
 let repoTrustService: RepoTrustService | null = null;
@@ -290,6 +294,10 @@ ipcMain.handle(IPC_CHANNELS.getGitHubPullRequests, async (_event, request: GitHu
   return getGitHubService().getPullRequests(request);
 });
 
+ipcMain.handle(IPC_CHANNELS.createGitHubPullRequest, async (_event, request: CreatePullRequestRequest) => {
+  return getGitHubService().createPullRequest(request);
+});
+
 ipcMain.handle(IPC_CHANNELS.getCommitHistory, async (_event, request: GitCommitHistoryRequest) => {
   return (await vcsRouter.serviceForRepo(request.repoPath)).getCommitHistory(request);
 });
@@ -464,6 +472,10 @@ ipcMain.handle(IPC_CHANNELS.saveAppSettings, async (_event, request: AppSettings
 
 ipcMain.handle(IPC_CHANNELS.generateCommitMessage, async (_event, request: GenerateCommitMessageRequest) => {
   return runExclusiveGitOperation(() => getCommitMessageService().generateCommitMessage(request), request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.generatePrDescription, async (_event, request: GeneratePrDescriptionRequest) => {
+  return runExclusiveGitOperation(() => getPrDescriptionService().generatePrDescription(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.openExternalUrl, async (_event, request: ExternalUrlRequest) => {
@@ -888,6 +900,16 @@ function getCommitMessageService(): CommitMessageService {
     processRunner
   );
   return commitMessageService;
+}
+
+function getPrDescriptionService(): PrDescriptionService {
+  prDescriptionService ??= new PrDescriptionService(
+    gitService,
+    getAiSettingsService(),
+    fetch,
+    processRunner
+  );
+  return prDescriptionService;
 }
 
 function getGitHubService(): GitHubService {

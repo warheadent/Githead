@@ -18,6 +18,7 @@ vi.mock("@/components/ui/resizable", () => ({
 
 import { App } from "./App";
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
+import { DEFAULT_PR_DESCRIPTION_PROMPT } from "../shared/prDescriptionPrompt";
 import type {
   AiSettings,
   AppSettings,
@@ -74,22 +75,27 @@ function createAiSettings(
     providers: {
       openrouter: {
         model: defaultProviderModels.openrouter,
+        prDescriptionModel: "",
         hasApiKey: true
       },
       openai: {
         model: defaultProviderModels.openai,
+        prDescriptionModel: "",
         hasApiKey: true
       },
       "codex-cli": {
         model: defaultProviderModels["codex-cli"],
+        prDescriptionModel: "",
         hasApiKey: false
       },
       anthropic: {
         model: defaultProviderModels.anthropic,
+        prDescriptionModel: "",
         hasApiKey: true
       },
       "claude-code": {
         model: defaultProviderModels["claude-code"],
+        prDescriptionModel: "",
         hasApiKey: false
       }
     },
@@ -106,6 +112,7 @@ function createAiSettings(
       }
     },
     commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT,
+    prDescriptionPrompt: DEFAULT_PR_DESCRIPTION_PROMPT,
     ...patch
   };
 }
@@ -2144,7 +2151,8 @@ describe("App", () => {
     });
     expect(await screen.findByRole("tab", { name: /Pull Requests 4/ })).toBeTruthy();
     expect(screen.getByRole("tab", { name: /Issues 17/ })).toBeTruthy();
-    expect(githead.getGitHubPullRequests).not.toHaveBeenCalled();
+    // Pull requests load eagerly (the Create PR button needs them); issues
+    // still load only when their tab is opened.
     expect(githead.getGitHubIssues).not.toHaveBeenCalled();
   });
 
@@ -4413,6 +4421,7 @@ describe("App", () => {
         ...createAiSettings().providers,
         openrouter: {
           model: "openrouter/auto",
+          prDescriptionModel: "",
           hasApiKey: true
         }
       },
@@ -4452,13 +4461,21 @@ describe("App", () => {
           anthropic: defaultProviderModels.anthropic,
           "claude-code": defaultProviderModels["claude-code"]
         },
+        prDescriptionModels: {
+          openrouter: "",
+          openai: "",
+          "codex-cli": "",
+          anthropic: "",
+          "claude-code": ""
+        },
         apiKeys: {
           openrouter: "sk-or-key"
         },
         clearApiKeys: {
           openrouter: false
         },
-        commitMessagePrompt: "Write a single-line commit message."
+        commitMessagePrompt: "Write a single-line commit message.",
+        prDescriptionPrompt: DEFAULT_PR_DESCRIPTION_PROMPT
       });
     });
     expect(githead.saveAppSettings).toHaveBeenCalledWith({
@@ -4577,6 +4594,7 @@ function createGitheadMock(): GitheadApi {
       ...createAiSettings().providers,
       openai: {
         model: "openai/gpt-5-mini",
+        prDescriptionModel: "",
         hasApiKey: true
       }
     }
@@ -4626,6 +4644,12 @@ function createGitheadMock(): GitheadApi {
     getGitHubOpenCounts: vi.fn().mockResolvedValue(createOpenCounts()),
     getGitHubIssues: vi.fn().mockResolvedValue([]),
     getGitHubPullRequests: vi.fn().mockResolvedValue([]),
+    createGitHubPullRequest: vi.fn().mockResolvedValue({
+      number: 12,
+      url: "https://github.com/warheadent/Githead/pull/12",
+      title: "Update feature",
+      draft: false
+    }),
     getCommitHistory: vi.fn().mockResolvedValue([]),
     getCommitDetails: vi.fn(),
     getCommitFileDiff: vi.fn(),
@@ -4661,6 +4685,7 @@ function createGitheadMock(): GitheadApi {
     getAppSettings: vi.fn().mockResolvedValue(appSettings),
     saveAppSettings: vi.fn().mockResolvedValue(appSettings),
     generateCommitMessage: vi.fn().mockResolvedValue(okOperation),
+    generatePrDescription: vi.fn().mockResolvedValue(okOperation),
     openExternalUrl: vi.fn().mockResolvedValue(undefined),
     openFile: vi.fn().mockResolvedValue(okOperation),
     showInExplorer: vi.fn().mockResolvedValue(okOperation),
@@ -4795,6 +4820,12 @@ function createSummary(
         branch: "main"
       }
     ],
+    defaultRemoteBranch: {
+      name: "origin/main",
+      remote: "origin",
+      branch: "main"
+    },
+    commitsAheadOfDefaultBranch: 0,
     githubRepository: null,
     statusLines: [],
     files: [],

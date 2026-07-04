@@ -972,7 +972,8 @@ describe("GitService", () => {
         "refs/remotes/origin/main\torigin/main\t",
         "refs/remotes/origin/feature/nav\torigin/feature/nav\t"
       ].join("\n")),
-      ok("D:\\Repo\n")
+      ok("D:\\Repo\n"),
+      ok("3\n")
     ]);
     const service = new GitService(runner);
 
@@ -985,6 +986,19 @@ describe("GitService", () => {
       hasHead: true,
       githubRepository: null
     });
+    expect(summary.defaultRemoteBranch).toEqual({
+      name: "origin/main",
+      remote: "origin",
+      branch: "main"
+    });
+    expect(summary.commitsAheadOfDefaultBranch).toBe(3);
+    expect(runner.calls.at(-1)?.args).toEqual([
+      "-C",
+      "D:\\Repo",
+      "rev-list",
+      "--count",
+      "origin/main..HEAD"
+    ]);
     expect(summary.branches).toEqual([
       {
         name: "main",

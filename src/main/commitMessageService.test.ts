@@ -63,22 +63,27 @@ const baseSettings: AiSettings = {
   providers: {
     openrouter: {
       model: "openrouter/auto",
+      prDescriptionModel: "",
       hasApiKey: true
     },
     openai: {
       model: DEFAULT_AI_PROVIDER_MODELS.openai,
+      prDescriptionModel: "",
       hasApiKey: true
     },
     "codex-cli": {
       model: DEFAULT_AI_PROVIDER_MODELS["codex-cli"],
+      prDescriptionModel: "",
       hasApiKey: false
     },
     anthropic: {
       model: DEFAULT_AI_PROVIDER_MODELS.anthropic,
+      prDescriptionModel: "",
       hasApiKey: true
     },
     "claude-code": {
       model: DEFAULT_AI_PROVIDER_MODELS["claude-code"],
+      prDescriptionModel: "",
       hasApiKey: false
     }
   },
@@ -97,7 +102,8 @@ const baseSettings: AiSettings = {
   commitMessagePrompt: [
     "Write a project-specific Git commit message.",
     "Prefer Conventional Commits."
-  ].join("\n")
+  ].join("\n"),
+  prDescriptionPrompt: "Write a pull request description."
 };
 
 function createSettings(provider: AiCommitMessageProvider, patch: Partial<AiSettings> = {}): AiSettings {

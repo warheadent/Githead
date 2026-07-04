@@ -97,6 +97,7 @@ import {
   TooltipTrigger
 } from "@/components/ui/tooltip";
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
+import { DEFAULT_PR_DESCRIPTION_PROMPT } from "../shared/prDescriptionPrompt";
 import type {
   AiApiKeyProvider,
   AiCliProvider,
@@ -144,7 +145,7 @@ import {
   hasActivityLogOutput,
   type ActivityLogState
 } from "./activityLog";
-import { canPush, getAheadBehindCounts, getPrimaryCommitAction, getPullableCommitCount, getPushableCommitCount, hasStagedChanges } from "./commitActions";
+import { canPush, getAheadBehindCounts, getPrimaryCommitAction, getPullableCommitCount, getPushableCommitCount, hasStagedChanges, hasUnpushedCommits } from "./commitActions";
 import { buildCommitGraphLayout, type CommitGraphLayout } from "./commitGraph";
 import { groupDiffRowsByHunk, parseUnifiedDiff, type DiffRow, type DiffRowKind } from "./diffParser";
 import { getCommitFileStatusVisuals, getFileStatusVisuals, type FileStatusVisuals } from "./fileStatusVisuals";
@@ -171,9 +172,11 @@ interface FileSelectionModifiers {
 interface SettingsDraft {
   selectedProvider: AiCommitMessageProvider;
   providerModels: Record<AiCommitMessageProvider, string>;
+  prDescriptionModels: Record<AiCommitMessageProvider, string>;
   apiKeys: Partial<Record<AiApiKeyProvider, string>>;
   clearApiKeys: Partial<Record<AiApiKeyProvider, boolean>>;
   commitMessagePrompt: string;
+  prDescriptionPrompt: string;
   autoFetchIntervalMinutes: string;
   gitIdentityName: string;
   gitIdentityEmail: string;
@@ -252,6 +255,19 @@ interface GenerateContextDialogState {
   context: string;
 }
 
+interface CreatePrDialogState {
+  open: boolean;
+  /** Branch captured when the dialog opened; submit bails if it changed. */
+  headBranch: string;
+  title: string;
+  body: string;
+  baseBranch: string;
+  draft: boolean;
+  step: "idle" | "pushing" | "creating";
+  generating: boolean;
+  error: string;
+}
+
 interface AppState {
   repoPath: string;
   repoRecents: string[];
@@ -279,6 +295,7 @@ interface AppState {
   publishDialogOpen: boolean;
   publishRemoteDraft: string;
   publishError: string;
+  createPrDialog: CreatePrDialogState;
   runningAction: string | null;
   runningOperation: string | null;
   lastResult: GitRunResult | null;
@@ -359,9 +376,17 @@ const emptySettingsDraft: SettingsDraft = {
     anthropic: "",
     "claude-code": ""
   },
+  prDescriptionModels: {
+    openrouter: "",
+    openai: "",
+    "codex-cli": "",
+    anthropic: "",
+    "claude-code": ""
+  },
   apiKeys: {},
   clearApiKeys: {},
   commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT,
+  prDescriptionPrompt: DEFAULT_PR_DESCRIPTION_PROMPT,
   autoFetchIntervalMinutes: "10",
   gitIdentityName: "",
   gitIdentityEmail: "",
@@ -434,6 +459,18 @@ const emptyGenerateContextDialog: GenerateContextDialogState = {
   context: ""
 };
 
+const emptyCreatePrDialog: CreatePrDialogState = {
+  open: false,
+  headBranch: "",
+  title: "",
+  body: "",
+  baseBranch: "",
+  draft: false,
+  step: "idle",
+  generating: false,
+  error: ""
+};
+
 const TRUST_WORKSPACE_TITLE = "Do you trust this workspace?";
 const TRUST_WORKSPACE_DESCRIPTION = "This is the first time Githead will run Git operations here that may execute configured hooks or local Git configuration.";
 
@@ -464,6 +501,7 @@ const initialState: AppState = {
   publishDialogOpen: false,
   publishRemoteDraft: "",
   publishError: "",
+  createPrDialog: emptyCreatePrDialog,
   runningAction: null,
   runningOperation: null,
   lastResult: null,
@@ -1244,6 +1282,20 @@ export function App(): ReactNode {
 
     return cleanupRepoChanged;
   }, [refreshDirtyFileStatus]);
+
+  // The Create PR button needs the open PR list before the Pull Requests tab
+  // is ever visited, so load it eagerly for GitHub repositories.
+  useEffect(() => {
+    if (
+      state.summary?.isValid &&
+      state.summary.githubRepository &&
+      !state.pullRequestsLoaded &&
+      !state.pullRequestsLoading &&
+      !state.pullRequestsError
+    ) {
+      void loadPullRequests(false);
+    }
+  }, [loadPullRequests, state.pullRequestsError, state.pullRequestsLoaded, state.pullRequestsLoading, state.summary]);
 
   useEffect(() => {
     const handleWindowBlur = (): void => {
@@ -2533,6 +2585,263 @@ export function App(): ReactNode {
     }
   }, [appendSystemLine, ensureTrustedRepo, refreshRepo, updateState]);
 
+  const openCreatePrDialog = useCallback((): void => {
+    const current = stateRef.current;
+    const summary = current.summary;
+    if (!summary?.isValid || !summary.branch || isOperationRunning(current)) {
+      return;
+    }
+
+    const defaultBranch = getRemoteDefaultBranch(summary);
+    const latestCommitSubject = current.history[0]?.subject.trim() ?? "";
+    updateState({
+      createPrDialog: {
+        ...emptyCreatePrDialog,
+        open: true,
+        headBranch: summary.branch,
+        title: latestCommitSubject || summary.branch,
+        baseBranch: defaultBranch?.branch ?? ""
+      }
+    });
+  }, [updateState]);
+
+  const closeCreatePrDialog = useCallback((): void => {
+    const dialog = stateRef.current.createPrDialog;
+    if (dialog.step !== "idle" || dialog.generating) {
+      return;
+    }
+
+    updateState({
+      createPrDialog: emptyCreatePrDialog
+    });
+  }, [updateState]);
+
+  const generatePrDescriptionForDialog = useCallback(async (): Promise<void> => {
+    const current = stateRef.current;
+    const dialog = current.createPrDialog;
+    const summary = current.summary;
+
+    if (!dialog.open || dialog.generating || dialog.step !== "idle" || isOperationRunning(current)) {
+      return;
+    }
+
+    if (!summary?.isValid || !summary.branch || summary.branch !== dialog.headBranch) {
+      return;
+    }
+
+    if (!dialog.baseBranch) {
+      updateState((latest) => ({
+        ...latest,
+        createPrDialog: {
+          ...latest.createPrDialog,
+          error: "Select a base branch."
+        }
+      }));
+      return;
+    }
+
+    const remoteName = getRemoteDefaultBranch(summary)?.remote ?? "origin";
+    const trimmedTitle = dialog.title.trim();
+    updateState((latest) => ({
+      ...latest,
+      runningOperation: "Generating pull request description",
+      createPrDialog: {
+        ...latest.createPrDialog,
+        generating: true,
+        error: ""
+      }
+    }));
+
+    try {
+      const result = await window.githead.generatePrDescription({
+        repoPath: stateRef.current.repoPath,
+        baseRef: `${remoteName}/${dialog.baseBranch}`,
+        headRef: summary.branch,
+        ...(trimmedTitle ? { title: trimmedTitle } : {})
+      });
+      appendOperationLog("Generating pull request description", result);
+      updateState((latest) => ({
+        ...latest,
+        createPrDialog: !latest.createPrDialog.open
+          ? latest.createPrDialog
+          : result.exitCode === 0
+          ? {
+              ...latest.createPrDialog,
+              body: result.stdout.trim()
+            }
+          : {
+              ...latest.createPrDialog,
+              error: result.stderr.trim() || "Unable to generate pull request description."
+            }
+      }));
+    } catch (error) {
+      updateState((latest) => ({
+        ...latest,
+        createPrDialog: {
+          ...latest.createPrDialog,
+          error: error instanceof Error ? error.message : "Unable to generate pull request description."
+        }
+      }));
+    } finally {
+      updateState((latest) => ({
+        ...latest,
+        runningOperation: null,
+        createPrDialog: {
+          ...latest.createPrDialog,
+          generating: false
+        }
+      }));
+    }
+  }, [appendOperationLog, updateState]);
+
+  const submitCreatePullRequest = useCallback(async (): Promise<void> => {
+    const current = stateRef.current;
+    const dialog = current.createPrDialog;
+    const summary = current.summary;
+
+    if (!dialog.open || dialog.step !== "idle" || dialog.generating || isOperationRunning(current)) {
+      return;
+    }
+
+    if (!summary?.isValid || !summary.branch) {
+      return;
+    }
+
+    const setDialogError = (error: string): void => {
+      updateState((latest) => ({
+        ...latest,
+        createPrDialog: {
+          ...latest.createPrDialog,
+          step: "idle",
+          error
+        }
+      }));
+    };
+
+    if (summary.branch !== dialog.headBranch) {
+      setDialogError("The current branch changed. Close this dialog and try again.");
+      return;
+    }
+
+    const title = dialog.title.trim();
+    if (!title) {
+      setDialogError("Enter a pull request title.");
+      return;
+    }
+
+    if (!dialog.baseBranch) {
+      setDialogError("Select a base branch.");
+      return;
+    }
+
+    if (!(await ensureTrustedRepo())) {
+      setDialogError("Repository trust is required before creating a pull request.");
+      return;
+    }
+
+    const needsPublish = shouldPublishInsteadOfPush(summary);
+    const needsPush = !needsPublish && hasUnpushedCommits(summary);
+
+    if (needsPublish || needsPush) {
+      updateState((latest) => ({
+        ...latest,
+        runningAction: needsPublish ? "publish" : "push",
+        lastResult: null,
+        activityLog: createActivityLogState(),
+        createPrDialog: {
+          ...latest.createPrDialog,
+          step: "pushing",
+          error: ""
+        }
+      }));
+
+      let pushResult: GitRunResult;
+      try {
+        pushResult = needsPublish
+          ? await window.githead.publishBranch({
+              repoPath: stateRef.current.repoPath,
+              branchName: summary.branch,
+              remoteName: getDefaultPublishRemote(summary)
+            })
+          : await window.githead.runGitAction({
+              repoPath: stateRef.current.repoPath,
+              action: "push"
+            });
+        updateState({
+          lastResult: pushResult
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to push branch.";
+        appendSystemLine(message);
+        updateState((latest) => invalidateHistory({
+          ...latest,
+          runningAction: null
+        }));
+        await refreshRepo();
+        setDialogError(message);
+        return;
+      }
+
+      updateState((latest) => invalidateHistory({
+        ...latest,
+        runningAction: null
+      }));
+      await refreshRepo();
+
+      if (pushResult.exitCode !== 0) {
+        setDialogError(pushResult.stderr.trim() || "Unable to push branch.");
+        return;
+      }
+    }
+
+    updateState((latest) => ({
+      ...latest,
+      runningOperation: "Creating pull request",
+      createPrDialog: {
+        ...latest.createPrDialog,
+        step: "creating",
+        error: ""
+      }
+    }));
+
+    try {
+      const result = await window.githead.createGitHubPullRequest({
+        repoPath: stateRef.current.repoPath,
+        title,
+        body: dialog.body,
+        baseBranch: dialog.baseBranch,
+        headBranch: summary.branch,
+        draft: dialog.draft
+      });
+
+      updateState((latest) => ({
+        ...latest,
+        createPrDialog: emptyCreatePrDialog,
+        lastOperationResult: {
+          repoPath: latest.repoPath,
+          exitCode: 0,
+          stdout: `Created pull request #${result.number}: ${result.url}`,
+          stderr: ""
+        }
+      }));
+      void loadPullRequests(true);
+      void loadGitHubOpenCounts(true);
+    } catch (error) {
+      setDialogError(error instanceof Error ? error.message : "Unable to create pull request.");
+    } finally {
+      updateState((latest) => ({
+        ...latest,
+        runningOperation: null,
+        createPrDialog: latest.createPrDialog.open
+          ? {
+              ...latest.createPrDialog,
+              step: "idle"
+            }
+          : latest.createPrDialog
+      }));
+    }
+  }, [appendSystemLine, ensureTrustedRepo, loadGitHubOpenCounts, loadPullRequests, refreshRepo, updateState]);
+
   const createBranch = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
     const branchName = current.branchNameDraft.trim();
@@ -2743,9 +3052,11 @@ export function App(): ReactNode {
       settingsDraft: {
         selectedProvider: settings?.selectedProvider ?? "openrouter",
         providerModels: createSettingsDraftProviderModels(settings),
+        prDescriptionModels: createSettingsDraftPrDescriptionModels(settings),
         apiKeys: {},
         clearApiKeys: {},
         commitMessagePrompt: settings?.commitMessagePrompt ?? DEFAULT_COMMIT_MESSAGE_PROMPT,
+        prDescriptionPrompt: settings?.prDescriptionPrompt ?? DEFAULT_PR_DESCRIPTION_PROMPT,
         autoFetchIntervalMinutes: String(appSettings?.autoFetchIntervalMinutes ?? 10),
         gitIdentityName: gitIdentity?.name ?? "",
         gitIdentityEmail: gitIdentity?.email ?? "",
@@ -2800,9 +3111,11 @@ export function App(): ReactNode {
       const aiSettings = await window.githead.saveAiSettings({
         selectedProvider: draft.selectedProvider,
         providerModels: draft.providerModels,
+        prDescriptionModels: draft.prDescriptionModels,
         apiKeys: draft.apiKeys,
         clearApiKeys: draft.clearApiKeys,
-        commitMessagePrompt: draft.commitMessagePrompt
+        commitMessagePrompt: draft.commitMessagePrompt,
+        prDescriptionPrompt: draft.prDescriptionPrompt
       });
       const appSettings = await window.githead.saveAppSettings({
         autoFetchIntervalMinutes
@@ -3781,6 +4094,7 @@ export function App(): ReactNode {
               summary={state.summary}
               runningAction={state.runningAction}
               disabled={disableActions}
+              showCreatePullRequest={shouldShowCreatePullRequest(state.summary, state.pullRequests, state.pullRequestsLoaded)}
               onRunAction={(action) => {
                 void runAction(action);
               }}
@@ -3788,6 +4102,7 @@ export function App(): ReactNode {
                 void runConfiguredAction(action);
               }}
               onManageActions={openActionManager}
+              onCreatePullRequest={openCreatePrDialog}
             />
 
             <Tabs
@@ -4173,6 +4488,31 @@ export function App(): ReactNode {
         onPublish={(event) => {
           event.preventDefault();
           void publishBranch();
+        }}
+      />
+
+      <CreatePullRequestDialog
+        state={state.createPrDialog}
+        baseBranches={getCreatePrBaseBranches(state.summary)}
+        needsPush={shouldPublishInsteadOfPush(state.summary) || hasUnpushedCommits(state.summary)}
+        canGenerate={canUseSelectedAiProvider(state.aiSettings)}
+        generateTitle={getGeneratePrDescriptionTitle(state)}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeCreatePrDialog();
+          }
+        }}
+        onStateChange={(createPrDialog) => {
+          updateState({
+            createPrDialog
+          });
+        }}
+        onGenerate={() => {
+          void generatePrDescriptionForDialog();
+        }}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submitCreatePullRequest();
         }}
       />
 
@@ -5575,17 +5915,21 @@ function ActionBar({
   summary,
   runningAction,
   disabled,
+  showCreatePullRequest,
   onRunAction,
   onRunConfiguredAction,
-  onManageActions
+  onManageActions,
+  onCreatePullRequest
 }: {
   heading: string;
   summary: RepoSummary | null;
   runningAction: string | null;
   disabled: boolean;
+  showCreatePullRequest: boolean;
   onRunAction: (action: GitAction) => void;
   onRunConfiguredAction: (action: GitConfiguredAction) => void;
   onManageActions: () => void;
+  onCreatePullRequest: () => void;
 }): ReactNode {
   const capabilities = summary?.capabilities ?? null;
   // Lore is centralized: it has no "fetch", and "pull" maps to `lore sync`.
@@ -5707,6 +6051,18 @@ function ActionBar({
             </SyncCountChip>
           ) : null}
         </Button>
+        {showCreatePullRequest ? (
+          <Button
+            type="button"
+            variant="outline"
+            disabled={disabled}
+            onClick={onCreatePullRequest}
+            className="min-w-24"
+          >
+            <GitPullRequest />
+            Create PR
+          </Button>
+        ) : null}
       </div>
     </header>
   );
@@ -7741,6 +8097,141 @@ function PublishBranchDialog({
   );
 }
 
+function CreatePullRequestDialog({
+  state,
+  baseBranches,
+  needsPush,
+  canGenerate,
+  generateTitle,
+  onOpenChange,
+  onStateChange,
+  onGenerate,
+  onSubmit
+}: {
+  state: CreatePrDialogState;
+  baseBranches: string[];
+  needsPush: boolean;
+  canGenerate: boolean;
+  generateTitle: string;
+  onOpenChange: (open: boolean) => void;
+  onStateChange: (state: CreatePrDialogState) => void;
+  onGenerate: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}): ReactNode {
+  const busy = state.step !== "idle";
+  const submitLabel = state.step === "pushing"
+    ? "Pushing…"
+    : state.step === "creating"
+    ? "Creating…"
+    : needsPush
+    ? "Push & Create"
+    : "Create Pull Request";
+
+  return (
+    <Dialog open={state.open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[560px]">
+        <form className="grid gap-4" onSubmit={onSubmit}>
+          <DialogHeader>
+            <DialogTitle>Create Pull Request</DialogTitle>
+            <DialogDescription>
+              {`Open a GitHub pull request from ${state.headBranch || "the current branch"}${state.baseBranch ? ` into ${state.baseBranch}` : ""}.`}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-2">
+            <Label htmlFor="create-pr-base">Base branch</Label>
+            <select
+              id="create-pr-base"
+              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+              value={state.baseBranch}
+              disabled={busy || state.generating || baseBranches.length === 0}
+              onChange={(event) => onStateChange({
+                ...state,
+                baseBranch: event.currentTarget.value,
+                error: ""
+              })}
+            >
+              {baseBranches.length > 0 ? baseBranches.map((branch) => (
+                <option key={branch} value={branch}>{branch}</option>
+              )) : (
+                <option value="">No remote branches found</option>
+              )}
+            </select>
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="create-pr-title">Title</Label>
+            <Input
+              id="create-pr-title"
+              value={state.title}
+              disabled={busy || state.generating}
+              onChange={(event) => onStateChange({
+                ...state,
+                title: event.currentTarget.value,
+                error: ""
+              })}
+            />
+          </div>
+
+          <div className="grid gap-2">
+            <div className="flex items-center justify-between gap-3">
+              <Label htmlFor="create-pr-body">Description</Label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={busy || state.generating || !canGenerate}
+                title={generateTitle}
+                onClick={onGenerate}
+              >
+                {state.generating ? <Loader2 className="animate-spin" /> : <Sparkles />}
+                {state.generating ? "Generating…" : "Generate with AI"}
+              </Button>
+            </div>
+            <Textarea
+              id="create-pr-body"
+              className="resize-y field-sizing-fixed"
+              rows={8}
+              value={state.body}
+              disabled={busy || state.generating}
+              onChange={(event) => onStateChange({
+                ...state,
+                body: event.currentTarget.value,
+                error: ""
+              })}
+            />
+          </div>
+
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={state.draft}
+              disabled={busy || state.generating}
+              onChange={(event) => onStateChange({
+                ...state,
+                draft: event.currentTarget.checked,
+                error: ""
+              })}
+            />
+            Create as draft
+          </label>
+
+          <p className="min-h-5 text-sm text-destructive" role="alert">{state.error}</p>
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={busy || state.generating} onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy || state.generating || !state.title.trim() || !state.baseBranch}>
+              {busy ? <Loader2 className="animate-spin" /> : <GitPullRequest />}
+              {submitLabel}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function TrustWorkspaceDialog({
   open,
   repoPath,
@@ -8155,6 +8646,24 @@ function SettingsDialog({
                   />
                 </div>
                 <div className="grid gap-2">
+                  <Label htmlFor="ai-pr-description-model">PR Description Model</Label>
+                  <Input
+                    id="ai-pr-description-model"
+                    type="text"
+                    autoComplete="off"
+                    placeholder="Leave blank to use the commit message model"
+                    value={draft.prDescriptionModels[draft.selectedProvider]}
+                    disabled={saving}
+                    onChange={(event) => onDraftChange({
+                      ...draft,
+                      prDescriptionModels: {
+                        ...draft.prDescriptionModels,
+                        [draft.selectedProvider]: event.target.value
+                      }
+                    })}
+                  />
+                </div>
+                <div className="grid gap-2">
                   <Label htmlFor="ai-commit-message-prompt">Commit Message Prompt</Label>
                   <Textarea
                     id="ai-commit-message-prompt"
@@ -8165,6 +8674,20 @@ function SettingsDialog({
                     onChange={(event) => onDraftChange({
                       ...draft,
                       commitMessagePrompt: event.target.value
+                    })}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="ai-pr-description-prompt">PR Description Prompt</Label>
+                  <Textarea
+                    id="ai-pr-description-prompt"
+                    className="h-72 resize-y field-sizing-fixed"
+                    rows={7}
+                    value={draft.prDescriptionPrompt}
+                    disabled={saving}
+                    onChange={(event) => onDraftChange({
+                      ...draft,
+                      prDescriptionPrompt: event.target.value
                     })}
                   />
                 </div>
@@ -8598,6 +9121,8 @@ function createInvalidSummary(repoPath: string, message: string): RepoSummary {
     hasHead: false,
     remotes: [],
     remoteBranches: [],
+    defaultRemoteBranch: null,
+    commitsAheadOfDefaultBranch: null,
     githubRepository: null,
     statusLines: [],
     files: [],
@@ -8691,6 +9216,7 @@ function invalidateHistory(state: AppState): AppState {
 function resetGitHubState(state: AppState): AppState {
   return {
     ...state,
+    createPrDialog: emptyCreatePrDialog,
     workflowRuns: [],
     workflowRunsLoading: false,
     workflowRunsLoaded: false,
@@ -8809,6 +9335,73 @@ function shouldPublishInsteadOfPush(summary: RepoSummary | null): summary is Rep
 function getDefaultPublishRemote(summary: RepoSummary): string {
   const pushRemotes = getPushRemotes(summary);
   return pushRemotes.includes("origin") ? "origin" : pushRemotes[0] ?? "";
+}
+
+function getRemoteDefaultBranch(summary: RepoSummary | null): GitRemoteBranch | null {
+  if (!summary?.isValid) {
+    return null;
+  }
+
+  // origin/HEAD can be locally unset (e.g. manually added remotes), so fall
+  // back to the conventional default branch names.
+  return summary.defaultRemoteBranch
+    ?? summary.remoteBranches.find((remoteBranch) => remoteBranch.name === "origin/main")
+    ?? summary.remoteBranches.find((remoteBranch) => remoteBranch.name === "origin/master")
+    ?? null;
+}
+
+function getCreatePrBaseBranches(summary: RepoSummary | null): string[] {
+  if (!summary?.isValid) {
+    return [];
+  }
+
+  const remoteName = getRemoteDefaultBranch(summary)?.remote ?? "origin";
+  return summary.remoteBranches
+    .filter((remoteBranch) => remoteBranch.remote === remoteName)
+    .map((remoteBranch) => remoteBranch.branch);
+}
+
+function shouldShowCreatePullRequest(
+  summary: RepoSummary | null,
+  pullRequests: GitHubPullRequest[],
+  pullRequestsLoaded: boolean
+): boolean {
+  if (!summary?.isValid || !summary.capabilities.github || !summary.githubRepository || !summary.branch) {
+    return false;
+  }
+
+  const defaultBranch = getRemoteDefaultBranch(summary);
+  if (!defaultBranch || summary.branch === defaultBranch.branch) {
+    return false;
+  }
+
+  const aheadOfDefault = summary.commitsAheadOfDefaultBranch !== null
+    ? summary.commitsAheadOfDefaultBranch > 0
+    : hasUnpushedCommits(summary) || shouldPublishInsteadOfPush(summary);
+  if (!aheadOfDefault) {
+    return false;
+  }
+
+  // Keep the button hidden until the open PR list is known so it never offers
+  // a pull request that already exists.
+  if (!pullRequestsLoaded) {
+    return false;
+  }
+
+  return !pullRequests.some((pullRequest) => pullRequest.sourceBranch === summary.branch);
+}
+
+function getGeneratePrDescriptionTitle(state: AppState): string {
+  if (!canUseSelectedAiProvider(state.aiSettings)) {
+    const provider = state.aiSettings?.selectedProvider ?? "openrouter";
+    if (isCliProvider(provider)) {
+      return `Install and authenticate ${getAiProviderLabel(provider)} before generating a description.`;
+    }
+
+    return `Configure ${getAiProviderLabel(provider)} settings before generating a description.`;
+  }
+
+  return "Generate a pull request description from the branch changes.";
 }
 
 function isMissingUpstreamPushFailure(result: GitRunResult): boolean {
@@ -8947,6 +9540,13 @@ function getSortedFiles(summary: RepoSummary | null, predicate: (file: GitStatus
 function createSettingsDraftProviderModels(settings: AiSettings | null): Record<AiCommitMessageProvider, string> {
   return AI_COMMIT_MESSAGE_PROVIDERS.reduce((models, provider) => {
     models[provider] = settings?.providers[provider]?.model ?? "";
+    return models;
+  }, {} as Record<AiCommitMessageProvider, string>);
+}
+
+function createSettingsDraftPrDescriptionModels(settings: AiSettings | null): Record<AiCommitMessageProvider, string> {
+  return AI_COMMIT_MESSAGE_PROVIDERS.reduce((models, provider) => {
+    models[provider] = settings?.providers[provider]?.prDescriptionModel ?? "";
     return models;
   }, {} as Record<AiCommitMessageProvider, string>);
 }

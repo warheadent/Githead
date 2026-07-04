@@ -71,6 +71,17 @@ export const GIT_ACTION_COMMANDS: Record<GitAction, string[]> = {
 
 export type GitOutputHandler = (event: GitOutputEvent) => void;
 
+export interface GitBranchRangeRequest {
+  repoPath: string;
+  baseRef: string;
+  headRef: string;
+}
+
+export interface GitBranchRangeContext {
+  diff: GitOperationResult;
+  log: GitOperationResult;
+}
+
 const emptySummary = (
   repoPath: string,
   validationErrors: string[],
@@ -86,6 +97,8 @@ const emptySummary = (
   hasHead: false,
   remotes: [],
   remoteBranches: [],
+  defaultRemoteBranch: null,
+  commitsAheadOfDefaultBranch: null,
   githubRepository: null,
   statusLines: [],
   files: [],
@@ -168,6 +181,13 @@ export class GitService {
           ...createEmptyActionsConfig(),
           error: rootResult.stderr.trim() || "Unable to locate repository root."
         };
+    const hasHead = headResult.exitCode === 0;
+    const defaultRemoteBranch = remoteBranchesResult.exitCode === 0
+      ? parseRemoteDefaultBranch(remoteBranchesResult.stdout, remotes)
+      : null;
+    const commitsAheadOfDefaultBranch = defaultRemoteBranch && hasHead
+      ? await this.countCommitsAhead(repoPath, defaultRemoteBranch.name)
+      : null;
 
     return {
       repoPath,
@@ -177,9 +197,11 @@ export class GitService {
       branch,
       upstream: upstreamResult.exitCode === 0 ? upstreamResult.stdout.trim() || null : null,
       branches: parseBranches(branchesResult.stdout, branch),
-      hasHead: headResult.exitCode === 0,
+      hasHead,
       remotes,
       remoteBranches: remoteBranchesResult.exitCode === 0 ? parseRemoteBranches(remoteBranchesResult.stdout, remotes) : [],
+      defaultRemoteBranch,
+      commitsAheadOfDefaultBranch,
       githubRepository: getSupportedGitHubOrigin(remotes),
       statusLines: status.statusLines,
       files: status.files,
@@ -187,6 +209,20 @@ export class GitService {
       safeDirectory: null,
       validationErrors: []
     };
+  }
+
+  private async countCommitsAhead(repoPath: string, baseRef: string): Promise<number | null> {
+    const result = await this.runGit(repoPath, [
+      "rev-list",
+      "--count",
+      `${baseRef}..HEAD`
+    ]);
+    if (result.exitCode !== 0) {
+      return null;
+    }
+
+    const count = Number.parseInt(result.stdout.trim(), 10);
+    return Number.isFinite(count) ? count : null;
   }
 
   async addSafeDirectory(request: GitSafeDirectoryRequest): Promise<GitOperationResult> {
@@ -1033,6 +1069,53 @@ export class GitService {
     ]);
   }
 
+  async getBranchRangeContext(request: GitBranchRangeRequest): Promise<GitBranchRangeContext> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      const failure = this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+      return { diff: failure, log: failure };
+    }
+
+    for (const ref of [request.baseRef, request.headRef]) {
+      const error = getRefValidationError(ref);
+      if (error) {
+        const failure = this.createOperationFailure(request.repoPath, error);
+        return { diff: failure, log: failure };
+      }
+
+      const verifyResult = await this.runGit(request.repoPath, [
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        `${ref.trim()}^{commit}`
+      ]);
+      if (verifyResult.exitCode !== 0) {
+        const failure = this.createOperationFailure(request.repoPath, `Unknown git ref: ${ref.trim()}`);
+        return { diff: failure, log: failure };
+      }
+    }
+
+    const baseRef = request.baseRef.trim();
+    const headRef = request.headRef.trim();
+    const [diff, log] = await Promise.all([
+      this.runGitOperation(request.repoPath, [
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-textconv",
+        `${baseRef}...${headRef}`
+      ]),
+      this.runGitOperation(request.repoPath, [
+        "log",
+        "--no-color",
+        "--format=- %s",
+        `${baseRef}..${headRef}`
+      ])
+    ]);
+
+    return { diff, log };
+  }
+
   async revertFileChanges(request: GitFileChangesRequest): Promise<GitOperationResult> {
     const validation = await this.validateRepo(request.repoPath);
     if (!validation.isValid) {
@@ -1731,6 +1814,19 @@ export class GitService {
   }
 }
 
+function getRefValidationError(ref: string): string | null {
+  const trimmed = ref.trim();
+  if (!trimmed) {
+    return "Git ref must not be empty.";
+  }
+
+  if (trimmed.startsWith("-")) {
+    return `Invalid git ref: ${trimmed}`;
+  }
+
+  return null;
+}
+
 function splitLines(text: string): string[] {
   return text
     .split(/\r?\n/)
@@ -2357,6 +2453,39 @@ function parseBranches(text: string, currentBranch: string | null): GitBranch[] 
 
     return left.name.localeCompare(right.name);
   });
+}
+
+function parseRemoteDefaultBranch(text: string, remotes: GitRemote[]): GitRemoteBranch | null {
+  const remoteNames = [...new Set(remotes.map((remote) => remote.name))]
+    .sort((left, right) => right.length - left.length);
+  const defaultBranches: GitRemoteBranch[] = [];
+
+  for (const line of splitLines(text)) {
+    const [refName = "", , symref = ""] = line.split("\t");
+    if (!refName.startsWith("refs/remotes/") || !refName.endsWith("/HEAD") || !symref.trim()) {
+      continue;
+    }
+
+    const targetPath = symref.trim().replace(/^refs\/remotes\//, "");
+    const remote = remoteNames.find((remoteName) => targetPath.startsWith(`${remoteName}/`))
+      ?? targetPath.split("/")[0]
+      ?? "";
+    const branch = remote ? targetPath.slice(remote.length + 1) : "";
+
+    if (!remote || !branch) {
+      continue;
+    }
+
+    defaultBranches.push({
+      name: targetPath,
+      remote,
+      branch
+    });
+  }
+
+  return defaultBranches.find((candidate) => candidate.remote === "origin")
+    ?? defaultBranches[0]
+    ?? null;
 }
 
 function parseRemoteBranches(text: string, remotes: GitRemote[]): GitRemoteBranch[] {
