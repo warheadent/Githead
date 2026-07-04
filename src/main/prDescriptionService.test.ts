@@ -181,6 +181,50 @@ function createService(params: {
 }
 
 describe("PrDescriptionService", () => {
+  it("generates a pull request title with the commit message model", async () => {
+    const { service, calls } = createService({
+      settings: createSettings("openrouter", {
+        providers: {
+          ...baseSettings.providers,
+          openrouter: {
+            ...baseSettings.providers.openrouter,
+            model: "openrouter/commit-model",
+            prDescriptionModel: "openrouter/pr-description-model"
+          }
+        }
+      }),
+      response: {
+        choices: [
+          {
+            message: {
+              content: "\"Add pull request creation\""
+            }
+          }
+        ]
+      }
+    });
+
+    await expect(service.generatePrTitle({
+      repoPath: "D:\\Repo",
+      baseRef: "origin/main",
+      headRef: "feature/pr-dialog"
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "Add pull request creation"
+    });
+
+    const body = JSON.parse(String(calls[0]?.init?.body)) as {
+      model: string;
+      max_tokens: number;
+      messages: Array<{ content: string }>;
+    };
+    expect(body.model).toBe("openrouter/commit-model");
+    expect(body.max_tokens).toBe(120);
+    expect(body.messages.at(-1)?.content).toContain("Write a clear GitHub pull request title");
+    expect(body.messages.at(-1)?.content).toContain("- Add generated pull request descriptions");
+    expect(body.messages.at(-1)?.content).toContain("+added");
+  });
+
   it("uses the PR description model override when configured", async () => {
     const { service, calls, gitService } = createService({
       settings: createSettings("openrouter", {

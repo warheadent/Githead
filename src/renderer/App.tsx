@@ -264,7 +264,7 @@ interface CreatePrDialogState {
   baseBranch: string;
   draft: boolean;
   step: "idle" | "pushing" | "creating";
-  generating: boolean;
+  generating: "title" | "description" | null;
   error: string;
 }
 
@@ -467,7 +467,7 @@ const emptyCreatePrDialog: CreatePrDialogState = {
   baseBranch: "",
   draft: false,
   step: "idle",
-  generating: false,
+  generating: null,
   error: ""
 };
 
@@ -2607,7 +2607,7 @@ export function App(): ReactNode {
 
   const closeCreatePrDialog = useCallback((): void => {
     const dialog = stateRef.current.createPrDialog;
-    if (dialog.step !== "idle" || dialog.generating) {
+    if (dialog.step !== "idle" || dialog.generating !== null) {
       return;
     }
 
@@ -2621,7 +2621,7 @@ export function App(): ReactNode {
     const dialog = current.createPrDialog;
     const summary = current.summary;
 
-    if (!dialog.open || dialog.generating || dialog.step !== "idle" || isOperationRunning(current)) {
+    if (!dialog.open || dialog.generating !== null || dialog.step !== "idle" || isOperationRunning(current)) {
       return;
     }
 
@@ -2647,7 +2647,7 @@ export function App(): ReactNode {
       runningOperation: "Generating pull request description",
       createPrDialog: {
         ...latest.createPrDialog,
-        generating: true,
+        generating: "description",
         error: ""
       }
     }));
@@ -2688,7 +2688,83 @@ export function App(): ReactNode {
         runningOperation: null,
         createPrDialog: {
           ...latest.createPrDialog,
-          generating: false
+          generating: null
+        }
+      }));
+    }
+  }, [appendOperationLog, updateState]);
+
+  const generatePrTitleForDialog = useCallback(async (): Promise<void> => {
+    const current = stateRef.current;
+    const dialog = current.createPrDialog;
+    const summary = current.summary;
+
+    if (!dialog.open || dialog.generating !== null || dialog.step !== "idle" || isOperationRunning(current)) {
+      return;
+    }
+
+    if (!summary?.isValid || !summary.branch || summary.branch !== dialog.headBranch) {
+      return;
+    }
+
+    if (!dialog.baseBranch) {
+      updateState((latest) => ({
+        ...latest,
+        createPrDialog: {
+          ...latest.createPrDialog,
+          error: "Select a base branch."
+        }
+      }));
+      return;
+    }
+
+    const remoteName = getRemoteDefaultBranch(summary)?.remote ?? "origin";
+    updateState((latest) => ({
+      ...latest,
+      runningOperation: "Generating pull request title",
+      createPrDialog: {
+        ...latest.createPrDialog,
+        generating: "title",
+        error: ""
+      }
+    }));
+
+    try {
+      const result = await window.githead.generatePrTitle({
+        repoPath: stateRef.current.repoPath,
+        baseRef: `${remoteName}/${dialog.baseBranch}`,
+        headRef: summary.branch
+      });
+      appendOperationLog("Generating pull request title", result);
+      updateState((latest) => ({
+        ...latest,
+        createPrDialog: !latest.createPrDialog.open
+          ? latest.createPrDialog
+          : result.exitCode === 0
+          ? {
+              ...latest.createPrDialog,
+              title: result.stdout.trim()
+            }
+          : {
+              ...latest.createPrDialog,
+              error: result.stderr.trim() || "Unable to generate pull request title."
+            }
+      }));
+    } catch (error) {
+      updateState((latest) => ({
+        ...latest,
+        createPrDialog: {
+          ...latest.createPrDialog,
+          error: error instanceof Error ? error.message : "Unable to generate pull request title."
+        }
+      }));
+    } finally {
+      updateState((latest) => ({
+        ...latest,
+        runningOperation: null,
+        createPrDialog: {
+          ...latest.createPrDialog,
+          generating: null
         }
       }));
     }
@@ -2699,7 +2775,7 @@ export function App(): ReactNode {
     const dialog = current.createPrDialog;
     const summary = current.summary;
 
-    if (!dialog.open || dialog.step !== "idle" || dialog.generating || isOperationRunning(current)) {
+    if (!dialog.open || dialog.step !== "idle" || dialog.generating !== null || isOperationRunning(current)) {
       return;
     }
 
@@ -4497,6 +4573,9 @@ export function App(): ReactNode {
         needsPush={shouldPublishInsteadOfPush(state.summary) || hasUnpushedCommits(state.summary)}
         canGenerate={canUseSelectedAiProvider(state.aiSettings)}
         generateTitle={getGeneratePrDescriptionTitle(state)}
+        onGenerateTitle={() => {
+          void generatePrTitleForDialog();
+        }}
         onOpenChange={(open) => {
           if (!open) {
             closeCreatePrDialog();
@@ -8103,6 +8182,7 @@ function CreatePullRequestDialog({
   needsPush,
   canGenerate,
   generateTitle,
+  onGenerateTitle,
   onOpenChange,
   onStateChange,
   onGenerate,
@@ -8113,12 +8193,16 @@ function CreatePullRequestDialog({
   needsPush: boolean;
   canGenerate: boolean;
   generateTitle: string;
+  onGenerateTitle: () => void;
   onOpenChange: (open: boolean) => void;
   onStateChange: (state: CreatePrDialogState) => void;
   onGenerate: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }): ReactNode {
   const busy = state.step !== "idle";
+  const generatingTitle = state.generating === "title";
+  const generatingDescription = state.generating === "description";
+  const generating = state.generating !== null;
   const submitLabel = state.step === "pushing"
     ? "Pushing…"
     : state.step === "creating"
@@ -8144,7 +8228,7 @@ function CreatePullRequestDialog({
               id="create-pr-base"
               className="h-10 rounded-md border border-input bg-background px-3 text-sm"
               value={state.baseBranch}
-              disabled={busy || state.generating || baseBranches.length === 0}
+              disabled={busy || generating || baseBranches.length === 0}
               onChange={(event) => onStateChange({
                 ...state,
                 baseBranch: event.currentTarget.value,
@@ -8160,11 +8244,24 @@ function CreatePullRequestDialog({
           </div>
 
           <div className="grid gap-2">
-            <Label htmlFor="create-pr-title">Title</Label>
+            <div className="flex items-center justify-between gap-3">
+              <Label htmlFor="create-pr-title">Title</Label>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-sm"
+                disabled={busy || generating || !canGenerate}
+                aria-label="Generate pull request title"
+                title={generateTitle}
+                onClick={onGenerateTitle}
+              >
+                {generatingTitle ? <Loader2 className="animate-spin" /> : <Sparkles />}
+              </Button>
+            </div>
             <Input
               id="create-pr-title"
               value={state.title}
-              disabled={busy || state.generating}
+              disabled={busy || generating}
               onChange={(event) => onStateChange({
                 ...state,
                 title: event.currentTarget.value,
@@ -8179,13 +8276,13 @@ function CreatePullRequestDialog({
               <Button
                 type="button"
                 variant="outline"
-                size="sm"
-                disabled={busy || state.generating || !canGenerate}
+                size="icon-sm"
+                disabled={busy || generating || !canGenerate}
+                aria-label="Generate pull request description"
                 title={generateTitle}
                 onClick={onGenerate}
               >
-                {state.generating ? <Loader2 className="animate-spin" /> : <Sparkles />}
-                {state.generating ? "Generating…" : "Generate with AI"}
+                {generatingDescription ? <Loader2 className="animate-spin" /> : <Sparkles />}
               </Button>
             </div>
             <Textarea
@@ -8193,7 +8290,7 @@ function CreatePullRequestDialog({
               className="resize-y field-sizing-fixed"
               rows={8}
               value={state.body}
-              disabled={busy || state.generating}
+              disabled={busy || generating}
               onChange={(event) => onStateChange({
                 ...state,
                 body: event.currentTarget.value,
@@ -8206,7 +8303,7 @@ function CreatePullRequestDialog({
             <input
               type="checkbox"
               checked={state.draft}
-              disabled={busy || state.generating}
+              disabled={busy || generating}
               onChange={(event) => onStateChange({
                 ...state,
                 draft: event.currentTarget.checked,
@@ -8218,10 +8315,10 @@ function CreatePullRequestDialog({
 
           <p className="min-h-5 text-sm text-destructive" role="alert">{state.error}</p>
           <DialogFooter>
-            <Button type="button" variant="outline" disabled={busy || state.generating} onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" disabled={busy || generating} onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={busy || state.generating || !state.title.trim() || !state.baseBranch}>
+            <Button type="submit" disabled={busy || generating || !state.title.trim() || !state.baseBranch}>
               {busy ? <Loader2 className="animate-spin" /> : <GitPullRequest />}
               {submitLabel}
             </Button>

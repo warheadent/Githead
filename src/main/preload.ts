@@ -7,6 +7,7 @@ import type {
   CreatePullRequestRequest,
   ExternalUrlRequest,
   GeneratePrDescriptionRequest,
+  GeneratePrTitleRequest,
   FileSystemPathListRequest,
   FileSystemPathRequest,
   GitBranchRequest,
@@ -137,6 +138,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.saveAppSettings, request) as ReturnType<GitheadApi["saveAppSettings"]>,
   generateCommitMessage: (request: GenerateCommitMessageRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.generateCommitMessage, request) as ReturnType<GitheadApi["generateCommitMessage"]>,
+  generatePrTitle: (request: GeneratePrTitleRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.generatePrTitle, request) as ReturnType<GitheadApi["generatePrTitle"]>,
   generatePrDescription: (request: GeneratePrDescriptionRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.generatePrDescription, request) as ReturnType<GitheadApi["generatePrDescription"]>,
   openExternalUrl: (request: ExternalUrlRequest) =>

@@ -2244,6 +2244,61 @@ describe("App", () => {
     });
   });
 
+  it("generates a pull request title from the Create PR dialog", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary({
+      branch: "feature/pr-title",
+      upstream: "origin/feature/pr-title",
+      branches: [
+        {
+          name: "feature/pr-title",
+          current: true,
+          upstream: "origin/feature/pr-title"
+        }
+      ],
+      remoteBranches: [
+        {
+          name: "origin/main",
+          remote: "origin",
+          branch: "main"
+        },
+        {
+          name: "origin/feature/pr-title",
+          remote: "origin",
+          branch: "feature/pr-title"
+        }
+      ],
+      commitsAheadOfDefaultBranch: 2
+    }));
+    vi.mocked(githead.generatePrTitle).mockResolvedValue({
+      repoPath,
+      exitCode: 0,
+      stdout: "Add generated PR titles",
+      stderr: ""
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(githead.getGitHubPullRequests).toHaveBeenCalledWith({
+        repoPath
+      });
+    });
+    await user.click(await screen.findByRole("button", { name: "Create PR" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Create Pull Request" });
+    await user.click(within(dialog).getByRole("button", { name: "Generate pull request title" }));
+
+    await waitFor(() => {
+      expect(githead.generatePrTitle).toHaveBeenCalledWith({
+        repoPath,
+        baseRef: "origin/main",
+        headRef: "feature/pr-title"
+      });
+    });
+    expect((within(dialog).getByLabelText("Title") as HTMLInputElement).value).toBe("Add generated PR titles");
+  });
+
   it("loads open issues from GitHub when the Issues tab opens", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
@@ -4685,6 +4740,7 @@ function createGitheadMock(): GitheadApi {
     getAppSettings: vi.fn().mockResolvedValue(appSettings),
     saveAppSettings: vi.fn().mockResolvedValue(appSettings),
     generateCommitMessage: vi.fn().mockResolvedValue(okOperation),
+    generatePrTitle: vi.fn().mockResolvedValue(okOperation),
     generatePrDescription: vi.fn().mockResolvedValue(okOperation),
     openExternalUrl: vi.fn().mockResolvedValue(undefined),
     openFile: vi.fn().mockResolvedValue(okOperation),

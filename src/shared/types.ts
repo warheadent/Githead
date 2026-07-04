@@ -530,6 +530,14 @@ export interface GeneratePrDescriptionRequest {
   title?: string;
 }
 
+export interface GeneratePrTitleRequest {
+  repoPath: string;
+  /** Remote-qualified base ref, e.g. "origin/main". */
+  baseRef: string;
+  /** Local head branch name. */
+  headRef: string;
+}
+
 export interface ExternalUrlRequest {
   url: string;
 }
@@ -692,6 +700,7 @@ export interface GitheadApi {
   getAppSettings(): Promise<AppSettings>;
   saveAppSettings(request: AppSettingsSaveRequest): Promise<AppSettings>;
   generateCommitMessage(request: GenerateCommitMessageRequest): Promise<GitOperationResult>;
+  generatePrTitle(request: GeneratePrTitleRequest): Promise<GitOperationResult>;
   generatePrDescription(request: GeneratePrDescriptionRequest): Promise<GitOperationResult>;
   openExternalUrl(request: ExternalUrlRequest): Promise<void>;
   openFile(request: FileSystemPathRequest): Promise<GitOperationResult>;

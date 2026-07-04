@@ -1,10 +1,12 @@
-import type { GeneratePrDescriptionRequest, GitOperationResult } from "../shared/types";
+import type { GeneratePrDescriptionRequest, GeneratePrTitleRequest, GitOperationResult } from "../shared/types";
 import { getProviderLabel, type AiSettingsService } from "./aiSettingsService";
 import { normalizeGeneratedMessage } from "./commitMessagePromptBuilder";
 import { resolveAiProvider } from "./commitMessageService";
 import {
   createPrDescriptionSystemPrompt,
-  createPrDescriptionUserPrompt
+  createPrDescriptionUserPrompt,
+  createPrTitleSystemPrompt,
+  createPrTitleUserPrompt
 } from "./prDescriptionPromptBuilder";
 import type { GitService } from "./gitService";
 import type { ProcessRunner } from "./processRunner";
@@ -15,6 +17,7 @@ import type { ProcessRunner } from "./processRunner";
  * reasoning models spend part of the budget on reasoning tokens.
  */
 const PR_DESCRIPTION_MAX_TOKENS = 2_000;
+const PR_TITLE_MAX_TOKENS = 120;
 
 type Fetch = typeof fetch;
 
@@ -25,6 +28,55 @@ export class PrDescriptionService {
     private readonly fetchImpl: Fetch = fetch,
     private readonly runner?: ProcessRunner
   ) {}
+
+  async generatePrTitle(request: GeneratePrTitleRequest): Promise<GitOperationResult> {
+    try {
+      const settings = await this.settingsService.getSettings();
+      const selectedProvider = settings.selectedProvider;
+      const providerSettings = settings.providers[selectedProvider];
+      const providerLabel = getProviderLabel(selectedProvider);
+      const model = providerSettings.model;
+
+      const resolution = await resolveAiProvider(
+        settings,
+        model,
+        this.settingsService,
+        this.fetchImpl,
+        this.runner
+      );
+      if (resolution.kind === "error") {
+        return createFailure(request.repoPath, resolution.message);
+      }
+
+      const range = await this.getRangeContext(request);
+      if ("failure" in range) {
+        return range.failure;
+      }
+
+      const title = normalizeGeneratedPrTitle(await resolution.provider.generate({
+        repoPath: request.repoPath,
+        model,
+        systemPrompt: createPrTitleSystemPrompt(),
+        userPrompt: createPrTitleUserPrompt(range.commitLog, range.diff),
+        maxTokens: PR_TITLE_MAX_TOKENS
+      }));
+      if (!title) {
+        return createFailure(request.repoPath, `${providerLabel} returned an empty pull request title.`);
+      }
+
+      return {
+        repoPath: request.repoPath,
+        exitCode: 0,
+        stdout: title,
+        stderr: ""
+      };
+    } catch (error) {
+      return createFailure(
+        request.repoPath,
+        error instanceof Error ? error.message : "Unable to generate pull request title."
+      );
+    }
+  }
 
   async generatePrDescription(request: GeneratePrDescriptionRequest): Promise<GitOperationResult> {
     try {
@@ -45,25 +97,9 @@ export class PrDescriptionService {
         return createFailure(request.repoPath, resolution.message);
       }
 
-      const range = await this.gitService.getBranchRangeContext({
-        repoPath: request.repoPath,
-        baseRef: request.baseRef,
-        headRef: request.headRef
-      });
-      if (range.diff.exitCode !== 0) {
-        return range.diff;
-      }
-      if (range.log.exitCode !== 0) {
-        return range.log;
-      }
-
-      const diff = range.diff.stdout.trim();
-      const commitLog = range.log.stdout.trim();
-      if (!diff && !commitLog) {
-        return createFailure(
-          request.repoPath,
-          `No commits found between ${request.baseRef.trim()} and ${request.headRef.trim()}.`
-        );
+      const range = await this.getRangeContext(request);
+      if ("failure" in range) {
+        return range.failure;
       }
 
       const description = normalizeGeneratedMessage(await resolution.provider.generate({
@@ -72,8 +108,8 @@ export class PrDescriptionService {
         systemPrompt: createPrDescriptionSystemPrompt(),
         userPrompt: createPrDescriptionUserPrompt(
           settings.prDescriptionPrompt,
-          commitLog,
-          diff,
+          range.commitLog,
+          range.diff,
           request.title
         ),
         maxTokens: PR_DESCRIPTION_MAX_TOKENS
@@ -95,6 +131,46 @@ export class PrDescriptionService {
       );
     }
   }
+
+  private async getRangeContext(request: GeneratePrDescriptionRequest | GeneratePrTitleRequest): Promise<
+    | { diff: string; commitLog: string }
+    | { failure: GitOperationResult }
+  > {
+    const range = await this.gitService.getBranchRangeContext({
+      repoPath: request.repoPath,
+      baseRef: request.baseRef,
+      headRef: request.headRef
+    });
+    if (range.diff.exitCode !== 0) {
+      return { failure: range.diff };
+    }
+    if (range.log.exitCode !== 0) {
+      return { failure: range.log };
+    }
+
+    const diff = range.diff.stdout.trim();
+    const commitLog = range.log.stdout.trim();
+    if (!diff && !commitLog) {
+      return {
+        failure: createFailure(
+          request.repoPath,
+          `No commits found between ${request.baseRef.trim()} and ${request.headRef.trim()}.`
+        )
+      };
+    }
+
+    return { diff, commitLog };
+  }
+}
+
+function normalizeGeneratedPrTitle(message: string): string {
+  return normalizeGeneratedMessage(message)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0)
+    ?.replace(/^["']|["']$/g, "")
+    .trim()
+    ?? "";
 }
 
 function createFailure(repoPath: string, stderr: string): GitOperationResult {

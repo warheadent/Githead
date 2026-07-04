@@ -9,6 +9,7 @@ import type {
   CreatePullRequestRequest,
   ExternalUrlRequest,
   GeneratePrDescriptionRequest,
+  GeneratePrTitleRequest,
   FileSystemPathListRequest,
   FileSystemPathRequest,
   GitBranchRequest,
@@ -472,6 +473,10 @@ ipcMain.handle(IPC_CHANNELS.saveAppSettings, async (_event, request: AppSettings
 
 ipcMain.handle(IPC_CHANNELS.generateCommitMessage, async (_event, request: GenerateCommitMessageRequest) => {
   return runExclusiveGitOperation(() => getCommitMessageService().generateCommitMessage(request), request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.generatePrTitle, async (_event, request: GeneratePrTitleRequest) => {
+  return runExclusiveGitOperation(() => getPrDescriptionService().generatePrTitle(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.generatePrDescription, async (_event, request: GeneratePrDescriptionRequest) => {

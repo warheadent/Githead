@@ -45,6 +45,7 @@ export const IPC_CHANNELS = {
   getAppSettings: "app:settings:get",
   saveAppSettings: "app:settings:save",
   generateCommitMessage: "ai:commit-message:generate",
+  generatePrTitle: "ai:pr-title:generate",
   generatePrDescription: "ai:pr-description:generate",
   openExternalUrl: "external-url:open",
   openFile: "file:open",

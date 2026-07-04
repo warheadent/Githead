@@ -10,6 +10,32 @@ export function createPrDescriptionSystemPrompt(): string {
   ].join(" ");
 }
 
+export function createPrTitleSystemPrompt(): string {
+  return [
+    "You write concise GitHub pull request titles.",
+    "Summarize the branch changes using the provided commits and diff.",
+    "Return exactly one title, without labels, markdown, quotes, commentary, or alternatives.",
+    "Use imperative or descriptive product language, not Conventional Commit prefixes.",
+    "Aim for 72 characters or fewer."
+  ].join(" ");
+}
+
+export function createPrTitleUserPrompt(commitLog: string, diff: string): string {
+  const truncated = diff.length > MAX_DIFF_CHARS;
+  const promptDiff = truncated ? diff.slice(0, MAX_DIFF_CHARS) : diff;
+  const trimmedLog = commitLog.trim();
+
+  return [
+    "Write a clear GitHub pull request title for these branch changes.",
+    truncated ? "The diff was truncated; title only the visible changes." : "",
+    trimmedLog ? "Commits on the branch:" : "",
+    trimmedLog,
+    "",
+    "Diff against the base branch:",
+    promptDiff
+  ].filter((line) => line.length > 0).join("\n");
+}
+
 export function createPrDescriptionUserPrompt(
   prDescriptionPrompt: string,
   commitLog: string,
