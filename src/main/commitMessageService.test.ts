@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import type { AiApiKeyProvider, AiCommitMessageProvider, AiSettings } from "../shared/types";
 import { CommitMessageService } from "./commitMessageService";

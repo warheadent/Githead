@@ -19,32 +19,35 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
         with:
-          node-version: 22
-          cache: npm
+          node-version: "22"
+          cache: true
 
       - name: Install dependencies
-        run: npm ci
+        run: vp install --frozen-lockfile
 
       - name: Set release version
         shell: pwsh
         run: |
           $version = "${env:GITHUB_REF_NAME}" -replace '^v', ''
-          npm pkg set "version=$version"
+          vp pm pkg set "version=$version"
+
+      - name: Check
+        run: vp check
 
       - name: Typecheck
-        run: npm run typecheck
+        run: vp run typecheck
 
       - name: Test
-        run: npm test
+        run: vp test
 
       - name: Build
-        run: npm run build
+        run: vp run build
 
       - name: Package Windows installer
-        run: node scripts/package-win.mjs --publish never
+        run: vp node scripts/package-win.mjs --publish never
 
       - name: Generate release summary
         id: release_summary
@@ -52,7 +55,7 @@ jobs:
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENROUTER_MODEL: anthropic/claude-sonnet-4.5
-        run: node scripts/summarize-release.mjs
+        run: vp node scripts/summarize-release.mjs
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -76,31 +79,34 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
         with:
-          node-version: 22
-          cache: npm
+          node-version: "22"
+          cache: true
 
       - name: Install dependencies
-        run: npm ci
+        run: vp install --frozen-lockfile
 
       - name: Set release version
         run: |
           version="${GITHUB_REF_NAME#v}"
-          npm pkg set "version=$version"
+          vp pm pkg set "version=$version"
+
+      - name: Check
+        run: vp check
 
       - name: Typecheck
-        run: npm run typecheck
+        run: vp run typecheck
 
       - name: Test
-        run: npm test
+        run: vp test
 
       - name: Build
-        run: npm run build
+        run: vp run build
 
       - name: Package Linux artifacts
-        run: node scripts/package-linux.mjs --publish never
+        run: vp node scripts/package-linux.mjs --publish never
 
       - name: Publish Linux release assets
         uses: softprops/action-gh-release@v2

@@ -37,10 +37,10 @@ This is early development, and only tested on a handful of git repositories. Thi
 ## Tech stack
 
 - [Electron](https://www.electronjs.org/) — desktop shell (main + preload + renderer)
-- [React 19](https://react.dev/) + [Vite](https://vitejs.dev/) — renderer UI
+- [React 19](https://react.dev/) + [Vite+](https://viteplus.dev/) — renderer UI and frontend toolchain
 - [TypeScript](https://www.typescriptlang.org/)
 - [Tailwind CSS](https://tailwindcss.com/) + [Radix UI](https://www.radix-ui.com/) + [lucide-react](https://lucide.dev/) — styling and components
-- [Vitest](https://vitest.dev/) + Testing Library — tests
+- [Vite+ test](https://viteplus.dev/guide/test) + Testing Library — tests
 - [electron-builder](https://www.electron.build/) — Windows (NSIS) packaging
 
 Linux packaging is configured for AppImage and `.deb` outputs.
@@ -50,18 +50,28 @@ Linux packaging is configured for AppImage and `.deb` outputs.
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/) (with npm)
+- [Vite+](https://viteplus.dev/) `vp` CLI
 - [Git](https://git-scm.com/) available on your `PATH`
 
 ### Install
 
 ```sh
-npm install
+vp install
+```
+
+If you are bootstrapping from a machine without a global `vp` yet, run `npm install` once, then use the local Vite+ commands below.
+
+When `vp` is only installed locally, prefix commands with `npm exec --`, for example:
+
+```sh
+npm exec -- vp run build
+npm exec -- vp run package:win:dir
 ```
 
 ### Run in development
 
 ```sh
-npm run dev
+vp run dev
 ```
 
 This builds the Electron main process, starts the Vite dev server, and launches the Electron shell pointed at it.
@@ -69,16 +79,16 @@ This builds the Electron main process, starts the Vite dev server, and launches 
 ### Build
 
 ```sh
-npm run build
+vp run build
 ```
 
 ### Package desktop builds
 
 ```sh
-npm run package:win        # full NSIS installer
-npm run package:win:dir    # unpacked directory (faster, for testing)
-npm run package:linux      # AppImage and .deb for x64 Linux
-npm run package:linux:dir  # unpacked Linux directory (faster, for testing)
+vp run package:win        # full NSIS installer
+vp run package:win:dir    # unpacked directory (faster, for testing)
+vp run package:linux      # AppImage and .deb for x64 Linux
+vp run package:linux:dir  # unpacked Linux directory (faster, for testing)
 ```
 
 Output is written to the `release/` directory.
@@ -95,10 +105,10 @@ In-app updates are available for packaged Windows builds and Linux AppImage buil
 ### Bump the release version
 
 ```sh
-npm run version:bump -- patch
-npm run version:patch
-npm run version:minor
-npm run version:major
+vp run version:bump -- patch
+vp run version:patch
+vp run version:minor
+vp run version:major
 ```
 
 The version helper runs `npm version` without npm's automatic git tag behavior, type-checks the project, commits only `package.json` and `package-lock.json`, and creates a matching `v<version>` tag. It does not push automatically.
@@ -112,7 +122,7 @@ Repositories can expose custom commands in the Sync bar by adding a `.githead` f
 ```toml
 [[actions]]
 name = "Build"
-command = "npm run build"
+command = "vp run build"
 shell = "powershell" # powershell | cmd | bash
 ```
 

@@ -12,8 +12,7 @@
       "DOM.Iterable"
     ],
     "types": [
-      "node",
-      "vitest"
+      "node"
     ],
     "noEmit": true
   },
@@ -29,6 +28,6 @@
     "src/hooks/**/*.tsx",
     "src/lib/**/*.ts",
     "src/shared/**/*.ts",
-    "vitest.config.ts"
+    "vite.config.ts"
   ]
 }

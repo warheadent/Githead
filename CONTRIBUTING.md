@@ -7,19 +7,23 @@ Thanks for taking the time to contribute to Githead.
 Prerequisites:
 
 - Node.js with npm
+- Vite+ `vp` CLI
 - Git available on your `PATH`
 - Windows for packaging and full desktop validation
 
 Install dependencies:
 
 ```sh
-npm install
+vp install
 ```
+
+If `vp` is not installed globally yet, run `npm install` once to bootstrap the local Vite+ CLI.
+When using the local CLI, prefix commands with `npm exec --`, for example `npm exec -- vp run dev`.
 
 Run the app in development:
 
 ```sh
-npm run dev
+vp run dev
 ```
 
 ## Verification
@@ -27,9 +31,10 @@ npm run dev
 Run these checks before opening a pull request:
 
 ```sh
-npm run typecheck
-npm test
-npm run build
+vp check
+vp run typecheck
+vp test
+vp run build
 ```
 
 ## Pull Requests

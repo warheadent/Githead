@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import type { GitHubRepository } from "../shared/types";
 import type { ProcessResult, ProcessRunner, ProcessRunOptions } from "./processRunner";
 import { GitHubService } from "./githubService";

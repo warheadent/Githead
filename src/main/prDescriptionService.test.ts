@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import type { AiApiKeyProvider, AiCommitMessageProvider, AiSettings } from "../shared/types";
 import { DEFAULT_AI_PROVIDER_MODELS, type AiSettingsService } from "./aiSettingsService";
 import type { GitBranchRangeContext, GitService } from "./gitService";

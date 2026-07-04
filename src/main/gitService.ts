@@ -2115,15 +2115,19 @@ function shouldEscapeIgnoreSpaces(existing: string): boolean {
 }
 
 function parseCommitHistory(text: string): GitCommitGraphRow[] {
+  const recordSeparator = String.fromCharCode(0x1e);
+  const fieldSeparator = String.fromCharCode(0x1f);
+
   return text
     .split(/\r?\n/)
     .flatMap((line) => {
-      const separatorIndex = line.indexOf("\x1f");
+      const separatorIndex = line.indexOf(fieldSeparator);
       if (separatorIndex === -1) {
         return [];
       }
 
-      const fields = line.slice(separatorIndex + 1).replace(/\x1e$/, "").split("\x1f");
+      const lineFields = line.slice(separatorIndex + 1);
+      const fields = (lineFields.endsWith(recordSeparator) ? lineFields.slice(0, -1) : lineFields).split(fieldSeparator);
       const [
         hash = "",
         shortHash = "",

@@ -304,11 +304,7 @@ export class AppUpdateService {
         throw error;
       }
 
-      try {
-        await this.updater.checkForUpdates();
-      } catch (retryError) {
-        throw retryError;
-      }
+      await this.updater.checkForUpdates();
     }
   }
 
@@ -665,7 +661,7 @@ function getRawErrorMessage(error: unknown): string {
 
 function sanitizeUpdateErrorMessage(message: string): string {
   return message
-    .replace(/\0/g, "")
+    .replaceAll(String.fromCharCode(0), "")
     .replace(/Headers:\s*\{[\s\S]*$/i, "")
     .replace(/"set-cookie":\s*\[[\s\S]*?\]/gi, '"set-cookie": "[redacted]"')
     .replace(/_gh_sess=[^;"\s]+/gi, "_gh_sess=[redacted]")

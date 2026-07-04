@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import type { RepoSummary } from "../shared/types";
 import { gitCapabilities } from "../shared/types";
 import {

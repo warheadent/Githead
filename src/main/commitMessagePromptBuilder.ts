@@ -49,5 +49,6 @@ export function normalizeGeneratedMessage(message: string): string {
 }
 
 function stripAnsi(value: string): string {
-  return value.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "");
+  const escape = String.fromCharCode(0x1b);
+  return value.replace(new RegExp(`${escape}(?:[@-Z\\\\-_]|\\[[0-?]*[ -/]*[@-~])`, "g"), "");
 }

@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { BrowserWindow } from "electron";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { IPC_CHANNELS } from "../shared/ipc";
 import type { AppUpdateState } from "../shared/types";
 import { AppUpdateService, type AppUpdateServiceOptions, type AutoUpdaterLike } from "./updateService";

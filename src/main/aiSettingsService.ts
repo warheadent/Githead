@@ -239,7 +239,7 @@ function createStoredProviderModels(stored: StoredAiSettings): Record<AiCommitMe
 
 function getStoredEncryptedApiKeys(stored: StoredAiSettings): Partial<Record<AiApiKeyProvider, string>> {
   return {
-    ...(stored.encryptedApiKeys ?? {}),
+    ...stored.encryptedApiKeys,
     ...(stored.encryptedApiKey && !stored.encryptedApiKeys?.openrouter
       ? { openrouter: stored.encryptedApiKey }
       : {})

@@ -12,7 +12,7 @@ export function runElectronBuilder(platformArgs, extraArgs = process.argv.slice(
   try {
     builderCli = require.resolve("electron-builder/cli.js");
   } catch {
-    console.error("Unable to resolve electron-builder. Run `npm install` (it is a devDependency).");
+    console.error("Unable to resolve electron-builder. Run `vp install` (it is a devDependency).");
     process.exit(1);
     return;
   }

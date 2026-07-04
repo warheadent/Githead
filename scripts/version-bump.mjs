@@ -19,7 +19,7 @@ run("git", ["diff", "--cached", "--quiet", "--", "package.json", "package-lock.j
 });
 
 run("npm", ["version", bumpType, "--no-git-tag-version"]);
-run("npm", ["run", "typecheck"]);
+run("vp", ["run", "typecheck"]);
 run("git", ["add", "package.json", "package-lock.json"]);
 
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
@@ -35,7 +35,7 @@ run("git", ["tag", `v${version}`]);
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
-    shell: process.platform === "win32" && command === "npm",
+    shell: process.platform === "win32" && command === "vp",
     stdio: "inherit"
   });
 

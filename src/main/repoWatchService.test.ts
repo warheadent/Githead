@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import path from "node:path";
 import type { BrowserWindow } from "electron";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { IPC_CHANNELS } from "../shared/ipc";
 import { RepoWatchService, type RepoWatchFactory, type RepoWatcherLike } from "./repoWatchService";
 

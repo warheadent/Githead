@@ -2,8 +2,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Mock } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import type { Mock } from "vite-plus/test";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 vi.mock("@/components/ui/resizable", () => ({
@@ -2023,7 +2023,7 @@ describe("App", () => {
     await user.click(screen.getByRole("tab", { name: "Activity Log" }));
 
     expect((await screen.findByRole("log")).textContent).toContain("colored output");
-    expect(screen.queryByText(/\u001B/)).toBeNull();
+    expect(screen.queryByText(String.fromCharCode(0x1b))).toBeNull();
     expect(screen.getAllByText("stdout")).toHaveLength(1);
   });
 

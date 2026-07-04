@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { MAX_REPO_RECENTS, RepoRecentsService } from "./repoRecentsService";
 
 async function withTempDir<T>(callback: (dir: string) => Promise<T>): Promise<T> {

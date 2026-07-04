@@ -315,7 +315,9 @@ function hasTerminalHyperlink(text: string): boolean {
 }
 
 function stripTerminalHyperlinks(text: string): string {
-  return text.replace(/\u001B\]8;[^\u0007]*(?:\u0007|\u001B\\)/g, "");
+  const bell = String.fromCharCode(0x07);
+  const escape = String.fromCharCode(0x1b);
+  return text.replace(new RegExp(`${escape}\\]8;[^${bell}]*(?:${bell}|${escape}\\\\)`, "g"), "");
 }
 
 function getRawPrefix(block: ActivityLogBlock): string {

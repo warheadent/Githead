@@ -2563,26 +2563,26 @@ export function App(): ReactNode {
         runningAction: null
       }));
       await refreshRepo();
-
-      const latestSummary = stateRef.current.summary;
-      const branchPublished = Boolean(
-        latestSummary?.isValid &&
-        latestSummary.branch === summary.branch &&
-        latestSummary.upstream
-      );
-      if (completedResult?.exitCode === 0 || branchPublished) {
-        updateState({
-          publishDialogOpen: false,
-          publishRemoteDraft: "",
-          publishError: ""
-        });
-        return;
-      }
-
-      updateState({
-        publishError: completedResult?.stderr.trim() || "Unable to publish branch."
-      });
     }
+
+    const latestSummary = stateRef.current.summary;
+    const branchPublished = Boolean(
+      latestSummary?.isValid &&
+      latestSummary.branch === summary.branch &&
+      latestSummary.upstream
+    );
+    if (completedResult?.exitCode === 0 || branchPublished) {
+      updateState({
+        publishDialogOpen: false,
+        publishRemoteDraft: "",
+        publishError: ""
+      });
+      return;
+    }
+
+    updateState({
+      publishError: completedResult?.stderr.trim() || "Unable to publish branch."
+    });
   }, [appendSystemLine, ensureTrustedRepo, refreshRepo, updateState]);
 
   const openCreatePrDialog = useCallback((): void => {
@@ -9530,10 +9530,6 @@ function getUnstagedFiles(summary: RepoSummary | null): GitStatusFile[] {
 
 function getFilesForSide(summary: RepoSummary | null, side: GitDiffSide): GitStatusFile[] {
   return side === "staged" ? getStagedFiles(summary) : getUnstagedFiles(summary);
-}
-
-function getSelectedFileForDiff(summary: RepoSummary | null, selection: FileSelection): GitStatusFile | null {
-  return getFilesForSide(summary, selection.side).find((file) => file.path === selection.path) ?? null;
 }
 
 function buildFileSelection(

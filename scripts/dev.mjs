@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
 import electronPath from "electron";
-import { createServer } from "vite";
+import { createServer } from "vite-plus";
 
-const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+const vpCommand = process.platform === "win32" ? "vp.cmd" : "vp";
 
 function run(command, args) {
   return new Promise((resolve, reject) => {
@@ -24,7 +24,7 @@ function run(command, args) {
   });
 }
 
-await run(npmCommand, ["run", "build:main"]);
+await run(vpCommand, ["run", "build:main"]);
 
 const server = await createServer({
   configFile: "vite.config.ts",
@@ -65,4 +65,3 @@ process.on("SIGTERM", () => {
 electron.on("close", (code) => {
   void server.close().finally(() => process.exit(code ?? 0));
 });
-
