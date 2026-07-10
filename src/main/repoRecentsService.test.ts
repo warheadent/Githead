@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vite-plus/test";
-import { MAX_REPO_RECENTS, RepoRecentsService } from "./repoRecentsService";
+import { RepoRecentsService } from "./repoRecentsService";
 
 async function withTempDir<T>(callback: (dir: string) => Promise<T>): Promise<T> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "githead-repo-recents-test-"));
@@ -39,20 +39,37 @@ describe("RepoRecentsService", () => {
     });
   });
 
-  it("dedupes and caps repositories without promoting existing entries", async () => {
+  it("persists more than eight repositories without promoting existing entries", async () => {
     await withTempDir(async (dir) => {
       const service = new RepoRecentsService(dir);
-      const repoPaths = Array.from({ length: MAX_REPO_RECENTS + 2 }, (_value, index) => path.join(dir, `Repo${index}`));
+      const repoPaths = Array.from({ length: 10 }, (_value, index) => path.join(dir, `Repo${index}`));
 
       for (const repoPath of repoPaths) {
         await service.addRecent(repoPath);
       }
 
-      expect(await service.getRecents()).toEqual(repoPaths.slice(0, MAX_REPO_RECENTS));
+      expect(await service.getRecents()).toEqual(repoPaths);
 
       const promotedRepo = repoPaths[4]!;
       const duplicatePromotedRepo = process.platform === "win32" ? promotedRepo.toLocaleUpperCase() : promotedRepo;
-      expect(await service.addRecent(duplicatePromotedRepo)).toEqual(repoPaths.slice(0, MAX_REPO_RECENTS));
+      expect(await service.addRecent(duplicatePromotedRepo)).toEqual(repoPaths);
+    });
+  });
+
+  it("retains more than eight valid unique repositories from existing storage", async () => {
+    await withTempDir(async (dir) => {
+      const service = new RepoRecentsService(dir);
+      const recentsPath = path.join(dir, "repo-recents.json");
+      const repoPaths = Array.from({ length: 12 }, (_value, index) => path.join(dir, `Repo${index}`));
+      const duplicate = process.platform === "win32" ? repoPaths[3]!.toLocaleUpperCase() : repoPaths[3]!;
+
+      await fs.writeFile(recentsPath, JSON.stringify([
+        ...repoPaths,
+        duplicate,
+        "relative-repo"
+      ]), "utf8");
+
+      await expect(service.getRecents()).resolves.toEqual(repoPaths);
     });
   });
 
@@ -97,6 +114,21 @@ describe("RepoRecentsService", () => {
         firstRepo,
         secondRepo
       ]);
+    });
+  });
+
+  it("reorders more than eight repositories without discarding entries", async () => {
+    await withTempDir(async (dir) => {
+      const service = new RepoRecentsService(dir);
+      const repoPaths = Array.from({ length: 10 }, (_value, index) => path.join(dir, `Repo${index}`));
+
+      for (const repoPath of repoPaths) {
+        await service.addRecent(repoPath);
+      }
+
+      const reordered = [...repoPaths].reverse();
+      await expect(service.reorderRecents(reordered)).resolves.toEqual(reordered);
+      await expect(service.getRecents()).resolves.toEqual(reordered);
     });
   });
 

@@ -48,6 +48,7 @@ import { createEmptyActionsConfig, readActionsConfig } from "./actionsConfig";
 import { validateCloneRequest } from "./cloneValidation";
 import type { GitOutputHandler } from "./gitService";
 import type { ProcessResult, ProcessRunOptions, ProcessRunner } from "./processRunner";
+import { mapRepoSyncStatuses } from "./repoSyncStatus";
 import type { VcsService } from "./vcsService";
 import {
   type LoreRevision,
@@ -184,7 +185,7 @@ export class LoreService implements VcsService {
   }
 
   async getRepoSyncStatuses(repoPaths: string[]): Promise<RepoSyncStatus[]> {
-    return Promise.all(repoPaths.map((repoPath) => this.getRepoSyncStatus(repoPath)));
+    return mapRepoSyncStatuses(repoPaths, (repoPath) => this.getRepoSyncStatus(repoPath));
   }
 
   async getGitHubRepository(_repoPath: string): Promise<GitHubRepository | null> {

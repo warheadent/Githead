@@ -1,5 +1,6 @@
 import type { RepoSyncStatus, VcsKind } from "../shared/types";
 import { getRepoPathKey, normalizeRepoPath } from "./repoPath";
+import { mapRepoSyncStatuses } from "./repoSyncStatus";
 import { detectVcsKinds } from "./vcsDetect";
 import type { VcsService } from "./vcsService";
 
@@ -43,8 +44,9 @@ export class VcsRouter {
   }
 
   async getRepoSyncStatuses(repoPaths: string[]): Promise<RepoSyncStatus[]> {
-    return Promise.all(
-      repoPaths.map(async (repoPath) => (await this.serviceForRepo(repoPath)).getRepoSyncStatus(repoPath))
+    return mapRepoSyncStatuses(
+      repoPaths,
+      async (repoPath) => (await this.serviceForRepo(repoPath)).getRepoSyncStatus(repoPath)
     );
   }
 

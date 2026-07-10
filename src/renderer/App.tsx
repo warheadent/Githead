@@ -5122,6 +5122,7 @@ interface RecentRepositoryRowProps {
   dropPosition: RepositoryDropPosition | null;
   dragging: boolean;
   repoPath: string;
+  rowRef: (element: HTMLDivElement | null) => void;
   syncStatus: RepoSyncStatus | null;
   onDragEnd: () => void;
   onDragStart: (event: DragEvent<HTMLButtonElement>, repoPath: string) => void;
@@ -5147,8 +5148,20 @@ function RepositoryList({
   onShowInExplorer
 }: RepositoryListProps): ReactNode {
   const draggedRepoPathRef = useRef<string | null>(null);
+  const repositoryRowsRef = useRef(new Map<string, HTMLDivElement>());
   const [draggedRepoPath, setDraggedRepoPath] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ repoPath: string; position: RepositoryDropPosition } | null>(null);
+
+  useEffect(() => {
+    const activeKey = repoPath ? getRepoPathKey(repoPath) : null;
+    if (!activeKey) {
+      return;
+    }
+
+    repositoryRowsRef.current.get(activeKey)?.scrollIntoView?.({
+      block: "nearest"
+    });
+  }, [repoPath, repoPaths]);
 
   const moveRepository = useCallback((fromRepoPath: string, toRepoPath: string, position: RepositoryDropPosition): void => {
     if (disabled || isSameRepoPath(fromRepoPath, toRepoPath)) {
@@ -5285,6 +5298,13 @@ function RepositoryList({
             <RecentRepositoryRow
               key={key}
               repoPath={recentRepoPath}
+              rowRef={(element) => {
+                if (element) {
+                  repositoryRowsRef.current.set(key, element);
+                } else {
+                  repositoryRowsRef.current.delete(key);
+                }
+              }}
               syncStatus={syncStatuses[key] ?? null}
               active={active}
               disabled={disabled}
@@ -5315,6 +5335,7 @@ function RecentRepositoryRow({
   dropPosition,
   dragging,
   repoPath,
+  rowRef,
   syncStatus,
   onDragEnd,
   onDragStart,
@@ -5347,6 +5368,7 @@ function RecentRepositoryRow({
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <div
+          ref={rowRef}
           className={rowClassName}
           data-repo-path={repoPath}
         >

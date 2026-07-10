@@ -2,8 +2,6 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { getRepoPathKey, normalizeRepoPath } from "./repoPath";
 
-export const MAX_REPO_RECENTS = 8;
-
 export class RepoRecentsService {
   private readonly recentsPath: string;
   private mutationQueue: Promise<unknown> = Promise.resolve();
@@ -31,7 +29,7 @@ export class RepoRecentsService {
         : [
             ...recents,
             normalizedPath
-          ].slice(0, MAX_REPO_RECENTS);
+          ];
 
       await this.writeRecents(next);
       return next;
@@ -83,7 +81,7 @@ export class RepoRecentsService {
       const next = [
         ...ordered,
         ...missing
-      ].slice(0, MAX_REPO_RECENTS);
+      ];
 
       await this.writeRecents(next);
       return next;
@@ -103,7 +101,7 @@ export class RepoRecentsService {
         return normalizedPath ? [
           normalizedPath
         ] : [];
-      })).slice(0, MAX_REPO_RECENTS);
+      }));
     } catch (error) {
       if (isNodeError(error) && error.code === "ENOENT") {
         return [];

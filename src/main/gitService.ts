@@ -58,6 +58,7 @@ import { gitCapabilities, isGitAction } from "../shared/types";
 import { createEmptyActionsConfig, getActionKey, readActionsConfig, saveActionsConfigFile } from "./actionsConfig";
 import { validateCloneRequest } from "./cloneValidation";
 import type { ProcessOutput, ProcessResult, ProcessRunner } from "./processRunner";
+import { mapRepoSyncStatuses } from "./repoSyncStatus";
 
 export const GIT_ACTION_COMMANDS: Record<GitAction, string[]> = {
   fetch: [
@@ -253,7 +254,7 @@ export class GitService {
   }
 
   async getRepoSyncStatuses(repoPaths: string[]): Promise<RepoSyncStatus[]> {
-    return Promise.all(repoPaths.map((repoPath) => this.getRepoSyncStatus(repoPath)));
+    return mapRepoSyncStatuses(repoPaths, (repoPath) => this.getRepoSyncStatus(repoPath));
   }
 
   async getRepoSyncStatus(repoPath: string): Promise<RepoSyncStatus> {

@@ -58,6 +58,8 @@ let gitOutputCallback: Parameters<GitheadApi["onGitOutput"]>[0] | null;
 let updateStateCallback: Parameters<GitheadApi["onUpdateState"]>[0] | null;
 let repoChangedCallback: Parameters<GitheadApi["onRepoChanged"]>[0] | null;
 let windowStateCallback: Parameters<GitheadApi["onWindowState"]>[0] | null;
+let scrollIntoView: Mock<(options?: ScrollIntoViewOptions) => void>;
+const nativeScrollIntoView = HTMLElement.prototype.scrollIntoView;
 
 const defaultProviderModels: Record<AiCommitMessageProvider, string> = {
   openrouter: "openai/gpt-5.4-nano",
@@ -147,6 +149,8 @@ beforeEach(() => {
     unobserve(): void {}
     disconnect(): void {}
   });
+  scrollIntoView = vi.fn<(options?: ScrollIntoViewOptions) => void>();
+  HTMLElement.prototype.scrollIntoView = scrollIntoView;
   githead = createGitheadMock();
   window.githead = githead;
 });
@@ -156,6 +160,11 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  if (nativeScrollIntoView) {
+    HTMLElement.prototype.scrollIntoView = nativeScrollIntoView;
+  } else {
+    Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+  }
 });
 
 describe("App", () => {
@@ -3805,22 +3814,30 @@ describe("App", () => {
     expect(githead.getRepoSummary).not.toHaveBeenCalledWith(otherRepo);
   });
 
-  it("adds a browsed valid repository to the bottom of repositories", async () => {
+  it("adds a ninth browsed repository to the bottom and reveals its active row", async () => {
     const user = userEvent.setup();
     const browsedRepo = "D:\\Work\\Browsed";
+    const existingRepos = [
+      repoPath,
+      ...Array.from({ length: 7 }, (_value, index) => `D:\\Work\\Existing${index + 1}`)
+    ];
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(existingRepos);
     vi.mocked(githead.chooseRepo).mockResolvedValue(browsedRepo);
     vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
       repoPath: requestedRepoPath
     }));
-    vi.mocked(githead.addRepoRecent).mockImplementation(async (requestedRepoPath) => [
-      repoPath,
-      requestedRepoPath
-    ]);
+    vi.mocked(githead.addRepoRecent).mockImplementation(async (requestedRepoPath) =>
+      requestedRepoPath === repoPath ? existingRepos : [
+        ...existingRepos,
+        requestedRepoPath
+      ]
+    );
 
     render(<App />);
 
     await screen.findByText("Repository ready");
     vi.mocked(githead.addRepoRecent).mockClear();
+    scrollIntoView.mockClear();
     await user.click(screen.getByRole("button", { name: "Add repository" }));
     await user.click(screen.getByRole("button", { name: "Add existing" }));
 
@@ -3834,9 +3851,12 @@ describe("App", () => {
       name: /^Switch to /
     });
     expect(repositories.map((button) => button.getAttribute("aria-label"))).toEqual([
-      `Switch to ${repoPath}`,
+      ...existingRepos.map((existingRepo) => `Switch to ${existingRepo}`),
       `Switch to ${browsedRepo}`
     ]);
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      block: "nearest"
+    });
   });
 
   it("does not add an invalid browsed repository to repositories", async () => {
