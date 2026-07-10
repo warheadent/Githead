@@ -32,7 +32,7 @@ jobs:
         shell: pwsh
         run: |
           $version = "${env:GITHUB_REF_NAME}" -replace '^v', ''
-          vp pm pkg set "version=$version"
+          npm pkg set "version=$version"
 
       - name: Check
         run: vp check
@@ -91,7 +91,7 @@ jobs:
       - name: Set release version
         run: |
           version="${GITHUB_REF_NAME#v}"
-          vp pm pkg set "version=$version"
+          npm pkg set "version=$version"
 
       - name: Check
         run: vp check
