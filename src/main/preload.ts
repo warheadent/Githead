@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import { IPC_CHANNELS } from "../shared/ipc";
 import type {
   AiSettingsSaveRequest,
+  GetAiReasoningCapabilitiesRequest,
   AppSettingsSaveRequest,
   ClipboardTextRequest,
   CreatePullRequestRequest,
@@ -146,6 +147,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getAiSettings) as ReturnType<GitheadApi["getAiSettings"]>,
   saveAiSettings: (request: AiSettingsSaveRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.saveAiSettings, request) as ReturnType<GitheadApi["saveAiSettings"]>,
+  getAiReasoningCapabilities: (request: GetAiReasoningCapabilitiesRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getAiReasoningCapabilities, request) as ReturnType<GitheadApi["getAiReasoningCapabilities"]>,
   getAppSettings: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getAppSettings) as ReturnType<GitheadApi["getAppSettings"]>,
   saveAppSettings: (request: AppSettingsSaveRequest) =>

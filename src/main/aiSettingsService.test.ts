@@ -68,26 +68,36 @@ describe("AiSettingsService", () => {
           openrouter: {
             model: DEFAULT_AI_PROVIDER_MODELS.openrouter,
             prDescriptionModel: "",
+            reasoningEffort: "low",
+            prDescriptionReasoningEffort: "low",
             hasApiKey: false
           },
           openai: {
             model: DEFAULT_AI_PROVIDER_MODELS.openai,
             prDescriptionModel: "",
+            reasoningEffort: "low",
+            prDescriptionReasoningEffort: "low",
             hasApiKey: false
           },
           "codex-cli": {
             model: DEFAULT_AI_PROVIDER_MODELS["codex-cli"],
             prDescriptionModel: "",
+            reasoningEffort: "low",
+            prDescriptionReasoningEffort: "low",
             hasApiKey: false
           },
           anthropic: {
             model: DEFAULT_AI_PROVIDER_MODELS.anthropic,
             prDescriptionModel: "",
+            reasoningEffort: "low",
+            prDescriptionReasoningEffort: "low",
             hasApiKey: false
           },
           "claude-code": {
             model: DEFAULT_AI_PROVIDER_MODELS["claude-code"],
             prDescriptionModel: "",
+            reasoningEffort: "low",
+            prDescriptionReasoningEffort: "low",
             hasApiKey: false
           }
         },
@@ -114,11 +124,47 @@ describe("AiSettingsService", () => {
       expect(settings.providers.openrouter).toEqual({
         model: "openrouter/auto",
         prDescriptionModel: "",
+        reasoningEffort: "low",
+        prDescriptionReasoningEffort: "low",
         hasApiKey: true
       });
       expect(settings.commitMessagePrompt).toBe(DEFAULT_COMMIT_MESSAGE_PROMPT);
       expect(settings.prDescriptionPrompt).toBe(DEFAULT_PR_DESCRIPTION_PROMPT);
       await expect(service.getApiKey("openrouter")).resolves.toBe("sk-or-key");
+    });
+  });
+
+  it("defaults invalid reasoning values and persists efforts per provider", async () => {
+    await withTempDir(async (dir) => {
+      await fs.writeFile(path.join(dir, "ai-settings.json"), JSON.stringify({
+        reasoningEfforts: { openai: "turbo", "codex-cli": "high" },
+        prDescriptionReasoningEfforts: { openai: "medium" }
+      }), "utf8");
+      const service = createService(dir);
+
+      const migrated = await service.getSettings();
+      expect(migrated.providers.openai.reasoningEffort).toBe("low");
+      expect(migrated.providers.openai.prDescriptionReasoningEffort).toBe("medium");
+      expect(migrated.providers["codex-cli"].reasoningEffort).toBe("high");
+
+      const saved = await service.saveSettings({
+        selectedProvider: "codex-cli",
+        providerModels: DEFAULT_AI_PROVIDER_MODELS,
+        reasoningEfforts: {
+          openrouter: "medium",
+          "codex-cli": "high"
+        },
+        prDescriptionReasoningEfforts: {
+          openrouter: "high",
+          "codex-cli": "medium"
+        },
+        commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT
+      });
+
+      expect(saved.providers.openrouter.reasoningEffort).toBe("medium");
+      expect(saved.providers.openrouter.prDescriptionReasoningEffort).toBe("high");
+      expect(saved.providers["codex-cli"].reasoningEffort).toBe("high");
+      expect(saved.providers["codex-cli"].prDescriptionReasoningEffort).toBe("medium");
     });
   });
 

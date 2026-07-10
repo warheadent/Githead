@@ -6,11 +6,13 @@ import {
   AI_API_KEY_PROVIDERS,
   AI_CLI_PROVIDERS,
   AI_COMMIT_MESSAGE_PROVIDERS,
+  AI_REASONING_EFFORTS,
   type AiApiKeyProvider,
   type AiCliProvider,
   type AiCliProviderStatus,
   type AiCommitMessageProvider,
   type AiProviderSettings,
+  type AiReasoningEffort,
   type AiSettings,
   type AiSettingsSaveRequest
 } from "../shared/types";
@@ -20,6 +22,7 @@ export const DEFAULT_OPENAI_MODEL = "gpt-5.4-nano";
 export const DEFAULT_CODEX_CLI_MODEL = "gpt-5.4-mini";
 export const DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
 export const DEFAULT_CLAUDE_CODE_MODEL = "haiku";
+export const DEFAULT_AI_REASONING_EFFORT: AiReasoningEffort = "low";
 
 export const DEFAULT_AI_PROVIDER_MODELS: Record<AiCommitMessageProvider, string> = {
   openrouter: DEFAULT_OPENROUTER_MODEL,
@@ -33,6 +36,8 @@ interface StoredAiSettings {
   selectedProvider?: AiCommitMessageProvider;
   providerModels?: Partial<Record<AiCommitMessageProvider, string>>;
   prDescriptionModels?: Partial<Record<AiCommitMessageProvider, string>>;
+  reasoningEfforts?: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>>;
+  prDescriptionReasoningEfforts?: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>>;
   encryptedApiKeys?: Partial<Record<AiApiKeyProvider, string>>;
   commitMessagePrompt?: string;
   prDescriptionPrompt?: string;
@@ -139,6 +144,10 @@ export class AiSettingsService {
     const prDescriptionModels = createSavedPrDescriptionModels(
       request.prDescriptionModels ?? existing.prDescriptionModels
     );
+    const reasoningEfforts = createSavedReasoningEfforts(request.reasoningEfforts ?? existing.reasoningEfforts);
+    const prDescriptionReasoningEfforts = createSavedReasoningEfforts(
+      request.prDescriptionReasoningEfforts ?? existing.prDescriptionReasoningEfforts
+    );
     const prDescriptionPrompt = request.prDescriptionPrompt === undefined
       ? sanitizePrompt(existing.prDescriptionPrompt)
       : sanitizePrompt(request.prDescriptionPrompt);
@@ -146,6 +155,8 @@ export class AiSettingsService {
     const stored: StoredAiSettings = {
       selectedProvider,
       providerModels,
+      reasoningEfforts,
+      prDescriptionReasoningEfforts,
       commitMessagePrompt,
       ...(Object.keys(prDescriptionModels).length > 0 ? { prDescriptionModels } : {}),
       ...(prDescriptionPrompt ? { prDescriptionPrompt } : {}),
@@ -200,10 +211,21 @@ function createProviderSettings(
     providers[provider] = {
       model: models[provider],
       prDescriptionModel: sanitizeSetting(stored.prDescriptionModels?.[provider]),
+      reasoningEffort: sanitizeReasoningEffort(stored.reasoningEfforts?.[provider]),
+      prDescriptionReasoningEffort: sanitizeReasoningEffort(stored.prDescriptionReasoningEfforts?.[provider]),
       hasApiKey: isApiKeyProvider(provider) ? Boolean(encryptedApiKeys[provider]) : false
     };
     return providers;
   }, {} as Record<AiCommitMessageProvider, AiProviderSettings>);
+}
+
+function createSavedReasoningEfforts(
+  efforts: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>> | undefined
+): Record<AiCommitMessageProvider, AiReasoningEffort> {
+  return AI_COMMIT_MESSAGE_PROVIDERS.reduce((saved, provider) => {
+    saved[provider] = sanitizeReasoningEffort(efforts?.[provider]);
+    return saved;
+  }, {} as Record<AiCommitMessageProvider, AiReasoningEffort>);
 }
 
 function createSavedPrDescriptionModels(
@@ -283,6 +305,12 @@ function getProviderArticle(provider: AiCommitMessageProvider): "a" | "an" {
 
 function sanitizeSetting(value: string | undefined): string {
   return value?.trim() ?? "";
+}
+
+function sanitizeReasoningEffort(value: string | undefined): AiReasoningEffort {
+  return AI_REASONING_EFFORTS.includes(value as AiReasoningEffort)
+    ? value as AiReasoningEffort
+    : DEFAULT_AI_REASONING_EFFORT;
 }
 
 function sanitizePrompt(value: string | undefined): string {

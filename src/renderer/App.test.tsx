@@ -20,6 +20,7 @@ import { App } from "./App";
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import { DEFAULT_PR_DESCRIPTION_PROMPT } from "../shared/prDescriptionPrompt";
 import type {
+  AiReasoningCapabilities,
   AiSettings,
   AppSettings,
   AppUpdateState,
@@ -76,26 +77,36 @@ function createAiSettings(
       openrouter: {
         model: defaultProviderModels.openrouter,
         prDescriptionModel: "",
+        reasoningEffort: "low",
+        prDescriptionReasoningEffort: "low",
         hasApiKey: true
       },
       openai: {
         model: defaultProviderModels.openai,
         prDescriptionModel: "",
+        reasoningEffort: "low",
+        prDescriptionReasoningEffort: "low",
         hasApiKey: true
       },
       "codex-cli": {
         model: defaultProviderModels["codex-cli"],
         prDescriptionModel: "",
+        reasoningEffort: "low",
+        prDescriptionReasoningEffort: "low",
         hasApiKey: false
       },
       anthropic: {
         model: defaultProviderModels.anthropic,
         prDescriptionModel: "",
+        reasoningEffort: "low",
+        prDescriptionReasoningEffort: "low",
         hasApiKey: true
       },
       "claude-code": {
         model: defaultProviderModels["claude-code"],
         prDescriptionModel: "",
+        reasoningEffort: "low",
+        prDescriptionReasoningEffort: "low",
         hasApiKey: false
       }
     },
@@ -4477,6 +4488,8 @@ describe("App", () => {
         openrouter: {
           model: "openrouter/auto",
           prDescriptionModel: "",
+          reasoningEffort: "low",
+          prDescriptionReasoningEffort: "low",
           hasApiKey: true
         }
       },
@@ -4523,6 +4536,20 @@ describe("App", () => {
           anthropic: "",
           "claude-code": ""
         },
+        reasoningEfforts: {
+          openrouter: "low",
+          openai: "low",
+          "codex-cli": "low",
+          anthropic: "low",
+          "claude-code": "low"
+        },
+        prDescriptionReasoningEfforts: {
+          openrouter: "low",
+          openai: "low",
+          "codex-cli": "low",
+          anthropic: "low",
+          "claude-code": "low"
+        },
         apiKeys: {
           openrouter: "sk-or-key"
         },
@@ -4553,6 +4580,83 @@ describe("App", () => {
 
     expect(await screen.findByText("Claude Code status")).toBeTruthy();
     expect(screen.getByText("Claude Code was not detected.")).toBeTruthy();
+  });
+
+  it("shows model-aware reasoning controls and a separate PR description effort", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getAiReasoningCapabilities).mockResolvedValue({
+      status: "supported",
+      supportedEfforts: ["low", "medium", "high"]
+    });
+
+    render(<App />);
+
+    await screen.findByRole("button", { name: "Settings" });
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("tab", { name: "AI" }));
+
+    const reasoning = await screen.findByLabelText("Reasoning") as HTMLSelectElement;
+    await waitFor(() => expect(reasoning.disabled).toBe(false));
+    expect(reasoning.value).toBe("low");
+    await user.selectOptions(reasoning, "medium");
+
+    await user.type(screen.getByLabelText("PR Description Model"), "openai/gpt-5.4-nano");
+    const prReasoning = await screen.findByLabelText("PR Description Reasoning") as HTMLSelectElement;
+    await waitFor(() => expect(prReasoning.disabled).toBe(false));
+    await user.selectOptions(prReasoning, "high");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(githead.saveAiSettings).toHaveBeenCalledWith(expect.objectContaining({
+      reasoningEfforts: expect.objectContaining({ openai: "medium" }),
+      prDescriptionReasoningEfforts: expect.objectContaining({ openai: "high" })
+    })));
+  });
+
+  it("disables reasoning when the selected model is unsupported", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getAiReasoningCapabilities).mockResolvedValue({
+      status: "unsupported",
+      supportedEfforts: []
+    });
+
+    render(<App />);
+
+    await screen.findByRole("button", { name: "Settings" });
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("tab", { name: "AI" }));
+
+    const reasoning = await screen.findByLabelText("Reasoning") as HTMLSelectElement;
+    await waitFor(() => expect(screen.getByText("This model does not support configurable reasoning.")).toBeTruthy());
+    expect(reasoning.disabled).toBe(true);
+  });
+
+  it("ignores stale reasoning capability responses after the model changes", async () => {
+    const user = userEvent.setup();
+    const initial = defer<AiReasoningCapabilities>();
+    const updated = defer<AiReasoningCapabilities>();
+    vi.mocked(githead.getAiReasoningCapabilities).mockImplementation(({ model }) => (
+      model === defaultProviderModels.openrouter ? initial.promise : updated.promise
+    ));
+
+    render(<App />);
+
+    await screen.findByRole("button", { name: "Settings" });
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("tab", { name: "AI" }));
+    await waitFor(() => expect(githead.getAiReasoningCapabilities).toHaveBeenCalledTimes(1));
+
+    const model = screen.getByLabelText("Model");
+    await user.clear(model);
+    await user.type(model, "vendor/new-model");
+    await waitFor(() => expect(githead.getAiReasoningCapabilities).toHaveBeenCalledTimes(2));
+
+    updated.resolve({ status: "supported", supportedEfforts: ["high"] });
+    await waitFor(() => expect((screen.getByLabelText("Reasoning") as HTMLSelectElement).value).toBe("high"));
+    initial.resolve({ status: "unsupported", supportedEfforts: [] });
+    await act(async () => Promise.resolve());
+
+    expect((screen.getByLabelText("Reasoning") as HTMLSelectElement).disabled).toBe(false);
+    expect(screen.queryByText("This model does not support configurable reasoning.")).toBeNull();
   });
 
   it("shows Git Identity and AI settings sections and saves identity fields", async () => {
@@ -4723,6 +4827,8 @@ function createGitheadMock(): GitheadApi {
       openai: {
         model: "openai/gpt-5-mini",
         prDescriptionModel: "",
+        reasoningEffort: "low",
+        prDescriptionReasoningEffort: "low",
         hasApiKey: true
       }
     }
@@ -4815,6 +4921,10 @@ function createGitheadMock(): GitheadApi {
     }),
     getAiSettings: vi.fn().mockResolvedValue(aiSettings),
     saveAiSettings: vi.fn().mockResolvedValue(aiSettings),
+    getAiReasoningCapabilities: vi.fn().mockResolvedValue({
+      status: "supported",
+      supportedEfforts: ["low", "medium", "high"]
+    }),
     getAppSettings: vi.fn().mockResolvedValue(appSettings),
     saveAppSettings: vi.fn().mockResolvedValue(appSettings),
     generateCommitMessage: vi.fn().mockResolvedValue(okOperation),

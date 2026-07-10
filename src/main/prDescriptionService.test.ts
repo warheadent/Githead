@@ -4,6 +4,7 @@ import { DEFAULT_AI_PROVIDER_MODELS, type AiSettingsService } from "./aiSettings
 import type { GitBranchRangeContext, GitService } from "./gitService";
 import type { ProcessResult, ProcessRunOptions, ProcessRunner } from "./processRunner";
 import { PrDescriptionService } from "./prDescriptionService";
+import type { AiReasoningCapabilityResolver } from "./commitMessageService";
 
 class FakeAiSettingsService {
   constructor(
@@ -57,26 +58,36 @@ const baseSettings: AiSettings = {
     openrouter: {
       model: "openrouter/auto",
       prDescriptionModel: "",
+      reasoningEffort: "low",
+      prDescriptionReasoningEffort: "low",
       hasApiKey: true
     },
     openai: {
       model: DEFAULT_AI_PROVIDER_MODELS.openai,
       prDescriptionModel: "",
+      reasoningEffort: "low",
+      prDescriptionReasoningEffort: "low",
       hasApiKey: true
     },
     anthropic: {
       model: DEFAULT_AI_PROVIDER_MODELS.anthropic,
       prDescriptionModel: "",
+      reasoningEffort: "low",
+      prDescriptionReasoningEffort: "low",
       hasApiKey: true
     },
     "codex-cli": {
       model: DEFAULT_AI_PROVIDER_MODELS["codex-cli"],
       prDescriptionModel: "",
+      reasoningEffort: "low",
+      prDescriptionReasoningEffort: "low",
       hasApiKey: false
     },
     "claude-code": {
       model: DEFAULT_AI_PROVIDER_MODELS["claude-code"],
       prDescriptionModel: "",
+      reasoningEffort: "low",
+      prDescriptionReasoningEffort: "low",
       hasApiKey: false
     }
   },
@@ -146,6 +157,7 @@ function createService(params: {
   context?: GitBranchRangeContext;
   response?: unknown;
   runner?: ProcessRunner;
+  reasoningCapabilities?: AiReasoningCapabilityResolver;
 }): { service: PrDescriptionService; calls: FetchCall[]; gitService: FakeGitService; runner: ProcessRunner } {
   const provider = params.provider ?? "openrouter";
   const fetchState = createFetch(params.response ?? {
@@ -172,7 +184,13 @@ function createService(params: {
         }
       ) as unknown as AiSettingsService,
       fetchState.fetch,
-      runner
+      runner,
+      params.reasoningCapabilities ?? {
+        getCapabilities: async () => ({
+          status: "supported",
+          supportedEfforts: ["low", "medium", "high"]
+        })
+      }
     ),
     calls: fetchState.calls,
     gitService,
@@ -189,7 +207,8 @@ describe("PrDescriptionService", () => {
           openrouter: {
             ...baseSettings.providers.openrouter,
             model: "openrouter/commit-model",
-            prDescriptionModel: "openrouter/pr-description-model"
+            prDescriptionModel: "openrouter/pr-description-model",
+            reasoningEffort: "medium"
           }
         }
       }),
@@ -216,10 +235,12 @@ describe("PrDescriptionService", () => {
     const body = JSON.parse(String(calls[0]?.init?.body)) as {
       model: string;
       max_tokens: number;
+      reasoning: { effort: string };
       messages: Array<{ content: string }>;
     };
     expect(body.model).toBe("openrouter/commit-model");
     expect(body.max_tokens).toBe(120);
+    expect(body.reasoning).toEqual({ effort: "medium" });
     expect(body.messages.at(-1)?.content).toContain("Write a clear GitHub pull request title");
     expect(body.messages.at(-1)?.content).toContain("- Add generated pull request descriptions");
     expect(body.messages.at(-1)?.content).toContain("+added");
@@ -232,7 +253,8 @@ describe("PrDescriptionService", () => {
           ...baseSettings.providers,
           openrouter: {
             ...baseSettings.providers.openrouter,
-            prDescriptionModel: "anthropic/claude-sonnet-4"
+            prDescriptionModel: "anthropic/claude-sonnet-4",
+            prDescriptionReasoningEffort: "high"
           }
         }
       })
@@ -256,10 +278,12 @@ describe("PrDescriptionService", () => {
     const body = JSON.parse(String(calls[0]?.init?.body)) as {
       model: string;
       max_tokens: number;
+      reasoning: { effort: string };
       messages: Array<{ content: string }>;
     };
     expect(body.model).toBe("anthropic/claude-sonnet-4");
     expect(body.max_tokens).toBe(2_000);
+    expect(body.reasoning).toEqual({ effort: "high" });
     expect(body.messages.at(-1)?.content).toContain("Pull request title: Create pull requests");
     expect(body.messages.at(-1)?.content).toContain("- Add generated pull request descriptions");
     expect(body.messages.at(-1)?.content).toContain("+added");

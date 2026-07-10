@@ -1,4 +1,4 @@
-import type { AiApiKeyProvider, AiCommitMessageProvider, AiSettings, GenerateCommitMessageRequest, GitOperationResult } from "../shared/types";
+import type { AiApiKeyProvider, AiCommitMessageProvider, AiReasoningEffort, AiSettings, GenerateCommitMessageRequest, GetAiReasoningCapabilitiesRequest, GitOperationResult } from "../shared/types";
 import { getProviderLabel, isApiKeyProvider, isCliProvider, type AiSettingsService } from "./aiSettingsService";
 import {
   AnthropicCommitMessageProvider,
@@ -21,12 +21,20 @@ type StagedDiffProvider = Pick<VcsService, "getStagedDiff">;
 
 type Fetch = typeof fetch;
 
+export interface AiReasoningCapabilityResolver {
+  getCapabilities(request: GetAiReasoningCapabilitiesRequest): Promise<{
+    status: "supported" | "unsupported" | "unknown";
+    supportedEfforts: AiReasoningEffort[];
+  }>;
+}
+
 export class CommitMessageService {
   constructor(
     private readonly resolveService: (repoPath: string) => StagedDiffProvider | Promise<StagedDiffProvider>,
     private readonly settingsService: AiSettingsService,
     private readonly fetchImpl: Fetch = fetch,
-    private readonly runner?: ProcessRunner
+    private readonly runner?: ProcessRunner,
+    private readonly reasoningCapabilities?: AiReasoningCapabilityResolver
   ) {}
 
   async generateCommitMessage(request: GenerateCommitMessageRequest): Promise<GitOperationResult> {
@@ -58,9 +66,16 @@ export class CommitMessageService {
         return createFailure(request.repoPath, "Stage changes before generating a commit message.");
       }
 
+      const reasoningEffort = await resolveReasoningEffort(
+        this.reasoningCapabilities,
+        selectedProvider,
+        providerSettings.model,
+        providerSettings.reasoningEffort
+      );
       const message = normalizeGeneratedMessage(await resolution.provider.generate({
         repoPath: request.repoPath,
         model: providerSettings.model,
+        ...(reasoningEffort ? { reasoningEffort } : {}),
         systemPrompt: createCommitMessageSystemPrompt(),
         userPrompt: createCommitMessageUserPrompt(
           settings.commitMessagePrompt,
@@ -85,6 +100,21 @@ export class CommitMessageService {
       );
     }
   }
+}
+
+export async function resolveReasoningEffort(
+  resolver: AiReasoningCapabilityResolver | undefined,
+  provider: AiCommitMessageProvider,
+  model: string,
+  effort: AiReasoningEffort
+): Promise<AiReasoningEffort | undefined> {
+  if (!resolver) {
+    return undefined;
+  }
+  const capabilities = await resolver.getCapabilities({ provider, model });
+  return capabilities.status === "supported" && capabilities.supportedEfforts.includes(effort)
+    ? effort
+    : undefined;
 }
 
 export type AiProviderResolution =

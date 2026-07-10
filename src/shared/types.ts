@@ -496,6 +496,22 @@ export const AI_COMMIT_MESSAGE_PROVIDERS = [
 
 export type AiCommitMessageProvider = (typeof AI_COMMIT_MESSAGE_PROVIDERS)[number];
 
+export const AI_REASONING_EFFORTS = ["low", "medium", "high"] as const;
+
+export type AiReasoningEffort = (typeof AI_REASONING_EFFORTS)[number];
+
+export type AiReasoningCapabilityStatus = "supported" | "unsupported" | "unknown";
+
+export interface AiReasoningCapabilities {
+  status: AiReasoningCapabilityStatus;
+  supportedEfforts: AiReasoningEffort[];
+}
+
+export interface GetAiReasoningCapabilitiesRequest {
+  provider: AiCommitMessageProvider;
+  model: string;
+}
+
 export const AI_API_KEY_PROVIDERS = [
   "openrouter",
   "openai",
@@ -515,6 +531,9 @@ export interface AiProviderSettings {
   model: string;
   /** Model used for PR descriptions; empty string falls back to `model`. */
   prDescriptionModel: string;
+  reasoningEffort: AiReasoningEffort;
+  /** Reasoning effort for PR descriptions; used only with `prDescriptionModel`. */
+  prDescriptionReasoningEffort: AiReasoningEffort;
   hasApiKey: boolean;
 }
 
@@ -536,6 +555,8 @@ export interface AiSettingsSaveRequest {
   selectedProvider: AiCommitMessageProvider;
   providerModels: Record<AiCommitMessageProvider, string>;
   prDescriptionModels?: Partial<Record<AiCommitMessageProvider, string>>;
+  reasoningEfforts?: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>>;
+  prDescriptionReasoningEfforts?: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>>;
   apiKeys?: Partial<Record<AiApiKeyProvider, string>>;
   clearApiKeys?: Partial<Record<AiApiKeyProvider, boolean>>;
   commitMessagePrompt: string;
@@ -736,6 +757,7 @@ export interface GitheadApi {
   saveGitIdentity(request: GitIdentitySaveRequest): Promise<GitIdentitySettings>;
   getAiSettings(): Promise<AiSettings>;
   saveAiSettings(request: AiSettingsSaveRequest): Promise<AiSettings>;
+  getAiReasoningCapabilities(request: GetAiReasoningCapabilitiesRequest): Promise<AiReasoningCapabilities>;
   getAppSettings(): Promise<AppSettings>;
   saveAppSettings(request: AppSettingsSaveRequest): Promise<AppSettings>;
   generateCommitMessage(request: GenerateCommitMessageRequest): Promise<GitOperationResult>;

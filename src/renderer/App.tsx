@@ -102,6 +102,8 @@ import type {
   AiApiKeyProvider,
   AiCliProvider,
   AiCommitMessageProvider,
+  AiReasoningCapabilities,
+  AiReasoningEffort,
   AiSettings,
   AppSettings,
   AppUpdateState,
@@ -135,7 +137,7 @@ import type {
   RepoTrustResult,
   RepoSummary
 } from "../shared/types";
-import { AI_API_KEY_PROVIDERS, AI_CLI_PROVIDERS, AI_COMMIT_MESSAGE_PROVIDERS, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
+import { AI_API_KEY_PROVIDERS, AI_CLI_PROVIDERS, AI_COMMIT_MESSAGE_PROVIDERS, AI_REASONING_EFFORTS, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
 import { parseCommitSubject } from "../shared/commitSubject";
 import { ActivityLogView } from "./ActivityLogView";
 import { RemoteManagementDialog } from "./RemoteManagementDialog";
@@ -175,6 +177,8 @@ interface SettingsDraft {
   selectedProvider: AiCommitMessageProvider;
   providerModels: Record<AiCommitMessageProvider, string>;
   prDescriptionModels: Record<AiCommitMessageProvider, string>;
+  reasoningEfforts: Record<AiCommitMessageProvider, AiReasoningEffort>;
+  prDescriptionReasoningEfforts: Record<AiCommitMessageProvider, AiReasoningEffort>;
   apiKeys: Partial<Record<AiApiKeyProvider, string>>;
   clearApiKeys: Partial<Record<AiApiKeyProvider, boolean>>;
   commitMessagePrompt: string;
@@ -394,6 +398,8 @@ const emptySettingsDraft: SettingsDraft = {
     anthropic: "",
     "claude-code": ""
   },
+  reasoningEfforts: createDefaultReasoningEfforts(),
+  prDescriptionReasoningEfforts: createDefaultReasoningEfforts(),
   apiKeys: {},
   clearApiKeys: {},
   commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT,
@@ -3246,6 +3252,8 @@ export function App(): ReactNode {
         selectedProvider: settings?.selectedProvider ?? "openrouter",
         providerModels: createSettingsDraftProviderModels(settings),
         prDescriptionModels: createSettingsDraftPrDescriptionModels(settings),
+        reasoningEfforts: createSettingsDraftReasoningEfforts(settings, false),
+        prDescriptionReasoningEfforts: createSettingsDraftReasoningEfforts(settings, true),
         apiKeys: {},
         clearApiKeys: {},
         commitMessagePrompt: settings?.commitMessagePrompt ?? DEFAULT_COMMIT_MESSAGE_PROMPT,
@@ -3305,6 +3313,8 @@ export function App(): ReactNode {
         selectedProvider: draft.selectedProvider,
         providerModels: draft.providerModels,
         prDescriptionModels: draft.prDescriptionModels,
+        reasoningEfforts: draft.reasoningEfforts,
+        prDescriptionReasoningEfforts: draft.prDescriptionReasoningEfforts,
         apiKeys: draft.apiKeys,
         clearApiKeys: draft.clearApiKeys,
         commitMessagePrompt: draft.commitMessagePrompt,
@@ -8754,6 +8764,11 @@ function SettingsDialog({
   onDraftChange: (draft: SettingsDraft) => void;
   onSave: (event: FormEvent<HTMLFormElement>) => void;
 }): ReactNode {
+  const provider = draft.selectedProvider;
+  const primaryReasoning = useAiReasoningCapabilities(open, provider, draft.providerModels[provider]);
+  const prDescriptionModel = draft.prDescriptionModels[provider].trim();
+  const prDescriptionReasoning = useAiReasoningCapabilities(open && Boolean(prDescriptionModel), provider, prDescriptionModel);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="h-[min(760px,calc(100vh-2rem))] max-h-[min(760px,calc(100vh-2rem))] overflow-hidden sm:max-w-[720px]">
@@ -8904,6 +8919,21 @@ function SettingsDialog({
                     })}
                   />
                 </div>
+                <ReasoningEffortField
+                  id="ai-reasoning-effort"
+                  label="Reasoning"
+                  value={draft.reasoningEfforts[draft.selectedProvider]}
+                  capabilities={primaryReasoning.capabilities}
+                  loading={primaryReasoning.loading}
+                  disabled={saving}
+                  onChange={(reasoningEffort) => onDraftChange({
+                    ...draft,
+                    reasoningEfforts: {
+                      ...draft.reasoningEfforts,
+                      [draft.selectedProvider]: reasoningEffort
+                    }
+                  })}
+                />
                 <div className="grid gap-2">
                   <Label htmlFor="ai-pr-description-model">PR Description Model</Label>
                   <Input
@@ -8922,6 +8952,27 @@ function SettingsDialog({
                     })}
                   />
                 </div>
+                {prDescriptionModel ? (
+                  <ReasoningEffortField
+                    id="ai-pr-description-reasoning-effort"
+                    label="PR Description Reasoning"
+                    value={draft.prDescriptionReasoningEfforts[draft.selectedProvider]}
+                    capabilities={prDescriptionReasoning.capabilities}
+                    loading={prDescriptionReasoning.loading}
+                    disabled={saving}
+                    onChange={(reasoningEffort) => onDraftChange({
+                      ...draft,
+                      prDescriptionReasoningEfforts: {
+                        ...draft.prDescriptionReasoningEfforts,
+                        [draft.selectedProvider]: reasoningEffort
+                      }
+                    })}
+                  />
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    PR descriptions inherit the primary model and reasoning setting.
+                  </p>
+                )}
                 <div className="grid gap-2">
                   <Label htmlFor="ai-commit-message-prompt">Commit Message Prompt</Label>
                   <Textarea
@@ -8968,6 +9019,107 @@ function SettingsDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+function useAiReasoningCapabilities(
+  enabled: boolean,
+  provider: AiCommitMessageProvider,
+  model: string
+): { capabilities: AiReasoningCapabilities; loading: boolean } {
+  const [state, setState] = useState<{ capabilities: AiReasoningCapabilities; loading: boolean }>({
+    capabilities: { status: "unknown", supportedEfforts: [] },
+    loading: false
+  });
+
+  useEffect(() => {
+    const normalizedModel = model.trim();
+    if (!enabled || !normalizedModel) {
+      setState({
+        capabilities: { status: "unknown", supportedEfforts: [] },
+        loading: false
+      });
+      return;
+    }
+
+    let cancelled = false;
+    setState((current) => ({ ...current, loading: true }));
+    const timeout = window.setTimeout(() => {
+      void window.githead.getAiReasoningCapabilities({ provider, model: normalizedModel })
+        .then((capabilities) => {
+          if (!cancelled) {
+            setState({ capabilities, loading: false });
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setState({
+              capabilities: { status: "unknown", supportedEfforts: [] },
+              loading: false
+            });
+          }
+        });
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [enabled, model, provider]);
+
+  return state;
+}
+
+function ReasoningEffortField({
+  id,
+  label,
+  value,
+  capabilities,
+  loading,
+  disabled,
+  onChange
+}: {
+  id: string;
+  label: string;
+  value: AiReasoningEffort;
+  capabilities: AiReasoningCapabilities;
+  loading: boolean;
+  disabled: boolean;
+  onChange: (effort: AiReasoningEffort) => void;
+}): ReactNode {
+  const supportedEfforts = AI_REASONING_EFFORTS.filter((effort) => capabilities.supportedEfforts.includes(effort));
+  const available = capabilities.status === "supported" && supportedEfforts.length > 0;
+  const selectedValue = supportedEfforts.includes(value) ? value : supportedEfforts[0] ?? value;
+  const helpId = `${id}-help`;
+  const helpText = loading
+    ? "Checking whether this model supports configurable reasoning…"
+    : capabilities.status === "unsupported"
+      ? "This model does not support configurable reasoning."
+      : capabilities.status === "unknown"
+        ? "Reasoning support could not be verified for this model."
+        : "Lower effort favors speed and cost; higher effort favors deeper reasoning.";
+
+  return (
+    <div className="grid gap-2">
+      <Label htmlFor={id}>{label}</Label>
+      <select
+        id={id}
+        className="h-10 rounded-md border border-input bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+        value={selectedValue}
+        disabled={disabled || loading || !available}
+        aria-describedby={helpId}
+        onChange={(event) => onChange(event.target.value as AiReasoningEffort)}
+      >
+        {(available ? supportedEfforts : [value]).map((effort) => (
+          <option key={effort} value={effort}>{getReasoningEffortLabel(effort)}</option>
+        ))}
+      </select>
+      <p id={helpId} className="text-sm text-muted-foreground" aria-live="polite">{helpText}</p>
+    </div>
+  );
+}
+
+function getReasoningEffortLabel(effort: AiReasoningEffort): string {
+  return effort.charAt(0).toUpperCase() + effort.slice(1);
 }
 
 function RepositoryActionsDialog({
@@ -9826,6 +9978,25 @@ function createSettingsDraftPrDescriptionModels(settings: AiSettings | null): Re
     models[provider] = settings?.providers[provider]?.prDescriptionModel ?? "";
     return models;
   }, {} as Record<AiCommitMessageProvider, string>);
+}
+
+function createDefaultReasoningEfforts(): Record<AiCommitMessageProvider, AiReasoningEffort> {
+  return AI_COMMIT_MESSAGE_PROVIDERS.reduce((efforts, provider) => {
+    efforts[provider] = "low";
+    return efforts;
+  }, {} as Record<AiCommitMessageProvider, AiReasoningEffort>);
+}
+
+function createSettingsDraftReasoningEfforts(
+  settings: AiSettings | null,
+  prDescription: boolean
+): Record<AiCommitMessageProvider, AiReasoningEffort> {
+  return AI_COMMIT_MESSAGE_PROVIDERS.reduce((efforts, provider) => {
+    efforts[provider] = prDescription
+      ? settings?.providers[provider]?.prDescriptionReasoningEffort ?? "low"
+      : settings?.providers[provider]?.reasoningEffort ?? "low";
+    return efforts;
+  }, {} as Record<AiCommitMessageProvider, AiReasoningEffort>);
 }
 
 function isApiKeyProvider(provider: AiCommitMessageProvider): provider is AiApiKeyProvider {

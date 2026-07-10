@@ -4,6 +4,7 @@ import path from "node:path";
 import { IPC_CHANNELS } from "../shared/ipc";
 import type {
   AiSettingsSaveRequest,
+  GetAiReasoningCapabilitiesRequest,
   AppSettingsSaveRequest,
   ClipboardTextRequest,
   CreatePullRequestRequest,
@@ -49,6 +50,7 @@ import type {
 } from "../shared/types";
 import { AiCliStatusService } from "./aiCliStatusService";
 import { AiSettingsService } from "./aiSettingsService";
+import { AiReasoningCapabilityService } from "./aiReasoningCapabilityService";
 import { AppSettingsService } from "./appSettingsService";
 import { CommitMessageService } from "./commitMessageService";
 import { deleteFiles, getStats, resolveRepoFilePath, showRepositoryInExplorer } from "./fileOperationService";
@@ -80,6 +82,7 @@ let mainWindow: BrowserWindow | null = null;
 let commandRunning = false;
 let aiCliStatusService: AiCliStatusService | null = null;
 let aiSettingsService: AiSettingsService | null = null;
+let aiReasoningCapabilityService: AiReasoningCapabilityService | null = null;
 let appSettingsService: AppSettingsService | null = null;
 let gitIdentityService: GitIdentityService | null = null;
 let commitMessageService: CommitMessageService | null = null;
@@ -465,6 +468,10 @@ ipcMain.handle(IPC_CHANNELS.getAiSettings, async () => {
 
 ipcMain.handle(IPC_CHANNELS.saveAiSettings, async (_event, request: AiSettingsSaveRequest) => {
   return getAiSettingsService().saveSettings(request);
+});
+
+ipcMain.handle(IPC_CHANNELS.getAiReasoningCapabilities, async (_event, request: GetAiReasoningCapabilitiesRequest) => {
+  return getAiReasoningCapabilityService().getCapabilities(request);
 });
 
 ipcMain.handle(IPC_CHANNELS.getAppSettings, async () => {
@@ -939,6 +946,11 @@ function getAiCliStatusService(): AiCliStatusService {
   return aiCliStatusService;
 }
 
+function getAiReasoningCapabilityService(): AiReasoningCapabilityService {
+  aiReasoningCapabilityService ??= new AiReasoningCapabilityService(getAiSettingsService());
+  return aiReasoningCapabilityService;
+}
+
 function getAppSettingsService(): AppSettingsService {
   appSettingsService ??= new AppSettingsService(app.getPath("userData"));
   return appSettingsService;
@@ -954,7 +966,8 @@ function getCommitMessageService(): CommitMessageService {
     (repoPath) => vcsRouter.serviceForRepo(repoPath),
     getAiSettingsService(),
     fetch,
-    processRunner
+    processRunner,
+    getAiReasoningCapabilityService()
   );
   return commitMessageService;
 }
@@ -964,7 +977,8 @@ function getPrDescriptionService(): PrDescriptionService {
     gitService,
     getAiSettingsService(),
     fetch,
-    processRunner
+    processRunner,
+    getAiReasoningCapabilityService()
   );
   return prDescriptionService;
 }

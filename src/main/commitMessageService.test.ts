@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import type { AiApiKeyProvider, AiCommitMessageProvider, AiSettings } from "../shared/types";
-import { CommitMessageService } from "./commitMessageService";
+import { CommitMessageService, type AiReasoningCapabilityResolver } from "./commitMessageService";
 import { DEFAULT_AI_PROVIDER_MODELS, type AiSettingsService } from "./aiSettingsService";
 import type { ProcessResult, ProcessRunOptions, ProcessRunner } from "./processRunner";
 
@@ -64,26 +64,36 @@ const baseSettings: AiSettings = {
     openrouter: {
       model: "openrouter/auto",
       prDescriptionModel: "",
+      reasoningEffort: "low",
+      prDescriptionReasoningEffort: "low",
       hasApiKey: true
     },
     openai: {
       model: DEFAULT_AI_PROVIDER_MODELS.openai,
       prDescriptionModel: "",
+      reasoningEffort: "low",
+      prDescriptionReasoningEffort: "low",
       hasApiKey: true
     },
     "codex-cli": {
       model: DEFAULT_AI_PROVIDER_MODELS["codex-cli"],
       prDescriptionModel: "",
+      reasoningEffort: "low",
+      prDescriptionReasoningEffort: "low",
       hasApiKey: false
     },
     anthropic: {
       model: DEFAULT_AI_PROVIDER_MODELS.anthropic,
       prDescriptionModel: "",
+      reasoningEffort: "low",
+      prDescriptionReasoningEffort: "low",
       hasApiKey: true
     },
     "claude-code": {
       model: DEFAULT_AI_PROVIDER_MODELS["claude-code"],
       prDescriptionModel: "",
+      reasoningEffort: "low",
+      prDescriptionReasoningEffort: "low",
       hasApiKey: false
     }
   },
@@ -144,6 +154,7 @@ function createService(params: {
   response?: unknown;
   responseOk?: boolean;
   runner?: ProcessRunner;
+  reasoningCapabilities?: AiReasoningCapabilityResolver;
 }): { service: CommitMessageService; calls: FetchCall[]; runner: ProcessRunner } {
   const provider = params.provider ?? "openrouter";
   const fetchState = createFetch(params.response ?? {
@@ -171,7 +182,13 @@ function createService(params: {
         }
       ) as unknown as AiSettingsService,
       fetchState.fetch,
-      runner
+      runner,
+      params.reasoningCapabilities ?? {
+        getCapabilities: async () => ({
+          status: "supported",
+          supportedEfforts: ["low", "medium", "high"]
+        })
+      }
     ),
     calls: fetchState.calls,
     runner
@@ -201,10 +218,12 @@ describe("CommitMessageService", () => {
     const body = JSON.parse(String(calls[0]?.init?.body)) as {
       model: string;
       service_tier: string;
+      reasoning: { effort: string };
       messages: Array<{ role: string; content: string }>;
     };
     expect(body.model).toBe("openrouter/auto");
     expect(body.service_tier).toBe("flex");
+    expect(body.reasoning).toEqual({ effort: "low" });
     expect(body.messages.at(-1)?.content).toContain("+added");
     expect(body.messages[0]?.content).toContain("Return exactly the commit message text");
     expect(body.messages.at(-1)?.content).toContain("Write a project-specific Git commit message.");
@@ -234,11 +253,28 @@ describe("CommitMessageService", () => {
       instructions: string;
       input: string;
       max_output_tokens: number;
+      reasoning: { effort: string };
     };
     expect(body.model).toBe(DEFAULT_AI_PROVIDER_MODELS.openai);
     expect(body.instructions).toContain("Follow Conventional Commits format");
     expect(body.input).toContain("Staged diff:");
     expect(body.max_output_tokens).toBe(220);
+    expect(body.reasoning).toEqual({ effort: "low" });
+  });
+
+  it("omits reasoning when model support is unknown", async () => {
+    const { service, calls } = createService({
+      provider: "openai",
+      response: { output_text: "fix: preserve unknown models" },
+      reasoningCapabilities: {
+        getCapabilities: async () => ({ status: "unknown", supportedEfforts: [] })
+      }
+    });
+
+    await service.generateCommitMessage({ repoPath: "D:\\Repo" });
+
+    const body = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;
+    expect(body).not.toHaveProperty("reasoning");
   });
 
   it("builds an Anthropic Messages request and parses text blocks", async () => {
@@ -271,11 +307,13 @@ describe("CommitMessageService", () => {
       system: string;
       messages: Array<{ role: string; content: string }>;
       max_tokens: number;
+      output_config: { effort: string };
     };
     expect(body.model).toBe(DEFAULT_AI_PROVIDER_MODELS.anthropic);
     expect(body.system).toContain("Return exactly the commit message text");
     expect(body.messages[0]?.content).toContain("+added");
     expect(body.max_tokens).toBe(220);
+    expect(body.output_config).toEqual({ effort: "low" });
   });
 
   it("runs Codex CLI with prompt on stdin", async () => {
@@ -297,6 +335,8 @@ describe("CommitMessageService", () => {
       "exec",
       "--model",
       DEFAULT_AI_PROVIDER_MODELS["codex-cli"],
+      "--config",
+      "model_reasoning_effort=\"low\"",
       "--sandbox",
       "read-only",
       "--color",
@@ -326,6 +366,8 @@ describe("CommitMessageService", () => {
       "-p",
       "--model",
       DEFAULT_AI_PROVIDER_MODELS["claude-code"],
+      "--effort",
+      "low",
       "--output-format",
       "text",
       "--no-session-persistence",

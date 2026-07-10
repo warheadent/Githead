@@ -1,6 +1,7 @@
 import { createCliProcessEnv } from "./cliEnvironment";
 import { createCliInvocation } from "./cliInvocation";
 import type { ProcessRunner } from "./processRunner";
+import type { AiReasoningEffort } from "../shared/types";
 
 const OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions";
 const OPENROUTER_PREFERRED_SERVICE_TIER = "flex";
@@ -22,6 +23,7 @@ export interface CommitMessageProviderInput {
   userPrompt: string;
   /** Response token budget for API providers; CLI providers ignore it. */
   maxTokens?: number;
+  reasoningEffort?: AiReasoningEffort;
 }
 
 export interface CommitMessageProvider {
@@ -91,6 +93,7 @@ export class OpenRouterCommitMessageProvider implements CommitMessageProvider {
           }
         ],
         temperature: 0.2,
+        ...(input.reasoningEffort ? { reasoning: { effort: input.reasoningEffort } } : {}),
         max_tokens: input.maxTokens ?? DEFAULT_MAX_TOKENS
       })
     });
@@ -121,6 +124,7 @@ export class OpenAiCommitMessageProvider implements CommitMessageProvider {
         instructions: input.systemPrompt,
         input: input.userPrompt,
         temperature: 0.2,
+        ...(input.reasoningEffort ? { reasoning: { effort: input.reasoningEffort } } : {}),
         max_output_tokens: input.maxTokens ?? DEFAULT_MAX_TOKENS
       })
     });
@@ -157,6 +161,7 @@ export class AnthropicCommitMessageProvider implements CommitMessageProvider {
           }
         ],
         temperature: 0.2,
+        ...(input.reasoningEffort ? { output_config: { effort: input.reasoningEffort } } : {}),
         max_tokens: input.maxTokens ?? DEFAULT_MAX_TOKENS
       })
     });
@@ -180,6 +185,7 @@ export class CodexCliCommitMessageProvider implements CommitMessageProvider {
       "exec",
       "--model",
       input.model,
+      ...(input.reasoningEffort ? ["--config", `model_reasoning_effort="${input.reasoningEffort}"`] : []),
       "--sandbox",
       "read-only",
       "--color",
@@ -211,6 +217,7 @@ export class ClaudeCodeCommitMessageProvider implements CommitMessageProvider {
       "-p",
       "--model",
       input.model,
+      ...(input.reasoningEffort ? ["--effort", input.reasoningEffort] : []),
       "--output-format",
       "text",
       "--no-session-persistence",

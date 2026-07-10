@@ -1,7 +1,7 @@
 import type { GeneratePrDescriptionRequest, GeneratePrTitleRequest, GitOperationResult } from "../shared/types";
 import { getProviderLabel, type AiSettingsService } from "./aiSettingsService";
 import { normalizeGeneratedMessage } from "./commitMessagePromptBuilder";
-import { resolveAiProvider } from "./commitMessageService";
+import { resolveAiProvider, resolveReasoningEffort, type AiReasoningCapabilityResolver } from "./commitMessageService";
 import {
   createPrDescriptionSystemPrompt,
   createPrDescriptionUserPrompt,
@@ -26,7 +26,8 @@ export class PrDescriptionService {
     private readonly gitService: GitService,
     private readonly settingsService: AiSettingsService,
     private readonly fetchImpl: Fetch = fetch,
-    private readonly runner?: ProcessRunner
+    private readonly runner?: ProcessRunner,
+    private readonly reasoningCapabilities?: AiReasoningCapabilityResolver
   ) {}
 
   async generatePrTitle(request: GeneratePrTitleRequest): Promise<GitOperationResult> {
@@ -53,9 +54,16 @@ export class PrDescriptionService {
         return range.failure;
       }
 
+      const reasoningEffort = await resolveReasoningEffort(
+        this.reasoningCapabilities,
+        selectedProvider,
+        model,
+        providerSettings.reasoningEffort
+      );
       const title = normalizeGeneratedPrTitle(await resolution.provider.generate({
         repoPath: request.repoPath,
         model,
+        ...(reasoningEffort ? { reasoningEffort } : {}),
         systemPrompt: createPrTitleSystemPrompt(),
         userPrompt: createPrTitleUserPrompt(range.commitLog, range.diff),
         maxTokens: PR_TITLE_MAX_TOKENS
@@ -102,9 +110,19 @@ export class PrDescriptionService {
         return range.failure;
       }
 
+      const configuredReasoningEffort = providerSettings.prDescriptionModel.trim()
+        ? providerSettings.prDescriptionReasoningEffort
+        : providerSettings.reasoningEffort;
+      const reasoningEffort = await resolveReasoningEffort(
+        this.reasoningCapabilities,
+        selectedProvider,
+        model,
+        configuredReasoningEffort
+      );
       const description = normalizeGeneratedMessage(await resolution.provider.generate({
         repoPath: request.repoPath,
         model,
+        ...(reasoningEffort ? { reasoningEffort } : {}),
         systemPrompt: createPrDescriptionSystemPrompt(),
         userPrompt: createPrDescriptionUserPrompt(
           settings.prDescriptionPrompt,
