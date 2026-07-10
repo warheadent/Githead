@@ -35,7 +35,8 @@ run("git", ["tag", `v${version}`]);
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
-    shell: process.platform === "win32" && command === "vp",
+    shell:
+      process.platform === "win32" && (command === "vp" || command === "npm"),
     stdio: "inherit"
   });
 
