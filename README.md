@@ -16,13 +16,13 @@ This is early development, and only tested on a handful of git repositories. Thi
 - **Committing** — write a commit message and commit staged changes. Optionally **generate a commit message** from the staged diff using an LLM (via [OpenRouter](https://openrouter.ai/)).
 - **Commit history** — browse the commit graph, inspect commit details, and view file-level diffs for any commit.
 - **Branches** — view branches, switch the current branch, and create new branches.
+- **Remote management** — add, rename, edit, inspect, and remove Git remotes from the repository sidebar.
 - **GitHub insight** — when `origin` is a GitHub remote, view recent **Workflow Runs**, open **Pull Requests**, and open **Issues**.
 - **Live updates** — the repository is watched on disk, so the UI refreshes automatically when files change.
 - **Lore support** - Early support for new VCS (https://github.com/EpicGames/lore) - requires Lore CLI installed.
 
 ## Current Gaps
 
-- Can't set remote, or multiple remotes
 - Doesn't handle local being ahead of remote at all
 - ~~Console log sucks (doesn't support colors, for one)~~ (addressed in 0.13)
 - Some cursed layout sizing issues on smaller screens or extreme circumstances (huge commit messages)
@@ -145,6 +145,10 @@ Direct API providers require an API key stored by the app. CLI providers use the
 ### GitHub access
 
 The Workflow Runs, Pull Requests, and Issues tabs query the public GitHub REST API for the repository behind `origin`. Public repositories work without any setup. For private repositories, authenticate with the GitHub CLI (`gh auth login`) or set a `GITHUB_TOKEN` / `GH_TOKEN` environment variable, then refresh.
+
+### Remote management
+
+Open **Manage Remotes** from the Remotes row in the repository sidebar. Githead creates and edits conventional remotes with one URL shared by fetch and push. Existing remotes with multiple fetch URLs or explicit push URLs are shown as advanced configurations: they can be renamed or removed, but their URLs must be edited with the Git CLI so Githead never discards endpoints. Adding or editing a remote only changes local Git configuration and does not fetch automatically.
 
 ## Privacy and data flow
 

@@ -13,6 +13,7 @@ import type {
   FileSystemPathListRequest,
   FileSystemPathRequest,
   GitBranchRequest,
+  GitAddRemoteRequest,
   GitCloneRequest,
   GitConfiguredActionRunRequest,
   GitConfiguredActionSaveRequest,
@@ -36,11 +37,14 @@ import type {
   GitOutputEvent,
   GitPathRequest,
   GitPublishBranchRequest,
+  GitRemoveRemoteRequest,
+  GitRenameRemoteRequest,
   GitRepositoryAccessCheckRequest,
   GitResetCommitRequest,
   RepoTrustRequest,
   GitRunRequest,
   GitSafeDirectoryRequest,
+  GitSetRemoteUrlRequest,
   GitUpstreamRequest
 } from "../shared/types";
 import { AiCliStatusService } from "./aiCliStatusService";
@@ -473,6 +477,54 @@ ipcMain.handle(IPC_CHANNELS.saveAppSettings, async (_event, request: AppSettings
 
 ipcMain.handle(IPC_CHANNELS.generateCommitMessage, async (_event, request: GenerateCommitMessageRequest) => {
   return runExclusiveGitOperation(() => getCommitMessageService().generateCommitMessage(request), request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.getRemoteConfigs, async (_event, repoPath: string) => {
+  return (await vcsRouter.serviceForRepo(repoPath)).getRemoteConfigs(repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.addRemote, async (_event, request: GitAddRemoteRequest) => {
+  const trusted = await requireTrustedRepo(request.repoPath);
+  if (trusted) {
+    return trusted;
+  }
+  return runExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).addRemote(request),
+    request.repoPath
+  );
+});
+
+ipcMain.handle(IPC_CHANNELS.renameRemote, async (_event, request: GitRenameRemoteRequest) => {
+  const trusted = await requireTrustedRepo(request.repoPath);
+  if (trusted) {
+    return trusted;
+  }
+  return runExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).renameRemote(request),
+    request.repoPath
+  );
+});
+
+ipcMain.handle(IPC_CHANNELS.setRemoteUrl, async (_event, request: GitSetRemoteUrlRequest) => {
+  const trusted = await requireTrustedRepo(request.repoPath);
+  if (trusted) {
+    return trusted;
+  }
+  return runExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).setRemoteUrl(request),
+    request.repoPath
+  );
+});
+
+ipcMain.handle(IPC_CHANNELS.removeRemote, async (_event, request: GitRemoveRemoteRequest) => {
+  const trusted = await requireTrustedRepo(request.repoPath);
+  if (trusted) {
+    return trusted;
+  }
+  return runExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).removeRemote(request),
+    request.repoPath
+  );
 });
 
 ipcMain.handle(IPC_CHANNELS.generatePrTitle, async (_event, request: GeneratePrTitleRequest) => {

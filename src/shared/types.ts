@@ -46,6 +46,14 @@ export interface GitRemote {
   direction: "fetch" | "push";
 }
 
+export interface GitRemoteConfig {
+  name: string;
+  fetchUrls: string[];
+  /** Explicit remote.<name>.pushurl values. Empty means Git reuses the fetch URL. */
+  pushUrls: string[];
+  trackedBranches: string[];
+}
+
 export interface GitRemoteBranch {
   name: string;
   remote: string;
@@ -178,6 +186,7 @@ export interface RepoCapabilities {
   hunkStaging: boolean;
   tags: boolean;
   multipleRemotes: boolean;
+  manageRemotes: boolean;
   setUpstream: boolean;
   fetch: boolean;
   sync: boolean;
@@ -192,6 +201,7 @@ export function gitCapabilities(): RepoCapabilities {
     hunkStaging: true,
     tags: true,
     multipleRemotes: true,
+    manageRemotes: true,
     setUpstream: true,
     fetch: true,
     sync: false,
@@ -207,6 +217,7 @@ export function loreCapabilities(): RepoCapabilities {
     hunkStaging: false,
     tags: false,
     multipleRemotes: false,
+    manageRemotes: false,
     setUpstream: false,
     fetch: false,
     sync: true,
@@ -432,6 +443,29 @@ export interface GitPublishBranchRequest {
   repoPath: string;
   branchName: string;
   remoteName: string;
+}
+
+export interface GitAddRemoteRequest {
+  repoPath: string;
+  name: string;
+  url: string;
+}
+
+export interface GitRenameRemoteRequest {
+  repoPath: string;
+  currentName: string;
+  newName: string;
+}
+
+export interface GitSetRemoteUrlRequest {
+  repoPath: string;
+  name: string;
+  url: string;
+}
+
+export interface GitRemoveRemoteRequest {
+  repoPath: string;
+  name: string;
 }
 
 export type GitIdentityScope = "repository" | "global";
@@ -693,6 +727,11 @@ export interface GitheadApi {
   createBranch(request: GitBranchRequest): Promise<GitOperationResult>;
   setBranchUpstream(request: GitUpstreamRequest): Promise<GitOperationResult>;
   publishBranch(request: GitPublishBranchRequest): Promise<GitRunResult>;
+  getRemoteConfigs(repoPath: string): Promise<GitRemoteConfig[]>;
+  addRemote(request: GitAddRemoteRequest): Promise<GitOperationResult>;
+  renameRemote(request: GitRenameRemoteRequest): Promise<GitOperationResult>;
+  setRemoteUrl(request: GitSetRemoteUrlRequest): Promise<GitOperationResult>;
+  removeRemote(request: GitRemoveRemoteRequest): Promise<GitOperationResult>;
   getGitIdentity(repoPath: string): Promise<GitIdentitySettings>;
   saveGitIdentity(request: GitIdentitySaveRequest): Promise<GitIdentitySettings>;
   getAiSettings(): Promise<AiSettings>;

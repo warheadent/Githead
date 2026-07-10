@@ -8,6 +8,7 @@ import type {
   GitAction,
   GitBranch,
   GitBranchRequest,
+  GitAddRemoteRequest,
   GitCloneRequest,
   GitConfiguredAction,
   GitConfiguredActionRunRequest,
@@ -33,6 +34,9 @@ import type {
   GitOutputEvent,
   GitPathRequest,
   GitPublishBranchRequest,
+  GitRemoveRemoteRequest,
+  GitRemoteConfig,
+  GitRenameRemoteRequest,
   GitRemoteBranch,
   GitRemote,
   GitRepositoryAccessCheckRequest,
@@ -42,6 +46,7 @@ import type {
   GitRunResult,
   GitSafeDirectoryInfo,
   GitSafeDirectoryRequest,
+  GitSetRemoteUrlRequest,
   RepoSyncStatus,
   GitStatusFile,
   GitUpstreamRequest,
@@ -944,6 +949,110 @@ export class GitService {
     ]);
   }
 
+  async getRemoteConfigs(repoPath: string): Promise<GitRemoteConfig[]> {
+    const validation = await this.validateRepo(repoPath);
+    if (!validation.isValid) {
+      throw new Error(validation.validationErrors.join(" "));
+    }
+
+    return this.readRemoteConfigs(repoPath);
+  }
+
+  async addRemote(request: GitAddRemoteRequest): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+    }
+
+    const name = request.name.trim();
+    const url = request.url.trim();
+    if (!name) {
+      return this.createOperationFailure(request.repoPath, "Enter a remote name.");
+    }
+    if (!url) {
+      return this.createOperationFailure(request.repoPath, "Enter a remote URL.");
+    }
+
+    const remotes = await this.readRemoteConfigs(request.repoPath);
+    if (remotes.some((remote) => remote.name === name)) {
+      return this.createOperationFailure(request.repoPath, "A remote with this name already exists.");
+    }
+
+    return this.runGitOperation(request.repoPath, ["remote", "add", name, url]);
+  }
+
+  async renameRemote(request: GitRenameRemoteRequest): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+    }
+
+    const currentName = request.currentName.trim();
+    const newName = request.newName.trim();
+    if (!currentName || !newName) {
+      return this.createOperationFailure(request.repoPath, "Enter a remote name.");
+    }
+
+    const remotes = await this.readRemoteConfigs(request.repoPath);
+    if (!remotes.some((remote) => remote.name === currentName)) {
+      return this.createOperationFailure(request.repoPath, "Remote no longer exists. Refresh and try again.");
+    }
+    if (currentName !== newName && remotes.some((remote) => remote.name === newName)) {
+      return this.createOperationFailure(request.repoPath, "A remote with this name already exists.");
+    }
+    if (currentName === newName) {
+      return this.createOperationFailure(request.repoPath, "Enter a different remote name.");
+    }
+
+    return this.runGitOperation(request.repoPath, ["remote", "rename", currentName, newName]);
+  }
+
+  async setRemoteUrl(request: GitSetRemoteUrlRequest): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+    }
+
+    const name = request.name.trim();
+    const url = request.url.trim();
+    if (!name) {
+      return this.createOperationFailure(request.repoPath, "Select a remote.");
+    }
+    if (!url) {
+      return this.createOperationFailure(request.repoPath, "Enter a remote URL.");
+    }
+
+    const remote = (await this.readRemoteConfigs(request.repoPath)).find((candidate) => candidate.name === name);
+    if (!remote) {
+      return this.createOperationFailure(request.repoPath, "Remote no longer exists. Refresh and try again.");
+    }
+    if (remote.fetchUrls.length !== 1 || remote.pushUrls.length > 0) {
+      return this.createOperationFailure(
+        request.repoPath,
+        "This remote has advanced URL configuration. Use the Git CLI to edit it without discarding URLs."
+      );
+    }
+
+    return this.runGitOperation(request.repoPath, ["remote", "set-url", name, url]);
+  }
+
+  async removeRemote(request: GitRemoveRemoteRequest): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+    }
+
+    const name = request.name.trim();
+    if (!name) {
+      return this.createOperationFailure(request.repoPath, "Select a remote.");
+    }
+    if (!(await this.readRemoteConfigs(request.repoPath)).some((remote) => remote.name === name)) {
+      return this.createOperationFailure(request.repoPath, "Remote no longer exists. Refresh and try again.");
+    }
+
+    return this.runGitOperation(request.repoPath, ["remote", "remove", name]);
+  }
+
   async publishBranch(
     request: GitPublishBranchRequest,
     onOutput?: GitOutputHandler
@@ -1537,6 +1646,49 @@ export class GitService {
     return {
       remoteName: trimmedRemoteName
     };
+  }
+
+  private async readRemoteConfigs(repoPath: string): Promise<GitRemoteConfig[]> {
+    const [remoteResult, branchResult] = await Promise.all([
+      this.runGit(repoPath, ["remote"]),
+      this.runGit(repoPath, [
+        "for-each-ref",
+        "--format=%(refname:short)%09%(upstream:remotename)",
+        "refs/heads"
+      ])
+    ]);
+    if (remoteResult.exitCode !== 0) {
+      throw new Error(remoteResult.stderr.trim() || "Unable to read remotes.");
+    }
+
+    const remoteNames = splitLines(remoteResult.stdout)
+      .map((line) => line.trim())
+      .filter((name) => name.length > 0)
+      .sort((left, right) => left.localeCompare(right));
+    const trackedBranches = new Map<string, string[]>();
+    if (branchResult.exitCode === 0) {
+      for (const line of splitLines(branchResult.stdout)) {
+        const [branch = "", remote = ""] = line.split("\t");
+        if (branch.trim() && remote.trim() && remote.trim() !== ".") {
+          const branches = trackedBranches.get(remote.trim()) ?? [];
+          branches.push(branch.trim());
+          trackedBranches.set(remote.trim(), branches);
+        }
+      }
+    }
+
+    return Promise.all(remoteNames.map(async (name) => {
+      const [fetchResult, pushResult] = await Promise.all([
+        this.runGit(repoPath, ["config", "--get-all", `remote.${name}.url`]),
+        this.runGit(repoPath, ["config", "--get-all", `remote.${name}.pushurl`])
+      ]);
+      return {
+        name,
+        fetchUrls: fetchResult.exitCode === 0 ? splitLines(fetchResult.stdout) : [],
+        pushUrls: pushResult.exitCode === 0 ? splitLines(pushResult.stdout) : [],
+        trackedBranches: (trackedBranches.get(name) ?? []).sort((left, right) => left.localeCompare(right))
+      };
+    }));
   }
 
   private runGit(

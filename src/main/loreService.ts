@@ -5,6 +5,7 @@ import type {
   GitAction,
   GitBranch,
   GitBranchRequest,
+  GitAddRemoteRequest,
   GitCloneRequest,
   GitCommitDetails,
   GitCommitDetailsRequest,
@@ -27,13 +28,17 @@ import type {
   GitOperationResult,
   GitPathRequest,
   GitPublishBranchRequest,
+  GitRemoveRemoteRequest,
   GitRemote,
+  GitRemoteConfig,
+  GitRenameRemoteRequest,
   GitRepositoryAccessCheckRequest,
   GitRepositoryAccessCheckResult,
   GitResetCommitRequest,
   GitRunRequest,
   GitRunResult,
   GitSafeDirectoryRequest,
+  GitSetRemoteUrlRequest,
   GitUpstreamRequest,
   RepoSummary,
   RepoSyncStatus
@@ -686,6 +691,29 @@ export class LoreService implements VcsService {
 
   async publishBranch(request: GitPublishBranchRequest): Promise<GitRunResult> {
     return this.runFailure(request.repoPath, "publish", "Publishing branches is not supported for Lore repositories.");
+  }
+
+  async getRemoteConfigs(repoPath: string): Promise<GitRemoteConfig[]> {
+    const remoteUrl = await this.readRemoteUrl(repoPath);
+    return remoteUrl
+      ? [{ name: "origin", fetchUrls: [remoteUrl], pushUrls: [], trackedBranches: [] }]
+      : [];
+  }
+
+  async addRemote(request: GitAddRemoteRequest): Promise<GitOperationResult> {
+    return this.failure(request.repoPath, "Managing remotes is not supported for Lore repositories.");
+  }
+
+  async renameRemote(request: GitRenameRemoteRequest): Promise<GitOperationResult> {
+    return this.failure(request.repoPath, "Managing remotes is not supported for Lore repositories.");
+  }
+
+  async setRemoteUrl(request: GitSetRemoteUrlRequest): Promise<GitOperationResult> {
+    return this.failure(request.repoPath, "Managing remotes is not supported for Lore repositories.");
+  }
+
+  async removeRemote(request: GitRemoveRemoteRequest): Promise<GitOperationResult> {
+    return this.failure(request.repoPath, "Managing remotes is not supported for Lore repositories.");
   }
 
   async addPathToIgnore(request: GitIgnorePathRequest): Promise<GitOperationResult> {

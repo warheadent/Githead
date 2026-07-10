@@ -11,6 +11,7 @@ import type {
   FileSystemPathListRequest,
   FileSystemPathRequest,
   GitBranchRequest,
+  GitAddRemoteRequest,
   GitCloneRequest,
   GitConfiguredActionRunRequest,
   GitConfiguredActionSaveRequest,
@@ -33,10 +34,13 @@ import type {
   GitOutputEvent,
   GitPathRequest,
   GitPublishBranchRequest,
+  GitRemoveRemoteRequest,
+  GitRenameRemoteRequest,
   GitRepositoryAccessCheckRequest,
   GitResetCommitRequest,
   GitRunRequest,
   GitSafeDirectoryRequest,
+  GitSetRemoteUrlRequest,
   GitUpstreamRequest,
   GitheadApi,
   AppUpdateState,
@@ -124,6 +128,16 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.setBranchUpstream, request) as ReturnType<GitheadApi["setBranchUpstream"]>,
   publishBranch: (request: GitPublishBranchRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.publishBranch, request) as ReturnType<GitheadApi["publishBranch"]>,
+  getRemoteConfigs: (repoPath: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getRemoteConfigs, repoPath) as ReturnType<GitheadApi["getRemoteConfigs"]>,
+  addRemote: (request: GitAddRemoteRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.addRemote, request) as ReturnType<GitheadApi["addRemote"]>,
+  renameRemote: (request: GitRenameRemoteRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.renameRemote, request) as ReturnType<GitheadApi["renameRemote"]>,
+  setRemoteUrl: (request: GitSetRemoteUrlRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.setRemoteUrl, request) as ReturnType<GitheadApi["setRemoteUrl"]>,
+  removeRemote: (request: GitRemoveRemoteRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.removeRemote, request) as ReturnType<GitheadApi["removeRemote"]>,
   getGitIdentity: (repoPath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitIdentity, repoPath) as ReturnType<GitheadApi["getGitIdentity"]>,
   saveGitIdentity: (request: GitIdentitySaveRequest) =>

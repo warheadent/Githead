@@ -124,6 +124,7 @@ import type {
   GitIdentitySettings,
   GitOperationResult,
   GitOutputEvent,
+  GitRemoteConfig,
   GitRemoteBranch,
   GitResetMode,
   GitRepositoryAccessCheckResult,
@@ -137,6 +138,7 @@ import type {
 import { AI_API_KEY_PROVIDERS, AI_CLI_PROVIDERS, AI_COMMIT_MESSAGE_PROVIDERS, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
 import { parseCommitSubject } from "../shared/commitSubject";
 import { ActivityLogView } from "./ActivityLogView";
+import { RemoteManagementDialog } from "./RemoteManagementDialog";
 import {
   appendActivityLogEvent,
   appendActivityOperationResult,
@@ -315,6 +317,7 @@ interface AppState {
   gitIdentityPrompt: GitIdentityPromptState;
   gitIdentitySaving: boolean;
   actionManager: RepositoryActionManagerState;
+  remoteManager: RemoteManagerState;
   activeView: WorkspaceView;
   history: GitCommitGraphRow[];
   historyLoading: boolean;
@@ -365,6 +368,14 @@ interface RequestIds {
   githubOpenCounts: number;
   pullRequests: number;
   issues: number;
+  remoteConfigs: number;
+}
+
+interface RemoteManagerState {
+  open: boolean;
+  loading: boolean;
+  remotes: GitRemoteConfig[];
+  error: string;
 }
 
 const emptySettingsDraft: SettingsDraft = {
@@ -471,6 +482,13 @@ const emptyCreatePrDialog: CreatePrDialogState = {
   error: ""
 };
 
+const emptyRemoteManager: RemoteManagerState = {
+  open: false,
+  loading: false,
+  remotes: [],
+  error: ""
+};
+
 const TRUST_WORKSPACE_TITLE = "Do you trust this workspace?";
 const TRUST_WORKSPACE_DESCRIPTION = "This is the first time Githead will run Git operations here that may execute configured hooks or local Git configuration.";
 
@@ -521,6 +539,7 @@ const initialState: AppState = {
   gitIdentityPrompt: emptyGitIdentityPrompt,
   gitIdentitySaving: false,
   actionManager: emptyActionManager,
+  remoteManager: emptyRemoteManager,
   activeView: "status",
   history: [],
   historyLoading: false,
@@ -578,7 +597,8 @@ export function App(): ReactNode {
     workflowRuns: 0,
     githubOpenCounts: 0,
     pullRequests: 0,
-    issues: 0
+    issues: 0,
+    remoteConfigs: 0
   });
   const trustDialogResolveRef = useRef<((trusted: boolean) => void) | null>(null);
   const repoRefreshInFlightRef = useRef(false);
@@ -1336,6 +1356,7 @@ export function App(): ReactNode {
     requestIds.current.githubOpenCounts += 1;
     requestIds.current.pullRequests += 1;
     requestIds.current.issues += 1;
+    requestIds.current.remoteConfigs += 1;
 
     updateState((current) => resetGitHubState(resetHistoryState({
       ...current,
@@ -1362,6 +1383,7 @@ export function App(): ReactNode {
       gitIdentity: null,
       gitIdentityPrompt: emptyGitIdentityPrompt,
       gitIdentitySaving: false,
+      remoteManager: emptyRemoteManager,
       activeView: isGitHubView(current.activeView) ? "status" : current.activeView,
       selection: null,
       diff: null,
@@ -2281,14 +2303,16 @@ export function App(): ReactNode {
     nextSelection: FileSelection | null | undefined,
     operation: () => Promise<GitOperationResult>,
     options: { requireValidRepo?: boolean } = {}
-  ): Promise<void> => {
+  ): Promise<GitOperationResult | null> => {
     const current = stateRef.current;
     if ((options.requireValidRepo ?? true) && !current.summary?.isValid) {
-      return;
+      return null;
     }
     if (isOperationRunning(current)) {
-      return;
+      return null;
     }
+
+    let operationResult: GitOperationResult | null = null;
 
     updateState({
       runningOperation: label,
@@ -2297,6 +2321,7 @@ export function App(): ReactNode {
 
     try {
       const lastOperationResult = await operation();
+      operationResult = lastOperationResult;
       updateState({
         lastOperationResult
       });
@@ -2308,6 +2333,7 @@ export function App(): ReactNode {
         stdout: "",
         stderr: error instanceof Error ? error.message : `${label} failed.`
       };
+      operationResult = lastOperationResult;
 
       updateState({
         lastOperationResult
@@ -2336,7 +2362,98 @@ export function App(): ReactNode {
       });
       await refreshRepo();
     }
+    return operationResult;
   }, [appendOperationLog, refreshRepo, updateState]);
+
+  const loadRemoteConfigs = useCallback(async (repoPath = stateRef.current.repoPath): Promise<GitRemoteConfig[] | null> => {
+    const requestId = ++requestIds.current.remoteConfigs;
+    updateState((current) => ({
+      ...current,
+      remoteManager: {
+        ...current.remoteManager,
+        loading: true,
+        error: ""
+      }
+    }));
+
+    try {
+      const remotes = await window.githead.getRemoteConfigs(repoPath);
+      if (requestIds.current.remoteConfigs !== requestId || stateRef.current.repoPath !== repoPath) {
+        return null;
+      }
+      updateState((current) => ({
+        ...current,
+        remoteManager: {
+          ...current.remoteManager,
+          loading: false,
+          remotes,
+          error: ""
+        }
+      }));
+      return remotes;
+    } catch (error) {
+      if (requestIds.current.remoteConfigs !== requestId || stateRef.current.repoPath !== repoPath) {
+        return null;
+      }
+      updateState((current) => ({
+        ...current,
+        remoteManager: {
+          ...current.remoteManager,
+          loading: false,
+          error: error instanceof Error ? error.message : "Unable to load remotes."
+        }
+      }));
+      return null;
+    }
+  }, [updateState]);
+
+  const openRemoteManager = useCallback((): void => {
+    const current = stateRef.current;
+    if (!current.summary?.isValid || !current.summary.capabilities.manageRemotes || isOperationRunning(current)) {
+      return;
+    }
+    updateState((latest) => ({
+      ...latest,
+      remoteManager: {
+        ...emptyRemoteManager,
+        open: true,
+        loading: true
+      }
+    }));
+    void loadRemoteConfigs(current.repoPath);
+  }, [loadRemoteConfigs, updateState]);
+
+  const closeRemoteManager = useCallback((): void => {
+    if (isOperationRunning(stateRef.current)) {
+      return;
+    }
+    requestIds.current.remoteConfigs += 1;
+    updateState({ remoteManager: emptyRemoteManager });
+  }, [updateState]);
+
+  const runRemoteOperation = useCallback(async (
+    label: string,
+    operation: (repoPath: string) => Promise<GitOperationResult>
+  ): Promise<string | null> => {
+    const repoPath = stateRef.current.repoPath;
+    if (!(await ensureTrustedRepo())) {
+      return "Trust this workspace before changing remotes.";
+    }
+    if (stateRef.current.repoPath !== repoPath || !stateRef.current.remoteManager.open) {
+      return "The active repository changed. Reopen Manage Remotes and try again.";
+    }
+    const result = await runRepoOperation(label, undefined, () => operation(repoPath));
+    if (!result) {
+      return "Another repository operation is already running.";
+    }
+    if (result.exitCode !== 0) {
+      return result.stderr || `${label} failed.`;
+    }
+    if (stateRef.current.repoPath === repoPath && stateRef.current.remoteManager.open) {
+      await loadRemoteConfigs(repoPath);
+    }
+    return null;
+  }, [ensureTrustedRepo, loadRemoteConfigs, runRepoOperation]);
 
   const showRecentRepositoryInExplorer = useCallback(async (repoPath: string): Promise<void> => {
     await runRepoOperation(
@@ -4135,6 +4252,7 @@ export function App(): ReactNode {
             }}
             onOpenBranchDialog={openBranchDialog}
             onOpenUpstreamDialog={openUpstreamDialog}
+            onOpenRemoteManager={openRemoteManager}
             onOpenSettings={openSettingsDialog}
             onCloneDraftChange={updateCloneDraft}
             onCloneSourceChange={(draft) => {
@@ -4455,6 +4573,44 @@ export function App(): ReactNode {
           event.preventDefault();
           void saveSettings();
         }}
+      />
+
+      <RemoteManagementDialog
+        open={state.remoteManager.open}
+        repoPath={state.repoPath}
+        remotes={state.remoteManager.remotes}
+        loading={state.remoteManager.loading}
+        busy={running}
+        loadError={state.remoteManager.error}
+        hasGitHubOrigin={Boolean(state.summary?.githubRepository)}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeRemoteManager();
+          }
+        }}
+        onReload={() => {
+          void loadRemoteConfigs();
+        }}
+        onRefreshRemote={async (name) => {
+          const remotes = await loadRemoteConfigs();
+          return remotes?.find((remote) => remote.name === name) ?? null;
+        }}
+        onAdd={(name, url) => runRemoteOperation(
+          `Adding remote ${name.trim()}`,
+          (repoPath) => window.githead.addRemote({ repoPath, name, url })
+        )}
+        onRename={(currentName, newName) => runRemoteOperation(
+          `Renaming remote ${currentName}`,
+          (repoPath) => window.githead.renameRemote({ repoPath, currentName, newName })
+        )}
+        onSetUrl={(name, url) => runRemoteOperation(
+          `Updating remote ${name}`,
+          (repoPath) => window.githead.setRemoteUrl({ repoPath, name, url })
+        )}
+        onRemove={(name) => runRemoteOperation(
+          `Removing remote ${name}`,
+          (repoPath) => window.githead.removeRemote({ repoPath, name })
+        )}
       />
 
       <GitIdentityDialog
@@ -5541,6 +5697,7 @@ function RepositoryPanel({
   onSwitchBranch,
   onOpenBranchDialog,
   onOpenUpstreamDialog,
+  onOpenRemoteManager,
   onOpenSettings,
   onCloneDraftChange,
   onCloneSourceChange,
@@ -5575,6 +5732,7 @@ function RepositoryPanel({
   onSwitchBranch: (branchName: string) => void;
   onOpenBranchDialog: () => void;
   onOpenUpstreamDialog: () => void;
+  onOpenRemoteManager: () => void;
   onOpenSettings: () => void;
   onCloneDraftChange: (draft: CloneDraft) => void;
   onCloneSourceChange: (draft: CloneDraft) => void;
@@ -5718,7 +5876,11 @@ function RepositoryPanel({
             onChangeUpstream={onOpenUpstreamDialog}
           />
         ) : null}
-        <Fact label={(summary?.capabilities.multipleRemotes ?? true) ? "Remotes" : "Remote"} value={remotes} />
+        {(summary?.capabilities.manageRemotes ?? false) ? (
+          <RemoteFact remotes={remotes} disabled={running || !summary?.isValid} onManage={onOpenRemoteManager} />
+        ) : (
+          <Fact label={(summary?.capabilities.multipleRemotes ?? true) ? "Remotes" : "Remote"} value={remotes} />
+        )}
       </dl>
 
       <div className="mt-auto grid gap-2">
@@ -9530,6 +9692,28 @@ function getUnstagedFiles(summary: RepoSummary | null): GitStatusFile[] {
 
 function getFilesForSide(summary: RepoSummary | null, side: GitDiffSide): GitStatusFile[] {
   return side === "staged" ? getStagedFiles(summary) : getUnstagedFiles(summary);
+}
+
+function RemoteFact({ remotes, disabled, onManage }: { remotes: string; disabled: boolean; onManage: () => void }): ReactNode {
+  return (
+    <div className="repo-upstream-fact">
+      <dt>Remotes</dt>
+      <dd>
+        <span className="repo-upstream-name" title={remotes === "-" ? undefined : remotes}>{remotes}</span>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-xs"
+          disabled={disabled}
+          onClick={onManage}
+          aria-label="Manage remotes"
+          title="Manage remotes"
+        >
+          <Settings />
+        </Button>
+      </dd>
+    </div>
+  );
 }
 
 function buildFileSelection(

@@ -4635,6 +4635,79 @@ describe("App", () => {
       });
     });
   });
+
+  it("opens remote management from the sidebar and adds a local remote without fetching", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ remotes: [], upstream: null, remoteBranches: [] }));
+    vi.mocked(githead.getRemoteConfigs).mockResolvedValue([]);
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Manage remotes" }));
+
+    expect(await screen.findByRole("dialog", { name: "Manage Remotes" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Add Remote" }));
+    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("origin");
+    await user.type(screen.getByLabelText("URL"), "https://example.test/project.git");
+    await user.click(screen.getByRole("button", { name: "Add Remote" }));
+
+    await waitFor(() => expect(githead.addRemote).toHaveBeenCalledWith({
+      repoPath,
+      name: "origin",
+      url: "https://example.test/project.git"
+    }));
+    expect(githead.runGitAction).not.toHaveBeenCalled();
+  });
+
+  it("protects advanced remote URLs while retaining rename and remove actions", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRemoteConfigs).mockResolvedValue([
+      {
+        name: "origin",
+        fetchUrls: ["https://example.test/repo.git", "https://mirror.test/repo.git"],
+        pushUrls: ["git@example.test:project/repo.git"],
+        trackedBranches: ["main"]
+      }
+    ]);
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Manage remotes" }));
+
+    expect(await screen.findByText("Advanced")).toBeTruthy();
+    expect(screen.getByText("https://mirror.test/repo.git")).toBeTruthy();
+    expect(screen.getByText("git@example.test:project/repo.git")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Edit URL" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Rename" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Remove" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("explains branch and GitHub impact before removing origin", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      githubRepository: {
+        owner: "warheadent",
+        name: "Githead",
+        fullName: "warheadent/Githead",
+        webUrl: "https://github.com/warheadent/Githead"
+      }
+    }));
+    vi.mocked(githead.getRemoteConfigs).mockResolvedValue([
+      {
+        name: "origin",
+        fetchUrls: ["https://github.com/warheadent/Githead.git"],
+        pushUrls: [],
+        trackedBranches: ["main", "feature/nav"]
+      }
+    ]);
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Manage remotes" }));
+    await user.click(await screen.findByRole("button", { name: "Remove" }));
+
+    expect(screen.getByText("Branch tracking will be cleared")).toBeTruthy();
+    expect(screen.getByText(/branches main, feature\/nav/)).toBeTruthy();
+    expect(screen.getByText("GitHub views will be disconnected")).toBeTruthy();
+    expect(githead.removeRemote).not.toHaveBeenCalled();
+  });
 });
 
 function createGitheadMock(): GitheadApi {
@@ -4725,6 +4798,11 @@ function createGitheadMock(): GitheadApi {
     createBranch: vi.fn().mockResolvedValue(okOperation),
     setBranchUpstream: vi.fn().mockResolvedValue(okOperation),
     publishBranch: vi.fn().mockResolvedValue(createRunResult("publish")),
+    getRemoteConfigs: vi.fn().mockResolvedValue([]),
+    addRemote: vi.fn().mockResolvedValue(okOperation),
+    renameRemote: vi.fn().mockResolvedValue(okOperation),
+    setRemoteUrl: vi.fn().mockResolvedValue(okOperation),
+    removeRemote: vi.fn().mockResolvedValue(okOperation),
     getGitIdentity: vi.fn().mockResolvedValue(gitIdentity),
     saveGitIdentity: vi.fn().mockResolvedValue({
       ...gitIdentity,

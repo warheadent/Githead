@@ -2191,6 +2191,123 @@ describe("GitService", () => {
     ]);
   });
 
+  it("loads detailed remotes with all URLs and tracked branches", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("origin\nupstream\n"),
+      ok("feature/nav\torigin\nmain\tupstream\nlocal\t.\n"),
+      ok("https://example.test/fetch.git\nhttps://mirror.test/fetch.git\n"),
+      ok("https://example.test/push.git\n"),
+      ok("git@example.test:project/repo.git\n"),
+      failure("missing pushurl")
+    ]);
+    const service = new GitService(runner);
+
+    await expect(service.getRemoteConfigs("D:\\Repo")).resolves.toEqual([
+      {
+        name: "origin",
+        fetchUrls: ["https://example.test/fetch.git", "https://mirror.test/fetch.git"],
+        pushUrls: ["https://example.test/push.git"],
+        trackedBranches: ["feature/nav"]
+      },
+      {
+        name: "upstream",
+        fetchUrls: ["git@example.test:project/repo.git"],
+        pushUrls: [],
+        trackedBranches: ["main"]
+      }
+    ]);
+    expect(runner.calls.map((call) => call.args.slice(2))).toContainEqual([
+      "config",
+      "--get-all",
+      "remote.origin.url"
+    ]);
+  });
+
+  it("adds a remote without contacting it", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok(),
+      ok(),
+      ok()
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.addRemote({
+      repoPath: "D:\\Repo With Spaces",
+      name: "origin",
+      url: "C:\\Remote Repositories\\project.git"
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(runner.calls.at(-1)?.args).toEqual([
+      "-C",
+      "D:\\Repo With Spaces",
+      "remote",
+      "add",
+      "origin",
+      "C:\\Remote Repositories\\project.git"
+    ]);
+    expect(runner.calls.some((call) => call.args.includes("fetch"))).toBe(false);
+  });
+
+  it("rejects duplicate remote names before mutation", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("origin\n"),
+      ok(),
+      ok("https://example.test/repo.git\n"),
+      failure("missing pushurl")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.addRemote({ repoPath: "D:\\Repo", name: "origin", url: "https://other.test/repo.git" });
+
+    expect(result).toMatchObject({ exitCode: -1, stderr: "A remote with this name already exists." });
+    expect(runner.calls.at(-1)?.args).toContain("remote.origin.pushurl");
+  });
+
+  it("renames and removes existing remotes with native Git commands", async () => {
+    const renameRunner = new FakeRunner([
+      ok("true\n"), ok("origin\n"), ok(), ok("https://example.test/repo.git\n"), failure(), ok()
+    ]);
+    const renameService = new GitService(renameRunner);
+    expect((await renameService.renameRemote({ repoPath: "D:\\Repo", currentName: "origin", newName: "upstream" })).exitCode).toBe(0);
+    expect(renameRunner.calls.at(-1)?.args.slice(2)).toEqual(["remote", "rename", "origin", "upstream"]);
+
+    const removeRunner = new FakeRunner([
+      ok("true\n"), ok("upstream\n"), ok("main\tupstream\n"), ok("https://example.test/repo.git\n"), failure(), ok()
+    ]);
+    const removeService = new GitService(removeRunner);
+    expect((await removeService.removeRemote({ repoPath: "D:\\Repo", name: "upstream" })).exitCode).toBe(0);
+    expect(removeRunner.calls.at(-1)?.args.slice(2)).toEqual(["remote", "remove", "upstream"]);
+  });
+
+  it("edits only conventional single-URL remotes", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"), ok("origin\n"), ok(), ok("https://example.test/old.git\n"), failure(), ok()
+    ]);
+    const service = new GitService(runner);
+    const result = await service.setRemoteUrl({ repoPath: "D:\\Repo", name: "origin", url: "https://example.test/new.git" });
+    expect(result.exitCode).toBe(0);
+    expect(runner.calls.at(-1)?.args.slice(2)).toEqual(["remote", "set-url", "origin", "https://example.test/new.git"]);
+  });
+
+  it("protects advanced remote URLs from editing", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("origin\n"),
+      ok(),
+      ok("https://example.test/fetch.git\nhttps://mirror.test/fetch.git\n"),
+      failure()
+    ]);
+    const service = new GitService(runner);
+    const result = await service.setRemoteUrl({ repoPath: "D:\\Repo", name: "origin", url: "https://example.test/new.git" });
+    expect(result).toMatchObject({ exitCode: -1 });
+    expect(result.stderr).toContain("advanced URL configuration");
+    expect(runner.calls.some((call) => call.args.includes("set-url"))).toBe(false);
+  });
+
   it("clears a branch upstream", async () => {
     const runner = new FakeRunner([
       ok("true\n"),

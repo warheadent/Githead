@@ -97,6 +97,26 @@ Creator   : Test User <test@example.com>
 Committer : Test User <test@example.com>
 `;
 
+describe("Lore remote management", () => {
+  it("exposes the configured endpoint for inspection but rejects mutations", async () => {
+    await withLoreRepo(async (repoPath) => {
+      const service = new LoreService(new FakeRunner([]));
+
+      await expect(service.getRemoteConfigs(repoPath)).resolves.toEqual([
+        {
+          name: "origin",
+          fetchUrls: ["lore://127.0.0.1:41337"],
+          pushUrls: [],
+          trackedBranches: []
+        }
+      ]);
+      const result = await service.addRemote({ repoPath, name: "backup", url: "lore://example.test:41337" });
+      expect(result).toMatchObject({ exitCode: -1 });
+      expect(result.stderr).toContain("not supported for Lore repositories");
+    });
+  });
+});
+
 const DIFF = `
 hello.txt
 --- hello.txt@1
