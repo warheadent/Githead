@@ -120,7 +120,7 @@ export interface GitBranch {
 
 export type GitDiffSide = "staged" | "unstaged";
 
-export type GitDiffKind = "text" | "binary" | "empty" | "error";
+export type GitDiffKind = "text" | "image" | "binary" | "empty" | "error";
 
 export type CommitRefKind = "head" | "branch" | "remote" | "tag" | "other";
 
@@ -322,6 +322,7 @@ export interface GitCommitFileDiffRequest {
   repoPath: string;
   hash: string;
   path: string;
+  originalPath?: string;
 }
 
 export interface GitCommitFileResetRequest {
@@ -616,13 +617,49 @@ export interface GitHunkRequest {
   patch: string;
 }
 
-export interface GitFileDiff {
+interface GitFileDiffBase {
   path: string;
   side: GitDiffSide;
-  kind: GitDiffKind;
-  text: string;
-  truncated?: boolean;
 }
+
+export interface GitImageVersion {
+  mimeType: string;
+  data: Uint8Array;
+  byteLength: number;
+}
+
+export type GitImageSide =
+  | { status: "available"; version: GitImageVersion }
+  | { status: "absent" }
+  | { status: "lfs-missing"; byteLength: number; fetchable: boolean };
+
+export type GitLfsImageFetchRequest =
+  | { context: "status"; repoPath: string; path: string; side: GitDiffSide }
+  | { context: "commit"; repoPath: string; hash: string; path: string; originalPath?: string };
+
+export type GitFileDiff = GitFileDiffBase & (
+  | {
+    kind: "text";
+    text: string;
+    truncated?: boolean;
+    before?: never;
+    after?: never;
+  }
+  | {
+    kind: "image";
+    text: "";
+    before: GitImageSide;
+    after: GitImageSide;
+    truncated?: never;
+  }
+  | {
+    kind: "binary" | "empty" | "error";
+    text: string;
+    truncated?: never;
+    before?: never;
+    after?: never;
+  }
+);
 
 export interface GitOperationResult {
   repoPath: string;
@@ -732,6 +769,7 @@ export interface GitheadApi {
   getCommitDetails(request: GitCommitDetailsRequest): Promise<GitCommitDetails>;
   getCommitFileDiff(request: GitCommitFileDiffRequest): Promise<GitFileDiff>;
   getFileDiff(request: GitFileDiffRequest): Promise<GitFileDiff>;
+  fetchLfsImageVersions(request: GitLfsImageFetchRequest): Promise<GitOperationResult>;
   resetFilesToCommit(request: GitCommitFileResetRequest): Promise<GitOperationResult>;
   openCommitFileVersion(request: GitCommitFileVersionRequest): Promise<GitOperationResult>;
   stageFiles(request: GitPathRequest): Promise<GitOperationResult>;

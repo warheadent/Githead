@@ -22,6 +22,7 @@ export const IPC_CHANNELS = {
   getCommitDetails: "git:commit-details",
   getCommitFileDiff: "git:commit-file-diff",
   getFileDiff: "git:file-diff",
+  fetchLfsImageVersions: "git:lfs-image-fetch",
   resetFilesToCommit: "git:commit-files-reset",
   openCommitFileVersion: "git:commit-file-version-open",
   stageFiles: "git:stage-files",

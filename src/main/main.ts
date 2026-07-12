@@ -31,6 +31,7 @@ import type {
   GitFileChangesRequest,
   GitFileDiffRequest,
   GitHunkRequest,
+  GitLfsImageFetchRequest,
   GitHubRepositoryRequest,
   GitIdentitySaveRequest,
   GitIgnorePathRequest,
@@ -320,6 +321,11 @@ ipcMain.handle(IPC_CHANNELS.getCommitFileDiff, async (_event, request: GitCommit
 
 ipcMain.handle(IPC_CHANNELS.getFileDiff, async (_event, request: GitFileDiffRequest) => {
   return (await vcsRouter.serviceForRepo(request.repoPath)).getFileDiff(request);
+});
+
+ipcMain.handle(IPC_CHANNELS.fetchLfsImageVersions, async (_event, request: GitLfsImageFetchRequest) => {
+  const trusted = await requireTrustedRepo(request.repoPath);
+  return trusted ?? (await vcsRouter.serviceForRepo(request.repoPath)).fetchLfsImageVersions(request);
 });
 
 ipcMain.handle(IPC_CHANNELS.resetFilesToCommit, async (_event, request: GitCommitFileResetRequest) => {

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
 import type {
   GitAction,
   GitBranch,
@@ -24,6 +25,7 @@ import type {
   GitFileDiffRequest,
   GitHubRepository,
   GitHunkRequest,
+  GitLfsImageFetchRequest,
   GitIgnorePathRequest,
   GitOperationResult,
   GitPathRequest,
@@ -49,6 +51,7 @@ import { validateCloneRequest } from "./cloneValidation";
 import type { GitOutputHandler } from "./gitService";
 import type { ProcessResult, ProcessRunOptions, ProcessRunner } from "./processRunner";
 import { mapRepoSyncStatuses } from "./repoSyncStatus";
+import { imageFallbackText, isPreviewableImagePath, readImageFile, type ImageReadResult } from "./imageDiff";
 import type { VcsService } from "./vcsService";
 import {
   type LoreRevision,
@@ -285,6 +288,9 @@ export class LoreService implements VcsService {
     }
 
     const text = normalizeLoreDiff(result.stdout);
+    if (text && isPreviewableImagePath(request.path)) {
+      return await this.getWorkingImageDiff(validation.rootPath, request);
+    }
     return {
       path: request.path,
       side: request.side,
@@ -306,6 +312,12 @@ export class LoreService implements VcsService {
 
     const parent = await this.getParentSignature(validation.rootPath, hash);
     if (!parent) {
+      if (isPreviewableImagePath(request.path)) {
+        const currentPath = safeRelativePath(request.path);
+        if (currentPath) {
+          return this.buildImageDiff(request.path, "unstaged", { kind: "missing" }, await this.readLoreRevisionImage(validation.rootPath, hash, currentPath));
+        }
+      }
       // A root revision has no earlier state, and Lore cannot diff against the
       // empty revision (`--source <zeros>` errors), so there is nothing to show.
       return {
@@ -329,6 +341,9 @@ export class LoreService implements VcsService {
     }
 
     const text = normalizeLoreDiff(result.stdout);
+    if (text && isPreviewableImagePath(request.path)) {
+      return await this.getCommitImageDiff(validation.rootPath, request, parent);
+    }
     return {
       path: request.path,
       side: "unstaged",
@@ -694,6 +709,10 @@ export class LoreService implements VcsService {
     return this.runFailure(request.repoPath, "publish", "Publishing branches is not supported for Lore repositories.");
   }
 
+  async fetchLfsImageVersions(request: GitLfsImageFetchRequest): Promise<GitOperationResult> {
+    return this.failure(request.repoPath, "Git LFS image downloads are not supported for Lore repositories.");
+  }
+
   async getRemoteConfigs(repoPath: string): Promise<GitRemoteConfig[]> {
     const remoteUrl = await this.readRemoteUrl(repoPath);
     return remoteUrl
@@ -742,6 +761,45 @@ export class LoreService implements VcsService {
       ...options,
       cwd: repoPath
     });
+  }
+
+  private async getWorkingImageDiff(repoPath: string, request: GitFileDiffRequest): Promise<GitFileDiff> {
+    const relativePath = safeRelativePath(request.path);
+    if (!relativePath) return this.diffError(request.path, request.side, "Image preview is unavailable.");
+    const statusResult = await this.runLore(repoPath, ["status"]);
+    const revision = parseLoreStatus(statusResult.stdout).revisionSignature;
+    const before = revision ? await this.readLoreRevisionImage(repoPath, revision, relativePath) : { kind: "missing" } as ImageReadResult;
+    const after = await readImageFile(path.resolve(repoPath, relativePath), relativePath);
+    return this.buildImageDiff(request.path, request.side, before, after);
+  }
+
+  private async getCommitImageDiff(repoPath: string, request: GitCommitFileDiffRequest, parent: string): Promise<GitFileDiff> {
+    const currentPath = safeRelativePath(request.path);
+    const previousPath = safeRelativePath(request.originalPath ?? request.path);
+    if (!currentPath || !previousPath) return this.diffError(request.path, "unstaged", "Image preview is unavailable.");
+    const before = await this.readLoreRevisionImage(repoPath, parent, previousPath);
+    const after = await this.readLoreRevisionImage(repoPath, request.hash, currentPath);
+    return this.buildImageDiff(request.path, "unstaged", before, after);
+  }
+
+  private async readLoreRevisionImage(repoPath: string, revision: string, filePath: string): Promise<ImageReadResult> {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "githead-image-"));
+    const outputPath = path.join(tempDir, "image");
+    try {
+      const result = await this.runLore(repoPath, ["file", "write", "--path", filePath, "--revision", revision, "--output", outputPath]);
+      if (result.exitCode !== 0) return { kind: "missing" };
+      return await readImageFile(outputPath, filePath);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+
+  private buildImageDiff(pathValue: string, side: GitFileDiff["side"], before: ImageReadResult, after: ImageReadResult): GitFileDiff {
+    const acceptable = (value: ImageReadResult) => value.kind === "image" || value.kind === "missing";
+    if (!acceptable(before) || !acceptable(after) || (before.kind === "missing" && after.kind === "missing")) {
+      return { path: pathValue, side, kind: "binary", text: imageFallbackText([before, after]) };
+    }
+    return { path: pathValue, side, kind: "image", text: "", before: before.kind === "image" ? { status: "available", version: before.version } : { status: "absent" }, after: after.kind === "image" ? { status: "available", version: after.version } : { status: "absent" } };
   }
 
   private async runPathCommand(
@@ -913,6 +971,13 @@ export class LoreService implements VcsService {
       endedAt: now
     };
   }
+}
+
+function safeRelativePath(filePath: string): string | null {
+  const trimmed = filePath.trim();
+  if (!trimmed || path.isAbsolute(trimmed)) return null;
+  const normalized = path.normalize(trimmed);
+  return normalized === ".." || normalized.startsWith(`..${path.sep}`) ? null : trimmed;
 }
 
 function sanitizeHash(hash: string): string | null {

@@ -2264,6 +2264,33 @@ describe("App", () => {
     });
   });
 
+  it("downloads a missing LFS image preview only after explicit activation", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [createStatusFile("assets/image.png", { isUnstaged: true, worktreeStatus: "M" })]
+    }));
+    vi.mocked(githead.getFileDiff).mockResolvedValue({
+      path: "assets/image.png",
+      side: "unstaged",
+      kind: "image",
+      text: "",
+      before: { status: "lfs-missing", byteLength: 76047, fetchable: true },
+      after: { status: "lfs-missing", byteLength: 76047, fetchable: true }
+    });
+    vi.mocked(githead.fetchLfsImageVersions).mockResolvedValue({ repoPath, exitCode: 0, stdout: "Downloaded LFS image preview.", stderr: "" });
+
+    render(<App />);
+    await user.click(await screen.findByRole("option", { name: /assets\/image\.png/ }));
+    expect((await screen.findAllByText(/LFS image is not available locally/)).length).toBe(2);
+    expect(githead.fetchLfsImageVersions).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Download missing Git LFS image preview" }));
+    await waitFor(() => expect(githead.fetchLfsImageVersions).toHaveBeenCalledWith({
+      context: "status", repoPath, path: "assets/image.png", side: "unstaged"
+    }));
+    await waitFor(() => expect(githead.getFileDiff).toHaveBeenCalledTimes(2));
+  });
+
   it("generates a pull request title from the Create PR dialog", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary({
@@ -4908,6 +4935,7 @@ function createGitheadMock(): GitheadApi {
     getCommitDetails: vi.fn(),
     getCommitFileDiff: vi.fn(),
     getFileDiff: vi.fn(),
+    fetchLfsImageVersions: vi.fn(),
     resetFilesToCommit: vi.fn().mockResolvedValue(okOperation),
     openCommitFileVersion: vi.fn().mockResolvedValue(okOperation),
     stageFiles: vi.fn().mockResolvedValue(okOperation),

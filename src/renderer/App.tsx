@@ -117,6 +117,7 @@ import type {
   GitCommitGraphRow,
   GitDiffSide,
   GitFileDiff,
+  GitImageSide,
   GitHubIssue,
   GitHubOpenCounts,
   GitHubPullRequest,
@@ -724,10 +725,12 @@ export function App(): ReactNode {
     });
 
     try {
+      const originalPath = stateRef.current.commitDetails?.files.find((file) => file.path === filePath)?.originalPath;
       const diff = await window.githead.getCommitFileDiff({
         repoPath: stateRef.current.repoPath,
         hash,
-        path: filePath
+        path: filePath,
+        ...(originalPath ? { originalPath } : {})
       });
 
       if (requestId === requestIds.current.commitFileDiff) {
@@ -2370,6 +2373,29 @@ export function App(): ReactNode {
     }
     return operationResult;
   }, [appendOperationLog, refreshRepo, updateState]);
+
+  const downloadStatusLfsPreview = useCallback(async (): Promise<void> => {
+    const snapshot = stateRef.current.selection;
+    if (!snapshot) return;
+    const result = await runRepoOperation("Downloading LFS image preview", undefined, () => window.githead.fetchLfsImageVersions({
+      context: "status", repoPath: stateRef.current.repoPath, path: snapshot.path, side: snapshot.side
+    }));
+    const latest = stateRef.current.selection;
+    if (result?.exitCode === 0 && latest?.path === snapshot.path && latest.side === snapshot.side) await loadSelectedDiff(snapshot);
+  }, [loadSelectedDiff, runRepoOperation]);
+
+  const downloadCommitLfsPreview = useCallback(async (): Promise<void> => {
+    const current = stateRef.current;
+    const hash = current.selectedCommitHash;
+    const filePath = current.selectedCommitFilePath;
+    if (!hash || !filePath) return;
+    const originalPath = current.commitDetails?.files.find((file) => file.path === filePath)?.originalPath;
+    const result = await runRepoOperation("Downloading LFS image preview", undefined, () => window.githead.fetchLfsImageVersions({
+      context: "commit", repoPath: current.repoPath, hash, path: filePath, ...(originalPath ? { originalPath } : {})
+    }));
+    const latest = stateRef.current;
+    if (result?.exitCode === 0 && latest.selectedCommitHash === hash && latest.selectedCommitFilePath === filePath) await loadCommitFileDiff(hash, filePath);
+  }, [loadCommitFileDiff, runRepoOperation]);
 
   const loadRemoteConfigs = useCallback(async (repoPath = stateRef.current.repoPath): Promise<GitRemoteConfig[] | null> => {
     const requestId = ++requestIds.current.remoteConfigs;
@@ -4386,6 +4412,7 @@ export function App(): ReactNode {
                   onRefreshDiff={() => {
                     void loadSelectedDiff();
                   }}
+                  onDownloadImage={() => { void downloadStatusLfsPreview(); }}
                   onApplyHunk={(patch) => {
                     void applySelectedHunk(patch);
                   }}
@@ -4414,6 +4441,7 @@ export function App(): ReactNode {
                   onSelectCommitFile={selectCommitFile}
                   onCommitContextAction={runCommitContextAction}
                   onCommitFileContextAction={runCommitFileContextAction}
+                  onDownloadImage={() => { void downloadCommitLfsPreview(); }}
                 />
               </TabsContent>
 
@@ -6353,6 +6381,7 @@ function StatusView({
   onStageFiles,
   onUnstageFiles,
   onRefreshDiff,
+  onDownloadImage,
   onApplyHunk,
   onContextAction
 }: {
@@ -6367,6 +6396,7 @@ function StatusView({
   onStageFiles: (paths: string[], selection?: FileSelection) => void;
   onUnstageFiles: (paths: string[], selection?: FileSelection) => void;
   onRefreshDiff: () => void;
+  onDownloadImage: () => void;
   onApplyHunk: (patch: string) => void;
   onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind) => void;
 }): ReactNode {
@@ -6477,6 +6507,8 @@ function StatusView({
           filePath={selection?.path ?? ""}
           loading={diffLoading}
           emptyMessage={selection ? "Refresh the diff to view this file." : "Select a file to view the diff"}
+          onDownloadImage={onDownloadImage}
+          imageDownloadLoading={disabled}
           hunkAction={canApplyHunks && selection ? {
             side: selection.side,
             disabled,
@@ -6662,7 +6694,9 @@ function DiffPanel({
   loading,
   emptyMessage,
   hunkAction,
-  action
+  action,
+  onDownloadImage,
+  imageDownloadLoading = false
 }: {
   title: string;
   eyebrow: string;
@@ -6672,6 +6706,8 @@ function DiffPanel({
   emptyMessage: string;
   hunkAction?: DiffHunkAction | undefined;
   action?: ReactNode;
+  onDownloadImage?: () => void;
+  imageDownloadLoading?: boolean;
 }): ReactNode {
   let content: ReactNode = emptyMessage;
   let outputClass = "diff-output";
@@ -6682,7 +6718,9 @@ function DiffPanel({
     outputClass = `diff-output ${diff.kind}`;
     content = diff.kind === "text"
       ? <DiffRows filePath={filePath} text={diff.text} truncated={Boolean(diff.truncated)} hunkAction={hunkAction} />
-      : diff.text;
+      : diff.kind === "image"
+        ? <ImageDiffView filePath={filePath} before={diff.before} after={diff.after} {...(onDownloadImage ? { onDownload: onDownloadImage } : {})} downloading={imageDownloadLoading} />
+        : diff.text;
   }
 
   return (
@@ -6831,7 +6869,8 @@ function HistoryView({
   onSelectCommit,
   onSelectCommitFile,
   onCommitContextAction,
-  onCommitFileContextAction
+  onCommitFileContextAction,
+  onDownloadImage
 }: {
   summary: RepoSummary | null;
   history: GitCommitGraphRow[];
@@ -6850,6 +6889,7 @@ function HistoryView({
   onSelectCommitFile: (filePath: string) => void;
   onCommitContextAction: (commit: GitCommitGraphRow, action: CommitContextActionKind) => void;
   onCommitFileContextAction: (file: GitCommitChangedFile, action: CommitFileContextActionKind) => void;
+  onDownloadImage: () => void;
 }): ReactNode {
   const graphLayout = useMemo(() => buildCommitGraphLayout(history), [history]);
   const historyStyle = {
@@ -6918,6 +6958,8 @@ function HistoryView({
               filePath={selectedCommitFilePath ?? ""}
               loading={commitFileDiffLoading}
               emptyMessage={commitFileDiffError || (selectedCommitFilePath ? "Loading diff..." : "Select a file to view the diff")}
+              onDownloadImage={onDownloadImage}
+              imageDownloadLoading={disabled}
             />
           </ResizablePanel>
         </ResizablePanelGroup>
@@ -9041,6 +9083,51 @@ function SettingsDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+function ImageDiffView({ filePath, before, after, onDownload, downloading }: { filePath: string; before: GitImageSide; after: GitImageSide; onDownload?: () => void; downloading: boolean }): ReactNode {
+  const canDownload = (before.status === "lfs-missing" && before.fetchable) || (after.status === "lfs-missing" && after.fetchable);
+  return (
+    <div className="image-diff-wrap" aria-label={`Image comparison for ${filePath}`}>
+      {canDownload && onDownload ? (
+        <div className="image-diff-download">
+          <Button type="button" variant="outline" size="sm" aria-label="Download missing Git LFS image preview" disabled={downloading} onClick={onDownload}>
+            {downloading ? <Loader2 className="animate-spin" /> : <Download />}
+            {downloading ? "Downloading..." : "Download Preview"}
+          </Button>
+        </div>
+      ) : null}
+      <div className="image-diff">
+        <ImageDiffPane side="Before" filePath={filePath} imageSide={before} missingMessage="Image did not exist." />
+        <ImageDiffPane side="After" filePath={filePath} imageSide={after} missingMessage="Image was deleted." />
+      </div>
+    </div>
+  );
+}
+
+function ImageDiffPane({ side, filePath, imageSide, missingMessage }: { side: "Before" | "After"; filePath: string; imageSide: GitImageSide; missingMessage: string }): ReactNode {
+  const version = imageSide.status === "available" ? imageSide.version : null;
+  const objectUrl = useMemo(() => version ? URL.createObjectURL(new Blob([Uint8Array.from(version.data)], { type: version.mimeType })) : null, [version]);
+  useEffect(() => () => {
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+  }, [objectUrl]);
+  return (
+    <figure className="image-diff-pane">
+      <figcaption className="image-diff-label">{side}</figcaption>
+      <div className="image-diff-canvas">
+        {objectUrl ? <img className="image-diff-preview" src={objectUrl} alt={`${side} version of ${filePath}`} /> : imageSide.status === "lfs-missing" ? <p className="image-diff-missing">LFS image is not available locally.<br />{formatImageBytes(imageSide.byteLength)}</p> : <p className="image-diff-missing">{missingMessage}</p>}
+      </div>
+    </figure>
+  );
+}
+
+function formatImageBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KiB", "MiB", "GiB"];
+  let value = bytes / 1024;
+  let unit = units[0]!;
+  for (let index = 1; index < units.length && value >= 1024; index += 1) { value /= 1024; unit = units[index]!; }
+  return `${value.toFixed(value >= 10 ? 0 : 1)} ${unit}`;
 }
 
 function useAiReasoningCapabilities(
