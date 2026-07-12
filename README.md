@@ -122,9 +122,12 @@ Repositories can expose custom commands in the Sync bar by adding a `.githead` f
 ```toml
 [[actions]]
 name = "Build"
+description = "Compile the application and verify production output."
 command = "vp run build"
 shell = "powershell" # powershell | cmd | bash
 ```
+
+The optional `description` is shown as a tooltip when selecting an action.
 
 Use **Manage Repository Actions** in the Actions menu to create, edit, delete, and reorder shared or local actions from Githead. Optional `.githead/actions.local.toml` entries are loaded after `actions.toml`. Local entries with the same action name replace the shared action; new local entries are appended. Configured actions run from the repository root and use the same workspace trust prompt and Activity Log as built-in Git commands.
 

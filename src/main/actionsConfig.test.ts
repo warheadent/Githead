@@ -22,6 +22,7 @@ describe("actionsConfig", () => {
     await fs.writeFile(path.join(githeadDir, "actions.toml"), [
       "[[actions]]",
       "name = \"Build\"",
+      "description = \"Compile the application\"",
       "command = \"npm run build\"",
       "shell = \"powershell\"",
       "",
@@ -58,16 +59,19 @@ describe("actionsConfig", () => {
     expect(config.actions).toEqual([
       {
         name: "Build",
+        description: "Compile the application",
         command: "npm run build",
         shell: "powershell"
       },
       {
         name: "test",
+        description: "",
         command: "npm run test:local",
         shell: "cmd"
       },
       {
         name: "Lint",
+        description: "",
         command: "npm run lint",
         shell: "powershell"
       }
@@ -83,6 +87,7 @@ describe("actionsConfig", () => {
       actions: [
         {
           name: "Build",
+          description: "Compile the application",
           command: "npm run build",
           shell: "powershell"
         }
@@ -94,6 +99,7 @@ describe("actionsConfig", () => {
       actions: [
         {
           name: "Build",
+          description: "",
           command: "npm run build:local",
           shell: "cmd"
         }
@@ -108,6 +114,7 @@ describe("actionsConfig", () => {
     expect(await fs.readFile(path.join(repoRoot, ".githead", "actions.toml"), "utf8")).toBe([
       "[[actions]]",
       "name = \"Build\"",
+      "description = \"Compile the application\"",
       "command = \"npm run build\"",
       "shell = \"powershell\"",
       ""
@@ -115,6 +122,7 @@ describe("actionsConfig", () => {
     expect((await readActionsConfig(repoRoot)).actions).toEqual([
       {
         name: "Build",
+        description: "",
         command: "npm run build:local",
         shell: "cmd"
       }
@@ -130,11 +138,13 @@ describe("actionsConfig", () => {
       actions: [
         {
           name: "Build",
+          description: "",
           command: "npm run build",
           shell: "powershell"
         },
         {
           name: "build",
+          description: "",
           command: "npm run build:again",
           shell: "powershell"
         }
@@ -144,6 +154,19 @@ describe("actionsConfig", () => {
     expect(result).toMatchObject({
       exitCode: -1,
       stderr: "Duplicate action name \"build\" in actions.toml."
+    });
+  });
+
+  it("rejects non-string action descriptions", async () => {
+    const repoRoot = await createTempRepoRoot();
+    const githeadDir = path.join(repoRoot, ".githead");
+    await fs.mkdir(githeadDir);
+    await fs.writeFile(path.join(githeadDir, "actions.toml"), [
+      "[[actions]]", "name = \"Build\"", "description = 42",
+      "command = \"npm run build\"", "shell = \"powershell\"", ""
+    ].join("\n"), "utf8");
+    await expect(readActionsConfig(repoRoot)).resolves.toMatchObject({
+      error: 'actions.toml: Action "Build" has an invalid description.'
     });
   });
 
@@ -164,7 +187,7 @@ describe("actionsConfig", () => {
       "name = \"Deploy\"",
       "command = \"npm run deploy\"",
       "shell = \"powershell\"",
-      "description = \"manual field\"",
+      "timeout = 30",
       ""
     ].join("\n"), "utf8");
 

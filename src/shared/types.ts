@@ -16,6 +16,7 @@ export type GitConfiguredActionShell = (typeof GIT_CONFIGURED_ACTION_SHELLS)[num
 
 export interface GitConfiguredAction {
   name: string;
+  description: string;
   command: string;
   shell: GitConfiguredActionShell;
 }

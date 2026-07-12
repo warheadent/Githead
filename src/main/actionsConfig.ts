@@ -240,7 +240,7 @@ function parseActionsFile(
       };
     }
 
-    const unknownActionKeys = Object.keys(rawAction).filter((key) => key !== "name" && key !== "command" && key !== "shell");
+    const unknownActionKeys = Object.keys(rawAction).filter((key) => key !== "name" && key !== "description" && key !== "command" && key !== "shell");
     if (unknownActionKeys.length > 0) {
       blockedReason ||= `${fileName} contains action fields Githead does not manage.`;
     }
@@ -299,8 +299,13 @@ function parseActionTable(
     };
   }
 
+  if (rawAction.description !== undefined && typeof rawAction.description !== "string") {
+    return { error: `Action "${name}" has an invalid description.` };
+  }
+
   return {
     name,
+    description: typeof rawAction.description === "string" ? rawAction.description.trim() : "",
     command,
     shell
   };
@@ -330,6 +335,7 @@ function formatActionsFile(actions: GitConfiguredAction[]): string {
   return `${actions.map((action) => [
     "[[actions]]",
     `name = ${formatTomlString(action.name.trim())}`,
+    ...(action.description.trim() ? [`description = ${formatTomlString(action.description.trim())}`] : []),
     `command = ${formatTomlString(action.command.trim())}`,
     `shell = ${formatTomlString(action.shell)}`,
     ""

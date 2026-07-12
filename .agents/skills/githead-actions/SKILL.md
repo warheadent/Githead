@@ -11,7 +11,7 @@ Githead repository actions are custom commands shown in the Sync bar Actions men
 
 - Put shared, repo-committed actions in `.githead/actions.toml`.
 - Put private machine-local actions or overrides in `.githead/actions.local.toml`.
-- Use only `[[actions]]` TOML tables with `name`, `command`, and `shell`.
+- Use only `[[actions]]` TOML tables with `name`, optional `description`, `command`, and `shell`.
 - Set `shell` to `powershell`, `cmd`, or `bash`.
 - Keep names unique within each file.
 - Prefer repo-relative commands because Githead runs actions from the repository root.
@@ -22,6 +22,7 @@ Shared action:
 ```toml
 [[actions]]
 name = "Build"
+description = "Compile the application and verify production output."
 command = "npm run build"
 shell = "powershell"
 ```

@@ -2983,6 +2983,7 @@ describe("App", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
     await user.click(screen.getAllByRole("button", { name: "Add" })[0]!);
     await user.type(screen.getAllByLabelText("Name")[0]!, "Build");
+    await user.type(screen.getAllByLabelText("Description")[0]!, " Compile the application ");
     await user.type(screen.getAllByLabelText("Command")[0]!, "npm run build");
     await user.click(screen.getAllByRole("button", { name: "Save" })[0]!);
 
@@ -2993,6 +2994,7 @@ describe("App", () => {
         actions: [
           {
             name: "Build",
+            description: "Compile the application",
             command: "npm run build",
             shell: "powershell"
           }
@@ -3005,6 +3007,7 @@ describe("App", () => {
     const user = userEvent.setup();
     const sharedActions = Array.from({ length: 14 }, (_, index) => ({
       name: `Action ${index + 1}`,
+      description: "",
       command: `npm run action-${index + 1}`,
       shell: "powershell" as const
     }));
@@ -3040,6 +3043,7 @@ describe("App", () => {
     const user = userEvent.setup();
     const action = {
       name: "Build",
+      description: "Compile the application",
       command: "npm run build",
       shell: "powershell" as const
     };
@@ -3069,6 +3073,8 @@ describe("App", () => {
     expect(screen.getByRole("tab", { name: "Commit History" }).getAttribute("aria-selected")).toBe("true");
 
     await user.click(await screen.findByRole("button", { name: "Repository actions" }));
+    await user.hover(await screen.findByRole("menuitem", { name: "Build" }));
+    expect((await screen.findByRole("tooltip")).textContent).toContain("Compile the application");
     await user.click(await screen.findByRole("menuitem", { name: "Build" }));
 
     await waitFor(() => {
@@ -3089,6 +3095,7 @@ describe("App", () => {
         actions: [
           {
             name: "Build",
+            description: "",
             command: "npm run build",
             shell: "powershell"
           }
@@ -3127,7 +3134,7 @@ describe("App", () => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       actionsConfig: {
         hasGitheadDir: true,
-        actions: [{ name: "Build", command: "npm run build", shell: "powershell" }],
+        actions: [{ name: "Build", description: "", command: "npm run build", shell: "powershell" }],
         error: ""
       }
     }));
@@ -3161,7 +3168,7 @@ describe("App", () => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       actionsConfig: {
         hasGitheadDir: true,
-        actions: [{ name: "Build", command: "npm run build", shell: "powershell" }],
+        actions: [{ name: "Build", description: "", command: "npm run build", shell: "powershell" }],
         error: ""
       }
     }));
@@ -3210,6 +3217,7 @@ describe("App", () => {
           actions: [
             {
               name: "Build",
+              description: "",
               command: "npm run build",
               shell: "powershell"
             }
@@ -3220,6 +3228,7 @@ describe("App", () => {
           actions: [
             {
               name: "build",
+              description: "",
               command: "npm run build:local",
               shell: "cmd"
             }
@@ -3228,6 +3237,7 @@ describe("App", () => {
         actions: [
           {
             name: "build",
+            description: "",
             command: "npm run build:local",
             shell: "cmd"
           }
@@ -3253,11 +3263,13 @@ describe("App", () => {
           actions: [
             {
               name: "Build",
+              description: "",
               command: "npm run build",
               shell: "powershell"
             },
             {
               name: "Test",
+              description: "",
               command: "npm test",
               shell: "bash"
             }
@@ -3280,11 +3292,13 @@ describe("App", () => {
         actions: [
           {
             name: "Test",
+            description: "",
             command: "npm test",
             shell: "bash"
           },
           {
             name: "Build",
+            description: "",
             command: "npm run build",
             shell: "powershell"
           }
@@ -3305,6 +3319,7 @@ describe("App", () => {
           actions: [
             {
               name: "Build",
+              description: "",
               command: "npm run build",
               shell: "powershell"
             }

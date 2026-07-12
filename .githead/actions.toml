@@ -1,14 +1,17 @@
 [[actions]]
 name = "Package Windows (unpacked)"
+description = "Build an unpacked Windows application bundle for local testing."
 command = "vp run package:win:dir"
 shell = "powershell"
 
 [[actions]]
 name = "Package and Launch Windows (unpacked)"
+description = "Build the unpacked Windows application and launch it when packaging succeeds."
 command = "vp run package:win:dir; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; Start-Process -FilePath '.\\release\\win-unpacked\\Githead.exe'"
 shell = "powershell"
 
 [[actions]]
 name = "Typecheck"
+description = "Check the renderer, Electron, and test TypeScript projects without emitting files."
 command = "vp run typecheck"
 shell = "powershell"

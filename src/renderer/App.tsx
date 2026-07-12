@@ -6345,15 +6345,20 @@ function ActionBar({
                 {actionsConfigError}
               </DropdownMenuItem>
             ) : hasConfiguredActions ? (
-              configuredActions.map((action) => (
-                <DropdownMenuItem
-                  key={action.name}
-                  onSelect={() => onRunConfiguredAction(action)}
-                >
-                  <Workflow />
-                  {action.name}
-                </DropdownMenuItem>
-              ))
+              configuredActions.map((action) => {
+                const item = (
+                  <DropdownMenuItem onSelect={() => onRunConfiguredAction(action)}>
+                    <Workflow />
+                    {action.name}
+                  </DropdownMenuItem>
+                );
+                return action.description ? (
+                  <Tooltip key={action.name}>
+                    <TooltipTrigger asChild>{item}</TooltipTrigger>
+                    <TooltipContent side="left">{action.description}</TooltipContent>
+                  </Tooltip>
+                ) : <Fragment key={action.name}>{item}</Fragment>;
+              })
             ) : (
               <DropdownMenuItem disabled>
                 No configured actions
@@ -9792,6 +9797,18 @@ function RepositoryActionFileSection({
                   })}
                 />
               </div>
+              <div className="grid gap-2">
+                <Label htmlFor={`${target}-action-${action.id}-description`}>Description</Label>
+                <Textarea
+                  id={`${target}-action-${action.id}-description`}
+                  value={action.description}
+                  disabled={disabled}
+                  className="min-h-16 resize-y"
+                  onChange={(event) => onDraftChange(target, index, {
+                    description: event.target.value
+                  })}
+                />
+              </div>
             </div>
           );
         })}
@@ -9882,6 +9899,7 @@ function createRepositoryActionDraft(action: GitConfiguredAction): RepositoryAct
   return {
     id: `repository-action-${repositoryActionDraftId}`,
     name: action.name,
+    description: action.description,
     command: action.command,
     shell: action.shell
   };
@@ -9890,6 +9908,7 @@ function createRepositoryActionDraft(action: GitConfiguredAction): RepositoryAct
 function createEmptyRepositoryActionDraft(): RepositoryActionDraft {
   return createRepositoryActionDraft({
     name: "",
+    description: "",
     command: "",
     shell: "powershell"
   });
@@ -9898,6 +9917,7 @@ function createEmptyRepositoryActionDraft(): RepositoryActionDraft {
 function stripRepositoryActionDrafts(actions: RepositoryActionDraft[]): GitConfiguredAction[] {
   return actions.map((action) => ({
     name: action.name.trim(),
+    description: action.description.trim(),
     command: action.command.trim(),
     shell: action.shell
   }));
