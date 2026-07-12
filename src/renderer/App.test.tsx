@@ -207,7 +207,7 @@ describe("App", () => {
 
     await waitForRepositoryWorkspace();
     const sidebar = screen.getByRole("complementary");
-    expect(within(sidebar).queryByText("Githead")).toBeNull();
+    expect(within(sidebar).queryByRole("heading", { name: "Githead" })).toBeNull();
     expect(within(sidebar).queryByText("Repository ready")).toBeNull();
     expect(within(sidebar).queryByText("Checking repository...")).toBeNull();
     expect(within(sidebar).getAllByText("Repositories")).toHaveLength(1);
