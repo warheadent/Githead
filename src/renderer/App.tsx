@@ -244,6 +244,7 @@ interface CloneDraft {
   directoryName: string;
   branchName: string;
   depth: string;
+  recurseSubmodules: boolean;
 }
 
 interface ResetCommitDialogState {
@@ -435,7 +436,8 @@ const emptyCloneDraft: CloneDraft = {
   parentPath: "",
   directoryName: "",
   branchName: "",
-  depth: "0"
+  depth: "0",
+  recurseSubmodules: true
 };
 
 const emptyResetCommitDialog: ResetCommitDialogState = {
@@ -1534,7 +1536,8 @@ export function App(): ReactNode {
         parentPath: current.cloneDraft.parentPath,
         directoryName: current.cloneDraft.directoryName,
         branchName: current.cloneDraft.branchName,
-        depth
+        depth,
+        recurseSubmodules: current.cloneDraft.recurseSubmodules
       });
       updateState({
         lastOperationResult: result
@@ -3910,7 +3913,7 @@ export function App(): ReactNode {
   const runContextFileOperation = useCallback(async (
     file: GitStatusFile,
     side: GitDiffSide,
-    kind: "open" | "show" | "copy" | "toggle-stage" | "delete" | "revert" | "ignore"
+    kind: ContextActionKind
   ): Promise<void> => {
     const paths = getContextActionPaths(stateRef.current.selection, file, side);
 
@@ -3934,7 +3937,17 @@ export function App(): ReactNode {
     }
 
     const repoPath = stateRef.current.repoPath;
+    if (kind === "update-submodule") {
+      await runRepoOperation(`Updating submodule ${file.path}`, undefined, () =>
+        window.githead.updateSubmodules({ repoPath, path: file.path })
+      );
+      return;
+    }
     if (kind === "open") {
+      if (file.submodule) {
+        await switchRepo(`${repoPath.replace(/[\\/]+$/, "")}/${file.path}`, { addToRecents: true });
+        return;
+      }
       await runRepoOperation("Opening file", undefined, () =>
         window.githead.openFile({
           repoPath,
@@ -3987,7 +4000,19 @@ export function App(): ReactNode {
         path: file.path
       })
     );
-  }, [runRepoOperation, stageFiles, unstageFiles]);
+  }, [runRepoOperation, stageFiles, switchRepo, unstageFiles]);
+
+  const updateSubmodules = useCallback(async (path?: string): Promise<void> => {
+    await runRepoOperation(path ? `Updating submodule ${path}` : "Updating submodules", undefined, () =>
+      window.githead.updateSubmodules({ repoPath: stateRef.current.repoPath, ...(path ? { path } : {}) })
+    );
+  }, [runRepoOperation]);
+
+  const syncSubmodules = useCallback(async (): Promise<void> => {
+    await runRepoOperation("Synchronizing submodule URLs", undefined, () =>
+      window.githead.syncSubmodules({ repoPath: stateRef.current.repoPath })
+    );
+  }, [runRepoOperation]);
 
   const checkForAppUpdates = useCallback(async (): Promise<void> => {
     try {
@@ -4297,6 +4322,8 @@ export function App(): ReactNode {
                   onContextAction={(file, side, kind) => {
                     void runContextFileOperation(file, side, kind);
                   }}
+                  onUpdateSubmodules={(path) => { void updateSubmodules(path); }}
+                  onSyncSubmodules={() => { void syncSubmodules(); }}
                 />
               </TabsContent>
 
@@ -5648,6 +5675,16 @@ function CloneRepositoryForm({
         </div>
       </div>
 
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={cloneDraft.recurseSubmodules}
+          disabled={cloneRunning}
+          onChange={(event) => onCloneDraftChange({ ...cloneDraft, recurseSubmodules: event.target.checked })}
+        />
+        Initialize submodules recursively
+      </label>
+
       {cloneError ? (
         <p className="setup-error selectable-text" role="alert">{cloneError}</p>
       ) : null}
@@ -6330,7 +6367,9 @@ function StatusView({
   onRefreshDiff,
   onDownloadImage,
   onApplyHunk,
-  onContextAction
+  onContextAction,
+  onUpdateSubmodules,
+  onSyncSubmodules
 }: {
   stagedFiles: GitStatusFile[];
   unstagedFiles: GitStatusFile[];
@@ -6346,6 +6385,8 @@ function StatusView({
   onDownloadImage: () => void;
   onApplyHunk: (patch: string) => void;
   onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind) => void;
+  onUpdateSubmodules: (path?: string) => void;
+  onSyncSubmodules: () => void;
 }): ReactNode {
   const stagedSelectionPaths = selection?.side === "staged" ? getSelectionPaths(selection) : [];
   const unstagedSelectionPaths = selection?.side === "unstaged" ? getSelectionPaths(selection) : [];
@@ -6373,6 +6414,12 @@ function StatusView({
             disabled={disabled}
             actions={
               <>
+                {(summary?.submodules?.length ?? 0) > 0 ? (
+                  <>
+                    <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={onSyncSubmodules}>Sync URLs</Button>
+                    <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => onUpdateSubmodules()}>Update All</Button>
+                  </>
+                ) : null}
                 <Button
                   type="button"
                   variant="outline"
@@ -6417,8 +6464,8 @@ function StatusView({
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled={disabled || unstagedFiles.length === 0}
-                  onClick={() => onStageFiles(unstagedFiles.map((file) => file.path))}
+                  disabled={disabled || !unstagedFiles.some(canStageStatusFile)}
+                  onClick={() => onStageFiles(unstagedFiles.filter(canStageStatusFile).map((file) => file.path))}
                 >
                   Stage All
                 </Button>
@@ -6426,11 +6473,11 @@ function StatusView({
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled={disabled || unstagedSelectionPaths.length === 0}
+                  disabled={disabled || unstagedSelectionPaths.length === 0 || !unstagedSelectionPaths.some((path) => unstagedFiles.find((file) => file.path === path && canStageStatusFile(file)))}
                   onClick={() => {
                     if (selection?.side === "unstaged" && unstagedSelectionPaths.length > 0) {
                       onStageFiles(
-                        unstagedSelectionPaths,
+                        unstagedSelectionPaths.filter((path) => unstagedFiles.find((file) => file.path === path && canStageStatusFile(file))),
                         createFileSelection("staged", unstagedSelectionPaths, selection.path, selection.anchorPath)
                       );
                     }
@@ -6473,7 +6520,7 @@ function StatusView({
   );
 }
 
-type ContextActionKind = "open" | "show" | "copy" | "toggle-stage" | "delete" | "revert" | "ignore";
+type ContextActionKind = "open" | "show" | "copy" | "toggle-stage" | "delete" | "revert" | "ignore" | "update-submodule";
 type CommitContextActionKind = "tag" | "reset" | "revert" | "copy";
 type CommitFileContextActionKind = "log" | "blame" | "reset" | "open-current" | "open-selected" | "copy";
 
@@ -6590,7 +6637,7 @@ function FileRow({
       <ContextMenuContent className="w-52">
         <ContextMenuItem disabled={disabled || deleted} onSelect={() => onContextAction(file, side, "open")}>
           <ExternalLink />
-          Open
+          {file.submodule ? "Open Submodule" : "Open"}
         </ContextMenuItem>
         <ContextMenuItem disabled={disabled} onSelect={() => onContextAction(file, side, "show")}>
           <MapPinned />
@@ -6600,24 +6647,32 @@ function FileRow({
           <Clipboard />
           Copy Path
         </ContextMenuItem>
-        <ContextMenuSeparator />
+        {file.submodule ? (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem disabled={disabled} onSelect={() => onContextAction(file, side, "update-submodule")}>
+              <RefreshCw />
+              Initialize / Update
+            </ContextMenuItem>
+          </>
+        ) : <ContextMenuSeparator />}
         <ContextMenuItem disabled={disabled} onSelect={() => onContextAction(file, side, "toggle-stage")}>
           <Save />
           {actionLabel}
         </ContextMenuItem>
-        <ContextMenuItem variant="destructive" disabled={disabled} onSelect={() => onContextAction(file, side, "delete")}>
+        {!file.submodule ? <ContextMenuItem variant="destructive" disabled={disabled} onSelect={() => onContextAction(file, side, "delete")}>
           <Trash2 />
           Delete
-        </ContextMenuItem>
-        <ContextMenuItem disabled={disabled} onSelect={() => onContextAction(file, side, "revert")}>
+        </ContextMenuItem> : null}
+        {!file.submodule ? <ContextMenuItem disabled={disabled} onSelect={() => onContextAction(file, side, "revert")}>
           <RotateCcw />
           Revert changes
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem disabled={disabled || deleted} onSelect={() => onContextAction(file, side, "ignore")}>
+        </ContextMenuItem> : null}
+        {!file.submodule ? <ContextMenuSeparator /> : null}
+        {!file.submodule ? <ContextMenuItem disabled={disabled || deleted} onSelect={() => onContextAction(file, side, "ignore")}>
           <FileCode2 />
           Add to ignore
-        </ContextMenuItem>
+        </ContextMenuItem> : null}
       </ContextMenuContent>
     </ContextMenu>
   );
@@ -7035,6 +7090,7 @@ function WorkflowRunsView({
         )}
         <GitHubListFooter label="workflow runs" nextPage={nextPage} loading={loadingMore} error={workflowRuns.length ? error : ""} disabled={busy} onLoadMore={onLoadMore} />
       </div>
+
     </section>
   );
 }
@@ -9995,6 +10051,10 @@ function getUnstagedFiles(summary: RepoSummary | null): GitStatusFile[] {
 
 function getFilesForSide(summary: RepoSummary | null, side: GitDiffSide): GitStatusFile[] {
   return side === "staged" ? getStagedFiles(summary) : getUnstagedFiles(summary);
+}
+
+function canStageStatusFile(file: GitStatusFile): boolean {
+  return file.submodule?.canStage !== false;
 }
 
 function RemoteFact({ remotes, disabled, onManage }: { remotes: string; disabled: boolean; onManage: () => void }): ReactNode {

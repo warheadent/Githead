@@ -54,6 +54,7 @@ import type {
   GitRunRequest,
   GitSafeDirectoryRequest,
   GitSetRemoteUrlRequest,
+  GitSubmoduleRequest,
   GitUpstreamRequest
 } from "../shared/types";
 import { AiCliStatusService } from "./aiCliStatusService";
@@ -765,6 +766,14 @@ ipcMain.handle(IPC_CHANNELS.runConfiguredAction, async (_event, request: GitConf
 
   const service = await vcsRouter.serviceForRepo(request.repoPath);
   return service.runConfiguredAction(request, sendGitOutput);
+});
+
+ipcMain.handle(IPC_CHANNELS.updateSubmodules, async (_event, request: GitSubmoduleRequest) => {
+  return runExclusiveGitOperation(() => gitService.updateSubmodules(request), request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.syncSubmodules, async (_event, request: GitSubmoduleRequest) => {
+  return runExclusiveGitOperation(() => gitService.syncSubmodules(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.saveConfiguredActions, async (_event, request: GitConfiguredActionSaveRequest) => {

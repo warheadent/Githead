@@ -52,6 +52,8 @@ import type {
   GitSetRemoteUrlRequest,
   RepoSyncStatus,
   GitStatusFile,
+  GitSubmodule,
+  GitSubmoduleRequest,
   GitUpstreamRequest,
   GitHubRepository,
   RepoSummary
@@ -185,6 +187,7 @@ export class GitService {
       ])
     ]);
     const status = parsePorcelainStatus(statusResult.stdout);
+    const submodules = await this.getSubmodules(repoPath, status.files);
     const branch = branchResult.stdout.trim() || null;
     const remotes = parseRemotes(remoteResult.stdout);
     const actionsConfig = rootResult.exitCode === 0
@@ -217,6 +220,7 @@ export class GitService {
       githubRepository: getSupportedGitHubOrigin(remotes),
       statusLines: status.statusLines,
       files: status.files,
+      submodules,
       actionsConfig,
       safeDirectory: null,
       validationErrors: []
@@ -369,6 +373,12 @@ export class GitService {
             String(validation.depth)
           ]
         : []),
+      ...(request.recurseSubmodules
+        ? [
+            "--recurse-submodules",
+            ...(validation.depth ? ["--shallow-submodules"] : [])
+          ]
+        : []),
       "--",
       validation.source,
       validation.destinationPath
@@ -477,15 +487,27 @@ export class GitService {
       ? await this.runGit(request.repoPath, [
         "diff",
         "--cached",
+        "--submodule=short",
         "--no-color",
         "--no-ext-diff",
         "--no-textconv",
         "--",
         request.path
       ])
-      : await this.getUnstagedDiff(request.repoPath, request.path);
+      : await this.getUnstagedDiff(request.repoPath, request.path, true);
 
     const normalized = normalizeDiffResult(request, diffResult);
+    if (normalized.kind === "empty") {
+      const status = (await this.getStatusFiles(request.repoPath, [request.path]))[0];
+      if (status?.submodule && (status.submodule.trackedChanges || status.submodule.untrackedChanges)) {
+        return {
+          path: request.path,
+          side: request.side,
+          kind: "text",
+          text: "This submodule contains internal working-tree changes. Open the submodule repository to inspect, stage, or commit them."
+        };
+      }
+    }
     return (normalized.kind === "binary" || (normalized.kind === "text" && isGitLfsPointerDiff(normalized.text))) && isPreviewableImagePath(request.path) && this.runner.runBinary
       ? await this.getWorkingImageDiff(request)
       : normalized;
@@ -676,11 +698,16 @@ export class GitService {
       return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
     }
 
-    const paths = sanitizePaths(request.paths);
+    let paths = sanitizePaths(request.paths);
     if (paths.length === 0) {
       return this.createOperationFailure(request.repoPath, "Select at least one file to stage.");
     }
 
+    const statuses = await this.getStatusFiles(request.repoPath, paths);
+    paths = paths.filter((_path, index) => statuses[index]?.submodule?.canStage !== false);
+    if (paths.length === 0) {
+      return this.createOperationFailure(request.repoPath, "Internal submodule changes must be staged from the submodule repository.");
+    }
     return this.runGitOperation(request.repoPath, [
       "add",
       "--pathspec-from-file=-",
@@ -960,6 +987,70 @@ export class GitService {
       `--set-upstream-to=${upstream}`,
       branchResult.branchName
     ]);
+  }
+
+  async updateSubmodules(request: GitSubmoduleRequest): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+    }
+    const pathArgs = request.path ? ["--", request.path] : [];
+    const result = await this.runGit(request.repoPath, [
+      "submodule", "update", "--init", "--recursive", ...pathArgs
+    ]);
+    return {
+      repoPath: request.repoPath, exitCode: result.exitCode,
+      stdout: result.stdout || (result.exitCode === 0 ? "Submodules updated." : ""),
+      stderr: result.error ? `${result.stderr}${result.error}` : result.stderr
+    };
+  }
+
+  async syncSubmodules(request: GitSubmoduleRequest): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+    }
+    const pathArgs = request.path ? ["--", request.path] : [];
+    const result = await this.runGit(request.repoPath, ["submodule", "sync", "--recursive", ...pathArgs]);
+    return {
+      repoPath: request.repoPath, exitCode: result.exitCode,
+      stdout: result.stdout || (result.exitCode === 0 ? "Submodule URLs synchronized." : ""),
+      stderr: result.error ? `${result.stderr}${result.error}` : result.stderr
+    };
+  }
+
+  private async getSubmodules(repoPath: string, files: GitStatusFile[]): Promise<GitSubmodule[]> {
+    let configText: string;
+    try {
+      configText = await fs.readFile(path.join(repoPath, ".gitmodules"), "utf8");
+    } catch {
+      return [];
+    }
+    const [statusResult, gitlinksResult] = await Promise.all([
+      this.runGit(repoPath, ["submodule", "status", "--recursive"]),
+      this.runGit(repoPath, ["ls-files", "--stage", "-z"])
+    ]);
+    const configured = parseSubmoduleConfig(configText);
+    const statuses = parseSubmoduleStatuses(statusResult.stdout);
+    const recordedCommits = parseGitlinkCommits(gitlinksResult.stdout);
+    const paths = new Set([...configured.values()].map((entry) => entry.path).filter(Boolean));
+    for (const submodulePath of statuses.keys()) paths.add(submodulePath);
+    const submodules: GitSubmodule[] = [];
+    for (const submodulePath of paths) {
+      const status = statuses.get(submodulePath);
+      const file = files.find((candidate) => candidate.path === submodulePath);
+      if (file?.submodule) file.submodule.initialized = status?.initialized ?? false;
+      const config = [...configured.values()].find((entry) => entry.path === submodulePath);
+      submodules.push({
+        path: submodulePath,
+        url: config?.url ?? "",
+        recordedCommit: recordedCommits.get(submodulePath) ?? status?.recordedCommit ?? null,
+        checkedOutCommit: status?.checkedOutCommit ?? null,
+        initialized: status?.initialized ?? false,
+        status: !status?.initialized ? "uninitialized" : file?.isConflicted ? "conflicted" : file?.submodule?.untrackedChanges ? "untracked" : file?.submodule?.trackedChanges || file?.submodule?.commitChanged ? "modified" : "clean"
+      });
+    }
+    return submodules.sort((left, right) => left.path.localeCompare(right.path));
   }
 
   async renameBranch(request: GitRenameBranchRequest): Promise<GitOperationResult> {
@@ -1788,7 +1879,7 @@ export class GitService {
     ], options);
   }
 
-  private async getUnstagedDiff(repoPath: string, filePath: string): Promise<ProcessResult> {
+  private async getUnstagedDiff(repoPath: string, filePath: string, submoduleShort = false): Promise<ProcessResult> {
     const statusResult = await this.runGit(repoPath, [
       "status",
       "--porcelain=v2",
@@ -1819,6 +1910,7 @@ export class GitService {
 
     return this.runGit(repoPath, [
       "diff",
+      ...(submoduleShort ? ["--submodule=short"] : []),
       "--no-color",
       "--no-ext-diff",
       "--no-textconv",
@@ -2693,7 +2785,7 @@ function splitAtFirst(text: string, separator: string): [string, string] {
   ];
 }
 
-function parsePorcelainStatus(text: string): { files: GitStatusFile[]; statusLines: string[] } {
+export function parsePorcelainStatus(text: string): { files: GitStatusFile[]; statusLines: string[] } {
   const records = text.split("\0").filter((record) => record.length > 0);
   const files: GitStatusFile[] = [];
   const branchLines: string[] = [];
@@ -2715,7 +2807,7 @@ function parsePorcelainStatus(text: string): { files: GitStatusFile[]; statusLin
     if (record.startsWith("1 ")) {
       const parsed = parseTrackedRecord(record, 8);
       if (parsed) {
-        files.push(createStatusFile(parsed.path, parsed.indexStatus, parsed.worktreeStatus, false));
+        files.push(createStatusFile(parsed.path, parsed.indexStatus, parsed.worktreeStatus, false, undefined, parsed.submodule));
       }
       continue;
     }
@@ -2724,7 +2816,7 @@ function parsePorcelainStatus(text: string): { files: GitStatusFile[]; statusLin
       const parsed = parseTrackedRecord(record, 9);
       const originalPath = records[index + 1];
       if (parsed) {
-        files.push(createStatusFile(parsed.path, parsed.indexStatus, parsed.worktreeStatus, false, originalPath));
+        files.push(createStatusFile(parsed.path, parsed.indexStatus, parsed.worktreeStatus, false, originalPath, parsed.submodule));
       }
       index += 1;
       continue;
@@ -2733,7 +2825,7 @@ function parsePorcelainStatus(text: string): { files: GitStatusFile[]; statusLin
     if (record.startsWith("u ")) {
       const parsed = parseTrackedRecord(record, 9);
       if (parsed) {
-        files.push(createStatusFile(parsed.path, parsed.indexStatus, parsed.worktreeStatus, true));
+        files.push(createStatusFile(parsed.path, parsed.indexStatus, parsed.worktreeStatus, true, undefined, parsed.submodule));
       }
     }
   }
@@ -2873,7 +2965,7 @@ function parseRemoteBranches(text: string, remotes: GitRemote[]): GitRemoteBranc
 function parseTrackedRecord(
   record: string,
   pathFieldIndex: number
-): { indexStatus: string; worktreeStatus: string; path: string } | null {
+): { indexStatus: string; worktreeStatus: string; path: string; submodule: string } | null {
   const fields = record.split(" ");
   const xy = fields[1];
   const path = fields.slice(pathFieldIndex).join(" ");
@@ -2885,6 +2977,7 @@ function parseTrackedRecord(
   return {
     indexStatus: xy[0] ?? ".",
     worktreeStatus: xy[1] ?? ".",
+    submodule: fields[2] ?? "N...",
     path
   };
 }
@@ -2894,8 +2987,13 @@ function createStatusFile(
   indexStatus: string,
   worktreeStatus: string,
   isConflicted: boolean,
-  originalPath?: string
+  originalPath?: string,
+  submoduleCode = "N..."
 ): GitStatusFile {
+  const isSubmodule = submoduleCode.startsWith("S");
+  const commitChanged = isSubmodule && submoduleCode[1] === "C";
+  const trackedChanges = isSubmodule && submoduleCode[2] === "M";
+  const untrackedChanges = isSubmodule && submoduleCode[3] === "U";
   return {
     path,
     ...(originalPath ? { originalPath } : {}),
@@ -2903,8 +3001,62 @@ function createStatusFile(
     worktreeStatus,
     isStaged: isConflicted || (indexStatus !== "." && indexStatus !== "?"),
     isUnstaged: isConflicted || worktreeStatus !== "." || indexStatus === "?",
-    isConflicted
+    isConflicted,
+    ...(isSubmodule ? { submodule: {
+      commitChanged,
+      trackedChanges,
+      untrackedChanges,
+      initialized: true,
+      canStage: commitChanged || indexStatus !== ".",
+      canUnstage: indexStatus !== "."
+    } } : {})
   };
+}
+
+function parseSubmoduleConfig(text: string): Map<string, { path: string; url: string }> {
+  const entries = new Map<string, { path: string; url: string }>();
+  let currentName = "";
+  for (const line of splitLines(text)) {
+    const section = /^\s*\[submodule\s+"(.+)"\]\s*$/.exec(line);
+    if (section) {
+      currentName = section[1] ?? "";
+      entries.set(currentName, entries.get(currentName) ?? { path: "", url: "" });
+      continue;
+    }
+    const property = /^\s*(path|url)\s*=\s*(.*)$/.exec(line);
+    if (!currentName || !property) continue;
+    const entry = entries.get(currentName) ?? { path: "", url: "" };
+    if (property[1] === "path") entry.path = property[2]?.trim() ?? "";
+    else entry.url = property[2]?.trim() ?? "";
+    entries.set(currentName, entry);
+  }
+  return entries;
+}
+
+function parseSubmoduleStatuses(text: string): Map<string, { initialized: boolean; recordedCommit: string | null; checkedOutCommit: string | null }> {
+  const statuses = new Map<string, { initialized: boolean; recordedCommit: string | null; checkedOutCommit: string | null }>();
+  for (const line of splitLines(text)) {
+    const match = /^([-+ U])([0-9a-f]{40,64})\s+(.+?)(?:\s+\(.+\))?$/.exec(line);
+    if (!match) continue;
+    const marker = match[1] ?? " ";
+    const commit = match[2] ?? null;
+    const submodulePath = match[3] ?? "";
+    statuses.set(submodulePath, {
+      initialized: marker !== "-",
+      recordedCommit: marker === "+" ? null : commit,
+      checkedOutCommit: marker === "-" ? null : commit
+    });
+  }
+  return statuses;
+}
+
+function parseGitlinkCommits(text: string): Map<string, string> {
+  const commits = new Map<string, string>();
+  for (const record of text.split("\0")) {
+    const match = /^160000\s+([0-9a-f]{40,64})\s+\d+\t(.+)$/.exec(record);
+    if (match?.[1] && match[2]) commits.set(match[2], match[1]);
+  }
+  return commits;
 }
 
 function normalizeDiffResult(request: GitFileDiffRequest, result: ProcessResult): GitFileDiff {

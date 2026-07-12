@@ -173,6 +173,25 @@ export interface GitStatusFile {
   isStaged: boolean;
   isUnstaged: boolean;
   isConflicted: boolean;
+  submodule?: GitSubmoduleFileState;
+}
+
+export interface GitSubmoduleFileState {
+  commitChanged: boolean;
+  trackedChanges: boolean;
+  untrackedChanges: boolean;
+  initialized: boolean;
+  canStage: boolean;
+  canUnstage: boolean;
+}
+
+export interface GitSubmodule {
+  path: string;
+  url: string;
+  recordedCommit: string | null;
+  checkedOutCommit: string | null;
+  initialized: boolean;
+  status: "clean" | "modified" | "untracked" | "conflicted" | "uninitialized" | "missing";
 }
 
 export type VcsKind = "git" | "lore";
@@ -254,6 +273,7 @@ export interface RepoSummary {
   githubRepository: GitHubRepository | null;
   statusLines: string[];
   files: GitStatusFile[];
+  submodules?: GitSubmodule[];
   validationErrors: string[];
   safeDirectory: GitSafeDirectoryInfo | null;
   actionsConfig: GitActionsConfig;
@@ -503,6 +523,12 @@ export interface GitCloneRequest {
   directoryName: string;
   branchName?: string;
   depth?: number | null;
+  recurseSubmodules?: boolean;
+}
+
+export interface GitSubmoduleRequest {
+  repoPath: string;
+  path?: string;
 }
 
 export interface GitRepositoryAccessCheckRequest {
@@ -996,6 +1022,8 @@ export interface GitheadApi {
   revertFileChanges(request: GitFileChangesRequest): Promise<GitOperationResult>;
   addPathToIgnore(request: GitIgnorePathRequest): Promise<GitOperationResult>;
   cloneRepository(request: GitCloneRequest): Promise<GitOperationResult>;
+  updateSubmodules(request: GitSubmoduleRequest): Promise<GitOperationResult>;
+  syncSubmodules(request: GitSubmoduleRequest): Promise<GitOperationResult>;
   checkRepositoryAccess(request: GitRepositoryAccessCheckRequest): Promise<GitRepositoryAccessCheckResult>;
   runGitAction(request: GitRunRequest): Promise<GitRunResult>;
   runConfiguredAction(request: GitConfiguredActionRunRequest): Promise<GitRunResult>;

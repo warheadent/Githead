@@ -49,6 +49,7 @@ import type {
   GitRunRequest,
   GitSafeDirectoryRequest,
   GitSetRemoteUrlRequest,
+  GitSubmoduleRequest,
   GitUpstreamRequest,
   GitheadApi,
   AppUpdateState,
@@ -201,6 +202,10 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.addPathToIgnore, request) as ReturnType<GitheadApi["addPathToIgnore"]>,
   cloneRepository: (request: GitCloneRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.cloneRepository, request) as ReturnType<GitheadApi["cloneRepository"]>,
+  updateSubmodules: (request: GitSubmoduleRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.updateSubmodules, request) as ReturnType<GitheadApi["updateSubmodules"]>,
+  syncSubmodules: (request: GitSubmoduleRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.syncSubmodules, request) as ReturnType<GitheadApi["syncSubmodules"]>,
   checkRepositoryAccess: (request: GitRepositoryAccessCheckRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.checkRepositoryAccess, request) as ReturnType<GitheadApi["checkRepositoryAccess"]>,
   runGitAction: (request: GitRunRequest) =>

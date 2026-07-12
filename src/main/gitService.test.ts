@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ProcessResult, ProcessRunOptions, ProcessRunner } from "./processRunner";
-import { createTerminalColorEnv, GitService } from "./gitService";
+import { createTerminalColorEnv, GitService, parsePorcelainStatus } from "./gitService";
 
 interface RunnerCall {
   command: string;
@@ -159,6 +159,34 @@ function repoSummaryResults(repoRoot: string): ProcessResult[] {
 }
 
 describe("GitService", () => {
+  it("parses porcelain v2 submodule commit and dirty flags", () => {
+    const parsed = parsePorcelainStatus([
+      `1 .M S.MU 160000 160000 160000 ${oid} ${oid} vendor/engine`,
+      ""
+    ].join("\0"));
+
+    expect(parsed.files[0]).toMatchObject({
+      path: "vendor/engine",
+      isUnstaged: true,
+      submodule: {
+        commitChanged: false,
+        trackedChanges: true,
+        untrackedChanges: true,
+        canStage: false
+      }
+    });
+  });
+
+  it("runs recursive recorded-commit submodule lifecycle commands", async () => {
+    const runner = new FakeRunner([ok("true\n"), ok(), ok("true\n"), ok()]);
+    const service = new GitService(runner);
+
+    await expect(service.updateSubmodules({ repoPath: "D:\\Repo", path: "vendor/engine" })).resolves.toMatchObject({ exitCode: 0 });
+    await expect(service.syncSubmodules({ repoPath: "D:\\Repo" })).resolves.toMatchObject({ exitCode: 0 });
+    expect(runner.calls[1]?.args).toEqual(["-C", "D:\\Repo", "submodule", "update", "--init", "--recursive", "--", "vendor/engine"]);
+    expect(runner.calls[3]?.args).toEqual(["-C", "D:\\Repo", "submodule", "sync", "--recursive"]);
+  });
+
   it("creates terminal color env with sensible defaults", () => {
     expect(createTerminalColorEnv({})).toMatchObject({
       FORCE_COLOR: "1",
@@ -1598,6 +1626,7 @@ describe("GitService", () => {
   it("stages selected files with NUL-delimited pathspec stdin", async () => {
     const runner = new FakeRunner([
       ok("true\n"),
+      ok(),
       ok()
     ]);
     const service = new GitService(runner);
@@ -2771,6 +2800,7 @@ describe("GitService", () => {
       "D:\\Repo",
       "diff",
       "--cached",
+      "--submodule=short",
       "--no-color",
       "--no-ext-diff",
       "--no-textconv",
@@ -2801,6 +2831,7 @@ describe("GitService", () => {
       "-C",
       "D:\\Repo",
       "diff",
+      "--submodule=short",
       "--no-color",
       "--no-ext-diff",
       "--no-textconv",

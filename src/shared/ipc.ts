@@ -71,6 +71,8 @@ export const IPC_CHANNELS = {
   revertFileChanges: "git:revert-file",
   addPathToIgnore: "git:add-ignore",
   cloneRepository: "git:clone",
+  updateSubmodules: "git:submodules-update",
+  syncSubmodules: "git:submodules-sync",
   checkRepositoryAccess: "git:repository-access-check",
   runGitAction: "git:run",
   runConfiguredAction: "git:configured-action-run",

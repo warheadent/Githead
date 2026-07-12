@@ -6,7 +6,7 @@ A lightweight desktop GUI, built with Electron and React.
 
 Our team needed a faster GUI for working with Git on game development projects. Our preferred tooling at the time was [SourceTree](https://www.sourcetreeapp.com/) but it's featureset and performance has fallen behind in recent years. This project is our attempt to make a Git GUI client that focuses in on what we actually need an interface for, and adds in some other tools to reduce constant context switching.
 
-This is early development, and only tested on a handful of git repositories. This has not been tested on repositories that make use of worktrees, or submodules, or git hooks. This is purpose-built software that will be expanded over time as we get bored and have additional needs, but do not moke any guarantees of data integrity for all workloads.
+This is early development and has only been tested on a handful of repositories. Worktrees and Git hooks still need broader testing. This is purpose-built software that will expand over time, but it does not guarantee data integrity for every workload.
 
 ## Features
 
@@ -19,6 +19,7 @@ This is early development, and only tested on a handful of git repositories. Thi
 - **Remote management** — add, rename, edit, inspect, and remove Git remotes from the repository sidebar.
 - **GitHub insight** — when `origin` is a GitHub remote, view recent **Workflow Runs**, open **Pull Requests**, and open **Issues**.
 - **Live updates** — the repository is watched on disk, so the UI refreshes automatically when files change.
+- **Git submodules** — inspect gitlink and dirty states, open submodules as independent repositories, recursively initialize/update them, synchronize URLs, and clone recursively.
 - **Lore support** - Early support for new VCS (https://github.com/EpicGames/lore) - requires Lore CLI installed.
 
 ## Current Gaps
@@ -28,7 +29,6 @@ This is early development, and only tested on a handful of git repositories. Thi
 - Some cursed layout sizing issues on smaller screens or extreme circumstances (huge commit messages)
 - Some UI/UX oddities that are "good enough functionally" but not great
 - Need to support a lot of different settings and configurations
-- Submodule interaction not working as expected
 - Github integration is extremely basic (needs filtering, more intelligent linking with PRs/Issues in commits)
 - AI Commit Message defaults could be better tuned to reduce on noise
 - Can't stage/unstage individual lines, yet

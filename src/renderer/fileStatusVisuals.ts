@@ -58,6 +58,15 @@ export function getStatusLabel(tone: FileStatusTone): string {
 }
 
 export function getFileStatusVisuals(file: GitStatusFile, side: GitDiffSide): FileStatusVisuals {
+  if (file.submodule) {
+    const details = [
+      file.submodule.commitChanged ? "recorded commit changed" : "",
+      file.submodule.trackedChanges ? "contains modified files" : "",
+      file.submodule.untrackedChanges ? "contains untracked files" : "",
+      !file.submodule.initialized ? "not initialized" : ""
+    ].filter(Boolean).join(", ");
+    return { code: "SM", tone: file.isConflicted ? "conflict" : "modified", label: `Submodule${details ? `: ${details}` : ""}` };
+  }
   const code = getFileStatusCode(file, side);
   const tone = getStatusTone(code, file.isConflicted);
 

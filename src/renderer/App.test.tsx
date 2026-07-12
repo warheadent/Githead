@@ -4265,7 +4265,8 @@ describe("App", () => {
         parentPath: "D:\\Work",
         directoryName: "repo",
         branchName: "",
-        depth: null
+        depth: null,
+        recurseSubmodules: true
       });
     });
     await waitForRepositoryWorkspace();
@@ -4318,7 +4319,8 @@ describe("App", () => {
         parentPath: "D:\\Work",
         directoryName: "repo",
         branchName: "main",
-        depth: 1
+        depth: 1,
+        recurseSubmodules: true
       });
     });
   });
@@ -4514,7 +4516,8 @@ describe("App", () => {
         parentPath: "D:\\Work",
         directoryName: "repo",
         branchName: "",
-        depth: null
+        depth: null,
+        recurseSubmodules: true
       });
     });
     await waitFor(() => {
@@ -5348,6 +5351,8 @@ function createGitheadMock(): GitheadApi {
     revertFileChanges: vi.fn().mockResolvedValue(okOperation),
     addPathToIgnore: vi.fn().mockResolvedValue(okOperation),
     cloneRepository: vi.fn().mockResolvedValue(okOperation),
+    updateSubmodules: vi.fn().mockResolvedValue(okOperation),
+    syncSubmodules: vi.fn().mockResolvedValue(okOperation),
     checkRepositoryAccess: vi.fn().mockResolvedValue({
       source: "",
       exitCode: 0,
