@@ -6,7 +6,8 @@ import {
   AppSettingsService,
   DEFAULT_APPEARANCE_MODE,
   DEFAULT_AUTO_FETCH_INTERVAL_MINUTES,
-  DEFAULT_COLOR_THEME
+  DEFAULT_COLOR_THEME,
+  DEFAULT_ZOOM_FACTOR
 } from "./appSettingsService";
 
 async function withTempDir<T>(callback: (dir: string) => Promise<T>): Promise<T> {
@@ -30,7 +31,8 @@ describe("AppSettingsService", () => {
       await expect(service.getSettings()).resolves.toEqual({
         autoFetchIntervalMinutes: DEFAULT_AUTO_FETCH_INTERVAL_MINUTES,
         colorTheme: DEFAULT_COLOR_THEME,
-        appearanceMode: DEFAULT_APPEARANCE_MODE
+        appearanceMode: DEFAULT_APPEARANCE_MODE,
+        zoomFactor: DEFAULT_ZOOM_FACTOR
       });
     });
   });
@@ -42,17 +44,20 @@ describe("AppSettingsService", () => {
       await expect(service.saveSettings({
         autoFetchIntervalMinutes: 15,
         colorTheme: "tidepool",
-        appearanceMode: "dark"
+        appearanceMode: "dark",
+        zoomFactor: 1.25
       })).resolves.toEqual({
         autoFetchIntervalMinutes: 15,
         colorTheme: "tidepool",
-        appearanceMode: "dark"
+        appearanceMode: "dark",
+        zoomFactor: 1.25
       });
 
       await expect(new AppSettingsService(dir).getSettings()).resolves.toEqual({
         autoFetchIntervalMinutes: 15,
         colorTheme: "tidepool",
-        appearanceMode: "dark"
+        appearanceMode: "dark",
+        zoomFactor: 1.25
       });
     });
   });
@@ -64,11 +69,13 @@ describe("AppSettingsService", () => {
       await expect(service.saveSettings({
         autoFetchIntervalMinutes: 0,
         colorTheme: "githead",
-        appearanceMode: "system"
+        appearanceMode: "system",
+        zoomFactor: 1
       })).resolves.toEqual({
         autoFetchIntervalMinutes: 0,
         colorTheme: "githead",
-        appearanceMode: "system"
+        appearanceMode: "system",
+        zoomFactor: 1
       });
     });
   });
@@ -80,7 +87,8 @@ describe("AppSettingsService", () => {
       await expect(service.saveSettings({
         autoFetchIntervalMinutes: -1,
         colorTheme: "githead",
-        appearanceMode: "system"
+        appearanceMode: "system",
+        zoomFactor: 1
       })).rejects.toThrow("Auto-fetch interval cannot be negative.");
     });
   });
@@ -92,7 +100,8 @@ describe("AppSettingsService", () => {
       await expect(service.saveSettings({
         autoFetchIntervalMinutes: 1441,
         colorTheme: "githead",
-        appearanceMode: "system"
+        appearanceMode: "system",
+        zoomFactor: 1
       })).rejects.toThrow("Auto-fetch interval cannot exceed 1440 minutes.");
     });
   });
@@ -106,7 +115,8 @@ describe("AppSettingsService", () => {
       await expect(service.getSettings()).resolves.toEqual({
         autoFetchIntervalMinutes: DEFAULT_AUTO_FETCH_INTERVAL_MINUTES,
         colorTheme: DEFAULT_COLOR_THEME,
-        appearanceMode: DEFAULT_APPEARANCE_MODE
+        appearanceMode: DEFAULT_APPEARANCE_MODE,
+        zoomFactor: DEFAULT_ZOOM_FACTOR
       });
 
       await fs.writeFile(settingsPath, JSON.stringify({
@@ -115,7 +125,8 @@ describe("AppSettingsService", () => {
       await expect(service.getSettings()).resolves.toEqual({
         autoFetchIntervalMinutes: DEFAULT_AUTO_FETCH_INTERVAL_MINUTES,
         colorTheme: DEFAULT_COLOR_THEME,
-        appearanceMode: DEFAULT_APPEARANCE_MODE
+        appearanceMode: DEFAULT_APPEARANCE_MODE,
+        zoomFactor: DEFAULT_ZOOM_FACTOR
       });
 
       await fs.writeFile(settingsPath, JSON.stringify({
@@ -124,7 +135,8 @@ describe("AppSettingsService", () => {
       await expect(service.getSettings()).resolves.toEqual({
         autoFetchIntervalMinutes: DEFAULT_AUTO_FETCH_INTERVAL_MINUTES,
         colorTheme: DEFAULT_COLOR_THEME,
-        appearanceMode: DEFAULT_APPEARANCE_MODE
+        appearanceMode: DEFAULT_APPEARANCE_MODE,
+        zoomFactor: DEFAULT_ZOOM_FACTOR
       });
     });
   });
@@ -139,7 +151,8 @@ describe("AppSettingsService", () => {
       await expect(new AppSettingsService(dir).getSettings()).resolves.toEqual({
         autoFetchIntervalMinutes: 20,
         colorTheme: DEFAULT_COLOR_THEME,
-        appearanceMode: DEFAULT_APPEARANCE_MODE
+        appearanceMode: DEFAULT_APPEARANCE_MODE,
+        zoomFactor: DEFAULT_ZOOM_FACTOR
       });
     });
   });
@@ -150,7 +163,8 @@ describe("AppSettingsService", () => {
       await expect(service.saveSettings({
         autoFetchIntervalMinutes: 10,
         colorTheme: "unknown" as "githead",
-        appearanceMode: "system"
+        appearanceMode: "system",
+        zoomFactor: 1
       })).rejects.toThrow("Unknown color theme.");
     });
   });
@@ -160,20 +174,45 @@ describe("AppSettingsService", () => {
       await fs.writeFile(path.join(dir, "app-settings.json"), JSON.stringify({
         autoFetchIntervalMinutes: 10,
         colorTheme: "orchid",
-        appearanceMode: "sepia"
+        appearanceMode: "sepia",
+        zoomFactor: 99
       }), "utf8");
       const service = new AppSettingsService(dir);
 
       await expect(service.getSettings()).resolves.toEqual({
         autoFetchIntervalMinutes: 10,
         colorTheme: "orchid",
-        appearanceMode: DEFAULT_APPEARANCE_MODE
+        appearanceMode: DEFAULT_APPEARANCE_MODE,
+        zoomFactor: DEFAULT_ZOOM_FACTOR
       });
       await expect(service.saveSettings({
         autoFetchIntervalMinutes: 10,
         colorTheme: "orchid",
-        appearanceMode: "sepia" as "system"
+        appearanceMode: "sepia" as "system",
+        zoomFactor: 1
       })).rejects.toThrow("Unknown appearance mode.");
+    });
+  });
+
+  it("defaults invalid stored zoom factors and rejects unsupported factors on save", async () => {
+    await withTempDir(async (dir) => {
+      await fs.writeFile(path.join(dir, "app-settings.json"), JSON.stringify({
+        autoFetchIntervalMinutes: 10,
+        colorTheme: "githead",
+        appearanceMode: "system",
+        zoomFactor: 1.2
+      }), "utf8");
+      const service = new AppSettingsService(dir);
+
+      await expect(service.getSettings()).resolves.toMatchObject({
+        zoomFactor: DEFAULT_ZOOM_FACTOR
+      });
+      await expect(service.saveSettings({
+        autoFetchIntervalMinutes: 10,
+        colorTheme: "githead",
+        appearanceMode: "system",
+        zoomFactor: 1.2
+      })).rejects.toThrow("Unsupported interface scale.");
     });
   });
 });

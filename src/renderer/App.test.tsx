@@ -3527,7 +3527,8 @@ describe("App", () => {
     vi.mocked(githead.getAppSettings).mockResolvedValue({
       autoFetchIntervalMinutes: 0,
       colorTheme: "githead",
-      appearanceMode: "system"
+      appearanceMode: "system",
+      zoomFactor: 1
     });
 
     render(<App />);
@@ -4833,7 +4834,8 @@ describe("App", () => {
     expect(githead.saveAppSettings).toHaveBeenCalledWith({
       autoFetchIntervalMinutes: 10,
       colorTheme: "githead",
-      appearanceMode: "system"
+      appearanceMode: "system",
+      zoomFactor: 1
     });
   });
 
@@ -5044,7 +5046,8 @@ describe("App", () => {
       expect(githead.saveAppSettings).toHaveBeenCalledWith({
         autoFetchIntervalMinutes: 15,
         colorTheme: "githead",
-        appearanceMode: "system"
+        appearanceMode: "system",
+        zoomFactor: 1
       });
     });
   });
@@ -5080,8 +5083,42 @@ describe("App", () => {
     await waitFor(() => expect(githead.saveAppSettings).toHaveBeenCalledWith({
       autoFetchIntervalMinutes: 10,
       colorTheme: "ember",
-      appearanceMode: "light"
+      appearanceMode: "light",
+      zoomFactor: 1
     }));
+  });
+
+  it("previews, restores, and saves every notched interface scale", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("tab", { name: "Appearance" }));
+
+    const slider = screen.getByRole("slider", { name: "Interface scale" }) as HTMLInputElement;
+    expect(slider.min).toBe("0");
+    expect(slider.max).toBe("8");
+    expect(slider.step).toBe("1");
+    expect(slider.getAttribute("aria-valuetext")).toBe("100%");
+
+    const factors = [0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
+    for (const [index, factor] of factors.entries()) {
+      fireEvent.change(slider, { target: { value: String(index) } });
+      await waitFor(() => expect(githead.setWindowZoomFactor).toHaveBeenLastCalledWith(factor));
+    }
+    expect(slider.getAttribute("aria-valuetext")).toBe("200%");
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(githead.setWindowZoomFactor).toHaveBeenLastCalledWith(1));
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("tab", { name: "Appearance" }));
+    fireEvent.change(screen.getByRole("slider", { name: "Interface scale" }), { target: { value: "5" } });
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(githead.saveAppSettings).toHaveBeenCalledWith(expect.objectContaining({
+      zoomFactor: 1.25
+    })));
   });
 
   it("opens remote management from the sidebar and adds a local remote without fetching", async () => {
@@ -5180,7 +5217,8 @@ function createGitheadMock(): GitheadApi {
   const appSettings: AppSettings = {
     autoFetchIntervalMinutes: 10,
     colorTheme: "githead",
-    appearanceMode: "system"
+    appearanceMode: "system",
+    zoomFactor: 1
   };
   const gitIdentity: GitIdentitySettings = {
     scope: "repository",
@@ -5276,6 +5314,7 @@ function createGitheadMock(): GitheadApi {
     }),
     getAppSettings: vi.fn().mockResolvedValue(appSettings),
     saveAppSettings: vi.fn().mockResolvedValue(appSettings),
+    setWindowZoomFactor: vi.fn().mockResolvedValue(undefined),
     generateCommitMessage: vi.fn().mockResolvedValue(okOperation),
     generatePrTitle: vi.fn().mockResolvedValue(okOperation),
     generatePrDescription: vi.fn().mockResolvedValue(okOperation),

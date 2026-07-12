@@ -144,7 +144,7 @@ import type {
   RepoTrustResult,
   RepoSummary
 } from "../shared/types";
-import { AI_API_KEY_PROVIDERS, AI_CLI_PROVIDERS, AI_COMMIT_MESSAGE_PROVIDERS, AI_REASONING_EFFORTS, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
+import { AI_API_KEY_PROVIDERS, AI_CLI_PROVIDERS, AI_COMMIT_MESSAGE_PROVIDERS, AI_REASONING_EFFORTS, APP_ZOOM_FACTORS, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
 import { parseCommitSubject } from "../shared/commitSubject";
 import { ActivityLogView } from "./ActivityLogView";
 import { BranchManagementDialog } from "./BranchManagementDialog";
@@ -196,6 +196,7 @@ interface SettingsDraft {
   autoFetchIntervalMinutes: string;
   colorTheme: AppColorTheme;
   appearanceMode: AppAppearanceMode;
+  zoomFactor: number;
   gitIdentityName: string;
   gitIdentityEmail: string;
   gitIdentityScope: GitIdentityScope;
@@ -413,6 +414,7 @@ const emptySettingsDraft: SettingsDraft = {
   autoFetchIntervalMinutes: "10",
   colorTheme: "githead",
   appearanceMode: "system",
+  zoomFactor: 1,
   gitIdentityName: "",
   gitIdentityEmail: "",
   gitIdentityScope: "repository"
@@ -1488,7 +1490,8 @@ export function App(): ReactNode {
         appSettings: {
           autoFetchIntervalMinutes: 10,
           colorTheme: "githead",
-          appearanceMode: "system"
+          appearanceMode: "system",
+          zoomFactor: 1
         },
         lastOperationResult: {
           repoPath: current.repoPath,
@@ -3359,6 +3362,7 @@ export function App(): ReactNode {
         autoFetchIntervalMinutes: String(appSettings?.autoFetchIntervalMinutes ?? 10),
         colorTheme: appSettings?.colorTheme ?? "githead",
         appearanceMode: appSettings?.appearanceMode ?? "system",
+        zoomFactor: appSettings?.zoomFactor ?? 1,
         gitIdentityName: gitIdentity?.name ?? "",
         gitIdentityEmail: gitIdentity?.email ?? "",
         gitIdentityScope: gitIdentity?.scope ?? "repository"
@@ -3376,6 +3380,7 @@ export function App(): ReactNode {
       settingsError: ""
     });
     applyColorTheme(stateRef.current.appSettings?.colorTheme ?? "githead");
+    void window.githead.setWindowZoomFactor(stateRef.current.appSettings?.zoomFactor ?? 1).catch(() => undefined);
   }, [updateState]);
 
   const saveSettings = useCallback(async (): Promise<void> => {
@@ -3424,7 +3429,8 @@ export function App(): ReactNode {
       const appSettings = await window.githead.saveAppSettings({
         autoFetchIntervalMinutes,
         colorTheme: draft.colorTheme,
-        appearanceMode: draft.appearanceMode
+        appearanceMode: draft.appearanceMode,
+        zoomFactor: draft.zoomFactor
       });
       updateState({
         gitIdentity,
@@ -4691,6 +4697,9 @@ export function App(): ReactNode {
         }}
         onDraftChange={(settingsDraft) => {
           applyColorTheme(settingsDraft.colorTheme);
+          if (settingsDraft.zoomFactor !== stateRef.current.settingsDraft.zoomFactor) {
+            void window.githead.setWindowZoomFactor(settingsDraft.zoomFactor).catch(() => undefined);
+          }
           updateState({
             settingsDraft
           });
@@ -8792,6 +8801,46 @@ function SettingsDialog({
                     ))}
                   </div>
                 </fieldset>
+                <div className="interface-scale-setting">
+                  <div className="interface-scale-heading">
+                    <div>
+                      <label className="text-sm font-semibold" htmlFor="interface-scale">Interface scale</label>
+                      <p className="text-sm text-muted-foreground">Resize text and controls throughout Githead.</p>
+                    </div>
+                    <output className="interface-scale-value" htmlFor="interface-scale">
+                      {formatZoomFactor(draft.zoomFactor)}
+                    </output>
+                  </div>
+                  <div className="interface-scale-slider-wrap">
+                    <div className="interface-scale-notches" aria-hidden="true">
+                      {APP_ZOOM_FACTORS.map((factor) => (
+                        <span key={factor} className={factor === 1 ? "is-default" : undefined} />
+                      ))}
+                    </div>
+                    <input
+                      id="interface-scale"
+                      className="interface-scale-slider"
+                      type="range"
+                      min={0}
+                      max={APP_ZOOM_FACTORS.length - 1}
+                      step={1}
+                      value={Math.max(0, APP_ZOOM_FACTORS.indexOf(draft.zoomFactor as typeof APP_ZOOM_FACTORS[number]))}
+                      aria-valuetext={formatZoomFactor(draft.zoomFactor)}
+                      disabled={saving}
+                      onChange={(event) => {
+                        const zoomFactor = APP_ZOOM_FACTORS[Number(event.currentTarget.value)];
+                        if (zoomFactor !== undefined) {
+                          onDraftChange({ ...draft, zoomFactor });
+                        }
+                      }}
+                    />
+                  </div>
+                  <div className="interface-scale-bounds" aria-hidden="true">
+                    <span>75%</span>
+                    <span className="interface-scale-default">100% Default</span>
+                    <span>200%</span>
+                  </div>
+                </div>
                 <div>
                   <h3 className="text-sm font-semibold">Color theme</h3>
                   <p className="text-sm text-muted-foreground">Choose a palette for your selected appearance.</p>
@@ -9477,6 +9526,10 @@ function ActionShellSelect({
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+function formatZoomFactor(zoomFactor: number): string {
+  return `${Math.round(zoomFactor * 100)}%`;
 }
 
 function useAppearanceModeClass(appearanceMode: AppAppearanceMode): void {

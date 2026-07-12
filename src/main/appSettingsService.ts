@@ -1,16 +1,18 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { APP_APPEARANCE_MODES, APP_COLOR_THEMES, type AppAppearanceMode, type AppColorTheme, type AppSettings, type AppSettingsSaveRequest } from "../shared/types";
+import { APP_APPEARANCE_MODES, APP_COLOR_THEMES, isAppZoomFactor, type AppAppearanceMode, type AppColorTheme, type AppSettings, type AppSettingsSaveRequest } from "../shared/types";
 
 interface StoredAppSettings {
   autoFetchIntervalMinutes?: unknown;
   colorTheme?: unknown;
   appearanceMode?: unknown;
+  zoomFactor?: unknown;
 }
 
 export const DEFAULT_AUTO_FETCH_INTERVAL_MINUTES = 10;
 export const DEFAULT_COLOR_THEME: AppColorTheme = "githead";
 export const DEFAULT_APPEARANCE_MODE: AppAppearanceMode = "system";
+export const DEFAULT_ZOOM_FACTOR = 1;
 export const MIN_AUTO_FETCH_INTERVAL_MINUTES = 0;
 export const MAX_AUTO_FETCH_INTERVAL_MINUTES = 1440;
 
@@ -26,7 +28,8 @@ export class AppSettingsService {
     return {
       autoFetchIntervalMinutes: parseStoredInterval(stored.autoFetchIntervalMinutes),
       colorTheme: parseStoredColorTheme(stored.colorTheme),
-      appearanceMode: parseStoredAppearanceMode(stored.appearanceMode)
+      appearanceMode: parseStoredAppearanceMode(stored.appearanceMode),
+      zoomFactor: parseStoredZoomFactor(stored.zoomFactor)
     };
   }
 
@@ -34,6 +37,7 @@ export class AppSettingsService {
     const autoFetchIntervalMinutes = normalizeIntervalForSave(request.autoFetchIntervalMinutes);
     const colorTheme = normalizeColorThemeForSave(request.colorTheme);
     const appearanceMode = normalizeAppearanceModeForSave(request.appearanceMode);
+    const zoomFactor = normalizeZoomFactorForSave(request.zoomFactor);
 
     await fs.mkdir(path.dirname(this.settingsPath), {
       recursive: true
@@ -41,7 +45,8 @@ export class AppSettingsService {
     await fs.writeFile(this.settingsPath, `${JSON.stringify({
       autoFetchIntervalMinutes,
       colorTheme,
-      appearanceMode
+      appearanceMode,
+      zoomFactor
     } satisfies AppSettings, null, 2)}\n`, "utf8");
 
     return this.getSettings();
@@ -77,6 +82,18 @@ function parseStoredAppearanceMode(value: unknown): AppAppearanceMode {
 function normalizeAppearanceModeForSave(value: AppAppearanceMode): AppAppearanceMode {
   if (!APP_APPEARANCE_MODES.includes(value)) {
     throw new Error("Unknown appearance mode.");
+  }
+
+  return value;
+}
+
+function parseStoredZoomFactor(value: unknown): number {
+  return isAppZoomFactor(value) ? value : DEFAULT_ZOOM_FACTOR;
+}
+
+export function normalizeZoomFactorForSave(value: number): number {
+  if (!isAppZoomFactor(value)) {
+    throw new Error("Unsupported interface scale.");
   }
 
   return value;

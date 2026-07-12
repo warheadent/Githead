@@ -54,7 +54,7 @@ import type {
 import { AiCliStatusService } from "./aiCliStatusService";
 import { AiSettingsService } from "./aiSettingsService";
 import { AiReasoningCapabilityService } from "./aiReasoningCapabilityService";
-import { AppSettingsService } from "./appSettingsService";
+import { AppSettingsService, normalizeZoomFactorForSave } from "./appSettingsService";
 import { CommitMessageService } from "./commitMessageService";
 import { deleteFiles, getStats, resolveRepoFilePath, showRepositoryInExplorer } from "./fileOperationService";
 import { GitIdentityService } from "./gitIdentityService";
@@ -120,6 +120,8 @@ async function createWindow(): Promise<void> {
       sandbox: false
     }
   });
+  const { zoomFactor } = await getAppSettingsService().getSettings();
+  mainWindow.webContents.setZoomFactor(zoomFactor);
   getWindowStateService().watchWindow(mainWindow);
   Menu.setApplicationMenu(null);
   mainWindow.on("maximize", () => {
@@ -500,6 +502,10 @@ ipcMain.handle(IPC_CHANNELS.getAppSettings, async () => {
 
 ipcMain.handle(IPC_CHANNELS.saveAppSettings, async (_event, request: AppSettingsSaveRequest) => {
   return getAppSettingsService().saveSettings(request);
+});
+
+ipcMain.handle(IPC_CHANNELS.setWindowZoomFactor, (event, zoomFactor: number) => {
+  event.sender.setZoomFactor(normalizeZoomFactorForSave(zoomFactor));
 });
 
 ipcMain.handle(IPC_CHANNELS.generateCommitMessage, async (_event, request: GenerateCommitMessageRequest) => {

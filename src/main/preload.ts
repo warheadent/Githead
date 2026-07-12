@@ -162,6 +162,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getAppSettings) as ReturnType<GitheadApi["getAppSettings"]>,
   saveAppSettings: (request: AppSettingsSaveRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.saveAppSettings, request) as ReturnType<GitheadApi["saveAppSettings"]>,
+  setWindowZoomFactor: (zoomFactor: number) =>
+    ipcRenderer.invoke(IPC_CHANNELS.setWindowZoomFactor, zoomFactor) as ReturnType<GitheadApi["setWindowZoomFactor"]>,
   generateCommitMessage: (request: GenerateCommitMessageRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.generateCommitMessage, request) as ReturnType<GitheadApi["generateCommitMessage"]>,
   generatePrTitle: (request: GeneratePrTitleRequest) =>

@@ -602,16 +602,24 @@ export type AppColorTheme = (typeof APP_COLOR_THEMES)[number];
 export const APP_APPEARANCE_MODES = ["system", "light", "dark"] as const;
 export type AppAppearanceMode = (typeof APP_APPEARANCE_MODES)[number];
 
+export const APP_ZOOM_FACTORS = [0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2] as const;
+
+export function isAppZoomFactor(value: unknown): value is number {
+  return typeof value === "number" && APP_ZOOM_FACTORS.some((factor) => factor === value);
+}
+
 export interface AppSettings {
   autoFetchIntervalMinutes: number;
   colorTheme: AppColorTheme;
   appearanceMode: AppAppearanceMode;
+  zoomFactor: number;
 }
 
 export interface AppSettingsSaveRequest {
   autoFetchIntervalMinutes: number;
   colorTheme: AppColorTheme;
   appearanceMode: AppAppearanceMode;
+  zoomFactor: number;
 }
 
 export interface GenerateCommitMessageRequest {
@@ -842,6 +850,7 @@ export interface GitheadApi {
   getAiReasoningCapabilities(request: GetAiReasoningCapabilitiesRequest): Promise<AiReasoningCapabilities>;
   getAppSettings(): Promise<AppSettings>;
   saveAppSettings(request: AppSettingsSaveRequest): Promise<AppSettings>;
+  setWindowZoomFactor(zoomFactor: number): Promise<void>;
   generateCommitMessage(request: GenerateCommitMessageRequest): Promise<GitOperationResult>;
   generatePrTitle(request: GeneratePrTitleRequest): Promise<GitOperationResult>;
   generatePrDescription(request: GeneratePrDescriptionRequest): Promise<GitOperationResult>;

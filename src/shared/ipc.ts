@@ -53,6 +53,7 @@ export const IPC_CHANNELS = {
   getAiReasoningCapabilities: "ai:reasoning-capabilities:get",
   getAppSettings: "app:settings:get",
   saveAppSettings: "app:settings:save",
+  setWindowZoomFactor: "window:zoom-factor:set",
   generateCommitMessage: "ai:commit-message:generate",
   generatePrTitle: "ai:pr-title:generate",
   generatePrDescription: "ai:pr-description:generate",
