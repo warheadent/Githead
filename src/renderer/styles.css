@@ -812,6 +812,13 @@ textarea,
   gap: 8px;
 }
 
+.repo-recents-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .repo-recents-label {
   margin: 0;
   color: var(--muted-foreground);
@@ -1005,22 +1012,10 @@ textarea,
   line-height: 1.35;
 }
 
-.status-text {
-  min-height: 20px;
-  margin-top: 4px;
-  overflow: hidden;
-  color: var(--muted-foreground);
-  line-height: 1.4;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.status-text.good,
 .good {
   color: var(--primary);
 }
 
-.status-text.bad,
 .bad {
   color: var(--destructive);
 }

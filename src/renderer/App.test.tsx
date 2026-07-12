@@ -179,6 +179,7 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByText("Select a repository to continue.")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Githead" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Minimize window" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Maximize window" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Close window" })).toBeTruthy();
@@ -189,7 +190,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("button", { name: "Minimize window" }));
     await user.click(screen.getByRole("button", { name: "Maximize window" }));
     await user.click(screen.getByRole("button", { name: "Close window" }));
@@ -197,6 +198,23 @@ describe("App", () => {
     expect(githead.minimizeWindow).toHaveBeenCalledTimes(1);
     expect(githead.toggleMaximizeWindow).toHaveBeenCalledTimes(1);
     expect(githead.closeWindow).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders a compact repository heading with the add action", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await waitForRepositoryWorkspace();
+    const sidebar = screen.getByRole("complementary");
+    expect(within(sidebar).queryByText("Githead")).toBeNull();
+    expect(within(sidebar).queryByText("Repository ready")).toBeNull();
+    expect(within(sidebar).queryByText("Checking repository...")).toBeNull();
+    expect(within(sidebar).getAllByText("Repositories")).toHaveLength(1);
+
+    await user.click(within(sidebar).getByRole("button", { name: "Add repository" }));
+    expect(await screen.findByRole("button", { name: "Add existing" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Clone new" })).toBeTruthy();
   });
 
   it("marks file status badges with semantic tones", async () => {
@@ -244,7 +262,7 @@ describe("App", () => {
   it("switches the maximize control to restore when the window is maximized", async () => {
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     expect(screen.getByRole("button", { name: "Maximize window" })).toBeTruthy();
 
     act(() => {
@@ -300,7 +318,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
 
     await waitFor(() => expect(screen.getAllByText("Feature")).toHaveLength(2));
@@ -349,7 +367,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
 
     expect(await screen.findByText(/Preserve/)).toBeTruthy();
@@ -381,7 +399,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
 
     const firstBullet = await screen.findByText("Commit body bullet 1");
@@ -418,7 +436,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
     const parentLink = await screen.findByRole("link", { name: parentHash.slice(0, 10) });
 
@@ -458,7 +476,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
     const secondRow = await screen.findByRole("option", { name: /second commit/ });
 
@@ -486,7 +504,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /reset target/ }));
     await user.click(await screen.findByRole("menuitem", { name: /Reset current branch to this commit/ }));
@@ -514,7 +532,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /reverse target/ }));
     await user.click(await screen.findByRole("menuitem", { name: /Reverse commit/ }));
@@ -549,7 +567,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
     const commitFile = await screen.findByRole("option", { name: /src\/App\.test\.tsx/ });
 
@@ -588,7 +606,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
     const commitFile = await screen.findByRole("option", { name: /src\/App\.test\.tsx/ });
 
@@ -639,7 +657,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
     const commitFile = await screen.findByRole("option", { name: /src\/App\.test\.tsx/ });
 
@@ -687,7 +705,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
     const commitFile = await screen.findByRole("option", { name: /src\/App\.test\.tsx/ });
 
@@ -723,7 +741,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /tag target/ }));
     await user.click(await screen.findByRole("menuitem", { name: /^Tag$/ }));
@@ -767,7 +785,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /remove tag target/ }));
     await user.click(await screen.findByRole("menuitem", { name: /^Tag$/ }));
@@ -1792,7 +1810,7 @@ describe("App", () => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary());
     const view = render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     gitOutputCallback?.({
       runId: "run-1",
       action: "fetch",
@@ -1819,7 +1837,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
 
     expect(screen.queryByRole("button", { name: /Update available/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Restart to update/ })).toBeNull();
@@ -1847,7 +1865,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     updateStateCallback?.(createUpdateState({
       status: "downloading",
       availableVersion: "0.1.1",
@@ -1992,7 +2010,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     expect(within(screen.getByLabelText("Commit staged files")).queryByRole("button", { name: /Clear Log/ })).toBeNull();
 
     gitOutputCallback?.({
@@ -2024,7 +2042,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     gitOutputCallback?.({
       runId: "run-1",
       action: "fetch",
@@ -2053,7 +2071,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     gitOutputCallback?.({
       runId: "run-1",
       action: "fetch",
@@ -2076,7 +2094,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     gitOutputCallback?.({
       runId: "run-1",
       action: "fetch",
@@ -2100,7 +2118,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     gitOutputCallback?.({
       runId: "run-1",
       action: "fetch",
@@ -2140,7 +2158,7 @@ describe("App", () => {
 
     const { unmount } = render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     expect(screen.queryByRole("tab", { name: /Workflow Runs/ })).toBeNull();
     expect(screen.queryByRole("tab", { name: /Pull Requests/ })).toBeNull();
     expect(screen.queryByRole("tab", { name: /Issues/ })).toBeNull();
@@ -2762,7 +2780,7 @@ describe("App", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
 
     await user.click(screen.getByRole("button", { name: "Repository actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
@@ -3123,7 +3141,7 @@ describe("App", () => {
 
     render(<App />);
     await flushRendererAsync();
-    expect(screen.getByText("Repository ready")).toBeTruthy();
+    await waitForRepositoryWorkspace();
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(1);
 
     emitRepoChanged();
@@ -3534,7 +3552,7 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Repository ready")).toBeTruthy();
+    await waitForRepositoryWorkspace();
     expect(screen.getByRole("button", { name: `Switch to ${recentRepo}` }).getAttribute("aria-current")).toBe("true");
     expect(screen.getByText("Recent")).toBeTruthy();
     expect(screen.getByText("Other")).toBeTruthy();
@@ -3574,7 +3592,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     const recentButton = await screen.findByRole("button", { name: `Switch to ${recentRepo}, 1 commit ahead, 4 commits behind` });
     const otherButton = screen.getByRole("button", { name: `Switch to ${otherRepo}, 2 commits behind` });
     expect(recentButton).toBeTruthy();
@@ -3611,7 +3629,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     const repositories = within(screen.getByRole("region", { name: "Repositories" }));
     expect(repositories.getByLabelText("Lore repository")).toBeTruthy();
     expect(repositories.getByLabelText("Git repository")).toBeTruthy();
@@ -3645,7 +3663,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     expect(screen.getByText("Recent")).toBeTruthy();
     expect(screen.getByText("Other")).toBeTruthy();
     expect(screen.queryByText(/\d+ ↑|\d+ ↓/)).toBeNull();
@@ -3717,7 +3735,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
 
     await waitFor(() => {
@@ -3752,7 +3770,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     vi.mocked(githead.getRepoSummary).mockClear();
     await user.click(screen.getByRole("button", { name: `Remove ${otherRepo} from recent repositories` }));
 
@@ -3778,7 +3796,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("button", { name: `Reorder ${otherRepo}` }));
     await user.keyboard("{ArrowUp}");
 
@@ -3812,7 +3830,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     const dragHandle = screen.getByRole("button", { name: `Reorder ${otherRepo}` });
     const targetRow = screen.getByRole("button", { name: `Switch to ${repoPath}` }).closest(".repo-recent-row");
     if (!targetRow) {
@@ -3857,7 +3875,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("button", { name: `Reorder ${otherRepo}` }));
     await user.keyboard("{ArrowUp}");
 
@@ -3892,7 +3910,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     fireEvent.contextMenu(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
     expect(await screen.findByText(otherRepo)).toBeTruthy();
     await user.click(await screen.findByRole("menuitem", { name: "Show in Explorer" }));
@@ -3924,7 +3942,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     vi.mocked(githead.addRepoRecent).mockClear();
     scrollIntoView.mockClear();
     await user.click(screen.getByRole("button", { name: "Add repository" }));
@@ -3962,7 +3980,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     vi.mocked(githead.addRepoRecent).mockClear();
     await user.click(screen.getByRole("button", { name: "Add repository" }));
     await user.click(screen.getByRole("button", { name: "Add existing" }));
@@ -4028,7 +4046,7 @@ describe("App", () => {
     await user.click(await screen.findByRole("button", { name: "Allow Git Exception" }));
     await user.click(screen.getByRole("button", { name: "Allow Exception" }));
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     expect(githead.addSafeDirectory).toHaveBeenCalledWith({
       repoPath: "D:/Work/Blocked"
     });
@@ -4090,7 +4108,7 @@ describe("App", () => {
         depth: null
       });
     });
-    expect(await screen.findByText("Repository ready")).toBeTruthy();
+    await waitForRepositoryWorkspace();
     expect(screen.getByRole("button", { name: `Switch to ${clonedRepo}` }).getAttribute("aria-current")).toBe("true");
     await waitFor(() => {
       expect(githead.addRepoRecent).toHaveBeenCalledWith(clonedRepo);
@@ -4283,7 +4301,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("button", { name: "Add repository" }));
 
     expect(screen.getByRole("button", { name: "Add existing" })).toBeTruthy();
@@ -4296,7 +4314,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("button", { name: "Add repository" }));
     await user.click(screen.getByRole("button", { name: "Clone new" }));
 
@@ -4322,7 +4340,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     vi.mocked(githead.addRepoRecent).mockClear();
     await user.click(screen.getByRole("button", { name: "Add repository" }));
     await user.click(screen.getByRole("button", { name: "Clone new" }));
@@ -4365,7 +4383,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("button", { name: "Add repository" }));
     await user.click(screen.getByRole("button", { name: "Clone new" }));
     await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
@@ -4410,7 +4428,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByText("Repository ready");
+    await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("button", { name: `Switch to ${firstRepo}` }));
     await user.click(screen.getByRole("button", { name: `Switch to ${secondRepo}` }));
 
@@ -5426,6 +5444,10 @@ function createTextDiff(path: string, value: string): GitFileDiff {
 
 function getStatusTone(row: HTMLElement): string | null {
   return row.querySelector(".status-chip")?.getAttribute("data-status-tone") ?? null;
+}
+
+async function waitForRepositoryWorkspace(): Promise<void> {
+  await screen.findByRole("complementary");
 }
 
 async function flushRendererAsync(): Promise<void> {

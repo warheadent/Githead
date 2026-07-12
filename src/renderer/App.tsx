@@ -4202,7 +4202,6 @@ export function App(): ReactNode {
   const disableActions = running || !isValid;
   const primaryCommitAction = getPrimaryCommitAction(state.summary);
   const actionHeading = getActionHeading(state);
-  const repoHealth = getRepoHealth(state);
   const showGitHubTabs = Boolean(state.summary?.githubRepository);
   const pullRequestTabCount = state.githubOpenCountsLoaded ? formatCompactCount(state.githubOpenCounts?.pullRequests ?? 0) : null;
   const issueTabCount = state.githubOpenCountsLoaded ? formatCompactCount(state.githubOpenCounts?.issues ?? 0) : null;
@@ -4288,7 +4287,6 @@ export function App(): ReactNode {
             repoPath={state.repoPath}
             repoRecents={state.repoRecents}
             repoSyncStatuses={state.repoSyncStatuses}
-            repoHealth={repoHealth}
             summary={state.summary}
             running={running}
             appUpdate={state.appUpdate}
@@ -5169,6 +5167,7 @@ function RepositorySetupScreen({
 interface RepositoryListProps {
   className?: string;
   disabled: boolean;
+  headingAction?: ReactNode;
   repoPath: string;
   repoPaths: string[];
   syncStatuses: Record<string, RepoSyncStatus>;
@@ -5201,6 +5200,7 @@ type RepositoryMoveDirection = "up" | "down";
 function RepositoryList({
   className = "repo-recents",
   disabled,
+  headingAction,
   repoPath,
   repoPaths,
   syncStatuses,
@@ -5332,7 +5332,10 @@ function RepositoryList({
 
   return (
     <section className={className} aria-label="Repositories">
-      <p className="repo-recents-label">Repositories</p>
+      <div className="repo-recents-heading">
+        <p className="repo-recents-label">Repositories</p>
+        {headingAction}
+      </div>
       <div
         className="repo-recents-list"
         onMouseUp={finishPointerDrag}
@@ -5770,7 +5773,6 @@ function RepositoryPanel({
   repoPath,
   repoRecents,
   repoSyncStatuses,
-  repoHealth,
   summary,
   running,
   appUpdate,
@@ -5805,7 +5807,6 @@ function RepositoryPanel({
   repoPath: string;
   repoRecents: string[];
   repoSyncStatuses: Record<string, RepoSyncStatus>;
-  repoHealth: { text: string; state: "good" | "bad" | "neutral" };
   summary: RepoSummary | null;
   running: boolean;
   appUpdate: AppUpdateState;
@@ -5864,17 +5865,17 @@ function RepositoryPanel({
 
   return (
     <aside className="flex h-full min-h-0 flex-col gap-5 overflow-auto border-r bg-sidebar p-6 text-sidebar-foreground">
-      <div className="grid grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-3.5">
-        <div className="grid size-11 place-items-center rounded-lg bg-primary text-base font-extrabold text-primary-foreground">
-          G
-        </div>
-        <div className="min-w-0">
-          <h1 className="text-xl font-semibold leading-tight">Githead</h1>
-          <p className={repoHealth.state === "good" ? "status-text good" : repoHealth.state === "bad" ? "status-text bad" : "status-text"}>
-            {repoHealth.text}
-          </p>
-        </div>
-        <Popover open={clonePanelOpen} onOpenChange={updateAddPopoverOpen}>
+      <RepositoryList
+        repoPath={repoPath}
+        repoPaths={repoRecents}
+        syncStatuses={repoSyncStatuses}
+        disabled={running}
+        onSelect={onSelectRecent}
+        onRemove={onRemoveRecent}
+        onReorder={onReorderRepositories}
+        onShowInExplorer={onShowInExplorer}
+        headingAction={(
+          <Popover open={clonePanelOpen} onOpenChange={updateAddPopoverOpen}>
           <PopoverTrigger asChild>
             <Button
               type="button"
@@ -5937,21 +5938,9 @@ function RepositoryPanel({
               </div>
             )}
           </PopoverContent>
-        </Popover>
-      </div>
-
-      {repoRecents.length > 0 ? (
-        <RepositoryList
-          repoPath={repoPath}
-          repoPaths={repoRecents}
-          syncStatuses={repoSyncStatuses}
-          disabled={running}
-          onSelect={onSelectRecent}
-          onRemove={onRemoveRecent}
-          onReorder={onReorderRepositories}
-          onShowInExplorer={onShowInExplorer}
-        />
-      ) : null}
+          </Popover>
+        )}
+      />
 
       <dl className="repo-facts">
         <BranchFact
@@ -10317,27 +10306,6 @@ function getAppUpdateMessageSummary(state: AppUpdateState): string {
   }
 
   return "Update check failed";
-}
-
-function getRepoHealth(state: AppState): { text: string; state: "good" | "bad" | "neutral" } {
-  if (state.repoLoading || !state.summary) {
-    return {
-      text: "Checking repository...",
-      state: "neutral"
-    };
-  }
-
-  if (state.summary.isValid) {
-    return {
-      text: "Repository ready",
-      state: "good"
-    };
-  }
-
-  return {
-    text: state.summary.validationErrors.join(" "),
-    state: "bad"
-  };
 }
 
 function isSameRepoPath(left: string, right: string): boolean {
