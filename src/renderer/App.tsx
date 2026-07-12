@@ -125,6 +125,9 @@ import type {
   GitFileDiff,
   GitImageSide,
   GitHubIssue,
+  GitHubCommitAssociation,
+  GitHubPullRequestAssociation,
+  GitHubRepository,
   GitHubPullRequest,
   GitHubWorkflowRun,
   AppWindowState,
@@ -145,10 +148,13 @@ import type {
 } from "../shared/types";
 import { AI_API_KEY_PROVIDERS, AI_CLI_PROVIDERS, AI_COMMIT_MESSAGE_PROVIDERS, AI_REASONING_EFFORTS, APP_ZOOM_FACTORS, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
 import { parseCommitSubject } from "../shared/commitSubject";
+import { parseGitHubReferences } from "../shared/githubReference";
 import { ActivityLogView } from "./ActivityLogView";
 import { BranchManagementDialog } from "./BranchManagementDialog";
 import { RemoteManagementDialog } from "./RemoteManagementDialog";
 import { useGitHubQueries } from "./useGitHubQueries";
+import { useGitHubHistoryInsights } from "./useGitHubHistoryInsights";
+import { createCommitAssociationMap } from "./githubHistorySelectors";
 import {
   appendActivityLogEvent,
   appendActivityOperationResult,
@@ -570,6 +576,14 @@ export function App(): ReactNode {
     ? { repoPath: state.repoPath, githubFullName: state.summary.githubRepository.fullName }
     : null;
   const github = useGitHubQueries(githubRepository);
+  const historyInsights = useGitHubHistoryInsights({
+    repoPath: githubRepository?.repoPath ?? "",
+    githubFullName: githubRepository?.githubFullName ?? "",
+    currentBranch: state.summary?.branch ?? null,
+    headSha: state.history[0]?.hash ?? null,
+    commitShas: state.history.map((commit) => commit.hash),
+    enabled: state.activeView === "history" && state.historyLoaded && Boolean(githubRepository)
+  });
   const [windowState, setWindowState] = useState<AppWindowState>(initialWindowState);
   const appearanceMode = state.settingsOpen
     ? state.settingsDraft.appearanceMode
@@ -1082,13 +1096,11 @@ export function App(): ReactNode {
     return cleanupRepoChanged;
   }, [refreshDirtyFileStatus]);
 
-  // The Create PR button needs the open PR list before the Pull Requests tab
-  // is ever visited, so load it eagerly for GitHub repositories.
   useEffect(() => {
     if (githubRepository) {
       void github.ensure("openCounts");
-      void github.ensure("pullRequests");
       if (state.activeView === "workflows") void github.ensure("workflowRuns");
+      if (state.activeView === "pullRequests") void github.ensure("pullRequests");
       if (state.activeView === "issues") void github.ensure("issues");
     }
   }, [github.ensure, githubRepository?.repoPath, githubRepository?.githubFullName, state.activeView]);
@@ -4165,7 +4177,9 @@ export function App(): ReactNode {
               runningAction={state.runningAction}
               configuredActionRuns={state.configuredActionRuns}
               disabled={disableActions}
-              showCreatePullRequest={shouldShowCreatePullRequest(state.summary, github.pullRequests.data ?? [], github.pullRequests.data !== undefined)}
+              showCreatePullRequest={shouldShowCreatePullRequest(state.summary, historyInsights.data.currentBranchPullRequests, historyInsights.loaded)}
+              branchPullRequests={historyInsights.data.currentBranchPullRequests}
+              onOpenExternalUrl={openExternalUrl}
               onRunAction={(action) => {
                 void runAction(action);
               }}
@@ -4278,6 +4292,11 @@ export function App(): ReactNode {
                   commitFileDiffLoading={state.commitFileDiffLoading}
                   commitFileDiffError={state.commitFileDiffError}
                   disabled={disableActions}
+                  insights={historyInsights.data}
+                  insightsLoading={historyInsights.loading}
+                  insightsError={historyInsights.error}
+                  onRetryInsights={historyInsights.retry}
+                  onOpenExternalUrl={openExternalUrl}
                   onSelectCommit={selectCommit}
                   onSelectCommitFile={selectCommitFile}
                   onCommitContextAction={runCommitContextAction}
@@ -4292,9 +4311,14 @@ export function App(): ReactNode {
                     <WorkflowRunsView
                       summary={state.summary}
                       workflowRuns={github.workflows.data ?? []}
-                      loading={github.workflows.status === "loading" || github.workflows.status === "refreshing"}
+                      loading={github.workflows.status === "loading"}
+                      busy={github.workflows.status === "refreshing"}
                       loaded={github.workflows.data !== undefined}
                       error={github.workflows.error}
+                      nextPage={github.workflows.nextPage}
+                      loadingMore={github.workflows.loadingMore}
+                      totalCount={github.workflows.totalCount}
+                      onLoadMore={github.workflows.loadMore}
                       onOpenExternalUrl={openExternalUrl}
                       onRefresh={() => {
                         void github.refresh("workflowRuns");
@@ -4307,9 +4331,13 @@ export function App(): ReactNode {
                       summary={state.summary}
                       pullRequests={github.pullRequests.data ?? []}
                       openCount={github.counts.data?.pullRequests ?? null}
-                      loading={github.pullRequests.status === "loading" || github.pullRequests.status === "refreshing"}
+                      loading={github.pullRequests.status === "loading"}
+                      busy={github.pullRequests.status === "refreshing"}
                       loaded={github.pullRequests.data !== undefined}
                       error={github.pullRequests.error}
+                      nextPage={github.pullRequests.nextPage}
+                      loadingMore={github.pullRequests.loadingMore}
+                      onLoadMore={github.pullRequests.loadMore}
                       onOpenExternalUrl={openExternalUrl}
                       onRefresh={() => {
                         void Promise.allSettled([github.refresh("pullRequests"), github.refresh("openCounts")]);
@@ -4322,9 +4350,13 @@ export function App(): ReactNode {
                       summary={state.summary}
                       issues={github.issues.data ?? []}
                       openCount={github.counts.data?.issues ?? null}
-                      loading={github.issues.status === "loading" || github.issues.status === "refreshing"}
+                      loading={github.issues.status === "loading"}
+                      busy={github.issues.status === "refreshing"}
                       loaded={github.issues.data !== undefined}
                       error={github.issues.error}
+                      nextPage={github.issues.nextPage}
+                      loadingMore={github.issues.loadingMore}
+                      onLoadMore={github.issues.loadMore}
                       onOpenExternalUrl={openExternalUrl}
                       onRefresh={() => {
                         void Promise.allSettled([github.refresh("issues"), github.refresh("openCounts")]);
@@ -6072,10 +6104,12 @@ function ActionBar({
   configuredActionRuns,
   disabled,
   showCreatePullRequest,
+  branchPullRequests,
   onRunAction,
   onRunConfiguredAction,
   onManageActions,
-  onCreatePullRequest
+  onCreatePullRequest,
+  onOpenExternalUrl
 }: {
   heading: string;
   summary: RepoSummary | null;
@@ -6083,10 +6117,12 @@ function ActionBar({
   configuredActionRuns: ConfiguredActionRun[];
   disabled: boolean;
   showCreatePullRequest: boolean;
+  branchPullRequests: GitHubPullRequestAssociation[];
   onRunAction: (action: GitAction) => void;
   onRunConfiguredAction: (action: GitConfiguredAction) => void;
   onManageActions: () => void;
   onCreatePullRequest: () => void;
+  onOpenExternalUrl: (url: string) => void;
 }): ReactNode {
   const capabilities = summary?.capabilities ?? null;
   // Lore is centralized: it has no "fetch", and "pull" maps to `lore sync`.
@@ -6204,7 +6240,25 @@ function ActionBar({
             </SyncCountChip>
           ) : null}
         </Button>
-        {showCreatePullRequest ? (
+        {branchPullRequests.length === 1 ? (
+          <Button type="button" variant="outline" onClick={() => onOpenExternalUrl(branchPullRequests[0]!.url)} className="min-w-24">
+            <GitPullRequest />
+            PR #{branchPullRequests[0]!.number} · {formatPullRequestAssociationState(branchPullRequests[0]!)}
+          </Button>
+        ) : branchPullRequests.length > 1 ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="outline"><GitPullRequest />Multiple pull requests<ChevronDown /></Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {branchPullRequests.map((pullRequest) => (
+                <DropdownMenuItem key={`${pullRequest.headRepositoryFullName}:${pullRequest.number}`} onSelect={() => onOpenExternalUrl(pullRequest.url)}>
+                  {pullRequest.headRepositoryFullName ?? pullRequest.baseRepositoryFullName} #{pullRequest.number} · {formatPullRequestAssociationState(pullRequest)}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : showCreatePullRequest ? (
           <Button
             type="button"
             variant="outline"
@@ -6729,6 +6783,11 @@ function HistoryView({
   commitFileDiffLoading,
   commitFileDiffError,
   disabled,
+  insights,
+  insightsLoading,
+  insightsError,
+  onRetryInsights,
+  onOpenExternalUrl,
   onSelectCommit,
   onSelectCommitFile,
   onCommitContextAction,
@@ -6748,6 +6807,11 @@ function HistoryView({
   commitFileDiffLoading: boolean;
   commitFileDiffError: string;
   disabled: boolean;
+  insights: import("../shared/types").GitHubHistoryInsights;
+  insightsLoading: boolean;
+  insightsError: string;
+  onRetryInsights: () => void;
+  onOpenExternalUrl: (url: string) => void;
   onSelectCommit: (hash: string) => void;
   onSelectCommitFile: (filePath: string) => void;
   onCommitContextAction: (commit: GitCommitGraphRow, action: CommitContextActionKind) => void;
@@ -6755,6 +6819,7 @@ function HistoryView({
   onDownloadImage: () => void;
 }): ReactNode {
   const graphLayout = useMemo(() => buildCommitGraphLayout(history), [history]);
+  const associations = useMemo(() => createCommitAssociationMap(insights), [insights]);
   const historyStyle = {
     "--history-graph-width": `${graphLayout.width}px`
   } as CSSProperties;
@@ -6771,6 +6836,12 @@ function HistoryView({
             <span>Commit</span>
           </div>
           <div className="history-list" role="listbox" aria-label="Commit history">
+            {insightsError ? (
+              <div className="history-insights-error" role="status">
+                <span>GitHub annotations unavailable.</span>
+                <Button type="button" variant="ghost" size="sm" onClick={onRetryInsights}>Retry</Button>
+              </div>
+            ) : insightsLoading ? <span className="sr-only" role="status">Loading GitHub annotations</span> : null}
             {historyLoading ? (
               <p className="empty-state">Loading commit history...</p>
             ) : historyError ? (
@@ -6788,6 +6859,8 @@ function HistoryView({
                     commit={commit}
                     selected={commit.hash === selectedCommitHash}
                     tagsEnabled={summary?.capabilities.tags ?? true}
+                    {...(associations.get(commit.hash) ? { association: associations.get(commit.hash)! } : {})}
+                    onOpenExternalUrl={onOpenExternalUrl}
                     onSelectCommit={onSelectCommit}
                     onCommitContextAction={onCommitContextAction}
                   />
@@ -6805,6 +6878,8 @@ function HistoryView({
               details={commitDetails}
               loading={commitDetailsLoading}
               error={commitDetailsError}
+              repository={summary?.githubRepository ?? null}
+              onOpenExternalUrl={onOpenExternalUrl}
               selectedFilePath={selectedCommitFilePath}
               disabled={disabled}
               onSelectCommit={onSelectCommit}
@@ -6835,21 +6910,31 @@ function WorkflowRunsView({
   summary,
   workflowRuns,
   loading,
+  busy,
   loaded,
   error,
+  nextPage,
+  loadingMore,
+  totalCount,
+  onLoadMore,
   onOpenExternalUrl,
   onRefresh
 }: {
   summary: RepoSummary | null;
   workflowRuns: GitHubWorkflowRun[];
   loading: boolean;
+  busy: boolean;
   loaded: boolean;
   error: string;
+  nextPage: number | null;
+  loadingMore: boolean;
+  totalCount: number | null;
+  onLoadMore: () => void;
   onOpenExternalUrl: (url: string) => void;
   onRefresh: () => void;
 }): ReactNode {
   const repository = summary?.githubRepository ?? null;
-  const countLabel = loaded ? `${workflowRuns.length} ${workflowRuns.length === 1 ? "run" : "runs"}` : "-";
+  const countLabel = loaded ? formatLoadedCount(workflowRuns.length, totalCount, "run", "runs") : "-";
 
   return (
     <section className="github-view workflow-runs-grid" aria-label="Workflow runs">
@@ -6858,7 +6943,7 @@ function WorkflowRunsView({
         title="Workflow Runs"
         repositoryName={repository?.fullName ?? "-"}
         countLabel={countLabel}
-        loading={loading}
+        loading={loading || busy}
         disabled={!repository}
         onRefresh={onRefresh}
       />
@@ -6874,7 +6959,7 @@ function WorkflowRunsView({
           <p className="empty-state">Select a repository with a supported GitHub origin.</p>
         ) : loading ? (
           <p className="empty-state">Loading workflow runs...</p>
-        ) : error ? (
+        ) : error && workflowRuns.length === 0 ? (
           <p className="empty-state bad selectable-text">{error}</p>
         ) : workflowRuns.length === 0 ? (
           <p className="empty-state">No workflow runs found.</p>
@@ -6883,6 +6968,7 @@ function WorkflowRunsView({
             <WorkflowRunRow key={run.id} run={run} onOpenExternalUrl={onOpenExternalUrl} />
           ))
         )}
+        <GitHubListFooter label="workflow runs" nextPage={nextPage} loading={loadingMore} error={workflowRuns.length ? error : ""} disabled={busy} onLoadMore={onLoadMore} />
       </div>
     </section>
   );
@@ -6931,8 +7017,12 @@ function PullRequestsView({
   pullRequests,
   openCount,
   loading,
+  busy,
   loaded,
   error,
+  nextPage,
+  loadingMore,
+  onLoadMore,
   onOpenExternalUrl,
   onRefresh
 }: {
@@ -6940,16 +7030,17 @@ function PullRequestsView({
   pullRequests: GitHubPullRequest[];
   openCount: number | null;
   loading: boolean;
+  busy: boolean;
   loaded: boolean;
   error: string;
+  nextPage: number | null;
+  loadingMore: boolean;
+  onLoadMore: () => void;
   onOpenExternalUrl: (url: string) => void;
   onRefresh: () => void;
 }): ReactNode {
   const repository = summary?.githubRepository ?? null;
-  const visibleCount = openCount ?? (loaded ? pullRequests.length : null);
-  const countLabel = visibleCount === null
-    ? "-"
-    : `${visibleCount} open ${visibleCount === 1 ? "pull request" : "pull requests"}`;
+  const countLabel = loaded ? formatLoadedCount(pullRequests.length, openCount, "open pull request", "open pull requests") : "-";
 
   return (
     <section className="github-view pull-requests-grid" aria-label="Pull requests">
@@ -6958,7 +7049,7 @@ function PullRequestsView({
         title="Pull Requests"
         repositoryName={repository?.fullName ?? "-"}
         countLabel={countLabel}
-        loading={loading}
+        loading={loading || busy}
         disabled={!repository}
         onRefresh={onRefresh}
       />
@@ -6974,7 +7065,7 @@ function PullRequestsView({
           <p className="empty-state">Select a repository with a supported GitHub origin.</p>
         ) : loading ? (
           <p className="empty-state">Loading pull requests...</p>
-        ) : error ? (
+        ) : error && pullRequests.length === 0 ? (
           <p className="empty-state bad selectable-text">{error}</p>
         ) : pullRequests.length === 0 ? (
           <p className="empty-state">No open pull requests found.</p>
@@ -6983,6 +7074,7 @@ function PullRequestsView({
             <PullRequestRow key={pullRequest.number} pullRequest={pullRequest} onOpenExternalUrl={onOpenExternalUrl} />
           ))
         )}
+        <GitHubListFooter label="pull requests" nextPage={nextPage} loading={loadingMore} error={pullRequests.length ? error : ""} disabled={busy} onLoadMore={onLoadMore} />
       </div>
     </section>
   );
@@ -7031,8 +7123,12 @@ function IssuesView({
   issues,
   openCount,
   loading,
+  busy,
   loaded,
   error,
+  nextPage,
+  loadingMore,
+  onLoadMore,
   onOpenExternalUrl,
   onRefresh
 }: {
@@ -7040,16 +7136,17 @@ function IssuesView({
   issues: GitHubIssue[];
   openCount: number | null;
   loading: boolean;
+  busy: boolean;
   loaded: boolean;
   error: string;
+  nextPage: number | null;
+  loadingMore: boolean;
+  onLoadMore: () => void;
   onOpenExternalUrl: (url: string) => void;
   onRefresh: () => void;
 }): ReactNode {
   const repository = summary?.githubRepository ?? null;
-  const visibleCount = openCount ?? (loaded ? issues.length : null);
-  const countLabel = visibleCount === null
-    ? "-"
-    : `${visibleCount} open ${visibleCount === 1 ? "issue" : "issues"}`;
+  const countLabel = loaded ? formatLoadedCount(issues.length, openCount, "open issue", "open issues") : "-";
 
   return (
     <section className="github-view issues-grid" aria-label="Issues">
@@ -7058,7 +7155,7 @@ function IssuesView({
         title="Issues"
         repositoryName={repository?.fullName ?? "-"}
         countLabel={countLabel}
-        loading={loading}
+        loading={loading || busy}
         disabled={!repository}
         onRefresh={onRefresh}
       />
@@ -7074,7 +7171,7 @@ function IssuesView({
           <p className="empty-state">Select a repository with a supported GitHub origin.</p>
         ) : loading ? (
           <p className="empty-state">Loading issues...</p>
-        ) : error ? (
+        ) : error && issues.length === 0 ? (
           <p className="empty-state bad selectable-text">{error}</p>
         ) : issues.length === 0 ? (
           <p className="empty-state">No open issues found.</p>
@@ -7083,6 +7180,7 @@ function IssuesView({
             <IssueRow key={issue.number} issue={issue} onOpenExternalUrl={onOpenExternalUrl} />
           ))
         )}
+        <GitHubListFooter label="issues" nextPage={nextPage} loading={loadingMore} error={issues.length ? error : ""} disabled={busy} onLoadMore={onLoadMore} />
       </div>
     </section>
   );
@@ -7127,6 +7225,32 @@ function GitHubLabels({ labels }: { labels: string[] }): ReactNode {
         ))
       )}
     </span>
+  );
+}
+
+function formatLoadedCount(loaded: number, total: number | null, singular: string, plural: string): string {
+  const noun = loaded === 1 ? singular : plural;
+  return total === null ? `${loaded} ${noun} loaded` : `${loaded} of ${Math.max(total, loaded)} ${plural} loaded`;
+}
+
+function GitHubListFooter({ label, nextPage, loading, error, disabled, onLoadMore }: {
+  label: string;
+  nextPage: number | null;
+  loading: boolean;
+  error: string;
+  disabled: boolean;
+  onLoadMore: () => void;
+}): ReactNode {
+  if (nextPage === null && !loading && !error) return null;
+  return (
+    <div className="github-list-footer" role="status" aria-live="polite" aria-busy={loading}>
+      {error ? <span className="github-list-footer-error selectable-text">{error}</span> : null}
+      {loading ? <span>Loading more…</span> : nextPage !== null ? (
+        <Button type="button" variant="outline" size="sm" disabled={disabled} aria-label={`Load more ${label}`} onClick={onLoadMore}>
+          {error ? "Retry" : "Load more"}
+        </Button>
+      ) : null}
+    </div>
   );
 }
 
@@ -7214,12 +7338,16 @@ function HistoryRow({
   commit,
   selected,
   tagsEnabled,
+  association,
+  onOpenExternalUrl,
   onSelectCommit,
   onCommitContextAction
 }: {
   commit: GitCommitGraphRow;
   selected: boolean;
   tagsEnabled: boolean;
+  association?: GitHubCommitAssociation;
+  onOpenExternalUrl: (url: string) => void;
   onSelectCommit: (hash: string) => void;
   onCommitContextAction: (commit: GitCommitGraphRow, action: CommitContextActionKind) => void;
 }): ReactNode {
@@ -7233,12 +7361,18 @@ function HistoryRow({
           }
         }}
       >
-        <button
-          type="button"
+        <div
           className={`history-row ${selected ? "is-selected" : ""}`}
           role="option"
+          tabIndex={0}
           aria-selected={selected}
           onClick={() => onSelectCommit(commit.hash)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              onSelectCommit(commit.hash);
+            }
+          }}
         >
           <span className="history-graph-cell" aria-hidden="true" />
           <span className="history-description" title={commit.subject || undefined}>
@@ -7256,13 +7390,40 @@ function HistoryRow({
               scopeClassName="history-scope"
               descriptionClassName="history-description-text"
             />
+            {association ? (
+              <span className="history-github-badges">
+                {association.pullRequests.length > 0 ? (
+                  association.pullRequests.length === 1 ? (
+                    <button type="button" className="history-github-badge" aria-label={`Open pull request ${association.pullRequests[0]!.number}`} onClick={(event) => {
+                      event.stopPropagation(); onOpenExternalUrl(association.pullRequests[0]!.url);
+                    }}>PR #{association.pullRequests[0]!.number}</button>
+                  ) : (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button type="button" className="history-github-badge" aria-label={`${association.pullRequests.length} associated pull requests`} onClick={(event) => event.stopPropagation()}>
+                          PR #{association.pullRequests[0]!.number} +{association.pullRequests.length - 1}
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent onClick={(event) => event.stopPropagation()}>
+                        {association.pullRequests.map((pullRequest) => (
+                          <DropdownMenuItem key={`${pullRequest.headRepositoryFullName}:${pullRequest.number}`} onSelect={() => onOpenExternalUrl(pullRequest.url)}>
+                            {pullRequest.headRepositoryFullName ?? pullRequest.baseRepositoryFullName} #{pullRequest.number}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )
+                ) : null}
+                <span className={`history-check-state is-${association.checkState}`} aria-label={formatCheckStateLabel(association.checkState)} role="img" />
+              </span>
+            ) : null}
           </span>
           <span className="history-date" title={formatDate(commit.authorDate)}>
             {commit.relativeDate || formatDate(commit.authorDate)}
           </span>
           <span className="history-author" title={commit.authorEmail}>{commit.authorName}</span>
           <span className="history-hash" title={commit.hash}>{commit.shortHash}</span>
-        </button>
+        </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-64">
         {tagsEnabled ? (
@@ -7319,6 +7480,8 @@ function CommitDetailsPanel({
   details,
   loading,
   error,
+  repository,
+  onOpenExternalUrl,
   selectedFilePath,
   disabled,
   onSelectCommit,
@@ -7328,6 +7491,8 @@ function CommitDetailsPanel({
   details: GitCommitDetails | null;
   loading: boolean;
   error: string;
+  repository: GitHubRepository | null;
+  onOpenExternalUrl: (url: string) => void;
   selectedFilePath: string | null;
   disabled: boolean;
   onSelectCommit: (hash: string) => void;
@@ -7349,6 +7514,7 @@ function CommitDetailsPanel({
     files = null;
   } else {
     fileCount = `${details.files.length} ${details.files.length === 1 ? "file" : "files"}`;
+    const references = parseGitHubReferences(`${details.subject}\n${details.body}`, repository);
     meta = (
       <div className="commit-meta-card selectable-text">
         <h2 className="commit-title text-base font-semibold" title={details.subject || undefined}>
@@ -7367,6 +7533,17 @@ function CommitDetailsPanel({
           />
           <Fact label="Author" value={`${details.authorName} <${details.authorEmail}>`} />
           <Fact label="Date" value={formatDate(details.authorDate)} />
+          {references.length > 0 ? (
+            <Fact label="References" value={
+              <span className="commit-reference-list">
+                {references.map((reference) => (
+                  <button key={`${reference.owner}/${reference.repository}#${reference.number}:${reference.kind}`} type="button" className="commit-reference-link" onClick={() => {
+                    if (reference.targetUrl) onOpenExternalUrl(reference.targetUrl);
+                  }}>{reference.displayText}</button>
+                ))}
+              </span>
+            } />
+          ) : null}
         </dl>
         {details.body ? (
           <div className="commit-body">
@@ -9625,8 +9802,8 @@ function getCreatePrBaseBranches(summary: RepoSummary | null): string[] {
 
 function shouldShowCreatePullRequest(
   summary: RepoSummary | null,
-  pullRequests: GitHubPullRequest[],
-  hasPullRequestData: boolean
+  pullRequests: GitHubPullRequestAssociation[],
+  _hasPullRequestData: boolean
 ): boolean {
   if (!summary?.isValid || !summary.capabilities.github || !summary.githubRepository || !summary.branch) {
     return false;
@@ -9644,13 +9821,22 @@ function shouldShowCreatePullRequest(
     return false;
   }
 
-  // Keep the button hidden until the open PR list is known so it never offers
-  // a pull request that already exists.
-  if (!hasPullRequestData) {
-    return false;
-  }
+  return pullRequests.length === 0;
+}
 
-  return !pullRequests.some((pullRequest) => pullRequest.sourceBranch === summary.branch);
+function formatPullRequestAssociationState(pullRequest: GitHubPullRequestAssociation): string {
+  if (pullRequest.draft) return "Draft";
+  return pullRequest.state.charAt(0).toUpperCase() + pullRequest.state.slice(1).toLowerCase();
+}
+
+function formatCheckStateLabel(state: import("../shared/types").GitHubCheckState): string {
+  switch (state) {
+    case "success": return "Checks passing";
+    case "failure": return "Checks failing";
+    case "pending": return "Checks pending";
+    case "neutral": return "Checks neutral";
+    default: return "Checks unavailable";
+  }
 }
 
 function getGeneratePrDescriptionTitle(state: AppState): string {

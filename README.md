@@ -144,7 +144,7 @@ Direct API providers require an API key stored by the app. CLI providers use the
 
 ### GitHub access
 
-The Workflow Runs, Pull Requests, and Issues tabs query the public GitHub REST API for the repository behind `origin`. Public repositories work without any setup. For private repositories, authenticate with the GitHub CLI (`gh auth login`) or set a `GITHUB_TOKEN` / `GH_TOKEN` environment variable, then refresh. Githead discovers an available GitHub CLI credential once per app session and uses it for direct API requests.
+The Workflow Runs, Pull Requests, and Issues tabs query the public GitHub REST API for the repository behind the GitHub Origin. These lists load incrementally: repository-wide pull request and issue totals may be larger than the subset currently rendered, and **Refresh** restarts pagination from the newest first page. The History view also uses a bounded GitHub GraphQL query to associate the Current Branch and visible commits with pull requests and aggregate checks. Public repositories work without any setup where GitHub permits anonymous access. For private repositories and GraphQL enrichment, authenticate with the GitHub CLI (`gh auth login`) or set a `GITHUB_TOKEN` / `GH_TOKEN` environment variable, then refresh. Githead discovers an available GitHub CLI credential once per app session and uses it for direct API requests. If GraphQL is unavailable, local commit history remains usable and its GitHub annotations can be retried independently.
 
 ### Remote management
 

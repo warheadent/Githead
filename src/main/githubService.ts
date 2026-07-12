@@ -2,10 +2,17 @@ import type {
   CreatePullRequestRequest,
   CreatePullRequestResult,
   GitHubIssue,
+  GitHubHistoryInsights,
+  GitHubHistoryInsightsRequest,
+  GitHubCommitAssociation,
+  GitHubPullRequestAssociation,
+  GitHubCheckState,
   GitHubOpenCounts,
   GitHubPullRequest,
   GitHubFailure,
   GitHubOperationResult,
+  GitHubPage,
+  GitHubPageRequest,
   GitHubRepository,
   GitHubRepositoryRequest,
   GitHubWorkflowRun
@@ -16,6 +23,8 @@ const WORKFLOW_RUN_LIMIT = 30;
 const ISSUE_LIMIT = 50;
 const PULL_REQUEST_LIMIT = 50;
 const OBSERVED_COUNT_MAX_AGE_MS = 30_000;
+const HISTORY_INSIGHTS_BATCH_SIZE = 20;
+const FULL_SHA_PATTERN = /^[0-9a-f]{40}$/i;
 
 interface GitHubRepositoryProvider {
   getGitHubRepository(repoPath: string): Promise<GitHubRepository | null>;
@@ -30,6 +39,7 @@ interface GitHubApiErrorResponse {
 
 interface GitHubApiWorkflowRunsResponse extends GitHubApiErrorResponse {
   workflow_runs?: GitHubApiWorkflowRun[];
+  total_count?: number;
 }
 
 interface GitHubApiWorkflowRun {
@@ -96,6 +106,11 @@ interface GitHubApiPullRequest {
   html_url?: string | null;
 }
 
+interface GitHubGraphQlResponse {
+  data?: { repository?: Record<string, unknown> | null } | null;
+  errors?: Array<{ message?: string }>;
+}
+
 export class GitHubService {
   private readonly observedOpenCounts = new Map<string, Partial<Record<GitHubOpenKind, ObservedOpenCount>>>();
 
@@ -105,17 +120,20 @@ export class GitHubService {
     private readonly now: () => number = Date.now
   ) {}
 
-  async getWorkflowRuns(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubWorkflowRun[]>> {
+  async getWorkflowRuns(request: GitHubPageRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubPage<GitHubWorkflowRun>>> {
     return this.read(() => this.getWorkflowRunsData(request, signal));
   }
   async getOpenCounts(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubOpenCounts>> {
     return this.read(() => this.getOpenCountsData(request, signal));
   }
-  async getIssues(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubIssue[]>> {
+  async getIssues(request: GitHubPageRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubPage<GitHubIssue>>> {
     return this.read(() => this.getIssuesData(request, signal));
   }
-  async getPullRequests(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubPullRequest[]>> {
+  async getPullRequests(request: GitHubPageRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubPage<GitHubPullRequest>>> {
     return this.read(() => this.getPullRequestsData(request, signal));
+  }
+  async getHistoryInsights(request: GitHubHistoryInsightsRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubHistoryInsights>> {
+    return this.read(() => this.getHistoryInsightsData(request, signal));
   }
   async createPullRequest(request: CreatePullRequestRequest): Promise<GitHubOperationResult<CreatePullRequestResult>> {
     try { return { ok: true, data: await this.createPullRequestData(request), rateLimit: null }; }
@@ -127,15 +145,17 @@ export class GitHubService {
     catch (error) { return { ok: false, error: classifyError(error, "combined", false) }; }
   }
 
-  private async getWorkflowRunsData(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubWorkflowRun[]> {
+  private async getWorkflowRunsData(request: GitHubPageRequest, signal?: AbortSignal): Promise<GitHubPage<GitHubWorkflowRun>> {
+    const page = resolvePage(request.page);
     const repository = await this.getRepository(request.repoPath);
-    const { payload: response } = await this.client.requestJson<GitHubApiWorkflowRunsResponse>(
+    const { payload: response, headers } = await this.client.requestJson<GitHubApiWorkflowRunsResponse>(
       repository,
-      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/actions/runs?per_page=${WORKFLOW_RUN_LIMIT}`,
+      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/actions/runs?per_page=${WORKFLOW_RUN_LIMIT}&page=${page}`,
       { cache: { mode: "conditional" }, ...(signal ? { signal } : {}) }
     );
 
-    return (response.workflow_runs ?? []).flatMap((run) => {
+    const rawItems = response.workflow_runs ?? [];
+    const items = rawItems.flatMap((run) => {
       const id = run.id === undefined || run.id === null ? "" : String(run.id);
       if (!id) {
         return [];
@@ -158,6 +178,7 @@ export class GitHubService {
         }
       ];
     });
+    return { items, page, nextPage: getNextPage(headers, page, rawItems.length, WORKFLOW_RUN_LIMIT), totalCount: Number.isFinite(response.total_count) ? Number(response.total_count) : null };
   }
 
   private async getOpenCountsData(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubOpenCounts> {
@@ -177,11 +198,12 @@ export class GitHubService {
     };
   }
 
-  private async getIssuesData(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubIssue[]> {
+  private async getIssuesData(request: GitHubPageRequest, signal?: AbortSignal): Promise<GitHubPage<GitHubIssue>> {
+    const page = resolvePage(request.page);
     const repository = await this.getRepository(request.repoPath);
-    const { payload: response } = await this.client.requestJson<GitHubApiIssuesResponse>(
+    const { payload: response, headers } = await this.client.requestJson<GitHubApiIssuesResponse>(
       repository,
-      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/issues?state=open&per_page=${ISSUE_LIMIT}`,
+      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/issues?state=open&per_page=${ISSUE_LIMIT}&page=${page}`,
       { cache: { mode: "conditional" }, ...(signal ? { signal } : {}) }
     );
 
@@ -203,15 +225,16 @@ export class GitHubService {
         }
       ];
     });
-    if (response.length < ISSUE_LIMIT) this.observeCount(repository, "issues", issues.length);
-    return issues;
+    if (page === 1 && response.length < ISSUE_LIMIT) this.observeCount(repository, "issues", issues.length);
+    return { items: issues, page, nextPage: getNextPage(headers, page, response.length, ISSUE_LIMIT), totalCount: null };
   }
 
-  private async getPullRequestsData(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubPullRequest[]> {
+  private async getPullRequestsData(request: GitHubPageRequest, signal?: AbortSignal): Promise<GitHubPage<GitHubPullRequest>> {
+    const page = resolvePage(request.page);
     const repository = await this.getRepository(request.repoPath);
-    const { payload: response } = await this.client.requestJson<GitHubApiPullRequestsResponse>(
+    const { payload: response, headers } = await this.client.requestJson<GitHubApiPullRequestsResponse>(
       repository,
-      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/pulls?state=open&per_page=${PULL_REQUEST_LIMIT}`,
+      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/pulls?state=open&per_page=${PULL_REQUEST_LIMIT}&page=${page}`,
       { cache: { mode: "conditional" }, ...(signal ? { signal } : {}) }
     );
 
@@ -236,8 +259,42 @@ export class GitHubService {
         }
       ];
     });
-    if (response.length < PULL_REQUEST_LIMIT) this.observeCount(repository, "pullRequests", pullRequests.length);
-    return pullRequests;
+    if (page === 1 && response.length < PULL_REQUEST_LIMIT) this.observeCount(repository, "pullRequests", pullRequests.length);
+    return { items: pullRequests, page, nextPage: getNextPage(headers, page, response.length, PULL_REQUEST_LIMIT), totalCount: null };
+  }
+
+  private async getHistoryInsightsData(request: GitHubHistoryInsightsRequest, signal?: AbortSignal): Promise<GitHubHistoryInsights> {
+    const repository = await this.getRepository(request.repoPath);
+    const requestedShas = [...new Set(request.commitShas.map((sha) => sha.trim().toLowerCase()).filter((sha) => FULL_SHA_PATTERN.test(sha)))].sort();
+    const headSha = request.headSha?.trim().toLowerCase() ?? null;
+    if (headSha && FULL_SHA_PATTERN.test(headSha) && !requestedShas.includes(headSha)) requestedShas.push(headSha);
+    requestedShas.sort();
+
+    const commits: GitHubCommitAssociation[] = [];
+    const unavailableCommitShas: string[] = [];
+    for (let offset = 0; offset < requestedShas.length; offset += HISTORY_INSIGHTS_BATCH_SIZE) {
+      const batch = requestedShas.slice(offset, offset + HISTORY_INSIGHTS_BATCH_SIZE);
+      const { query, variables } = createHistoryInsightsQuery(repository, batch);
+      const { payload } = await this.client.requestJson<GitHubGraphQlResponse>(repository, "/graphql", {
+        method: "POST", body: { query, variables }, ...(signal ? { signal } : {})
+      });
+      if (payload.errors?.length && !payload.data?.repository) {
+        throw new Error(payload.errors.map((error) => error.message).filter(Boolean).join(" ") || "GitHub GraphQL enrichment is unavailable.");
+      }
+      const nodes = payload.data?.repository;
+      for (let index = 0; index < batch.length; index += 1) {
+        const sha = batch[index]!;
+        const association = parseCommitAssociation(sha, nodes?.[`commit${index}`], repository);
+        if (association) commits.push(association);
+        else unavailableCommitShas.push(sha);
+      }
+    }
+    const headAssociation = headSha ? commits.find((commit) => commit.commitSha === headSha) : undefined;
+    return {
+      commits: commits.filter((commit) => request.commitShas.some((sha) => sha.toLowerCase() === commit.commitSha)),
+      unavailableCommitShas: unavailableCommitShas.filter((sha) => request.commitShas.some((requested) => requested.toLowerCase() === sha)),
+      currentBranchPullRequests: selectCurrentBranchPullRequests(headAssociation?.pullRequests ?? [], headSha, repository)
+    };
   }
 
   private async createPullRequestData(request: CreatePullRequestRequest): Promise<CreatePullRequestResult> {
@@ -317,8 +374,110 @@ function encodePath(value: string): string {
   return encodeURIComponent(value);
 }
 
+function resolvePage(value: number | undefined): number {
+  const page = value ?? 1;
+  if (!Number.isSafeInteger(page) || page < 1) {
+    throw new Error("GitHub page must be a positive safe integer.");
+  }
+  return page;
+}
+
+function getNextPage(headers: Headers, currentPage: number, rawItemCount: number, pageSize: number): number | null {
+  const link = headers.get("link");
+  if (!link) return rawItemCount === pageSize ? currentPage + 1 : null;
+  for (const part of link.split(",")) {
+    const match = part.match(/^\s*<([^>]+)>\s*;\s*(.+)$/);
+    if (!match) continue;
+    const relations = [...match[2]!.matchAll(/(?:^|;)\s*rel\s*=\s*(?:"([^"]*)"|'([^']*)'|([^;\s]+))/gi)]
+      .flatMap((relation) => (relation[1] ?? relation[2] ?? relation[3] ?? "").toLowerCase().split(/\s+/));
+    if (!relations.includes("next")) continue;
+    try {
+      const page = Number(new URL(match[1]!, "https://api.github.com").searchParams.get("page"));
+      return Number.isSafeInteger(page) && page > currentPage ? page : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 function normalizeRepository(repository: GitHubRepository): string {
   return repository.fullName.trim().toLowerCase();
+}
+
+function createHistoryInsightsQuery(repository: GitHubRepository, shas: string[]): { query: string; variables: Record<string, string> } {
+  const declarations = ["$owner:String!", "$name:String!", ...shas.map((_, index) => `$sha${index}:GitObjectID!`)].join(",");
+  const selections = shas.map((_, index) => `
+    commit${index}: object(oid:$sha${index}) {
+      ... on Commit {
+        oid
+        statusCheckRollup { state }
+        associatedPullRequests(first:5) { nodes {
+          number title state isDraft url headRefName headRefOid
+          baseRepository { nameWithOwner }
+          headRepository { nameWithOwner }
+        } }
+      }
+    }`).join("\n");
+  return {
+    query: `query GitheadHistoryInsights(${declarations}) { repository(owner:$owner,name:$name) { ${selections} } }`,
+    variables: Object.fromEntries([["owner", repository.owner], ["name", repository.name], ...shas.map((sha, index) => [`sha${index}`, sha])])
+  };
+}
+
+function parseCommitAssociation(sha: string, raw: unknown, repository: GitHubRepository): GitHubCommitAssociation | null {
+  if (!isRecord(raw) || typeof raw.oid !== "string" || raw.oid.toLowerCase() !== sha) return null;
+  const rollup = isRecord(raw.statusCheckRollup) ? raw.statusCheckRollup : null;
+  const pullRequestConnection = isRecord(raw.associatedPullRequests) ? raw.associatedPullRequests : null;
+  const nodes = Array.isArray(pullRequestConnection?.nodes) ? pullRequestConnection.nodes : [];
+  return {
+    commitSha: sha,
+    checkState: mapCheckState(typeof rollup?.state === "string" ? rollup.state : null),
+    pullRequests: nodes.flatMap((node) => parsePullRequestAssociation(node, repository))
+  };
+}
+
+function parsePullRequestAssociation(raw: unknown, repository: GitHubRepository): GitHubPullRequestAssociation[] {
+  if (!isRecord(raw) || !Number.isSafeInteger(raw.number) || Number(raw.number) <= 0 || typeof raw.url !== "string") return [];
+  const base = isRecord(raw.baseRepository) && typeof raw.baseRepository.nameWithOwner === "string"
+    ? raw.baseRepository.nameWithOwner : repository.fullName;
+  const head = isRecord(raw.headRepository) && typeof raw.headRepository.nameWithOwner === "string"
+    ? raw.headRepository.nameWithOwner : null;
+  return [{
+    number: Number(raw.number), title: normalizeText(typeof raw.title === "string" ? raw.title : null, "(no title)"),
+    state: normalizeText(typeof raw.state === "string" ? raw.state : null, "unknown").toLowerCase(),
+    draft: raw.isDraft === true, url: raw.url, baseRepositoryFullName: base,
+    headRepositoryFullName: head, headBranch: typeof raw.headRefName === "string" ? raw.headRefName : "",
+    headSha: typeof raw.headRefOid === "string" ? raw.headRefOid.toLowerCase() : ""
+  }];
+}
+
+function mapCheckState(state: string | null): GitHubCheckState {
+  switch (state?.toUpperCase()) {
+    case "SUCCESS": return "success";
+    case "FAILURE": case "ERROR": return "failure";
+    case "PENDING": case "EXPECTED": return "pending";
+    case "NEUTRAL": case "SKIPPED": case "STALE": return "neutral";
+    default: return "unknown";
+  }
+}
+
+function selectCurrentBranchPullRequests(
+  pullRequests: GitHubPullRequestAssociation[], headSha: string | null, repository: GitHubRepository
+): GitHubPullRequestAssociation[] {
+  if (!headSha) return [];
+  let candidates = pullRequests.filter((pullRequest) => pullRequest.headSha === headSha);
+  const open = candidates.filter((pullRequest) => pullRequest.state === "open");
+  if (open.length) candidates = open;
+  if (candidates.length > 1) {
+    const origin = candidates.filter((pullRequest) => pullRequest.headRepositoryFullName?.toLowerCase() === repository.fullName.toLowerCase());
+    if (origin.length) candidates = origin;
+  }
+  return candidates;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function normalizeText(value: string | null | undefined, fallback: string): string {

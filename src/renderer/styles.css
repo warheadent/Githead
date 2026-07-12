@@ -1748,7 +1748,22 @@ textarea,
   padding: 0 12px;
   background: transparent;
   text-align: left;
+  cursor: default;
 }
+
+.history-description,
+.history-github-badges,
+.commit-reference-list { display: flex; min-width: 0; align-items: center; gap: 5px; }
+.history-github-badges { margin-left: auto; flex: 0 0 auto; }
+.history-github-badge,
+.commit-reference-link { border: 1px solid var(--border); border-radius: 999px; padding: 1px 5px; background: var(--muted); color: inherit; font-size: .68rem; line-height: 1.1rem; }
+.history-check-state { width: 8px; height: 8px; border-radius: 50%; background: var(--muted-foreground); }
+.history-check-state.is-success { background: var(--success, #2da44e); }
+.history-check-state.is-failure { background: var(--destructive); }
+.history-check-state.is-pending { background: var(--warning, #bf8700); }
+.history-insights-error { display: flex; min-height: 28px; align-items: center; justify-content: center; gap: 6px; color: var(--muted-foreground); font-size: .75rem; }
+.commit-reference-list { flex-wrap: wrap; }
+.commit-reference-link { color: var(--primary); cursor: pointer; }
 
 .history-row.is-selected {
   color: var(--primary-foreground);
@@ -2413,6 +2428,21 @@ textarea,
   gap: 12px;
   border-bottom: 1px solid var(--border);
   padding: 10px 16px;
+}
+
+.github-list-footer {
+  display: flex;
+  min-height: 3.25rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  color: var(--muted-foreground);
+  border-top: 1px solid var(--border);
+}
+
+.github-list-footer-error {
+  color: var(--destructive);
 }
 
 .activity-log-status {

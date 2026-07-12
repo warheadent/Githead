@@ -2353,7 +2353,7 @@ describe("App", () => {
   it("loads workflow runs from GitHub when the Workflow Runs tab opens", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
-    vi.mocked(githead.getGitHubWorkflowRuns).mockResolvedValue({ ok: true, data: [
+    vi.mocked(githead.getGitHubWorkflowRuns).mockResolvedValue({ ok: true, data: { items: [
       createWorkflowRun({
         name: "CI",
         conclusion: "success",
@@ -2361,7 +2361,7 @@ describe("App", () => {
         event: "push",
         commitMessage: "feat: add workflow runs tab"
       })
-    ], rateLimit: null });
+    ], page: 1, nextPage: null, totalCount: 1 }, rateLimit: null });
 
     render(<App />);
 
@@ -2388,7 +2388,7 @@ describe("App", () => {
   it("loads open pull requests from GitHub when the Pull Requests tab opens", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
-    vi.mocked(githead.getGitHubPullRequests).mockResolvedValue({ ok: true, data: [
+    vi.mocked(githead.getGitHubPullRequests).mockResolvedValue({ ok: true, data: { items: [
       createPullRequest({
         number: 24,
         title: "Add GitHub pull request tab",
@@ -2400,7 +2400,7 @@ describe("App", () => {
         comments: 3,
         url: "https://github.com/openai/githead/pull/24"
       })
-    ], rateLimit: null });
+    ], page: 1, nextPage: null, totalCount: null }, rateLimit: null });
 
     render(<App />);
 
@@ -2409,6 +2409,7 @@ describe("App", () => {
     await waitFor(() => {
       expect(githead.getGitHubPullRequests).toHaveBeenCalledWith({
         repoPath,
+        page: 1,
         requestId: expect.any(String)
       });
     });
@@ -2424,6 +2425,23 @@ describe("App", () => {
         url: "https://github.com/openai/githead/pull/24"
       });
     });
+  });
+
+  it("loads and merges another workflow page", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
+    vi.mocked(githead.getGitHubWorkflowRuns)
+      .mockResolvedValueOnce({ ok: true, data: { items: [createWorkflowRun({ id: "1", name: "First" })], page: 1, nextPage: 2, totalCount: 2 }, rateLimit: null })
+      .mockResolvedValueOnce({ ok: true, data: { items: [createWorkflowRun({ id: "2", name: "Second" })], page: 2, nextPage: null, totalCount: 2 }, rateLimit: null });
+
+    render(<App />);
+    await user.click(await screen.findByRole("tab", { name: /Workflow Runs/ }));
+    await user.click(await screen.findByRole("button", { name: "Load more workflow runs" }));
+
+    expect(await screen.findByText("First")).toBeTruthy();
+    expect(await screen.findByText("Second")).toBeTruthy();
+    expect(githead.getGitHubWorkflowRuns).toHaveBeenLastCalledWith(expect.objectContaining({ repoPath, page: 2 }));
+    expect(screen.queryByRole("button", { name: "Load more workflow runs" })).toBeNull();
   });
 
   it("downloads a missing LFS image preview only after explicit activation", async () => {
@@ -2488,11 +2506,6 @@ describe("App", () => {
 
     render(<App />);
 
-    await waitFor(() => {
-      expect(githead.getGitHubPullRequests).toHaveBeenCalledWith(expect.objectContaining({
-        repoPath
-      }));
-    });
     await user.click(await screen.findByRole("button", { name: "Create PR" }));
 
     const dialog = screen.getByRole("dialog", { name: "Create Pull Request" });
@@ -2511,7 +2524,7 @@ describe("App", () => {
   it("loads open issues from GitHub when the Issues tab opens", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
-    vi.mocked(githead.getGitHubIssues).mockResolvedValue({ ok: true, data: [
+    vi.mocked(githead.getGitHubIssues).mockResolvedValue({ ok: true, data: { items: [
       createIssue({
         number: 12,
         title: "Add GitHub issue tab",
@@ -2521,7 +2534,7 @@ describe("App", () => {
         comments: 4,
         url: "https://github.com/openai/githead/issues/12"
       })
-    ], rateLimit: null });
+    ], page: 1, nextPage: null, totalCount: null }, rateLimit: null });
 
     render(<App />);
 
@@ -5261,10 +5274,10 @@ function createGitheadMock(): GitheadApi {
       trusted: true
     }),
     addSafeDirectory: vi.fn().mockResolvedValue(okOperation),
-    getGitHubWorkflowRuns: vi.fn().mockResolvedValue({ ok: true, data: [], rateLimit: null }),
+    getGitHubWorkflowRuns: vi.fn().mockResolvedValue({ ok: true, data: { items: [], page: 1, nextPage: null, totalCount: 0 }, rateLimit: null }),
     getGitHubOpenCounts: vi.fn().mockResolvedValue({ ok: true, data: createOpenCounts(), rateLimit: null }),
-    getGitHubIssues: vi.fn().mockResolvedValue({ ok: true, data: [], rateLimit: null }),
-    getGitHubPullRequests: vi.fn().mockResolvedValue({ ok: true, data: [], rateLimit: null }),
+    getGitHubIssues: vi.fn().mockResolvedValue({ ok: true, data: { items: [], page: 1, nextPage: null, totalCount: null }, rateLimit: null }),
+    getGitHubPullRequests: vi.fn().mockResolvedValue({ ok: true, data: { items: [], page: 1, nextPage: null, totalCount: null }, rateLimit: null }),
     createGitHubPullRequest: vi.fn().mockResolvedValue({ ok: true, data: {
       number: 12,
       url: "https://github.com/warheadent/Githead/pull/12",
@@ -5272,6 +5285,7 @@ function createGitheadMock(): GitheadApi {
       draft: false
     }, rateLimit: null }),
     getCommitHistory: vi.fn().mockResolvedValue([]),
+    getGitHubHistoryInsights: vi.fn().mockResolvedValue({ ok: true, data: { currentBranchPullRequests: [], commits: [], unavailableCommitShas: [] }, rateLimit: null }),
     getCommitDetails: vi.fn(),
     getCommitFileDiff: vi.fn(),
     getFileDiff: vi.fn(),

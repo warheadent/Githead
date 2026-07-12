@@ -300,6 +300,17 @@ export interface GitHubRepositoryRequest {
   requestId?: string;
 }
 
+export interface GitHubPageRequest extends GitHubRepositoryRequest {
+  page?: number;
+}
+
+export interface GitHubPage<T> {
+  items: T[];
+  page: number;
+  nextPage: number | null;
+  totalCount: number | null;
+}
+
 export interface CancelGitHubRequest {
   requestId: string;
 }
@@ -499,6 +510,51 @@ export interface GitAddRemoteRequest {
   repoPath: string;
   name: string;
   url: string;
+}
+
+export type GitHubCheckState = "success" | "failure" | "pending" | "neutral" | "unknown";
+
+export interface GitHubPullRequestAssociation {
+  number: number;
+  title: string;
+  state: string;
+  draft: boolean;
+  url: string;
+  baseRepositoryFullName: string;
+  headRepositoryFullName: string | null;
+  headBranch: string;
+  headSha: string;
+}
+
+export interface GitHubCommitAssociation {
+  commitSha: string;
+  pullRequests: GitHubPullRequestAssociation[];
+  checkState: GitHubCheckState;
+}
+
+export interface GitHubHistoryInsightsRequest extends GitHubRepositoryRequest {
+  currentBranch: string | null;
+  headSha: string | null;
+  commitShas: string[];
+}
+
+export interface GitHubHistoryInsights {
+  currentBranchPullRequests: GitHubPullRequestAssociation[];
+  commits: GitHubCommitAssociation[];
+  unavailableCommitShas: string[];
+}
+
+export type GitHubReferenceResolution = "exact" | "search" | "unsupported";
+export type GitHubReferenceKind = "issue-or-pull-request" | "issue" | "pull-request";
+
+export interface GitHubReference {
+  kind: GitHubReferenceKind;
+  owner: string | null;
+  repository: string | null;
+  number: number;
+  displayText: string;
+  targetUrl: string | null;
+  resolution: GitHubReferenceResolution;
 }
 
 export interface GitRenameRemoteRequest {
@@ -841,10 +897,11 @@ export interface GitheadApi {
   getRepoTrust(request: RepoTrustRequest): Promise<RepoTrustResult>;
   addRepoTrust(request: RepoTrustRequest): Promise<RepoTrustResult>;
   addSafeDirectory(request: GitSafeDirectoryRequest): Promise<GitOperationResult>;
-  getGitHubWorkflowRuns(request: GitHubRepositoryRequest): Promise<GitHubOperationResult<GitHubWorkflowRun[]>>;
+  getGitHubWorkflowRuns(request: GitHubPageRequest): Promise<GitHubOperationResult<GitHubPage<GitHubWorkflowRun>>>;
   getGitHubOpenCounts(request: GitHubRepositoryRequest): Promise<GitHubOperationResult<GitHubOpenCounts>>;
-  getGitHubIssues(request: GitHubRepositoryRequest): Promise<GitHubOperationResult<GitHubIssue[]>>;
-  getGitHubPullRequests(request: GitHubRepositoryRequest): Promise<GitHubOperationResult<GitHubPullRequest[]>>;
+  getGitHubIssues(request: GitHubPageRequest): Promise<GitHubOperationResult<GitHubPage<GitHubIssue>>>;
+  getGitHubPullRequests(request: GitHubPageRequest): Promise<GitHubOperationResult<GitHubPage<GitHubPullRequest>>>;
+  getGitHubHistoryInsights(request: GitHubHistoryInsightsRequest): Promise<GitHubOperationResult<GitHubHistoryInsights>>;
   createGitHubPullRequest(request: CreatePullRequestRequest): Promise<GitHubOperationResult<CreatePullRequestResult>>;
   cancelGitHubRequest(request: CancelGitHubRequest): Promise<void>;
   getCommitHistory(request: GitCommitHistoryRequest): Promise<GitCommitGraphRow[]>;
