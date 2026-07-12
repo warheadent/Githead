@@ -21,8 +21,6 @@ import {
   MapPinned,
   Maximize2,
   Minus,
-  Monitor,
-  Moon,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -30,7 +28,6 @@ import {
   Settings,
   ShieldAlert,
   Sparkles,
-  Sun,
   Tag,
   Trash2,
   Upload,
@@ -97,6 +94,8 @@ import {
   type RepositoryActionDraft,
   type RepositoryActionManagerDraft
 } from "./RepositoryActionsDialog";
+import { GitIdentityFields, SettingsDialog as RedesignedSettingsDialog } from "./SettingsDialog";
+import { getAiProviderLabel, isApiKeyProvider, isCliProvider } from "./aiProvider";
 import {
   Tooltip,
   TooltipContent,
@@ -107,9 +106,7 @@ import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import { DEFAULT_PR_DESCRIPTION_PROMPT } from "../shared/prDescriptionPrompt";
 import type {
   AiApiKeyProvider,
-  AiCliProvider,
   AiCommitMessageProvider,
-  AiReasoningCapabilities,
   AiReasoningEffort,
   AiSettings,
   AppAppearanceMode,
@@ -153,7 +150,7 @@ import type {
   RepoSummary,
   StatusFileViewMode
 } from "../shared/types";
-import { AI_API_KEY_PROVIDERS, AI_CLI_PROVIDERS, AI_COMMIT_MESSAGE_PROVIDERS, AI_REASONING_EFFORTS, APP_ZOOM_FACTORS, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
+import { AI_COMMIT_MESSAGE_PROVIDERS, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
 import { parseCommitSubject } from "../shared/commitSubject";
 import { parseGitHubReferences } from "../shared/githubReference";
 import { ActivityLogView } from "./ActivityLogView";
@@ -178,7 +175,7 @@ import { groupDiffRowsByHunk, isTechnicalFileHeader, parseUnifiedDiff, type Diff
 import { getCommitFileStatusVisuals, getFileStatusVisuals, type FileStatusVisuals } from "./fileStatusVisuals";
 import { highlightDiffCode } from "./syntaxHighlighter";
 import { buildStatusFileTree, fileName, type StatusFileTreeFolder } from "./statusFileTree";
-import { applyColorTheme, COLOR_THEME_OPTIONS } from "./themes";
+import { applyColorTheme } from "./themes";
 import gitIconUrl from "./assets/git-icon-white.svg";
 import loreIconUrl from "./assets/lore-icon-white.svg";
 
@@ -4614,7 +4611,7 @@ export function App(): ReactNode {
         }}
       />
 
-      <SettingsDialog
+      <RedesignedSettingsDialog
         open={state.settingsOpen}
         draft={state.settingsDraft}
         aiSettings={state.aiSettings}
@@ -8905,101 +8902,6 @@ function SafeDirectoryDialog({
   );
 }
 
-export interface GitIdentityFieldsProps {
-  idPrefix: string;
-  name: string;
-  email: string;
-  scope: GitIdentityScope;
-  disabled: boolean;
-  error?: string;
-  autoFocusName?: boolean;
-  onChange: (patch: Partial<{
-    name: string;
-    email: string;
-    scope: GitIdentityScope;
-  }>) => void;
-}
-
-function GitIdentityFields({
-  idPrefix,
-  name,
-  email,
-  scope,
-  disabled,
-  error = "",
-  autoFocusName = false,
-  onChange
-}: GitIdentityFieldsProps): ReactNode {
-  const hasError = Boolean(error);
-  const errorId = `${idPrefix}-error`;
-
-  return (
-    <fieldset className="grid gap-3" disabled={disabled}>
-      <legend className="sr-only">Git Identity</legend>
-      <div className="grid gap-2">
-        <Label htmlFor={`${idPrefix}-name`}>Name</Label>
-        <Input
-          id={`${idPrefix}-name`}
-          type="text"
-          autoComplete="name"
-          value={name}
-          autoFocus={autoFocusName}
-          aria-invalid={hasError}
-          aria-describedby={hasError ? errorId : undefined}
-          onChange={(event) => onChange({
-            name: event.target.value
-          })}
-        />
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor={`${idPrefix}-email`}>Email</Label>
-        <Input
-          id={`${idPrefix}-email`}
-          type="email"
-          autoComplete="email"
-          value={email}
-          aria-invalid={hasError}
-          aria-describedby={hasError ? errorId : undefined}
-          onChange={(event) => onChange({
-            email: event.target.value
-          })}
-        />
-      </div>
-      <div className="grid gap-2">
-        <p className="text-sm font-medium">Save identity to</p>
-        <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Save Git identity to">
-          <Label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm has-[:checked]:border-primary has-[:checked]:bg-primary/10">
-            <input
-              type="radio"
-              name={`${idPrefix}-scope`}
-              value="repository"
-              checked={scope === "repository"}
-              onChange={() => onChange({
-                scope: "repository"
-              })}
-              className="size-4"
-            />
-            This repository
-          </Label>
-          <Label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm has-[:checked]:border-primary has-[:checked]:bg-primary/10">
-            <input
-              type="radio"
-              name={`${idPrefix}-scope`}
-              value="global"
-              checked={scope === "global"}
-              onChange={() => onChange({
-                scope: "global"
-              })}
-              className="size-4"
-            />
-            Global
-          </Label>
-        </div>
-      </div>
-    </fieldset>
-  );
-}
-
 function GitIdentityDialog({
   open,
   state,
@@ -9058,382 +8960,6 @@ function GitIdentityDialog({
   );
 }
 
-function SettingsDialog({
-  open,
-  draft,
-  aiSettings,
-  saving,
-  error,
-  onOpenChange,
-  onDraftChange,
-  onSave
-}: {
-  open: boolean;
-  draft: SettingsDraft;
-  aiSettings: AiSettings | null;
-  saving: boolean;
-  error: string;
-  onOpenChange: (open: boolean) => void;
-  onDraftChange: (draft: SettingsDraft) => void;
-  onSave: (event: FormEvent<HTMLFormElement>) => void;
-}): ReactNode {
-  const provider = draft.selectedProvider;
-  const primaryReasoning = useAiReasoningCapabilities(open, provider, draft.providerModels[provider]);
-  const prDescriptionModel = draft.prDescriptionModels[provider].trim();
-  const prDescriptionReasoning = useAiReasoningCapabilities(open && Boolean(prDescriptionModel), provider, prDescriptionModel);
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="h-[min(760px,calc(100vh-2rem))] max-h-[min(760px,calc(100vh-2rem))] overflow-hidden sm:max-w-[720px]">
-        <form className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto_auto] gap-4" onSubmit={onSave}>
-          <DialogHeader>
-            <p className="eyebrow">Preferences</p>
-            <DialogTitle>Settings</DialogTitle>
-            <DialogDescription>
-              Configure appearance, Git identity, sync behavior, and AI commit message generation.
-            </DialogDescription>
-          </DialogHeader>
-
-          <Tabs defaultValue="git-identity" className="min-h-0 gap-4">
-            <TabsList className="grid h-11 w-full grid-cols-4">
-              <TabsTrigger value="appearance" className="h-full min-h-0 focus-visible:ring-inset">
-                Appearance
-              </TabsTrigger>
-              <TabsTrigger value="git-identity" className="h-full min-h-0 focus-visible:ring-inset">
-                Git Identity
-              </TabsTrigger>
-              <TabsTrigger value="sync" className="h-full min-h-0 focus-visible:ring-inset">
-                Sync
-              </TabsTrigger>
-              <TabsTrigger value="ai" className="h-full min-h-0 focus-visible:ring-inset">
-                AI
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="appearance" className="m-0 min-h-0 overflow-y-auto pr-1">
-              <section className="grid gap-3">
-                <fieldset className="appearance-mode-picker" disabled={saving}>
-                  <legend>Appearance</legend>
-                  <div className="appearance-mode-options">
-                    {([
-                      { id: "system", label: "System", icon: Monitor },
-                      { id: "light", label: "Light", icon: Sun },
-                      { id: "dark", label: "Dark", icon: Moon }
-                    ] as const).map(({ id, label, icon: Icon }) => (
-                      <label key={id}>
-                        <input
-                          className="sr-only"
-                          type="radio"
-                          name="appearance-mode"
-                          value={id}
-                          checked={draft.appearanceMode === id}
-                          onChange={() => onDraftChange({ ...draft, appearanceMode: id })}
-                        />
-                        <Icon aria-hidden="true" />
-                        <span>{label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
-                <div className="interface-scale-setting">
-                  <div className="interface-scale-heading">
-                    <div>
-                      <label className="text-sm font-semibold" htmlFor="interface-scale">Interface scale</label>
-                      <p className="text-sm text-muted-foreground">Resize text and controls throughout Githead.</p>
-                    </div>
-                    <output className="interface-scale-value" htmlFor="interface-scale">
-                      {formatZoomFactor(draft.zoomFactor)}
-                    </output>
-                  </div>
-                  <div className="interface-scale-slider-wrap">
-                    <div className="interface-scale-notches" aria-hidden="true">
-                      {APP_ZOOM_FACTORS.map((factor) => (
-                        <span key={factor} className={factor === 1 ? "is-default" : undefined} />
-                      ))}
-                    </div>
-                    <input
-                      id="interface-scale"
-                      className="interface-scale-slider"
-                      type="range"
-                      min={0}
-                      max={APP_ZOOM_FACTORS.length - 1}
-                      step={1}
-                      value={Math.max(0, APP_ZOOM_FACTORS.indexOf(draft.zoomFactor as typeof APP_ZOOM_FACTORS[number]))}
-                      aria-valuetext={formatZoomFactor(draft.zoomFactor)}
-                      disabled={saving}
-                      onChange={(event) => {
-                        const zoomFactor = APP_ZOOM_FACTORS[Number(event.currentTarget.value)];
-                        if (zoomFactor !== undefined) {
-                          onDraftChange({ ...draft, zoomFactor });
-                        }
-                      }}
-                    />
-                  </div>
-                  <div className="interface-scale-bounds" aria-hidden="true">
-                    <span>75%</span>
-                    <span className="interface-scale-default">100% Default</span>
-                    <span>200%</span>
-                  </div>
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold">Color theme</h3>
-                  <p className="text-sm text-muted-foreground">Choose a palette for your selected appearance.</p>
-                </div>
-                <fieldset className="theme-picker-grid" disabled={saving}>
-                  <legend className="sr-only">Color theme</legend>
-                  {COLOR_THEME_OPTIONS.map((theme) => (
-                    <label key={theme.id} className="theme-option">
-                      <input
-                        className="sr-only"
-                        type="radio"
-                        name="color-theme"
-                        value={theme.id}
-                        checked={draft.colorTheme === theme.id}
-                        onChange={() => onDraftChange({ ...draft, colorTheme: theme.id })}
-                      />
-                      <span className="theme-option-header">
-                        <span className="font-semibold">{theme.name}</span>
-                        <CheckCircle2 className="theme-option-check" aria-hidden="true" />
-                      </span>
-                      <span className="text-xs text-muted-foreground">{theme.description}</span>
-                      <span className="theme-swatches" aria-hidden="true">
-                        {theme.swatches.map((swatch) => (
-                          <span key={swatch} style={{ backgroundColor: swatch }} />
-                        ))}
-                      </span>
-                    </label>
-                  ))}
-                </fieldset>
-              </section>
-            </TabsContent>
-
-            <TabsContent value="git-identity" className="m-0 min-h-0 overflow-y-auto pr-1">
-              <section className="grid gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold">Git Identity</h3>
-                  <p className="text-sm text-muted-foreground">Used when Git needs author details for commits.</p>
-                </div>
-                <GitIdentityFields
-                  idPrefix="settings-git-identity"
-                  name={draft.gitIdentityName}
-                  email={draft.gitIdentityEmail}
-                  scope={draft.gitIdentityScope}
-                  disabled={saving}
-                  error={error}
-                  onChange={(patch) => onDraftChange({
-                    ...draft,
-                    ...(patch.name !== undefined ? { gitIdentityName: patch.name } : {}),
-                    ...(patch.email !== undefined ? { gitIdentityEmail: patch.email } : {}),
-                    ...(patch.scope !== undefined ? { gitIdentityScope: patch.scope } : {})
-                  })}
-                />
-              </section>
-            </TabsContent>
-
-            <TabsContent value="sync" className="m-0 min-h-0 overflow-y-auto pr-1">
-              <section className="grid gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold">Sync</h3>
-                  <p className="text-sm text-muted-foreground">Automatic remote fetch behavior while Githead is open.</p>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="auto-fetch-interval">Auto-fetch interval</Label>
-                  <Input
-                    id="auto-fetch-interval"
-                    type="number"
-                    min={0}
-                    max={1440}
-                    step={1}
-                    value={draft.autoFetchIntervalMinutes}
-                    disabled={saving}
-                    onChange={(event) => onDraftChange({
-                      ...draft,
-                      autoFetchIntervalMinutes: event.target.value
-                    })}
-                  />
-                  <p className="text-sm text-muted-foreground">Use 0 to disable automatic fetch.</p>
-                </div>
-              </section>
-            </TabsContent>
-
-            <TabsContent value="ai" className="m-0 min-h-0 overflow-y-auto pr-1">
-              <section className="grid gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold">AI</h3>
-                  <p className="text-sm text-muted-foreground">Provider settings for generated commit messages.</p>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="ai-provider">Provider</Label>
-                  <select
-                    id="ai-provider"
-                    className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-                    value={draft.selectedProvider}
-                    disabled={saving}
-                    onChange={(event) => onDraftChange({
-                      ...draft,
-                      selectedProvider: event.target.value as AiCommitMessageProvider
-                    })}
-                  >
-                    {AI_COMMIT_MESSAGE_PROVIDERS.map((provider) => (
-                      <option key={provider} value={provider}>{getAiProviderLabel(provider)}</option>
-                    ))}
-                  </select>
-                </div>
-                {isCliProvider(draft.selectedProvider) ? (
-                  <div className="grid gap-2 rounded-md border border-border p-3 text-sm">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="font-medium">{getAiProviderLabel(draft.selectedProvider)} status</span>
-                      <Badge variant={draft.selectedProvider === "codex-cli" ? "secondary" : "outline"}>
-                        CLI
-                      </Badge>
-                    </div>
-                    <p className="text-muted-foreground">
-                      {getCliStatusMessage(aiSettings, draft.selectedProvider)}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="grid gap-2">
-                    <Label htmlFor="ai-api-key">{getAiProviderLabel(draft.selectedProvider)} API Key</Label>
-                    <Input
-                      id="ai-api-key"
-                      type="password"
-                      autoComplete="off"
-                      placeholder="Leave blank to keep existing key"
-                      value={draft.apiKeys[draft.selectedProvider] ?? ""}
-                      disabled={saving}
-                      onChange={(event) => onDraftChange({
-                        ...draft,
-                        apiKeys: {
-                          ...draft.apiKeys,
-                          [draft.selectedProvider]: event.target.value
-                        },
-                        clearApiKeys: {
-                          ...draft.clearApiKeys,
-                          [draft.selectedProvider]: false
-                        }
-                      })}
-                    />
-                  </div>
-                )}
-                <div className="grid gap-2">
-                  <Label htmlFor="ai-model">Model</Label>
-                  <Input
-                    id="ai-model"
-                    type="text"
-                    autoComplete="off"
-                    value={draft.providerModels[draft.selectedProvider]}
-                    disabled={saving}
-                    onChange={(event) => onDraftChange({
-                      ...draft,
-                      providerModels: {
-                        ...draft.providerModels,
-                        [draft.selectedProvider]: event.target.value
-                      }
-                    })}
-                  />
-                </div>
-                <ReasoningEffortField
-                  id="ai-reasoning-effort"
-                  label="Reasoning"
-                  value={draft.reasoningEfforts[draft.selectedProvider]}
-                  capabilities={primaryReasoning.capabilities}
-                  loading={primaryReasoning.loading}
-                  disabled={saving}
-                  onChange={(reasoningEffort) => onDraftChange({
-                    ...draft,
-                    reasoningEfforts: {
-                      ...draft.reasoningEfforts,
-                      [draft.selectedProvider]: reasoningEffort
-                    }
-                  })}
-                />
-                <div className="grid gap-2">
-                  <Label htmlFor="ai-pr-description-model">PR Description Model</Label>
-                  <Input
-                    id="ai-pr-description-model"
-                    type="text"
-                    autoComplete="off"
-                    placeholder="Leave blank to use the commit message model"
-                    value={draft.prDescriptionModels[draft.selectedProvider]}
-                    disabled={saving}
-                    onChange={(event) => onDraftChange({
-                      ...draft,
-                      prDescriptionModels: {
-                        ...draft.prDescriptionModels,
-                        [draft.selectedProvider]: event.target.value
-                      }
-                    })}
-                  />
-                </div>
-                {prDescriptionModel ? (
-                  <ReasoningEffortField
-                    id="ai-pr-description-reasoning-effort"
-                    label="PR Description Reasoning"
-                    value={draft.prDescriptionReasoningEfforts[draft.selectedProvider]}
-                    capabilities={prDescriptionReasoning.capabilities}
-                    loading={prDescriptionReasoning.loading}
-                    disabled={saving}
-                    onChange={(reasoningEffort) => onDraftChange({
-                      ...draft,
-                      prDescriptionReasoningEfforts: {
-                        ...draft.prDescriptionReasoningEfforts,
-                        [draft.selectedProvider]: reasoningEffort
-                      }
-                    })}
-                  />
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    PR descriptions inherit the primary model and reasoning setting.
-                  </p>
-                )}
-                <div className="grid gap-2">
-                  <Label htmlFor="ai-commit-message-prompt">Commit Message Prompt</Label>
-                  <Textarea
-                    id="ai-commit-message-prompt"
-                    className="h-72 resize-y field-sizing-fixed"
-                    rows={7}
-                    value={draft.commitMessagePrompt}
-                    disabled={saving}
-                    onChange={(event) => onDraftChange({
-                      ...draft,
-                      commitMessagePrompt: event.target.value
-                    })}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="ai-pr-description-prompt">PR Description Prompt</Label>
-                  <Textarea
-                    id="ai-pr-description-prompt"
-                    className="h-72 resize-y field-sizing-fixed"
-                    rows={7}
-                    value={draft.prDescriptionPrompt}
-                    disabled={saving}
-                    onChange={(event) => onDraftChange({
-                      ...draft,
-                      prDescriptionPrompt: event.target.value
-                    })}
-                  />
-                </div>
-              </section>
-            </TabsContent>
-          </Tabs>
-
-          <p id="settings-git-identity-error" className="min-h-5 text-sm text-destructive" role="alert">{error}</p>
-          <DialogFooter>
-            <Button type="button" variant="outline" disabled={saving} onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={saving}>
-              {saving ? <Loader2 className="animate-spin" /> : <Save />}
-              {saving ? "Saving…" : "Save"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 function ImageDiffView({ filePath, before, after, onDownload, downloading }: { filePath: string; before: GitImageSide; after: GitImageSide; onDownload?: () => void; downloading: boolean }): ReactNode {
   const canDownload = (before.status === "lfs-missing" && before.fetchable) || (after.status === "lfs-missing" && after.fetchable);
   return (
@@ -9477,111 +9003,6 @@ function formatImageBytes(bytes: number): string {
   let unit = units[0]!;
   for (let index = 1; index < units.length && value >= 1024; index += 1) { value /= 1024; unit = units[index]!; }
   return `${value.toFixed(value >= 10 ? 0 : 1)} ${unit}`;
-}
-
-function useAiReasoningCapabilities(
-  enabled: boolean,
-  provider: AiCommitMessageProvider,
-  model: string
-): { capabilities: AiReasoningCapabilities; loading: boolean } {
-  const [state, setState] = useState<{ capabilities: AiReasoningCapabilities; loading: boolean }>({
-    capabilities: { status: "unknown", supportedEfforts: [] },
-    loading: false
-  });
-
-  useEffect(() => {
-    const normalizedModel = model.trim();
-    if (!enabled || !normalizedModel) {
-      setState({
-        capabilities: { status: "unknown", supportedEfforts: [] },
-        loading: false
-      });
-      return;
-    }
-
-    let cancelled = false;
-    setState((current) => ({ ...current, loading: true }));
-    const timeout = window.setTimeout(() => {
-      void window.githead.getAiReasoningCapabilities({ provider, model: normalizedModel })
-        .then((capabilities) => {
-          if (!cancelled) {
-            setState({ capabilities, loading: false });
-          }
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setState({
-              capabilities: { status: "unknown", supportedEfforts: [] },
-              loading: false
-            });
-          }
-        });
-    }, 300);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeout);
-    };
-  }, [enabled, model, provider]);
-
-  return state;
-}
-
-function ReasoningEffortField({
-  id,
-  label,
-  value,
-  capabilities,
-  loading,
-  disabled,
-  onChange
-}: {
-  id: string;
-  label: string;
-  value: AiReasoningEffort;
-  capabilities: AiReasoningCapabilities;
-  loading: boolean;
-  disabled: boolean;
-  onChange: (effort: AiReasoningEffort) => void;
-}): ReactNode {
-  const supportedEfforts = AI_REASONING_EFFORTS.filter((effort) => capabilities.supportedEfforts.includes(effort));
-  const available = capabilities.status === "supported" && supportedEfforts.length > 0;
-  const selectedValue = supportedEfforts.includes(value) ? value : supportedEfforts[0] ?? value;
-  const helpId = `${id}-help`;
-  const helpText = loading
-    ? "Checking whether this model supports configurable reasoning…"
-    : capabilities.status === "unsupported"
-      ? "This model does not support configurable reasoning."
-      : capabilities.status === "unknown"
-        ? "Reasoning support could not be verified for this model."
-        : "Lower effort favors speed and cost; higher effort favors deeper reasoning.";
-
-  return (
-    <div className="grid gap-2">
-      <Label htmlFor={id}>{label}</Label>
-      <select
-        id={id}
-        className="h-10 rounded-md border border-input bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
-        value={selectedValue}
-        disabled={disabled || loading || !available}
-        aria-describedby={helpId}
-        onChange={(event) => onChange(event.target.value as AiReasoningEffort)}
-      >
-        {(available ? supportedEfforts : [value]).map((effort) => (
-          <option key={effort} value={effort}>{getReasoningEffortLabel(effort)}</option>
-        ))}
-      </select>
-      <p id={helpId} className="text-sm text-muted-foreground" aria-live="polite">{helpText}</p>
-    </div>
-  );
-}
-
-function getReasoningEffortLabel(effort: AiReasoningEffort): string {
-  return effort.charAt(0).toUpperCase() + effort.slice(1);
-}
-
-function formatZoomFactor(zoomFactor: number): string {
-  return `${Math.round(zoomFactor * 100)}%`;
 }
 
 function useAppearanceModeClass(appearanceMode: AppAppearanceMode): void {
@@ -10170,33 +9591,6 @@ function createSettingsDraftReasoningEfforts(
       : settings?.providers[provider]?.reasoningEffort ?? "low";
     return efforts;
   }, {} as Record<AiCommitMessageProvider, AiReasoningEffort>);
-}
-
-function isApiKeyProvider(provider: AiCommitMessageProvider): provider is AiApiKeyProvider {
-  return AI_API_KEY_PROVIDERS.includes(provider as AiApiKeyProvider);
-}
-
-function isCliProvider(provider: AiCommitMessageProvider): provider is AiCliProvider {
-  return AI_CLI_PROVIDERS.includes(provider as AiCliProvider);
-}
-
-function getAiProviderLabel(provider: AiCommitMessageProvider): string {
-  switch (provider) {
-    case "openrouter":
-      return "OpenRouter";
-    case "openai":
-      return "OpenAI";
-    case "codex-cli":
-      return "Codex CLI";
-    case "anthropic":
-      return "Anthropic";
-    case "claude-code":
-      return "Claude Code";
-  }
-}
-
-function getCliStatusMessage(aiSettings: AiSettings | null, provider: AiCliProvider): string {
-  return aiSettings?.cliStatus[provider]?.message ?? `${getAiProviderLabel(provider)} status is unavailable.`;
 }
 
 function canCommit(state: AppState): boolean {

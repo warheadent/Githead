@@ -5147,24 +5147,24 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Settings" }));
 
     const settingsDialog = screen.getByRole("dialog", { name: "Settings" });
-    expect(settingsDialog.className).toContain("sm:max-w-[720px]");
-    expect(settingsDialog.className).toContain("h-[min(760px,calc(100vh-2rem))]");
+    expect(settingsDialog.className).toContain("sm:max-w-[880px]");
+    expect(settingsDialog.className).toContain("h-[min(780px,calc(100vh-2rem))]");
     expect(settingsDialog.className).toContain("overflow-hidden");
     expect(screen.getByRole("tab", { name: "Appearance", selected: false })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Git Identity", selected: true })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Sync", selected: false })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "AI", selected: false })).toBeTruthy();
     await screen.findByText("Git Identity", {
-      selector: "h3"
+      selector: "h2"
     });
     expect(screen.queryByText("Provider settings for generated commit messages.")).toBeNull();
     await user.click(screen.getByRole("tab", { name: "Sync" }));
     expect((screen.getByLabelText("Auto-fetch interval") as HTMLInputElement).value).toBe("10");
     await user.click(screen.getByRole("tab", { name: "AI" }));
-    expect(await screen.findByText("Provider settings for generated commit messages.")).toBeTruthy();
+    expect(await screen.findByText("Configure providers and instructions for generated Git content.")).toBeTruthy();
     const prompt = screen.getByLabelText("Commit Message Prompt");
     expect(prompt.className).toContain("field-sizing-fixed");
-    expect(prompt.className).toContain("h-72");
+    expect(prompt.className).toContain("min-h-44");
     await user.click(screen.getByRole("tab", { name: "Git Identity" }));
     await user.clear(screen.getByLabelText("Name"));
     await user.type(screen.getByLabelText("Name"), "Taylor");
@@ -5208,6 +5208,35 @@ describe("App", () => {
     });
   });
 
+  it("protects unsaved settings and keeps drafts while navigating categories", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
+
+    await user.click(screen.getByRole("tab", { name: "Sync" }));
+    const interval = screen.getByLabelText("Auto-fetch interval");
+    await user.clear(interval);
+    await user.type(interval, "20");
+    expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(false);
+
+    await user.click(screen.getByRole("tab", { name: "AI" }));
+    await user.click(screen.getByRole("tab", { name: "Sync" }));
+    expect((screen.getByLabelText("Auto-fetch interval") as HTMLInputElement).value).toBe("20");
+
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "Discard unsaved settings?" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(screen.getByRole("dialog", { name: "Settings" })).toBeTruthy();
+    expect((screen.getByLabelText("Auto-fetch interval") as HTMLInputElement).value).toBe("20");
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull();
+  });
+
   it("previews, restores, and saves accessible color themes", async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -5227,6 +5256,8 @@ describe("App", () => {
     expect(document.documentElement.dataset.theme).toBe("tidepool");
     expect(document.documentElement.classList.contains("dark")).toBe(true);
     await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("dialog", { name: "Discard unsaved settings?" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
     expect(document.documentElement.dataset.theme).toBe("githead");
     expect(document.documentElement.classList.contains("dark")).toBe(false);
 
@@ -5266,6 +5297,8 @@ describe("App", () => {
     expect(slider.getAttribute("aria-valuetext")).toBe("200%");
 
     await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("dialog", { name: "Discard unsaved settings?" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
     await waitFor(() => expect(githead.setWindowZoomFactor).toHaveBeenLastCalledWith(1));
 
     await user.click(screen.getByRole("button", { name: "Settings" }));
