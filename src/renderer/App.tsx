@@ -90,6 +90,7 @@ import {
 } from "@/components/ui/resizable";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { TagDialog, type TagDialogState } from "./TagDialog";
 import {
   Tooltip,
   TooltipContent,
@@ -241,20 +242,6 @@ interface ResetCommitFileDialogState {
   open: boolean;
   hash: string;
   paths: string[];
-  error: string;
-}
-
-interface TagDialogState {
-  open: boolean;
-  hash: string;
-  tab: "add" | "remove";
-  tagName: string;
-  message: string;
-  lightweight: boolean;
-  force: boolean;
-  pushRemote: string | null;
-  deleteTagName: string;
-  deletePushRemote: string | null;
   error: string;
 }
 
@@ -478,6 +465,7 @@ const emptyTagDialog: TagDialogState = {
   pushRemote: null,
   deleteTagName: "",
   deletePushRemote: null,
+  deleteConfirmed: false,
   error: ""
 };
 
@@ -3881,6 +3869,16 @@ export function App(): ReactNode {
         tagDialog: {
           ...dialog,
           error: "Select a tag to remove."
+        }
+      });
+      return;
+    }
+
+    if (!dialog.deleteConfirmed) {
+      updateState({
+        tagDialog: {
+          ...dialog,
+          error: "Confirm that you understand this tag will be removed."
         }
       });
       return;
@@ -7954,208 +7952,6 @@ function BranchDialog({
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function TagDialog({
-  state,
-  commit,
-  remotes,
-  saving,
-  onOpenChange,
-  onStateChange,
-  onCreate,
-  onDelete
-}: {
-  state: TagDialogState;
-  commit: GitCommitGraphRow | null;
-  remotes: string[];
-  saving: boolean;
-  onOpenChange: (open: boolean) => void;
-  onStateChange: (state: TagDialogState) => void;
-  onCreate: (event: FormEvent<HTMLFormElement>) => void;
-  onDelete: (event: FormEvent<HTMLFormElement>) => void;
-}): ReactNode {
-  const commitTags = commit ? getCommitTags(commit) : [];
-  const remoteOptions = remotes.length > 0 ? remotes : [];
-
-  return (
-    <Dialog open={state.open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Tag</DialogTitle>
-          <DialogDescription>
-            {commit ? getCommitSummaryLabel(commit) : "Select a commit to tag."}
-          </DialogDescription>
-        </DialogHeader>
-        <Tabs
-          value={state.tab}
-          onValueChange={(tab) => {
-            onStateChange({
-              ...state,
-              tab: tab === "remove" ? "remove" : "add",
-              error: ""
-            });
-          }}
-        >
-          <TabsList>
-            <TabsTrigger value="add">
-              <Tag />
-              Add Tag
-            </TabsTrigger>
-            <TabsTrigger value="remove">
-              <Trash2 />
-              Remove Tag
-            </TabsTrigger>
-          </TabsList>
-          <TabsContent value="add">
-            <form className="commit-action-form" onSubmit={onCreate}>
-              <div className="form-grid">
-                <Label htmlFor="tag-name">Tag Name</Label>
-                <Input
-                  id="tag-name"
-                  value={state.tagName}
-                  disabled={saving}
-                  onChange={(event) => {
-                    onStateChange({
-                      ...state,
-                      tagName: event.currentTarget.value,
-                      error: ""
-                    });
-                  }}
-                />
-                <Label>Commit</Label>
-                <span className="commit-action-value selectable-text">{commit ? getCommitSummaryLabel(commit) : state.hash}</span>
-                <Label htmlFor="tag-push-remote">Push tag</Label>
-                <select
-                  id="tag-push-remote"
-                  className="form-select"
-                  value={state.pushRemote ?? ""}
-                  disabled={saving || remoteOptions.length === 0}
-                  onChange={(event) => {
-                    onStateChange({
-                      ...state,
-                      pushRemote: event.currentTarget.value || null,
-                      error: ""
-                    });
-                  }}
-                >
-                  <option value="">Do not push</option>
-                  {remoteOptions.map((remote) => (
-                    <option key={remote} value={remote}>{remote}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="commit-action-options">
-                <label className="checkbox-row">
-                  <input
-                    type="checkbox"
-                    checked={state.force}
-                    disabled={saving}
-                    onChange={(event) => {
-                      onStateChange({
-                        ...state,
-                        force: event.currentTarget.checked,
-                        error: ""
-                      });
-                    }}
-                  />
-                  Move existing tag
-                </label>
-                <label className="checkbox-row">
-                  <input
-                    type="checkbox"
-                    checked={state.lightweight}
-                    disabled={saving}
-                    onChange={(event) => {
-                      onStateChange({
-                        ...state,
-                        lightweight: event.currentTarget.checked,
-                        error: ""
-                      });
-                    }}
-                  />
-                  Lightweight tag
-                </label>
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="tag-message">Message</Label>
-                <Input
-                  id="tag-message"
-                  value={state.message}
-                  disabled={saving || state.lightweight}
-                  onChange={(event) => {
-                    onStateChange({
-                      ...state,
-                      message: event.currentTarget.value,
-                      error: ""
-                    });
-                  }}
-                />
-              </div>
-              {state.error ? <p className="dialog-error">{state.error}</p> : null}
-              <DialogFooter>
-                <Button type="submit" disabled={saving}>
-                  {saving ? <Loader2 className="animate-spin" /> : <Tag />}
-                  Add Tag
-                </Button>
-              </DialogFooter>
-            </form>
-          </TabsContent>
-          <TabsContent value="remove">
-            <form className="commit-action-form" onSubmit={onDelete}>
-              <div className="form-grid">
-                <Label htmlFor="tag-remove-name">Tag</Label>
-                <select
-                  id="tag-remove-name"
-                  className="form-select"
-                  value={state.deleteTagName}
-                  disabled={saving || commitTags.length === 0}
-                  onChange={(event) => {
-                    onStateChange({
-                      ...state,
-                      deleteTagName: event.currentTarget.value,
-                      error: ""
-                    });
-                  }}
-                >
-                  {commitTags.length === 0 ? <option value="">No tags on this commit</option> : null}
-                  {commitTags.map((ref) => (
-                    <option key={`${state.hash}:${ref.name}`} value={ref.name}>{ref.name}</option>
-                  ))}
-                </select>
-                <Label htmlFor="tag-delete-push-remote">Push delete</Label>
-                <select
-                  id="tag-delete-push-remote"
-                  className="form-select"
-                  value={state.deletePushRemote ?? ""}
-                  disabled={saving || remoteOptions.length === 0}
-                  onChange={(event) => {
-                    onStateChange({
-                      ...state,
-                      deletePushRemote: event.currentTarget.value || null,
-                      error: ""
-                    });
-                  }}
-                >
-                  <option value="">Do not push</option>
-                  {remoteOptions.map((remote) => (
-                    <option key={remote} value={remote}>{remote}</option>
-                  ))}
-                </select>
-              </div>
-              {state.error ? <p className="dialog-error">{state.error}</p> : null}
-              <DialogFooter>
-                <Button type="submit" variant="destructive" disabled={saving || commitTags.length === 0}>
-                  {saving ? <Loader2 className="animate-spin" /> : <Trash2 />}
-                  Remove Tag
-                </Button>
-              </DialogFooter>
-            </form>
-          </TabsContent>
-        </Tabs>
       </DialogContent>
     </Dialog>
   );

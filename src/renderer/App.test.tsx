@@ -745,14 +745,14 @@ describe("App", () => {
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /tag target/ }));
     await user.click(await screen.findByRole("menuitem", { name: /^Tag$/ }));
-    await user.click(screen.getByRole("button", { name: "Add Tag" }));
+    await user.click(screen.getByRole("button", { name: "Create tag" }));
 
     expect(await screen.findByText("Enter a tag name.")).toBeTruthy();
 
-    await user.type(screen.getByLabelText("Tag Name"), "v1.2.3");
-    await user.type(screen.getByLabelText("Message"), "Release 1.2.3");
-    await user.selectOptions(screen.getByLabelText("Push tag"), "origin");
-    await user.click(screen.getByRole("button", { name: "Add Tag" }));
+    await user.type(screen.getByLabelText("Tag name"), "v1.2.3");
+    await user.type(screen.getByLabelText(/Message/), "Release 1.2.3");
+    await user.selectOptions(screen.getByLabelText("Push after creating"), "origin");
+    await user.click(screen.getByRole("button", { name: "Create tag" }));
 
     await waitFor(() => {
       expect(githead.createTag).toHaveBeenCalledWith({
@@ -765,6 +765,36 @@ describe("App", () => {
         pushRemote: "origin"
       });
     });
+  });
+
+  it("creates a lightweight tag and confirms moving an existing tag", async () => {
+    const user = userEvent.setup();
+    const commit = createCommit({ hash: "d".repeat(40), shortHash: "ddddddd", subject: "feat: lightweight tag target" });
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash));
+
+    render(<App />);
+
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /lightweight tag target/ }));
+    await user.click(await screen.findByRole("menuitem", { name: /^Tag$/ }));
+    await user.type(screen.getByLabelText("Tag name"), "latest");
+    await user.click(screen.getByLabelText(/Lightweight/));
+    expect(screen.queryByLabelText(/Message/)).toBeNull();
+    await user.click(screen.getByLabelText(/Move an existing tag/));
+    expect(screen.getByText(/different commit/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Create tag" }));
+
+    await waitFor(() => expect(githead.createTag).toHaveBeenCalledWith({
+      repoPath,
+      hash: commit.hash,
+      tagName: "latest",
+      message: "",
+      lightweight: true,
+      force: true,
+      pushRemote: null
+    }));
   });
 
   it("removes an existing tag from the selected commit", async () => {
@@ -789,8 +819,9 @@ describe("App", () => {
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /remove tag target/ }));
     await user.click(await screen.findByRole("menuitem", { name: /^Tag$/ }));
-    await user.click(screen.getByRole("tab", { name: /Remove Tag/ }));
-    await user.click(screen.getByRole("button", { name: "Remove Tag" }));
+    await user.click(screen.getByRole("tab", { name: /Remove/ }));
+    await user.click(screen.getByLabelText("I understand this tag reference will be removed."));
+    await user.click(screen.getByRole("button", { name: "Remove tag" }));
 
     await waitFor(() => {
       expect(githead.deleteTag).toHaveBeenCalledWith({
@@ -799,6 +830,37 @@ describe("App", () => {
         pushRemote: null
       });
     });
+  });
+
+  it("requires renewed removal confirmation after changing the remote", async () => {
+    const user = userEvent.setup();
+    const commit = createCommit({
+      hash: "c".repeat(40), shortHash: "ccccccc", subject: "feat: protected tag removal",
+      refs: [{ name: "v2.0.0", kind: "tag" }]
+    });
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      remotes: [{ name: "origin", url: "https://example.test/repo.git", direction: "push" }]
+    }));
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash));
+
+    render(<App />);
+
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /protected tag removal/ }));
+    await user.click(await screen.findByRole("menuitem", { name: /^Tag$/ }));
+    await user.click(screen.getByRole("tab", { name: /Remove/ }));
+
+    const acknowledgement = screen.getByLabelText("I understand this tag reference will be removed.");
+    const removeButton = screen.getByRole("button", { name: "Remove tag" });
+    expect(removeButton.hasAttribute("disabled")).toBe(true);
+    await user.click(acknowledgement);
+    expect(removeButton.hasAttribute("disabled")).toBe(false);
+    await user.selectOptions(screen.getByLabelText("Also delete from remote"), "origin");
+    expect((acknowledgement as HTMLInputElement).checked).toBe(false);
+    expect(removeButton.hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText(/deletes it from origin/)).toBeTruthy();
   });
 
   it("stages the selected unstaged file through the preload API", async () => {
