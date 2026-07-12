@@ -3,6 +3,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { Slot } from "radix-ui"
 
 import { cn } from "@/lib/utils"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 
 const buttonVariants = cva(
   "inline-flex shrink-0 select-none items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-all outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
@@ -61,4 +62,37 @@ function Button({
   )
 }
 
-export { Button, buttonVariants }
+type TooltipButtonProps = React.ComponentProps<typeof Button> & {
+  tooltip: React.ReactNode
+  disabledTooltip?: React.ReactNode
+  tooltipContentProps?: Omit<React.ComponentProps<typeof TooltipContent>, "children">
+}
+
+function TooltipButton({
+  tooltip,
+  disabledTooltip,
+  tooltipContentProps,
+  disabled = false,
+  "aria-label": ariaLabel,
+  ...props
+}: TooltipButtonProps) {
+  const content = disabled && disabledTooltip ? disabledTooltip : tooltip
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          data-slot="tooltip-button-trigger"
+          className="inline-flex"
+          tabIndex={disabled ? 0 : undefined}
+          aria-label={disabled && typeof content === "string" ? content : undefined}
+        >
+          <Button disabled={disabled} aria-label={ariaLabel} {...props} />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent {...tooltipContentProps}>{content}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+export { Button, TooltipButton, buttonVariants }

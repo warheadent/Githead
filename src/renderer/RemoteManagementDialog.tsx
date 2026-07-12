@@ -1,7 +1,7 @@
 import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, TooltipButton } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -303,7 +303,7 @@ function RemoteList({
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button type="button" variant="outline" size="xs" disabled={busy} onClick={() => onRename(remote)}><Pencil /> Rename</Button>
-                  <Button type="button" variant="outline" size="xs" disabled={busy || advanced} title={advanced ? "Use the Git CLI to edit advanced URL configuration." : undefined} onClick={() => onEdit(remote)}><Pencil /> Edit URL</Button>
+                  <TooltipButton type="button" variant="outline" size="xs" disabled={busy || advanced} tooltip="Edit remote URL" disabledTooltip={advanced ? "Use the Git CLI to edit advanced URL configuration" : undefined} onClick={() => onEdit(remote)}><Pencil /> Edit URL</TooltipButton>
                   <Button type="button" variant="outline" size="xs" disabled={busy} onClick={() => onRemove(remote)}><Trash2 /> Remove</Button>
                 </div>
               </div>

@@ -1,7 +1,7 @@
 import { Archive, GitBranch as GitBranchIcon, Loader2, Pencil, Search, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, TooltipButton } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -78,8 +78,8 @@ export function BranchManagementDialog(props: BranchManagementDialogProps): Reac
           {!visibleBranches.length ? <p className="py-8 text-center text-sm text-muted-foreground">{branches.length ? "No branches match your search." : "No local branches found."}</p> : visibleBranches.map((branch) => <div key={branch.name} role="listitem" className="flex items-center gap-3 rounded-md border p-3">
             <GitBranchIcon className="size-4 shrink-0" aria-hidden="true" />
             <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className="truncate font-medium" title={branch.name}>{branch.name}</span>{branch.current ? <Badge>Current</Badge> : null}</div>{branch.upstream ? <p className="truncate text-xs text-muted-foreground" title={branch.upstream}>{branch.upstream}</p> : null}</div>
-            {capabilities.renameBranches ? <Button type="button" variant="ghost" size="icon" disabled={busy} aria-label={`Rename ${branch.name}`} onClick={() => beginRename(branch)}><Pencil /></Button> : null}
-            {capabilities.removeBranches ? <Button type="button" variant="ghost" size="icon" disabled={busy || branch.current} aria-label={`${archive ? "Archive" : "Delete"} ${branch.name}`} title={branch.current ? `Switch to another branch before ${archive ? "archiving" : "deleting"} this branch.` : undefined} onClick={() => { setError(""); setForceDelete(false); setMode({ kind: "remove", branch }); }}>{archive ? <Archive /> : <Trash2 />}</Button> : null}
+            {capabilities.renameBranches ? <TooltipButton type="button" variant="ghost" size="icon" disabled={busy} aria-label={`Rename ${branch.name}`} tooltip={`Rename ${branch.name}`} onClick={() => beginRename(branch)}><Pencil /></TooltipButton> : null}
+            {capabilities.removeBranches ? <TooltipButton type="button" variant="ghost" size="icon" disabled={busy || branch.current} aria-label={`${archive ? "Archive" : "Delete"} ${branch.name}`} tooltip={`${archive ? "Archive" : "Delete"} ${branch.name}`} disabledTooltip={branch.current ? `Switch to another branch before ${archive ? "archiving" : "deleting"} this branch` : undefined} onClick={() => { setError(""); setForceDelete(false); setMode({ kind: "remove", branch }); }}>{archive ? <Archive /> : <Trash2 />}</TooltipButton> : null}
           </div>)}
         </div>
       </div> : <form className="grid gap-5" onSubmit={submit}>

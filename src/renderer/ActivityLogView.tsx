@@ -1,11 +1,6 @@
 import { ArrowDown, Clipboard, Eraser, WrapText } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode, type UIEvent } from "react";
-import { Button } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger
-} from "@/components/ui/tooltip";
+import { Button, TooltipButton } from "@/components/ui/button";
 import type { ActivityLogBlock, ActivityLogState } from "./activityLog";
 import { hasActivityLogOutput } from "./activityLog";
 
@@ -63,24 +58,21 @@ export function ActivityLogView({
           {showStatus ? <p className="activity-log-status">Status: {statusLabel}</p> : null}
         </div>
         <div className="activity-log-actions" aria-label="Activity log controls">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
+          <TooltipButton
                 type="button"
                 variant={wrapLines ? "default" : "secondary"}
                 size="icon-sm"
                 aria-label={wrapLines ? "Disable line wrap" : "Enable line wrap"}
                 aria-pressed={wrapLines}
                 disabled={!hasOutput}
+                tooltip={wrapLines ? "Disable line wrap" : "Enable line wrap"}
+                disabledTooltip="Line wrapping is available when the log has output"
                 onClick={() => {
                   setWrapLines((current) => !current);
                 }}
               >
                 <WrapText />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{wrapLines ? "Disable line wrap" : "Enable line wrap"}</TooltipContent>
-          </Tooltip>
+          </TooltipButton>
           <Button type="button" variant="secondary" disabled={!hasRawText} onClick={onCopyRawLog}>
             <Clipboard />
             Copy Raw

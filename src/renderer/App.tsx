@@ -56,7 +56,7 @@ import {
 } from "react";
 import ReactMarkdown from "react-markdown";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, TooltipButton } from "@/components/ui/button";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -5476,7 +5476,6 @@ function RecentRepositoryRow({
             }}
             disabled={disabled}
             aria-label={`Remove ${repoPath} from recent repositories`}
-            title="Remove recent repository"
           >
             <X />
           </Button>
@@ -5697,17 +5696,18 @@ function CloneRepositoryForm({
             />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button
+                <TooltipButton
                   type="button"
                   variant="outline"
                   size="icon"
                   className="clone-branch-trigger"
                   disabled={cloneRunning || cloneBranches.length === 0}
                   aria-label="Choose branch"
-                  title="Choose branch"
+                  tooltip="Choose branch"
+                  disabledTooltip={cloneBranches.length === 0 ? "No branches are available to choose" : undefined}
                 >
                   <ChevronDown />
-                </Button>
+                </TooltipButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="clone-branch-menu">
                 {cloneBranches.map((branch) => (
@@ -5886,15 +5886,15 @@ function RepositoryPanel({
         headingAction={(
           <Popover open={clonePanelOpen} onOpenChange={updateAddPopoverOpen}>
           <PopoverTrigger asChild>
-            <Button
+            <TooltipButton
               type="button"
               variant="outline"
               size="icon-sm"
               aria-label="Add repository"
-              title="Add repository"
+              tooltip="Add repository"
             >
               <Plus />
-            </Button>
+            </TooltipButton>
           </PopoverTrigger>
           <PopoverContent
             align="start"
@@ -6025,16 +6025,16 @@ function BranchFact({
         <span className="repo-branch-actions">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button
+              <TooltipButton
                 type="button"
                 variant="outline"
                 size="icon-xs"
                 disabled={disabled}
                 aria-label="Switch branch"
-                title="Switch branch"
+                tooltip="Switch branch"
               >
                 <GitBranchIcon />
-              </Button>
+              </TooltipButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="branch-menu-content">
               {switchableBranches.map((branch) => (
@@ -6064,17 +6064,17 @@ function BranchFact({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button
+          <TooltipButton
             type="button"
             variant="outline"
             size="icon-xs"
             disabled={disabled}
             onClick={onCreateBranch}
             aria-label="Create branch"
-            title="Create branch"
+            tooltip="Create branch"
           >
             <Plus />
-          </Button>
+          </TooltipButton>
         </span>
       </dd>
     </div>
@@ -6101,17 +6101,18 @@ function UpstreamFact({
       <dt>Upstream</dt>
       <dd>
         <span className="repo-upstream-name selectable-text" title={upstream ?? undefined}>{upstream ?? "-"}</span>
-        <Button
+        <TooltipButton
           type="button"
           variant="outline"
           size="icon-xs"
           disabled={!canChange}
           onClick={onChangeUpstream}
           aria-label="Change upstream"
-          title="Change upstream"
+          tooltip="Change upstream"
+          disabledTooltip={!currentBranch ? "Select a branch before changing its upstream" : remoteBranches.length === 0 && !upstream ? "Add a remote before setting an upstream" : undefined}
         >
           <GitBranchIcon />
-        </Button>
+        </TooltipButton>
       </dd>
     </div>
   );
@@ -6523,8 +6524,8 @@ function StatusView({
               </DropdownMenu>
             ) : null}
             <div className="ml-auto inline-flex rounded-md border p-0.5" role="group" aria-label="Changed file view mode">
-              <Button type="button" variant={viewMode === "list" ? "secondary" : "ghost"} size="icon-xs" aria-pressed={viewMode === "list"} aria-label="List view" onClick={() => onViewModeChange("list")}><List /></Button>
-              <Button type="button" variant={viewMode === "tree" ? "secondary" : "ghost"} size="icon-xs" aria-pressed={viewMode === "tree"} aria-label="Tree view" onClick={() => onViewModeChange("tree")}><ListTree /></Button>
+              <TooltipButton type="button" variant={viewMode === "list" ? "secondary" : "ghost"} size="icon-xs" aria-pressed={viewMode === "list"} aria-label="List view" tooltip="Show files as a list" onClick={() => onViewModeChange("list")}><List /></TooltipButton>
+              <TooltipButton type="button" variant={viewMode === "tree" ? "secondary" : "ghost"} size="icon-xs" aria-pressed={viewMode === "tree"} aria-label="Tree view" tooltip="Show files as a tree" onClick={() => onViewModeChange("tree")}><ListTree /></TooltipButton>
             </div>
           </div>
           <div className="grid min-h-0 grid-rows-2">
@@ -7461,9 +7462,9 @@ function PullRequestRow({
       <span className="github-issue-number">
         #{pullRequest.number}
         {pullRequest.draft ? <span className="github-draft-text">Draft</span> : null}
-        <Button type="button" variant="ghost" size="icon-xs" disabled={busy || !pullRequest.sourceBranch} aria-label={`Check out pull request #${pullRequest.number}`} title="Check out pull request" onClick={() => onCheckout(pullRequest)}>
+        <TooltipButton type="button" variant="ghost" size="icon-xs" disabled={busy || !pullRequest.sourceBranch} aria-label={`Check out pull request #${pullRequest.number}`} tooltip="Check out pull request" disabledTooltip={!pullRequest.sourceBranch ? "The pull request source branch is unavailable" : undefined} onClick={() => onCheckout(pullRequest)}>
           <Download />
-        </Button>
+        </TooltipButton>
       </span>
       <span className="min-w-0">
         <button type="button" className="github-primary-text text-left" title={pullRequest.title} onClick={() => onOpenExternalUrl(pullRequest.url)}>{pullRequest.title}</button>
@@ -8127,29 +8128,31 @@ function CommitPanel({
       />
       <div className="flex flex-wrap justify-end gap-2">
         <div className="flex items-stretch">
-          <Button
+          <TooltipButton
             type="button"
             variant="secondary"
             disabled={generateDisabled}
-            title={generateTitle}
+            tooltip="Generate commit message"
+            disabledTooltip={generateTitle}
             onClick={onGenerateMessage}
             className="rounded-r-none"
           >
             <Sparkles />
             Generate
-          </Button>
+          </TooltipButton>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button
+              <TooltipButton
                 type="button"
                 variant="secondary"
                 disabled={generateDisabled}
-                title={generateTitle}
                 aria-label="More generate actions"
+                tooltip="More commit message generation options"
+                disabledTooltip={generateTitle}
                 className="rounded-l-none border-l-secondary-foreground/20 px-2"
               >
                 <ChevronDown />
-              </Button>
+              </TooltipButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" side="top">
               <DropdownMenuItem onSelect={onOpenGenerateWithContext}>
@@ -8707,17 +8710,18 @@ function CreatePullRequestDialog({
           <div className="grid gap-2">
             <div className="flex items-center justify-between gap-3">
               <Label htmlFor="create-pr-title">Title</Label>
-              <Button
+              <TooltipButton
                 type="button"
                 variant="outline"
                 size="icon-sm"
                 disabled={busy || generating || !canGenerate}
                 aria-label="Generate pull request title"
-                title={generateTitle}
+                tooltip="Generate pull request title"
+                disabledTooltip={!canGenerate ? generateTitle : undefined}
                 onClick={onGenerateTitle}
               >
                 {generatingTitle ? <Loader2 className="animate-spin" /> : <Sparkles />}
-              </Button>
+              </TooltipButton>
             </div>
             <Input
               id="create-pr-title"
@@ -8734,17 +8738,18 @@ function CreatePullRequestDialog({
           <div className="grid gap-2">
             <div className="flex items-center justify-between gap-3">
               <Label htmlFor="create-pr-body">Description</Label>
-              <Button
+              <TooltipButton
                 type="button"
                 variant="outline"
                 size="icon-sm"
                 disabled={busy || generating || !canGenerate}
                 aria-label="Generate pull request description"
-                title={generateTitle}
+                tooltip="Generate pull request description"
+                disabledTooltip={!canGenerate ? generateTitle : undefined}
                 onClick={onGenerate}
               >
                 {generatingDescription ? <Loader2 className="animate-spin" /> : <Sparkles />}
-              </Button>
+              </TooltipButton>
             </div>
             <Textarea
               id="create-pr-body"
@@ -9715,36 +9720,41 @@ function RepositoryActionFileSection({
                   {overridden ? <Badge variant="secondary">Overrides Shared</Badge> : null}
                 </div>
                 <div className="flex shrink-0 gap-1">
-                  <Button
+                  <TooltipButton
                     type="button"
                     size="icon-xs"
                     variant="ghost"
                     aria-label={`Move ${action.name || "Repository Action"} up`}
+                    tooltip={`Move ${action.name || "repository action"} up`}
+                    disabledTooltip={index === 0 ? "This action is already first" : undefined}
                     disabled={disabled || index === 0}
                     onClick={() => onMoveAction(target, index, -1)}
                   >
                     <ArrowUp />
-                  </Button>
-                  <Button
+                  </TooltipButton>
+                  <TooltipButton
                     type="button"
                     size="icon-xs"
                     variant="ghost"
                     aria-label={`Move ${action.name || "Repository Action"} down`}
+                    tooltip={`Move ${action.name || "repository action"} down`}
+                    disabledTooltip={index === actions.length - 1 ? "This action is already last" : undefined}
                     disabled={disabled || index === actions.length - 1}
                     onClick={() => onMoveAction(target, index, 1)}
                   >
                     <ArrowDown />
-                  </Button>
-                  <Button
+                  </TooltipButton>
+                  <TooltipButton
                     type="button"
                     size="icon-xs"
                     variant="ghost"
                     aria-label={`Delete ${action.name || "Repository Action"}`}
+                    tooltip={`Delete ${action.name || "repository action"}`}
                     disabled={disabled}
                     onClick={() => onDeleteAction(target, index)}
                   >
                     <Trash2 />
-                  </Button>
+                  </TooltipButton>
                 </div>
               </div>
 
@@ -10280,17 +10290,17 @@ function RemoteFact({ remotes, disabled, onManage }: { remotes: string; disabled
       <dt>Remotes</dt>
       <dd>
         <span className="repo-upstream-name" title={remotes === "-" ? undefined : remotes}>{remotes}</span>
-        <Button
+        <TooltipButton
           type="button"
           variant="outline"
           size="icon-xs"
           disabled={disabled}
           onClick={onManage}
           aria-label="Manage remotes"
-          title="Manage remotes"
+          tooltip="Manage remotes"
         >
           <Settings />
-        </Button>
+        </TooltipButton>
       </dd>
     </div>
   );
