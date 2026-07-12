@@ -32,7 +32,9 @@ import type {
   GitFileDiffRequest,
   GitHunkRequest,
   GitLfsImageFetchRequest,
-  GitHubPageRequest,
+  GitHubWorkflowRunsRequest,
+  GitHubPullRequestsRequest,
+  GitHubIssuesRequest,
   GitHubHistoryInsightsRequest,
   GitHubRepositoryRequest,
   GitIdentitySaveRequest,
@@ -83,13 +85,15 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.addRepoTrust, request) as ReturnType<GitheadApi["addRepoTrust"]>,
   addSafeDirectory: (request: GitSafeDirectoryRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.addSafeDirectory, request) as ReturnType<GitheadApi["addSafeDirectory"]>,
-  getGitHubWorkflowRuns: (request: GitHubPageRequest) =>
+  getGitHubWorkflowRuns: (request: GitHubWorkflowRunsRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubWorkflowRuns, request) as ReturnType<GitheadApi["getGitHubWorkflowRuns"]>,
+  getGitHubViewer: (request: GitHubRepositoryRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getGitHubViewer, request) as ReturnType<GitheadApi["getGitHubViewer"]>,
   getGitHubOpenCounts: (request: GitHubRepositoryRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubOpenCounts, request) as ReturnType<GitheadApi["getGitHubOpenCounts"]>,
-  getGitHubIssues: (request: GitHubPageRequest) =>
+  getGitHubIssues: (request: GitHubIssuesRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubIssues, request) as ReturnType<GitheadApi["getGitHubIssues"]>,
-  getGitHubPullRequests: (request: GitHubPageRequest) =>
+  getGitHubPullRequests: (request: GitHubPullRequestsRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubPullRequests, request) as ReturnType<GitheadApi["getGitHubPullRequests"]>,
   getGitHubHistoryInsights: (request: GitHubHistoryInsightsRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubHistoryInsights, request) as ReturnType<GitheadApi["getGitHubHistoryInsights"]>,

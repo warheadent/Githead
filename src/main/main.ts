@@ -35,7 +35,9 @@ import type {
   GitFileDiffRequest,
   GitHunkRequest,
   GitLfsImageFetchRequest,
-  GitHubPageRequest,
+  GitHubWorkflowRunsRequest,
+  GitHubPullRequestsRequest,
+  GitHubIssuesRequest,
   GitHubHistoryInsightsRequest,
   GitHubRepositoryRequest,
   GitIdentitySaveRequest,
@@ -316,13 +318,15 @@ function handleGitHubRead<T>(event: Electron.IpcMainInvokeEvent, request: GitHub
 ipcMain.handle(IPC_CHANNELS.cancelGitHubRequest, (event, request: CancelGitHubRequest) => {
   githubRequests.cancel(event.sender.id, request.requestId);
 });
-ipcMain.handle(IPC_CHANNELS.getGitHubWorkflowRuns, (event, request: GitHubPageRequest) =>
+ipcMain.handle(IPC_CHANNELS.getGitHubWorkflowRuns, (event, request: GitHubWorkflowRunsRequest) =>
   handleGitHubRead(event, request, (signal) => getGitHubService().getWorkflowRuns(request, signal)));
+ipcMain.handle(IPC_CHANNELS.getGitHubViewer, (event, request: GitHubRepositoryRequest) =>
+  handleGitHubRead(event, request, (signal) => getGitHubService().getViewer(request, signal)));
 ipcMain.handle(IPC_CHANNELS.getGitHubOpenCounts, (event, request: GitHubRepositoryRequest) =>
   handleGitHubRead(event, request, (signal) => getGitHubService().getOpenCounts(request, signal)));
-ipcMain.handle(IPC_CHANNELS.getGitHubIssues, (event, request: GitHubPageRequest) =>
+ipcMain.handle(IPC_CHANNELS.getGitHubIssues, (event, request: GitHubIssuesRequest) =>
   handleGitHubRead(event, request, (signal) => getGitHubService().getIssues(request, signal)));
-ipcMain.handle(IPC_CHANNELS.getGitHubPullRequests, (event, request: GitHubPageRequest) =>
+ipcMain.handle(IPC_CHANNELS.getGitHubPullRequests, (event, request: GitHubPullRequestsRequest) =>
   handleGitHubRead(event, request, (signal) => getGitHubService().getPullRequests(request, signal)));
 ipcMain.handle(IPC_CHANNELS.getGitHubHistoryInsights, (event, request: GitHubHistoryInsightsRequest) =>
   handleGitHubRead(event, request, (signal) => getGitHubService().getHistoryInsights(request, signal)));

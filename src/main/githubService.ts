@@ -2,6 +2,7 @@ import type {
   CreatePullRequestRequest,
   CreatePullRequestResult,
   GitHubIssue,
+  GitHubIssuesRequest,
   GitHubHistoryInsights,
   GitHubHistoryInsightsRequest,
   GitHubCommitAssociation,
@@ -9,15 +10,18 @@ import type {
   GitHubCheckState,
   GitHubOpenCounts,
   GitHubPullRequest,
+  GitHubPullRequestsRequest,
   GitHubFailure,
   GitHubOperationResult,
   GitHubPage,
-  GitHubPageRequest,
   GitHubRepository,
   GitHubRepositoryRequest,
   GitHubWorkflowRun
+  ,GitHubWorkflowRunsRequest,
+  GitHubViewer
 } from "../shared/types";
 import type { GitHubClient } from "./githubClient";
+import { buildIssueSearchPath, buildPullRequestSearchPath, buildWorkflowRunsPath, hasPullRequestSearchFilters } from "./githubQuery";
 
 const WORKFLOW_RUN_LIMIT = 30;
 const ISSUE_LIMIT = 50;
@@ -59,8 +63,6 @@ interface GitHubApiWorkflowRun {
   } | null;
 }
 
-interface GitHubApiIssuesResponse extends Array<GitHubApiIssue> {}
-
 interface GitHubApiIssue {
   number?: number;
   title?: string | null;
@@ -81,7 +83,10 @@ interface GitHubApiPullRequestsResponse extends Array<GitHubApiPullRequest> {}
 
 interface GitHubApiSearchResponse extends GitHubApiErrorResponse {
   total_count?: number | null;
+  items?: GitHubApiIssue[];
 }
+
+interface GitHubApiViewer { login?: string | null }
 
 interface GitHubApiPullRequest {
   number?: number;
@@ -120,16 +125,19 @@ export class GitHubService {
     private readonly now: () => number = Date.now
   ) {}
 
-  async getWorkflowRuns(request: GitHubPageRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubPage<GitHubWorkflowRun>>> {
+  async getWorkflowRuns(request: GitHubWorkflowRunsRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubPage<GitHubWorkflowRun>>> {
     return this.read(() => this.getWorkflowRunsData(request, signal));
   }
   async getOpenCounts(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubOpenCounts>> {
     return this.read(() => this.getOpenCountsData(request, signal));
   }
-  async getIssues(request: GitHubPageRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubPage<GitHubIssue>>> {
+  async getViewer(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubViewer>> {
+    return this.read(() => this.getViewerData(request, signal));
+  }
+  async getIssues(request: GitHubIssuesRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubPage<GitHubIssue>>> {
     return this.read(() => this.getIssuesData(request, signal));
   }
-  async getPullRequests(request: GitHubPageRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubPage<GitHubPullRequest>>> {
+  async getPullRequests(request: GitHubPullRequestsRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubPage<GitHubPullRequest>>> {
     return this.read(() => this.getPullRequestsData(request, signal));
   }
   async getHistoryInsights(request: GitHubHistoryInsightsRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubHistoryInsights>> {
@@ -145,12 +153,12 @@ export class GitHubService {
     catch (error) { return { ok: false, error: classifyError(error, "combined", false) }; }
   }
 
-  private async getWorkflowRunsData(request: GitHubPageRequest, signal?: AbortSignal): Promise<GitHubPage<GitHubWorkflowRun>> {
+  private async getWorkflowRunsData(request: GitHubWorkflowRunsRequest, signal?: AbortSignal): Promise<GitHubPage<GitHubWorkflowRun>> {
     const page = resolvePage(request.page);
     const repository = await this.getRepository(request.repoPath);
     const { payload: response, headers } = await this.client.requestJson<GitHubApiWorkflowRunsResponse>(
       repository,
-      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/actions/runs?per_page=${WORKFLOW_RUN_LIMIT}&page=${page}`,
+      buildWorkflowRunsPath(repository, { sortDirection: "desc", ...request.query }, page),
       { cache: { mode: "conditional" }, ...(signal ? { signal } : {}) }
     );
 
@@ -198,16 +206,30 @@ export class GitHubService {
     };
   }
 
-  private async getIssuesData(request: GitHubPageRequest, signal?: AbortSignal): Promise<GitHubPage<GitHubIssue>> {
+  private async getViewerData(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubViewer> {
+    const repository = await this.getRepository(request.repoPath);
+    try {
+      const { payload } = await this.client.requestJson<GitHubApiViewer>(repository, "/user", { cache: { mode: "conditional", maxAgeMs: 300_000 }, ...(signal ? { signal } : {}) });
+      const login = payload.login?.trim() || null;
+      return { login, authenticated: Boolean(login) };
+    } catch (error) {
+      if (error instanceof Error && /status 401|authenticate/i.test(error.message)) return { login: null, authenticated: false };
+      throw error;
+    }
+  }
+
+  private async getIssuesData(request: GitHubIssuesRequest, signal?: AbortSignal): Promise<GitHubPage<GitHubIssue>> {
     const page = resolvePage(request.page);
     const repository = await this.getRepository(request.repoPath);
-    const { payload: response, headers } = await this.client.requestJson<GitHubApiIssuesResponse>(
+    const query = { sort: "updated" as const, direction: "desc" as const, ...request.query };
+    const { payload: response } = await this.client.requestJson<GitHubApiSearchResponse>(
       repository,
-      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/issues?state=open&per_page=${ISSUE_LIMIT}&page=${page}`,
+      buildIssueSearchPath(repository, query, page),
       { cache: { mode: "conditional" }, ...(signal ? { signal } : {}) }
     );
 
-    const issues = response.flatMap((issue) => {
+    const rawItems = response.items ?? [];
+    const issues = rawItems.flatMap((issue) => {
       if (issue.pull_request || !Number.isFinite(issue.number)) {
         return [];
       }
@@ -225,20 +247,25 @@ export class GitHubService {
         }
       ];
     });
-    if (page === 1 && response.length < ISSUE_LIMIT) this.observeCount(repository, "issues", issues.length);
-    return { items: issues, page, nextPage: getNextPage(headers, page, response.length, ISSUE_LIMIT), totalCount: null };
+    if (page === 1 && Number.isFinite(response.total_count)) this.observeCount(repository, "issues", Number(response.total_count));
+    return { items: issues, page, nextPage: page * ISSUE_LIMIT < Number(response.total_count ?? 0) ? page + 1 : null, totalCount: Number.isFinite(response.total_count) ? Number(response.total_count) : null };
   }
 
-  private async getPullRequestsData(request: GitHubPageRequest, signal?: AbortSignal): Promise<GitHubPage<GitHubPullRequest>> {
+  private async getPullRequestsData(request: GitHubPullRequestsRequest, signal?: AbortSignal): Promise<GitHubPage<GitHubPullRequest>> {
     const page = resolvePage(request.page);
     const repository = await this.getRepository(request.repoPath);
-    const { payload: response, headers } = await this.client.requestJson<GitHubApiPullRequestsResponse>(
+    const query = { sort: "updated" as const, direction: "desc" as const, ...request.query };
+    const search = hasPullRequestSearchFilters(query);
+    const { payload: response, headers } = await this.client.requestJson<GitHubApiPullRequestsResponse | GitHubApiSearchResponse>(
       repository,
-      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/pulls?state=open&per_page=${PULL_REQUEST_LIMIT}&page=${page}`,
+      search ? buildPullRequestSearchPath(repository, query, page) : `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/pulls?state=open&sort=updated&direction=desc&per_page=${PULL_REQUEST_LIMIT}&page=${page}`,
       { cache: { mode: "conditional" }, ...(signal ? { signal } : {}) }
     );
 
-    const pullRequests = response.flatMap((pullRequest) => {
+    const rawItems: GitHubApiPullRequest[] = search
+      ? ((response as GitHubApiSearchResponse).items ?? []) as GitHubApiPullRequest[]
+      : response as GitHubApiPullRequestsResponse;
+    const pullRequests = rawItems.flatMap((pullRequest) => {
       if (!Number.isFinite(pullRequest.number)) {
         return [];
       }
@@ -249,8 +276,8 @@ export class GitHubService {
           title: normalizeText(pullRequest.title, "(no title)"),
           state: normalizeText(pullRequest.state, "open"),
           authorLogin: normalizeText(pullRequest.user?.login, "-"),
-          sourceBranch: normalizeText(pullRequest.head?.ref, "-"),
-          targetBranch: normalizeText(pullRequest.base?.ref, "-"),
+          sourceBranch: normalizeText(pullRequest.head?.ref, ""),
+          targetBranch: normalizeText(pullRequest.base?.ref, ""),
           labels: normalizeLabels(pullRequest.labels ?? []),
           comments: sumCounts(pullRequest.comments, pullRequest.review_comments),
           draft: pullRequest.draft === true,
@@ -259,8 +286,9 @@ export class GitHubService {
         }
       ];
     });
-    if (page === 1 && response.length < PULL_REQUEST_LIMIT) this.observeCount(repository, "pullRequests", pullRequests.length);
-    return { items: pullRequests, page, nextPage: getNextPage(headers, page, response.length, PULL_REQUEST_LIMIT), totalCount: null };
+    if (!search && page === 1 && rawItems.length < PULL_REQUEST_LIMIT) this.observeCount(repository, "pullRequests", pullRequests.length);
+    const totalCount = search && Number.isFinite((response as GitHubApiSearchResponse).total_count) ? Number((response as GitHubApiSearchResponse).total_count) : null;
+    return { items: pullRequests, page, nextPage: search ? (page * PULL_REQUEST_LIMIT < (totalCount ?? 0) ? page + 1 : null) : getNextPage(headers, page, rawItems.length, PULL_REQUEST_LIMIT), totalCount };
   }
 
   private async getHistoryInsightsData(request: GitHubHistoryInsightsRequest, signal?: AbortSignal): Promise<GitHubHistoryInsights> {

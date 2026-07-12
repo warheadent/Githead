@@ -300,9 +300,50 @@ export interface GitHubRepositoryRequest {
   requestId?: string;
 }
 
+export type GitHubSortDirection = "desc" | "asc";
+export type GitHubWorkflowRunStatus = "queued" | "in_progress" | "completed" | "success" | "failure" | "cancelled" | "skipped" | "timed_out" | "action_required" | "neutral" | "stale";
+
+export interface GitHubWorkflowRunQuery {
+  branch?: string | undefined;
+  event?: string | undefined;
+  status?: GitHubWorkflowRunStatus | undefined;
+  sortDirection: GitHubSortDirection;
+}
+
+export interface GitHubPullRequestQuery {
+  search?: string | undefined;
+  author?: string | undefined;
+  assignee?: string | undefined;
+  reviewRequested?: string | undefined;
+  label?: string | undefined;
+  sourceBranch?: string | undefined;
+  draft?: "draft" | "ready" | undefined;
+  sort: "updated" | "created";
+  direction: GitHubSortDirection;
+}
+
+export interface GitHubIssueQuery {
+  search?: string | undefined;
+  author?: string | undefined;
+  assignee?: string | undefined;
+  unassigned?: boolean | undefined;
+  label?: string | undefined;
+  sort: "updated" | "created";
+  direction: GitHubSortDirection;
+}
+
+export interface GitHubViewer {
+  login: string | null;
+  authenticated: boolean;
+}
+
 export interface GitHubPageRequest extends GitHubRepositoryRequest {
   page?: number;
 }
+
+export interface GitHubWorkflowRunsRequest extends GitHubPageRequest { query?: GitHubWorkflowRunQuery | undefined }
+export interface GitHubPullRequestsRequest extends GitHubPageRequest { query?: GitHubPullRequestQuery | undefined }
+export interface GitHubIssuesRequest extends GitHubPageRequest { query?: GitHubIssueQuery | undefined }
 
 export interface GitHubPage<T> {
   items: T[];
@@ -897,10 +938,11 @@ export interface GitheadApi {
   getRepoTrust(request: RepoTrustRequest): Promise<RepoTrustResult>;
   addRepoTrust(request: RepoTrustRequest): Promise<RepoTrustResult>;
   addSafeDirectory(request: GitSafeDirectoryRequest): Promise<GitOperationResult>;
-  getGitHubWorkflowRuns(request: GitHubPageRequest): Promise<GitHubOperationResult<GitHubPage<GitHubWorkflowRun>>>;
+  getGitHubWorkflowRuns(request: GitHubWorkflowRunsRequest): Promise<GitHubOperationResult<GitHubPage<GitHubWorkflowRun>>>;
+  getGitHubViewer(request: GitHubRepositoryRequest): Promise<GitHubOperationResult<GitHubViewer>>;
   getGitHubOpenCounts(request: GitHubRepositoryRequest): Promise<GitHubOperationResult<GitHubOpenCounts>>;
-  getGitHubIssues(request: GitHubPageRequest): Promise<GitHubOperationResult<GitHubPage<GitHubIssue>>>;
-  getGitHubPullRequests(request: GitHubPageRequest): Promise<GitHubOperationResult<GitHubPage<GitHubPullRequest>>>;
+  getGitHubIssues(request: GitHubIssuesRequest): Promise<GitHubOperationResult<GitHubPage<GitHubIssue>>>;
+  getGitHubPullRequests(request: GitHubPullRequestsRequest): Promise<GitHubOperationResult<GitHubPage<GitHubPullRequest>>>;
   getGitHubHistoryInsights(request: GitHubHistoryInsightsRequest): Promise<GitHubOperationResult<GitHubHistoryInsights>>;
   createGitHubPullRequest(request: CreatePullRequestRequest): Promise<GitHubOperationResult<CreatePullRequestResult>>;
   cancelGitHubRequest(request: CancelGitHubRequest): Promise<void>;

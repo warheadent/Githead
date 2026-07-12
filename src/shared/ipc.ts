@@ -14,6 +14,7 @@ export const IPC_CHANNELS = {
   addRepoTrust: "repo-trust:add",
   addSafeDirectory: "repo:safe-directory-add",
   getGitHubWorkflowRuns: "github:workflow-runs",
+  getGitHubViewer: "github:viewer",
   getGitHubOpenCounts: "github:open-counts",
   getGitHubIssues: "github:issues",
   getGitHubPullRequests: "github:pull-requests",

@@ -14,10 +14,10 @@ describe("GitHubService", () => {
     expect(result).toMatchObject({ ok: true, data: { page: 1, nextPage: 2, totalCount: 248 } });
   });
 
-  it("preserves raw issue pagination after filtering pull requests", async () => {
-    const raw = Array.from({ length: 50 }, (_, number) => ({ number: number + 1, pull_request: {} }));
-    const result = await new GitHubService(provider(repository), new FakeClient([raw])).getIssues({ repoPath: "D:\\Repo", page: 2 });
-    expect(result).toMatchObject({ ok: true, data: { items: [], page: 2, nextPage: 3 } });
+  it("uses search totals for issue pagination", async () => {
+    const raw = Array.from({ length: 50 }, (_, number) => ({ number: number + 1 }));
+    const result = await new GitHubService(provider(repository), new FakeClient([{ items: raw, total_count: 150 }])).getIssues({ repoPath: "D:\\Repo", page: 2 });
+    expect(result).toMatchObject({ ok: true, data: { page: 2, nextPage: 3, totalCount: 150 } });
   });
 
   it("rejects invalid pages before transport", async () => {
@@ -43,14 +43,14 @@ describe("GitHubService", () => {
   });
 
   it("normalizes issues and excludes pull requests", async () => {
-    const client = new FakeClient([[
+    const client = new FakeClient([{ items: [
       { number: 7, title: "Issue", state: "open", user: { login: "taylor" }, labels: [{ name: "bug" }], comments: 3, updated_at: "now", html_url: "issue-url" },
       { number: 8, title: "PR", pull_request: {} }
-    ]]);
+    ], total_count: 1 }]);
     const result = await new GitHubService(provider(repository), client).getIssues({ repoPath: "D:\\Repo" });
     expect(result).toEqual({ ok: true, rateLimit: null, data: { items: [{
       number: 7, title: "Issue", state: "open", authorLogin: "taylor", labels: ["bug"], comments: 3, updatedAt: "now", url: "issue-url"
-    }], page: 1, nextPage: null, totalCount: null } });
+    }], page: 1, nextPage: null, totalCount: 1 } });
   });
 
   it("normalizes pull requests and sums comment counts", async () => {
@@ -69,17 +69,17 @@ describe("GitHubService", () => {
   });
 
   it("reuses exact complete-list counts and fetches only a missing kind", async () => {
-    const client = new FakeClient([[{ number: 1 }], { total_count: 9 }]);
+    const client = new FakeClient([{ items: [{ number: 1 }], total_count: 1 }, { total_count: 9 }]);
     const service = new GitHubService(provider(repository), client);
     await service.getIssues({ repoPath: "D:\\Repo" });
     const result = await service.getOpenCounts({ repoPath: "D:\\Repo" });
     expect(result).toEqual({ ok: true, rateLimit: null, data: { issues: 1, pullRequests: 9 } });
-    expect(client.calls.filter((call) => call.path.startsWith("/search"))).toHaveLength(1);
+    expect(client.calls.filter((call) => call.path.startsWith("/search"))).toHaveLength(2);
     expect(client.calls.at(-1)?.path).toContain("is%3Apr");
   });
 
   it("does not infer a count from a limit-sized list", async () => {
-    const client = new FakeClient([Array.from({ length: 50 }, (_, number) => ({ number: number + 1 })), { total_count: 50 }, { total_count: 4 }]);
+    const client = new FakeClient([{ items: Array.from({ length: 50 }, (_, number) => ({ number: number + 1 })), total_count: 50 }, { total_count: 4 }]);
     const service = new GitHubService(provider(repository), client);
     await service.getIssues({ repoPath: "D:\\Repo" });
     await service.getOpenCounts({ repoPath: "D:\\Repo" });

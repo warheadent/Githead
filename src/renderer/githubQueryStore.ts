@@ -1,4 +1,4 @@
-export type GitHubResource = "workflowRuns" | "openCounts" | "pullRequests" | "issues";
+export type GitHubResource = "workflowRuns" | "openCounts" | "pullRequests" | "issues" | "viewer";
 
 export interface GitHubRepositoryScope { repoPath: string; githubFullName: string }
 export type GitHubQueryParams = Record<string, unknown>;
@@ -25,7 +25,7 @@ interface Entry {
   lastAccess: number;
 }
 export interface GitHubQueryStoreOptions {
-  loaders: Record<GitHubResource, (descriptor: GitHubQueryDescriptor, requestId: string) => Promise<unknown>>;
+  loaders: Partial<Record<GitHubResource, (descriptor: GitHubQueryDescriptor, requestId: string) => Promise<unknown>>>;
   now?: () => number;
   staleTimes?: Partial<Record<GitHubResource, number>>;
   maxEntries?: number;
@@ -90,7 +90,9 @@ export function createGitHubQueryStore(options: GitHubQueryStoreOptions) {
     const generation = ++entry.generation;
     entry.snapshot = { ...entry.snapshot, status: entry.snapshot.data === undefined ? "loading" : "refreshing", error: "" };
     notify(entry);
-    const promise = options.loaders[descriptor.resource](descriptor, `${descriptor.resource}-${++requestSequence}`) as Promise<T>;
+    const loader = options.loaders[descriptor.resource];
+    if (!loader) return Promise.reject(new Error(`No GitHub loader is registered for ${descriptor.resource}.`));
+    const promise = loader(descriptor, `${descriptor.resource}-${++requestSequence}`) as Promise<T>;
     entry.inFlight = promise;
     void promise.then((data) => {
       if (!disposed && entries.get(getGitHubQueryKey(descriptor)) === entry && entry.generation === generation && entry.inFlight === promise) {

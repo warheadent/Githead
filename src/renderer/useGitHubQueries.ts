@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { GitHubIssue, GitHubOpenCounts, GitHubPage, GitHubPullRequest, GitHubWorkflowRun } from "../shared/types";
+import type { GitHubIssue, GitHubIssueQuery, GitHubOpenCounts, GitHubPage, GitHubPullRequest, GitHubPullRequestQuery, GitHubViewer, GitHubWorkflowRun, GitHubWorkflowRunQuery } from "../shared/types";
 import { createGitHubQueryStore, type GitHubQueryDescriptor, type GitHubQueryParams, type GitHubQuerySnapshot, type GitHubRepositoryScope, type GitHubResource } from "./githubQueryStore";
 
 type ResourceData = {
@@ -7,10 +7,11 @@ type ResourceData = {
   openCounts: GitHubOpenCounts;
   pullRequests: GitHubPage<GitHubPullRequest>;
   issues: GitHubPage<GitHubIssue>;
+  viewer: GitHubViewer;
 };
 const fallbackErrors: Record<GitHubResource, string> = {
   workflowRuns: "Unable to load workflow runs.", openCounts: "Unable to load GitHub counts.",
-  pullRequests: "Unable to load pull requests.", issues: "Unable to load issues."
+  pullRequests: "Unable to load pull requests.", issues: "Unable to load issues.", viewer: "Unable to identify the GitHub viewer."
 };
 async function unwrap<T>(promise: Promise<{ ok: true; data: T } | { ok: false; error: { kind: string; message: string } }>, fallback: string): Promise<T> {
   const result = await promise;
@@ -20,10 +21,11 @@ async function unwrap<T>(promise: Promise<{ ok: true; data: T } | { ok: false; e
 
 export const gitHubQueryStore = createGitHubQueryStore({
   loaders: {
-    workflowRuns: (descriptor, requestId) => unwrap(window.githead.getGitHubWorkflowRuns({ repoPath: descriptor.repository.repoPath, requestId, page: Number(descriptor.params.page ?? 1) }), fallbackErrors.workflowRuns),
+    workflowRuns: (descriptor, requestId) => unwrap(window.githead.getGitHubWorkflowRuns({ repoPath: descriptor.repository.repoPath, requestId, page: Number(descriptor.params.page ?? 1), query: descriptor.params.query as GitHubWorkflowRunQuery | undefined }), fallbackErrors.workflowRuns),
     openCounts: (descriptor, requestId) => unwrap(window.githead.getGitHubOpenCounts({ repoPath: descriptor.repository.repoPath, requestId }), fallbackErrors.openCounts),
-    pullRequests: (descriptor, requestId) => unwrap(window.githead.getGitHubPullRequests({ repoPath: descriptor.repository.repoPath, requestId, page: Number(descriptor.params.page ?? 1) }), fallbackErrors.pullRequests),
-    issues: (descriptor, requestId) => unwrap(window.githead.getGitHubIssues({ repoPath: descriptor.repository.repoPath, requestId, page: Number(descriptor.params.page ?? 1) }), fallbackErrors.issues)
+    pullRequests: (descriptor, requestId) => unwrap(window.githead.getGitHubPullRequests({ repoPath: descriptor.repository.repoPath, requestId, page: Number(descriptor.params.page ?? 1), query: descriptor.params.query as GitHubPullRequestQuery | undefined }), fallbackErrors.pullRequests),
+    issues: (descriptor, requestId) => unwrap(window.githead.getGitHubIssues({ repoPath: descriptor.repository.repoPath, requestId, page: Number(descriptor.params.page ?? 1), query: descriptor.params.query as GitHubIssueQuery | undefined }), fallbackErrors.issues),
+    viewer: (descriptor, requestId) => unwrap(window.githead.getGitHubViewer({ repoPath: descriptor.repository.repoPath, requestId }), fallbackErrors.viewer)
   }
 });
 
@@ -41,14 +43,15 @@ function useSnapshot<T>(value: GitHubQueryDescriptor | null): GitHubQuerySnapsho
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
-export function useGitHubQueries(repository: GitHubRepositoryScope | null) {
+export function useGitHubQueries(repository: GitHubRepositoryScope | null, queries?: { workflows?: GitHubWorkflowRunQuery; pullRequests?: GitHubPullRequestQuery; issues?: GitHubIssueQuery }) {
   const stableRepository = useMemo(() => repository ? { repoPath: repository.repoPath, githubFullName: repository.githubFullName } : null,
     [repository?.repoPath, repository?.githubFullName]);
-  const descriptors = useMemo(() => ({ openCounts: descriptor(stableRepository, "openCounts") }), [stableRepository]);
-  const workflows = usePagedQuery<GitHubWorkflowRun>(stableRepository, "workflowRuns", workflowRunKey);
+  const descriptors = useMemo(() => ({ openCounts: descriptor(stableRepository, "openCounts"), viewer: descriptor(stableRepository, "viewer") }), [stableRepository]);
+  const workflows = usePagedQuery<GitHubWorkflowRun>(stableRepository, "workflowRuns", workflowRunKey, queries?.workflows);
   const counts = useSnapshot<ResourceData["openCounts"]>(descriptors.openCounts);
-  const pullRequests = usePagedQuery<GitHubPullRequest>(stableRepository, "pullRequests", pullRequestKey);
-  const issues = usePagedQuery<GitHubIssue>(stableRepository, "issues", issueKey);
+  const viewer = useSnapshot<ResourceData["viewer"]>(descriptors.viewer);
+  const pullRequests = usePagedQuery<GitHubPullRequest>(stableRepository, "pullRequests", pullRequestKey, queries?.pullRequests);
+  const issues = usePagedQuery<GitHubIssue>(stableRepository, "issues", issueKey, queries?.issues);
   const ensure = useCallback(<R extends GitHubResource>(resource: R, params: GitHubQueryParams = {}) => {
     if (!stableRepository) return Promise.resolve(undefined);
     if (resource === "workflowRuns") return workflows.ensure() as Promise<ResourceData[R] | undefined>;
@@ -66,7 +69,7 @@ export function useGitHubQueries(repository: GitHubRepositoryScope | null) {
   const invalidate = useCallback((resource?: GitHubResource, params?: GitHubQueryParams) => {
     if (stableRepository) gitHubQueryStore.invalidate({ repository: stableRepository, ...(resource ? { resource } : {}), ...(params ? { params } : {}) });
   }, [stableRepository]);
-  return { workflows, counts, pullRequests, issues, ensure, refresh, invalidate,
+  return { workflows, counts, pullRequests, issues, viewer, ensure, refresh, invalidate,
     loadMore: (resource: "workflowRuns" | "pullRequests" | "issues") => ({ workflowRuns: workflows, pullRequests, issues }[resource].loadMore()) };
 }
 
@@ -81,11 +84,13 @@ interface PagedSnapshot<T> extends GitHubQuerySnapshot<T[]> {
 }
 type PagedState<T> = GitHubQuerySnapshot<T[]> & Pick<PagedSnapshot<T>, "nextPage" | "totalCount" | "loadingMore">;
 
-function usePagedQuery<T>(repository: GitHubRepositoryScope | null, resource: PagedResource, keyOf: (item: T) => string | number): PagedSnapshot<T> {
+function usePagedQuery<T>(repository: GitHubRepositoryScope | null, resource: PagedResource, keyOf: (item: T) => string | number, query?: GitHubWorkflowRunQuery | GitHubPullRequestQuery | GitHubIssueQuery): PagedSnapshot<T> {
   const [snapshot, setSnapshot] = useState<PagedState<T>>({ status: "idle", data: undefined, error: "", updatedAt: null, isStale: true, nextPage: null, totalCount: null, loadingMore: false });
   const generation = useRef(0);
   const busy = useRef(false);
-  const repositoryKey = repository ? `${repository.repoPath}\0${repository.githubFullName}` : "";
+  const canonicalQuery = canonicalPageQuery(resource, query);
+  const queryKey = JSON.stringify(canonicalQuery);
+  const repositoryKey = repository ? `${repository.repoPath}\0${repository.githubFullName}\0${queryKey}` : "";
   useEffect(() => { generation.current += 1; busy.current = false; setSnapshot({ status: "idle", data: undefined, error: "", updatedAt: null, isStale: true, nextPage: null, totalCount: null, loadingMore: false }); }, [repositoryKey]);
 
   const request = useCallback(async (page: number, replace: boolean) => {
@@ -94,7 +99,7 @@ function usePagedQuery<T>(repository: GitHubRepositoryScope | null, resource: Pa
     const requestGeneration = ++generation.current;
     setSnapshot((current) => ({ ...current, status: current.data === undefined ? "loading" : "refreshing", loadingMore: !replace, error: "" }));
     try {
-      const result = await gitHubQueryStore.refresh<GitHubPage<T>>({ repository, resource, params: { page } });
+      const result = await gitHubQueryStore.refresh<GitHubPage<T>>({ repository, resource, params: { page, ...(Object.keys(canonicalQuery).length ? { query: canonicalQuery } : {}) } });
       if (generation.current !== requestGeneration) return;
       setSnapshot((current) => ({ status: "success", data: replace ? result.items : mergeItems(current.data ?? [], result.items, keyOf), error: "", updatedAt: Date.now(), isStale: false, nextPage: result.nextPage, totalCount: result.totalCount, loadingMore: false }));
     } catch (error) {
@@ -103,11 +108,20 @@ function usePagedQuery<T>(repository: GitHubRepositoryScope | null, resource: Pa
     } finally {
       if (generation.current === requestGeneration) busy.current = false;
     }
-  }, [repositoryKey, resource, keyOf]);
+  }, [repositoryKey, resource, keyOf, queryKey]);
   const loadMore = useCallback(async () => { if (snapshot.nextPage !== null) await request(snapshot.nextPage, false); }, [request, snapshot.nextPage]);
   const refresh = useCallback(() => request(1, true), [request]);
   const ensure = useCallback(async () => { if (snapshot.data === undefined) await request(1, true); }, [request, snapshot.data]);
   return { ...snapshot, loadMore, refresh, ensure };
+}
+
+function canonicalPageQuery(resource: PagedResource, query: GitHubWorkflowRunQuery | GitHubPullRequestQuery | GitHubIssueQuery | undefined): Record<string, unknown> {
+  if (!query) return {};
+  const entries = Object.entries(query).filter(([, value]) => value !== undefined && value !== "");
+  return Object.fromEntries(entries.filter(([key, value]) => {
+    if (resource === "workflowRuns") return !(key === "sortDirection" && value === "desc");
+    return !((key === "sort" && value === "updated") || (key === "direction" && value === "desc"));
+  }).sort(([a], [b]) => a.localeCompare(b)));
 }
 
 function mergeItems<T>(existing: T[], incoming: T[], keyOf: (item: T) => string | number): T[] {

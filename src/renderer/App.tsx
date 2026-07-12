@@ -125,11 +125,14 @@ import type {
   GitFileDiff,
   GitImageSide,
   GitHubIssue,
+  GitHubIssueQuery,
   GitHubCommitAssociation,
   GitHubPullRequestAssociation,
   GitHubRepository,
   GitHubPullRequest,
+  GitHubPullRequestQuery,
   GitHubWorkflowRun,
+  GitHubWorkflowRunQuery,
   AppWindowState,
   GitIdentityScope,
   GitIdentitySettings,
@@ -153,6 +156,8 @@ import { ActivityLogView } from "./ActivityLogView";
 import { BranchManagementDialog } from "./BranchManagementDialog";
 import { RemoteManagementDialog } from "./RemoteManagementDialog";
 import { useGitHubQueries } from "./useGitHubQueries";
+import { GitHubQueryToolbar } from "./GitHubQueryToolbar";
+import { DEFAULT_ISSUE_QUERY, DEFAULT_PULL_REQUEST_QUERY, DEFAULT_WORKFLOW_QUERY, filterLoadedWorkflowRuns, sortLoadedWorkflowRuns } from "./githubViewQuery";
 import { useGitHubHistoryInsights } from "./useGitHubHistoryInsights";
 import { createCommitAssociationMap } from "./githubHistorySelectors";
 import {
@@ -572,10 +577,17 @@ const initialWindowState: AppWindowState = {
 
 export function App(): ReactNode {
   const [state, setState] = useState<AppState>(initialState);
+  const [workflowQuery, setWorkflowQuery] = useState<GitHubWorkflowRunQuery>({ ...DEFAULT_WORKFLOW_QUERY });
+  const [workflowSearch, setWorkflowSearch] = useState("");
+  const [workflowPreset, setWorkflowPreset] = useState("all");
+  const [pullRequestQuery, setPullRequestQuery] = useState<GitHubPullRequestQuery>({ ...DEFAULT_PULL_REQUEST_QUERY });
+  const [pullRequestPreset, setPullRequestPreset] = useState("all");
+  const [issueQuery, setIssueQuery] = useState<GitHubIssueQuery>({ ...DEFAULT_ISSUE_QUERY });
+  const [issuePreset, setIssuePreset] = useState("all");
   const githubRepository = state.summary?.isValid && state.summary.githubRepository
     ? { repoPath: state.repoPath, githubFullName: state.summary.githubRepository.fullName }
     : null;
-  const github = useGitHubQueries(githubRepository);
+  const github = useGitHubQueries(githubRepository, { workflows: workflowQuery, pullRequests: pullRequestQuery, issues: issueQuery });
   const historyInsights = useGitHubHistoryInsights({
     repoPath: githubRepository?.repoPath ?? "",
     githubFullName: githubRepository?.githubFullName ?? "",
@@ -1097,8 +1109,19 @@ export function App(): ReactNode {
   }, [refreshDirtyFileStatus]);
 
   useEffect(() => {
+    setWorkflowQuery({ ...DEFAULT_WORKFLOW_QUERY });
+    setWorkflowSearch("");
+    setWorkflowPreset("all");
+    setPullRequestQuery({ ...DEFAULT_PULL_REQUEST_QUERY });
+    setPullRequestPreset("all");
+    setIssueQuery({ ...DEFAULT_ISSUE_QUERY });
+    setIssuePreset("all");
+  }, [githubRepository?.repoPath, githubRepository?.githubFullName]);
+
+  useEffect(() => {
     if (githubRepository) {
       void github.ensure("openCounts");
+      void github.ensure("viewer");
       if (state.activeView === "workflows") void github.ensure("workflowRuns");
       if (state.activeView === "pullRequests") void github.ensure("pullRequests");
       if (state.activeView === "issues") void github.ensure("issues");
@@ -4318,6 +4341,12 @@ export function App(): ReactNode {
                       nextPage={github.workflows.nextPage}
                       loadingMore={github.workflows.loadingMore}
                       totalCount={github.workflows.totalCount}
+                      query={workflowQuery}
+                      search={workflowSearch}
+                      preset={workflowPreset}
+                      onQueryChange={setWorkflowQuery}
+                      onSearchChange={setWorkflowSearch}
+                      onPresetChange={setWorkflowPreset}
                       onLoadMore={github.workflows.loadMore}
                       onOpenExternalUrl={openExternalUrl}
                       onRefresh={() => {
@@ -4337,6 +4366,12 @@ export function App(): ReactNode {
                       error={github.pullRequests.error}
                       nextPage={github.pullRequests.nextPage}
                       loadingMore={github.pullRequests.loadingMore}
+                      totalCount={github.pullRequests.totalCount}
+                      query={pullRequestQuery}
+                      preset={pullRequestPreset}
+                      viewerLogin={github.viewer.data?.login ?? null}
+                      onQueryChange={setPullRequestQuery}
+                      onPresetChange={setPullRequestPreset}
                       onLoadMore={github.pullRequests.loadMore}
                       onOpenExternalUrl={openExternalUrl}
                       onRefresh={() => {
@@ -4356,6 +4391,12 @@ export function App(): ReactNode {
                       error={github.issues.error}
                       nextPage={github.issues.nextPage}
                       loadingMore={github.issues.loadingMore}
+                      totalCount={github.issues.totalCount}
+                      query={issueQuery}
+                      preset={issuePreset}
+                      viewerLogin={github.viewer.data?.login ?? null}
+                      onQueryChange={setIssueQuery}
+                      onPresetChange={setIssuePreset}
                       onLoadMore={github.issues.loadMore}
                       onOpenExternalUrl={openExternalUrl}
                       onRefresh={() => {
@@ -6916,6 +6957,12 @@ function WorkflowRunsView({
   nextPage,
   loadingMore,
   totalCount,
+  query,
+  search,
+  preset,
+  onQueryChange,
+  onSearchChange,
+  onPresetChange,
   onLoadMore,
   onOpenExternalUrl,
   onRefresh
@@ -6929,12 +6976,26 @@ function WorkflowRunsView({
   nextPage: number | null;
   loadingMore: boolean;
   totalCount: number | null;
+  query: GitHubWorkflowRunQuery;
+  search: string;
+  preset: string;
+  onQueryChange: (query: GitHubWorkflowRunQuery) => void;
+  onSearchChange: (value: string) => void;
+  onPresetChange: (value: string) => void;
   onLoadMore: () => void;
   onOpenExternalUrl: (url: string) => void;
   onRefresh: () => void;
 }): ReactNode {
   const repository = summary?.githubRepository ?? null;
-  const countLabel = loaded ? formatLoadedCount(workflowRuns.length, totalCount, "run", "runs") : "-";
+  const displayedRuns = useMemo(() => sortLoadedWorkflowRuns(filterLoadedWorkflowRuns(workflowRuns, search), query.sortDirection), [workflowRuns, search, query.sortDirection]);
+  const countLabel = loaded ? (search ? `${displayedRuns.length} matches in ${workflowRuns.length} loaded runs` : formatLoadedCount(workflowRuns.length, totalCount, "run", "runs")) : "-";
+  const applyPreset = (value: string): void => {
+    onPresetChange(value);
+    if (value === "branch") onQueryChange({ ...DEFAULT_WORKFLOW_QUERY, branch: summary?.branch ?? undefined });
+    else if (value === "failed") onQueryChange({ ...DEFAULT_WORKFLOW_QUERY, status: "failure" });
+    else if (value === "progress") onQueryChange({ ...DEFAULT_WORKFLOW_QUERY, status: "in_progress" });
+    else onQueryChange({ ...DEFAULT_WORKFLOW_QUERY });
+  };
 
   return (
     <section className="github-view workflow-runs-grid" aria-label="Workflow runs">
@@ -6947,6 +7008,10 @@ function WorkflowRunsView({
         disabled={!repository}
         onRefresh={onRefresh}
       />
+      <GitHubQueryToolbar view="workflows" search={search} preset={preset} presets={[{ value: "all", label: "All runs" }, { value: "branch", label: "Current Branch", disabled: !summary?.branch }, { value: "failed", label: "Failed" }, { value: "progress", label: "In progress" }, { value: "custom", label: "Custom" }]} sort={query.sortDirection} sortOptions={[{ value: "desc", label: "Newest" }, { value: "asc", label: "Oldest loaded" }]} viewerAvailable status={loading || busy ? "Loading workflow runs" : countLabel} onSearchChange={onSearchChange} onPresetChange={applyPreset} onSortChange={(value) => { onPresetChange("custom"); onQueryChange({ ...query, sortDirection: value as "asc" | "desc" }); }} onClear={() => { onSearchChange(""); applyPreset("all"); }}>
+        <label className="github-query-field"><span>Event</span><input value={query.event ?? ""} placeholder="push" onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, event: event.target.value || undefined }); }} /></label>
+        <label className="github-query-field"><span>Status</span><select value={query.status ?? ""} onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, status: (event.target.value || undefined) as GitHubWorkflowRunQuery["status"] }); }}><option value="">Any</option><option value="queued">Queued</option><option value="in_progress">In progress</option><option value="completed">Completed</option><option value="success">Success</option><option value="failure">Failure</option><option value="cancelled">Cancelled</option></select></label>
+      </GitHubQueryToolbar>
       <div className="github-table-header" aria-hidden="true">
         <span>Status</span>
         <span>Workflow</span>
@@ -6961,10 +7026,10 @@ function WorkflowRunsView({
           <p className="empty-state">Loading workflow runs...</p>
         ) : error && workflowRuns.length === 0 ? (
           <p className="empty-state bad selectable-text">{error}</p>
-        ) : workflowRuns.length === 0 ? (
-          <p className="empty-state">No workflow runs found.</p>
+        ) : displayedRuns.length === 0 ? (
+          <p className="empty-state">{search ? "No loaded workflow runs match this search." : "No workflow runs match these filters."}</p>
         ) : (
-          workflowRuns.map((run) => (
+          displayedRuns.map((run) => (
             <WorkflowRunRow key={run.id} run={run} onOpenExternalUrl={onOpenExternalUrl} />
           ))
         )}
@@ -7022,6 +7087,12 @@ function PullRequestsView({
   error,
   nextPage,
   loadingMore,
+  totalCount,
+  query,
+  preset,
+  viewerLogin,
+  onQueryChange,
+  onPresetChange,
   onLoadMore,
   onOpenExternalUrl,
   onRefresh
@@ -7035,12 +7106,28 @@ function PullRequestsView({
   error: string;
   nextPage: number | null;
   loadingMore: boolean;
+  totalCount: number | null;
+  query: GitHubPullRequestQuery;
+  preset: string;
+  viewerLogin: string | null;
+  onQueryChange: (query: GitHubPullRequestQuery) => void;
+  onPresetChange: (value: string) => void;
   onLoadMore: () => void;
   onOpenExternalUrl: (url: string) => void;
   onRefresh: () => void;
 }): ReactNode {
   const repository = summary?.githubRepository ?? null;
-  const countLabel = loaded ? formatLoadedCount(pullRequests.length, openCount, "open pull request", "open pull requests") : "-";
+  const filtered = Object.keys(query).some((key) => !["sort", "direction"].includes(key)) || query.sort !== "updated" || query.direction !== "desc";
+  const countLabel = loaded ? (filtered && totalCount !== null ? `${totalCount} matching` : formatLoadedCount(pullRequests.length, openCount, "open pull request", "open pull requests")) : "-";
+  const applyPreset = (value: string): void => {
+    onPresetChange(value);
+    if (value === "branch") onQueryChange({ ...DEFAULT_PULL_REQUEST_QUERY, sourceBranch: summary?.branch ?? undefined });
+    else if (value === "authored" && viewerLogin) onQueryChange({ ...DEFAULT_PULL_REQUEST_QUERY, author: viewerLogin });
+    else if (value === "assigned" && viewerLogin) onQueryChange({ ...DEFAULT_PULL_REQUEST_QUERY, assignee: viewerLogin });
+    else if (value === "review" && viewerLogin) onQueryChange({ ...DEFAULT_PULL_REQUEST_QUERY, reviewRequested: viewerLogin });
+    else if (value === "drafts") onQueryChange({ ...DEFAULT_PULL_REQUEST_QUERY, draft: "draft" });
+    else onQueryChange({ ...DEFAULT_PULL_REQUEST_QUERY });
+  };
 
   return (
     <section className="github-view pull-requests-grid" aria-label="Pull requests">
@@ -7053,6 +7140,10 @@ function PullRequestsView({
         disabled={!repository}
         onRefresh={onRefresh}
       />
+      <GitHubQueryToolbar view="pullRequests" search={query.search ?? ""} preset={preset} presets={[{ value: "all", label: "All open" }, { value: "branch", label: "Current Branch", disabled: !summary?.branch }, { value: "authored", label: "Authored by me", disabled: !viewerLogin }, { value: "assigned", label: "Assigned to me", disabled: !viewerLogin }, { value: "review", label: "Review requested", disabled: !viewerLogin }, { value: "drafts", label: "Drafts" }, { value: "custom", label: "Custom" }]} sort={`${query.sort}-${query.direction}`} sortOptions={[{ value: "updated-desc", label: "Recently updated" }, { value: "created-desc", label: "Newest" }, { value: "created-asc", label: "Oldest" }]} viewerAvailable={Boolean(viewerLogin)} status={loading || busy ? "Loading pull requests" : countLabel} onSearchChange={(value) => { onPresetChange("custom"); onQueryChange({ ...query, search: value || undefined }); }} onPresetChange={applyPreset} onSortChange={(value) => { const [sort, direction] = value.split("-") as ["updated" | "created", "asc" | "desc"]; onPresetChange("custom"); onQueryChange({ ...query, sort, direction }); }} onClear={() => applyPreset("all")}>
+        <label className="github-query-field"><span>Label</span><input value={query.label ?? ""} onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, label: event.target.value || undefined }); }} /></label>
+        <label className="github-query-field"><span>Draft</span><select value={query.draft ?? ""} onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, draft: (event.target.value || undefined) as GitHubPullRequestQuery["draft"] }); }}><option value="">Any</option><option value="draft">Draft</option><option value="ready">Ready</option></select></label>
+      </GitHubQueryToolbar>
       <div className="github-table-header" aria-hidden="true">
         <span>PR</span>
         <span>Title</span>
@@ -7068,7 +7159,7 @@ function PullRequestsView({
         ) : error && pullRequests.length === 0 ? (
           <p className="empty-state bad selectable-text">{error}</p>
         ) : pullRequests.length === 0 ? (
-          <p className="empty-state">No open pull requests found.</p>
+          <p className="empty-state">{filtered ? "No open pull requests match these filters." : "No open pull requests found."}</p>
         ) : (
           pullRequests.map((pullRequest) => (
             <PullRequestRow key={pullRequest.number} pullRequest={pullRequest} onOpenExternalUrl={onOpenExternalUrl} />
@@ -7109,8 +7200,8 @@ function PullRequestRow({
           {pullRequest.authorLogin} · {pullRequest.comments} {pullRequest.comments === 1 ? "comment" : "comments"}
         </span>
       </span>
-      <span className="github-secondary-text" title={`${pullRequest.sourceBranch} -> ${pullRequest.targetBranch}`}>
-        {pullRequest.sourceBranch} -&gt; {pullRequest.targetBranch}
+      <span className="github-secondary-text" title={pullRequest.sourceBranch && pullRequest.targetBranch ? `${pullRequest.sourceBranch} -> ${pullRequest.targetBranch}` : "Branch details unavailable in search results"}>
+        {pullRequest.sourceBranch && pullRequest.targetBranch ? <>{pullRequest.sourceBranch} -&gt; {pullRequest.targetBranch}</> : "Branch details unavailable"}
       </span>
       <GitHubLabels labels={pullRequest.labels} />
       <span className="truncate" title={formatDate(pullRequest.updatedAt)}>{formatDate(pullRequest.updatedAt)}</span>
@@ -7128,6 +7219,12 @@ function IssuesView({
   error,
   nextPage,
   loadingMore,
+  totalCount,
+  query,
+  preset,
+  viewerLogin,
+  onQueryChange,
+  onPresetChange,
   onLoadMore,
   onOpenExternalUrl,
   onRefresh
@@ -7141,12 +7238,26 @@ function IssuesView({
   error: string;
   nextPage: number | null;
   loadingMore: boolean;
+  totalCount: number | null;
+  query: GitHubIssueQuery;
+  preset: string;
+  viewerLogin: string | null;
+  onQueryChange: (query: GitHubIssueQuery) => void;
+  onPresetChange: (value: string) => void;
   onLoadMore: () => void;
   onOpenExternalUrl: (url: string) => void;
   onRefresh: () => void;
 }): ReactNode {
   const repository = summary?.githubRepository ?? null;
-  const countLabel = loaded ? formatLoadedCount(issues.length, openCount, "open issue", "open issues") : "-";
+  const filtered = Object.keys(query).some((key) => !["sort", "direction"].includes(key)) || query.sort !== "updated" || query.direction !== "desc";
+  const countLabel = loaded ? (filtered && totalCount !== null ? `${totalCount} matching` : formatLoadedCount(issues.length, openCount, "open issue", "open issues")) : "-";
+  const applyPreset = (value: string): void => {
+    onPresetChange(value);
+    if (value === "authored" && viewerLogin) onQueryChange({ ...DEFAULT_ISSUE_QUERY, author: viewerLogin });
+    else if (value === "assigned" && viewerLogin) onQueryChange({ ...DEFAULT_ISSUE_QUERY, assignee: viewerLogin });
+    else if (value === "unassigned") onQueryChange({ ...DEFAULT_ISSUE_QUERY, unassigned: true });
+    else onQueryChange({ ...DEFAULT_ISSUE_QUERY });
+  };
 
   return (
     <section className="github-view issues-grid" aria-label="Issues">
@@ -7159,6 +7270,9 @@ function IssuesView({
         disabled={!repository}
         onRefresh={onRefresh}
       />
+      <GitHubQueryToolbar view="issues" search={query.search ?? ""} preset={preset} presets={[{ value: "all", label: "All open" }, { value: "authored", label: "Authored by me", disabled: !viewerLogin }, { value: "assigned", label: "Assigned to me", disabled: !viewerLogin }, { value: "unassigned", label: "Unassigned" }, { value: "custom", label: "Custom" }]} sort={`${query.sort}-${query.direction}`} sortOptions={[{ value: "updated-desc", label: "Recently updated" }, { value: "created-desc", label: "Newest" }, { value: "created-asc", label: "Oldest" }]} viewerAvailable={Boolean(viewerLogin)} status={loading || busy ? "Loading issues" : countLabel} onSearchChange={(value) => { onPresetChange("custom"); onQueryChange({ ...query, search: value || undefined }); }} onPresetChange={applyPreset} onSortChange={(value) => { const [sort, direction] = value.split("-") as ["updated" | "created", "asc" | "desc"]; onPresetChange("custom"); onQueryChange({ ...query, sort, direction }); }} onClear={() => applyPreset("all")}>
+        <label className="github-query-field"><span>Label</span><input value={query.label ?? ""} onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, label: event.target.value || undefined }); }} /></label>
+      </GitHubQueryToolbar>
       <div className="github-table-header" aria-hidden="true">
         <span>Issue</span>
         <span>Title</span>
@@ -7174,7 +7288,7 @@ function IssuesView({
         ) : error && issues.length === 0 ? (
           <p className="empty-state bad selectable-text">{error}</p>
         ) : issues.length === 0 ? (
-          <p className="empty-state">No open issues found.</p>
+          <p className="empty-state">{filtered ? "No open issues match these filters." : "No open issues found."}</p>
         ) : (
           issues.map((issue) => (
             <IssueRow key={issue.number} issue={issue} onOpenExternalUrl={onOpenExternalUrl} />
