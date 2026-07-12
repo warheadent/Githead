@@ -3525,7 +3525,9 @@ describe("App", () => {
   it("does not auto-fetch when the interval is disabled", async () => {
     vi.useFakeTimers();
     vi.mocked(githead.getAppSettings).mockResolvedValue({
-      autoFetchIntervalMinutes: 0
+      autoFetchIntervalMinutes: 0,
+      colorTheme: "githead",
+      appearanceMode: "system"
     });
 
     render(<App />);
@@ -4829,7 +4831,9 @@ describe("App", () => {
       });
     });
     expect(githead.saveAppSettings).toHaveBeenCalledWith({
-      autoFetchIntervalMinutes: 10
+      autoFetchIntervalMinutes: 10,
+      colorTheme: "githead",
+      appearanceMode: "system"
     });
   });
 
@@ -4989,6 +4993,7 @@ describe("App", () => {
     expect(settingsDialog.className).toContain("sm:max-w-[720px]");
     expect(settingsDialog.className).toContain("h-[min(760px,calc(100vh-2rem))]");
     expect(settingsDialog.className).toContain("overflow-hidden");
+    expect(screen.getByRole("tab", { name: "Appearance", selected: false })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Git Identity", selected: true })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Sync", selected: false })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "AI", selected: false })).toBeTruthy();
@@ -5037,9 +5042,46 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(githead.saveAppSettings).toHaveBeenCalledWith({
-        autoFetchIntervalMinutes: 15
+        autoFetchIntervalMinutes: 15,
+        colorTheme: "githead",
+        appearanceMode: "system"
       });
     });
+  });
+
+  it("previews, restores, and saves accessible color themes", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("button", { name: "Settings" });
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("githead"));
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("tab", { name: "Appearance" }));
+
+    const themes = within(screen.getByRole("group", { name: "Color theme" })).getAllByRole("radio");
+    expect(themes).toHaveLength(12);
+    expect((screen.getByRole("radio", { name: /Githead/ }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("radio", { name: "System" }) as HTMLInputElement).checked).toBe(true);
+
+    await user.click(screen.getByRole("radio", { name: /Tidepool/ }));
+    await user.click(screen.getByRole("radio", { name: "Dark" }));
+    expect(document.documentElement.dataset.theme).toBe("tidepool");
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(document.documentElement.dataset.theme).toBe("githead");
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("tab", { name: "Appearance" }));
+    await user.click(screen.getByRole("radio", { name: /Ember/ }));
+    await user.click(screen.getByRole("radio", { name: "Light" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(githead.saveAppSettings).toHaveBeenCalledWith({
+      autoFetchIntervalMinutes: 10,
+      colorTheme: "ember",
+      appearanceMode: "light"
+    }));
   });
 
   it("opens remote management from the sidebar and adds a local remote without fetching", async () => {
@@ -5136,7 +5178,9 @@ function createGitheadMock(): GitheadApi {
     }
   });
   const appSettings: AppSettings = {
-    autoFetchIntervalMinutes: 10
+    autoFetchIntervalMinutes: 10,
+    colorTheme: "githead",
+    appearanceMode: "system"
   };
   const gitIdentity: GitIdentitySettings = {
     scope: "repository",

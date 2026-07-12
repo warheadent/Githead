@@ -1,12 +1,16 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { AppSettings, AppSettingsSaveRequest } from "../shared/types";
+import { APP_APPEARANCE_MODES, APP_COLOR_THEMES, type AppAppearanceMode, type AppColorTheme, type AppSettings, type AppSettingsSaveRequest } from "../shared/types";
 
 interface StoredAppSettings {
   autoFetchIntervalMinutes?: unknown;
+  colorTheme?: unknown;
+  appearanceMode?: unknown;
 }
 
 export const DEFAULT_AUTO_FETCH_INTERVAL_MINUTES = 10;
+export const DEFAULT_COLOR_THEME: AppColorTheme = "githead";
+export const DEFAULT_APPEARANCE_MODE: AppAppearanceMode = "system";
 export const MIN_AUTO_FETCH_INTERVAL_MINUTES = 0;
 export const MAX_AUTO_FETCH_INTERVAL_MINUTES = 1440;
 
@@ -20,18 +24,24 @@ export class AppSettingsService {
   async getSettings(): Promise<AppSettings> {
     const stored = await this.readStoredSettings();
     return {
-      autoFetchIntervalMinutes: parseStoredInterval(stored.autoFetchIntervalMinutes)
+      autoFetchIntervalMinutes: parseStoredInterval(stored.autoFetchIntervalMinutes),
+      colorTheme: parseStoredColorTheme(stored.colorTheme),
+      appearanceMode: parseStoredAppearanceMode(stored.appearanceMode)
     };
   }
 
   async saveSettings(request: AppSettingsSaveRequest): Promise<AppSettings> {
     const autoFetchIntervalMinutes = normalizeIntervalForSave(request.autoFetchIntervalMinutes);
+    const colorTheme = normalizeColorThemeForSave(request.colorTheme);
+    const appearanceMode = normalizeAppearanceModeForSave(request.appearanceMode);
 
     await fs.mkdir(path.dirname(this.settingsPath), {
       recursive: true
     });
     await fs.writeFile(this.settingsPath, `${JSON.stringify({
-      autoFetchIntervalMinutes
+      autoFetchIntervalMinutes,
+      colorTheme,
+      appearanceMode
     } satisfies AppSettings, null, 2)}\n`, "utf8");
 
     return this.getSettings();
@@ -46,6 +56,30 @@ export class AppSettingsService {
       return {};
     }
   }
+}
+
+function parseStoredColorTheme(value: unknown): AppColorTheme {
+  return APP_COLOR_THEMES.includes(value as AppColorTheme) ? value as AppColorTheme : DEFAULT_COLOR_THEME;
+}
+
+function normalizeColorThemeForSave(value: AppColorTheme): AppColorTheme {
+  if (!APP_COLOR_THEMES.includes(value)) {
+    throw new Error("Unknown color theme.");
+  }
+
+  return value;
+}
+
+function parseStoredAppearanceMode(value: unknown): AppAppearanceMode {
+  return APP_APPEARANCE_MODES.includes(value as AppAppearanceMode) ? value as AppAppearanceMode : DEFAULT_APPEARANCE_MODE;
+}
+
+function normalizeAppearanceModeForSave(value: AppAppearanceMode): AppAppearanceMode {
+  if (!APP_APPEARANCE_MODES.includes(value)) {
+    throw new Error("Unknown appearance mode.");
+  }
+
+  return value;
 }
 
 function parseStoredInterval(value: unknown): number {

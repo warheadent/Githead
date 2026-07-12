@@ -4,7 +4,9 @@ import path from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 import {
   AppSettingsService,
-  DEFAULT_AUTO_FETCH_INTERVAL_MINUTES
+  DEFAULT_APPEARANCE_MODE,
+  DEFAULT_AUTO_FETCH_INTERVAL_MINUTES,
+  DEFAULT_COLOR_THEME
 } from "./appSettingsService";
 
 async function withTempDir<T>(callback: (dir: string) => Promise<T>): Promise<T> {
@@ -26,7 +28,9 @@ describe("AppSettingsService", () => {
       const service = new AppSettingsService(dir);
 
       await expect(service.getSettings()).resolves.toEqual({
-        autoFetchIntervalMinutes: DEFAULT_AUTO_FETCH_INTERVAL_MINUTES
+        autoFetchIntervalMinutes: DEFAULT_AUTO_FETCH_INTERVAL_MINUTES,
+        colorTheme: DEFAULT_COLOR_THEME,
+        appearanceMode: DEFAULT_APPEARANCE_MODE
       });
     });
   });
@@ -36,13 +40,19 @@ describe("AppSettingsService", () => {
       const service = new AppSettingsService(dir);
 
       await expect(service.saveSettings({
-        autoFetchIntervalMinutes: 15
+        autoFetchIntervalMinutes: 15,
+        colorTheme: "tidepool",
+        appearanceMode: "dark"
       })).resolves.toEqual({
-        autoFetchIntervalMinutes: 15
+        autoFetchIntervalMinutes: 15,
+        colorTheme: "tidepool",
+        appearanceMode: "dark"
       });
 
       await expect(new AppSettingsService(dir).getSettings()).resolves.toEqual({
-        autoFetchIntervalMinutes: 15
+        autoFetchIntervalMinutes: 15,
+        colorTheme: "tidepool",
+        appearanceMode: "dark"
       });
     });
   });
@@ -52,9 +62,13 @@ describe("AppSettingsService", () => {
       const service = new AppSettingsService(dir);
 
       await expect(service.saveSettings({
-        autoFetchIntervalMinutes: 0
+        autoFetchIntervalMinutes: 0,
+        colorTheme: "githead",
+        appearanceMode: "system"
       })).resolves.toEqual({
-        autoFetchIntervalMinutes: 0
+        autoFetchIntervalMinutes: 0,
+        colorTheme: "githead",
+        appearanceMode: "system"
       });
     });
   });
@@ -64,7 +78,9 @@ describe("AppSettingsService", () => {
       const service = new AppSettingsService(dir);
 
       await expect(service.saveSettings({
-        autoFetchIntervalMinutes: -1
+        autoFetchIntervalMinutes: -1,
+        colorTheme: "githead",
+        appearanceMode: "system"
       })).rejects.toThrow("Auto-fetch interval cannot be negative.");
     });
   });
@@ -74,7 +90,9 @@ describe("AppSettingsService", () => {
       const service = new AppSettingsService(dir);
 
       await expect(service.saveSettings({
-        autoFetchIntervalMinutes: 1441
+        autoFetchIntervalMinutes: 1441,
+        colorTheme: "githead",
+        appearanceMode: "system"
       })).rejects.toThrow("Auto-fetch interval cannot exceed 1440 minutes.");
     });
   });
@@ -86,22 +104,76 @@ describe("AppSettingsService", () => {
 
       await fs.writeFile(settingsPath, "{", "utf8");
       await expect(service.getSettings()).resolves.toEqual({
-        autoFetchIntervalMinutes: DEFAULT_AUTO_FETCH_INTERVAL_MINUTES
+        autoFetchIntervalMinutes: DEFAULT_AUTO_FETCH_INTERVAL_MINUTES,
+        colorTheme: DEFAULT_COLOR_THEME,
+        appearanceMode: DEFAULT_APPEARANCE_MODE
       });
 
       await fs.writeFile(settingsPath, JSON.stringify({
         autoFetchIntervalMinutes: "10"
       }), "utf8");
       await expect(service.getSettings()).resolves.toEqual({
-        autoFetchIntervalMinutes: DEFAULT_AUTO_FETCH_INTERVAL_MINUTES
+        autoFetchIntervalMinutes: DEFAULT_AUTO_FETCH_INTERVAL_MINUTES,
+        colorTheme: DEFAULT_COLOR_THEME,
+        appearanceMode: DEFAULT_APPEARANCE_MODE
       });
 
       await fs.writeFile(settingsPath, JSON.stringify({
         autoFetchIntervalMinutes: 1441
       }), "utf8");
       await expect(service.getSettings()).resolves.toEqual({
-        autoFetchIntervalMinutes: DEFAULT_AUTO_FETCH_INTERVAL_MINUTES
+        autoFetchIntervalMinutes: DEFAULT_AUTO_FETCH_INTERVAL_MINUTES,
+        colorTheme: DEFAULT_COLOR_THEME,
+        appearanceMode: DEFAULT_APPEARANCE_MODE
       });
+    });
+  });
+
+  it("falls back to Githead for an unknown stored theme", async () => {
+    await withTempDir(async (dir) => {
+      await fs.writeFile(path.join(dir, "app-settings.json"), JSON.stringify({
+        autoFetchIntervalMinutes: 20,
+        colorTheme: "unknown"
+      }), "utf8");
+
+      await expect(new AppSettingsService(dir).getSettings()).resolves.toEqual({
+        autoFetchIntervalMinutes: 20,
+        colorTheme: DEFAULT_COLOR_THEME,
+        appearanceMode: DEFAULT_APPEARANCE_MODE
+      });
+    });
+  });
+
+  it("rejects an unknown theme when saving", async () => {
+    await withTempDir(async (dir) => {
+      const service = new AppSettingsService(dir);
+      await expect(service.saveSettings({
+        autoFetchIntervalMinutes: 10,
+        colorTheme: "unknown" as "githead",
+        appearanceMode: "system"
+      })).rejects.toThrow("Unknown color theme.");
+    });
+  });
+
+  it("defaults unknown appearance modes and rejects them on save", async () => {
+    await withTempDir(async (dir) => {
+      await fs.writeFile(path.join(dir, "app-settings.json"), JSON.stringify({
+        autoFetchIntervalMinutes: 10,
+        colorTheme: "orchid",
+        appearanceMode: "sepia"
+      }), "utf8");
+      const service = new AppSettingsService(dir);
+
+      await expect(service.getSettings()).resolves.toEqual({
+        autoFetchIntervalMinutes: 10,
+        colorTheme: "orchid",
+        appearanceMode: DEFAULT_APPEARANCE_MODE
+      });
+      await expect(service.saveSettings({
+        autoFetchIntervalMinutes: 10,
+        colorTheme: "orchid",
+        appearanceMode: "sepia" as "system"
+      })).rejects.toThrow("Unknown appearance mode.");
     });
   });
 });

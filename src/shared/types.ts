@@ -582,12 +582,36 @@ export interface AiSettingsSaveRequest {
   prDescriptionPrompt?: string;
 }
 
+export const APP_COLOR_THEMES = [
+  "githead",
+  "tidepool",
+  "ember",
+  "orchid",
+  "evergreen",
+  "rosewood",
+  "glacier",
+  "sunbeam",
+  "graphite",
+  "copper",
+  "sakura",
+  "midnight"
+] as const;
+
+export type AppColorTheme = (typeof APP_COLOR_THEMES)[number];
+
+export const APP_APPEARANCE_MODES = ["system", "light", "dark"] as const;
+export type AppAppearanceMode = (typeof APP_APPEARANCE_MODES)[number];
+
 export interface AppSettings {
   autoFetchIntervalMinutes: number;
+  colorTheme: AppColorTheme;
+  appearanceMode: AppAppearanceMode;
 }
 
 export interface AppSettingsSaveRequest {
   autoFetchIntervalMinutes: number;
+  colorTheme: AppColorTheme;
+  appearanceMode: AppAppearanceMode;
 }
 
 export interface GenerateCommitMessageRequest {

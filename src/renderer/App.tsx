@@ -20,6 +20,8 @@ import {
   MapPinned,
   Maximize2,
   Minus,
+  Monitor,
+  Moon,
   Pencil,
   Plus,
   RefreshCw,
@@ -28,6 +30,7 @@ import {
   Settings,
   ShieldAlert,
   Sparkles,
+  Sun,
   Tag,
   Trash2,
   Upload,
@@ -106,6 +109,8 @@ import type {
   AiReasoningCapabilities,
   AiReasoningEffort,
   AiSettings,
+  AppAppearanceMode,
+  AppColorTheme,
   AppSettings,
   AppUpdateState,
   GitBranch,
@@ -157,6 +162,7 @@ import { buildCommitGraphLayout, type CommitGraphLayout } from "./commitGraph";
 import { groupDiffRowsByHunk, parseUnifiedDiff, type DiffRow, type DiffRowKind } from "./diffParser";
 import { getCommitFileStatusVisuals, getFileStatusVisuals, type FileStatusVisuals } from "./fileStatusVisuals";
 import { highlightDiffCode } from "./syntaxHighlighter";
+import { applyColorTheme, COLOR_THEME_OPTIONS } from "./themes";
 import gitIconUrl from "./assets/git-icon-white.svg";
 import loreIconUrl from "./assets/lore-icon-white.svg";
 
@@ -188,6 +194,8 @@ interface SettingsDraft {
   commitMessagePrompt: string;
   prDescriptionPrompt: string;
   autoFetchIntervalMinutes: string;
+  colorTheme: AppColorTheme;
+  appearanceMode: AppAppearanceMode;
   gitIdentityName: string;
   gitIdentityEmail: string;
   gitIdentityScope: GitIdentityScope;
@@ -403,6 +411,8 @@ const emptySettingsDraft: SettingsDraft = {
   commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT,
   prDescriptionPrompt: DEFAULT_PR_DESCRIPTION_PROMPT,
   autoFetchIntervalMinutes: "10",
+  colorTheme: "githead",
+  appearanceMode: "system",
   gitIdentityName: "",
   gitIdentityEmail: "",
   gitIdentityScope: "repository"
@@ -589,10 +599,12 @@ const initialWindowState: AppWindowState = {
 };
 
 export function App(): ReactNode {
-  useSystemThemeClass();
-
   const [state, setState] = useState<AppState>(initialState);
   const [windowState, setWindowState] = useState<AppWindowState>(initialWindowState);
+  const appearanceMode = state.settingsOpen
+    ? state.settingsDraft.appearanceMode
+    : state.appSettings?.appearanceMode ?? "system";
+  useAppearanceModeClass(appearanceMode);
   const stateRef = useRef(state);
   const requestIds = useRef<RequestIds>({
     repo: 0,
@@ -1474,7 +1486,9 @@ export function App(): ReactNode {
       updateState((current) => ({
         ...current,
         appSettings: {
-          autoFetchIntervalMinutes: 10
+          autoFetchIntervalMinutes: 10,
+          colorTheme: "githead",
+          appearanceMode: "system"
         },
         lastOperationResult: {
           repoPath: current.repoPath,
@@ -1513,6 +1527,12 @@ export function App(): ReactNode {
     void loadAiSettings();
     void loadAppSettings();
   }, [initializeRepository, loadAiSettings, loadAppSettings]);
+
+  useEffect(() => {
+    if (!state.settingsOpen && state.appSettings) {
+      applyColorTheme(state.appSettings.colorTheme);
+    }
+  }, [state.appSettings, state.settingsOpen]);
 
   useEffect(() => {
     void loadGitIdentity(state.repoPath);
@@ -3337,6 +3357,8 @@ export function App(): ReactNode {
         commitMessagePrompt: settings?.commitMessagePrompt ?? DEFAULT_COMMIT_MESSAGE_PROMPT,
         prDescriptionPrompt: settings?.prDescriptionPrompt ?? DEFAULT_PR_DESCRIPTION_PROMPT,
         autoFetchIntervalMinutes: String(appSettings?.autoFetchIntervalMinutes ?? 10),
+        colorTheme: appSettings?.colorTheme ?? "githead",
+        appearanceMode: appSettings?.appearanceMode ?? "system",
         gitIdentityName: gitIdentity?.name ?? "",
         gitIdentityEmail: gitIdentity?.email ?? "",
         gitIdentityScope: gitIdentity?.scope ?? "repository"
@@ -3353,6 +3375,7 @@ export function App(): ReactNode {
       settingsOpen: false,
       settingsError: ""
     });
+    applyColorTheme(stateRef.current.appSettings?.colorTheme ?? "githead");
   }, [updateState]);
 
   const saveSettings = useCallback(async (): Promise<void> => {
@@ -3399,7 +3422,9 @@ export function App(): ReactNode {
         prDescriptionPrompt: draft.prDescriptionPrompt
       });
       const appSettings = await window.githead.saveAppSettings({
-        autoFetchIntervalMinutes
+        autoFetchIntervalMinutes,
+        colorTheme: draft.colorTheme,
+        appearanceMode: draft.appearanceMode
       });
       updateState({
         gitIdentity,
@@ -4665,6 +4690,7 @@ export function App(): ReactNode {
           }
         }}
         onDraftChange={(settingsDraft) => {
+          applyColorTheme(settingsDraft.colorTheme);
           updateState({
             settingsDraft
           });
@@ -8721,12 +8747,15 @@ function SettingsDialog({
             <p className="eyebrow">Preferences</p>
             <DialogTitle>Settings</DialogTitle>
             <DialogDescription>
-              Configure Git identity, sync behavior, and AI commit message generation.
+              Configure appearance, Git identity, sync behavior, and AI commit message generation.
             </DialogDescription>
           </DialogHeader>
 
           <Tabs defaultValue="git-identity" className="min-h-0 gap-4">
-            <TabsList className="grid h-11 w-full grid-cols-3">
+            <TabsList className="grid h-11 w-full grid-cols-4">
+              <TabsTrigger value="appearance" className="h-full min-h-0 focus-visible:ring-inset">
+                Appearance
+              </TabsTrigger>
               <TabsTrigger value="git-identity" className="h-full min-h-0 focus-visible:ring-inset">
                 Git Identity
               </TabsTrigger>
@@ -8737,6 +8766,63 @@ function SettingsDialog({
                 AI
               </TabsTrigger>
             </TabsList>
+
+            <TabsContent value="appearance" className="m-0 min-h-0 overflow-y-auto pr-1">
+              <section className="grid gap-3">
+                <fieldset className="appearance-mode-picker" disabled={saving}>
+                  <legend>Appearance</legend>
+                  <div className="appearance-mode-options">
+                    {([
+                      { id: "system", label: "System", icon: Monitor },
+                      { id: "light", label: "Light", icon: Sun },
+                      { id: "dark", label: "Dark", icon: Moon }
+                    ] as const).map(({ id, label, icon: Icon }) => (
+                      <label key={id}>
+                        <input
+                          className="sr-only"
+                          type="radio"
+                          name="appearance-mode"
+                          value={id}
+                          checked={draft.appearanceMode === id}
+                          onChange={() => onDraftChange({ ...draft, appearanceMode: id })}
+                        />
+                        <Icon aria-hidden="true" />
+                        <span>{label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+                <div>
+                  <h3 className="text-sm font-semibold">Color theme</h3>
+                  <p className="text-sm text-muted-foreground">Choose a palette for your selected appearance.</p>
+                </div>
+                <fieldset className="theme-picker-grid" disabled={saving}>
+                  <legend className="sr-only">Color theme</legend>
+                  {COLOR_THEME_OPTIONS.map((theme) => (
+                    <label key={theme.id} className="theme-option">
+                      <input
+                        className="sr-only"
+                        type="radio"
+                        name="color-theme"
+                        value={theme.id}
+                        checked={draft.colorTheme === theme.id}
+                        onChange={() => onDraftChange({ ...draft, colorTheme: theme.id })}
+                      />
+                      <span className="theme-option-header">
+                        <span className="font-semibold">{theme.name}</span>
+                        <CheckCircle2 className="theme-option-check" aria-hidden="true" />
+                      </span>
+                      <span className="text-xs text-muted-foreground">{theme.description}</span>
+                      <span className="theme-swatches" aria-hidden="true">
+                        {theme.swatches.map((swatch) => (
+                          <span key={swatch} style={{ backgroundColor: swatch }} />
+                        ))}
+                      </span>
+                    </label>
+                  ))}
+                </fieldset>
+              </section>
+            </TabsContent>
 
             <TabsContent value="git-identity" className="m-0 min-h-0 overflow-y-auto pr-1">
               <section className="grid gap-3">
@@ -9393,23 +9479,20 @@ function ActionShellSelect({
   );
 }
 
-function useSystemThemeClass(): void {
+function useAppearanceModeClass(appearanceMode: AppAppearanceMode): void {
   useEffect(() => {
-    if (!("matchMedia" in window)) {
-      return;
-    }
-
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const media = "matchMedia" in window ? window.matchMedia("(prefers-color-scheme: dark)") : null;
     const syncTheme = (): void => {
-      document.documentElement.classList.toggle("dark", media.matches);
+      const dark = appearanceMode === "dark" || (appearanceMode === "system" && Boolean(media?.matches));
+      document.documentElement.classList.toggle("dark", dark);
     };
 
     syncTheme();
-    media.addEventListener("change", syncTheme);
+    media?.addEventListener("change", syncTheme);
     return () => {
-      media.removeEventListener("change", syncTheme);
+      media?.removeEventListener("change", syncTheme);
     };
-  }, []);
+  }, [appearanceMode]);
 }
 
 let repositoryActionDraftId = 0;
