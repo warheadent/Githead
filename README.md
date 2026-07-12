@@ -15,7 +15,7 @@ This is early development, and only tested on a handful of git repositories. Thi
 - **File status & staging** — see staged and unstaged changes, stage/unstage files, and view per-file diffs with syntax highlighting.
 - **Committing** — write a commit message and commit staged changes. Optionally **generate a commit message** from the staged diff using an LLM (via [OpenRouter](https://openrouter.ai/)).
 - **Commit history** — browse the commit graph, inspect commit details, and view file-level diffs for any commit.
-- **Branches** — view branches, switch the current branch, and create new branches.
+- **Branches** — view, switch, create, and manage local branches. Git supports renaming and safe local deletion; Lore supports archiving. Remote branches are never deleted by branch management.
 - **Remote management** — add, rename, edit, inspect, and remove Git remotes from the repository sidebar.
 - **GitHub insight** — when `origin` is a GitHub remote, view recent **Workflow Runs**, open **Pull Requests**, and open **Issues**.
 - **Live updates** — the repository is watched on disk, so the UI refreshes automatically when files change.

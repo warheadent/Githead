@@ -2191,6 +2191,30 @@ describe("GitService", () => {
     ]);
   });
 
+  it("renames a local branch without force", async () => {
+    const runner = new FakeRunner([ok("true\n"), ok("feature/old\n"), ok("feature/new\n"), ok(), failure(""), ok()]);
+    const service = new GitService(runner);
+    const result = await service.renameBranch({ repoPath: "D:\\Repo", branchName: "feature/old", newBranchName: "feature/new" });
+    expect(result.exitCode).toBe(0);
+    expect(runner.calls.at(-1)?.args).toEqual(["-C", "D:\\Repo", "branch", "-m", "feature/old", "feature/new"]);
+  });
+
+  it("safely deletes only a local branch", async () => {
+    const runner = new FakeRunner([ok("true\n"), ok("feature/old\n"), ok(), ok()]);
+    const service = new GitService(runner);
+    const result = await service.deleteBranch({ repoPath: "D:\\Repo", branchName: "feature/old", force: false });
+    expect(result.exitCode).toBe(0);
+    expect(runner.calls.at(-1)?.args).toEqual(["-C", "D:\\Repo", "branch", "-d", "feature/old"]);
+  });
+
+  it("force deletes a local branch only when requested", async () => {
+    const runner = new FakeRunner([ok("true\n"), ok("feature/old\n"), ok(), ok()]);
+    const service = new GitService(runner);
+    const result = await service.deleteBranch({ repoPath: "D:\\Repo", branchName: "feature/old", force: true });
+    expect(result.exitCode).toBe(0);
+    expect(runner.calls.at(-1)?.args).toEqual(["-C", "D:\\Repo", "branch", "-D", "feature/old"]);
+  });
+
   it("loads detailed remotes with all URLs and tracked branches", async () => {
     const runner = new FakeRunner([
       ok("true\n"),

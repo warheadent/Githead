@@ -37,6 +37,8 @@ export type VcsService = Pick<
   | "deleteTag"
   | "switchBranch"
   | "createBranch"
+  | "renameBranch"
+  | "deleteBranch"
   | "setBranchUpstream"
   | "publishBranch"
   | "getRemoteConfigs"

@@ -8,6 +8,8 @@ import type {
   GitAction,
   GitBranch,
   GitBranchRequest,
+  GitRenameBranchRequest,
+  GitDeleteBranchRequest,
   GitAddRemoteRequest,
   GitCloneRequest,
   GitConfiguredAction,
@@ -958,6 +960,32 @@ export class GitService {
       `--set-upstream-to=${upstream}`,
       branchResult.branchName
     ]);
+  }
+
+  async renameBranch(request: GitRenameBranchRequest): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+    const source = await this.validateBranchName(request.repoPath, request.branchName);
+    if ("error" in source) return this.createOperationFailure(request.repoPath, source.error);
+    const destination = await this.validateBranchName(request.repoPath, request.newBranchName);
+    if ("error" in destination) return this.createOperationFailure(request.repoPath, destination.error);
+    if (source.branchName === destination.branchName) return this.createOperationFailure(request.repoPath, "Enter a different branch name.");
+
+    const sourceExists = await this.runGit(request.repoPath, ["show-ref", "--verify", "--quiet", `refs/heads/${source.branchName}`]);
+    if (sourceExists.exitCode !== 0) return this.createOperationFailure(request.repoPath, "Branch does not exist.");
+    const destinationExists = await this.runGit(request.repoPath, ["show-ref", "--verify", "--quiet", `refs/heads/${destination.branchName}`]);
+    if (destinationExists.exitCode === 0) return this.createOperationFailure(request.repoPath, "Branch already exists.");
+    return this.runGitOperation(request.repoPath, ["branch", "-m", source.branchName, destination.branchName]);
+  }
+
+  async deleteBranch(request: GitDeleteBranchRequest): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+    const branch = await this.validateBranchName(request.repoPath, request.branchName);
+    if ("error" in branch) return this.createOperationFailure(request.repoPath, branch.error);
+    const exists = await this.runGit(request.repoPath, ["show-ref", "--verify", "--quiet", `refs/heads/${branch.branchName}`]);
+    if (exists.exitCode !== 0) return this.createOperationFailure(request.repoPath, "Branch does not exist.");
+    return this.runGitOperation(request.repoPath, ["branch", request.force ? "-D" : "-d", branch.branchName]);
   }
 
   async fetchLfsImageVersions(request: GitLfsImageFetchRequest): Promise<GitOperationResult> {

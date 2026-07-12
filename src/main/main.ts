@@ -14,6 +14,8 @@ import type {
   FileSystemPathListRequest,
   FileSystemPathRequest,
   GitBranchRequest,
+  GitRenameBranchRequest,
+  GitDeleteBranchRequest,
   GitAddRemoteRequest,
   GitCloneRequest,
   GitConfiguredActionRunRequest,
@@ -474,6 +476,18 @@ ipcMain.handle(IPC_CHANNELS.getAiSettings, async () => {
 
 ipcMain.handle(IPC_CHANNELS.saveAiSettings, async (_event, request: AiSettingsSaveRequest) => {
   return getAiSettingsService().saveSettings(request);
+});
+
+ipcMain.handle(IPC_CHANNELS.renameBranch, async (_event, request: GitRenameBranchRequest) => {
+  const trusted = await requireTrustedRepo(request.repoPath);
+  if (trusted) return trusted;
+  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).renameBranch(request), request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.deleteBranch, async (_event, request: GitDeleteBranchRequest) => {
+  const trusted = await requireTrustedRepo(request.repoPath);
+  if (trusted) return trusted;
+  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).deleteBranch(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.getAiReasoningCapabilities, async (_event, request: GetAiReasoningCapabilitiesRequest) => {

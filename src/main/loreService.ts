@@ -6,6 +6,8 @@ import type {
   GitAction,
   GitBranch,
   GitBranchRequest,
+  GitRenameBranchRequest,
+  GitDeleteBranchRequest,
   GitAddRemoteRequest,
   GitCloneRequest,
   GitCommitDetails,
@@ -707,6 +709,26 @@ export class LoreService implements VcsService {
 
   async publishBranch(request: GitPublishBranchRequest): Promise<GitRunResult> {
     return this.runFailure(request.repoPath, "publish", "Publishing branches is not supported for Lore repositories.");
+  }
+
+  async renameBranch(request: GitRenameBranchRequest): Promise<GitOperationResult> {
+    return this.failure(request.repoPath, "Renaming branches is not supported for Lore repositories.");
+  }
+
+  async deleteBranch(request: GitDeleteBranchRequest): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) return this.failure(request.repoPath, validation.error);
+    const branchName = request.branchName.trim();
+    if (!branchName) return this.failure(request.repoPath, "Branch name is required.");
+    if (request.force) return this.failure(request.repoPath, "Force removal is not supported for Lore repositories.");
+    const listed = await this.runLore(validation.rootPath, ["branch", "list"]);
+    if (listed.exitCode !== 0) return this.toOperationResult(request.repoPath, listed);
+    const branches = parseLoreBranchList(listed.stdout);
+    const branch = branches.find((candidate) => candidate.name === branchName);
+    if (!branch) return this.failure(request.repoPath, "Branch does not exist.");
+    if (branch.current) return this.failure(request.repoPath, "Switch to another branch before archiving this branch.");
+    const result = await this.runLore(validation.rootPath, ["branch", "archive", branchName]);
+    return this.toOperationResult(request.repoPath, result);
   }
 
   async fetchLfsImageVersions(request: GitLfsImageFetchRequest): Promise<GitOperationResult> {

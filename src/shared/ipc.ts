@@ -37,6 +37,8 @@ export const IPC_CHANNELS = {
   deleteTag: "git:tag-delete",
   switchBranch: "git:branch-switch",
   createBranch: "git:branch-create",
+  renameBranch: "git:branch-rename",
+  deleteBranch: "git:branch-delete",
   setBranchUpstream: "git:branch-upstream-set",
   publishBranch: "git:branch-publish",
   getRemoteConfigs: "git:remotes:get",

@@ -4709,6 +4709,40 @@ describe("App", () => {
     expect(screen.getByText("Claude Code was not detected.")).toBeTruthy();
   });
 
+  it("manages branches and explains safe-delete refusals", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ branches: [
+      { name: "main", current: true, upstream: "origin/main" },
+      { name: "feature/old", current: false, upstream: "origin/feature/old" }
+    ] }));
+    render(<App />);
+    await screen.findByText("main");
+    await user.click(screen.getByRole("button", { name: "Switch branch" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Manage Branches…" }));
+    expect(screen.getByRole("button", { name: "Delete main" }).hasAttribute("disabled")).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Rename feature/old" }));
+    const input = screen.getByLabelText("New name");
+    await user.clear(input);
+    await user.type(input, "feature/new");
+    await user.click(screen.getByRole("button", { name: "Rename Branch" }));
+    await waitFor(() => expect(githead.renameBranch).toHaveBeenCalledWith({ repoPath, branchName: "feature/old", newBranchName: "feature/new" }));
+    vi.mocked(githead.deleteBranch).mockResolvedValue({
+      repoPath,
+      exitCode: 1,
+      stdout: "",
+      stderr: "error: the branch 'feature/old' is not fully merged\nhint: run git branch -D feature/old"
+    });
+    await user.click(await screen.findByRole("button", { name: "Delete feature/old" }));
+    await user.click(screen.getByRole("button", { name: "Delete Branch" }));
+    expect(githead.deleteBranch).toHaveBeenCalledWith({ repoPath, branchName: "feature/old", force: false });
+    expect(await screen.findByText("This branch has commits that haven’t been merged. Merge them into another branch before deleting it.")).toBeTruthy();
+    expect(screen.queryByText(/git branch -D/)).toBeNull();
+    vi.mocked(githead.deleteBranch).mockResolvedValue({ repoPath, exitCode: 0, stdout: "", stderr: "" });
+    await user.click(screen.getByRole("checkbox", { name: /Force delete/ }));
+    await user.click(screen.getByRole("button", { name: "Force Delete Branch" }));
+    await waitFor(() => expect(githead.deleteBranch).toHaveBeenLastCalledWith({ repoPath, branchName: "feature/old", force: true }));
+  });
+
   it("shows model-aware reasoning controls and a separate PR description effort", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getAiReasoningCapabilities).mockResolvedValue({
@@ -5030,6 +5064,8 @@ function createGitheadMock(): GitheadApi {
     deleteTag: vi.fn().mockResolvedValue(okOperation),
     switchBranch: vi.fn().mockResolvedValue(okOperation),
     createBranch: vi.fn().mockResolvedValue(okOperation),
+    renameBranch: vi.fn().mockResolvedValue(okOperation),
+    deleteBranch: vi.fn().mockResolvedValue(okOperation),
     setBranchUpstream: vi.fn().mockResolvedValue(okOperation),
     publishBranch: vi.fn().mockResolvedValue(createRunResult("publish")),
     getRemoteConfigs: vi.fn().mockResolvedValue([]),

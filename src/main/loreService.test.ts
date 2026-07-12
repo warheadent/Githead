@@ -644,6 +644,26 @@ Committer : Bot <bot@example.com>
     });
   });
 
+  it("archives a non-current branch", async () => {
+    await withLoreRepo(async (dir) => {
+      const runner = new FakeRunner([ok("ok"), ok("* main\n  feature\n"), ok("Archived")]);
+      const service = new LoreService(runner);
+      const result = await service.deleteBranch({ repoPath: dir, branchName: "feature", force: false });
+      expect(result.exitCode).toBe(0);
+      expect(runner.calls.at(-1)?.args).toEqual(["--repository", dir, "-P", "branch", "archive", "feature"]);
+    });
+  });
+
+  it("refuses to archive the current Lore branch", async () => {
+    await withLoreRepo(async (dir) => {
+      const runner = new FakeRunner([ok("ok"), ok("* main\n  feature\n")]);
+      const service = new LoreService(runner);
+      const result = await service.deleteBranch({ repoPath: dir, branchName: "main", force: false });
+      expect(result.exitCode).toBe(-1);
+      expect(result.stderr).toContain("Switch to another branch");
+    });
+  });
+
   it("still reports hunk staging as unsupported", async () => {
     const runner = new FakeRunner([]);
     const service = new LoreService(runner);

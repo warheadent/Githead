@@ -183,6 +183,8 @@ export type VcsKind = "git" | "lore";
  * that adding a third VCS later does not require touching every call site.
  */
 export interface RepoCapabilities {
+  renameBranches: boolean;
+  removeBranches: boolean;
   hunkStaging: boolean;
   tags: boolean;
   multipleRemotes: boolean;
@@ -198,6 +200,8 @@ export interface RepoCapabilities {
 
 export function gitCapabilities(): RepoCapabilities {
   return {
+    renameBranches: true,
+    removeBranches: true,
     hunkStaging: true,
     tags: true,
     multipleRemotes: true,
@@ -214,6 +218,8 @@ export function gitCapabilities(): RepoCapabilities {
 
 export function loreCapabilities(): RepoCapabilities {
   return {
+    renameBranches: false,
+    removeBranches: true,
     hunkStaging: false,
     tags: false,
     multipleRemotes: false,
@@ -444,6 +450,18 @@ export interface GitPublishBranchRequest {
   repoPath: string;
   branchName: string;
   remoteName: string;
+}
+
+export interface GitRenameBranchRequest {
+  repoPath: string;
+  branchName: string;
+  newBranchName: string;
+}
+
+export interface GitDeleteBranchRequest {
+  repoPath: string;
+  branchName: string;
+  force: boolean;
 }
 
 export interface GitAddRemoteRequest {
@@ -784,6 +802,8 @@ export interface GitheadApi {
   deleteTag(request: GitDeleteTagRequest): Promise<GitOperationResult>;
   switchBranch(request: GitBranchRequest): Promise<GitOperationResult>;
   createBranch(request: GitBranchRequest): Promise<GitOperationResult>;
+  renameBranch(request: GitRenameBranchRequest): Promise<GitOperationResult>;
+  deleteBranch(request: GitDeleteBranchRequest): Promise<GitOperationResult>;
   setBranchUpstream(request: GitUpstreamRequest): Promise<GitOperationResult>;
   publishBranch(request: GitPublishBranchRequest): Promise<GitRunResult>;
   getRemoteConfigs(repoPath: string): Promise<GitRemoteConfig[]>;

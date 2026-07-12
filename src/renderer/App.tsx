@@ -141,6 +141,7 @@ import type {
 import { AI_API_KEY_PROVIDERS, AI_CLI_PROVIDERS, AI_COMMIT_MESSAGE_PROVIDERS, AI_REASONING_EFFORTS, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
 import { parseCommitSubject } from "../shared/commitSubject";
 import { ActivityLogView } from "./ActivityLogView";
+import { BranchManagementDialog } from "./BranchManagementDialog";
 import { RemoteManagementDialog } from "./RemoteManagementDialog";
 import {
   appendActivityLogEvent,
@@ -294,6 +295,7 @@ interface AppState {
   clonePanelOpen: boolean;
   summary: RepoSummary | null;
   branchDialogOpen: boolean;
+  branchManagerOpen: boolean;
   branchNameDraft: string;
   branchError: string;
   upstreamDialogOpen: boolean;
@@ -525,6 +527,7 @@ const initialState: AppState = {
   clonePanelOpen: false,
   summary: null,
   branchDialogOpen: false,
+  branchManagerOpen: false,
   branchNameDraft: "",
   branchError: "",
   upstreamDialogOpen: false,
@@ -1391,6 +1394,7 @@ export function App(): ReactNode {
       clonePanelOpen: false,
       summary: null,
       branchDialogOpen: false,
+      branchManagerOpen: false,
       branchNameDraft: "",
       branchError: "",
       upstreamDialogOpen: false,
@@ -2550,6 +2554,32 @@ export function App(): ReactNode {
       branchError: ""
     });
   }, [updateState]);
+
+  const openBranchManager = useCallback((): void => {
+    const current = stateRef.current;
+    if (!current.summary?.isValid || isOperationRunning(current)) return;
+    updateState({ branchManagerOpen: true });
+  }, [updateState]);
+
+  const closeBranchManager = useCallback((): void => {
+    if (!isOperationRunning(stateRef.current)) updateState({ branchManagerOpen: false });
+  }, [updateState]);
+
+  const runBranchOperation = useCallback(async (action: "rename" | "remove", label: string, branchName: string, operation: (repoPath: string) => Promise<GitOperationResult>): Promise<string | null> => {
+    const snapshot = stateRef.current;
+    const repoPath = snapshot.repoPath;
+    if (!(await ensureTrustedRepo())) return "Trust this workspace before changing branches.";
+    const latest = stateRef.current;
+    if (latest.repoPath !== repoPath || !latest.branchManagerOpen) return "The active repository changed. Reopen Manage Branches and try again.";
+    if (action === "remove" && latest.summary?.branch === branchName) return "Switch to another branch before removing this branch.";
+    const result = await runRepoOperation(label, undefined, () => operation(repoPath));
+    if (!result) return "Another repository operation is already running.";
+    if (result.exitCode === 0) return null;
+    if (action === "remove" && /not fully merged/i.test(result.stderr)) {
+      return "This branch has commits that haven’t been merged. Merge them into another branch before deleting it.";
+    }
+    return result.stderr.trim() || `${label} failed.`;
+  }, [ensureTrustedRepo, runRepoOperation]);
 
   const openUpstreamDialog = useCallback((): void => {
     const current = stateRef.current;
@@ -4318,6 +4348,7 @@ export function App(): ReactNode {
               void switchBranch(branchName);
             }}
             onOpenBranchDialog={openBranchDialog}
+            onOpenBranchManager={openBranchManager}
             onOpenUpstreamDialog={openUpstreamDialog}
             onOpenRemoteManager={openRemoteManager}
             onOpenSettings={openSettingsDialog}
@@ -4681,6 +4712,18 @@ export function App(): ReactNode {
           `Removing remote ${name}`,
           (repoPath) => window.githead.removeRemote({ repoPath, name })
         )}
+      />
+
+      <BranchManagementDialog
+        open={state.branchManagerOpen}
+        repoPath={state.repoPath}
+        kind={state.summary?.kind ?? "git"}
+        capabilities={state.summary?.capabilities ?? gitCapabilities()}
+        branches={state.summary?.branches ?? []}
+        busy={running}
+        onOpenChange={(open) => { if (!open) closeBranchManager(); }}
+        onRename={(branchName, newBranchName) => runBranchOperation("rename", `Renaming branch ${branchName}`, branchName, (repoPath) => window.githead.renameBranch({ repoPath, branchName, newBranchName }))}
+        onRemove={(branchName, force) => runBranchOperation("remove", `${force ? "Force deleting" : "Removing"} branch ${branchName}`, branchName, (repoPath) => window.githead.deleteBranch({ repoPath, branchName, force }))}
       />
 
       <GitIdentityDialog
@@ -5792,6 +5835,7 @@ function RepositoryPanel({
   onShowInExplorer,
   onSwitchBranch,
   onOpenBranchDialog,
+  onOpenBranchManager,
   onOpenUpstreamDialog,
   onOpenRemoteManager,
   onOpenSettings,
@@ -5826,6 +5870,7 @@ function RepositoryPanel({
   onShowInExplorer: (repoPath: string) => void;
   onSwitchBranch: (branchName: string) => void;
   onOpenBranchDialog: () => void;
+  onOpenBranchManager: () => void;
   onOpenUpstreamDialog: () => void;
   onOpenRemoteManager: () => void;
   onOpenSettings: () => void;
@@ -5949,6 +5994,7 @@ function RepositoryPanel({
           disabled={running || !summary?.isValid}
           onSwitchBranch={onSwitchBranch}
           onCreateBranch={onOpenBranchDialog}
+          onManageBranches={onOpenBranchManager}
         />
         {(summary?.capabilities.setUpstream ?? true) ? (
           <UpstreamFact
@@ -5987,16 +6033,17 @@ function BranchFact({
   branches,
   disabled,
   onSwitchBranch,
-  onCreateBranch
+  onCreateBranch,
+  onManageBranches
 }: {
   currentBranch: string | null;
   branches: GitBranch[];
   disabled: boolean;
   onSwitchBranch: (branchName: string) => void;
   onCreateBranch: () => void;
+  onManageBranches: () => void;
 }): ReactNode {
   const switchableBranches = branches.filter((branch) => !branch.current && branch.name !== currentBranch);
-  const canSwitch = !disabled && switchableBranches.length > 0;
 
   return (
     <div className="repo-branch-fact">
@@ -6010,7 +6057,7 @@ function BranchFact({
                 type="button"
                 variant="outline"
                 size="icon-xs"
-                disabled={!canSwitch}
+                disabled={disabled}
                 aria-label="Switch branch"
                 title="Switch branch"
               >
@@ -6029,6 +6076,10 @@ function BranchFact({
               <DropdownMenuItem onSelect={onCreateBranch}>
                 <Plus />
                 New Branch
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onManageBranches}>
+                <Settings />
+                Manage Branches…
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
