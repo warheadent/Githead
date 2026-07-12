@@ -5041,7 +5041,7 @@ function RepositorySetupScreen({
             Browse for Repository
           </Button>
           {setupError ? (
-            <p className="setup-error" role="alert">{setupError}</p>
+            <p className="setup-error selectable-text" role="alert">{setupError}</p>
           ) : null}
           {safeDirectory?.required ? (
             <div className="setup-safe-directory" role="status">
@@ -5050,7 +5050,7 @@ function RepositorySetupScreen({
                 <span>Git ownership check blocked this repository.</span>
               </div>
               <p>Allow an exception for this folder to add it to Git's global safe.directory list.</p>
-              <p className="setup-safe-directory-path">{safeDirectory.path}</p>
+              <p className="setup-safe-directory-path selectable-text">{safeDirectory.path}</p>
               <Button
                 type="button"
                 variant="outline"
@@ -5064,7 +5064,7 @@ function RepositorySetupScreen({
             </div>
           ) : null}
           {selectedRepoPath ? (
-            <p className="setup-selected-path">{selectedRepoPath}</p>
+            <p className="setup-selected-path selectable-text">{selectedRepoPath}</p>
           ) : null}
         </section>
 
@@ -5688,10 +5688,10 @@ function CloneRepositoryForm({
       </div>
 
       {cloneError ? (
-        <p className="setup-error" role="alert">{cloneError}</p>
+        <p className="setup-error selectable-text" role="alert">{cloneError}</p>
       ) : null}
       {cloneCheckMessage ? (
-        <p className={cloneCheckStatus === "success" ? "setup-success" : "setup-error"} role={cloneCheckStatus === "error" ? "alert" : "status"}>
+        <p className={`${cloneCheckStatus === "success" ? "setup-success" : "setup-error"} selectable-text`} role={cloneCheckStatus === "error" ? "alert" : "status"}>
           {cloneCheckMessage}
         </p>
       ) : null}
@@ -5951,7 +5951,7 @@ function BranchFact({
     <div className="repo-branch-fact">
       <dt>Branch</dt>
       <dd>
-        <span className="repo-branch-name" title={currentBranch ?? undefined}>{currentBranch ?? "-"}</span>
+        <span className="repo-branch-name selectable-text" title={currentBranch ?? undefined}>{currentBranch ?? "-"}</span>
         <span className="repo-branch-actions">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -6017,7 +6017,7 @@ function UpstreamFact({
     <div className="repo-upstream-fact">
       <dt>Upstream</dt>
       <dd>
-        <span className="repo-upstream-name" title={upstream ?? undefined}>{upstream ?? "-"}</span>
+        <span className="repo-upstream-name selectable-text" title={upstream ?? undefined}>{upstream ?? "-"}</span>
         <Button
           type="button"
           variant="outline"
@@ -6170,7 +6170,7 @@ function AppUpdateReleaseNotesPopover({ state }: { state: AppUpdateState }): Rea
         ) : releaseNotes.error ? (
           <p className="app-update-release-notes-error" role="status" aria-live="polite">{releaseNotes.error}</p>
         ) : releaseNotes.body ? (
-          <div className="app-update-release-notes-body">
+          <div className="app-update-release-notes-body selectable-text">
             <ReactMarkdown skipHtml>
               {releaseNotes.body}
             </ReactMarkdown>
@@ -6871,7 +6871,7 @@ function HistoryView({
             {historyLoading ? (
               <p className="empty-state">Loading commit history...</p>
             ) : historyError ? (
-              <p className="empty-state bad">{historyError}</p>
+              <p className="empty-state bad selectable-text">{historyError}</p>
             ) : !summary?.isValid ? (
               <p className="empty-state">Select a valid repository.</p>
             ) : history.length === 0 ? (
@@ -6970,7 +6970,7 @@ function WorkflowRunsView({
         ) : loading ? (
           <p className="empty-state">Loading workflow runs...</p>
         ) : error ? (
-          <p className="empty-state bad">{error}</p>
+          <p className="empty-state bad selectable-text">{error}</p>
         ) : workflowRuns.length === 0 ? (
           <p className="empty-state">No workflow runs found.</p>
         ) : (
@@ -7070,7 +7070,7 @@ function PullRequestsView({
         ) : loading ? (
           <p className="empty-state">Loading pull requests...</p>
         ) : error ? (
-          <p className="empty-state bad">{error}</p>
+          <p className="empty-state bad selectable-text">{error}</p>
         ) : pullRequests.length === 0 ? (
           <p className="empty-state">No open pull requests found.</p>
         ) : (
@@ -7170,7 +7170,7 @@ function IssuesView({
         ) : loading ? (
           <p className="empty-state">Loading issues...</p>
         ) : error ? (
-          <p className="empty-state bad">{error}</p>
+          <p className="empty-state bad selectable-text">{error}</p>
         ) : issues.length === 0 ? (
           <p className="empty-state">No open issues found.</p>
         ) : (
@@ -7437,7 +7437,7 @@ function CommitDetailsPanel({
     meta = <p className="empty-state">Loading commit details...</p>;
     files = null;
   } else if (error) {
-    meta = <p className="empty-state bad">{error}</p>;
+    meta = <p className="empty-state bad selectable-text">{error}</p>;
     files = null;
   } else if (!details) {
     meta = <p className="empty-state">Select a commit.</p>;
@@ -7445,7 +7445,7 @@ function CommitDetailsPanel({
   } else {
     fileCount = `${details.files.length} ${details.files.length === 1 ? "file" : "files"}`;
     meta = (
-      <div className="commit-meta-card">
+      <div className="commit-meta-card selectable-text">
         <h2 className="commit-title text-base font-semibold" title={details.subject || undefined}>
           <CommitSubject
             subject={details.subject}
@@ -7913,7 +7913,7 @@ function TagDialog({
                   }}
                 />
                 <Label>Commit</Label>
-                <span className="commit-action-value">{commit ? getCommitSummaryLabel(commit) : state.hash}</span>
+                <span className="commit-action-value selectable-text">{commit ? getCommitSummaryLabel(commit) : state.hash}</span>
                 <Label htmlFor="tag-push-remote">Push tag</Label>
                 <select
                   id="tag-push-remote"
@@ -8078,9 +8078,9 @@ function ResetCommitDialog({
           </DialogHeader>
           <div className="form-grid">
             <Label>Reset branch</Label>
-            <span className="commit-action-value">{branchName ?? "No current branch"}</span>
+            <span className="commit-action-value selectable-text">{branchName ?? "No current branch"}</span>
             <Label>To commit</Label>
-            <span className="commit-action-value">{commit ? getCommitSummaryLabel(commit) : state.hash}</span>
+            <span className="commit-action-value selectable-text">{commit ? getCommitSummaryLabel(commit) : state.hash}</span>
             {resetModesEnabled ? (
               <>
                 <Label htmlFor="reset-mode">Using mode</Label>
@@ -8334,7 +8334,7 @@ function PublishBranchDialog({
 
           <div className="grid gap-2">
             <Label>Branch</Label>
-            <div className="commit-action-value">{branchName ?? "No current branch"}</div>
+            <div className="commit-action-value selectable-text">{branchName ?? "No current branch"}</div>
           </div>
 
           <div className="grid gap-2">

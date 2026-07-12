@@ -236,7 +236,7 @@ export function RemoteManagementDialog({
               </>
             ) : null}
 
-            {error ? <p className="error-text" role="alert">{error}</p> : null}
+            {error ? <p className="error-text selectable-text" role="alert">{error}</p> : null}
 
             <DialogFooter>
               <Button type="button" variant="outline" disabled={busy} onClick={returnToList}>Back</Button>
@@ -285,7 +285,7 @@ function RemoteList({
         {loading ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="animate-spin" /> Loading remotes…</p> : null}
         {!loading && error ? (
           <div className="grid gap-3 rounded-md border border-destructive/40 p-4" role="alert">
-            <p className="error-text">{error}</p>
+            <p className="error-text selectable-text">{error}</p>
             <Button type="button" variant="outline" size="sm" className="justify-self-start" onClick={onReload}>Try Again</Button>
           </div>
         ) : null}
@@ -309,7 +309,7 @@ function RemoteList({
               </div>
               <RemoteUrls remote={remote} />
               {advanced ? <p className="text-xs text-muted-foreground">Githead protects advanced URL configuration. Use the Git CLI to edit these URLs.</p> : <p className="text-xs text-muted-foreground">Used for fetch and push.</p>}
-              {remote.trackedBranches.length > 0 ? <p className="text-xs text-muted-foreground">Tracks: {remote.trackedBranches.join(", ")}</p> : null}
+              {remote.trackedBranches.length > 0 ? <p className="selectable-text text-xs text-muted-foreground">Tracks: {remote.trackedBranches.join(", ")}</p> : null}
             </section>
           );
         }) : null}
@@ -320,7 +320,7 @@ function RemoteList({
 
 function RemoteUrls({ remote }: { remote: GitRemoteConfig }): ReactNode {
   return (
-    <dl className="grid gap-2 text-xs">
+    <dl className="selectable-text grid gap-2 text-xs">
       <div className="grid grid-cols-[4rem_minmax(0,1fr)] gap-2">
         <dt className="text-muted-foreground">Fetch</dt>
         <dd className="grid gap-1">{remote.fetchUrls.length > 0 ? remote.fetchUrls.map((value, index) => <code key={`${index}:${value}`} className="break-all">{value}</code>) : <span>Not configured</span>}</dd>
