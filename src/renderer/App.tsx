@@ -3,6 +3,7 @@ import {
   ArrowUp,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   CircleDot,
   Clipboard,
   Copy,
@@ -10,12 +11,14 @@ import {
   ExternalLink,
   FileCode2,
   FolderOpen,
+  Folder,
   GitFork,
   GitBranch as GitBranchIcon,
   GitPullRequest,
   GripVertical,
   History,
   ListTree,
+  List,
   Loader2,
   MapPinned,
   Maximize2,
@@ -147,7 +150,8 @@ import type {
   GitStatusFile,
   RepoSyncStatus,
   RepoTrustResult,
-  RepoSummary
+  RepoSummary,
+  StatusFileViewMode
 } from "../shared/types";
 import { AI_API_KEY_PROVIDERS, AI_CLI_PROVIDERS, AI_COMMIT_MESSAGE_PROVIDERS, AI_REASONING_EFFORTS, APP_ZOOM_FACTORS, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
 import { parseCommitSubject } from "../shared/commitSubject";
@@ -173,6 +177,7 @@ import { buildCommitGraphLayout, type CommitGraphLayout } from "./commitGraph";
 import { groupDiffRowsByHunk, parseUnifiedDiff, type DiffRow, type DiffRowKind } from "./diffParser";
 import { getCommitFileStatusVisuals, getFileStatusVisuals, type FileStatusVisuals } from "./fileStatusVisuals";
 import { highlightDiffCode } from "./syntaxHighlighter";
+import { buildStatusFileTree, fileName, type StatusFileTreeFolder } from "./statusFileTree";
 import { applyColorTheme, COLOR_THEME_OPTIONS } from "./themes";
 import gitIconUrl from "./assets/git-icon-white.svg";
 import loreIconUrl from "./assets/lore-icon-white.svg";
@@ -604,6 +609,8 @@ export function App(): ReactNode {
     : state.appSettings?.appearanceMode ?? "system";
   useAppearanceModeClass(appearanceMode);
   const stateRef = useRef(state);
+  const appSettingsSaveQueue = useRef<Promise<void>>(Promise.resolve());
+  const statusViewSaveId = useRef(0);
   const requestIds = useRef<RequestIds>({
     repo: 0,
     repoSyncStatuses: 0,
@@ -1273,7 +1280,8 @@ export function App(): ReactNode {
           autoFetchIntervalMinutes: 10,
           colorTheme: "githead",
           appearanceMode: "system",
-          zoomFactor: 1
+          zoomFactor: 1,
+          statusFileViewMode: "list"
         },
         lastOperationResult: {
           repoPath: current.repoPath,
@@ -3222,7 +3230,8 @@ export function App(): ReactNode {
         autoFetchIntervalMinutes,
         colorTheme: draft.colorTheme,
         appearanceMode: draft.appearanceMode,
-        zoomFactor: draft.zoomFactor
+        zoomFactor: draft.zoomFactor,
+        statusFileViewMode: stateRef.current.appSettings?.statusFileViewMode ?? "list"
       });
       updateState({
         gitIdentity,
@@ -3913,9 +3922,10 @@ export function App(): ReactNode {
   const runContextFileOperation = useCallback(async (
     file: GitStatusFile,
     side: GitDiffSide,
-    kind: ContextActionKind
+    kind: ContextActionKind,
+    explicitPaths?: string[]
   ): Promise<void> => {
-    const paths = getContextActionPaths(stateRef.current.selection, file, side);
+    const paths = explicitPaths ?? getContextActionPaths(stateRef.current.selection, file, side);
 
     if (kind === "toggle-stage") {
       if (side === "unstaged") {
@@ -4305,6 +4315,29 @@ export function App(): ReactNode {
                   diff={state.diff}
                   diffLoading={state.diffLoading}
                   disabled={disableActions}
+                  viewMode={state.appSettings?.statusFileViewMode ?? "list"}
+                  onViewModeChange={(statusFileViewMode) => {
+                    const current = stateRef.current.appSettings;
+                    if (!current || current.statusFileViewMode === statusFileViewMode) return;
+                    const saveId = ++statusViewSaveId.current;
+                    updateState({ appSettings: { ...current, statusFileViewMode } });
+                    appSettingsSaveQueue.current = appSettingsSaveQueue.current.then(async () => {
+                      try {
+                        const appSettings = await window.githead.saveAppSettings({ ...current, statusFileViewMode });
+                        if (saveId === statusViewSaveId.current) updateState({ appSettings });
+                      } catch (error) {
+                        if (saveId === statusViewSaveId.current) updateState({
+                          appSettings: current,
+                          lastOperationResult: {
+                            repoPath: stateRef.current.repoPath,
+                            exitCode: -1,
+                            stdout: "",
+                            stderr: error instanceof Error ? error.message : "Unable to save file view preference."
+                          }
+                        });
+                      }
+                    });
+                  }}
                   onSelectFile={selectFile}
                   onStageFiles={(paths, selection) => {
                     void stageFiles(paths, selection);
@@ -4319,8 +4352,8 @@ export function App(): ReactNode {
                   onApplyHunk={(patch) => {
                     void applySelectedHunk(patch);
                   }}
-                  onContextAction={(file, side, kind) => {
-                    void runContextFileOperation(file, side, kind);
+                  onContextAction={(file, side, kind, paths) => {
+                    void runContextFileOperation(file, side, kind, paths);
                   }}
                   onUpdateSubmodules={(path) => { void updateSubmodules(path); }}
                   onSyncSubmodules={() => { void syncSubmodules(); }}
@@ -6361,6 +6394,8 @@ function StatusView({
   diff,
   diffLoading,
   disabled,
+  viewMode,
+  onViewModeChange,
   onSelectFile,
   onStageFiles,
   onUnstageFiles,
@@ -6378,13 +6413,15 @@ function StatusView({
   diff: GitFileDiff | null;
   diffLoading: boolean;
   disabled: boolean;
+  viewMode: StatusFileViewMode;
+  onViewModeChange: (mode: StatusFileViewMode) => void;
   onSelectFile: (file: GitStatusFile, side: GitDiffSide, modifiers: FileSelectionModifiers) => void;
   onStageFiles: (paths: string[], selection?: FileSelection) => void;
   onUnstageFiles: (paths: string[], selection?: FileSelection) => void;
   onRefreshDiff: () => void;
   onDownloadImage: () => void;
   onApplyHunk: (patch: string) => void;
-  onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind) => void;
+  onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind, paths?: string[]) => void;
   onUpdateSubmodules: (path?: string) => void;
   onSyncSubmodules: () => void;
 }): ReactNode {
@@ -6404,7 +6441,35 @@ function StatusView({
   return (
     <ResizablePanelGroup orientation="horizontal" className="h-full min-h-0 bg-background">
       <ResizablePanel defaultSize="38%" minSize="300px" className="min-w-[300px]">
-        <div className="grid h-full min-h-0 grid-rows-2 border-r bg-card">
+        <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] border-r bg-card">
+          <div className="flex min-h-10 items-center justify-between gap-3 border-b px-4 py-1.5">
+            {(summary?.submodules?.length ?? 0) > 0 ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button type="button" variant="outline" size="sm" disabled={disabled}>
+                    <GitFork />
+                    Submodules
+                    <ChevronDown />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem onSelect={() => onUpdateSubmodules()}>
+                    <RefreshCw />
+                    Update all submodules
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={onSyncSubmodules}>
+                    <GitFork />
+                    Sync submodule URLs
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+            <div className="ml-auto inline-flex rounded-md border p-0.5" role="group" aria-label="Changed file view mode">
+              <Button type="button" variant={viewMode === "list" ? "secondary" : "ghost"} size="icon-xs" aria-pressed={viewMode === "list"} aria-label="List view" onClick={() => onViewModeChange("list")}><List /></Button>
+              <Button type="button" variant={viewMode === "tree" ? "secondary" : "ghost"} size="icon-xs" aria-pressed={viewMode === "tree"} aria-label="Tree view" onClick={() => onViewModeChange("tree")}><ListTree /></Button>
+            </div>
+          </div>
+          <div className="grid min-h-0 grid-rows-2">
           <FileGroup
             title="Staged files"
             side="staged"
@@ -6412,14 +6477,9 @@ function StatusView({
             summary={summary}
             selection={selection}
             disabled={disabled}
+            viewMode={viewMode}
             actions={
               <>
-                {(summary?.submodules?.length ?? 0) > 0 ? (
-                  <>
-                    <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={onSyncSubmodules}>Sync URLs</Button>
-                    <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => onUpdateSubmodules()}>Update All</Button>
-                  </>
-                ) : null}
                 <Button
                   type="button"
                   variant="outline"
@@ -6457,6 +6517,7 @@ function StatusView({
             summary={summary}
             selection={selection}
             disabled={disabled}
+            viewMode={viewMode}
             className="border-t"
             actions={
               <>
@@ -6490,6 +6551,7 @@ function StatusView({
             onSelectFile={onSelectFile}
             onContextAction={onContextAction}
           />
+          </div>
         </div>
       </ResizablePanel>
       <ResizableHandle />
@@ -6531,6 +6593,7 @@ function FileGroup({
   summary,
   selection,
   disabled,
+  viewMode,
   actions,
   className = "",
   onSelectFile,
@@ -6542,12 +6605,17 @@ function FileGroup({
   summary: RepoSummary | null;
   selection: FileSelection | null;
   disabled: boolean;
+  viewMode: StatusFileViewMode;
   actions: ReactNode;
   className?: string;
   onSelectFile: (file: GitStatusFile, side: GitDiffSide, modifiers: FileSelectionModifiers) => void;
-  onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind) => void;
+  onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind, paths?: string[]) => void;
 }): ReactNode {
   const selectedPathSet = selection?.side === side ? new Set(getSelectionPaths(selection)) : new Set<string>();
+  const tree = useMemo(() => buildStatusFileTree(files), [files]);
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
+
+  useEffect(() => setCollapsedFolders(new Set()), [summary?.repoPath]);
 
   return (
     <section className={`grid min-h-0 grid-rows-[auto_minmax(0,1fr)] ${className}`} aria-label={title}>
@@ -6555,11 +6623,15 @@ function FileGroup({
         <h2 className="text-sm font-semibold">{title} ({files.length})</h2>
         <div className="flex flex-wrap justify-end gap-2">{actions}</div>
       </div>
-      <div className="file-list" role="listbox" aria-label={title} aria-multiselectable="true">
+      <div className="file-list" role={viewMode === "tree" ? "tree" : "listbox"} aria-label={title} aria-multiselectable="true">
         {!summary?.isValid ? (
           <p className="empty-state">Select a valid repository.</p>
         ) : files.length === 0 ? (
           null
+        ) : viewMode === "tree" ? (
+          <StatusFileTree folder={tree} side={side} level={1} collapsedFolders={collapsedFolders} selectedPathSet={selectedPathSet} disabled={disabled}
+            onToggleFolder={(id) => setCollapsedFolders((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })}
+            onSelectFile={onSelectFile} onContextAction={onContextAction} />
         ) : (
           files.map((file) => (
             <FileRow
@@ -6578,20 +6650,100 @@ function FileGroup({
   );
 }
 
+function StatusFileTree({ folder, side, level, collapsedFolders, selectedPathSet, disabled, onToggleFolder, onSelectFile, onContextAction }: {
+  folder: StatusFileTreeFolder;
+  side: GitDiffSide;
+  level: number;
+  collapsedFolders: Set<string>;
+  selectedPathSet: Set<string>;
+  disabled: boolean;
+  onToggleFolder: (id: string) => void;
+  onSelectFile: (file: GitStatusFile, side: GitDiffSide, modifiers: FileSelectionModifiers) => void;
+  onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind, paths?: string[]) => void;
+}): ReactNode {
+  return <>
+    {folder.folders.map((child) => {
+      const collapsed = collapsedFolders.has(child.id);
+      const actionableFiles = side === "unstaged" ? child.descendantFiles.filter(canStageStatusFile) : child.descendantFiles;
+      return <Fragment key={`${side}:folder:${child.id}`}>
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <div className="file-tree-folder-row" style={{ paddingLeft: `${(level - 1) * 18 + 4}px` }}>
+              <button type="button" className="file-tree-folder-trigger" role="treeitem" aria-level={level} aria-expanded={!collapsed} data-folder-id={child.id}
+                onClick={() => onToggleFolder(child.id)} onKeyDown={handleStatusTreeKeyDown}>
+                {collapsed ? <ChevronRight /> : <ChevronDown />}<Folder /><span className="file-path">{child.name}</span>
+              </button>
+            </div>
+          </ContextMenuTrigger>
+          <ContextMenuContent className="w-56">
+            <ContextMenuLabel>{child.id}</ContextMenuLabel>
+            <ContextMenuItem disabled={disabled || actionableFiles.length === 0} onSelect={() => {
+              const first = actionableFiles[0];
+              if (first) onContextAction(first, side, "toggle-stage", actionableFiles.map((file) => file.path));
+            }}>
+              <Save />
+              {side === "unstaged" ? "Stage folder" : "Unstage folder"}
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem disabled={disabled} onSelect={() => {
+              const first = child.descendantFiles[0];
+              if (first) onContextAction(first, side, "revert", child.descendantFiles.map((file) => file.path));
+            }}>
+              <RotateCcw />
+              Revert folder changes
+            </ContextMenuItem>
+            <ContextMenuItem variant="destructive" disabled={disabled} onSelect={() => {
+              const first = child.descendantFiles[0];
+              if (first) onContextAction(first, side, "delete", child.descendantFiles.map((file) => file.path));
+            }}>
+              <Trash2 />
+              Delete folder files
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+        {!collapsed ? <div role="group">
+          <StatusFileTree folder={child} side={side} level={level + 1} collapsedFolders={collapsedFolders} selectedPathSet={selectedPathSet} disabled={disabled}
+            onToggleFolder={onToggleFolder} onSelectFile={onSelectFile} onContextAction={onContextAction} />
+        </div> : null}
+      </Fragment>;
+    })}
+    {folder.files.map((file) => <FileRow key={`${side}:${file.path}`} file={file} side={side} selected={selectedPathSet.has(file.path)} disabled={disabled}
+      treeLevel={level} onSelectFile={onSelectFile} onContextAction={onContextAction} />)}
+  </>;
+}
+
+function handleStatusTreeKeyDown(event: KeyboardEvent<HTMLButtonElement>): void {
+  const current = event.currentTarget;
+  const tree = current.closest('[role="tree"]');
+  if (!tree) return;
+  const items = [...tree.querySelectorAll<HTMLElement>('[role="treeitem"]')].filter((item) => item.offsetParent !== null);
+  const index = items.indexOf(current);
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    items[index + (event.key === "ArrowDown" ? 1 : -1)]?.focus();
+  } else if (event.key === "ArrowLeft" && current.getAttribute("aria-expanded") === "true") {
+    event.preventDefault(); current.click();
+  } else if (event.key === "ArrowRight" && current.getAttribute("aria-expanded") === "false") {
+    event.preventDefault(); current.click();
+  }
+}
+
 function FileRow({
   file,
   side,
   selected,
   disabled,
   onSelectFile,
-  onContextAction
+  onContextAction,
+  treeLevel
 }: {
   file: GitStatusFile;
   side: GitDiffSide;
   selected: boolean;
   disabled: boolean;
   onSelectFile: (file: GitStatusFile, side: GitDiffSide, modifiers: FileSelectionModifiers) => void;
-  onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind) => void;
+  onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind, paths?: string[]) => void;
+  treeLevel?: number;
 }): ReactNode {
   const actionLabel = side === "unstaged" ? "Stage" : "Unstage";
   const deleted = isDeletedOnSide(file, side);
@@ -6610,14 +6762,17 @@ function FileRow({
           type="button"
           className={`file-row ${selected ? "is-selected" : ""}`}
           data-path={file.path}
-          role="option"
+          role={treeLevel ? "treeitem" : "option"}
+          aria-level={treeLevel}
           aria-selected={selected}
+          style={treeLevel ? { paddingLeft: `${(treeLevel - 1) * 18 + 8}px` } : undefined}
           onClick={(event: MouseEvent<HTMLButtonElement>) => onSelectFile(file, side, {
             extendRange: event.shiftKey,
             selectAll: false,
             toggle: event.ctrlKey || event.metaKey
           })}
           onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
+            if (treeLevel && event.key.startsWith("Arrow")) handleStatusTreeKeyDown(event);
             if (event.key.toLowerCase() === "a" && (event.ctrlKey || event.metaKey)) {
               event.preventDefault();
               onSelectFile(file, side, {
@@ -6630,7 +6785,7 @@ function FileRow({
         >
           <StatusBadge file={file} side={side} />
           <span className="file-path" title={file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}>
-            {file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}
+            {treeLevel ? fileName(file.path) : file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}
           </span>
         </button>
       </ContextMenuTrigger>

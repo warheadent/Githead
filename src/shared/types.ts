@@ -755,6 +755,8 @@ export type AppColorTheme = (typeof APP_COLOR_THEMES)[number];
 
 export const APP_APPEARANCE_MODES = ["system", "light", "dark"] as const;
 export type AppAppearanceMode = (typeof APP_APPEARANCE_MODES)[number];
+export const STATUS_FILE_VIEW_MODES = ["list", "tree"] as const;
+export type StatusFileViewMode = (typeof STATUS_FILE_VIEW_MODES)[number];
 
 export const APP_ZOOM_FACTORS = [0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2] as const;
 
@@ -767,6 +769,7 @@ export interface AppSettings {
   colorTheme: AppColorTheme;
   appearanceMode: AppAppearanceMode;
   zoomFactor: number;
+  statusFileViewMode: StatusFileViewMode;
 }
 
 export interface AppSettingsSaveRequest {
@@ -774,6 +777,7 @@ export interface AppSettingsSaveRequest {
   colorTheme: AppColorTheme;
   appearanceMode: AppAppearanceMode;
   zoomFactor: number;
+  statusFileViewMode?: StatusFileViewMode;
 }
 
 export interface GenerateCommitMessageRequest {

@@ -1419,6 +1419,36 @@ textarea,
   font-weight: 700;
 }
 
+.file-tree-folder-row {
+  display: block;
+  min-height: 34px;
+  align-items: center;
+  border-radius: 4px;
+}
+
+.file-tree-folder-row:hover {
+  background: var(--accent);
+}
+
+.file-tree-folder-trigger {
+  display: grid;
+  grid-template-columns: 16px 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  min-height: 32px;
+  border: 0;
+  padding: 4px;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+
+.file-tree-folder-trigger svg {
+  width: 15px;
+  height: 15px;
+}
+
 .status-chip-added {
   --status-chip-bg: var(--primary);
 }

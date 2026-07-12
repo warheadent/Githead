@@ -7,6 +7,7 @@ import {
   DEFAULT_APPEARANCE_MODE,
   DEFAULT_AUTO_FETCH_INTERVAL_MINUTES,
   DEFAULT_COLOR_THEME,
+  DEFAULT_STATUS_FILE_VIEW_MODE,
   DEFAULT_ZOOM_FACTOR
 } from "./appSettingsService";
 
@@ -32,7 +33,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: DEFAULT_AUTO_FETCH_INTERVAL_MINUTES,
         colorTheme: DEFAULT_COLOR_THEME,
         appearanceMode: DEFAULT_APPEARANCE_MODE,
-        zoomFactor: DEFAULT_ZOOM_FACTOR
+        zoomFactor: DEFAULT_ZOOM_FACTOR,
+        statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE
       });
     });
   });
@@ -45,19 +47,22 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 15,
         colorTheme: "tidepool",
         appearanceMode: "dark",
-        zoomFactor: 1.25
+        zoomFactor: 1.25,
+        statusFileViewMode: "list"
       })).resolves.toEqual({
         autoFetchIntervalMinutes: 15,
         colorTheme: "tidepool",
         appearanceMode: "dark",
-        zoomFactor: 1.25
+        zoomFactor: 1.25,
+        statusFileViewMode: "list"
       });
 
       await expect(new AppSettingsService(dir).getSettings()).resolves.toEqual({
         autoFetchIntervalMinutes: 15,
         colorTheme: "tidepool",
         appearanceMode: "dark",
-        zoomFactor: 1.25
+        zoomFactor: 1.25,
+        statusFileViewMode: "list"
       });
     });
   });
@@ -70,12 +75,14 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 0,
         colorTheme: "githead",
         appearanceMode: "system",
-        zoomFactor: 1
+        zoomFactor: 1,
+        statusFileViewMode: "list"
       })).resolves.toEqual({
         autoFetchIntervalMinutes: 0,
         colorTheme: "githead",
         appearanceMode: "system",
-        zoomFactor: 1
+        zoomFactor: 1,
+        statusFileViewMode: "list"
       });
     });
   });
@@ -116,7 +123,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: DEFAULT_AUTO_FETCH_INTERVAL_MINUTES,
         colorTheme: DEFAULT_COLOR_THEME,
         appearanceMode: DEFAULT_APPEARANCE_MODE,
-        zoomFactor: DEFAULT_ZOOM_FACTOR
+        zoomFactor: DEFAULT_ZOOM_FACTOR,
+        statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE
       });
 
       await fs.writeFile(settingsPath, JSON.stringify({
@@ -126,7 +134,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: DEFAULT_AUTO_FETCH_INTERVAL_MINUTES,
         colorTheme: DEFAULT_COLOR_THEME,
         appearanceMode: DEFAULT_APPEARANCE_MODE,
-        zoomFactor: DEFAULT_ZOOM_FACTOR
+        zoomFactor: DEFAULT_ZOOM_FACTOR,
+        statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE
       });
 
       await fs.writeFile(settingsPath, JSON.stringify({
@@ -136,7 +145,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: DEFAULT_AUTO_FETCH_INTERVAL_MINUTES,
         colorTheme: DEFAULT_COLOR_THEME,
         appearanceMode: DEFAULT_APPEARANCE_MODE,
-        zoomFactor: DEFAULT_ZOOM_FACTOR
+        zoomFactor: DEFAULT_ZOOM_FACTOR,
+        statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE
       });
     });
   });
@@ -152,7 +162,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 20,
         colorTheme: DEFAULT_COLOR_THEME,
         appearanceMode: DEFAULT_APPEARANCE_MODE,
-        zoomFactor: DEFAULT_ZOOM_FACTOR
+        zoomFactor: DEFAULT_ZOOM_FACTOR,
+        statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE
       });
     });
   });
@@ -183,7 +194,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 10,
         colorTheme: "orchid",
         appearanceMode: DEFAULT_APPEARANCE_MODE,
-        zoomFactor: DEFAULT_ZOOM_FACTOR
+        zoomFactor: DEFAULT_ZOOM_FACTOR,
+        statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE
       });
       await expect(service.saveSettings({
         autoFetchIntervalMinutes: 10,

@@ -1,18 +1,20 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { APP_APPEARANCE_MODES, APP_COLOR_THEMES, isAppZoomFactor, type AppAppearanceMode, type AppColorTheme, type AppSettings, type AppSettingsSaveRequest } from "../shared/types";
+import { APP_APPEARANCE_MODES, APP_COLOR_THEMES, STATUS_FILE_VIEW_MODES, isAppZoomFactor, type AppAppearanceMode, type AppColorTheme, type AppSettings, type AppSettingsSaveRequest, type StatusFileViewMode } from "../shared/types";
 
 interface StoredAppSettings {
   autoFetchIntervalMinutes?: unknown;
   colorTheme?: unknown;
   appearanceMode?: unknown;
   zoomFactor?: unknown;
+  statusFileViewMode?: unknown;
 }
 
 export const DEFAULT_AUTO_FETCH_INTERVAL_MINUTES = 10;
 export const DEFAULT_COLOR_THEME: AppColorTheme = "githead";
 export const DEFAULT_APPEARANCE_MODE: AppAppearanceMode = "system";
 export const DEFAULT_ZOOM_FACTOR = 1;
+export const DEFAULT_STATUS_FILE_VIEW_MODE: StatusFileViewMode = "list";
 export const MIN_AUTO_FETCH_INTERVAL_MINUTES = 0;
 export const MAX_AUTO_FETCH_INTERVAL_MINUTES = 1440;
 
@@ -29,7 +31,8 @@ export class AppSettingsService {
       autoFetchIntervalMinutes: parseStoredInterval(stored.autoFetchIntervalMinutes),
       colorTheme: parseStoredColorTheme(stored.colorTheme),
       appearanceMode: parseStoredAppearanceMode(stored.appearanceMode),
-      zoomFactor: parseStoredZoomFactor(stored.zoomFactor)
+      zoomFactor: parseStoredZoomFactor(stored.zoomFactor),
+      statusFileViewMode: parseStoredStatusFileViewMode(stored.statusFileViewMode)
     };
   }
 
@@ -38,6 +41,7 @@ export class AppSettingsService {
     const colorTheme = normalizeColorThemeForSave(request.colorTheme);
     const appearanceMode = normalizeAppearanceModeForSave(request.appearanceMode);
     const zoomFactor = normalizeZoomFactorForSave(request.zoomFactor);
+    const statusFileViewMode = normalizeStatusFileViewModeForSave(request.statusFileViewMode);
 
     await fs.mkdir(path.dirname(this.settingsPath), {
       recursive: true
@@ -46,7 +50,8 @@ export class AppSettingsService {
       autoFetchIntervalMinutes,
       colorTheme,
       appearanceMode,
-      zoomFactor
+      zoomFactor,
+      statusFileViewMode
     } satisfies AppSettings, null, 2)}\n`, "utf8");
 
     return this.getSettings();
@@ -61,6 +66,16 @@ export class AppSettingsService {
       return {};
     }
   }
+}
+
+function parseStoredStatusFileViewMode(value: unknown): StatusFileViewMode {
+  return STATUS_FILE_VIEW_MODES.includes(value as StatusFileViewMode) ? value as StatusFileViewMode : DEFAULT_STATUS_FILE_VIEW_MODE;
+}
+
+function normalizeStatusFileViewModeForSave(value: StatusFileViewMode | undefined): StatusFileViewMode {
+  if (value === undefined) return DEFAULT_STATUS_FILE_VIEW_MODE;
+  if (!STATUS_FILE_VIEW_MODES.includes(value)) throw new Error("Unknown status file view mode.");
+  return value;
 }
 
 function parseStoredColorTheme(value: unknown): AppColorTheme {

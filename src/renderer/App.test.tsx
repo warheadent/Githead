@@ -799,6 +799,46 @@ describe("App", () => {
     }));
   });
 
+  it("renders a shared tree view and stages all eligible files in a folder", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getAppSettings).mockResolvedValue({
+      autoFetchIntervalMinutes: 10, colorTheme: "githead", appearanceMode: "system", zoomFactor: 1, statusFileViewMode: "tree"
+    });
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [
+      createStatusFile("src/App.tsx", { isUnstaged: true, worktreeStatus: "M" }),
+      createStatusFile("src/lib/utils.ts", { isUnstaged: true, worktreeStatus: "M" }),
+      createStatusFile("README.md", { isStaged: true, indexStatus: "M" })
+    ] }));
+
+    render(<App />);
+
+    const unstagedTree = await screen.findByRole("tree", { name: "Unstaged files" });
+    const srcFolder = within(unstagedTree).getByRole("treeitem", { name: /^src$/ });
+    expect(srcFolder.getAttribute("aria-expanded")).toBe("true");
+    expect(within(unstagedTree).queryByRole("button", { name: "Stage folder src" })).toBeNull();
+    await user.pointer({ target: srcFolder, keys: "[MouseRight]" });
+    await user.click(screen.getByRole("menuitem", { name: "Stage folder" }));
+    await waitFor(() => expect(githead.stageFiles).toHaveBeenCalledWith({ repoPath, paths: ["src/App.tsx", "src/lib/utils.ts"] }));
+    await user.click(srcFolder);
+    expect(srcFolder.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByRole("tree", { name: "Staged files" })).toBeTruthy();
+  });
+
+  it("keeps repository-wide submodule actions out of the staged file header", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ submodules: [{
+      path: "vendor/lib", url: "https://example.com/lib.git", recordedCommit: "abc", checkedOutCommit: "abc", initialized: true, status: "clean"
+    }] }));
+
+    render(<App />);
+
+    const stagedSection = await screen.findByRole("region", { name: "Staged files" });
+    expect(within(stagedSection).queryByRole("button", { name: "Submodules" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Submodules" }));
+    await user.click(screen.getByRole("menuitem", { name: "Sync submodule URLs" }));
+    await waitFor(() => expect(githead.syncSubmodules).toHaveBeenCalledWith({ repoPath }));
+  });
+
   it("removes an existing tag from the selected commit", async () => {
     const user = userEvent.setup();
     const commit = createCommit({
@@ -3544,7 +3584,8 @@ describe("App", () => {
       autoFetchIntervalMinutes: 0,
       colorTheme: "githead",
       appearanceMode: "system",
-      zoomFactor: 1
+      zoomFactor: 1,
+      statusFileViewMode: "list"
     });
 
     render(<App />);
@@ -4854,7 +4895,8 @@ describe("App", () => {
       autoFetchIntervalMinutes: 10,
       colorTheme: "githead",
       appearanceMode: "system",
-      zoomFactor: 1
+      zoomFactor: 1,
+      statusFileViewMode: "list"
     });
   });
 
@@ -5066,7 +5108,8 @@ describe("App", () => {
         autoFetchIntervalMinutes: 15,
         colorTheme: "githead",
         appearanceMode: "system",
-        zoomFactor: 1
+        zoomFactor: 1,
+        statusFileViewMode: "list"
       });
     });
   });
@@ -5103,7 +5146,8 @@ describe("App", () => {
       autoFetchIntervalMinutes: 10,
       colorTheme: "ember",
       appearanceMode: "light",
-      zoomFactor: 1
+      zoomFactor: 1,
+      statusFileViewMode: "list"
     }));
   });
 
@@ -5237,7 +5281,8 @@ function createGitheadMock(): GitheadApi {
     autoFetchIntervalMinutes: 10,
     colorTheme: "githead",
     appearanceMode: "system",
-    zoomFactor: 1
+    zoomFactor: 1,
+    statusFileViewMode: "list"
   };
   const gitIdentity: GitIdentitySettings = {
     scope: "repository",
