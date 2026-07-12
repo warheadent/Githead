@@ -174,7 +174,7 @@ import {
 } from "./activityLog";
 import { canPush, getAheadBehindCounts, getPrimaryCommitAction, getPullableCommitCount, getPushableCommitCount, hasStagedChanges, hasUnpushedCommits } from "./commitActions";
 import { buildCommitGraphLayout, type CommitGraphLayout } from "./commitGraph";
-import { groupDiffRowsByHunk, parseUnifiedDiff, type DiffRow, type DiffRowKind } from "./diffParser";
+import { groupDiffRowsByHunk, isTechnicalFileHeader, parseUnifiedDiff, type DiffRow, type DiffRowKind } from "./diffParser";
 import { getCommitFileStatusVisuals, getFileStatusVisuals, type FileStatusVisuals } from "./fileStatusVisuals";
 import { highlightDiffCode } from "./syntaxHighlighter";
 import { buildStatusFileTree, fileName, type StatusFileTreeFolder } from "./statusFileTree";
@@ -6994,7 +6994,7 @@ function DiffRows({
     const groupKey = `${groupIndex}:${group.kind}:${group.rows[0]?.text ?? ""}`;
     const visibleRows = group.kind === "hunk"
       ? group.rows.filter((row) => row.kind !== "hunk")
-      : group.rows;
+      : group.rows.filter((row) => !isTechnicalFileHeader(row));
     const rowViews = visibleRows.map((row, rowIndex) => (
       <DiffRowView key={`${rowIndex}:${row.kind}:${row.oldLine ?? ""}:${row.newLine ?? ""}`} row={row} filePath={filePath} />
     ));

@@ -140,6 +140,14 @@ export function groupDiffRowsByHunk(rows: DiffRow[]): DiffRowGroup[] {
   return groups;
 }
 
+export function isTechnicalFileHeader(row: DiffRow): boolean {
+  if (row.kind === "file") {
+    return true;
+  }
+
+  return row.kind === "meta" && /^(?:index |new file mode |deleted file mode |old mode |new mode |similarity index |dissimilarity index |rename from |rename to |copy from |copy to |--- |\+\+\+ )/.test(row.text);
+}
+
 function splitDiffLines(text: string): string[] {
   const lines = text.split(/\r?\n/);
 

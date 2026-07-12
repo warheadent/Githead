@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { groupDiffRowsByHunk, parseUnifiedDiff } from "./diffParser";
+import { groupDiffRowsByHunk, isTechnicalFileHeader, parseUnifiedDiff } from "./diffParser";
 
 describe("parseUnifiedDiff", () => {
   it("classifies file headers and metadata", () => {
@@ -254,5 +254,22 @@ describe("groupDiffRowsByHunk", () => {
       "\\ No newline at end of file",
       ""
     ].join("\n"));
+  });
+});
+
+describe("isTechnicalFileHeader", () => {
+  it("hides patch bookkeeping while preserving useful non-hunk messages", () => {
+    const rows = parseUnifiedDiff([
+      "diff --git a/image.png b/image.png",
+      "new file mode 100644",
+      "index 0000000..1234567",
+      "--- /dev/null",
+      "+++ b/image.png",
+      "Binary files /dev/null and b/image.png differ"
+    ].join("\n"));
+
+    expect(rows.filter((row) => !isTechnicalFileHeader(row)).map((row) => row.text)).toEqual([
+      "Binary files /dev/null and b/image.png differ"
+    ]);
   });
 });
