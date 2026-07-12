@@ -2406,7 +2406,8 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(githead.getGitHubPullRequests).toHaveBeenCalledWith({
-        repoPath
+        repoPath,
+        requestId: expect.any(String)
       });
     });
     expect(await screen.findByText("#24")).toBeTruthy();

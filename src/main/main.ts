@@ -60,6 +60,7 @@ import { CommitMessageService } from "./commitMessageService";
 import { deleteFiles, getStats, resolveRepoFilePath, showRepositoryInExplorer } from "./fileOperationService";
 import { GitIdentityService } from "./gitIdentityService";
 import { GitService } from "./gitService";
+import { DefaultGitHubClient, type GitHubClient } from "./githubClient";
 import { GitHubService } from "./githubService";
 import { GitHubRequestRegistry } from "./githubRequestRegistry";
 import { LoreService } from "./loreService";
@@ -93,6 +94,7 @@ let gitIdentityService: GitIdentityService | null = null;
 let commitMessageService: CommitMessageService | null = null;
 let prDescriptionService: PrDescriptionService | null = null;
 let githubService: GitHubService | null = null;
+let githubClient: GitHubClient | null = null;
 const githubRequests = new GitHubRequestRegistry();
 const githubRequestOwners = new Set<number>();
 let repoRecentsService: RepoRecentsService | null = null;
@@ -1004,8 +1006,13 @@ function getPrDescriptionService(): PrDescriptionService {
 }
 
 function getGitHubService(): GitHubService {
-  githubService ??= new GitHubService(gitService, fetch, processRunner);
+  githubService ??= new GitHubService(gitService, getGitHubClient());
   return githubService;
+}
+
+function getGitHubClient(): GitHubClient {
+  githubClient ??= new DefaultGitHubClient(fetch, processRunner);
+  return githubClient;
 }
 
 function getRepoRecentsService(): RepoRecentsService {

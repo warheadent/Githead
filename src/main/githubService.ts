@@ -10,15 +10,12 @@ import type {
   GitHubRepositoryRequest,
   GitHubWorkflowRun
 } from "../shared/types";
-import type { ProcessRunner } from "./processRunner";
+import type { GitHubClient } from "./githubClient";
 
-const GITHUB_API_BASE_URL = "https://api.github.com";
-const GITHUB_API_VERSION = "2022-11-28";
 const WORKFLOW_RUN_LIMIT = 30;
 const ISSUE_LIMIT = 50;
 const PULL_REQUEST_LIMIT = 50;
-
-type Fetch = typeof fetch;
+const OBSERVED_COUNT_MAX_AGE_MS = 30_000;
 
 interface GitHubRepositoryProvider {
   getGitHubRepository(repoPath: string): Promise<GitHubRepository | null>;
@@ -29,11 +26,6 @@ interface GitHubApiErrorResponse {
   errors?: Array<string | {
     message?: string;
   }>;
-}
-
-interface GitHubRequestOptions {
-  method?: "GET" | "POST";
-  body?: unknown;
 }
 
 interface GitHubApiWorkflowRunsResponse extends GitHubApiErrorResponse {
@@ -105,10 +97,12 @@ interface GitHubApiPullRequest {
 }
 
 export class GitHubService {
+  private readonly observedOpenCounts = new Map<string, Partial<Record<GitHubOpenKind, ObservedOpenCount>>>();
+
   constructor(
     private readonly repositoryProvider: GitHubRepositoryProvider,
-    private readonly fetchImpl: Fetch = fetch,
-    private readonly runner?: ProcessRunner
+    private readonly client: GitHubClient,
+    private readonly now: () => number = Date.now
   ) {}
 
   async getWorkflowRuns(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubWorkflowRun[]>> {
@@ -135,9 +129,10 @@ export class GitHubService {
 
   private async getWorkflowRunsData(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubWorkflowRun[]> {
     const repository = await this.getRepository(request.repoPath);
-    const response = await this.fetchJson<GitHubApiWorkflowRunsResponse>(
+    const { payload: response } = await this.client.requestJson<GitHubApiWorkflowRunsResponse>(
       repository,
-      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/actions/runs?per_page=${WORKFLOW_RUN_LIMIT}`, {}, signal
+      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/actions/runs?per_page=${WORKFLOW_RUN_LIMIT}`,
+      { cache: { mode: "conditional" }, ...(signal ? { signal } : {}) }
     );
 
     return (response.workflow_runs ?? []).flatMap((run) => {
@@ -167,25 +162,30 @@ export class GitHubService {
 
   private async getOpenCountsData(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubOpenCounts> {
     const repository = await this.getRepository(request.repoPath);
-    const [issues, pullRequests] = await Promise.all([
-      this.getSearchCount(repository, `repo:${repository.fullName} is:open is:issue`, signal),
-      this.getSearchCount(repository, `repo:${repository.fullName} is:open is:pr`, signal)
-    ]);
+    const observed = this.observedOpenCounts.get(normalizeRepository(repository));
+    const issues = this.isFresh(observed?.issues)
+      ? observed.issues.value
+      : this.getSearchCount(repository, `repo:${repository.fullName} is:open is:issue`, signal);
+    const pullRequests = this.isFresh(observed?.pullRequests)
+      ? observed.pullRequests.value
+      : this.getSearchCount(repository, `repo:${repository.fullName} is:open is:pr`, signal);
+    const [resolvedIssues, resolvedPullRequests] = await Promise.all([issues, pullRequests]);
 
     return {
-      issues,
-      pullRequests
+      issues: resolvedIssues,
+      pullRequests: resolvedPullRequests
     };
   }
 
   private async getIssuesData(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubIssue[]> {
     const repository = await this.getRepository(request.repoPath);
-    const response = await this.fetchJson<GitHubApiIssuesResponse>(
+    const { payload: response } = await this.client.requestJson<GitHubApiIssuesResponse>(
       repository,
-      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/issues?state=open&per_page=${ISSUE_LIMIT}`, {}, signal
+      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/issues?state=open&per_page=${ISSUE_LIMIT}`,
+      { cache: { mode: "conditional" }, ...(signal ? { signal } : {}) }
     );
 
-    return response.flatMap((issue) => {
+    const issues = response.flatMap((issue) => {
       if (issue.pull_request || !Number.isFinite(issue.number)) {
         return [];
       }
@@ -203,16 +203,19 @@ export class GitHubService {
         }
       ];
     });
+    if (response.length < ISSUE_LIMIT) this.observeCount(repository, "issues", issues.length);
+    return issues;
   }
 
   private async getPullRequestsData(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubPullRequest[]> {
     const repository = await this.getRepository(request.repoPath);
-    const response = await this.fetchJson<GitHubApiPullRequestsResponse>(
+    const { payload: response } = await this.client.requestJson<GitHubApiPullRequestsResponse>(
       repository,
-      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/pulls?state=open&per_page=${PULL_REQUEST_LIMIT}`, {}, signal
+      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/pulls?state=open&per_page=${PULL_REQUEST_LIMIT}`,
+      { cache: { mode: "conditional" }, ...(signal ? { signal } : {}) }
     );
 
-    return response.flatMap((pullRequest) => {
+    const pullRequests = response.flatMap((pullRequest) => {
       if (!Number.isFinite(pullRequest.number)) {
         return [];
       }
@@ -233,11 +236,13 @@ export class GitHubService {
         }
       ];
     });
+    if (response.length < PULL_REQUEST_LIMIT) this.observeCount(repository, "pullRequests", pullRequests.length);
+    return pullRequests;
   }
 
   private async createPullRequestData(request: CreatePullRequestRequest): Promise<CreatePullRequestResult> {
     const repository = await this.getRepository(request.repoPath);
-    const response = await this.fetchJson<GitHubApiPullRequest>(
+    const { payload: response } = await this.client.requestJson<GitHubApiPullRequest>(
       repository,
       `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/pulls`,
       {
@@ -256,6 +261,8 @@ export class GitHubService {
       throw new Error("GitHub returned an unexpected response while creating the pull request.");
     }
 
+    this.client.invalidateRepository(repository);
+    this.clearObservedCount(repository, "pullRequests");
     return {
       number: Number(response.number),
       url: normalizeText(response.html_url, repository.webUrl),
@@ -274,158 +281,44 @@ export class GitHubService {
   }
 
   private async getSearchCount(repository: GitHubRepository, query: string, signal?: AbortSignal): Promise<number> {
-    const response = await this.fetchJson<GitHubApiSearchResponse>(
+    const { payload: response } = await this.client.requestJson<GitHubApiSearchResponse>(
       repository,
-      `/search/issues?q=${encodeURIComponent(query)}&per_page=1`, {}, signal
+      `/search/issues?q=${encodeURIComponent(query)}&per_page=1`,
+      { cache: { mode: "conditional", maxAgeMs: OBSERVED_COUNT_MAX_AGE_MS }, ...(signal ? { signal } : {}) }
     );
 
     return Number.isFinite(response.total_count) ? Number(response.total_count) : 0;
   }
 
-  private async fetchJson<T>(
-    repository: GitHubRepository,
-    path: string,
-    options: GitHubRequestOptions = {},
-    signal?: AbortSignal
-  ): Promise<T> {
-    const ghResult = await this.fetchJsonWithGitHubCli<T>(path, options, signal);
-    if (ghResult.kind === "success") {
-      return ghResult.payload;
-    }
-    if (signal?.aborted) {
-      throw new Error("GitHub request was cancelled.");
-    }
-    if (options.method === "POST" && ghResult.kind === "failed") {
-      throw new Error(`${ghResult.error} The pull request outcome is unknown; check GitHub before retrying.`);
-    }
-
-    const body = options.body === undefined ? undefined : JSON.stringify(options.body);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(new Error("GitHub REST request timed out.")), options.method === "POST" ? 20_000 : 10_000);
-    const abort = () => controller.abort(signal?.reason);
-    signal?.addEventListener("abort", abort, { once: true });
-    let response: Response;
-    try { response = await this.fetchImpl(`${GITHUB_API_BASE_URL}${path}`, {
-      method: options.method ?? "GET",
-      headers: {
-        ...createGitHubHeaders(),
-        ...(body === undefined ? {} : { "Content-Type": "application/json" })
-      },
-      ...(body === undefined ? {} : { body })
-      , signal: controller.signal
-    }); } finally { clearTimeout(timeout); signal?.removeEventListener("abort", abort); }
-    const payload = await parseJson<T & GitHubApiErrorResponse>(response);
-
-    if (!response.ok) {
-      throw new Error(createGitHubRequestError(repository, response.status, payload, ghResult.error));
-    }
-
-    return payload as T;
+  private observeCount(repository: GitHubRepository, kind: GitHubOpenKind, value: number): void {
+    const key = normalizeRepository(repository);
+    const counts = this.observedOpenCounts.get(key) ?? {};
+    counts[kind] = { value, observedAt: this.now() };
+    this.observedOpenCounts.set(key, counts);
   }
 
-  private async fetchJsonWithGitHubCli<T>(path: string, options: GitHubRequestOptions = {}, signal?: AbortSignal): Promise<
-    | { kind: "success"; payload: T }
-    | { kind: "unavailable"; error: string }
-    | { kind: "failed"; error: string }
-  > {
-    if (!this.runner) {
-      return {
-        kind: "unavailable",
-        error: ""
-      };
-    }
+  private clearObservedCount(repository: GitHubRepository, kind: GitHubOpenKind): void {
+    const key = normalizeRepository(repository);
+    const counts = this.observedOpenCounts.get(key);
+    if (!counts) return;
+    delete counts[kind];
+    if (!counts.issues && !counts.pullRequests) this.observedOpenCounts.delete(key);
+  }
 
-    const body = options.body === undefined ? undefined : JSON.stringify(options.body);
-    const result = await this.runner.run("gh", [
-      "api",
-      "--method",
-      options.method ?? "GET",
-      path,
-      "--header",
-      "Accept: application/vnd.github+json",
-      "--header",
-      `X-GitHub-Api-Version: ${GITHUB_API_VERSION}`,
-      ...(body === undefined ? [] : ["--input", "-"])
-    ], { ...(body === undefined ? {} : { stdin: body }), timeoutMs: options.method === "POST" ? 20_000 : 10_000, ...(signal ? { signal } : {}) });
-    const error = `${result.stderr}${result.error ?? ""}`.trim();
-
-    if (result.exitCode !== 0) {
-      return {
-        kind: result.terminationReason === "spawnFailed" ? "unavailable" : "failed",
-        error: error || result.stdout.trim() || "GitHub CLI request failed."
-      };
-    }
-
-    try {
-      return {
-        kind: "success",
-        payload: JSON.parse(result.stdout) as T
-      };
-    } catch {
-      return {
-        kind: "failed",
-        error: "GitHub CLI returned invalid JSON."
-      };
-    }
+  private isFresh(observed: ObservedOpenCount | undefined): observed is ObservedOpenCount {
+    return observed !== undefined && this.now() - observed.observedAt <= OBSERVED_COUNT_MAX_AGE_MS;
   }
 }
 
-async function parseJson<T>(response: Response): Promise<T> {
-  try {
-    return await response.json() as T;
-  } catch {
-    return {} as T;
-  }
-}
+type GitHubOpenKind = "issues" | "pullRequests";
+interface ObservedOpenCount { value: number; observedAt: number }
 
 function encodePath(value: string): string {
   return encodeURIComponent(value);
 }
 
-function createGitHubHeaders(): Record<string, string> {
-  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
-
-  return {
-    "Accept": "application/vnd.github+json",
-    "User-Agent": "Githead",
-    "X-GitHub-Api-Version": GITHUB_API_VERSION,
-    ...(token ? { "Authorization": `Bearer ${token}` } : {})
-  };
-}
-
-function createGitHubRequestError(
-  repository: GitHubRepository,
-  status: number,
-  payload: GitHubApiErrorResponse,
-  cliError: string
-): string {
-  if (status === 404) {
-    return [
-      `GitHub could not find ${repository.fullName}.`,
-      "If this repository is private, authenticate GitHub CLI with gh auth login or set GITHUB_TOKEN, then refresh."
-    ].join(" ");
-  }
-
-  if (status === 401 || status === 403) {
-    return [
-      payload.message?.trim() || `GitHub rejected the request for ${repository.fullName} with status ${status}.`,
-      "Authenticate GitHub CLI with gh auth login or set GITHUB_TOKEN, then try again."
-    ].join(" ");
-  }
-
-  const details = getErrorDetails(payload);
-  const baseMessage = [payload.message?.trim(), details]
-    .filter((part): part is string => Boolean(part))
-    .join(" ")
-    || `GitHub request for ${repository.fullName} failed with status ${status}.`;
-  return cliError ? `${baseMessage} GitHub CLI fallback also failed: ${cliError}` : baseMessage;
-}
-
-function getErrorDetails(payload: GitHubApiErrorResponse): string {
-  return (payload.errors ?? [])
-    .map((error) => (typeof error === "string" ? error : error.message ?? "").trim())
-    .filter((message) => message.length > 0)
-    .join(" ");
+function normalizeRepository(repository: GitHubRepository): string {
+  return repository.fullName.trim().toLowerCase();
 }
 
 function normalizeText(value: string | null | undefined, fallback: string): string {

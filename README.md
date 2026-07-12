@@ -144,7 +144,7 @@ Direct API providers require an API key stored by the app. CLI providers use the
 
 ### GitHub access
 
-The Workflow Runs, Pull Requests, and Issues tabs query the public GitHub REST API for the repository behind `origin`. Public repositories work without any setup. For private repositories, authenticate with the GitHub CLI (`gh auth login`) or set a `GITHUB_TOKEN` / `GH_TOKEN` environment variable, then refresh.
+The Workflow Runs, Pull Requests, and Issues tabs query the public GitHub REST API for the repository behind `origin`. Public repositories work without any setup. For private repositories, authenticate with the GitHub CLI (`gh auth login`) or set a `GITHUB_TOKEN` / `GH_TOKEN` environment variable, then refresh. Githead discovers an available GitHub CLI credential once per app session and uses it for direct API requests.
 
 ### Remote management
 
@@ -154,7 +154,7 @@ Open **Manage Remotes** from the Remotes row in the repository sidebar. Githead 
 
 - Githead runs Git commands locally against repositories selected by the user.
 - Repository paths, branch names, remotes, diffs, commit messages, and command output can contain sensitive information. Review logs before sharing them publicly.
-- GitHub insight calls the GitHub REST API for the repository behind `origin`. If the GitHub CLI is authenticated or `GITHUB_TOKEN` / `GH_TOKEN` is set, Githead may use that authentication for private repositories or higher rate limits.
+- GitHub insight calls the GitHub REST API for the repository behind `origin`. If the GitHub CLI is authenticated or `GITHUB_TOKEN` / `GH_TOKEN` is set, Githead may use that authentication for private repositories or higher rate limits. A discovered GitHub CLI credential is held only in main-process memory for the app session; Githead does not persist it or expose it to the renderer.
 - AI commit message generation is optional. When used, Githead sends the staged diff to the selected provider or selected CLI-backed provider and receives a suggested commit message.
 - OpenRouter, OpenAI, and Anthropic API keys are stored locally by the app and encrypted when the operating system provides encryption support. Codex CLI and Claude Code use their own local authentication.
 
