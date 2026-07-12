@@ -4,6 +4,11 @@ command = "vp run package:win:dir"
 shell = "powershell"
 
 [[actions]]
+name = "Package and Launch Windows (unpacked)"
+command = "vp run package:win:dir; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; Start-Process -FilePath '.\\release\\win-unpacked\\Githead.exe'"
+shell = "powershell"
+
+[[actions]]
 name = "Typecheck"
 command = "vp run typecheck"
 shell = "powershell"
