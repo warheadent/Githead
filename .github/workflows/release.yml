@@ -68,6 +68,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Post release notes to Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          RELEASE_NOTES: ${{ steps.release_summary.outputs.body }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.ref_name }}
+        run: vp node scripts/post-discord-release.mjs
+
   linux:
     name: Linux release
     runs-on: ubuntu-latest
