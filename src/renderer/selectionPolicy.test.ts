@@ -19,5 +19,6 @@ describe("renderer text-selection policy", () => {
   it("keeps diff gutters out of copied source text", () => {
     expect(styles).toMatch(/\.diff-line-number\s*\{[^}]*user-select:\s*none;/s);
     expect(styles).toMatch(/\.diff-marker\s*\{[^}]*user-select:\s*none;/s);
+    expect(styles).toMatch(/\.image-diff-label\s*\{[^}]*-webkit-user-select:\s*none;[^}]*user-select:\s*none;/s);
   });
 });
