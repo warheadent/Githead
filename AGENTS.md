@@ -14,7 +14,9 @@ Long term maintainability is a core priority. If you add new functionality, firs
 
 ## Verification
 
-Do not use standalone Vite/browser visual verification for the renderer. The app depends on Electron preload APIs, so opening `http://127.0.0.1:5173/` or similar directly in a browser can render a blank page and misleading errors such as missing `window.githead` handlers. For visual checks, verify through the Electron shell. If Electron visual verification is not available, rely on targeted automated tests, `vp check`, `vp run typecheck`, and `vp run build`, and clearly state that visual verification was not performed.
+Do not use standalone Vite/browser visual verification for the renderer. The app depends on Electron preload APIs, so opening `http://127.0.0.1:5173/` or similar directly in a browser can render a blank page and misleading errors such as missing `window.githead` handlers.
+
+For visual checks, run `npm run dev:inspect`. This starts the Vite development server inside the Electron shell and exposes its real renderer on CDP port 9222. Connect browser automation to that existing target (for example, `agent-browser --cdp 9222 snapshot -i`) instead of opening the Vite URL. The inspected page must have `window.githead` available. If Electron visual verification is not available, rely on targeted automated tests, `vp check`, `vp run typecheck`, and `vp run build`, and clearly state that visual verification was not performed.
 
 ## Lore
 

@@ -1,8 +1,17 @@
 import { spawn } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import electronPath from "electron";
 import { createServer } from "vite-plus";
 
-const vpCommand = process.platform === "win32" ? "vp.cmd" : "vp";
+const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
+const vpEntrypoint = path.resolve(scriptDirectory, "..", "node_modules", "vite-plus", "bin", "vp");
+const remoteDebuggingArgument = process.argv.find((argument) => argument.startsWith("--remote-debugging-port="));
+const remoteDebuggingPort = remoteDebuggingArgument?.slice("--remote-debugging-port=".length).trim();
+
+if (remoteDebuggingArgument && !/^\d+$/.test(remoteDebuggingPort ?? "")) {
+  throw new Error("--remote-debugging-port must be a numeric port.");
+}
 
 function run(command, args) {
   return new Promise((resolve, reject) => {
@@ -24,7 +33,7 @@ function run(command, args) {
   });
 }
 
-await run(vpCommand, ["run", "build:main"]);
+await run(process.execPath, [vpEntrypoint, "run", "build:main"]);
 
 const server = await createServer({
   configFile: "vite.config.ts",
@@ -43,11 +52,16 @@ const electron = spawn(String(electronPath), ["."], {
   cwd: process.cwd(),
   env: {
     ...process.env,
-    VITE_DEV_SERVER_URL: devServerUrl
+    VITE_DEV_SERVER_URL: devServerUrl,
+    ...(remoteDebuggingPort ? { GITHEAD_REMOTE_DEBUGGING_PORT: remoteDebuggingPort } : {})
   },
   stdio: "inherit",
   windowsHide: false
 });
+
+if (remoteDebuggingPort) {
+  console.log(`Electron remote debugging is available on http://127.0.0.1:${remoteDebuggingPort}`);
+}
 
 const shutdown = async () => {
   electron.kill();
