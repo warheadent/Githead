@@ -7,6 +7,7 @@ import type {
   GetAiReasoningCapabilitiesRequest,
   AppSettingsSaveRequest,
   ClipboardTextRequest,
+  CancelGitHubRequest,
   CreatePullRequestRequest,
   ExternalUrlRequest,
   GeneratePrDescriptionRequest,
@@ -60,6 +61,7 @@ import { deleteFiles, getStats, resolveRepoFilePath, showRepositoryInExplorer } 
 import { GitIdentityService } from "./gitIdentityService";
 import { GitService } from "./gitService";
 import { GitHubService } from "./githubService";
+import { GitHubRequestRegistry } from "./githubRequestRegistry";
 import { LoreService } from "./loreService";
 import { NodeProcessRunner } from "./processRunner";
 import { PrDescriptionService } from "./prDescriptionService";
@@ -91,6 +93,8 @@ let gitIdentityService: GitIdentityService | null = null;
 let commitMessageService: CommitMessageService | null = null;
 let prDescriptionService: PrDescriptionService | null = null;
 let githubService: GitHubService | null = null;
+const githubRequests = new GitHubRequestRegistry();
+const githubRequestOwners = new Set<number>();
 let repoRecentsService: RepoRecentsService | null = null;
 let repoTrustService: RepoTrustService | null = null;
 let repoWatchService: RepoWatchService | null = null;
@@ -291,21 +295,31 @@ ipcMain.handle(IPC_CHANNELS.addSafeDirectory, async (_event, request: GitSafeDir
   return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).addSafeDirectory(request), request.repoPath);
 });
 
-ipcMain.handle(IPC_CHANNELS.getGitHubWorkflowRuns, async (_event, request: GitHubRepositoryRequest) => {
-  return getGitHubService().getWorkflowRuns(request);
-});
+function handleGitHubRead<T>(event: Electron.IpcMainInvokeEvent, request: GitHubRepositoryRequest, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const ownerId = event.sender.id;
+  const requestId = request.requestId ?? crypto.randomUUID();
+  const signal = githubRequests.register(ownerId, requestId);
+  if (!githubRequestOwners.has(ownerId)) {
+    githubRequestOwners.add(ownerId);
+    event.sender.once("destroyed", () => {
+      githubRequests.cancelAll(ownerId);
+      githubRequestOwners.delete(ownerId);
+    });
+  }
+  return operation(signal).finally(() => githubRequests.complete(ownerId, requestId));
+}
 
-ipcMain.handle(IPC_CHANNELS.getGitHubOpenCounts, async (_event, request: GitHubRepositoryRequest) => {
-  return getGitHubService().getOpenCounts(request);
+ipcMain.handle(IPC_CHANNELS.cancelGitHubRequest, (event, request: CancelGitHubRequest) => {
+  githubRequests.cancel(event.sender.id, request.requestId);
 });
-
-ipcMain.handle(IPC_CHANNELS.getGitHubIssues, async (_event, request: GitHubRepositoryRequest) => {
-  return getGitHubService().getIssues(request);
-});
-
-ipcMain.handle(IPC_CHANNELS.getGitHubPullRequests, async (_event, request: GitHubRepositoryRequest) => {
-  return getGitHubService().getPullRequests(request);
-});
+ipcMain.handle(IPC_CHANNELS.getGitHubWorkflowRuns, (event, request: GitHubRepositoryRequest) =>
+  handleGitHubRead(event, request, (signal) => getGitHubService().getWorkflowRuns(request, signal)));
+ipcMain.handle(IPC_CHANNELS.getGitHubOpenCounts, (event, request: GitHubRepositoryRequest) =>
+  handleGitHubRead(event, request, (signal) => getGitHubService().getOpenCounts(request, signal)));
+ipcMain.handle(IPC_CHANNELS.getGitHubIssues, (event, request: GitHubRepositoryRequest) =>
+  handleGitHubRead(event, request, (signal) => getGitHubService().getIssues(request, signal)));
+ipcMain.handle(IPC_CHANNELS.getGitHubPullRequests, (event, request: GitHubRepositoryRequest) =>
+  handleGitHubRead(event, request, (signal) => getGitHubService().getPullRequests(request, signal)));
 
 ipcMain.handle(IPC_CHANNELS.createGitHubPullRequest, async (_event, request: CreatePullRequestRequest) => {
   return getGitHubService().createPullRequest(request);

@@ -914,6 +914,7 @@ export function App(): ReactNode {
     }
 
     const requestId = requestIds.current.workflowRuns + 1;
+    if (force && requestIds.current.workflowRuns > 0) void window.githead.cancelGitHubRequest({ requestId: `workflowRuns-${requestIds.current.workflowRuns}` });
     requestIds.current.workflowRuns = requestId;
     updateState({
       workflowRunsLoading: true,
@@ -922,20 +923,23 @@ export function App(): ReactNode {
 
     try {
       const workflowRuns = await window.githead.getGitHubWorkflowRuns({
-        repoPath: stateRef.current.repoPath
+        repoPath: stateRef.current.repoPath,
+        requestId: `workflowRuns-${requestId}`
       });
 
       if (requestId === requestIds.current.workflowRuns) {
+        if (!workflowRuns.ok) {
+          if (workflowRuns.error.kind !== "cancelled") updateState({ workflowRunsError: workflowRuns.error.message });
+          return;
+        }
         updateState({
-          workflowRuns,
+          workflowRuns: workflowRuns.data,
           workflowRunsLoaded: true
         });
       }
     } catch (error) {
       if (requestId === requestIds.current.workflowRuns) {
         updateState({
-          workflowRuns: [],
-          workflowRunsLoaded: false,
           workflowRunsError: error instanceof Error ? error.message : "Unable to load workflow runs."
         });
       }
@@ -964,6 +968,7 @@ export function App(): ReactNode {
     }
 
     const requestId = requestIds.current.githubOpenCounts + 1;
+    if (force && requestIds.current.githubOpenCounts > 0) void window.githead.cancelGitHubRequest({ requestId: `githubOpenCounts-${requestIds.current.githubOpenCounts}` });
     requestIds.current.githubOpenCounts = requestId;
     updateState({
       githubOpenCountsLoading: true,
@@ -972,20 +977,23 @@ export function App(): ReactNode {
 
     try {
       const githubOpenCounts = await window.githead.getGitHubOpenCounts({
-        repoPath: stateRef.current.repoPath
+        repoPath: stateRef.current.repoPath,
+        requestId: `githubOpenCounts-${requestId}`
       });
 
       if (requestId === requestIds.current.githubOpenCounts) {
+        if (!githubOpenCounts.ok) {
+          if (githubOpenCounts.error.kind !== "cancelled") updateState({ githubOpenCountsError: githubOpenCounts.error.message });
+          return;
+        }
         updateState({
-          githubOpenCounts,
+          githubOpenCounts: githubOpenCounts.data,
           githubOpenCountsLoaded: true
         });
       }
     } catch (error) {
       if (requestId === requestIds.current.githubOpenCounts) {
         updateState({
-          githubOpenCounts: null,
-          githubOpenCountsLoaded: false,
           githubOpenCountsError: error instanceof Error ? error.message : "Unable to load GitHub counts."
         });
       }
@@ -1014,6 +1022,7 @@ export function App(): ReactNode {
     }
 
     const requestId = requestIds.current.pullRequests + 1;
+    if (force && requestIds.current.pullRequests > 0) void window.githead.cancelGitHubRequest({ requestId: `pullRequests-${requestIds.current.pullRequests}` });
     requestIds.current.pullRequests = requestId;
     updateState({
       pullRequestsLoading: true,
@@ -1022,20 +1031,23 @@ export function App(): ReactNode {
 
     try {
       const pullRequests = await window.githead.getGitHubPullRequests({
-        repoPath: stateRef.current.repoPath
+        repoPath: stateRef.current.repoPath,
+        requestId: `pullRequests-${requestId}`
       });
 
       if (requestId === requestIds.current.pullRequests) {
+        if (!pullRequests.ok) {
+          if (pullRequests.error.kind !== "cancelled") updateState({ pullRequestsError: pullRequests.error.message });
+          return;
+        }
         updateState({
-          pullRequests,
+          pullRequests: pullRequests.data,
           pullRequestsLoaded: true
         });
       }
     } catch (error) {
       if (requestId === requestIds.current.pullRequests) {
         updateState({
-          pullRequests: [],
-          pullRequestsLoaded: false,
           pullRequestsError: error instanceof Error ? error.message : "Unable to load pull requests."
         });
       }
@@ -1064,6 +1076,7 @@ export function App(): ReactNode {
     }
 
     const requestId = requestIds.current.issues + 1;
+    if (force && requestIds.current.issues > 0) void window.githead.cancelGitHubRequest({ requestId: `issues-${requestIds.current.issues}` });
     requestIds.current.issues = requestId;
     updateState({
       issuesLoading: true,
@@ -1072,20 +1085,23 @@ export function App(): ReactNode {
 
     try {
       const issues = await window.githead.getGitHubIssues({
-        repoPath: stateRef.current.repoPath
+        repoPath: stateRef.current.repoPath,
+        requestId: `issues-${requestId}`
       });
 
       if (requestId === requestIds.current.issues) {
+        if (!issues.ok) {
+          if (issues.error.kind !== "cancelled") updateState({ issuesError: issues.error.message });
+          return;
+        }
         updateState({
-          issues,
+          issues: issues.data,
           issuesLoaded: true
         });
       }
     } catch (error) {
       if (requestId === requestIds.current.issues) {
         updateState({
-          issues: [],
-          issuesLoaded: false,
           issuesError: error instanceof Error ? error.message : "Unable to load issues."
         });
       }
@@ -1375,6 +1391,12 @@ export function App(): ReactNode {
       return;
     }
 
+    for (const [kind, id] of [
+      ["workflowRuns", requestIds.current.workflowRuns],
+      ["githubOpenCounts", requestIds.current.githubOpenCounts],
+      ["pullRequests", requestIds.current.pullRequests],
+      ["issues", requestIds.current.issues]
+    ] as const) if (id > 0) void window.githead.cancelGitHubRequest({ requestId: `${kind}-${id}` });
     requestIds.current.diff += 1;
     requestIds.current.history += 1;
     requestIds.current.commitDetails += 1;
@@ -3114,13 +3136,20 @@ export function App(): ReactNode {
         draft: dialog.draft
       });
 
+      if (!result.ok) {
+        setDialogError(result.error.outcomeUnknown
+          ? `${result.error.message} Check GitHub before retrying; the pull request may have been created.`
+          : result.error.message);
+        return;
+      }
+
       updateState((latest) => ({
         ...latest,
         createPrDialog: emptyCreatePrDialog,
         lastOperationResult: {
           repoPath: latest.repoPath,
           exitCode: 0,
-          stdout: `Created pull request #${result.number}: ${result.url}`,
+          stdout: `Created pull request #${result.data.number}: ${result.data.url}`,
           stderr: ""
         }
       }));

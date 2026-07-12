@@ -296,7 +296,38 @@ export interface GitConfiguredActionSaveRequest {
 
 export interface GitHubRepositoryRequest {
   repoPath: string;
+  /** Opaque renderer-generated identity. Optional only for backwards-compatible direct service callers. */
+  requestId?: string;
 }
+
+export interface CancelGitHubRequest {
+  requestId: string;
+}
+
+export type GitHubFailureKind =
+  | "cancelled" | "timeout" | "offline" | "authentication" | "authorization"
+  | "notFound" | "rateLimited" | "validation" | "transient" | "unexpected";
+
+export interface GitHubRateLimit {
+  limit: number | null;
+  remaining: number | null;
+  resetAt: string | null;
+  resource: string | null;
+}
+
+export interface GitHubFailure {
+  kind: GitHubFailureKind;
+  message: string;
+  retryable: boolean;
+  retryAfterAt: string | null;
+  outcomeUnknown: boolean;
+  source: "gh" | "rest" | "combined";
+  rateLimit: GitHubRateLimit | null;
+}
+
+export type GitHubOperationResult<T> =
+  | { ok: true; data: T; rateLimit: GitHubRateLimit | null }
+  | { ok: false; error: GitHubFailure };
 
 export interface CreatePullRequestRequest {
   repoPath: string;
@@ -810,11 +841,12 @@ export interface GitheadApi {
   getRepoTrust(request: RepoTrustRequest): Promise<RepoTrustResult>;
   addRepoTrust(request: RepoTrustRequest): Promise<RepoTrustResult>;
   addSafeDirectory(request: GitSafeDirectoryRequest): Promise<GitOperationResult>;
-  getGitHubWorkflowRuns(request: GitHubRepositoryRequest): Promise<GitHubWorkflowRun[]>;
-  getGitHubOpenCounts(request: GitHubRepositoryRequest): Promise<GitHubOpenCounts>;
-  getGitHubIssues(request: GitHubRepositoryRequest): Promise<GitHubIssue[]>;
-  getGitHubPullRequests(request: GitHubRepositoryRequest): Promise<GitHubPullRequest[]>;
-  createGitHubPullRequest(request: CreatePullRequestRequest): Promise<CreatePullRequestResult>;
+  getGitHubWorkflowRuns(request: GitHubRepositoryRequest): Promise<GitHubOperationResult<GitHubWorkflowRun[]>>;
+  getGitHubOpenCounts(request: GitHubRepositoryRequest): Promise<GitHubOperationResult<GitHubOpenCounts>>;
+  getGitHubIssues(request: GitHubRepositoryRequest): Promise<GitHubOperationResult<GitHubIssue[]>>;
+  getGitHubPullRequests(request: GitHubRepositoryRequest): Promise<GitHubOperationResult<GitHubPullRequest[]>>;
+  createGitHubPullRequest(request: CreatePullRequestRequest): Promise<GitHubOperationResult<CreatePullRequestResult>>;
+  cancelGitHubRequest(request: CancelGitHubRequest): Promise<void>;
   getCommitHistory(request: GitCommitHistoryRequest): Promise<GitCommitGraphRow[]>;
   getCommitDetails(request: GitCommitDetailsRequest): Promise<GitCommitDetails>;
   getCommitFileDiff(request: GitCommitFileDiffRequest): Promise<GitFileDiff>;

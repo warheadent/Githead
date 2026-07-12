@@ -4,6 +4,8 @@ import type {
   GitHubIssue,
   GitHubOpenCounts,
   GitHubPullRequest,
+  GitHubFailure,
+  GitHubOperationResult,
   GitHubRepository,
   GitHubRepositoryRequest,
   GitHubWorkflowRun
@@ -109,11 +111,33 @@ export class GitHubService {
     private readonly runner?: ProcessRunner
   ) {}
 
-  async getWorkflowRuns(request: GitHubRepositoryRequest): Promise<GitHubWorkflowRun[]> {
+  async getWorkflowRuns(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubWorkflowRun[]>> {
+    return this.read(() => this.getWorkflowRunsData(request, signal));
+  }
+  async getOpenCounts(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubOpenCounts>> {
+    return this.read(() => this.getOpenCountsData(request, signal));
+  }
+  async getIssues(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubIssue[]>> {
+    return this.read(() => this.getIssuesData(request, signal));
+  }
+  async getPullRequests(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubPullRequest[]>> {
+    return this.read(() => this.getPullRequestsData(request, signal));
+  }
+  async createPullRequest(request: CreatePullRequestRequest): Promise<GitHubOperationResult<CreatePullRequestResult>> {
+    try { return { ok: true, data: await this.createPullRequestData(request), rateLimit: null }; }
+    catch (error) { return { ok: false, error: classifyError(error, "combined", true) }; }
+  }
+
+  private async read<T>(operation: () => Promise<T>): Promise<GitHubOperationResult<T>> {
+    try { return { ok: true, data: await operation(), rateLimit: null }; }
+    catch (error) { return { ok: false, error: classifyError(error, "combined", false) }; }
+  }
+
+  private async getWorkflowRunsData(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubWorkflowRun[]> {
     const repository = await this.getRepository(request.repoPath);
     const response = await this.fetchJson<GitHubApiWorkflowRunsResponse>(
       repository,
-      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/actions/runs?per_page=${WORKFLOW_RUN_LIMIT}`
+      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/actions/runs?per_page=${WORKFLOW_RUN_LIMIT}`, {}, signal
     );
 
     return (response.workflow_runs ?? []).flatMap((run) => {
@@ -141,11 +165,11 @@ export class GitHubService {
     });
   }
 
-  async getOpenCounts(request: GitHubRepositoryRequest): Promise<GitHubOpenCounts> {
+  private async getOpenCountsData(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubOpenCounts> {
     const repository = await this.getRepository(request.repoPath);
     const [issues, pullRequests] = await Promise.all([
-      this.getSearchCount(repository, `repo:${repository.fullName} is:open is:issue`),
-      this.getSearchCount(repository, `repo:${repository.fullName} is:open is:pr`)
+      this.getSearchCount(repository, `repo:${repository.fullName} is:open is:issue`, signal),
+      this.getSearchCount(repository, `repo:${repository.fullName} is:open is:pr`, signal)
     ]);
 
     return {
@@ -154,11 +178,11 @@ export class GitHubService {
     };
   }
 
-  async getIssues(request: GitHubRepositoryRequest): Promise<GitHubIssue[]> {
+  private async getIssuesData(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubIssue[]> {
     const repository = await this.getRepository(request.repoPath);
     const response = await this.fetchJson<GitHubApiIssuesResponse>(
       repository,
-      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/issues?state=open&per_page=${ISSUE_LIMIT}`
+      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/issues?state=open&per_page=${ISSUE_LIMIT}`, {}, signal
     );
 
     return response.flatMap((issue) => {
@@ -181,11 +205,11 @@ export class GitHubService {
     });
   }
 
-  async getPullRequests(request: GitHubRepositoryRequest): Promise<GitHubPullRequest[]> {
+  private async getPullRequestsData(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubPullRequest[]> {
     const repository = await this.getRepository(request.repoPath);
     const response = await this.fetchJson<GitHubApiPullRequestsResponse>(
       repository,
-      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/pulls?state=open&per_page=${PULL_REQUEST_LIMIT}`
+      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/pulls?state=open&per_page=${PULL_REQUEST_LIMIT}`, {}, signal
     );
 
     return response.flatMap((pullRequest) => {
@@ -211,7 +235,7 @@ export class GitHubService {
     });
   }
 
-  async createPullRequest(request: CreatePullRequestRequest): Promise<CreatePullRequestResult> {
+  private async createPullRequestData(request: CreatePullRequestRequest): Promise<CreatePullRequestResult> {
     const repository = await this.getRepository(request.repoPath);
     const response = await this.fetchJson<GitHubApiPullRequest>(
       repository,
@@ -249,10 +273,10 @@ export class GitHubService {
     return repository;
   }
 
-  private async getSearchCount(repository: GitHubRepository, query: string): Promise<number> {
+  private async getSearchCount(repository: GitHubRepository, query: string, signal?: AbortSignal): Promise<number> {
     const response = await this.fetchJson<GitHubApiSearchResponse>(
       repository,
-      `/search/issues?q=${encodeURIComponent(query)}&per_page=1`
+      `/search/issues?q=${encodeURIComponent(query)}&per_page=1`, {}, signal
     );
 
     return Number.isFinite(response.total_count) ? Number(response.total_count) : 0;
@@ -261,22 +285,35 @@ export class GitHubService {
   private async fetchJson<T>(
     repository: GitHubRepository,
     path: string,
-    options: GitHubRequestOptions = {}
+    options: GitHubRequestOptions = {},
+    signal?: AbortSignal
   ): Promise<T> {
-    const ghResult = await this.fetchJsonWithGitHubCli<T>(path, options);
+    const ghResult = await this.fetchJsonWithGitHubCli<T>(path, options, signal);
     if (ghResult.kind === "success") {
       return ghResult.payload;
     }
+    if (signal?.aborted) {
+      throw new Error("GitHub request was cancelled.");
+    }
+    if (options.method === "POST" && ghResult.kind === "failed") {
+      throw new Error(`${ghResult.error} The pull request outcome is unknown; check GitHub before retrying.`);
+    }
 
     const body = options.body === undefined ? undefined : JSON.stringify(options.body);
-    const response = await this.fetchImpl(`${GITHUB_API_BASE_URL}${path}`, {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(new Error("GitHub REST request timed out.")), options.method === "POST" ? 20_000 : 10_000);
+    const abort = () => controller.abort(signal?.reason);
+    signal?.addEventListener("abort", abort, { once: true });
+    let response: Response;
+    try { response = await this.fetchImpl(`${GITHUB_API_BASE_URL}${path}`, {
       method: options.method ?? "GET",
       headers: {
         ...createGitHubHeaders(),
         ...(body === undefined ? {} : { "Content-Type": "application/json" })
       },
       ...(body === undefined ? {} : { body })
-    });
+      , signal: controller.signal
+    }); } finally { clearTimeout(timeout); signal?.removeEventListener("abort", abort); }
     const payload = await parseJson<T & GitHubApiErrorResponse>(response);
 
     if (!response.ok) {
@@ -286,7 +323,7 @@ export class GitHubService {
     return payload as T;
   }
 
-  private async fetchJsonWithGitHubCli<T>(path: string, options: GitHubRequestOptions = {}): Promise<
+  private async fetchJsonWithGitHubCli<T>(path: string, options: GitHubRequestOptions = {}, signal?: AbortSignal): Promise<
     | { kind: "success"; payload: T }
     | { kind: "unavailable"; error: string }
     | { kind: "failed"; error: string }
@@ -309,12 +346,12 @@ export class GitHubService {
       "--header",
       `X-GitHub-Api-Version: ${GITHUB_API_VERSION}`,
       ...(body === undefined ? [] : ["--input", "-"])
-    ], body === undefined ? undefined : { stdin: body });
+    ], { ...(body === undefined ? {} : { stdin: body }), timeoutMs: options.method === "POST" ? 20_000 : 10_000, ...(signal ? { signal } : {}) });
     const error = `${result.stderr}${result.error ?? ""}`.trim();
 
     if (result.exitCode !== 0) {
       return {
-        kind: result.exitCode === -1 ? "unavailable" : "failed",
+        kind: result.terminationReason === "spawnFailed" ? "unavailable" : "failed",
         error: error || result.stdout.trim() || "GitHub CLI request failed."
       };
     }
@@ -421,4 +458,31 @@ function sumCounts(...values: Array<number | null | undefined>): number {
   }
 
   return total;
+}
+
+function classifyError(error: unknown, source: GitHubFailure["source"], mutation: boolean): GitHubFailure {
+  const message = error instanceof Error ? error.message : "An unexpected GitHub error occurred.";
+  const lower = message.toLowerCase();
+  const cancelled = lower.includes("abort") || lower.includes("cancel");
+  const timeout = lower.includes("timed out") || lower.includes("timeout");
+  const authentication = /\b401\b|authenticate|auth login|bad credentials/.test(lower);
+  const authorization = !authentication && (/\b403\b|permission|forbidden/.test(lower));
+  const rateLimited = /rate.?limit|\b429\b/.test(lower);
+  const notFound = /\b404\b|could not find/.test(lower);
+  const validation = /\b422\b|validation/.test(lower);
+  const offline = /enotfound|econnreset|network|fetch failed|offline/.test(lower);
+  const transient = /\b(408|502|503|504)\b|temporar/.test(lower);
+  const outcomeUnknown = mutation && (cancelled || timeout || offline || transient || lower.includes("outcome is unknown"));
+  const kind: GitHubFailure["kind"] = cancelled ? "cancelled" : timeout ? "timeout" : rateLimited ? "rateLimited"
+    : authentication ? "authentication" : authorization ? "authorization" : notFound ? "notFound"
+    : validation ? "validation" : offline ? "offline" : transient ? "transient" : "unexpected";
+  return {
+    kind,
+    message,
+    retryable: !mutation && (timeout || offline || transient),
+    retryAfterAt: null,
+    outcomeUnknown,
+    source,
+    rateLimit: null
+  };
 }

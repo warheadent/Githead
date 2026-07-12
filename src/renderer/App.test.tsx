@@ -2316,17 +2316,17 @@ describe("App", () => {
 
   it("loads GitHub open counts into pull request and issue tab titles", async () => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
-    vi.mocked(githead.getGitHubOpenCounts).mockResolvedValue(createOpenCounts({
+    vi.mocked(githead.getGitHubOpenCounts).mockResolvedValue({ ok: true, data: createOpenCounts({
       issues: 17,
       pullRequests: 4
-    }));
+    }), rateLimit: null });
 
     render(<App />);
 
     await waitFor(() => {
-      expect(githead.getGitHubOpenCounts).toHaveBeenCalledWith({
+      expect(githead.getGitHubOpenCounts).toHaveBeenCalledWith(expect.objectContaining({
         repoPath
-      });
+      }));
     });
     expect(await screen.findByRole("tab", { name: /Pull Requests 4/ })).toBeTruthy();
     expect(screen.getByRole("tab", { name: /Issues 17/ })).toBeTruthy();
@@ -2337,10 +2337,10 @@ describe("App", () => {
 
   it("compacts large GitHub open counts in tab titles", async () => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
-    vi.mocked(githead.getGitHubOpenCounts).mockResolvedValue(createOpenCounts({
+    vi.mocked(githead.getGitHubOpenCounts).mockResolvedValue({ ok: true, data: createOpenCounts({
       issues: 1100,
       pullRequests: 12_000
-    }));
+    }), rateLimit: null });
 
     render(<App />);
 
@@ -2351,7 +2351,7 @@ describe("App", () => {
   it("loads workflow runs from GitHub when the Workflow Runs tab opens", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
-    vi.mocked(githead.getGitHubWorkflowRuns).mockResolvedValue([
+    vi.mocked(githead.getGitHubWorkflowRuns).mockResolvedValue({ ok: true, data: [
       createWorkflowRun({
         name: "CI",
         conclusion: "success",
@@ -2359,16 +2359,16 @@ describe("App", () => {
         event: "push",
         commitMessage: "feat: add workflow runs tab"
       })
-    ]);
+    ], rateLimit: null });
 
     render(<App />);
 
     await user.click(await screen.findByRole("tab", { name: /Workflow Runs/ }));
 
     await waitFor(() => {
-      expect(githead.getGitHubWorkflowRuns).toHaveBeenCalledWith({
+      expect(githead.getGitHubWorkflowRuns).toHaveBeenCalledWith(expect.objectContaining({
         repoPath
-      });
+      }));
     });
     expect(await screen.findByText("CI")).toBeTruthy();
     expect(screen.getByText("success")).toBeTruthy();
@@ -2386,7 +2386,7 @@ describe("App", () => {
   it("loads open pull requests from GitHub when the Pull Requests tab opens", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
-    vi.mocked(githead.getGitHubPullRequests).mockResolvedValue([
+    vi.mocked(githead.getGitHubPullRequests).mockResolvedValue({ ok: true, data: [
       createPullRequest({
         number: 24,
         title: "Add GitHub pull request tab",
@@ -2398,7 +2398,7 @@ describe("App", () => {
         comments: 3,
         url: "https://github.com/openai/githead/pull/24"
       })
-    ]);
+    ], rateLimit: null });
 
     render(<App />);
 
@@ -2486,9 +2486,9 @@ describe("App", () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(githead.getGitHubPullRequests).toHaveBeenCalledWith({
+      expect(githead.getGitHubPullRequests).toHaveBeenCalledWith(expect.objectContaining({
         repoPath
-      });
+      }));
     });
     await user.click(await screen.findByRole("button", { name: "Create PR" }));
 
@@ -2508,7 +2508,7 @@ describe("App", () => {
   it("loads open issues from GitHub when the Issues tab opens", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
-    vi.mocked(githead.getGitHubIssues).mockResolvedValue([
+    vi.mocked(githead.getGitHubIssues).mockResolvedValue({ ok: true, data: [
       createIssue({
         number: 12,
         title: "Add GitHub issue tab",
@@ -2518,16 +2518,16 @@ describe("App", () => {
         comments: 4,
         url: "https://github.com/openai/githead/issues/12"
       })
-    ]);
+    ], rateLimit: null });
 
     render(<App />);
 
     await user.click(await screen.findByRole("tab", { name: /Issues/ }));
 
     await waitFor(() => {
-      expect(githead.getGitHubIssues).toHaveBeenCalledWith({
+      expect(githead.getGitHubIssues).toHaveBeenCalledWith(expect.objectContaining({
         repoPath
-      });
+      }));
     });
     expect(await screen.findByText("#12")).toBeTruthy();
     expect(screen.getByText("Add GitHub issue tab")).toBeTruthy();
@@ -5258,16 +5258,16 @@ function createGitheadMock(): GitheadApi {
       trusted: true
     }),
     addSafeDirectory: vi.fn().mockResolvedValue(okOperation),
-    getGitHubWorkflowRuns: vi.fn().mockResolvedValue([]),
-    getGitHubOpenCounts: vi.fn().mockResolvedValue(createOpenCounts()),
-    getGitHubIssues: vi.fn().mockResolvedValue([]),
-    getGitHubPullRequests: vi.fn().mockResolvedValue([]),
-    createGitHubPullRequest: vi.fn().mockResolvedValue({
+    getGitHubWorkflowRuns: vi.fn().mockResolvedValue({ ok: true, data: [], rateLimit: null }),
+    getGitHubOpenCounts: vi.fn().mockResolvedValue({ ok: true, data: createOpenCounts(), rateLimit: null }),
+    getGitHubIssues: vi.fn().mockResolvedValue({ ok: true, data: [], rateLimit: null }),
+    getGitHubPullRequests: vi.fn().mockResolvedValue({ ok: true, data: [], rateLimit: null }),
+    createGitHubPullRequest: vi.fn().mockResolvedValue({ ok: true, data: {
       number: 12,
       url: "https://github.com/warheadent/Githead/pull/12",
       title: "Update feature",
       draft: false
-    }),
+    }, rateLimit: null }),
     getCommitHistory: vi.fn().mockResolvedValue([]),
     getCommitDetails: vi.fn(),
     getCommitFileDiff: vi.fn(),
@@ -5312,6 +5312,7 @@ function createGitheadMock(): GitheadApi {
       status: "supported",
       supportedEfforts: ["low", "medium", "high"]
     }),
+    cancelGitHubRequest: vi.fn().mockResolvedValue(undefined),
     getAppSettings: vi.fn().mockResolvedValue(appSettings),
     saveAppSettings: vi.fn().mockResolvedValue(appSettings),
     setWindowZoomFactor: vi.fn().mockResolvedValue(undefined),

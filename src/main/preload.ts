@@ -49,7 +49,6 @@ import type {
   GitheadApi,
   AppUpdateState,
   AppWindowState,
-  GitHubOpenCounts,
   RepoChangedEvent,
   RepoTrustRequest,
   RepoSummary
@@ -85,13 +84,15 @@ const api: GitheadApi = {
   getGitHubWorkflowRuns: (request: GitHubRepositoryRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubWorkflowRuns, request) as ReturnType<GitheadApi["getGitHubWorkflowRuns"]>,
   getGitHubOpenCounts: (request: GitHubRepositoryRequest) =>
-    ipcRenderer.invoke(IPC_CHANNELS.getGitHubOpenCounts, request) as Promise<GitHubOpenCounts>,
+    ipcRenderer.invoke(IPC_CHANNELS.getGitHubOpenCounts, request) as ReturnType<GitheadApi["getGitHubOpenCounts"]>,
   getGitHubIssues: (request: GitHubRepositoryRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubIssues, request) as ReturnType<GitheadApi["getGitHubIssues"]>,
   getGitHubPullRequests: (request: GitHubRepositoryRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubPullRequests, request) as ReturnType<GitheadApi["getGitHubPullRequests"]>,
   createGitHubPullRequest: (request: CreatePullRequestRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.createGitHubPullRequest, request) as ReturnType<GitheadApi["createGitHubPullRequest"]>,
+  cancelGitHubRequest: (request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.cancelGitHubRequest, request) as ReturnType<GitheadApi["cancelGitHubRequest"]>,
   getCommitHistory: (request: GitCommitHistoryRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getCommitHistory, request) as ReturnType<GitheadApi["getCommitHistory"]>,
   getCommitDetails: (request: GitCommitDetailsRequest) =>

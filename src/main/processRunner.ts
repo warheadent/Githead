@@ -1,169 +1,81 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
-export interface ProcessOutput {
-  stream: "stdout" | "stderr";
-  text: string;
-}
-
-export interface ProcessResult {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-  error?: string;
-}
-
-export interface ProcessRunOptions {
-  cwd?: string;
-  env?: NodeJS.ProcessEnv;
-  stdin?: string | Buffer;
-  timeoutMs?: number;
-  onOutput?: (output: ProcessOutput) => void;
-}
-
-export interface BinaryProcessResult {
-  exitCode: number;
-  stdout: Uint8Array;
-  stderr: string;
-  error?: string;
-  exceededLimit?: boolean;
-}
-
+export interface ProcessOutput { stream: "stdout" | "stderr"; text: string }
+export type ProcessTerminationReason = "aborted" | "timedOut" | "spawnFailed" | "exited";
+export interface ProcessResult { exitCode: number; stdout: string; stderr: string; error?: string; terminationReason?: ProcessTerminationReason }
+export interface ProcessRunOptions { cwd?: string; env?: NodeJS.ProcessEnv; stdin?: string | Buffer; timeoutMs?: number; signal?: AbortSignal; onOutput?: (output: ProcessOutput) => void }
+export interface BinaryProcessResult { exitCode: number; stdout: Uint8Array; stderr: string; error?: string; exceededLimit?: boolean; terminationReason?: ProcessTerminationReason }
 export interface ProcessRunner {
   run(command: string, args: string[], options?: ProcessRunOptions): Promise<ProcessResult>;
   runBinary?(command: string, args: string[], options: ProcessRunOptions & { maxBytes: number }): Promise<BinaryProcessResult>;
 }
 
+function terminateProcessTree(child: ChildProcessWithoutNullStreams): void {
+  if (!child.pid || child.killed) return;
+  if (process.platform === "win32") {
+    const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
+    killer.unref();
+  } else {
+    child.kill("SIGTERM");
+  }
+}
+
 export class NodeProcessRunner implements ProcessRunner {
   run(command: string, args: string[], options: ProcessRunOptions = {}): Promise<ProcessResult> {
-    return new Promise((resolve) => {
-      const stdoutChunks: string[] = [];
-      const stderrChunks: string[] = [];
-      let completed = false;
-      let timeout: NodeJS.Timeout | null = null;
-
-      const finish = (result: ProcessResult) => {
-        if (completed) {
-          return;
-        }
-
-        completed = true;
-        if (timeout) {
-          clearTimeout(timeout);
-        }
-        resolve(result);
-      };
-
-      let child: ReturnType<typeof spawn>;
-      try {
-        child = spawn(command, args, {
-          cwd: options.cwd,
-          env: options.env,
-          shell: false,
-          windowsHide: true
-        });
-      } catch (error) {
-        finish({
-          exitCode: -1,
-          stdout: "",
-          stderr: "",
-          error: error instanceof Error ? error.message : "Unable to start command."
-        });
-        return;
-      }
-
-      timeout = options.timeoutMs
-        ? setTimeout(() => {
-            child.kill();
-            finish({
-              exitCode: -1,
-              stdout: stdoutChunks.join(""),
-              stderr: stderrChunks.join(""),
-              error: `Command timed out after ${options.timeoutMs}ms.`
-            });
-          }, options.timeoutMs)
-        : null;
-
-      child.stdin?.end(options.stdin);
-
-      child.stdout?.on("data", (chunk: Buffer) => {
-        const text = chunk.toString();
-        stdoutChunks.push(text);
-        options.onOutput?.({
-          stream: "stdout",
-          text
-        });
-      });
-
-      child.stderr?.on("data", (chunk: Buffer) => {
-        const text = chunk.toString();
-        stderrChunks.push(text);
-        options.onOutput?.({
-          stream: "stderr",
-          text
-        });
-      });
-
-      child.on("error", (error) => {
-        const stderr = stderrChunks.join("");
-        finish({
-          exitCode: -1,
-          stdout: stdoutChunks.join(""),
-          stderr,
-          error: error.message
-        });
-      });
-
-      child.on("close", (code) => {
-        finish({
-          exitCode: code ?? -1,
-          stdout: stdoutChunks.join(""),
-          stderr: stderrChunks.join("")
-        });
-      });
-    });
+    return this.execute(command, args, options, undefined) as Promise<ProcessResult>;
   }
 
-
   runBinary(command: string, args: string[], options: ProcessRunOptions & { maxBytes: number }): Promise<BinaryProcessResult> {
-    return new Promise((resolve) => {
-      const stdoutChunks: Buffer[] = [];
-      const stderrChunks: Buffer[] = [];
+    return this.execute(command, args, options, options.maxBytes) as Promise<BinaryProcessResult>;
+  }
+
+  private execute(command: string, args: string[], options: ProcessRunOptions, maxBytes: number | undefined): Promise<ProcessResult | BinaryProcessResult> {
+    const binary = maxBytes !== undefined;
+    const empty = binary ? new Uint8Array() : "";
+    if (options.signal?.aborted) {
+      return Promise.resolve({ exitCode: -1, stdout: empty, stderr: "", error: "Command was cancelled.", terminationReason: "aborted" } as ProcessResult | BinaryProcessResult);
+    }
+    return new Promise<ProcessResult | BinaryProcessResult>((resolve) => {
+      const stdout: Buffer[] = [];
+      const stderr: Buffer[] = [];
       let stdoutLength = 0;
-      let completed = false;
       let exceededLimit = false;
-      let timeout: NodeJS.Timeout | null = null;
-      const finish = (result: BinaryProcessResult) => {
-        if (completed) return;
-        completed = true;
-        if (timeout) clearTimeout(timeout);
-        resolve(result);
+      let requested: "aborted" | "timedOut" | null = null;
+      let settled = false;
+      let timer: NodeJS.Timeout | undefined;
+      let child: ChildProcessWithoutNullStreams;
+      const output = (): string | Uint8Array => binary ? Buffer.concat(stdout) : Buffer.concat(stdout).toString();
+      const cleanup = () => { if (timer) clearTimeout(timer); options.signal?.removeEventListener("abort", onAbort); };
+      const finish = (code: number, error?: string, reason: ProcessTerminationReason = "exited") => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve({ exitCode: code, stdout: output(), stderr: Buffer.concat(stderr).toString(), ...(error ? { error } : {}), terminationReason: reason, ...(exceededLimit ? { exceededLimit: true } : {}) } as ProcessResult | BinaryProcessResult);
       };
-      let child: ReturnType<typeof spawn>;
+      const stop = (reason: "aborted" | "timedOut") => { if (requested) return; requested = reason; terminateProcessTree(child); };
+      const onAbort = () => stop("aborted");
       try {
         child = spawn(command, args, { cwd: options.cwd, env: options.env, shell: false, windowsHide: true });
       } catch (error) {
-        finish({ exitCode: -1, stdout: new Uint8Array(), stderr: "", error: error instanceof Error ? error.message : "Unable to start command." });
-        return;
+        finish(-1, error instanceof Error ? error.message : "Unable to start command.", "spawnFailed"); return;
       }
-      timeout = options.timeoutMs ? setTimeout(() => {
-        child.kill();
-        finish({ exitCode: -1, stdout: Buffer.concat(stdoutChunks), stderr: Buffer.concat(stderrChunks).toString("utf8"), error: `Command timed out after ${options.timeoutMs}ms.` });
-      }, options.timeoutMs) : null;
-      child.stdin?.end(options.stdin);
-      child.stdout?.on("data", (chunk: Buffer) => {
+      options.signal?.addEventListener("abort", onAbort, { once: true });
+      if (options.timeoutMs !== undefined) timer = setTimeout(() => stop("timedOut"), options.timeoutMs);
+      child.stdin.end(options.stdin);
+      child.stdout.on("data", (chunk: Buffer) => {
         if (exceededLimit) return;
         stdoutLength += chunk.length;
-        if (stdoutLength > options.maxBytes) {
-          exceededLimit = true;
-          stdoutChunks.length = 0;
-          child.kill();
-          return;
-        }
-        stdoutChunks.push(chunk);
+        if (maxBytes !== undefined && stdoutLength > maxBytes) { exceededLimit = true; stdout.length = 0; terminateProcessTree(child); return; }
+        stdout.push(chunk);
+        if (!binary) options.onOutput?.({ stream: "stdout", text: chunk.toString() });
       });
-      child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
-      child.on("error", (error) => finish({ exitCode: -1, stdout: Buffer.concat(stdoutChunks), stderr: Buffer.concat(stderrChunks).toString("utf8"), error: error.message, ...(exceededLimit ? { exceededLimit: true } : {}) }));
-      child.on("close", (code) => finish({ exitCode: code ?? -1, stdout: Buffer.concat(stdoutChunks), stderr: Buffer.concat(stderrChunks).toString("utf8"), ...(exceededLimit ? { exceededLimit: true } : {}) }));
+      child.stderr.on("data", (chunk: Buffer) => { stderr.push(chunk); if (!binary) options.onOutput?.({ stream: "stderr", text: chunk.toString() }); });
+      child.on("error", (error) => finish(-1, error.message, "spawnFailed"));
+      child.on("close", (code) => {
+        const reason = requested ?? "exited";
+        const error = reason === "timedOut" ? `Command timed out after ${options.timeoutMs}ms.` : reason === "aborted" ? "Command was cancelled." : undefined;
+        finish(code ?? -1, error, reason);
+      });
     });
   }
 }

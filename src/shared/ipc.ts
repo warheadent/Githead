@@ -18,6 +18,7 @@ export const IPC_CHANNELS = {
   getGitHubIssues: "github:issues",
   getGitHubPullRequests: "github:pull-requests",
   createGitHubPullRequest: "github:pull-request-create",
+  cancelGitHubRequest: "github:request-cancel",
   getCommitHistory: "git:commit-history",
   getCommitDetails: "git:commit-details",
   getCommitFileDiff: "git:commit-file-diff",
