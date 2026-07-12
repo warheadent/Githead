@@ -1050,6 +1050,85 @@ describe("App", () => {
     });
   });
 
+  it("selects every unstaged file with Ctrl+A while keeping the focused file primary", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/staged.ts", {
+          indexStatus: "M",
+          isStaged: true
+        }),
+        createStatusFile("src/first.ts", {
+          isUnstaged: true,
+          worktreeStatus: "M"
+        }),
+        createStatusFile("src/second.ts", {
+          isUnstaged: true,
+          worktreeStatus: "M"
+        })
+      ]
+    }));
+
+    render(<App />);
+
+    const stagedFile = await screen.findByRole("option", { name: /src\/staged\.ts/ });
+    const firstFile = screen.getByRole("option", { name: /src\/first\.ts/ });
+    const secondFile = screen.getByRole("option", { name: /src\/second\.ts/ });
+    await user.click(secondFile);
+    fireEvent.keyDown(secondFile, { key: "a", ctrlKey: true });
+
+    expect(stagedFile.getAttribute("aria-selected")).toBe("false");
+    expect(firstFile.getAttribute("aria-selected")).toBe("true");
+    expect(secondFile.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("listbox", { name: "Unstaged files" }).getAttribute("aria-multiselectable")).toBe("true");
+
+    await waitFor(() => {
+      expect(githead.getFileDiff).toHaveBeenLastCalledWith({
+        repoPath,
+        path: "src/second.ts",
+        side: "unstaged"
+      });
+    });
+  });
+
+  it("selects every staged file with Cmd+A without selecting unstaged files", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/first.ts", {
+          indexStatus: "M",
+          isStaged: true
+        }),
+        createStatusFile("src/second.ts", {
+          indexStatus: "M",
+          isStaged: true
+        }),
+        createStatusFile("src/unstaged.ts", {
+          isUnstaged: true,
+          worktreeStatus: "M"
+        })
+      ]
+    }));
+
+    render(<App />);
+
+    const firstFile = await screen.findByRole("option", { name: /src\/first\.ts/ });
+    const secondFile = screen.getByRole("option", { name: /src\/second\.ts/ });
+    const unstagedFile = screen.getByRole("option", { name: /src\/unstaged\.ts/ });
+    await user.click(firstFile);
+    fireEvent.keyDown(firstFile, { key: "a" });
+
+    expect(firstFile.getAttribute("aria-selected")).toBe("true");
+    expect(secondFile.getAttribute("aria-selected")).toBe("false");
+
+    fireEvent.keyDown(firstFile, { key: "A", metaKey: true });
+
+    expect(firstFile.getAttribute("aria-selected")).toBe("true");
+    expect(secondFile.getAttribute("aria-selected")).toBe("true");
+    expect(unstagedFile.getAttribute("aria-selected")).toBe("false");
+    expect(screen.getByRole("listbox", { name: "Staged files" }).getAttribute("aria-multiselectable")).toBe("true");
+  });
+
   it("stages a shift-selected unstaged file range through the preload API", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({

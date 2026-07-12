@@ -173,6 +173,7 @@ interface FileSelection {
 
 interface FileSelectionModifiers {
   extendRange: boolean;
+  selectAll: boolean;
   toggle: boolean;
 }
 
@@ -6631,7 +6632,7 @@ function FileGroup({
         <h2 className="text-sm font-semibold">{title} ({files.length})</h2>
         <div className="flex flex-wrap justify-end gap-2">{actions}</div>
       </div>
-      <div className="file-list" role="listbox" aria-label={title}>
+      <div className="file-list" role="listbox" aria-label={title} aria-multiselectable="true">
         {!summary?.isValid ? (
           <p className="empty-state">Select a valid repository.</p>
         ) : files.length === 0 ? (
@@ -6678,7 +6679,7 @@ function FileRow({
         asChild
         onContextMenu={() => {
           if (!selected) {
-            onSelectFile(file, side, { extendRange: false, toggle: false });
+            onSelectFile(file, side, { extendRange: false, selectAll: false, toggle: false });
           }
         }}
       >
@@ -6690,8 +6691,19 @@ function FileRow({
           aria-selected={selected}
           onClick={(event: MouseEvent<HTMLButtonElement>) => onSelectFile(file, side, {
             extendRange: event.shiftKey,
+            selectAll: false,
             toggle: event.ctrlKey || event.metaKey
           })}
+          onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
+            if (event.key.toLowerCase() === "a" && (event.ctrlKey || event.metaKey)) {
+              event.preventDefault();
+              onSelectFile(file, side, {
+                extendRange: false,
+                selectAll: true,
+                toggle: false
+              });
+            }
+          }}
         >
           <StatusBadge file={file} side={side} />
           <span className="file-path" title={file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}>
@@ -9852,6 +9864,10 @@ function buildFileSelection(
   side: GitDiffSide,
   modifiers: FileSelectionModifiers
 ): FileSelection | null {
+  if (modifiers.selectAll) {
+    return createFileSelection(side, files.map((file) => file.path), path, path);
+  }
+
   if (modifiers.extendRange && current?.side === side) {
     const rangePaths = getFileRangePaths(files, current.anchorPath, path);
     return createFileSelection(side, rangePaths.length > 0 ? rangePaths : [path], path, current.anchorPath);
