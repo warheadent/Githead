@@ -471,8 +471,8 @@ function FilePanel({
                 </div>
               </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-                <div className="mx-auto grid max-w-2xl gap-5">
+              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+                <div className="mx-auto grid max-w-2xl gap-4">
                   <div className="grid gap-2">
                     <Label htmlFor={`${target}-action-${selectedAction.id}-name`}>Name</Label>
                     <Input ref={nameInputRef} id={`${target}-action-${selectedAction.id}-name`} value={selectedAction.name} disabled={disabled} aria-invalid={validation.actionId === selectedAction.id && validation.field === "name"} onChange={(event) => onDraftChange(target, selectedIndex, { name: event.target.value })} />
@@ -480,7 +480,7 @@ function FilePanel({
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor={`${target}-action-${selectedAction.id}-command`}>Command</Label>
-                    <Textarea id={`${target}-action-${selectedAction.id}-command`} value={selectedAction.command} disabled={disabled} aria-invalid={validation.actionId === selectedAction.id && validation.field === "command"} className="min-h-32 resize-y font-mono text-sm" onChange={(event) => onDraftChange(target, selectedIndex, { command: event.target.value })} />
+                    <Textarea id={`${target}-action-${selectedAction.id}-command`} value={selectedAction.command} disabled={disabled} aria-invalid={validation.actionId === selectedAction.id && validation.field === "command"} className="min-h-28 resize-y font-mono text-sm" onChange={(event) => onDraftChange(target, selectedIndex, { command: event.target.value })} />
                     <p className="text-xs text-muted-foreground">Runs from the repository root.</p>
                   </div>
                   <div className="grid gap-2 sm:grid-cols-[minmax(0,0.45fr)_minmax(0,1fr)] sm:items-start sm:gap-5">
@@ -490,7 +490,7 @@ function FilePanel({
                     </div>
                     <div className="grid gap-2">
                       <Label htmlFor={`${target}-action-${selectedAction.id}-description`}>Description <span className="font-normal text-muted-foreground">(optional)</span></Label>
-                      <Textarea id={`${target}-action-${selectedAction.id}-description`} value={selectedAction.description} disabled={disabled} className="min-h-20 resize-y" onChange={(event) => onDraftChange(target, selectedIndex, { description: event.target.value })} />
+                      <Textarea id={`${target}-action-${selectedAction.id}-description`} value={selectedAction.description} disabled={disabled} className="min-h-16 resize-y" onChange={(event) => onDraftChange(target, selectedIndex, { description: event.target.value })} />
                     </div>
                   </div>
                   {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
