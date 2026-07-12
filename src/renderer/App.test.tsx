@@ -17,6 +17,7 @@ vi.mock("@/components/ui/resizable", () => ({
 }));
 
 import { App } from "./App";
+import { gitHubQueryStore } from "./useGitHubQueries";
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import { DEFAULT_PR_DESCRIPTION_PROMPT } from "../shared/prDescriptionPrompt";
 import type {
@@ -131,6 +132,7 @@ function createAiSettings(
 }
 
 beforeEach(() => {
+  gitHubQueryStore.clear();
   cleanupGitOutput = vi.fn<() => void>();
   cleanupUpdateState = vi.fn<() => void>();
   cleanupRepoChanged = vi.fn<() => void>();

@@ -125,7 +125,6 @@ import type {
   GitFileDiff,
   GitImageSide,
   GitHubIssue,
-  GitHubOpenCounts,
   GitHubPullRequest,
   GitHubWorkflowRun,
   AppWindowState,
@@ -149,6 +148,7 @@ import { parseCommitSubject } from "../shared/commitSubject";
 import { ActivityLogView } from "./ActivityLogView";
 import { BranchManagementDialog } from "./BranchManagementDialog";
 import { RemoteManagementDialog } from "./RemoteManagementDialog";
+import { useGitHubQueries } from "./useGitHubQueries";
 import {
   appendActivityLogEvent,
   appendActivityOperationResult,
@@ -340,22 +340,6 @@ interface AppState {
   commitFileDiff: GitFileDiff | null;
   commitFileDiffLoading: boolean;
   commitFileDiffError: string;
-  workflowRuns: GitHubWorkflowRun[];
-  workflowRunsLoading: boolean;
-  workflowRunsLoaded: boolean;
-  workflowRunsError: string;
-  githubOpenCounts: GitHubOpenCounts | null;
-  githubOpenCountsLoading: boolean;
-  githubOpenCountsLoaded: boolean;
-  githubOpenCountsError: string;
-  pullRequests: GitHubPullRequest[];
-  pullRequestsLoading: boolean;
-  pullRequestsLoaded: boolean;
-  pullRequestsError: string;
-  issues: GitHubIssue[];
-  issuesLoading: boolean;
-  issuesLoaded: boolean;
-  issuesError: string;
   activityLog: ActivityLogState;
   appUpdate: AppUpdateState;
 }
@@ -369,10 +353,6 @@ interface RequestIds {
   history: number;
   commitDetails: number;
   commitFileDiff: number;
-  workflowRuns: number;
-  githubOpenCounts: number;
-  pullRequests: number;
-  issues: number;
   remoteConfigs: number;
 }
 
@@ -576,22 +556,6 @@ const initialState: AppState = {
   commitFileDiff: null,
   commitFileDiffLoading: false,
   commitFileDiffError: "",
-  workflowRuns: [],
-  workflowRunsLoading: false,
-  workflowRunsLoaded: false,
-  workflowRunsError: "",
-  githubOpenCounts: null,
-  githubOpenCountsLoading: false,
-  githubOpenCountsLoaded: false,
-  githubOpenCountsError: "",
-  pullRequests: [],
-  pullRequestsLoading: false,
-  pullRequestsLoaded: false,
-  pullRequestsError: "",
-  issues: [],
-  issuesLoading: false,
-  issuesLoaded: false,
-  issuesError: "",
   activityLog: createActivityLogState(),
   appUpdate: createInitialRendererUpdateState()
 };
@@ -602,6 +566,10 @@ const initialWindowState: AppWindowState = {
 
 export function App(): ReactNode {
   const [state, setState] = useState<AppState>(initialState);
+  const githubRepository = state.summary?.isValid && state.summary.githubRepository
+    ? { repoPath: state.repoPath, githubFullName: state.summary.githubRepository.fullName }
+    : null;
+  const github = useGitHubQueries(githubRepository);
   const [windowState, setWindowState] = useState<AppWindowState>(initialWindowState);
   const appearanceMode = state.settingsOpen
     ? state.settingsDraft.appearanceMode
@@ -615,10 +583,6 @@ export function App(): ReactNode {
     history: 0,
     commitDetails: 0,
     commitFileDiff: 0,
-    workflowRuns: 0,
-    githubOpenCounts: 0,
-    pullRequests: 0,
-    issues: 0,
     remoteConfigs: 0
   });
   const trustDialogResolveRef = useRef<((trusted: boolean) => void) | null>(null);
@@ -898,222 +862,6 @@ export function App(): ReactNode {
     }
   }, [loadCommitDetails, updateState]);
 
-  const loadWorkflowRuns = useCallback(async (force: boolean): Promise<void> => {
-    const current = stateRef.current;
-    if (!current.summary?.isValid || !current.summary.githubRepository) {
-      updateState({
-        workflowRuns: [],
-        workflowRunsLoaded: false,
-        workflowRunsError: current.summary?.isValid ? "Selected repository does not have a supported GitHub origin." : ""
-      });
-      return;
-    }
-
-    if (current.workflowRunsLoaded && !force) {
-      return;
-    }
-
-    const requestId = requestIds.current.workflowRuns + 1;
-    if (force && requestIds.current.workflowRuns > 0) void window.githead.cancelGitHubRequest({ requestId: `workflowRuns-${requestIds.current.workflowRuns}` });
-    requestIds.current.workflowRuns = requestId;
-    updateState({
-      workflowRunsLoading: true,
-      workflowRunsError: ""
-    });
-
-    try {
-      const workflowRuns = await window.githead.getGitHubWorkflowRuns({
-        repoPath: stateRef.current.repoPath,
-        requestId: `workflowRuns-${requestId}`
-      });
-
-      if (requestId === requestIds.current.workflowRuns) {
-        if (!workflowRuns.ok) {
-          if (workflowRuns.error.kind !== "cancelled") updateState({ workflowRunsError: workflowRuns.error.message });
-          return;
-        }
-        updateState({
-          workflowRuns: workflowRuns.data,
-          workflowRunsLoaded: true
-        });
-      }
-    } catch (error) {
-      if (requestId === requestIds.current.workflowRuns) {
-        updateState({
-          workflowRunsError: error instanceof Error ? error.message : "Unable to load workflow runs."
-        });
-      }
-    } finally {
-      if (requestId === requestIds.current.workflowRuns) {
-        updateState({
-          workflowRunsLoading: false
-        });
-      }
-    }
-  }, [updateState]);
-
-  const loadGitHubOpenCounts = useCallback(async (force: boolean): Promise<void> => {
-    const current = stateRef.current;
-    if (!current.summary?.isValid || !current.summary.githubRepository) {
-      updateState({
-        githubOpenCounts: null,
-        githubOpenCountsLoaded: false,
-        githubOpenCountsError: current.summary?.isValid ? "Selected repository does not have a supported GitHub origin." : ""
-      });
-      return;
-    }
-
-    if ((current.githubOpenCountsLoaded || current.githubOpenCountsLoading) && !force) {
-      return;
-    }
-
-    const requestId = requestIds.current.githubOpenCounts + 1;
-    if (force && requestIds.current.githubOpenCounts > 0) void window.githead.cancelGitHubRequest({ requestId: `githubOpenCounts-${requestIds.current.githubOpenCounts}` });
-    requestIds.current.githubOpenCounts = requestId;
-    updateState({
-      githubOpenCountsLoading: true,
-      githubOpenCountsError: ""
-    });
-
-    try {
-      const githubOpenCounts = await window.githead.getGitHubOpenCounts({
-        repoPath: stateRef.current.repoPath,
-        requestId: `githubOpenCounts-${requestId}`
-      });
-
-      if (requestId === requestIds.current.githubOpenCounts) {
-        if (!githubOpenCounts.ok) {
-          if (githubOpenCounts.error.kind !== "cancelled") updateState({ githubOpenCountsError: githubOpenCounts.error.message });
-          return;
-        }
-        updateState({
-          githubOpenCounts: githubOpenCounts.data,
-          githubOpenCountsLoaded: true
-        });
-      }
-    } catch (error) {
-      if (requestId === requestIds.current.githubOpenCounts) {
-        updateState({
-          githubOpenCountsError: error instanceof Error ? error.message : "Unable to load GitHub counts."
-        });
-      }
-    } finally {
-      if (requestId === requestIds.current.githubOpenCounts) {
-        updateState({
-          githubOpenCountsLoading: false
-        });
-      }
-    }
-  }, [updateState]);
-
-  const loadPullRequests = useCallback(async (force: boolean): Promise<void> => {
-    const current = stateRef.current;
-    if (!current.summary?.isValid || !current.summary.githubRepository) {
-      updateState({
-        pullRequests: [],
-        pullRequestsLoaded: false,
-        pullRequestsError: current.summary?.isValid ? "Selected repository does not have a supported GitHub origin." : ""
-      });
-      return;
-    }
-
-    if (current.pullRequestsLoaded && !force) {
-      return;
-    }
-
-    const requestId = requestIds.current.pullRequests + 1;
-    if (force && requestIds.current.pullRequests > 0) void window.githead.cancelGitHubRequest({ requestId: `pullRequests-${requestIds.current.pullRequests}` });
-    requestIds.current.pullRequests = requestId;
-    updateState({
-      pullRequestsLoading: true,
-      pullRequestsError: ""
-    });
-
-    try {
-      const pullRequests = await window.githead.getGitHubPullRequests({
-        repoPath: stateRef.current.repoPath,
-        requestId: `pullRequests-${requestId}`
-      });
-
-      if (requestId === requestIds.current.pullRequests) {
-        if (!pullRequests.ok) {
-          if (pullRequests.error.kind !== "cancelled") updateState({ pullRequestsError: pullRequests.error.message });
-          return;
-        }
-        updateState({
-          pullRequests: pullRequests.data,
-          pullRequestsLoaded: true
-        });
-      }
-    } catch (error) {
-      if (requestId === requestIds.current.pullRequests) {
-        updateState({
-          pullRequestsError: error instanceof Error ? error.message : "Unable to load pull requests."
-        });
-      }
-    } finally {
-      if (requestId === requestIds.current.pullRequests) {
-        updateState({
-          pullRequestsLoading: false
-        });
-      }
-    }
-  }, [updateState]);
-
-  const loadIssues = useCallback(async (force: boolean): Promise<void> => {
-    const current = stateRef.current;
-    if (!current.summary?.isValid || !current.summary.githubRepository) {
-      updateState({
-        issues: [],
-        issuesLoaded: false,
-        issuesError: current.summary?.isValid ? "Selected repository does not have a supported GitHub origin." : ""
-      });
-      return;
-    }
-
-    if (current.issuesLoaded && !force) {
-      return;
-    }
-
-    const requestId = requestIds.current.issues + 1;
-    if (force && requestIds.current.issues > 0) void window.githead.cancelGitHubRequest({ requestId: `issues-${requestIds.current.issues}` });
-    requestIds.current.issues = requestId;
-    updateState({
-      issuesLoading: true,
-      issuesError: ""
-    });
-
-    try {
-      const issues = await window.githead.getGitHubIssues({
-        repoPath: stateRef.current.repoPath,
-        requestId: `issues-${requestId}`
-      });
-
-      if (requestId === requestIds.current.issues) {
-        if (!issues.ok) {
-          if (issues.error.kind !== "cancelled") updateState({ issuesError: issues.error.message });
-          return;
-        }
-        updateState({
-          issues: issues.data,
-          issuesLoaded: true
-        });
-      }
-    } catch (error) {
-      if (requestId === requestIds.current.issues) {
-        updateState({
-          issuesError: error instanceof Error ? error.message : "Unable to load issues."
-        });
-      }
-    } finally {
-      if (requestId === requestIds.current.issues) {
-        updateState({
-          issuesLoading: false
-        });
-      }
-    }
-  }, [updateState]);
-
   const loadSelectedDiff = useCallback(async (selectionOverride?: FileSelection): Promise<void> => {
     const selection = selectionOverride ?? stateRef.current.selection;
     if (!selection || !stateRef.current.summary?.isValid) {
@@ -1216,7 +964,7 @@ export function App(): ReactNode {
       }
 
       fileStatusDirtyRef.current = false;
-      updateState((current) => reconcileGitHubState(reconcileSelection({
+      updateState((current) => reconcileGitHubUiState(reconcileSelection({
         ...current,
         summary,
         repoSyncStatuses: {
@@ -1288,22 +1036,10 @@ export function App(): ReactNode {
     }
 
     const latest = stateRef.current;
-    if (latest.summary?.isValid && latest.summary.githubRepository) {
-      void loadGitHubOpenCounts(false);
-    }
     if (latest.activeView === "history") {
       await loadCommitHistory(true);
     }
-    if (latest.activeView === "workflows") {
-      await loadWorkflowRuns(true);
-    }
-    if (latest.activeView === "pullRequests") {
-      await loadPullRequests(true);
-    }
-    if (latest.activeView === "issues") {
-      await loadIssues(true);
-    }
-  }, [loadCommitHistory, loadGitHubOpenCounts, loadIssues, loadPullRequests, loadRepoSyncStatuses, loadWorkflowRuns, updateState]);
+  }, [loadCommitHistory, loadRepoSyncStatuses, updateState]);
 
   const refreshDirtyFileStatus = useCallback(async (options: { force?: boolean } = {}): Promise<void> => {
     const current = stateRef.current;
@@ -1349,16 +1085,13 @@ export function App(): ReactNode {
   // The Create PR button needs the open PR list before the Pull Requests tab
   // is ever visited, so load it eagerly for GitHub repositories.
   useEffect(() => {
-    if (
-      state.summary?.isValid &&
-      state.summary.githubRepository &&
-      !state.pullRequestsLoaded &&
-      !state.pullRequestsLoading &&
-      !state.pullRequestsError
-    ) {
-      void loadPullRequests(false);
+    if (githubRepository) {
+      void github.ensure("openCounts");
+      void github.ensure("pullRequests");
+      if (state.activeView === "workflows") void github.ensure("workflowRuns");
+      if (state.activeView === "issues") void github.ensure("issues");
     }
-  }, [loadPullRequests, state.pullRequestsError, state.pullRequestsLoaded, state.pullRequestsLoading, state.summary]);
+  }, [github.ensure, githubRepository?.repoPath, githubRepository?.githubFullName, state.activeView]);
 
   useEffect(() => {
     const handleWindowBlur = (): void => {
@@ -1391,23 +1124,13 @@ export function App(): ReactNode {
       return;
     }
 
-    for (const [kind, id] of [
-      ["workflowRuns", requestIds.current.workflowRuns],
-      ["githubOpenCounts", requestIds.current.githubOpenCounts],
-      ["pullRequests", requestIds.current.pullRequests],
-      ["issues", requestIds.current.issues]
-    ] as const) if (id > 0) void window.githead.cancelGitHubRequest({ requestId: `${kind}-${id}` });
     requestIds.current.diff += 1;
     requestIds.current.history += 1;
     requestIds.current.commitDetails += 1;
     requestIds.current.commitFileDiff += 1;
-    requestIds.current.workflowRuns += 1;
-    requestIds.current.githubOpenCounts += 1;
-    requestIds.current.pullRequests += 1;
-    requestIds.current.issues += 1;
     requestIds.current.remoteConfigs += 1;
 
-    updateState((current) => resetGitHubState(resetHistoryState({
+    updateState((current) => resetGitHubUiState(resetHistoryState({
       ...current,
       repoPath: nextRepoPath,
       repoLoading: true,
@@ -3153,8 +2876,10 @@ export function App(): ReactNode {
           stderr: ""
         }
       }));
-      void loadPullRequests(true);
-      void loadGitHubOpenCounts(true);
+      github.invalidate("pullRequests");
+      github.invalidate("openCounts");
+      void github.ensure("pullRequests");
+      void github.ensure("openCounts");
     } catch (error) {
       setDialogError(error instanceof Error ? error.message : "Unable to create pull request.");
     } finally {
@@ -3169,7 +2894,7 @@ export function App(): ReactNode {
           : latest.createPrDialog
       }));
     }
-  }, [appendSystemLine, ensureTrustedRepo, loadGitHubOpenCounts, loadPullRequests, refreshRepo, updateState]);
+  }, [appendSystemLine, ensureTrustedRepo, github, refreshRepo, updateState]);
 
   const createBranch = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
@@ -3584,16 +3309,10 @@ export function App(): ReactNode {
     if (view === "history" && !latest.historyLoaded && !latest.historyLoading) {
       void loadCommitHistory(false);
     }
-    if (view === "workflows" && !latest.workflowRunsLoaded && !latest.workflowRunsLoading) {
-      void loadWorkflowRuns(false);
-    }
-    if (view === "pullRequests" && !latest.pullRequestsLoaded && !latest.pullRequestsLoading) {
-      void loadPullRequests(false);
-    }
-    if (view === "issues" && !latest.issuesLoaded && !latest.issuesLoading) {
-      void loadIssues(false);
-    }
-  }, [loadCommitHistory, loadIssues, loadPullRequests, loadWorkflowRuns, refreshDirtyFileStatus, updateState]);
+    if (view === "workflows") void github.ensure("workflowRuns");
+    if (view === "pullRequests") void github.ensure("pullRequests");
+    if (view === "issues") void github.ensure("issues");
+  }, [github.ensure, loadCommitHistory, refreshDirtyFileStatus, updateState]);
 
   const selectFile = useCallback((file: GitStatusFile, side: GitDiffSide, modifiers: FileSelectionModifiers): void => {
     const selection = buildFileSelection(
@@ -4292,8 +4011,8 @@ export function App(): ReactNode {
   const primaryCommitAction = getPrimaryCommitAction(state.summary);
   const actionHeading = getActionHeading(state);
   const showGitHubTabs = Boolean(state.summary?.githubRepository);
-  const pullRequestTabCount = state.githubOpenCountsLoaded ? formatCompactCount(state.githubOpenCounts?.pullRequests ?? 0) : null;
-  const issueTabCount = state.githubOpenCountsLoaded ? formatCompactCount(state.githubOpenCounts?.issues ?? 0) : null;
+  const pullRequestTabCount = github.counts.data ? formatCompactCount(github.counts.data.pullRequests) : null;
+  const issueTabCount = github.counts.data ? formatCompactCount(github.counts.data.issues) : null;
 
   if (state.showSetup) {
     return (
@@ -4446,7 +4165,7 @@ export function App(): ReactNode {
               runningAction={state.runningAction}
               configuredActionRuns={state.configuredActionRuns}
               disabled={disableActions}
-              showCreatePullRequest={shouldShowCreatePullRequest(state.summary, state.pullRequests, state.pullRequestsLoaded)}
+              showCreatePullRequest={shouldShowCreatePullRequest(state.summary, github.pullRequests.data ?? [], github.pullRequests.data !== undefined)}
               onRunAction={(action) => {
                 void runAction(action);
               }}
@@ -4572,13 +4291,13 @@ export function App(): ReactNode {
                   <TabsContent forceMount value="workflows" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
                     <WorkflowRunsView
                       summary={state.summary}
-                      workflowRuns={state.workflowRuns}
-                      loading={state.workflowRunsLoading}
-                      loaded={state.workflowRunsLoaded}
-                      error={state.workflowRunsError}
+                      workflowRuns={github.workflows.data ?? []}
+                      loading={github.workflows.status === "loading" || github.workflows.status === "refreshing"}
+                      loaded={github.workflows.data !== undefined}
+                      error={github.workflows.error}
                       onOpenExternalUrl={openExternalUrl}
                       onRefresh={() => {
-                        void loadWorkflowRuns(true);
+                        void github.refresh("workflowRuns");
                       }}
                     />
                   </TabsContent>
@@ -4586,15 +4305,14 @@ export function App(): ReactNode {
                   <TabsContent forceMount value="pullRequests" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
                     <PullRequestsView
                       summary={state.summary}
-                      pullRequests={state.pullRequests}
-                      openCount={state.githubOpenCountsLoaded ? state.githubOpenCounts?.pullRequests ?? null : null}
-                      loading={state.pullRequestsLoading}
-                      loaded={state.pullRequestsLoaded}
-                      error={state.pullRequestsError}
+                      pullRequests={github.pullRequests.data ?? []}
+                      openCount={github.counts.data?.pullRequests ?? null}
+                      loading={github.pullRequests.status === "loading" || github.pullRequests.status === "refreshing"}
+                      loaded={github.pullRequests.data !== undefined}
+                      error={github.pullRequests.error}
                       onOpenExternalUrl={openExternalUrl}
                       onRefresh={() => {
-                        void loadPullRequests(true);
-                        void loadGitHubOpenCounts(true);
+                        void Promise.allSettled([github.refresh("pullRequests"), github.refresh("openCounts")]);
                       }}
                     />
                   </TabsContent>
@@ -4602,15 +4320,14 @@ export function App(): ReactNode {
                   <TabsContent forceMount value="issues" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
                     <IssuesView
                       summary={state.summary}
-                      issues={state.issues}
-                      openCount={state.githubOpenCountsLoaded ? state.githubOpenCounts?.issues ?? null : null}
-                      loading={state.issuesLoading}
-                      loaded={state.issuesLoaded}
-                      error={state.issuesError}
+                      issues={github.issues.data ?? []}
+                      openCount={github.counts.data?.issues ?? null}
+                      loading={github.issues.status === "loading" || github.issues.status === "refreshing"}
+                      loaded={github.issues.data !== undefined}
+                      error={github.issues.error}
                       onOpenExternalUrl={openExternalUrl}
                       onRefresh={() => {
-                        void loadIssues(true);
-                        void loadGitHubOpenCounts(true);
+                        void Promise.allSettled([github.refresh("issues"), github.refresh("openCounts")]);
                       }}
                     />
                   </TabsContent>
@@ -9778,33 +9495,17 @@ function invalidateHistory(state: AppState): AppState {
   };
 }
 
-function resetGitHubState(state: AppState): AppState {
+function resetGitHubUiState(state: AppState): AppState {
   return {
     ...state,
-    createPrDialog: emptyCreatePrDialog,
-    workflowRuns: [],
-    workflowRunsLoading: false,
-    workflowRunsLoaded: false,
-    workflowRunsError: "",
-    githubOpenCounts: null,
-    githubOpenCountsLoading: false,
-    githubOpenCountsLoaded: false,
-    githubOpenCountsError: "",
-    pullRequests: [],
-    pullRequestsLoading: false,
-    pullRequestsLoaded: false,
-    pullRequestsError: "",
-    issues: [],
-    issuesLoading: false,
-    issuesLoaded: false,
-    issuesError: ""
+    createPrDialog: emptyCreatePrDialog
   };
 }
 
-function reconcileGitHubState(state: AppState, previousSummary: RepoSummary | null): AppState {
-  const previousGitHubKey = getGitHubRepositoryKey(previousSummary);
-  const nextGitHubKey = getGitHubRepositoryKey(state.summary);
-  let next = previousGitHubKey === nextGitHubKey ? state : resetGitHubState(state);
+function reconcileGitHubUiState(state: AppState, previousSummary: RepoSummary | null): AppState {
+  const previousGitHubKey = previousSummary?.githubRepository?.fullName.toLowerCase() ?? "";
+  const nextGitHubKey = state.summary?.githubRepository?.fullName.toLowerCase() ?? "";
+  let next = previousGitHubKey === nextGitHubKey ? state : resetGitHubUiState(state);
 
   if (!nextGitHubKey && isGitHubView(next.activeView)) {
     next = {
@@ -9840,10 +9541,6 @@ function resetHistoryState(state: AppState): AppState {
 
 function isGitHubView(view: WorkspaceView): boolean {
   return view === "workflows" || view === "pullRequests" || view === "issues";
-}
-
-function getGitHubRepositoryKey(summary: RepoSummary | null): string {
-  return summary?.githubRepository?.fullName.toLocaleLowerCase() ?? "";
 }
 
 function groupRemoteBranchesByRemote(remoteBranches: GitRemoteBranch[]): Array<{
@@ -9929,7 +9626,7 @@ function getCreatePrBaseBranches(summary: RepoSummary | null): string[] {
 function shouldShowCreatePullRequest(
   summary: RepoSummary | null,
   pullRequests: GitHubPullRequest[],
-  pullRequestsLoaded: boolean
+  hasPullRequestData: boolean
 ): boolean {
   if (!summary?.isValid || !summary.capabilities.github || !summary.githubRepository || !summary.branch) {
     return false;
@@ -9949,7 +9646,7 @@ function shouldShowCreatePullRequest(
 
   // Keep the button hidden until the open PR list is known so it never offers
   // a pull request that already exists.
-  if (!pullRequestsLoaded) {
+  if (!hasPullRequestData) {
     return false;
   }
 
