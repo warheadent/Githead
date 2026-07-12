@@ -54,9 +54,9 @@ describe("GitHubService", () => {
   });
 
   it("normalizes pull requests and sums comment counts", async () => {
-    const client = new FakeClient([[{ number: 11, title: "PR", state: "open", user: { login: "taylor" }, head: { ref: "feature" }, base: { ref: "main" }, labels: ["ui"], comments: 2, review_comments: 5, draft: true, updated_at: "now", html_url: "pr-url" }]]);
+    const client = new FakeClient([[{ number: 11, title: "PR", state: "open", user: { login: "taylor" }, head: { ref: "feature", repo: { full_name: "openai/githead" } }, base: { ref: "main" }, labels: ["ui"], comments: 2, review_comments: 5, draft: true, updated_at: "now", html_url: "pr-url" }]]);
     const result = await new GitHubService(provider(repository), client).getPullRequests({ repoPath: "D:\\Repo" });
-    expect(result).toEqual({ ok: true, rateLimit: null, data: { items: [{ number: 11, title: "PR", state: "open", authorLogin: "taylor", sourceBranch: "feature", targetBranch: "main", labels: ["ui"], comments: 7, draft: true, updatedAt: "now", url: "pr-url" }], page: 1, nextPage: null, totalCount: null } });
+    expect(result).toEqual({ ok: true, rateLimit: null, data: { items: [{ number: 11, title: "PR", state: "open", authorLogin: "taylor", sourceBranch: "feature", sourceRepositoryFullName: "openai/githead", targetBranch: "main", labels: ["ui"], comments: 7, draft: true, updatedAt: "now", url: "pr-url" }], page: 1, nextPage: null, totalCount: null } });
   });
 
   it("loads both open counts concurrently", async () => {

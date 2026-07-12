@@ -99,6 +99,7 @@ export interface GitHubPullRequest {
   state: string;
   authorLogin: string;
   sourceBranch: string;
+  sourceRepositoryFullName: string;
   targetBranch: string;
   labels: string[];
   comments: number;
@@ -561,6 +562,16 @@ export interface GitPublishBranchRequest {
   remoteName: string;
 }
 
+export interface GitRemoteBranchCheckoutRequest extends GitBranchRequest {
+  remoteBranch: string;
+}
+
+export interface GitHubPullRequestCheckoutRequest extends GitBranchRequest {
+  pullRequestNumber: number;
+  sourceBranch: string;
+  sourceRepositoryFullName: string;
+}
+
 export interface GitRenameBranchRequest {
   repoPath: string;
   branchName: string;
@@ -874,7 +885,7 @@ export interface GitOperationResult {
   exitCode: number;
   stdout: string;
   stderr: string;
-  errorKind?: "missing-author-identity";
+  errorKind?: "missing-author-identity" | "branch-name-conflict";
 }
 
 export interface GitRunResult {
@@ -994,6 +1005,8 @@ export interface GitheadApi {
   createTag(request: GitCreateTagRequest): Promise<GitOperationResult>;
   deleteTag(request: GitDeleteTagRequest): Promise<GitOperationResult>;
   switchBranch(request: GitBranchRequest): Promise<GitOperationResult>;
+  checkoutRemoteBranch(request: GitRemoteBranchCheckoutRequest): Promise<GitOperationResult>;
+  checkoutGitHubPullRequest(request: GitHubPullRequestCheckoutRequest): Promise<GitOperationResult>;
   createBranch(request: GitBranchRequest): Promise<GitOperationResult>;
   renameBranch(request: GitRenameBranchRequest): Promise<GitOperationResult>;
   deleteBranch(request: GitDeleteBranchRequest): Promise<GitOperationResult>;

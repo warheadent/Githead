@@ -12,6 +12,8 @@ import type {
   FileSystemPathListRequest,
   FileSystemPathRequest,
   GitBranchRequest,
+  GitRemoteBranchCheckoutRequest,
+  GitHubPullRequestCheckoutRequest,
   GitRenameBranchRequest,
   GitDeleteBranchRequest,
   GitAddRemoteRequest,
@@ -138,6 +140,10 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.deleteTag, request) as ReturnType<GitheadApi["deleteTag"]>,
   switchBranch: (request: GitBranchRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.switchBranch, request) as ReturnType<GitheadApi["switchBranch"]>,
+  checkoutRemoteBranch: (request: GitRemoteBranchCheckoutRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.checkoutRemoteBranch, request) as ReturnType<GitheadApi["checkoutRemoteBranch"]>,
+  checkoutGitHubPullRequest: (request: GitHubPullRequestCheckoutRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.checkoutGitHubPullRequest, request) as ReturnType<GitheadApi["checkoutGitHubPullRequest"]>,
   createBranch: (request: GitBranchRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.createBranch, request) as ReturnType<GitheadApi["createBranch"]>,
   renameBranch: (request: GitRenameBranchRequest) =>

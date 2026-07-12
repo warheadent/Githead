@@ -312,6 +312,7 @@ interface AppState {
   branchManagerOpen: boolean;
   branchNameDraft: string;
   branchError: string;
+  branchCheckoutTarget: { kind: "remote"; remoteBranch: string } | { kind: "pullRequest"; pullRequest: GitHubPullRequest } | null;
   upstreamDialogOpen: boolean;
   upstreamDraft: string | null;
   upstreamError: string;
@@ -529,6 +530,7 @@ const initialState: AppState = {
   branchManagerOpen: false,
   branchNameDraft: "",
   branchError: "",
+  branchCheckoutTarget: null,
   upstreamDialogOpen: false,
   upstreamDraft: null,
   upstreamError: "",
@@ -2343,7 +2345,8 @@ export function App(): ReactNode {
     updateState({
       branchDialogOpen: true,
       branchNameDraft: "",
-      branchError: ""
+      branchError: "",
+      branchCheckoutTarget: null
     });
   }, [updateState]);
 
@@ -2354,7 +2357,8 @@ export function App(): ReactNode {
 
     updateState({
       branchDialogOpen: false,
-      branchError: ""
+      branchError: "",
+      branchCheckoutTarget: null
     });
   }, [updateState]);
 
@@ -2968,26 +2972,58 @@ export function App(): ReactNode {
       return;
     }
 
-    await runRepoOperation(`Creating branch ${branchName}`, null, () =>
-      window.githead.createBranch({
-        repoPath: stateRef.current.repoPath,
-        branchName
-      })
-    );
+    const target = current.branchCheckoutTarget;
+    const label = target?.kind === "remote" ? `Checking out ${target.remoteBranch}`
+      : target?.kind === "pullRequest" ? `Checking out pull request #${target.pullRequest.number}`
+      : `Creating branch ${branchName}`;
+    await runRepoOperation(label, null, () => target?.kind === "remote"
+      ? window.githead.checkoutRemoteBranch({ repoPath: stateRef.current.repoPath, branchName, remoteBranch: target.remoteBranch })
+      : target?.kind === "pullRequest"
+        ? window.githead.checkoutGitHubPullRequest({ repoPath: stateRef.current.repoPath, branchName, pullRequestNumber: target.pullRequest.number, sourceBranch: target.pullRequest.sourceBranch, sourceRepositoryFullName: target.pullRequest.sourceRepositoryFullName })
+        : window.githead.createBranch({ repoPath: stateRef.current.repoPath, branchName }));
 
     const result = stateRef.current.lastOperationResult;
     if (result?.exitCode === 0) {
       updateState({
         branchDialogOpen: false,
         branchNameDraft: "",
-        branchError: ""
+        branchError: "",
+        branchCheckoutTarget: null
       });
       return;
     }
 
     updateState({
-      branchError: getOperationFailureMessage(result, "Unable to create branch.")
+      branchError: getOperationFailureMessage(result, target ? "Unable to check out branch." : "Unable to create branch.")
     });
+  }, [ensureTrustedRepo, runRepoOperation, updateState]);
+
+  const checkoutRemoteBranch = useCallback((remoteBranch: GitRemoteBranch): void => {
+    const summary = stateRef.current.summary;
+    if (!summary?.isValid || isOperationRunning(stateRef.current)) return;
+    const local = summary.branches.find((branch) => branch.name === remoteBranch.branch);
+    if (local && local.upstream !== remoteBranch.name) {
+      updateState({ branchDialogOpen: true, branchNameDraft: remoteBranch.branch, branchError: "A different local branch already uses this name. Enter another name.", branchCheckoutTarget: { kind: "remote", remoteBranch: remoteBranch.name } });
+      return;
+    }
+    void (async () => {
+      if (!(await ensureTrustedRepo())) return;
+      await runRepoOperation(`Checking out ${remoteBranch.name}`, null, () => window.githead.checkoutRemoteBranch({ repoPath: stateRef.current.repoPath, branchName: remoteBranch.branch, remoteBranch: remoteBranch.name }));
+    })();
+  }, [ensureTrustedRepo, runRepoOperation, updateState]);
+
+  const checkoutPullRequest = useCallback((pullRequest: GitHubPullRequest): void => {
+    const summary = stateRef.current.summary;
+    if (!summary?.isValid || isOperationRunning(stateRef.current) || !pullRequest.sourceBranch) return;
+    if (summary.branches.some((branch) => branch.name === pullRequest.sourceBranch)) {
+      updateState({ branchDialogOpen: true, branchNameDraft: pullRequest.sourceBranch, branchError: "A local branch already uses this name. Enter another name.", branchCheckoutTarget: { kind: "pullRequest", pullRequest } });
+      return;
+    }
+    void (async () => {
+      if (!(await ensureTrustedRepo())) return;
+      const result = await runRepoOperation(`Checking out pull request #${pullRequest.number}`, null, () => window.githead.checkoutGitHubPullRequest({ repoPath: stateRef.current.repoPath, branchName: pullRequest.sourceBranch, pullRequestNumber: pullRequest.number, sourceBranch: pullRequest.sourceBranch, sourceRepositoryFullName: pullRequest.sourceRepositoryFullName }));
+      if (result?.errorKind === "branch-name-conflict") updateState({ branchDialogOpen: true, branchNameDraft: pullRequest.sourceBranch, branchError: getOperationFailureMessage(result, "Choose another branch name."), branchCheckoutTarget: { kind: "pullRequest", pullRequest } });
+    })();
   }, [ensureTrustedRepo, runRepoOperation, updateState]);
 
   const stageFiles = useCallback(async (paths: string[], nextSelection?: FileSelection): Promise<void> => {
@@ -4195,6 +4231,7 @@ export function App(): ReactNode {
             onSwitchBranch={(branchName) => {
               void switchBranch(branchName);
             }}
+            onCheckoutRemoteBranch={checkoutRemoteBranch}
             onOpenBranchDialog={openBranchDialog}
             onOpenBranchManager={openBranchManager}
             onOpenUpstreamDialog={openUpstreamDialog}
@@ -4434,6 +4471,7 @@ export function App(): ReactNode {
                       onPresetChange={setPullRequestPreset}
                       onLoadMore={github.pullRequests.loadMore}
                       onOpenExternalUrl={openExternalUrl}
+                      onCheckout={checkoutPullRequest}
                       onRefresh={() => {
                         void Promise.allSettled([github.refresh("pullRequests"), github.refresh("openCounts")]);
                       }}
@@ -4682,7 +4720,8 @@ export function App(): ReactNode {
       <BranchDialog
         open={state.branchDialogOpen}
         branchName={state.branchNameDraft}
-        saving={state.runningOperation?.startsWith("Creating branch ") ?? false}
+        checkout={state.branchCheckoutTarget !== null}
+        saving={state.branchDialogOpen && state.runningOperation !== null}
         error={state.branchError}
         onOpenChange={(open) => {
           if (!open) {
@@ -5757,6 +5796,7 @@ function RepositoryPanel({
   onReorderRepositories,
   onShowInExplorer,
   onSwitchBranch,
+  onCheckoutRemoteBranch,
   onOpenBranchDialog,
   onOpenBranchManager,
   onOpenUpstreamDialog,
@@ -5792,6 +5832,7 @@ function RepositoryPanel({
   onReorderRepositories: (repoPaths: string[]) => void;
   onShowInExplorer: (repoPath: string) => void;
   onSwitchBranch: (branchName: string) => void;
+  onCheckoutRemoteBranch: (remoteBranch: GitRemoteBranch) => void;
   onOpenBranchDialog: () => void;
   onOpenBranchManager: () => void;
   onOpenUpstreamDialog: () => void;
@@ -5914,8 +5955,10 @@ function RepositoryPanel({
         <BranchFact
           currentBranch={summary?.branch ?? null}
           branches={summary?.branches ?? []}
+          remoteBranches={summary?.remoteBranches ?? []}
           disabled={running || !summary?.isValid}
           onSwitchBranch={onSwitchBranch}
+          onCheckoutRemoteBranch={onCheckoutRemoteBranch}
           onCreateBranch={onOpenBranchDialog}
           onManageBranches={onOpenBranchManager}
         />
@@ -5954,19 +5997,25 @@ function RepositoryPanel({
 function BranchFact({
   currentBranch,
   branches,
+  remoteBranches,
   disabled,
   onSwitchBranch,
+  onCheckoutRemoteBranch,
   onCreateBranch,
   onManageBranches
 }: {
   currentBranch: string | null;
   branches: GitBranch[];
+  remoteBranches: GitRemoteBranch[];
   disabled: boolean;
   onSwitchBranch: (branchName: string) => void;
+  onCheckoutRemoteBranch: (remoteBranch: GitRemoteBranch) => void;
   onCreateBranch: () => void;
   onManageBranches: () => void;
 }): ReactNode {
   const switchableBranches = branches.filter((branch) => !branch.current && branch.name !== currentBranch);
+  const localUpstreams = new Set(branches.flatMap((branch) => branch.upstream ? [branch.upstream] : []));
+  const checkoutableRemoteBranches = remoteBranches.filter((remoteBranch) => !localUpstreams.has(remoteBranch.name));
 
   return (
     <div className="repo-branch-fact">
@@ -5993,6 +6042,15 @@ function BranchFact({
                   <GitBranchIcon />
                   <span className="branch-menu-name">{branch.name}</span>
                   {branch.upstream ? <span className="branch-menu-upstream">{branch.upstream}</span> : null}
+                </DropdownMenuItem>
+              ))}
+              {checkoutableRemoteBranches.length ? <DropdownMenuSeparator /> : null}
+              {checkoutableRemoteBranches.length ? <DropdownMenuItem disabled>Remote branches</DropdownMenuItem> : null}
+              {checkoutableRemoteBranches.map((remoteBranch) => (
+                <DropdownMenuItem key={remoteBranch.name} onSelect={() => onCheckoutRemoteBranch(remoteBranch)}>
+                  <Download />
+                  <span className="branch-menu-name">{remoteBranch.branch}</span>
+                  <span className="branch-menu-upstream">{remoteBranch.remote}</span>
                 </DropdownMenuItem>
               ))}
               <DropdownMenuSeparator />
@@ -7306,6 +7364,7 @@ function PullRequestsView({
   onPresetChange,
   onLoadMore,
   onOpenExternalUrl,
+  onCheckout,
   onRefresh
 }: {
   summary: RepoSummary | null;
@@ -7325,6 +7384,7 @@ function PullRequestsView({
   onPresetChange: (value: string) => void;
   onLoadMore: () => void;
   onOpenExternalUrl: (url: string) => void;
+  onCheckout: (pullRequest: GitHubPullRequest) => void;
   onRefresh: () => void;
 }): ReactNode {
   const repository = summary?.githubRepository ?? null;
@@ -7373,7 +7433,7 @@ function PullRequestsView({
           <p className="empty-state">{filtered ? "No open pull requests match these filters." : "No open pull requests found."}</p>
         ) : (
           pullRequests.map((pullRequest) => (
-            <PullRequestRow key={pullRequest.number} pullRequest={pullRequest} onOpenExternalUrl={onOpenExternalUrl} />
+            <PullRequestRow key={pullRequest.number} pullRequest={pullRequest} busy={busy} onOpenExternalUrl={onOpenExternalUrl} onCheckout={onCheckout} />
           ))
         )}
         <GitHubListFooter label="pull requests" nextPage={nextPage} loading={loadingMore} error={pullRequests.length ? error : ""} disabled={busy} onLoadMore={onLoadMore} />
@@ -7384,29 +7444,29 @@ function PullRequestsView({
 
 function PullRequestRow({
   pullRequest,
-  onOpenExternalUrl
+  busy,
+  onOpenExternalUrl,
+  onCheckout
 }: {
   pullRequest: GitHubPullRequest;
+  busy: boolean;
   onOpenExternalUrl: (url: string) => void;
+  onCheckout: (pullRequest: GitHubPullRequest) => void;
 }): ReactNode {
   return (
-    <a
+    <div
       className="github-row pull-request-row"
-      href={pullRequest.url}
-      target="_blank"
-      rel="noreferrer"
       role="listitem"
-      onClick={(event) => {
-        event.preventDefault();
-        onOpenExternalUrl(pullRequest.url);
-      }}
     >
       <span className="github-issue-number">
         #{pullRequest.number}
         {pullRequest.draft ? <span className="github-draft-text">Draft</span> : null}
+        <Button type="button" variant="ghost" size="icon-xs" disabled={busy || !pullRequest.sourceBranch} aria-label={`Check out pull request #${pullRequest.number}`} title="Check out pull request" onClick={() => onCheckout(pullRequest)}>
+          <Download />
+        </Button>
       </span>
       <span className="min-w-0">
-        <span className="github-primary-text" title={pullRequest.title}>{pullRequest.title}</span>
+        <button type="button" className="github-primary-text text-left" title={pullRequest.title} onClick={() => onOpenExternalUrl(pullRequest.url)}>{pullRequest.title}</button>
         <span className="github-secondary-text" title={pullRequest.authorLogin}>
           {pullRequest.authorLogin} · {pullRequest.comments} {pullRequest.comments === 1 ? "comment" : "comments"}
         </span>
@@ -7416,7 +7476,7 @@ function PullRequestRow({
       </span>
       <GitHubLabels labels={pullRequest.labels} />
       <span className="truncate" title={formatDate(pullRequest.updatedAt)}>{formatDate(pullRequest.updatedAt)}</span>
-    </a>
+    </div>
   );
 }
 
@@ -8198,6 +8258,7 @@ function GenerateWithContextDialog({
 function BranchDialog({
   open,
   branchName,
+  checkout,
   saving,
   error,
   onOpenChange,
@@ -8206,6 +8267,7 @@ function BranchDialog({
 }: {
   open: boolean;
   branchName: string;
+  checkout: boolean;
   saving: boolean;
   error: string;
   onOpenChange: (open: boolean) => void;
@@ -8217,9 +8279,9 @@ function BranchDialog({
       <DialogContent className="sm:max-w-[420px]">
         <form className="grid gap-4" onSubmit={onCreate}>
           <DialogHeader>
-            <DialogTitle>New Branch</DialogTitle>
+            <DialogTitle>{checkout ? "Choose Local Branch Name" : "New Branch"}</DialogTitle>
             <DialogDescription className="sr-only">
-              Create a local branch from the current checkout.
+              {checkout ? "Choose a local branch name for the selected remote branch or pull request." : "Create a local branch from the current branch."}
             </DialogDescription>
           </DialogHeader>
 
@@ -8242,8 +8304,8 @@ function BranchDialog({
               Cancel
             </Button>
             <Button type="submit" disabled={saving}>
-              {saving ? <Loader2 className="animate-spin" /> : <Plus />}
-              {saving ? "Creating" : "Create"}
+              {saving ? <Loader2 className="animate-spin" /> : checkout ? <Download /> : <Plus />}
+              {saving ? (checkout ? "Checking out" : "Creating") : (checkout ? "Check Out" : "Create")}
             </Button>
           </DialogFooter>
         </form>
