@@ -2981,11 +2981,11 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: "Repository actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
-    await user.click(screen.getAllByRole("button", { name: "Add" })[0]!);
-    await user.type(screen.getAllByLabelText("Name")[0]!, "Build");
-    await user.type(screen.getAllByLabelText("Description")[0]!, " Compile the application ");
-    await user.type(screen.getAllByLabelText("Command")[0]!, "npm run build");
-    await user.click(screen.getAllByRole("button", { name: "Save" })[0]!);
+    await user.click(screen.getByRole("button", { name: "Add action" }));
+    await user.type(screen.getByLabelText("Name"), "Build");
+    await user.type(screen.getByLabelText(/Description/), " Compile the application ");
+    await user.type(screen.getByLabelText("Command"), "npm run build");
+    await user.click(screen.getByRole("button", { name: "Save Shared" }));
 
     await waitFor(() => {
       expect(githead.saveConfiguredActions).toHaveBeenCalledWith({
@@ -3028,15 +3028,14 @@ describe("App", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
 
     const actionsDialog = await screen.findByRole("dialog", { name: "Repository Actions" });
-    expect(actionsDialog.className).toContain("h-[min(820px,calc(100vh-2rem))]");
-    expect(actionsDialog.className).toContain("max-h-[min(820px,calc(100vh-2rem))]");
+    expect(actionsDialog.className).toContain("h-[min(760px,calc(100vh-2rem))]");
+    expect(actionsDialog.className).toContain("max-h-[min(760px,calc(100vh-2rem))]");
     expect(actionsDialog.className).toContain("overflow-hidden");
 
     const scrollArea = screen.getByTestId("repository-actions-scroll-area");
-    expect(scrollArea.className).toContain("flex-1");
+    expect(scrollArea.className).toContain("h-full");
     expect(scrollArea.className).toContain("min-h-0");
-    expect(scrollArea.className).toContain("overflow-y-auto");
-    expect(screen.getByDisplayValue("Action 14")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /14Action 14powershell/ })).toBeTruthy();
   });
 
   it("renders and runs configured repository actions", async () => {
@@ -3250,6 +3249,7 @@ describe("App", () => {
     await user.click(await screen.findByRole("button", { name: "Repository actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
 
+    await user.click(screen.getByRole("tab", { name: /Local/ }));
     expect(await screen.findByText("Overrides Shared")).toBeTruthy();
   });
 
@@ -3282,8 +3282,9 @@ describe("App", () => {
 
     await user.click(await screen.findByRole("button", { name: "Repository actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
+    await user.click(screen.getByRole("button", { name: /2Testbash/ }));
     await user.click(await screen.findByRole("button", { name: "Move Test up" }));
-    await user.click(screen.getAllByRole("button", { name: "Save" })[0]!);
+    await user.click(screen.getByRole("button", { name: "Save Shared" }));
 
     await waitFor(() => {
       expect(githead.saveConfiguredActions).toHaveBeenCalledWith({
@@ -3332,10 +3333,55 @@ describe("App", () => {
 
     await user.click(await screen.findByRole("button", { name: "Repository actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
+    await user.click(screen.getByRole("tab", { name: /Local/ }));
 
     expect(await screen.findByText("This file contains comments. Edit it manually to preserve them.")).toBeTruthy();
-    expect((screen.getAllByRole("button", { name: "Add" })[1] as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getAllByRole("button", { name: "Save" })[1] as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Add local action" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Save Local" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("undoes draft Repository Action deletions before saving", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      actionsConfig: {
+        hasGitheadDir: true,
+        shared: {
+          exists: true,
+          actions: [{ name: "Build", description: "", command: "npm run build", shell: "powershell" }]
+        },
+        actions: [{ name: "Build", description: "", command: "npm run build", shell: "powershell" }]
+      }
+    }));
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Repository actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
+    await user.click(await screen.findByRole("button", { name: "Delete Build" }));
+
+    expect(screen.getByText("1 action removed")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+
+    expect(await screen.findByDisplayValue("Build")).toBeTruthy();
+    expect(screen.queryByText("1 action removed")).toBeNull();
+  });
+
+  it("warns before closing Repository Actions with unsaved changes", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("button", { name: "Repository actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
+    await user.click(screen.getByRole("button", { name: "Add action" }));
+    await user.type(screen.getByLabelText("Name"), "Build");
+    await user.click(screen.getByRole("button", { name: "Close" }));
+
+    expect(await screen.findByRole("dialog", { name: "Discard unsaved changes?" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(screen.getByRole("dialog", { name: "Repository Actions" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await user.click(await screen.findByRole("button", { name: "Discard changes" }));
+    expect(screen.queryByRole("dialog", { name: "Repository Actions" })).toBeNull();
   });
 
   it("refreshes File Status after active repository file changes", async () => {

@@ -1,6 +1,4 @@
 import {
-  ArrowDown,
-  ArrowUp,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -25,7 +23,6 @@ import {
   Minus,
   Monitor,
   Moon,
-  Pencil,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -77,8 +74,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
@@ -97,6 +92,11 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { TagDialog, type TagDialogState } from "./TagDialog";
+import {
+  RepositoryActionsDialog,
+  type RepositoryActionDraft,
+  type RepositoryActionManagerDraft
+} from "./RepositoryActionsDialog";
 import {
   Tooltip,
   TooltipContent,
@@ -225,15 +225,6 @@ interface GitIdentityPromptState {
   scope: GitIdentityScope;
   error: string;
   retryMessage: string;
-}
-
-interface RepositoryActionDraft extends GitConfiguredAction {
-  id: string;
-}
-
-interface RepositoryActionManagerDraft {
-  shared: RepositoryActionDraft[];
-  local: RepositoryActionDraft[];
 }
 
 interface RepositoryActionManagerState {
@@ -2048,6 +2039,28 @@ export function App(): ReactNode {
         }
       }
     }));
+  }, [updateState]);
+
+  const restoreRepositoryAction = useCallback((
+    target: GitConfiguredActionFile,
+    index: number,
+    action: RepositoryActionDraft
+  ): void => {
+    updateState((current) => {
+      const actions = [...current.actionManager.draft[target]];
+      actions.splice(Math.min(index, actions.length), 0, action);
+      return {
+        ...current,
+        actionManager: {
+          ...current.actionManager,
+          error: "",
+          draft: {
+            ...current.actionManager.draft,
+            [target]: actions
+          }
+        }
+      };
+    });
   }, [updateState]);
 
   const moveRepositoryAction = useCallback((target: GitConfiguredActionFile, index: number, direction: -1 | 1): void => {
@@ -4711,6 +4724,7 @@ export function App(): ReactNode {
         onDraftChange={updateActionManagerDraft}
         onAddAction={addRepositoryAction}
         onDeleteAction={deleteRepositoryAction}
+        onRestoreAction={restoreRepositoryAction}
         onMoveAction={moveRepositoryAction}
         onSave={(target) => {
           void saveRepositoryActions(target);
@@ -9566,305 +9580,6 @@ function getReasoningEffortLabel(effort: AiReasoningEffort): string {
   return effort.charAt(0).toUpperCase() + effort.slice(1);
 }
 
-function RepositoryActionsDialog({
-  open,
-  summary,
-  draft,
-  savingTarget,
-  error,
-  onOpenChange,
-  onDraftChange,
-  onAddAction,
-  onDeleteAction,
-  onMoveAction,
-  onSave
-}: {
-  open: boolean;
-  summary: RepoSummary | null;
-  draft: RepositoryActionManagerDraft;
-  savingTarget: GitConfiguredActionFile | null;
-  error: string;
-  onOpenChange: (open: boolean) => void;
-  onDraftChange: (target: GitConfiguredActionFile, index: number, patch: Partial<GitConfiguredAction>) => void;
-  onAddAction: (target: GitConfiguredActionFile) => void;
-  onDeleteAction: (target: GitConfiguredActionFile, index: number) => void;
-  onMoveAction: (target: GitConfiguredActionFile, index: number, direction: -1 | 1) => void;
-  onSave: (target: GitConfiguredActionFile) => void;
-}): ReactNode {
-  const actionsConfig = summary?.actionsConfig;
-  const sharedConfig = actionsConfig?.shared ?? createFallbackActionFileConfig("shared");
-  const localConfig = actionsConfig?.local ?? createFallbackActionFileConfig("local");
-  const sharedActionNames = new Set(draft.shared.map((action) => getRepositoryActionKey(action.name)));
-  const saving = savingTarget !== null;
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="h-[min(820px,calc(100vh-2rem))] max-h-[min(820px,calc(100vh-2rem))] overflow-hidden sm:max-w-4xl">
-        <div className="flex h-full min-h-0 flex-col gap-4">
-          <DialogHeader>
-            <p className="eyebrow">Repository</p>
-            <DialogTitle>Repository Actions</DialogTitle>
-            <DialogDescription className="sr-only">
-              Create, edit, delete, and reorder repository actions.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto pr-1 lg:grid-cols-2" data-testid="repository-actions-scroll-area">
-            <RepositoryActionFileSection
-              target="shared"
-              title="Shared"
-              config={sharedConfig}
-              actions={draft.shared}
-              saving={saving}
-              savingTarget={savingTarget}
-              overrideNames={new Set()}
-              onDraftChange={onDraftChange}
-              onAddAction={onAddAction}
-              onDeleteAction={onDeleteAction}
-              onMoveAction={onMoveAction}
-              onSave={onSave}
-            />
-            <RepositoryActionFileSection
-              target="local"
-              title="Local"
-              config={localConfig}
-              actions={draft.local}
-              saving={saving}
-              savingTarget={savingTarget}
-              overrideNames={sharedActionNames}
-              onDraftChange={onDraftChange}
-              onAddAction={onAddAction}
-              onDeleteAction={onDeleteAction}
-              onMoveAction={onMoveAction}
-              onSave={onSave}
-            />
-          </div>
-
-          <p className="min-h-5 text-sm text-destructive" role="alert">{error}</p>
-          <DialogFooter>
-            <Button type="button" variant="outline" disabled={saving} onClick={() => onOpenChange(false)}>
-              Close
-            </Button>
-          </DialogFooter>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function RepositoryActionFileSection({
-  target,
-  title,
-  config,
-  actions,
-  saving,
-  savingTarget,
-  overrideNames,
-  onDraftChange,
-  onAddAction,
-  onDeleteAction,
-  onMoveAction,
-  onSave
-}: {
-  target: GitConfiguredActionFile;
-  title: string;
-  config: GitConfiguredActionFileConfig;
-  actions: RepositoryActionDraft[];
-  saving: boolean;
-  savingTarget: GitConfiguredActionFile | null;
-  overrideNames: Set<string>;
-  onDraftChange: (target: GitConfiguredActionFile, index: number, patch: Partial<GitConfiguredAction>) => void;
-  onAddAction: (target: GitConfiguredActionFile) => void;
-  onDeleteAction: (target: GitConfiguredActionFile, index: number) => void;
-  onMoveAction: (target: GitConfiguredActionFile, index: number, direction: -1 | 1) => void;
-  onSave: (target: GitConfiguredActionFile) => void;
-}): ReactNode {
-  const blockedMessage = config.error || config.blockedReason;
-  const disabled = saving || Boolean(blockedMessage) || !config.writable;
-  const fileLabel = `.githead/${config.fileName}`;
-  const isSaving = savingTarget === target;
-
-  return (
-    <section className="grid min-h-0 gap-3 rounded-md border bg-card p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="text-sm font-semibold">{title}</h3>
-          <p className="truncate text-xs text-muted-foreground">{fileLabel}</p>
-        </div>
-        <div className="flex shrink-0 gap-2">
-          <Button type="button" size="sm" variant="outline" disabled={disabled} onClick={() => onAddAction(target)}>
-            <Plus />
-            Add
-          </Button>
-          <Button type="button" size="sm" disabled={disabled} onClick={() => onSave(target)}>
-            {isSaving ? <Loader2 className="animate-spin" /> : <Save />}
-            Save
-          </Button>
-        </div>
-      </div>
-
-      {blockedMessage ? (
-        <p className="text-sm text-destructive" role="alert">{blockedMessage}</p>
-      ) : null}
-
-      <div className="grid gap-3">
-        {actions.length === 0 ? (
-          <p className="rounded-md border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
-            No {title.toLocaleLowerCase()} actions
-          </p>
-        ) : actions.map((action, index) => {
-          const overridden = target === "local" && overrideNames.has(getRepositoryActionKey(action.name));
-          return (
-            <div key={action.id} className="grid gap-3 rounded-md border bg-background p-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex min-w-0 items-center gap-2">
-                  <Pencil className="size-4 text-muted-foreground" aria-hidden="true" />
-                  <span className="truncate text-sm font-medium">
-                    {action.name.trim() || "Untitled Repository Action"}
-                  </span>
-                  {overridden ? <Badge variant="secondary">Overrides Shared</Badge> : null}
-                </div>
-                <div className="flex shrink-0 gap-1">
-                  <TooltipButton
-                    type="button"
-                    size="icon-xs"
-                    variant="ghost"
-                    aria-label={`Move ${action.name || "Repository Action"} up`}
-                    tooltip={`Move ${action.name || "repository action"} up`}
-                    disabledTooltip={index === 0 ? "This action is already first" : undefined}
-                    disabled={disabled || index === 0}
-                    onClick={() => onMoveAction(target, index, -1)}
-                  >
-                    <ArrowUp />
-                  </TooltipButton>
-                  <TooltipButton
-                    type="button"
-                    size="icon-xs"
-                    variant="ghost"
-                    aria-label={`Move ${action.name || "Repository Action"} down`}
-                    tooltip={`Move ${action.name || "repository action"} down`}
-                    disabledTooltip={index === actions.length - 1 ? "This action is already last" : undefined}
-                    disabled={disabled || index === actions.length - 1}
-                    onClick={() => onMoveAction(target, index, 1)}
-                  >
-                    <ArrowDown />
-                  </TooltipButton>
-                  <TooltipButton
-                    type="button"
-                    size="icon-xs"
-                    variant="ghost"
-                    aria-label={`Delete ${action.name || "Repository Action"}`}
-                    tooltip={`Delete ${action.name || "repository action"}`}
-                    disabled={disabled}
-                    onClick={() => onDeleteAction(target, index)}
-                  >
-                    <Trash2 />
-                  </TooltipButton>
-                </div>
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor={`${target}-action-${action.id}-name`}>Name</Label>
-                <Input
-                  id={`${target}-action-${action.id}-name`}
-                  value={action.name}
-                  disabled={disabled}
-                  onChange={(event) => onDraftChange(target, index, {
-                    name: event.target.value
-                  })}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor={`${target}-action-${action.id}-command`}>Command</Label>
-                <Textarea
-                  id={`${target}-action-${action.id}-command`}
-                  value={action.command}
-                  disabled={disabled}
-                  className="min-h-20 resize-y font-mono text-sm"
-                  onChange={(event) => onDraftChange(target, index, {
-                    command: event.target.value
-                  })}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor={`${target}-action-${action.id}-shell`}>Shell</Label>
-                <ActionShellSelect
-                  id={`${target}-action-${action.id}-shell`}
-                  value={action.shell}
-                  disabled={disabled}
-                  onValueChange={(shell) => onDraftChange(target, index, {
-                    shell
-                  })}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor={`${target}-action-${action.id}-description`}>Description</Label>
-                <Textarea
-                  id={`${target}-action-${action.id}-description`}
-                  value={action.description}
-                  disabled={disabled}
-                  className="min-h-16 resize-y"
-                  onChange={(event) => onDraftChange(target, index, {
-                    description: event.target.value
-                  })}
-                />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
-function ActionShellSelect({
-  id,
-  value,
-  disabled,
-  onValueChange
-}: {
-  id: string;
-  value: GitConfiguredAction["shell"];
-  disabled: boolean;
-  onValueChange: (shell: GitConfiguredAction["shell"]) => void;
-}): ReactNode {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          id={id}
-          type="button"
-          variant="outline"
-          disabled={disabled}
-          className="h-9 w-full justify-between px-3 font-normal"
-        >
-          <span>{value}</span>
-          <ChevronDown />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        className="w-[var(--radix-dropdown-menu-trigger-width)]"
-      >
-        <DropdownMenuRadioGroup
-          value={value}
-          onValueChange={(nextValue) => {
-            if (isRepositoryActionShell(nextValue)) {
-              onValueChange(nextValue);
-            }
-          }}
-        >
-          {GIT_CONFIGURED_ACTION_SHELLS.map((shell) => (
-            <DropdownMenuRadioItem key={shell} value={shell}>
-              {shell}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
 function formatZoomFactor(zoomFactor: number): string {
   return `${Math.round(zoomFactor * 100)}%`;
 }
@@ -9949,10 +9664,6 @@ function validateRepositoryActionDrafts(
   }
 
   return "";
-}
-
-function isRepositoryActionShell(value: string): value is GitConfiguredAction["shell"] {
-  return GIT_CONFIGURED_ACTION_SHELLS.includes(value as GitConfiguredAction["shell"]);
 }
 
 function getActionFileLabel(target: GitConfiguredActionFile): string {
