@@ -2220,6 +2220,40 @@ describe("GitService", () => {
     ]);
   });
 
+  it("checks out a fetched remote branch with tracking", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"), ok("feature/nav\n"),
+      ok("origin\thttps://github.com/openai/githead.git (fetch)\n"),
+      ok("refs/remotes/origin/feature/nav\torigin/feature/nav\t\n"),
+      failure(""), ok("Switched to a new branch 'feature/nav'\n")
+    ]);
+    const result = await new GitService(runner).checkoutRemoteBranch({ repoPath: "D:\\Repo", branchName: "feature/nav", remoteBranch: "origin/feature/nav" });
+    expect(result.exitCode).toBe(0);
+    expect(runner.calls.at(-1)?.args).toEqual(["-C", "D:\\Repo", "switch", "-c", "feature/nav", "--track", "origin/feature/nav"]);
+  });
+
+  it("classifies a remote checkout name collision", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"), ok("feature/nav\n"),
+      ok("origin\thttps://github.com/openai/githead.git (fetch)\n"),
+      ok("refs/remotes/origin/feature/nav\torigin/feature/nav\t\n"),
+      ok(""), failure("fatal: no upstream")
+    ]);
+    const result = await new GitService(runner).checkoutRemoteBranch({ repoPath: "D:\\Repo", branchName: "feature/nav", remoteBranch: "origin/feature/nav" });
+    expect(result.errorKind).toBe("branch-name-conflict");
+  });
+
+  it("fetches a GitHub pull request head without adding a fork remote", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"), ok("feature/fork\n"), ok("true\n"), ok("https://github.com/openai/githead.git\n"),
+      failure(""), ok("fetched\n"), ok("switched\n")
+    ]);
+    const result = await new GitService(runner).checkoutGitHubPullRequest({ repoPath: "D:\\Repo", branchName: "feature/fork", pullRequestNumber: 42, sourceBranch: "feature/fork", sourceRepositoryFullName: "contributor/githead" });
+    expect(result.exitCode).toBe(0);
+    expect(runner.calls.at(-2)?.args).toEqual(["-C", "D:\\Repo", "fetch", "origin", "refs/pull/42/head"]);
+    expect(runner.calls.at(-1)?.args).toEqual(["-C", "D:\\Repo", "switch", "-c", "feature/fork", "FETCH_HEAD"]);
+  });
+
   it("renames a local branch without force", async () => {
     const runner = new FakeRunner([ok("true\n"), ok("feature/old\n"), ok("feature/new\n"), ok(), failure(""), ok()]);
     const service = new GitService(runner);

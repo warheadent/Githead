@@ -97,6 +97,7 @@ interface GitHubApiPullRequest {
   } | null;
   head?: {
     ref?: string | null;
+    repo?: { full_name?: string | null } | null;
   } | null;
   base?: {
     ref?: string | null;
@@ -277,6 +278,7 @@ export class GitHubService {
           state: normalizeText(pullRequest.state, "open"),
           authorLogin: normalizeText(pullRequest.user?.login, "-"),
           sourceBranch: normalizeText(pullRequest.head?.ref, ""),
+          sourceRepositoryFullName: normalizeText(pullRequest.head?.repo?.full_name, ""),
           targetBranch: normalizeText(pullRequest.base?.ref, ""),
           labels: normalizeLabels(pullRequest.labels ?? []),
           comments: sumCounts(pullRequest.comments, pullRequest.review_comments),

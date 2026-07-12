@@ -6,6 +6,8 @@ import type {
   GitAction,
   GitBranch,
   GitBranchRequest,
+  GitRemoteBranchCheckoutRequest,
+  GitHubPullRequestCheckoutRequest,
   GitRenameBranchRequest,
   GitDeleteBranchRequest,
   GitAddRemoteRequest,
@@ -709,6 +711,14 @@ export class LoreService implements VcsService {
 
   async publishBranch(request: GitPublishBranchRequest): Promise<GitRunResult> {
     return this.runFailure(request.repoPath, "publish", "Publishing branches is not supported for Lore repositories.");
+  }
+
+  async checkoutRemoteBranch(request: GitRemoteBranchCheckoutRequest): Promise<GitOperationResult> {
+    return this.failure(request.repoPath, "Remote branch checkout is not supported for Lore repositories.");
+  }
+
+  async checkoutGitHubPullRequest(request: GitHubPullRequestCheckoutRequest): Promise<GitOperationResult> {
+    return this.failure(request.repoPath, "GitHub pull request checkout is not supported for Lore repositories.");
   }
 
   async renameBranch(request: GitRenameBranchRequest): Promise<GitOperationResult> {

@@ -8,6 +8,8 @@ import type {
   GitAction,
   GitBranch,
   GitBranchRequest,
+  GitRemoteBranchCheckoutRequest,
+  GitHubPullRequestCheckoutRequest,
   GitRenameBranchRequest,
   GitDeleteBranchRequest,
   GitAddRemoteRequest,
@@ -987,6 +989,52 @@ export class GitService {
       `--set-upstream-to=${upstream}`,
       branchResult.branchName
     ]);
+  }
+
+  async checkoutRemoteBranch(request: GitRemoteBranchCheckoutRequest): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+    const branchResult = await this.validateBranchName(request.repoPath, request.branchName);
+    if ("error" in branchResult) return this.createOperationFailure(request.repoPath, branchResult.error);
+    const remoteBranches = await this.getRemoteBranches(request.repoPath);
+    if (!remoteBranches.some((branch) => branch.name === request.remoteBranch)) {
+      return this.createOperationFailure(request.repoPath, "Remote branch is not available locally. Fetch and try again.");
+    }
+    const existing = await this.runGit(request.repoPath, ["show-ref", "--verify", "--quiet", `refs/heads/${branchResult.branchName}`]);
+    if (existing.exitCode === 0) {
+      const upstream = await this.runGit(request.repoPath, ["rev-parse", "--abbrev-ref", `${branchResult.branchName}@{upstream}`]);
+      if (upstream.exitCode === 0 && upstream.stdout.trim() === request.remoteBranch) {
+        return this.runGitOperation(request.repoPath, ["switch", "--no-guess", branchResult.branchName]);
+      }
+      return { ...this.createOperationFailure(request.repoPath, "A different local branch already uses this name."), errorKind: "branch-name-conflict" };
+    }
+    return this.runGitOperation(request.repoPath, ["switch", "-c", branchResult.branchName, "--track", request.remoteBranch]);
+  }
+
+  async checkoutGitHubPullRequest(request: GitHubPullRequestCheckoutRequest): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+    const branchResult = await this.validateBranchName(request.repoPath, request.branchName);
+    if ("error" in branchResult) return this.createOperationFailure(request.repoPath, branchResult.error);
+    if (!Number.isSafeInteger(request.pullRequestNumber) || request.pullRequestNumber < 1) {
+      return this.createOperationFailure(request.repoPath, "Pull request number is invalid.");
+    }
+    const repository = await this.getGitHubRepository(request.repoPath);
+    if (!repository) return this.createOperationFailure(request.repoPath, "A supported GitHub Origin is required.");
+    const existing = await this.runGit(request.repoPath, ["show-ref", "--verify", "--quiet", `refs/heads/${branchResult.branchName}`]);
+    if (existing.exitCode === 0) {
+      return { ...this.createOperationFailure(request.repoPath, "A local branch already uses this name."), errorKind: "branch-name-conflict" };
+    }
+    const fetched = await this.runGitOperation(request.repoPath, ["fetch", "origin", `refs/pull/${request.pullRequestNumber}/head`]);
+    if (fetched.exitCode !== 0) return fetched;
+    const switched = await this.runGitOperation(request.repoPath, ["switch", "-c", branchResult.branchName, "FETCH_HEAD"]);
+    if (switched.exitCode !== 0) return switched;
+    if (request.sourceRepositoryFullName.toLowerCase() !== repository.fullName.toLowerCase()) return switched;
+    const upstream = `origin/${request.sourceBranch}`;
+    const remoteBranches = await this.getRemoteBranches(request.repoPath);
+    if (!remoteBranches.some((branch) => branch.name === upstream)) return switched;
+    const tracked = await this.runGitOperation(request.repoPath, ["branch", "--set-upstream-to", upstream, branchResult.branchName]);
+    return tracked.exitCode === 0 ? { ...tracked, stdout: `${fetched.stdout}${switched.stdout}${tracked.stdout}` } : tracked;
   }
 
   async updateSubmodules(request: GitSubmoduleRequest): Promise<GitOperationResult> {

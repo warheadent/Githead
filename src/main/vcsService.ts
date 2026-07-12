@@ -36,6 +36,8 @@ export type VcsService = Pick<
   | "createTag"
   | "deleteTag"
   | "switchBranch"
+  | "checkoutRemoteBranch"
+  | "checkoutGitHubPullRequest"
   | "createBranch"
   | "renameBranch"
   | "deleteBranch"

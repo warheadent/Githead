@@ -4917,6 +4917,39 @@ describe("App", () => {
     expect(screen.getByText("Claude Code was not detected.")).toBeTruthy();
   });
 
+  it("checks out a fetched remote branch from the repository panel", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      remoteBranches: [{ name: "origin/feature/review", remote: "origin", branch: "feature/review" }]
+    }));
+    render(<App />);
+    await screen.findByText("main");
+    await user.click(screen.getByRole("button", { name: "Switch branch" }));
+    await user.click(await screen.findByRole("menuitem", { name: /feature\/review.*origin/ }));
+    await waitFor(() => expect(githead.checkoutRemoteBranch).toHaveBeenCalledWith({
+      repoPath, branchName: "feature/review", remoteBranch: "origin/feature/review"
+    }));
+  });
+
+  it("hides only remote branches already tracked by a local branch", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      branches: [
+        { name: "main", current: true, upstream: "origin/main" },
+        { name: "release", current: false, upstream: "upstream/release" }
+      ],
+      remoteBranches: [
+        { name: "origin/main", remote: "origin", branch: "main" },
+        { name: "origin/release", remote: "origin", branch: "release" }
+      ]
+    }));
+    render(<App />);
+    await screen.findByText("main");
+    await user.click(screen.getByRole("button", { name: "Switch branch" }));
+    expect(screen.queryByRole("menuitem", { name: /main.*origin/ })).toBeNull();
+    expect(await screen.findByRole("menuitem", { name: /release.*origin/ })).toBeTruthy();
+  });
+
   it("manages branches and explains safe-delete refusals", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ branches: [
@@ -5352,6 +5385,8 @@ function createGitheadMock(): GitheadApi {
     createTag: vi.fn().mockResolvedValue(okOperation),
     deleteTag: vi.fn().mockResolvedValue(okOperation),
     switchBranch: vi.fn().mockResolvedValue(okOperation),
+    checkoutRemoteBranch: vi.fn().mockResolvedValue(okOperation),
+    checkoutGitHubPullRequest: vi.fn().mockResolvedValue(okOperation),
     createBranch: vi.fn().mockResolvedValue(okOperation),
     renameBranch: vi.fn().mockResolvedValue(okOperation),
     deleteBranch: vi.fn().mockResolvedValue(okOperation),
@@ -5690,6 +5725,7 @@ function createPullRequest(overrides: Partial<GitHubPullRequest> = {}): GitHubPu
     state: "open",
     authorLogin: "taylor",
     sourceBranch: "feature/default",
+    sourceRepositoryFullName: "openai/githead",
     targetBranch: "main",
     labels: [],
     comments: 0,
