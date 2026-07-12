@@ -10,6 +10,7 @@ import javascript from "highlight.js/lib/languages/javascript";
 import json from "highlight.js/lib/languages/json";
 import markdown from "highlight.js/lib/languages/markdown";
 import php from "highlight.js/lib/languages/php";
+import powershell from "highlight.js/lib/languages/powershell";
 import properties from "highlight.js/lib/languages/properties";
 import python from "highlight.js/lib/languages/python";
 import ruby from "highlight.js/lib/languages/ruby";
@@ -48,6 +49,10 @@ const LANGUAGE_BY_EXTENSION = new Map<string, string>([
   ["md", "markdown"],
   ["mjs", "javascript"],
   ["php", "php"],
+  ["ps1", "powershell"],
+  ["ps1xml", "powershell"],
+  ["psd1", "powershell"],
+  ["psm1", "powershell"],
   ["properties", "properties"],
   ["py", "python"],
   ["rb", "ruby"],
@@ -82,6 +87,7 @@ hljs.registerLanguage("javascript", javascript);
 hljs.registerLanguage("json", json);
 hljs.registerLanguage("markdown", markdown);
 hljs.registerLanguage("php", php);
+hljs.registerLanguage("powershell", powershell);
 hljs.registerLanguage("properties", properties);
 hljs.registerLanguage("python", python);
 hljs.registerLanguage("ruby", ruby);

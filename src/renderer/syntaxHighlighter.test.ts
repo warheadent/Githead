@@ -16,6 +16,11 @@ describe("detectDiffLanguage", () => {
     expect(detectDiffLanguage("src/main.py")).toBe("python");
     expect(detectDiffLanguage("src/main.rb")).toBe("ruby");
     expect(detectDiffLanguage("db/schema.sql")).toBe("sql");
+    expect(detectDiffLanguage("scripts/deploy.ps1")).toBe("powershell");
+    expect(detectDiffLanguage("modules/Githead.psm1")).toBe("powershell");
+    expect(detectDiffLanguage("config/Githead.psd1")).toBe("powershell");
+    expect(detectDiffLanguage("types/Githead.ps1xml")).toBe("powershell");
+    expect(detectDiffLanguage("scripts/Deploy.PS1")).toBe("powershell");
   });
 
   it("maps common extensionless configuration filenames", () => {
@@ -38,6 +43,14 @@ describe("highlightDiffCode", () => {
     expect(result.kind).toBe("highlighted");
     expect(result.value).toContain("hljs-keyword");
     expect(result.value).toContain("const");
+  });
+
+  it("highlights PowerShell code lines", () => {
+    const result = highlightDiffCode("scripts/deploy.ps1", "$service = Get-Service -Name 'Githead'");
+
+    expect(result.kind).toBe("highlighted");
+    expect(result.value).toContain("hljs-variable");
+    expect(result.value).toContain("$service");
   });
 
   it("returns plain code for unsupported file types and empty lines", () => {
