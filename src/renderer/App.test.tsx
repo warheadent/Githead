@@ -2905,6 +2905,68 @@ describe("App", () => {
     expect(await screen.findByText("Build complete")).toBeTruthy();
   });
 
+  it("runs repeated configured actions concurrently and tracks each completion", async () => {
+    const user = userEvent.setup();
+    const first = defer<Awaited<ReturnType<GitheadApi["runConfiguredAction"]>>>();
+    const second = defer<Awaited<ReturnType<GitheadApi["runConfiguredAction"]>>>();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      actionsConfig: {
+        hasGitheadDir: true,
+        actions: [{ name: "Build", command: "npm run build", shell: "powershell" }],
+        error: ""
+      }
+    }));
+    vi.mocked(githead.runConfiguredAction)
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+
+    render(<App />);
+
+    for (let index = 0; index < 2; index += 1) {
+      await user.click(await screen.findByRole("button", { name: "Repository actions" }));
+      await user.click(await screen.findByRole("menuitem", { name: "Build" }));
+    }
+
+    expect(await screen.findByText("2 actions running")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Repository actions" }).textContent).toContain("Actions 2");
+
+    first.resolve(createRunResult("Build"));
+    await flushRendererAsync();
+    expect(await screen.findByText("Build running")).toBeTruthy();
+
+    second.resolve(createRunResult("Build"));
+    await flushRendererAsync();
+    expect(await screen.findByText("Build complete")).toBeTruthy();
+  });
+
+  it("allows Fetch to start while a configured action is running", async () => {
+    const user = userEvent.setup();
+    const configured = defer<Awaited<ReturnType<GitheadApi["runConfiguredAction"]>>>();
+    const fetch = defer<Awaited<ReturnType<GitheadApi["runGitAction"]>>>();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      actionsConfig: {
+        hasGitheadDir: true,
+        actions: [{ name: "Build", command: "npm run build", shell: "powershell" }],
+        error: ""
+      }
+    }));
+    vi.mocked(githead.runConfiguredAction).mockReturnValue(configured.promise);
+    vi.mocked(githead.runGitAction).mockReturnValue(fetch.promise);
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Repository actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Build" }));
+    await user.click(await screen.findByRole("button", { name: "Fetch" }));
+
+    expect(githead.runGitAction).toHaveBeenCalledWith({ repoPath, action: "fetch" });
+    expect(screen.getByRole("button", { name: "Repository actions" }).hasAttribute("disabled")).toBe(false);
+
+    fetch.resolve(createRunResult("fetch"));
+    configured.resolve(createRunResult("Build"));
+    await flushRendererAsync();
+  });
+
   it("shows configured action errors without enabling execution", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({

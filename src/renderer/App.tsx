@@ -304,6 +304,7 @@ interface AppState {
   publishError: string;
   createPrDialog: CreatePrDialogState;
   runningAction: string | null;
+  configuredActionRuns: ConfiguredActionRun[];
   runningOperation: string | null;
   lastResult: GitRunResult | null;
   lastOperationResult: GitOperationResult | null;
@@ -374,6 +375,12 @@ interface RequestIds {
   pullRequests: number;
   issues: number;
   remoteConfigs: number;
+}
+
+interface ConfiguredActionRun {
+  id: number;
+  name: string;
+  repoPath: string;
 }
 
 interface RemoteManagerState {
@@ -528,6 +535,7 @@ const initialState: AppState = {
   publishError: "",
   createPrDialog: emptyCreatePrDialog,
   runningAction: null,
+  configuredActionRuns: [],
   runningOperation: null,
   lastResult: null,
   lastOperationResult: null,
@@ -610,6 +618,7 @@ export function App(): ReactNode {
   const trustDialogResolveRef = useRef<((trusted: boolean) => void) | null>(null);
   const repoRefreshInFlightRef = useRef(false);
   const autoFetchInFlightRef = useRef(false);
+  const configuredActionRunIdRef = useRef(0);
   const fileStatusDirtyRef = useRef(false);
   const windowFocusedRef = useRef(true);
   const [trustDialogOpen, setTrustDialogOpen] = useState(false);
@@ -635,10 +644,13 @@ export function App(): ReactNode {
     }));
   }, [updateState]);
 
-  const appendSystemLine = useCallback((text: string): void => {
+  const appendSystemLine = useCallback((
+    text: string,
+    source: { runId?: string; action?: string } = {}
+  ): void => {
     appendLog({
-      runId: "renderer",
-      action: stateRef.current.runningAction ?? "fetch",
+      runId: source.runId ?? "renderer",
+      action: source.action ?? stateRef.current.runningAction ?? "fetch",
       stream: "system",
       text: `${text}\n`,
       timestamp: new Date().toISOString()
@@ -1914,11 +1926,12 @@ export function App(): ReactNode {
     }
 
     let completedResult: GitRunResult | null = null;
-    updateState({
+    updateState((latest) => ({
+      ...latest,
       runningAction: action,
       lastResult: null,
-      activityLog: createActivityLogState()
-    });
+      activityLog: hasProcessRunInFlight(latest) ? latest.activityLog : createActivityLogState()
+    }));
 
     try {
       const lastResult = await window.githead.runGitAction({
@@ -2082,7 +2095,7 @@ export function App(): ReactNode {
 
   const runConfiguredAction = useCallback(async (action: GitConfiguredAction): Promise<void> => {
     const current = stateRef.current;
-    if (!current.summary?.isValid || isOperationRunning(current)) {
+    if (!current.summary?.isValid) {
       return;
     }
 
@@ -2090,49 +2103,65 @@ export function App(): ReactNode {
       return;
     }
 
-    updateState({
-      runningAction: action.name,
+    const repoPath = stateRef.current.repoPath;
+    const invocation: ConfiguredActionRun = {
+      id: ++configuredActionRunIdRef.current,
+      name: action.name,
+      repoPath
+    };
+    updateState((latest) => ({
+      ...latest,
+      configuredActionRuns: [...latest.configuredActionRuns, invocation],
       lastResult: null,
       activeView: "activity",
-      activityLog: createActivityLogState()
-    });
+      activityLog: hasProcessRunInFlight(latest) ? latest.activityLog : createActivityLogState()
+    }));
 
     try {
       const lastResult = await window.githead.runConfiguredAction({
-        repoPath: stateRef.current.repoPath,
+        repoPath,
         name: action.name
       });
-      updateState({
+      updateState((latest) => isSameRepoPath(repoPath, latest.repoPath) ? {
+        ...latest,
         lastResult
-      });
+      } : latest);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Configured action failed.";
-      updateState((latest) => ({
+      updateState((latest) => isSameRepoPath(repoPath, latest.repoPath) ? {
         ...latest,
         lastResult: {
           runId: "renderer-error",
           action: action.name,
-          repoPath: latest.repoPath,
+          repoPath,
           exitCode: -1,
           stdout: "",
           stderr: message,
           startedAt: new Date().toISOString(),
           endedAt: new Date().toISOString()
         }
-      }));
-      appendSystemLine(message);
+      } : latest);
+      appendSystemLine(message, {
+        runId: `renderer-${invocation.id}`,
+        action: action.name
+      });
     } finally {
-      updateState((latest) => invalidateHistory({
-        ...latest,
-        runningAction: null
-      }));
-      await refreshRepo();
+      updateState((latest) => {
+        const next = {
+          ...latest,
+          configuredActionRuns: latest.configuredActionRuns.filter((run) => run.id !== invocation.id)
+        };
+        return isSameRepoPath(repoPath, latest.repoPath) ? invalidateHistory(next) : next;
+      });
+      if (isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        await refreshRepo();
+      }
     }
   }, [appendSystemLine, ensureTrustedRepo, refreshRepo, updateState]);
 
   const openActionManager = useCallback((): void => {
     const current = stateRef.current;
-    if (!current.summary?.isValid || isOperationRunning(current)) {
+    if (!current.summary?.isValid) {
       return;
     }
 
@@ -2676,7 +2705,9 @@ export function App(): ReactNode {
     updateState({
       runningAction: "publish",
       lastResult: null,
-      activityLog: createActivityLogState(),
+      activityLog: hasProcessRunInFlight(stateRef.current)
+        ? stateRef.current.activityLog
+        : createActivityLogState(),
       publishError: ""
     });
 
@@ -2972,7 +3003,9 @@ export function App(): ReactNode {
         ...latest,
         runningAction: needsPublish ? "publish" : "push",
         lastResult: null,
-        activityLog: createActivityLogState(),
+        activityLog: hasProcessRunInFlight(latest)
+          ? latest.activityLog
+          : createActivityLogState(),
         createPrDialog: {
           ...latest.createPrDialog,
           step: "pushing",
@@ -4323,6 +4356,7 @@ export function App(): ReactNode {
               heading={actionHeading}
               summary={state.summary}
               runningAction={state.runningAction}
+              configuredActionRuns={state.configuredActionRuns}
               disabled={disableActions}
               showCreatePullRequest={shouldShowCreatePullRequest(state.summary, state.pullRequests, state.pullRequestsLoaded)}
               onRunAction={(action) => {
@@ -6215,6 +6249,7 @@ function ActionBar({
   heading,
   summary,
   runningAction,
+  configuredActionRuns,
   disabled,
   showCreatePullRequest,
   onRunAction,
@@ -6225,6 +6260,7 @@ function ActionBar({
   heading: string;
   summary: RepoSummary | null;
   runningAction: string | null;
+  configuredActionRuns: ConfiguredActionRun[];
   disabled: boolean;
   showCreatePullRequest: boolean;
   onRunAction: (action: GitAction) => void;
@@ -6252,13 +6288,8 @@ function ActionBar({
   const configuredActions = actionsConfig?.actions ?? [];
   const actionsConfigError = actionsConfig?.error.trim() ?? "";
   const hasConfiguredActions = configuredActions.length > 0;
-  const runningConfiguredAction = Boolean(
-    runningAction &&
-    runningAction !== "fetch" &&
-    runningAction !== "pull" &&
-    runningAction !== "push"
-  );
-  const actionsMenuDisabled = disabled;
+  const runningConfiguredAction = configuredActionRuns.length > 0;
+  const actionsMenuDisabled = !summary?.isValid;
 
   return (
     <header className="flex items-center justify-between gap-5 border-b bg-card px-6 py-4">
@@ -6278,6 +6309,7 @@ function ActionBar({
             >
               {runningConfiguredAction ? <Loader2 className="animate-spin" /> : <Workflow />}
               Actions
+              {configuredActionRuns.length > 1 ? ` ${configuredActionRuns.length}` : null}
               <ChevronDown />
             </Button>
           </DropdownMenuTrigger>
@@ -10219,6 +10251,10 @@ function isOperationRunning(state: AppState): boolean {
   );
 }
 
+function hasProcessRunInFlight(state: AppState): boolean {
+  return Boolean(state.runningAction || state.runningOperation || state.configuredActionRuns.length > 0);
+}
+
 type AppUpdateAction = "check" | "download" | "install" | "none";
 
 function resolveAppUpdateAction(state: AppUpdateState): AppUpdateAction {
@@ -10440,6 +10476,11 @@ function getActionHeading(state: AppState): string {
     return state.runningOperation;
   }
 
+  const configuredActionHeading = getConfiguredActionRunningHeading(state.configuredActionRuns);
+  if (configuredActionHeading) {
+    return configuredActionHeading;
+  }
+
   if (state.lastResult) {
     return formatResultHeading(state.lastResult);
   }
@@ -10456,6 +10497,11 @@ function getActivityLogStatus(state: AppState): string {
     return `${state.runningOperation} running`;
   }
 
+  const configuredActionHeading = getConfiguredActionRunningHeading(state.configuredActionRuns);
+  if (configuredActionHeading) {
+    return configuredActionHeading;
+  }
+
   if (state.lastResult) {
     return formatResultHeading(state.lastResult);
   }
@@ -10465,6 +10511,14 @@ function getActivityLogStatus(state: AppState): string {
   }
 
   return hasActivityLogOutput(state.activityLog) ? "Output Available" : "Empty";
+}
+
+function getConfiguredActionRunningHeading(runs: ConfiguredActionRun[]): string {
+  if (runs.length === 1) {
+    return `${runs[0]?.name ?? "Action"} running`;
+  }
+
+  return runs.length > 1 ? `${runs.length} actions running` : "";
 }
 
 function formatResultHeading(result: GitRunResult): string {

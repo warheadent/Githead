@@ -46,6 +46,23 @@ describe("activityLog", () => {
     expect(getActivityLogRawText(state)).toBe("[stdout] ok\n[stderr] warning\n");
   });
 
+  it("keeps interleaved runs in chronological, run-specific blocks", () => {
+    let state = createActivityLogState();
+
+    state = appendActivityLogEvent(state, output({ runId: "run-build", action: "Build", text: "build one\n" }));
+    state = appendActivityLogEvent(state, output({ runId: "run-test", action: "Test", text: "test one\n" }));
+    state = appendActivityLogEvent(state, output({ runId: "run-build", action: "Build", text: "build two\n" }));
+
+    expect(state.blocks.map((block) => [block.runId, block.action, block.rawText])).toEqual([
+      ["run-build", "Build", "build one\n"],
+      ["run-test", "Test", "test one\n"],
+      ["run-build", "Build", "build two\n"]
+    ]);
+    expect(getActivityLogRawText(state)).toBe(
+      "[stdout] build one\n[stdout] test one\n[stdout] build two\n"
+    );
+  });
+
   it("converts split ANSI sequences and escapes HTML", () => {
     let state = createActivityLogState();
 

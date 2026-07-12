@@ -719,28 +719,8 @@ ipcMain.handle(IPC_CHANNELS.runConfiguredAction, async (_event, request: GitConf
     };
   }
 
-  if (commandRunning) {
-    const now = new Date().toISOString();
-    return {
-      runId: "busy",
-      action: actionName,
-      repoPath: request.repoPath,
-      exitCode: -1,
-      stdout: "",
-      stderr: "Another git command is already running.",
-      startedAt: now,
-      endedAt: now
-    };
-  }
-
-  commandRunning = true;
-
-  try {
-    const service = await vcsRouter.serviceForRepo(request.repoPath);
-    return await service.runConfiguredAction(request, sendGitOutput);
-  } finally {
-    commandRunning = false;
-  }
+  const service = await vcsRouter.serviceForRepo(request.repoPath);
+  return service.runConfiguredAction(request, sendGitOutput);
 });
 
 ipcMain.handle(IPC_CHANNELS.saveConfiguredActions, async (_event, request: GitConfiguredActionSaveRequest) => {
