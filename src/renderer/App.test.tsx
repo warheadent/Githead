@@ -449,7 +449,8 @@ describe("App", () => {
     await waitFor(() => {
       expect(githead.getCommitDetails).toHaveBeenLastCalledWith({
         repoPath,
-        hash: parentHash
+        hash: parentHash,
+        requestId: expect.any(String)
       });
     });
     const parentDescription = await screen.findByText("parent commit");
@@ -1128,7 +1129,8 @@ describe("App", () => {
       expect(githead.getFileDiff).toHaveBeenLastCalledWith({
         repoPath,
         path: "src/second.ts",
-        side: "unstaged"
+        side: "unstaged",
+        requestId: expect.any(String)
       });
     });
   });
@@ -3901,7 +3903,7 @@ describe("App", () => {
     expect(screen.getByText("Other")).toBeTruthy();
     expect(screen.getByRole("button", { name: `Switch to ${otherRepo}` })).toBeTruthy();
     expect(screen.queryByText(otherRepo)).toBeNull();
-    expect(githead.getRepoSummary).toHaveBeenCalledWith(recentRepo);
+    expect(githead.getRepoSummary).toHaveBeenCalledWith(recentRepo, expect.any(String));
   });
 
   it("shows local push and pull counts beside recent repositories", async () => {
@@ -4133,6 +4135,8 @@ describe("App", () => {
       otherRepo,
       repoPath
     ]);
+    expect(githead.cancelRepositoryRead).toHaveBeenCalledWith({ requestId: "summary:1" });
+    expect(githead.cancelRepositoryRead).toHaveBeenCalledWith({ requestId: "summary:2" });
   });
 
   it("ignores an unresolved diff from Repository A after switching to Repository B", async () => {
@@ -4163,6 +4167,39 @@ describe("App", () => {
     expect(screen.queryByText(/stale-a-diff/)).toBeNull();
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(2);
     expect(githead.getFileDiff).toHaveBeenCalledTimes(1);
+    expect(githead.cancelRepositoryRead).toHaveBeenCalledWith({ requestId: "diff:1" });
+  });
+
+  it("ignores stale Git identity after switching Repositories", async () => {
+    const user = userEvent.setup();
+    const otherRepo = "D:\\Work\\Other";
+    const pendingIdentity = defer<GitIdentitySettings>();
+    const identity = (name: string): GitIdentitySettings => ({
+      scope: "repository",
+      name,
+      email: `${name.toLowerCase()}@example.test`,
+      repository: { name, email: `${name.toLowerCase()}@example.test` },
+      global: { name: "Global", email: "global@example.test" }
+    });
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([repoPath, otherRepo]);
+    vi.mocked(githead.addRepoRecent).mockResolvedValue([repoPath, otherRepo]);
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({ repoPath: requestedRepoPath }));
+    vi.mocked(githead.getGitIdentity).mockImplementation(async (requestedRepoPath) => {
+      if (!requestedRepoPath) return identity("Empty");
+      if (requestedRepoPath === repoPath) return pendingIdentity.promise;
+      return identity("Repository B");
+    });
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
+    await waitFor(() => expect(githead.getGitIdentity).toHaveBeenCalledWith(otherRepo));
+    pendingIdentity.resolve(identity("Stale Repository A"));
+    await flushRendererAsync();
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("tab", { name: "Git Identity" }));
+    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Repository B");
   });
 
   it("removes a recent entry without switching repositories", async () => {
@@ -5579,6 +5616,7 @@ function createGitheadMock(): GitheadApi {
     chooseRepo: vi.fn().mockResolvedValue(null),
     chooseCloneParent: vi.fn().mockResolvedValue(null),
     getRepoSummary: vi.fn().mockResolvedValue(createSummary()),
+    cancelRepositoryRead: vi.fn().mockResolvedValue(undefined),
     watchRepoChanges: vi.fn().mockResolvedValue(undefined),
     unwatchRepoChanges: vi.fn().mockResolvedValue(undefined),
     getRepoRecents: vi.fn().mockResolvedValue([

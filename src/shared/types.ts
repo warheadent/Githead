@@ -419,17 +419,29 @@ export interface CreatePullRequestResult {
   draft: boolean;
 }
 
-export interface GitCommitHistoryRequest {
+export interface RepositoryReadRequest {
+  requestId?: string;
+}
+
+export interface RepoSummaryReadRequest extends RepositoryReadRequest {
+  repoPath: string;
+}
+
+export interface CancelRepositoryReadRequest {
+  requestId: string;
+}
+
+export interface GitCommitHistoryRequest extends RepositoryReadRequest {
   repoPath: string;
   limit?: number;
 }
 
-export interface GitCommitDetailsRequest {
+export interface GitCommitDetailsRequest extends RepositoryReadRequest {
   repoPath: string;
   hash: string;
 }
 
-export interface GitCommitFileDiffRequest {
+export interface GitCommitFileDiffRequest extends RepositoryReadRequest {
   repoPath: string;
   hash: string;
   path: string;
@@ -818,7 +830,7 @@ export interface ExternalUrlRequest {
   url: string;
 }
 
-export interface GitFileDiffRequest {
+export interface GitFileDiffRequest extends RepositoryReadRequest {
   repoPath: string;
   path: string;
   side: GitDiffSide;
@@ -969,7 +981,8 @@ export interface AppWindowState {
 export interface GitheadApi {
   chooseRepo(defaultPath?: string): Promise<string | null>;
   chooseCloneParent(defaultPath?: string): Promise<string | null>;
-  getRepoSummary(repoPath: string): Promise<RepoSummary>;
+  getRepoSummary(repoPath: string, requestId?: string): Promise<RepoSummary>;
+  cancelRepositoryRead(request: CancelRepositoryReadRequest): Promise<void>;
   watchRepoChanges(repoPath: string): Promise<void>;
   unwatchRepoChanges(repoPath?: string): Promise<void>;
   getRepoRecents(): Promise<string[]>;

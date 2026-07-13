@@ -352,6 +352,18 @@ interface AppState {
 }
 
 type AppStateUpdater = Partial<AppState> | ((state: AppState) => AppState);
+type RepositoryReadKind = "summary" | "history" | "commit-details" | "commit-file-diff" | "diff";
+
+function repositoryReadRequestId(kind: RepositoryReadKind, generation: number): string {
+  return `${kind}:${generation}`;
+}
+
+function cancelRepositoryRead(kind: RepositoryReadKind, generation: number): void {
+  if (generation <= 0) return;
+  void window.githead.cancelRepositoryRead({
+    requestId: repositoryReadRequestId(kind, generation)
+  }).catch(() => undefined);
+}
 
 interface RequestIds {
   repo: number;
@@ -360,6 +372,7 @@ interface RequestIds {
   history: number;
   commitDetails: number;
   commitFileDiff: number;
+  identity: number;
   remoteConfigs: number;
 }
 
@@ -609,6 +622,7 @@ export function App(): ReactNode {
     history: 0,
     commitDetails: 0,
     commitFileDiff: 0,
+    identity: 0,
     remoteConfigs: 0
   });
   const trustDialogResolveRef = useRef<((trusted: boolean) => void) | null>(null);
@@ -726,6 +740,7 @@ export function App(): ReactNode {
   }, []);
 
   const loadCommitFileDiff = useCallback(async (hash: string, filePath: string): Promise<void> => {
+    cancelRepositoryRead("commit-file-diff", requestIds.current.commitFileDiff);
     const requestId = requestIds.current.commitFileDiff + 1;
     requestIds.current.commitFileDiff = requestId;
     updateState({
@@ -740,6 +755,7 @@ export function App(): ReactNode {
         repoPath: stateRef.current.repoPath,
         hash,
         path: filePath,
+        requestId: repositoryReadRequestId("commit-file-diff", requestId),
         ...(originalPath ? { originalPath } : {})
       });
 
@@ -764,6 +780,7 @@ export function App(): ReactNode {
   }, [updateState]);
 
   const loadCommitDetails = useCallback(async (hash: string): Promise<void> => {
+    cancelRepositoryRead("commit-details", requestIds.current.commitDetails);
     const requestId = requestIds.current.commitDetails + 1;
     requestIds.current.commitDetails = requestId;
     const previousFilePath = stateRef.current.selectedCommitFilePath;
@@ -779,7 +796,8 @@ export function App(): ReactNode {
     try {
       const details = await window.githead.getCommitDetails({
         repoPath: stateRef.current.repoPath,
-        hash
+        hash,
+        requestId: repositoryReadRequestId("commit-details", requestId)
       });
 
       if (requestId !== requestIds.current.commitDetails) {
@@ -831,6 +849,7 @@ export function App(): ReactNode {
       return;
     }
 
+    cancelRepositoryRead("history", requestIds.current.history);
     const requestId = requestIds.current.history + 1;
     requestIds.current.history = requestId;
     const previousCommitHash = current.selectedCommitHash;
@@ -844,7 +863,8 @@ export function App(): ReactNode {
     try {
       const history = await window.githead.getCommitHistory({
         repoPath: stateRef.current.repoPath,
-        limit: HISTORY_LIMIT
+        limit: HISTORY_LIMIT,
+        requestId: repositoryReadRequestId("history", requestId)
       });
 
       if (requestId !== requestIds.current.history) {
@@ -900,6 +920,7 @@ export function App(): ReactNode {
       return;
     }
 
+    cancelRepositoryRead("diff", requestIds.current.diff);
     const requestId = requestIds.current.diff + 1;
     requestIds.current.diff = requestId;
     updateState({
@@ -910,7 +931,8 @@ export function App(): ReactNode {
       const diff = await window.githead.getFileDiff({
         repoPath: stateRef.current.repoPath,
         path: selection.path,
-        side: selection.side
+        side: selection.side,
+        requestId: repositoryReadRequestId("diff", requestId)
       });
 
       if (requestId === requestIds.current.diff) {
@@ -974,6 +996,7 @@ export function App(): ReactNode {
     addToRecents?: boolean;
     silent?: boolean;
   } = {}): Promise<void> => {
+    cancelRepositoryRead("summary", requestIds.current.repo);
     const requestId = requestIds.current.repo + 1;
     requestIds.current.repo = requestId;
     const repoPath = stateRef.current.repoPath;
@@ -988,7 +1011,7 @@ export function App(): ReactNode {
     }
 
     try {
-      const summary = await window.githead.getRepoSummary(repoPath);
+      const summary = await window.githead.getRepoSummary(repoPath, repositoryReadRequestId("summary", requestId));
       if (requestId !== requestIds.current.repo || !isSameRepoPath(repoPath, stateRef.current.repoPath)) {
         return;
       }
@@ -1177,6 +1200,11 @@ export function App(): ReactNode {
       return;
     }
 
+    cancelRepositoryRead("summary", requestIds.current.repo);
+    cancelRepositoryRead("diff", requestIds.current.diff);
+    cancelRepositoryRead("history", requestIds.current.history);
+    cancelRepositoryRead("commit-details", requestIds.current.commitDetails);
+    cancelRepositoryRead("commit-file-diff", requestIds.current.commitFileDiff);
     requestIds.current.diff += 1;
     requestIds.current.history += 1;
     requestIds.current.commitDetails += 1;
@@ -1305,13 +1333,21 @@ export function App(): ReactNode {
   }, [updateState]);
 
   const loadGitIdentity = useCallback(async (repoPath: string): Promise<GitIdentitySettings | null> => {
+    const requestId = requestIds.current.identity + 1;
+    requestIds.current.identity = requestId;
     try {
       const gitIdentity = await window.githead.getGitIdentity(repoPath);
+      if (requestId !== requestIds.current.identity || !isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        return null;
+      }
       updateState({
         gitIdentity
       });
       return gitIdentity;
     } catch (error) {
+      if (requestId !== requestIds.current.identity || !isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        return null;
+      }
       updateState((current) => ({
         ...current,
         gitIdentity: null,
@@ -1341,6 +1377,14 @@ export function App(): ReactNode {
   useEffect(() => {
     void loadGitIdentity(state.repoPath);
   }, [loadGitIdentity, state.repoPath]);
+
+  useEffect(() => () => {
+    cancelRepositoryRead("summary", requestIds.current.repo);
+    cancelRepositoryRead("diff", requestIds.current.diff);
+    cancelRepositoryRead("history", requestIds.current.history);
+    cancelRepositoryRead("commit-details", requestIds.current.commitDetails);
+    cancelRepositoryRead("commit-file-diff", requestIds.current.commitFileDiff);
+  }, []);
 
   useEffect(() => {
     if (!state.summary?.isValid) {

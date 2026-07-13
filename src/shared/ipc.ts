@@ -2,6 +2,7 @@ export const IPC_CHANNELS = {
   chooseRepo: "repo:choose",
   chooseCloneParent: "repo:clone-parent-choose",
   getRepoSummary: "repo:summary",
+  cancelRepositoryRead: "repo:read-cancel",
   watchRepoChanges: "repo:watch",
   unwatchRepoChanges: "repo:unwatch",
   repoChanged: "repo:changed",

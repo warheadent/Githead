@@ -7,6 +7,7 @@ import type {
   GetAiReasoningCapabilitiesRequest,
   AppSettingsSaveRequest,
   ClipboardTextRequest,
+  CancelRepositoryReadRequest,
   CancelGitHubRequest,
   CreatePullRequestRequest,
   ExternalUrlRequest,
@@ -53,6 +54,7 @@ import type {
   GitRepositoryAccessCheckRequest,
   GitResetCommitRequest,
   RepoTrustRequest,
+  RepoSummaryReadRequest,
   GitRunRequest,
   GitSafeDirectoryRequest,
   GitSetRemoteUrlRequest,
@@ -64,12 +66,13 @@ import { AiSettingsService } from "./aiSettingsService";
 import { AiReasoningCapabilityService } from "./aiReasoningCapabilityService";
 import { AppSettingsService, normalizeZoomFactorForSave } from "./appSettingsService";
 import { CommitMessageService } from "./commitMessageService";
+import { CancellableProcessRunner } from "./cancellableProcessRunner";
 import { deleteFiles, getStats, resolveRepoFilePath, showRepositoryInExplorer } from "./fileOperationService";
 import { GitIdentityService } from "./gitIdentityService";
 import { GitService } from "./gitService";
 import { DefaultGitHubClient, type GitHubClient } from "./githubClient";
 import { GitHubService } from "./githubService";
-import { GitHubRequestRegistry } from "./githubRequestRegistry";
+import { RequestRegistry } from "./requestRegistry";
 import { LoreService } from "./loreService";
 import { NodeProcessRunner } from "./processRunner";
 import { PrDescriptionService } from "./prDescriptionService";
@@ -82,7 +85,7 @@ import { VcsRouter } from "./vcsRouter";
 import { MIN_WINDOW_BOUNDS, WindowStateService } from "./windowStateService";
 
 const DEFAULT_REPO_PATH = "D:\\Githead";
-const processRunner = new NodeProcessRunner();
+const processRunner = new CancellableProcessRunner(new NodeProcessRunner());
 const gitService = new GitService(processRunner);
 const loreService = new LoreService(processRunner);
 const vcsRouter = new VcsRouter(gitService, loreService);
@@ -102,8 +105,8 @@ let commitMessageService: CommitMessageService | null = null;
 let prDescriptionService: PrDescriptionService | null = null;
 let githubService: GitHubService | null = null;
 let githubClient: GitHubClient | null = null;
-const githubRequests = new GitHubRequestRegistry();
-const githubRequestOwners = new Set<number>();
+const readRequests = new RequestRegistry<number>();
+const readRequestOwners = new Set<number>();
 let repoRecentsService: RepoRecentsService | null = null;
 let repoTrustService: RepoTrustService | null = null;
 let repoWatchService: RepoWatchService | null = null;
@@ -256,8 +259,13 @@ ipcMain.handle(IPC_CHANNELS.chooseCloneParent, async (_event, defaultPath?: stri
   return result.filePaths[0] ?? null;
 });
 
-ipcMain.handle(IPC_CHANNELS.getRepoSummary, async (_event, repoPath: string) => {
-  return (await vcsRouter.serviceForRepo(repoPath)).getRepoSummary(repoPath);
+ipcMain.handle(IPC_CHANNELS.getRepoSummary, (event, request: RepoSummaryReadRequest) =>
+  handleRead(event, request, async (signal) =>
+    processRunner.runWithSignal(signal, async () =>
+      (await vcsRouter.serviceForRepo(request.repoPath)).getRepoSummary(request.repoPath))));
+
+ipcMain.handle(IPC_CHANNELS.cancelRepositoryRead, (event, request: CancelRepositoryReadRequest) => {
+  readRequests.cancel(event.sender.id, request.requestId);
 });
 
 ipcMain.handle(IPC_CHANNELS.watchRepoChanges, async (_event, repoPath: string) => {
@@ -304,22 +312,26 @@ ipcMain.handle(IPC_CHANNELS.addSafeDirectory, async (_event, request: GitSafeDir
   return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).addSafeDirectory(request), request.repoPath);
 });
 
-function handleGitHubRead<T>(event: Electron.IpcMainInvokeEvent, request: GitHubRepositoryRequest, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+function handleRead<T>(event: Electron.IpcMainInvokeEvent, request: { requestId?: string }, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
   const ownerId = event.sender.id;
   const requestId = request.requestId ?? crypto.randomUUID();
-  const signal = githubRequests.register(ownerId, requestId);
-  if (!githubRequestOwners.has(ownerId)) {
-    githubRequestOwners.add(ownerId);
+  const registration = readRequests.register(ownerId, requestId);
+  if (!readRequestOwners.has(ownerId)) {
+    readRequestOwners.add(ownerId);
     event.sender.once("destroyed", () => {
-      githubRequests.cancelAll(ownerId);
-      githubRequestOwners.delete(ownerId);
+      readRequests.cancelAll(ownerId);
+      readRequestOwners.delete(ownerId);
     });
   }
-  return operation(signal).finally(() => githubRequests.complete(ownerId, requestId));
+  return operation(registration.signal).finally(registration.complete);
+}
+
+function handleGitHubRead<T>(event: Electron.IpcMainInvokeEvent, request: GitHubRepositoryRequest, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  return handleRead(event, request, operation);
 }
 
 ipcMain.handle(IPC_CHANNELS.cancelGitHubRequest, (event, request: CancelGitHubRequest) => {
-  githubRequests.cancel(event.sender.id, request.requestId);
+  readRequests.cancel(event.sender.id, request.requestId);
 });
 ipcMain.handle(IPC_CHANNELS.getGitHubWorkflowRuns, (event, request: GitHubWorkflowRunsRequest) =>
   handleGitHubRead(event, request, (signal) => getGitHubService().getWorkflowRuns(request, signal)));
@@ -338,21 +350,25 @@ ipcMain.handle(IPC_CHANNELS.createGitHubPullRequest, async (_event, request: Cre
   return getGitHubService().createPullRequest(request);
 });
 
-ipcMain.handle(IPC_CHANNELS.getCommitHistory, async (_event, request: GitCommitHistoryRequest) => {
-  return (await vcsRouter.serviceForRepo(request.repoPath)).getCommitHistory(request);
-});
+ipcMain.handle(IPC_CHANNELS.getCommitHistory, (event, request: GitCommitHistoryRequest) =>
+  handleRead(event, request, async (signal) =>
+    processRunner.runWithSignal(signal, async () =>
+      (await vcsRouter.serviceForRepo(request.repoPath)).getCommitHistory(request))));
 
-ipcMain.handle(IPC_CHANNELS.getCommitDetails, async (_event, request: GitCommitDetailsRequest) => {
-  return (await vcsRouter.serviceForRepo(request.repoPath)).getCommitDetails(request);
-});
+ipcMain.handle(IPC_CHANNELS.getCommitDetails, (event, request: GitCommitDetailsRequest) =>
+  handleRead(event, request, async (signal) =>
+    processRunner.runWithSignal(signal, async () =>
+      (await vcsRouter.serviceForRepo(request.repoPath)).getCommitDetails(request))));
 
-ipcMain.handle(IPC_CHANNELS.getCommitFileDiff, async (_event, request: GitCommitFileDiffRequest) => {
-  return (await vcsRouter.serviceForRepo(request.repoPath)).getCommitFileDiff(request);
-});
+ipcMain.handle(IPC_CHANNELS.getCommitFileDiff, (event, request: GitCommitFileDiffRequest) =>
+  handleRead(event, request, async (signal) =>
+    processRunner.runWithSignal(signal, async () =>
+      (await vcsRouter.serviceForRepo(request.repoPath)).getCommitFileDiff(request))));
 
-ipcMain.handle(IPC_CHANNELS.getFileDiff, async (_event, request: GitFileDiffRequest) => {
-  return (await vcsRouter.serviceForRepo(request.repoPath)).getFileDiff(request);
-});
+ipcMain.handle(IPC_CHANNELS.getFileDiff, (event, request: GitFileDiffRequest) =>
+  handleRead(event, request, async (signal) =>
+    processRunner.runWithSignal(signal, async () =>
+      (await vcsRouter.serviceForRepo(request.repoPath)).getFileDiff(request))));
 
 ipcMain.handle(IPC_CHANNELS.fetchLfsImageVersions, async (_event, request: GitLfsImageFetchRequest) => {
   const trusted = await requireTrustedRepo(request.repoPath);

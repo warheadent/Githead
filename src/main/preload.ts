@@ -5,6 +5,7 @@ import type {
   GetAiReasoningCapabilitiesRequest,
   AppSettingsSaveRequest,
   ClipboardTextRequest,
+  CancelRepositoryReadRequest,
   CreatePullRequestRequest,
   ExternalUrlRequest,
   GeneratePrDescriptionRequest,
@@ -57,6 +58,7 @@ import type {
   AppUpdateState,
   AppWindowState,
   RepoChangedEvent,
+  RepoSummaryReadRequest,
   RepoTrustRequest,
   RepoSummary
 } from "../shared/types";
@@ -66,8 +68,13 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.chooseRepo, defaultPath) as Promise<string | null>,
   chooseCloneParent: (defaultPath?: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.chooseCloneParent, defaultPath) as Promise<string | null>,
-  getRepoSummary: (repoPath: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.getRepoSummary, repoPath) as Promise<RepoSummary>,
+  getRepoSummary: (repoPath: string, requestId?: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getRepoSummary, {
+      repoPath,
+      ...(requestId ? { requestId } : {})
+    } satisfies RepoSummaryReadRequest) as Promise<RepoSummary>,
+  cancelRepositoryRead: (request: CancelRepositoryReadRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.cancelRepositoryRead, request) as ReturnType<GitheadApi["cancelRepositoryRead"]>,
   watchRepoChanges: (repoPath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.watchRepoChanges, repoPath) as ReturnType<GitheadApi["watchRepoChanges"]>,
   unwatchRepoChanges: (repoPath?: string) =>
