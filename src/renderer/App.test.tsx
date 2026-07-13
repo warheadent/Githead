@@ -4119,6 +4119,7 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
     await user.click(screen.getByRole("button", { name: `Switch to ${repoPath}` }));
+    expect(screen.getByRole("option", { name: /src\/initial-a\.ts/ })).toBeTruthy();
     pendingReturn.resolve(createSummary({
       files: [createStatusFile("src/final-a.ts", { isUnstaged: true, worktreeStatus: "M" })]
     }));

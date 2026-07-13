@@ -161,6 +161,7 @@ import { useGitHubQueries } from "./useGitHubQueries";
 import { GitHubQueryToolbar } from "./GitHubQueryToolbar";
 import { DEFAULT_ISSUE_QUERY, DEFAULT_PULL_REQUEST_QUERY, DEFAULT_WORKFLOW_QUERY, filterLoadedWorkflowRuns, sortLoadedWorkflowRuns } from "./githubViewQuery";
 import { useGitHubHistoryInsights } from "./useGitHubHistoryInsights";
+import { RepositorySnapshotCache, getRepoPathKey } from "./repositorySnapshotCache";
 import { createCommitAssociationMap } from "./githubHistorySelectors";
 import {
   appendActivityLogEvent,
@@ -626,6 +627,7 @@ export function App(): ReactNode {
     identity: 0,
     remoteConfigs: 0
   });
+  const repositorySnapshots = useRef(new RepositorySnapshotCache());
   const trustDialogResolveRef = useRef<((trusted: boolean) => void) | null>(null);
   const repoRefreshInFlightRef = useRef(false);
   const autoFetchInFlightRef = useRef(false);
@@ -1029,7 +1031,10 @@ export function App(): ReactNode {
         return;
       }
 
-      const identitySummary = createSummaryFromIdentity(identity);
+      if (!identity.isValid) repositorySnapshots.current.delete(repoPath);
+      const identitySummary = stateRef.current.summary?.isValid
+        ? { ...stateRef.current.summary, ...identity }
+        : createSummaryFromIdentity(identity);
       updateState((current) => ({ ...current, summary: identitySummary, showSetup: !identity.isValid, setupError: identity.validationErrors.join(" ") }));
       if (!identity.isValid) return;
 
@@ -1179,6 +1184,7 @@ export function App(): ReactNode {
       }
 
       fileStatusGenerationRef.current += 1;
+      repositorySnapshots.current.markStale(event.repoPath, event.reason === "filesystem" ? ["status"] : ["identity", "status", "metadata"]);
       if (event.reason === "filesystem") {
         void refreshDirtyFileStatus();
       } else {
@@ -1240,6 +1246,17 @@ export function App(): ReactNode {
       return;
     }
 
+    const leaving = stateRef.current;
+    if (leaving.summary?.isValid && leaving.repoPath) {
+      repositorySnapshots.current.set(leaving.repoPath, {
+        summary: leaving.summary,
+        history: leaving.history,
+        selection: leaving.selection,
+        activeView: leaving.activeView === "history" ? "history" : "status"
+      });
+    }
+    const cached = repositorySnapshots.current.get(nextRepoPath);
+
     cancelRepositoryRead("identity", requestIds.current.repo);
     cancelRepositoryRead("status", requestIds.current.repo);
     cancelRepositoryRead("metadata", requestIds.current.repo);
@@ -1255,7 +1272,8 @@ export function App(): ReactNode {
     fileStatusGenerationRef.current = 0;
     acknowledgedFileStatusGenerationRef.current = 0;
 
-    updateState((current) => resetGitHubUiState(resetHistoryState({
+    updateState((current) => {
+      const reset = resetGitHubUiState(resetHistoryState({
       ...current,
       repoPath: nextRepoPath,
       repoLoading: true,
@@ -1265,7 +1283,7 @@ export function App(): ReactNode {
       safeDirectoryRunning: false,
       cloneError: "",
       clonePanelOpen: false,
-      summary: null,
+      summary: cached?.summary ?? null,
       branchDialogOpen: false,
       branchManagerOpen: false,
       branchNameDraft: "",
@@ -1282,11 +1300,13 @@ export function App(): ReactNode {
       gitIdentityPrompt: emptyGitIdentityPrompt,
       gitIdentitySaving: false,
       remoteManager: emptyRemoteManager,
-      activeView: isGitHubView(current.activeView) ? "status" : current.activeView,
-      selection: null,
+      activeView: cached?.activeView ?? (isGitHubView(current.activeView) ? "status" : current.activeView),
+      selection: cached?.selection ?? null,
       diff: null,
       diffLoading: false
-    })));
+      }));
+      return cached ? { ...reset, history: cached.history, historyLoaded: cached.history.length > 0, selection: cached.selection } : reset;
+    });
 
     await refreshRepo({
       addToRecents: options.addToRecents ?? false
@@ -2277,6 +2297,8 @@ export function App(): ReactNode {
     if (isOperationRunning(current)) {
       return null;
     }
+
+    repositorySnapshots.current.delete(current.repoPath);
 
     let operationResult: GitOperationResult | null = null;
 
@@ -9896,10 +9918,6 @@ function isSameRepoPath(left: string, right: string): boolean {
 
 function areRepoPathListsEqual(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((repoPath, index) => isSameRepoPath(repoPath, right[index] ?? ""));
-}
-
-function getRepoPathKey(repoPath: string): string {
-  return repoPath.trim().replace(/[\\/]+$/, "").toLocaleLowerCase();
 }
 
 function createRepoSyncStatusMap(
