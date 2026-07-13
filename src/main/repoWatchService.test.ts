@@ -54,6 +54,21 @@ describe("RepoWatchService", () => {
     });
   });
 
+  it("emits bounded leading-edge notifications during sustained repository activity", async () => {
+    const fixture = createWatchFixture();
+
+    fixture.service.watchRepo(repoPath);
+    fixture.emitChange();
+    await vi.advanceTimersByTimeAsync(749);
+    fixture.emitChange();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fixture.send).toHaveBeenCalledTimes(1);
+
+    fixture.emitChange();
+    await vi.advanceTimersByTimeAsync(750);
+    expect(fixture.send).toHaveBeenCalledTimes(2);
+  });
+
   it("ignores git watcher events produced by status refreshes", async () => {
     const fixture = createWatchFixture();
 
@@ -90,6 +105,35 @@ describe("RepoWatchService", () => {
     expect(fixture.watchFactory).toHaveBeenCalledTimes(2);
     expect(fixture.watchers[0]?.close).toHaveBeenCalledTimes(1);
     expect(fixture.watchers[1]?.close).not.toHaveBeenCalled();
+  });
+
+  it("clears pending work when replacing a watcher", async () => {
+    const fixture = createWatchFixture();
+    const nextRepoPath = "D:\\Other";
+
+    fixture.service.watchRepo(repoPath);
+    fixture.emitChange();
+    fixture.service.watchRepo(nextRepoPath);
+
+    await vi.advanceTimersByTimeAsync(750);
+    expect(fixture.send).not.toHaveBeenCalled();
+  });
+
+  it("attributes stale callbacks from a closed watcher to the active repository", async () => {
+    const fixture = createWatchFixture();
+    const nextRepoPath = "D:\\Other";
+
+    fixture.service.watchRepo(repoPath);
+    fixture.service.watchRepo(nextRepoPath);
+    fixture.emitChange(0);
+
+    await vi.advanceTimersByTimeAsync(750);
+    expect(fixture.send).toHaveBeenCalledTimes(1);
+    expect(fixture.send).toHaveBeenCalledWith(IPC_CHANNELS.repoChanged, {
+      repoPath: path.resolve(nextRepoPath),
+      changedAt: "2026-05-31T10:00:00.000Z",
+      reason: "filesystem"
+    });
   });
 
   it("emits watcher-error events and closes the watcher after watcher failures", () => {

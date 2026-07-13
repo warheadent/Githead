@@ -3803,6 +3803,10 @@ describe("App", () => {
 
   it("coalesces file changes during an in-flight refresh into one trailing refresh", async () => {
     const pendingRefresh = defer<RepoSummary>();
+    const largeFiles = Array.from({ length: 10_000 }, (_, index) => createStatusFile(
+      `generated/live-${index.toString().padStart(5, "0")}.ts`,
+      { isUnstaged: true, worktreeStatus: "M" }
+    ));
     const finalFile = createStatusFile("src/final.ts", {
       isUnstaged: true,
       worktreeStatus: "M"
@@ -3818,7 +3822,7 @@ describe("App", () => {
           return await pendingRefresh.promise;
         }
         return createSummary({
-          files: call === 3 ? [finalFile] : []
+          files: call === 1 ? largeFiles : call === 3 ? [finalFile] : []
         });
       } finally {
         activeSummaryCalls -= 1;
@@ -3827,6 +3831,7 @@ describe("App", () => {
 
     render(<App />);
     await flushRendererAsync();
+    expect(screen.getAllByRole("option").length).toBeLessThan(100);
     emitRepoChanged();
     await flushRendererAsync();
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(2);
@@ -4089,6 +4094,75 @@ describe("App", () => {
       `Switch to ${repoPath}`,
       `Switch to ${otherRepo}`
     ]);
+  });
+
+  it("keeps only the active Repository summary visible during rapid A to B to A switching", async () => {
+    const user = userEvent.setup();
+    const otherRepo = "D:\\Work\\Other";
+    const pendingOther = defer<RepoSummary>();
+    const pendingReturn = defer<RepoSummary>();
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([repoPath, otherRepo]);
+    vi.mocked(githead.addRepoRecent).mockResolvedValue([repoPath, otherRepo]);
+    vi.mocked(githead.getRepoSummary)
+      .mockResolvedValueOnce(createSummary({
+        files: [createStatusFile("src/initial-a.ts", { isUnstaged: true, worktreeStatus: "M" })]
+      }))
+      .mockReturnValueOnce(pendingOther.promise)
+      .mockReturnValueOnce(pendingReturn.promise);
+
+    render(<App />);
+    await screen.findByRole("option", { name: /src\/initial-a\.ts/ });
+
+    await user.click(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
+    await user.click(screen.getByRole("button", { name: `Switch to ${repoPath}` }));
+    pendingReturn.resolve(createSummary({
+      files: [createStatusFile("src/final-a.ts", { isUnstaged: true, worktreeStatus: "M" })]
+    }));
+    await screen.findByRole("option", { name: /src\/final-a\.ts/ });
+
+    pendingOther.resolve(createSummary({
+      repoPath: otherRepo,
+      files: [createStatusFile("src/stale-b.ts", { isUnstaged: true, worktreeStatus: "M" })]
+    }));
+    await flushRendererAsync();
+
+    expect(screen.getByRole("button", { name: `Switch to ${repoPath}` }).getAttribute("aria-current")).toBe("true");
+    expect(screen.queryByRole("option", { name: /src\/stale-b\.ts/ })).toBeNull();
+    expect(vi.mocked(githead.getRepoSummary).mock.calls.map(([path]) => path)).toEqual([
+      repoPath,
+      otherRepo,
+      repoPath
+    ]);
+  });
+
+  it("ignores an unresolved diff from Repository A after switching to Repository B", async () => {
+    const user = userEvent.setup();
+    const otherRepo = "D:\\Work\\Other";
+    const pendingDiff = defer<GitFileDiff>();
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([repoPath, otherRepo]);
+    vi.mocked(githead.addRepoRecent).mockResolvedValue([repoPath, otherRepo]);
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
+      repoPath: requestedRepoPath,
+      files: [createStatusFile(
+        requestedRepoPath === repoPath ? "src/a.ts" : "src/b.ts",
+        { isUnstaged: true, worktreeStatus: "M" }
+      )]
+    }));
+    vi.mocked(githead.getFileDiff).mockReturnValue(pendingDiff.promise);
+
+    render(<App />);
+    await user.click(await screen.findByRole("option", { name: /src\/a\.ts/ }));
+    expect(githead.getFileDiff).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
+    await screen.findByRole("option", { name: /src\/b\.ts/ });
+
+    pendingDiff.resolve(createTextDiff("src/a.ts", "stale-a-diff"));
+    await flushRendererAsync();
+
+    expect(screen.getByRole("button", { name: `Switch to ${otherRepo}` }).getAttribute("aria-current")).toBe("true");
+    expect(screen.queryByText(/stale-a-diff/)).toBeNull();
+    expect(githead.getRepoSummary).toHaveBeenCalledTimes(2);
+    expect(githead.getFileDiff).toHaveBeenCalledTimes(1);
   });
 
   it("removes a recent entry without switching repositories", async () => {
