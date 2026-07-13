@@ -173,6 +173,7 @@ import { canPush, getAheadBehindCounts, getPrimaryCommitAction, getPullableCommi
 import { buildCommitGraphLayout, type CommitGraphLayout } from "./commitGraph";
 import { groupDiffRowsByHunk, isTechnicalFileHeader, parseUnifiedDiff, type DiffRow, type DiffRowKind } from "./diffParser";
 import { getCommitFileStatusVisuals, getFileStatusVisuals, type FileStatusVisuals } from "./fileStatusVisuals";
+import { FixedSizeVirtualList, type VirtualRowProps } from "./FixedSizeVirtualList";
 import { highlightDiffCode } from "./syntaxHighlighter";
 import { buildStatusFileTree, fileName, type StatusFileTreeFolder } from "./statusFileTree";
 import { applyColorTheme } from "./themes";
@@ -614,7 +615,9 @@ export function App(): ReactNode {
   const repoRefreshInFlightRef = useRef(false);
   const autoFetchInFlightRef = useRef(false);
   const configuredActionRunIdRef = useRef(0);
-  const fileStatusDirtyRef = useRef(false);
+  const fileStatusGenerationRef = useRef(0);
+  const acknowledgedFileStatusGenerationRef = useRef(0);
+  const refreshDirtyFileStatusRef = useRef<() => Promise<void>>(async () => undefined);
   const windowFocusedRef = useRef(true);
   const [trustDialogOpen, setTrustDialogOpen] = useState(false);
 
@@ -974,6 +977,8 @@ export function App(): ReactNode {
     const requestId = requestIds.current.repo + 1;
     requestIds.current.repo = requestId;
     const repoPath = stateRef.current.repoPath;
+    const fileStatusGeneration = fileStatusGenerationRef.current;
+    let refreshSucceeded = false;
     repoRefreshInFlightRef.current = true;
 
     if (!options.silent) {
@@ -988,7 +993,11 @@ export function App(): ReactNode {
         return;
       }
 
-      fileStatusDirtyRef.current = false;
+      acknowledgedFileStatusGenerationRef.current = Math.max(
+        acknowledgedFileStatusGenerationRef.current,
+        fileStatusGeneration
+      );
+      refreshSucceeded = true;
       updateState((current) => reconcileGitHubUiState(reconcileSelection({
         ...current,
         summary,
@@ -1053,6 +1062,12 @@ export function App(): ReactNode {
             repoLoading: false
           });
         }
+        if (
+          refreshSucceeded &&
+          acknowledgedFileStatusGenerationRef.current < fileStatusGenerationRef.current
+        ) {
+          queueMicrotask(() => void refreshDirtyFileStatusRef.current());
+        }
       }
     }
 
@@ -1067,8 +1082,15 @@ export function App(): ReactNode {
   }, [loadCommitHistory, loadRepoSyncStatuses, updateState]);
 
   const refreshDirtyFileStatus = useCallback(async (options: { force?: boolean } = {}): Promise<void> => {
+    if (
+      options.force &&
+      acknowledgedFileStatusGenerationRef.current === fileStatusGenerationRef.current
+    ) {
+      fileStatusGenerationRef.current += 1;
+    }
+
     const current = stateRef.current;
-    if (!options.force && !fileStatusDirtyRef.current) {
+    if (acknowledgedFileStatusGenerationRef.current === fileStatusGenerationRef.current) {
       return;
     }
 
@@ -1082,17 +1104,14 @@ export function App(): ReactNode {
       isOperationRunning(current) ||
       repoRefreshInFlightRef.current
     ) {
-      if (options.force) {
-        fileStatusDirtyRef.current = true;
-      }
       return;
     }
 
-    fileStatusDirtyRef.current = false;
     await refreshRepo({
       silent: true
     });
   }, [refreshRepo]);
+  refreshDirtyFileStatusRef.current = refreshDirtyFileStatus;
 
   useEffect(() => {
     const cleanupRepoChanged = window.githead.onRepoChanged((event) => {
@@ -1100,7 +1119,7 @@ export function App(): ReactNode {
         return;
       }
 
-      fileStatusDirtyRef.current = true;
+      fileStatusGenerationRef.current += 1;
       void refreshDirtyFileStatus();
     });
 
@@ -1163,6 +1182,8 @@ export function App(): ReactNode {
     requestIds.current.commitDetails += 1;
     requestIds.current.commitFileDiff += 1;
     requestIds.current.remoteConfigs += 1;
+    fileStatusGenerationRef.current = 0;
+    acknowledgedFileStatusGenerationRef.current = 0;
 
     updateState((current) => resetGitHubUiState(resetHistoryState({
       ...current,
@@ -1323,14 +1344,14 @@ export function App(): ReactNode {
 
   useEffect(() => {
     if (!state.summary?.isValid) {
-      fileStatusDirtyRef.current = false;
+      acknowledgedFileStatusGenerationRef.current = fileStatusGenerationRef.current;
       void window.githead.unwatchRepoChanges(state.repoPath).catch(() => undefined);
       return;
     }
 
     const watchedRepoPath = state.summary.repoPath;
     void window.githead.watchRepoChanges(watchedRepoPath).catch(() => {
-      fileStatusDirtyRef.current = true;
+      fileStatusGenerationRef.current += 1;
     });
 
     return () => {
@@ -6686,7 +6707,10 @@ function FileGroup({
   onSelectFile: (file: GitStatusFile, side: GitDiffSide, modifiers: FileSelectionModifiers) => void;
   onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind, paths?: string[]) => void;
 }): ReactNode {
-  const selectedPathSet = selection?.side === side ? new Set(getSelectionPaths(selection)) : new Set<string>();
+  const selectedPathSet = useMemo(
+    () => selection?.side === side ? new Set(getSelectionPaths(selection)) : new Set<string>(),
+    [selection, side]
+  );
   const tree = useMemo(() => buildStatusFileTree(files), [files]);
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
 
@@ -6698,17 +6722,25 @@ function FileGroup({
         <h2 className="text-sm font-semibold">{title} ({files.length})</h2>
         <div className="flex flex-wrap justify-end gap-2">{actions}</div>
       </div>
-      <div className="file-list" role={viewMode === "tree" ? "tree" : "listbox"} aria-label={title} aria-multiselectable="true">
-        {!summary?.isValid ? (
+      {!summary?.isValid ? (
+        <div className="file-list" role={viewMode === "tree" ? "tree" : "listbox"} aria-label={title} aria-multiselectable="true">
           <p className="empty-state">Select a valid repository.</p>
-        ) : files.length === 0 ? (
-          null
-        ) : viewMode === "tree" ? (
+        </div>
+      ) : viewMode === "tree" ? (
+        <div className="file-list" role="tree" aria-label={title} aria-multiselectable="true">
           <StatusFileTree folder={tree} side={side} level={1} collapsedFolders={collapsedFolders} selectedPathSet={selectedPathSet} disabled={disabled}
             onToggleFolder={(id) => setCollapsedFolders((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })}
             onSelectFile={onSelectFile} onContextAction={onContextAction} />
-        ) : (
-          files.map((file) => (
+        </div>
+      ) : (
+        <FixedSizeVirtualList
+          items={files}
+          itemKey={(file) => `${side}:${file.path}`}
+          rowHeight={34}
+          ariaLabel={title}
+          selectedKey={selection?.side === side ? `${side}:${selection.path}` : null}
+          className="file-list"
+          renderItem={(file, index, rowProps) => (
             <FileRow
               key={`${side}:${file.path}`}
               file={file}
@@ -6717,10 +6749,12 @@ function FileGroup({
               disabled={disabled}
               onSelectFile={onSelectFile}
               onContextAction={onContextAction}
+              virtualIndex={index}
+              virtualRowProps={rowProps}
             />
-          ))
-        )}
-      </div>
+          )}
+        />
+      )}
     </section>
   );
 }
@@ -6810,7 +6844,9 @@ function FileRow({
   disabled,
   onSelectFile,
   onContextAction,
-  treeLevel
+  treeLevel,
+  virtualIndex,
+  virtualRowProps
 }: {
   file: GitStatusFile;
   side: GitDiffSide;
@@ -6819,6 +6855,8 @@ function FileRow({
   onSelectFile: (file: GitStatusFile, side: GitDiffSide, modifiers: FileSelectionModifiers) => void;
   onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind, paths?: string[]) => void;
   treeLevel?: number;
+  virtualIndex?: number;
+  virtualRowProps?: VirtualRowProps;
 }): ReactNode {
   const actionLabel = side === "unstaged" ? "Stage" : "Unstage";
   const deleted = isDeletedOnSide(file, side);
@@ -6840,7 +6878,10 @@ function FileRow({
           role={treeLevel ? "treeitem" : "option"}
           aria-level={treeLevel}
           aria-selected={selected}
-          style={treeLevel ? { paddingLeft: `${(treeLevel - 1) * 18 + 8}px` } : undefined}
+          aria-posinset={virtualRowProps?.["aria-posinset"]}
+          aria-setsize={virtualRowProps?.["aria-setsize"]}
+          data-virtual-index={virtualIndex}
+          style={treeLevel ? { paddingLeft: `${(treeLevel - 1) * 18 + 8}px` } : virtualRowProps?.style}
           onClick={(event: MouseEvent<HTMLButtonElement>) => onSelectFile(file, side, {
             extendRange: event.shiftKey,
             selectAll: false,

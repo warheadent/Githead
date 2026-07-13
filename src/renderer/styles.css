@@ -1426,6 +1426,15 @@ textarea,
   border-radius: 4px;
 }
 
+.virtual-list-spacer {
+  position: relative;
+  min-width: 0;
+}
+
+.virtual-list-spacer .file-row {
+  min-height: 0;
+}
+
 .file-tree-folder-row:hover {
   background: var(--accent);
 }

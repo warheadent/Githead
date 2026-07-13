@@ -1216,6 +1216,61 @@ describe("App", () => {
     });
   });
 
+  it("keeps a 10,000-file status list viewport-proportional and selects across unmounted rows", async () => {
+    const files = Array.from({ length: 10_000 }, (_, index) => createStatusFile(
+      `generated/file-${index.toString().padStart(5, "0")}.ts`,
+      { isUnstaged: true, worktreeStatus: "M" }
+    ));
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files }));
+
+    render(<App />);
+
+    const list = await screen.findByRole("listbox", { name: "Unstaged files" });
+    const initiallyMounted = within(list).getAllByRole("option");
+    expect(initiallyMounted.length).toBeLessThan(100);
+    expect(initiallyMounted[0]?.getAttribute("aria-setsize")).toBe("10000");
+    expect(initiallyMounted[0]?.getAttribute("aria-posinset")).toBe("1");
+
+    fireEvent.click(initiallyMounted[0]!);
+    Object.defineProperty(list, "clientHeight", { configurable: true, value: 340 });
+    Object.defineProperty(list, "scrollTop", { configurable: true, writable: true, value: 500 * 34 });
+    fireEvent.scroll(list);
+
+    expect(within(list).queryByText("generated/file-00000.ts")).toBeNull();
+    const target = within(list).getByRole("option", { name: /generated\/file-00500\.ts/ });
+    fireEvent.click(target, { shiftKey: true });
+    fireEvent.click(screen.getByRole("button", { name: /^Stage$/ }));
+
+    await waitFor(() => {
+      const request = vi.mocked(githead.stageFiles).mock.calls.at(-1)?.[0];
+      expect(request?.paths).toHaveLength(501);
+      expect(request?.paths[0]).toBe("generated/file-00000.ts");
+      expect(request?.paths.at(-1)).toBe("generated/file-00500.ts");
+    });
+  });
+
+  it("reconciles a windowed multi-selection when a watcher refresh removes selected paths", async () => {
+    const first = createStatusFile("src/first.ts", { isUnstaged: true, worktreeStatus: "M" });
+    const second = createStatusFile("src/second.ts", { isUnstaged: true, worktreeStatus: "M" });
+    const third = createStatusFile("src/third.ts", { isUnstaged: true, worktreeStatus: "M" });
+    vi.mocked(githead.getRepoSummary)
+      .mockResolvedValueOnce(createSummary({ files: [first, second, third] }))
+      .mockResolvedValue(createSummary({ files: [second, third] }));
+
+    render(<App />);
+
+    const firstRow = await screen.findByRole("option", { name: /src\/first\.ts/ });
+    const secondRow = screen.getByRole("option", { name: /src\/second\.ts/ });
+    fireEvent.click(firstRow);
+    fireEvent.click(secondRow, { ctrlKey: true });
+    emitRepoChanged();
+
+    await waitFor(() => expect(screen.queryByRole("option", { name: /src\/first\.ts/ })).toBeNull());
+    expect(screen.getByRole("option", { name: /src\/second\.ts/ }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: /^Stage$/ }));
+    await waitFor(() => expect(githead.stageFiles).toHaveBeenCalledWith({ repoPath, paths: ["src/second.ts"] }));
+  });
+
   it("stages multiple selected unstaged files from a selected row context menu", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
@@ -3746,13 +3801,29 @@ describe("App", () => {
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(1);
   });
 
-  it("does not start another automatic refresh while a refresh is already in flight", async () => {
-    vi.useFakeTimers();
+  it("coalesces file changes during an in-flight refresh into one trailing refresh", async () => {
     const pendingRefresh = defer<RepoSummary>();
-    vi.mocked(githead.getRepoSummary)
-      .mockResolvedValueOnce(createSummary())
-      .mockReturnValueOnce(pendingRefresh.promise)
-      .mockResolvedValue(createSummary());
+    const finalFile = createStatusFile("src/final.ts", {
+      isUnstaged: true,
+      worktreeStatus: "M"
+    });
+    let activeSummaryCalls = 0;
+    let maxActiveSummaryCalls = 0;
+    vi.mocked(githead.getRepoSummary).mockImplementation(async () => {
+      const call = vi.mocked(githead.getRepoSummary).mock.calls.length;
+      activeSummaryCalls += 1;
+      maxActiveSummaryCalls = Math.max(maxActiveSummaryCalls, activeSummaryCalls);
+      try {
+        if (call === 2) {
+          return await pendingRefresh.promise;
+        }
+        return createSummary({
+          files: call === 3 ? [finalFile] : []
+        });
+      } finally {
+        activeSummaryCalls -= 1;
+      }
+    });
 
     render(<App />);
     await flushRendererAsync();
@@ -3761,11 +3832,16 @@ describe("App", () => {
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(2);
 
     emitRepoChanged();
+    emitRepoChanged();
     await flushRendererAsync();
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(2);
 
     pendingRefresh.resolve(createSummary());
     await flushRendererAsync();
+
+    expect(githead.getRepoSummary).toHaveBeenCalledTimes(3);
+    expect(maxActiveSummaryCalls).toBe(1);
+    expect(screen.getByRole("option", { name: /src\/final\.ts/ })).toBeTruthy();
   });
 
   it("keeps file changes dirty instead of refreshing during repository operations", async () => {
