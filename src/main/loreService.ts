@@ -47,6 +47,10 @@ import type {
   GitSetRemoteUrlRequest,
   GitUpstreamRequest,
   RepoSummary,
+  RepoIdentitySection,
+  RepoMetadataSection,
+  RepoSectionRequest,
+  RepoStatusSection,
   RepoSyncStatus
 } from "../shared/types";
 import { loreCapabilities } from "../shared/types";
@@ -164,6 +168,30 @@ export class LoreService implements VcsService {
       actionsConfig,
       validationErrors: []
     };
+  }
+
+  async getRepoIdentity(request: RepoSectionRequest): Promise<RepoIdentitySection> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) return { repoPath: request.repoPath, generation: request.generation, kind: "lore", capabilities: loreCapabilities(), isValid: false, branch: null, hasHead: false, safeDirectory: null, validationErrors: [validation.error] };
+    const result = await this.runLore(validation.rootPath, ["status"]);
+    const status = parseLoreStatus(result.stdout);
+    return { repoPath: validation.rootPath, generation: request.generation, kind: "lore", capabilities: loreCapabilities(), isValid: true, branch: status.branch, hasHead: (status.revisionNumber ?? 0) > 0, safeDirectory: null, validationErrors: [] };
+  }
+
+  async getRepoStatus(request: RepoSectionRequest): Promise<RepoStatusSection> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) throw new Error(validation.error);
+    const status = parseLoreStatus((await this.runLore(validation.rootPath, ["status", "--scan"])).stdout);
+    return { repoPath: validation.rootPath, generation: request.generation, statusLines: [], files: status.files };
+  }
+
+  async getRepoMetadata(request: RepoSectionRequest): Promise<RepoMetadataSection> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) throw new Error(validation.error);
+    const [branchesResult, actionsConfig, remoteUrl] = await Promise.all([this.runLore(validation.rootPath, ["branch", "list"]), readActionsConfig(validation.rootPath).catch(() => createEmptyActionsConfig()), this.readRemoteUrl(validation.rootPath)]);
+    const branches = parseLoreBranchList(branchesResult.stdout).map((branch) => ({ name: branch.name, current: branch.current, upstream: null }));
+    const remotes: GitRemote[] = remoteUrl ? [{ name: "origin", url: remoteUrl, direction: "fetch" }] : [];
+    return { repoPath: validation.rootPath, generation: request.generation, upstream: null, branches, remotes, remoteBranches: [], defaultRemoteBranch: null, commitsAheadOfDefaultBranch: null, githubRepository: null, actionsConfig };
   }
 
   async getRepoSyncStatus(repoPath: string): Promise<RepoSyncStatus> {

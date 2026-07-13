@@ -58,6 +58,7 @@ import type {
   AppUpdateState,
   AppWindowState,
   RepoChangedEvent,
+  RepoSectionRequest,
   RepoSummaryReadRequest,
   RepoTrustRequest,
   RepoSummary
@@ -73,6 +74,12 @@ const api: GitheadApi = {
       repoPath,
       ...(requestId ? { requestId } : {})
     } satisfies RepoSummaryReadRequest) as Promise<RepoSummary>,
+  getRepoIdentity: (request: RepoSectionRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getRepoIdentity, request) as ReturnType<GitheadApi["getRepoIdentity"]>,
+  getRepoStatus: (request: RepoSectionRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getRepoStatus, request) as ReturnType<GitheadApi["getRepoStatus"]>,
+  getRepoMetadata: (request: RepoSectionRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getRepoMetadata, request) as ReturnType<GitheadApi["getRepoMetadata"]>,
   cancelRepositoryRead: (request: CancelRepositoryReadRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.cancelRepositoryRead, request) as ReturnType<GitheadApi["cancelRepositoryRead"]>,
   watchRepoChanges: (repoPath: string) =>

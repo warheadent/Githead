@@ -57,6 +57,29 @@ const ok = (stdout = ""): ProcessResult => ({
   stderr: ""
 });
 
+describe("GitService progressive Repository sections", () => {
+  it("loads lightweight identity without File Status, submodules, actions, or ahead counts", async () => {
+    const runner = new FakeRunner([ok("true\n"), ok("feature/fast\n"), ok(`${oid}\n`)]);
+    const service = new GitService(runner);
+
+    await expect(service.getRepoIdentity({ repoPath: "D:\\Repo", generation: 7 })).resolves.toMatchObject({ branch: "feature/fast", generation: 7 });
+
+    const commands = runner.calls.map((call) => call.args.slice(2).join(" "));
+    expect(commands).not.toContain(expect.stringContaining("status --porcelain"));
+    expect(commands).not.toContain(expect.stringContaining("submodule"));
+    expect(commands).not.toContain(expect.stringContaining("rev-list"));
+  });
+
+  it("retains full untracked enumeration in the File Status section", async () => {
+    const runner = new FakeRunner([ok("")]);
+    const service = new GitService(runner);
+
+    await service.getRepoStatus({ repoPath: "D:\\Repo", generation: 2 });
+
+    expect(runner.calls[0]?.args).toEqual(["-C", "D:\\Repo", "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all"]);
+  });
+});
+
 const failure = (stderr = "fatal: failed"): ProcessResult => ({
   exitCode: 1,
   stdout: "",
@@ -990,10 +1013,10 @@ describe("GitService", () => {
     const runner = new FakeRunner([
       ok("true\n"),
       ok("main\n"),
+      ok(`${oid}\n`),
+      ok(`${status}\0`),
       ok("origin/main\n"),
       ok("origin\thttps://example.test/repo.git (fetch)\norigin\thttps://example.test/repo.git (push)\n"),
-      ok(`${status}\0`),
-      ok(`${oid}\n`),
       ok("main\torigin/main\t*\nfeature/nav\t\t \n"),
       ok([
         "refs/remotes/origin/HEAD\torigin\trefs/remotes/origin/main",
@@ -1378,10 +1401,10 @@ describe("GitService", () => {
     const runner = new FakeRunner([
       ok("true\n"),
       ok("main\n"),
+      ok(`${oid}\n`),
+      ok("\0"),
       ok("origin/main\n"),
       ok("origin\tgit@github.com:openai/githead.git (fetch)\norigin\tgit@github.com:openai/githead.git (push)\n"),
-      ok("\0"),
-      ok(`${oid}\n`),
       ok("main\torigin/main\t*\n"),
       ok("refs/remotes/origin/main\torigin/main\t\n"),
       ok("D:\\Repo\n")

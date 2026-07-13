@@ -431,6 +431,44 @@ export interface CancelRepositoryReadRequest {
   requestId: string;
 }
 
+export interface RepoSectionRequest extends RepositoryReadRequest {
+  repoPath: string;
+  generation: number;
+}
+
+export interface RepoIdentitySection {
+  repoPath: string;
+  generation: number;
+  kind: VcsKind;
+  capabilities: RepoCapabilities;
+  isValid: boolean;
+  branch: string | null;
+  hasHead: boolean;
+  safeDirectory: GitSafeDirectoryInfo | null;
+  validationErrors: string[];
+}
+
+export interface RepoStatusSection {
+  repoPath: string;
+  generation: number;
+  statusLines: string[];
+  files: GitStatusFile[];
+  submodules?: GitSubmodule[];
+}
+
+export interface RepoMetadataSection {
+  repoPath: string;
+  generation: number;
+  upstream: string | null;
+  branches: GitBranch[];
+  remotes: GitRemote[];
+  remoteBranches: GitRemoteBranch[];
+  defaultRemoteBranch: GitRemoteBranch | null;
+  commitsAheadOfDefaultBranch: number | null;
+  githubRepository: GitHubRepository | null;
+  actionsConfig: GitActionsConfig;
+}
+
 export interface GitCommitHistoryRequest extends RepositoryReadRequest {
   repoPath: string;
   limit?: number;
@@ -982,6 +1020,9 @@ export interface GitheadApi {
   chooseRepo(defaultPath?: string): Promise<string | null>;
   chooseCloneParent(defaultPath?: string): Promise<string | null>;
   getRepoSummary(repoPath: string, requestId?: string): Promise<RepoSummary>;
+  getRepoIdentity(request: RepoSectionRequest): Promise<RepoIdentitySection>;
+  getRepoStatus(request: RepoSectionRequest): Promise<RepoStatusSection>;
+  getRepoMetadata(request: RepoSectionRequest): Promise<RepoMetadataSection>;
   cancelRepositoryRead(request: CancelRepositoryReadRequest): Promise<void>;
   watchRepoChanges(repoPath: string): Promise<void>;
   unwatchRepoChanges(repoPath?: string): Promise<void>;

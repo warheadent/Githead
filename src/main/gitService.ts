@@ -53,6 +53,10 @@ import type {
   GitSafeDirectoryRequest,
   GitSetRemoteUrlRequest,
   RepoSyncStatus,
+  RepoIdentitySection,
+  RepoMetadataSection,
+  RepoSectionRequest,
+  RepoStatusSection,
   GitStatusFile,
   GitSubmodule,
   GitSubmoduleRequest,
@@ -132,101 +136,35 @@ export class GitService {
   constructor(private readonly runner: ProcessRunner) {}
 
   async getRepoSummary(repoPath: string): Promise<RepoSummary> {
-    const validation = await this.validateRepo(repoPath);
+    const request = { repoPath, generation: 0 };
+    const identity = await this.getRepoIdentity(request);
+    if (!identity.isValid) return emptySummary(repoPath, identity.validationErrors, identity.safeDirectory);
+    const [status, metadata] = await Promise.all([this.getRepoStatus(request), this.getRepoMetadata(request)]);
+    return { ...identity, ...status, ...metadata };
+  }
 
-    if (!validation.isValid) {
-      return emptySummary(repoPath, validation.validationErrors, validation.safeDirectory);
-    }
+  async getRepoIdentity(request: RepoSectionRequest): Promise<RepoIdentitySection> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) return { repoPath: request.repoPath, generation: request.generation, kind: "git", capabilities: gitCapabilities(), isValid: false, branch: null, hasHead: false, safeDirectory: validation.safeDirectory, validationErrors: validation.validationErrors };
+    const [branch, head] = await Promise.all([this.runGit(request.repoPath, ["branch", "--show-current"]), this.runGit(request.repoPath, ["rev-parse", "--verify", "HEAD"])]);
+    return { repoPath: request.repoPath, generation: request.generation, kind: "git", capabilities: gitCapabilities(), isValid: true, branch: branch.stdout.trim() || null, hasHead: head.exitCode === 0, safeDirectory: null, validationErrors: [] };
+  }
 
-    const [
-      branchResult,
-      upstreamResult,
-      remoteResult,
-      statusResult,
-      headResult,
-      branchesResult,
-      remoteBranchesResult,
-      rootResult
-    ] = await Promise.all([
-      this.runGit(repoPath, [
-        "branch",
-        "--show-current"
-      ]),
-      this.runGit(repoPath, [
-        "rev-parse",
-        "--abbrev-ref",
-        "--symbolic-full-name",
-        "@{u}"
-      ]),
-      this.runGit(repoPath, [
-        "remote",
-        "-v"
-      ]),
-      this.runGit(repoPath, [
-        "status",
-        "--porcelain=v2",
-        "-z",
-        "--branch",
-        "--untracked-files=all"
-      ]),
-      this.runGit(repoPath, [
-        "rev-parse",
-        "--verify",
-        "HEAD"
-      ]),
-      this.runGit(repoPath, [
-        "branch",
-        "--format=%(refname:short)%09%(upstream:short)%09%(HEAD)"
-      ]),
-      this.runGit(repoPath, [
-        "for-each-ref",
-        "--format=%(refname)%09%(refname:short)%09%(symref)",
-        "refs/remotes"
-      ]),
-      this.runGit(repoPath, [
-        "rev-parse",
-        "--show-toplevel"
-      ])
+  async getRepoStatus(request: RepoSectionRequest): Promise<RepoStatusSection> {
+    const result = await this.runGit(request.repoPath, ["status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all"]);
+    const status = parsePorcelainStatus(result.stdout);
+    return { repoPath: request.repoPath, generation: request.generation, statusLines: status.statusLines, files: status.files, submodules: await this.getSubmodules(request.repoPath, status.files) };
+  }
+
+  async getRepoMetadata(request: RepoSectionRequest): Promise<RepoMetadataSection> {
+    const [upstream, remotesResult, branchesResult, remoteBranchesResult, root] = await Promise.all([
+      this.runGit(request.repoPath, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]), this.runGit(request.repoPath, ["remote", "-v"]), this.runGit(request.repoPath, ["branch", "--format=%(refname:short)%09%(upstream:short)%09%(HEAD)"]), this.runGit(request.repoPath, ["for-each-ref", "--format=%(refname)%09%(refname:short)%09%(symref)", "refs/remotes"]), this.runGit(request.repoPath, ["rev-parse", "--show-toplevel"])
     ]);
-    const status = parsePorcelainStatus(statusResult.stdout);
-    const submodules = await this.getSubmodules(repoPath, status.files);
-    const branch = branchResult.stdout.trim() || null;
-    const remotes = parseRemotes(remoteResult.stdout);
-    const actionsConfig = rootResult.exitCode === 0
-      ? await readActionsConfig(rootResult.stdout.trim())
-      : {
-          ...createEmptyActionsConfig(),
-          error: rootResult.stderr.trim() || "Unable to locate repository root."
-        };
-    const hasHead = headResult.exitCode === 0;
-    const defaultRemoteBranch = remoteBranchesResult.exitCode === 0
-      ? parseRemoteDefaultBranch(remoteBranchesResult.stdout, remotes)
-      : null;
-    const commitsAheadOfDefaultBranch = defaultRemoteBranch && hasHead
-      ? await this.countCommitsAhead(repoPath, defaultRemoteBranch.name)
-      : null;
-
-    return {
-      repoPath,
-      kind: "git",
-      capabilities: gitCapabilities(),
-      isValid: true,
-      branch,
-      upstream: upstreamResult.exitCode === 0 ? upstreamResult.stdout.trim() || null : null,
-      branches: parseBranches(branchesResult.stdout, branch),
-      hasHead,
-      remotes,
-      remoteBranches: remoteBranchesResult.exitCode === 0 ? parseRemoteBranches(remoteBranchesResult.stdout, remotes) : [],
-      defaultRemoteBranch,
-      commitsAheadOfDefaultBranch,
-      githubRepository: getSupportedGitHubOrigin(remotes),
-      statusLines: status.statusLines,
-      files: status.files,
-      submodules,
-      actionsConfig,
-      safeDirectory: null,
-      validationErrors: []
-    };
+    const remotes = parseRemotes(remotesResult.stdout);
+    const remoteBranches = remoteBranchesResult.exitCode === 0 ? parseRemoteBranches(remoteBranchesResult.stdout, remotes) : [];
+    const defaultRemoteBranch = remoteBranchesResult.exitCode === 0 ? parseRemoteDefaultBranch(remoteBranchesResult.stdout, remotes) : null;
+    const actionsConfig = root.exitCode === 0 ? await readActionsConfig(root.stdout.trim()) : { ...createEmptyActionsConfig(), error: root.stderr.trim() || "Unable to locate repository root." };
+    return { repoPath: request.repoPath, generation: request.generation, upstream: upstream.exitCode === 0 ? upstream.stdout.trim() || null : null, branches: parseBranches(branchesResult.stdout, null), remotes, remoteBranches, defaultRemoteBranch, commitsAheadOfDefaultBranch: defaultRemoteBranch ? await this.countCommitsAhead(request.repoPath, defaultRemoteBranch.name) : null, githubRepository: getSupportedGitHubOrigin(remotes), actionsConfig };
   }
 
   private async countCommitsAhead(repoPath: string, baseRef: string): Promise<number | null> {

@@ -13,6 +13,9 @@ import type { GitService } from "./gitService";
 export type VcsService = Pick<
   GitService,
   | "getRepoSummary"
+  | "getRepoIdentity"
+  | "getRepoStatus"
+  | "getRepoMetadata"
   | "getRepoSyncStatus"
   | "getRepoSyncStatuses"
   | "getGitHubRepository"

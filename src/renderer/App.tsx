@@ -146,6 +146,7 @@ import type {
   GitSafeDirectoryInfo,
   GitStatusFile,
   RepoSyncStatus,
+  RepoIdentitySection,
   RepoTrustResult,
   RepoSummary,
   StatusFileViewMode
@@ -352,7 +353,7 @@ interface AppState {
 }
 
 type AppStateUpdater = Partial<AppState> | ((state: AppState) => AppState);
-type RepositoryReadKind = "summary" | "history" | "commit-details" | "commit-file-diff" | "diff";
+type RepositoryReadKind = "summary" | "identity" | "status" | "metadata" | "history" | "commit-details" | "commit-file-diff" | "diff";
 
 function repositoryReadRequestId(kind: RepositoryReadKind, generation: number): string {
   return `${kind}:${generation}`;
@@ -995,8 +996,11 @@ export function App(): ReactNode {
   const refreshRepo = useCallback(async (options: {
     addToRecents?: boolean;
     silent?: boolean;
+    statusOnly?: boolean;
   } = {}): Promise<void> => {
-    cancelRepositoryRead("summary", requestIds.current.repo);
+    cancelRepositoryRead("identity", requestIds.current.repo);
+    cancelRepositoryRead("status", requestIds.current.repo);
+    cancelRepositoryRead("metadata", requestIds.current.repo);
     const requestId = requestIds.current.repo + 1;
     requestIds.current.repo = requestId;
     const repoPath = stateRef.current.repoPath;
@@ -1011,16 +1015,38 @@ export function App(): ReactNode {
     }
 
     try {
-      const summary = await window.githead.getRepoSummary(repoPath, repositoryReadRequestId("summary", requestId));
+      if (options.statusOnly) {
+        const status = await window.githead.getRepoStatus({ repoPath, generation: requestId, requestId: repositoryReadRequestId("status", requestId) });
+        if (requestId !== requestIds.current.repo || !isSameRepoPath(status.repoPath, stateRef.current.repoPath)) return;
+        acknowledgedFileStatusGenerationRef.current = Math.max(acknowledgedFileStatusGenerationRef.current, fileStatusGeneration);
+        refreshSucceeded = true;
+        updateState((current) => current.summary ? reconcileSelection({ ...current, summary: { ...current.summary, ...status } }) : current);
+        return;
+      }
+
+      const identity = await window.githead.getRepoIdentity({ repoPath, generation: requestId, requestId: repositoryReadRequestId("identity", requestId) });
       if (requestId !== requestIds.current.repo || !isSameRepoPath(repoPath, stateRef.current.repoPath)) {
         return;
       }
+
+      const identitySummary = createSummaryFromIdentity(identity);
+      updateState((current) => ({ ...current, summary: identitySummary, showSetup: !identity.isValid, setupError: identity.validationErrors.join(" ") }));
+      if (!identity.isValid) return;
+
+      const [statusResult, metadataResult] = await Promise.allSettled([
+        window.githead.getRepoStatus({ repoPath, generation: requestId, requestId: repositoryReadRequestId("status", requestId) }),
+        window.githead.getRepoMetadata({ repoPath, generation: requestId, requestId: repositoryReadRequestId("metadata", requestId) })
+      ]);
+      if (requestId !== requestIds.current.repo || !isSameRepoPath(repoPath, stateRef.current.repoPath)) return;
+      const status = statusResult.status === "fulfilled" && statusResult.value.generation === requestId && isSameRepoPath(statusResult.value.repoPath, repoPath) ? statusResult.value : null;
+      const metadata = metadataResult.status === "fulfilled" && metadataResult.value.generation === requestId && isSameRepoPath(metadataResult.value.repoPath, repoPath) ? metadataResult.value : null;
+      const summary = { ...identitySummary, ...status, ...metadata };
 
       acknowledgedFileStatusGenerationRef.current = Math.max(
         acknowledgedFileStatusGenerationRef.current,
         fileStatusGeneration
       );
-      refreshSucceeded = true;
+      refreshSucceeded = Boolean(status);
       updateState((current) => reconcileGitHubUiState(reconcileSelection({
         ...current,
         summary,
@@ -1031,6 +1057,11 @@ export function App(): ReactNode {
         showSetup: !summary.isValid,
         setupError: summary.isValid ? "" : summary.validationErrors.join(" ")
       }), current.summary));
+
+      if (!status || !metadata) {
+        const error = statusResult.status === "rejected" ? statusResult.reason : metadataResult.status === "rejected" ? metadataResult.reason : null;
+        updateState((current) => ({ ...current, lastOperationResult: error ? { repoPath, exitCode: -1, stdout: "", stderr: error instanceof Error ? error.message : "Unable to load a Repository section." } : current.lastOperationResult }));
+      }
 
       if (options.addToRecents && summary.isValid) {
         try {
@@ -1060,6 +1091,10 @@ export function App(): ReactNode {
       }
     } catch (error) {
       if (requestId === requestIds.current.repo && isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        if (options.statusOnly && stateRef.current.summary?.isValid) {
+          updateState((current) => ({ ...current, lastOperationResult: { repoPath, exitCode: -1, stdout: "", stderr: error instanceof Error ? error.message : "Unable to refresh File Status." } }));
+          return;
+        }
         const summary = createInvalidSummary(
           stateRef.current.repoPath,
           error instanceof Error ? error.message : "Unable to read repository state."
@@ -1131,7 +1166,8 @@ export function App(): ReactNode {
     }
 
     await refreshRepo({
-      silent: true
+      silent: true,
+      statusOnly: true
     });
   }, [refreshRepo]);
   refreshDirtyFileStatusRef.current = refreshDirtyFileStatus;
@@ -1200,7 +1236,9 @@ export function App(): ReactNode {
       return;
     }
 
-    cancelRepositoryRead("summary", requestIds.current.repo);
+    cancelRepositoryRead("identity", requestIds.current.repo);
+    cancelRepositoryRead("status", requestIds.current.repo);
+    cancelRepositoryRead("metadata", requestIds.current.repo);
     cancelRepositoryRead("diff", requestIds.current.diff);
     cancelRepositoryRead("history", requestIds.current.history);
     cancelRepositoryRead("commit-details", requestIds.current.commitDetails);
@@ -1379,7 +1417,9 @@ export function App(): ReactNode {
   }, [loadGitIdentity, state.repoPath]);
 
   useEffect(() => () => {
-    cancelRepositoryRead("summary", requestIds.current.repo);
+    cancelRepositoryRead("identity", requestIds.current.repo);
+    cancelRepositoryRead("status", requestIds.current.repo);
+    cancelRepositoryRead("metadata", requestIds.current.repo);
     cancelRepositoryRead("diff", requestIds.current.diff);
     cancelRepositoryRead("history", requestIds.current.history);
     cancelRepositoryRead("commit-details", requestIds.current.commitDetails);
@@ -9224,6 +9264,22 @@ function createInvalidSummary(repoPath: string, message: string): RepoSummary {
     validationErrors: [
       message
     ]
+  };
+}
+
+function createSummaryFromIdentity(identity: RepoIdentitySection): RepoSummary {
+  return {
+    ...identity,
+    upstream: null,
+    branches: [],
+    remotes: [],
+    remoteBranches: [],
+    defaultRemoteBranch: null,
+    commitsAheadOfDefaultBranch: null,
+    githubRepository: null,
+    statusLines: [],
+    files: [],
+    actionsConfig: createEmptyRendererActionsConfig()
   };
 }
 

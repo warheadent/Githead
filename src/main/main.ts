@@ -55,6 +55,7 @@ import type {
   GitResetCommitRequest,
   RepoTrustRequest,
   RepoSummaryReadRequest,
+  RepoSectionRequest,
   GitRunRequest,
   GitSafeDirectoryRequest,
   GitSetRemoteUrlRequest,
@@ -263,6 +264,16 @@ ipcMain.handle(IPC_CHANNELS.getRepoSummary, (event, request: RepoSummaryReadRequ
   handleRead(event, request, async (signal) =>
     processRunner.runWithSignal(signal, async () =>
       (await vcsRouter.serviceForRepo(request.repoPath)).getRepoSummary(request.repoPath))));
+
+ipcMain.handle(IPC_CHANNELS.getRepoIdentity, (event, request: RepoSectionRequest) =>
+  handleRead(event, request, (signal) => processRunner.runWithSignal(signal, async () =>
+    (await vcsRouter.serviceForRepo(request.repoPath)).getRepoIdentity(request))));
+ipcMain.handle(IPC_CHANNELS.getRepoStatus, (event, request: RepoSectionRequest) =>
+  handleRead(event, request, (signal) => processRunner.runWithSignal(signal, async () =>
+    (await vcsRouter.serviceForRepo(request.repoPath)).getRepoStatus(request))));
+ipcMain.handle(IPC_CHANNELS.getRepoMetadata, (event, request: RepoSectionRequest) =>
+  handleRead(event, request, (signal) => processRunner.runWithSignal(signal, async () =>
+    (await vcsRouter.serviceForRepo(request.repoPath)).getRepoMetadata(request))));
 
 ipcMain.handle(IPC_CHANNELS.cancelRepositoryRead, (event, request: CancelRepositoryReadRequest) => {
   readRequests.cancel(event.sender.id, request.requestId);

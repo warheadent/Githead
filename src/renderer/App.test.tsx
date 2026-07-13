@@ -3834,6 +3834,7 @@ describe("App", () => {
     render(<App />);
     await flushRendererAsync();
     expect(screen.getAllByRole("option").length).toBeLessThan(100);
+    const metadataCallsBeforeLiveUpdate = vi.mocked(githead.getRepoMetadata).mock.calls.length;
     emitRepoChanged();
     await flushRendererAsync();
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(2);
@@ -3847,6 +3848,7 @@ describe("App", () => {
     await flushRendererAsync();
 
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(3);
+    expect(githead.getRepoMetadata).toHaveBeenCalledTimes(metadataCallsBeforeLiveUpdate);
     expect(maxActiveSummaryCalls).toBe(1);
     expect(screen.getByRole("option", { name: /src\/final\.ts/ })).toBeTruthy();
   });
@@ -3903,7 +3905,7 @@ describe("App", () => {
     expect(screen.getByText("Other")).toBeTruthy();
     expect(screen.getByRole("button", { name: `Switch to ${otherRepo}` })).toBeTruthy();
     expect(screen.queryByText(otherRepo)).toBeNull();
-    expect(githead.getRepoSummary).toHaveBeenCalledWith(recentRepo, expect.any(String));
+    expect(githead.getRepoSummary).toHaveBeenCalledWith(recentRepo);
   });
 
   it("shows local push and pull counts beside recent repositories", async () => {
@@ -4135,8 +4137,25 @@ describe("App", () => {
       otherRepo,
       repoPath
     ]);
-    expect(githead.cancelRepositoryRead).toHaveBeenCalledWith({ requestId: "summary:1" });
-    expect(githead.cancelRepositoryRead).toHaveBeenCalledWith({ requestId: "summary:2" });
+    expect(githead.cancelRepositoryRead).toHaveBeenCalledWith({ requestId: "identity:1" });
+    expect(githead.cancelRepositoryRead).toHaveBeenCalledWith({ requestId: "status:1" });
+    expect(githead.cancelRepositoryRead).toHaveBeenCalledWith({ requestId: "metadata:1" });
+  });
+
+  it("renders Repository identity before deferred File Status and metadata", async () => {
+    const pendingStatus = defer<Awaited<ReturnType<GitheadApi["getRepoStatus"]>>>();
+    const pendingMetadata = defer<Awaited<ReturnType<GitheadApi["getRepoMetadata"]>>>();
+    vi.mocked(githead.getRepoIdentity).mockResolvedValue({ repoPath, generation: 1, kind: "git", capabilities: gitCapabilities(), isValid: true, branch: "fast/identity", hasHead: true, safeDirectory: null, validationErrors: [] });
+    vi.mocked(githead.getRepoStatus).mockReturnValue(pendingStatus.promise);
+    vi.mocked(githead.getRepoMetadata).mockReturnValue(pendingMetadata.promise);
+
+    render(<App />);
+
+    expect(await screen.findByText("fast/identity")).toBeTruthy();
+    expect(screen.queryByRole("option", { name: /src\/later\.ts/ })).toBeNull();
+    pendingStatus.resolve({ repoPath, generation: 1, statusLines: [], files: [createStatusFile("src/later.ts", { isUnstaged: true, worktreeStatus: "M" })] });
+    pendingMetadata.resolve({ repoPath, generation: 1, upstream: null, branches: [], remotes: [], remoteBranches: [], defaultRemoteBranch: null, commitsAheadOfDefaultBranch: null, githubRepository: null, actionsConfig: createActionsConfig() });
+    expect(await screen.findByRole("option", { name: /src\/later\.ts/ })).toBeTruthy();
   });
 
   it("ignores an unresolved diff from Repository A after switching to Repository B", async () => {
@@ -5611,11 +5630,35 @@ function createGitheadMock(): GitheadApi {
       email: ""
     }
   };
+  const progressiveSummaries = new Map<string, { promise: Promise<RepoSummary>; uses: number }>();
+  const progressiveSummary = (request: { repoPath: string; generation: number }): Promise<RepoSummary> => {
+    const key = `${request.repoPath.toLocaleLowerCase()}\0${request.generation}`;
+    let entry = progressiveSummaries.get(key);
+    if (!entry) {
+      entry = { promise: Promise.resolve().then(() => githead.getRepoSummary(request.repoPath)), uses: 0 };
+      progressiveSummaries.set(key, entry);
+    }
+    entry.uses += 1;
+    if (entry.uses >= 3) progressiveSummaries.delete(key);
+    return entry.promise;
+  };
 
   return {
     chooseRepo: vi.fn().mockResolvedValue(null),
     chooseCloneParent: vi.fn().mockResolvedValue(null),
     getRepoSummary: vi.fn().mockResolvedValue(createSummary()),
+    getRepoIdentity: vi.fn(async (request) => {
+      const summary = await progressiveSummary(request);
+      return { repoPath: summary.repoPath, generation: request.generation, kind: summary.kind, capabilities: summary.capabilities, isValid: summary.isValid, branch: summary.branch, hasHead: summary.hasHead, safeDirectory: summary.safeDirectory, validationErrors: summary.validationErrors };
+    }),
+    getRepoStatus: vi.fn(async (request) => {
+      const summary = await progressiveSummary(request);
+      return { repoPath: summary.repoPath, generation: request.generation, statusLines: summary.statusLines, files: summary.files, ...(summary.submodules ? { submodules: summary.submodules } : {}) };
+    }),
+    getRepoMetadata: vi.fn(async (request) => {
+      const summary = await progressiveSummary(request);
+      return { repoPath: summary.repoPath, generation: request.generation, upstream: summary.upstream, branches: summary.branches, remotes: summary.remotes, remoteBranches: summary.remoteBranches, defaultRemoteBranch: summary.defaultRemoteBranch, commitsAheadOfDefaultBranch: summary.commitsAheadOfDefaultBranch, githubRepository: summary.githubRepository, actionsConfig: summary.actionsConfig };
+    }),
     cancelRepositoryRead: vi.fn().mockResolvedValue(undefined),
     watchRepoChanges: vi.fn().mockResolvedValue(undefined),
     unwatchRepoChanges: vi.fn().mockResolvedValue(undefined),
