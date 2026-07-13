@@ -54,14 +54,16 @@ describe("RepoWatchService", () => {
     });
   });
 
-  it("emits bounded leading-edge notifications during sustained repository activity", async () => {
+  it("bounds sustained activity with max wait and emits one final settled notification", async () => {
     const fixture = createWatchFixture();
 
     fixture.service.watchRepo(repoPath);
     fixture.emitChange();
     await vi.advanceTimersByTimeAsync(749);
     fixture.emitChange();
-    await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(749);
+    fixture.emitChange();
+    await vi.advanceTimersByTimeAsync(502);
     expect(fixture.send).toHaveBeenCalledTimes(1);
 
     fixture.emitChange();
@@ -95,6 +97,19 @@ describe("RepoWatchService", () => {
     expect(fixture.send).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [null, "filesystem-unknown"],
+    [".git\\refs\\heads\\main", "filesystem-metadata"]
+  ] as const)("falls back to broad invalidation for %s", async (filename, reason) => {
+    const fixture = createWatchFixture();
+    fixture.service.watchRepo(repoPath);
+    fixture.emitChange(0, filename);
+
+    await vi.advanceTimersByTimeAsync(750);
+
+    expect(fixture.send).toHaveBeenCalledWith(IPC_CHANNELS.repoChanged, expect.objectContaining({ reason }));
+  });
+
   it("closes the previous watcher when switching repositories", () => {
     const fixture = createWatchFixture();
     const nextRepoPath = "D:\\Other";
@@ -119,7 +134,7 @@ describe("RepoWatchService", () => {
     expect(fixture.send).not.toHaveBeenCalled();
   });
 
-  it("attributes stale callbacks from a closed watcher to the active repository", async () => {
+  it("ignores stale callbacks from a closed watcher", async () => {
     const fixture = createWatchFixture();
     const nextRepoPath = "D:\\Other";
 
@@ -128,12 +143,7 @@ describe("RepoWatchService", () => {
     fixture.emitChange(0);
 
     await vi.advanceTimersByTimeAsync(750);
-    expect(fixture.send).toHaveBeenCalledTimes(1);
-    expect(fixture.send).toHaveBeenCalledWith(IPC_CHANNELS.repoChanged, {
-      repoPath: path.resolve(nextRepoPath),
-      changedAt: "2026-05-31T10:00:00.000Z",
-      reason: "filesystem"
-    });
+    expect(fixture.send).not.toHaveBeenCalled();
   });
 
   it("emits watcher-error events and closes the watcher after watcher failures", () => {
@@ -182,6 +192,7 @@ function createWatchFixture(): WatchFixture {
     getWindows: () => [window],
     watchFactory,
     debounceMs: 750,
+    maxWaitMs: 2_000,
     clock: () => new Date("2026-05-31T10:00:00Z")
   });
 

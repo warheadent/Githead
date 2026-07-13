@@ -19,24 +19,30 @@ export interface RepoWatchServiceOptions {
   getWindows: () => BrowserWindow[];
   watchFactory?: RepoWatchFactory;
   debounceMs?: number;
+  maxWaitMs?: number;
   clock?: () => Date;
 }
 
 const REPO_CHANGE_DEBOUNCE_MS = 750;
+const REPO_CHANGE_MAX_WAIT_MS = 5_000;
 
 export class RepoWatchService {
   private readonly getWindows: () => BrowserWindow[];
   private readonly watchFactory: RepoWatchFactory;
   private readonly debounceMs: number;
+  private readonly maxWaitMs: number;
   private readonly clock: () => Date;
   private watcher: RepoWatcherLike | null = null;
   private watchedRepoPath: string | null = null;
   private debounceTimer: NodeJS.Timeout | null = null;
+  private maxWaitTimer: NodeJS.Timeout | null = null;
+  private watcherGeneration = 0;
 
   constructor(options: RepoWatchServiceOptions) {
     this.getWindows = options.getWindows;
     this.watchFactory = options.watchFactory ?? defaultWatchFactory;
     this.debounceMs = options.debounceMs ?? REPO_CHANGE_DEBOUNCE_MS;
+    this.maxWaitMs = options.maxWaitMs ?? REPO_CHANGE_MAX_WAIT_MS;
     this.clock = options.clock ?? (() => new Date());
   }
 
@@ -52,20 +58,23 @@ export class RepoWatchService {
     }
 
     this.stopWatching();
+    const generation = ++this.watcherGeneration;
     this.watchedRepoPath = nextRepoPath;
 
     try {
       this.watcher = this.watchFactory(nextRepoPath, {
         recursive: true
       }, (_eventType, filename) => {
+        if (generation !== this.watcherGeneration) return;
         if (isInternalVcsWatchEvent(filename)) {
           return;
         }
 
-        this.scheduleChange("filesystem");
+        this.scheduleChange(classifyWatchReason(filename), generation);
       });
 
       this.watcher.on("error", () => {
+        if (generation !== this.watcherGeneration) return;
         this.emitChange("watcher-error");
         this.stopWatching(nextRepoPath);
       });
@@ -85,9 +94,15 @@ export class RepoWatchService {
       return;
     }
 
+    this.watcherGeneration += 1;
+
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
+    }
+    if (this.maxWaitTimer) {
+      clearTimeout(this.maxWaitTimer);
+      this.maxWaitTimer = null;
     }
 
     const watcher = this.watcher;
@@ -101,15 +116,24 @@ export class RepoWatchService {
     }
   }
 
-  private scheduleChange(reason: RepoChangedReason): void {
-    if (!this.watchedRepoPath || this.debounceTimer) {
-      return;
-    }
-
+  private scheduleChange(reason: RepoChangedReason, generation: number): void {
+    if (!this.watchedRepoPath || generation !== this.watcherGeneration) return;
+    if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.debounceTimer = setTimeout(() => {
-      this.debounceTimer = null;
-      this.emitChange(reason);
+      this.flushChange(reason, generation);
     }, this.debounceMs);
+    this.maxWaitTimer ??= setTimeout(() => {
+      this.flushChange(reason, generation);
+    }, this.maxWaitMs);
+  }
+
+  private flushChange(reason: RepoChangedReason, generation: number): void {
+    if (generation !== this.watcherGeneration) return;
+    if (this.debounceTimer) clearTimeout(this.debounceTimer);
+    if (this.maxWaitTimer) clearTimeout(this.maxWaitTimer);
+    this.debounceTimer = null;
+    this.maxWaitTimer = null;
+    this.emitChange(reason);
   }
 
   private emitChange(reason: RepoChangedReason): void {
@@ -175,4 +199,12 @@ function isInternalVcsWatchEvent(filename: string | Buffer | null): boolean {
     normalizedFileName.endsWith("/.git/index") ||
     normalizedFileName.endsWith("/.git/index.lock")
   );
+}
+
+function classifyWatchReason(filename: string | Buffer | null): RepoChangedReason {
+  if (!filename) return "filesystem-unknown";
+  const normalized = filename.toString().replaceAll("\\", "/").toLocaleLowerCase();
+  return normalized === ".git" || normalized.startsWith(".git/") || normalized.includes("/.git/")
+    ? "filesystem-metadata"
+    : "filesystem";
 }

@@ -1179,11 +1179,15 @@ export function App(): ReactNode {
       }
 
       fileStatusGenerationRef.current += 1;
-      void refreshDirtyFileStatus();
+      if (event.reason === "filesystem") {
+        void refreshDirtyFileStatus();
+      } else {
+        void refreshRepo({ silent: true });
+      }
     });
 
     return cleanupRepoChanged;
-  }, [refreshDirtyFileStatus]);
+  }, [refreshDirtyFileStatus, refreshRepo]);
 
   useEffect(() => {
     setWorkflowQuery({ ...DEFAULT_WORKFLOW_QUERY });

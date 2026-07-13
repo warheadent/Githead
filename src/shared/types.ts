@@ -958,7 +958,7 @@ export interface GitOutputEvent {
   timestamp: string;
 }
 
-export type RepoChangedReason = "filesystem" | "watcher-error";
+export type RepoChangedReason = "filesystem" | "filesystem-metadata" | "filesystem-unknown" | "watcher-error";
 
 export interface RepoChangedEvent {
   repoPath: string;
