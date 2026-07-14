@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { TooltipButton } from "./button"
@@ -14,6 +14,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  vi.useRealTimers()
   vi.unstubAllGlobals()
 })
 
@@ -42,6 +43,19 @@ describe("TooltipButton", () => {
     fireEvent.focus(screen.getByRole("button", { name: "Refresh repository" }))
 
     await waitFor(() => expect(screen.getByRole("tooltip").textContent).toContain("Refresh repository"))
+  })
+
+  it("waits before showing its action tooltip on hover", () => {
+    vi.useFakeTimers()
+    renderTooltipButton({ tooltip: "Refresh repository", "aria-label": "Refresh repository", children: "↻" })
+
+    fireEvent.pointerMove(screen.getByRole("button", { name: "Refresh repository" }), { pointerType: "mouse" })
+
+    act(() => vi.advanceTimersByTime(749))
+    expect(screen.queryByRole("tooltip")).toBeNull()
+
+    act(() => vi.advanceTimersByTime(1))
+    expect(screen.getByRole("tooltip").textContent).toContain("Refresh repository")
   })
 
   it("exposes a disabled explanation without enabling the action", async () => {
