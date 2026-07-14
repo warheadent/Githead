@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { TooltipProvider } from "@/components/ui/tooltip"
+import { TOOLTIP_DELAY_MS, TooltipProvider, TooltipTarget } from "@/components/ui/tooltip"
 import { TooltipButton } from "./button"
 
 beforeEach(() => {
@@ -51,11 +51,28 @@ describe("TooltipButton", () => {
 
     fireEvent.pointerMove(screen.getByRole("button", { name: "Refresh repository" }), { pointerType: "mouse" })
 
-    act(() => vi.advanceTimersByTime(749))
+    act(() => vi.advanceTimersByTime(TOOLTIP_DELAY_MS - 1))
     expect(screen.queryByRole("tooltip")).toBeNull()
 
     act(() => vi.advanceTimersByTime(1))
     expect(screen.getByRole("tooltip").textContent).toContain("Refresh repository")
+  })
+
+  it("enforces the shared delay for generic tooltip targets", () => {
+    vi.useFakeTimers()
+    render(
+      <TooltipProvider delayDuration={0}>
+        <TooltipTarget content="Full branch name"><span>branch</span></TooltipTarget>
+      </TooltipProvider>
+    )
+
+    fireEvent.pointerMove(screen.getByText("branch"), { pointerType: "mouse" })
+
+    act(() => vi.advanceTimersByTime(TOOLTIP_DELAY_MS - 1))
+    expect(screen.queryByRole("tooltip")).toBeNull()
+
+    act(() => vi.advanceTimersByTime(1))
+    expect(screen.getByRole("tooltip").textContent).toContain("Full branch name")
   })
 
   it("exposes a disabled explanation without enabling the action", async () => {

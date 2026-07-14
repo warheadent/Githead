@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { TooltipTarget } from "@/components/ui/tooltip";
 import type { GitCommitGraphRow } from "../shared/types";
 
 export interface TagDialogState {
@@ -66,7 +67,7 @@ export function TagDialog({ state, commit, remotes, saving, onOpenChange, onStat
 
         <div className="flex min-w-0 items-center gap-3 rounded-lg border bg-muted/35 p-3" aria-label="Target commit">
           <code className="shrink-0 rounded bg-background px-2 py-1 text-xs font-semibold text-foreground">{shortHash}</code>
-          <span className="min-w-0 truncate text-sm font-medium text-foreground" title={subject}>{subject}</span>
+          <TooltipTarget content={subject}><span className="min-w-0 truncate text-sm font-medium text-foreground">{subject}</span></TooltipTarget>
         </div>
 
         <Tabs value={state.tab} onValueChange={(value) => set({ tab: value === "remove" ? "remove" : "add", error: "", deleteConfirmed: false })}>

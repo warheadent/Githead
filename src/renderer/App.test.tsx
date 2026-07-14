@@ -346,7 +346,7 @@ describe("App", () => {
       element.className.includes("history-description-text")
     ));
     expect(detailDescription).toBeTruthy();
-    expect(historyDescription?.closest(".history-description")?.getAttribute("title")).toBe("feat(ai): add attack pressure cooldown");
+    expect(historyDescription?.closest(".history-description")?.getAttribute("data-slot")).toBe("tooltip-trigger");
     expect(screen.getByText("Add MeshBites Shader")).toBeTruthy();
   });
 
@@ -697,7 +697,7 @@ describe("App", () => {
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
     const parentLink = await screen.findByRole("link", { name: parentHash.slice(0, 10) });
 
-    expect(parentLink.getAttribute("title")).toBe(parentHash);
+    expect(parentLink.getAttribute("data-slot")).toBe("tooltip-trigger");
 
     await user.click(parentLink);
 
@@ -4259,9 +4259,9 @@ describe("App", () => {
     const otherButton = screen.getByRole("button", { name: `Switch to ${otherRepo}, 2 commits behind` });
     expect(recentButton).toBeTruthy();
     expect(otherButton).toBeTruthy();
-    expect(within(recentButton).getByTitle("1 commit ahead")).toBeTruthy();
-    expect(within(recentButton).getByTitle("4 commits behind")).toBeTruthy();
-    expect(within(otherButton).getByTitle("2 commits behind")).toBeTruthy();
+    expect(within(recentButton).getByText("1 ↑").classList.contains("is-ahead")).toBe(true);
+    expect(within(recentButton).getByText("4 ↓").classList.contains("is-behind")).toBe(true);
+    expect(within(otherButton).getByText("2 ↓").classList.contains("is-behind")).toBe(true);
   });
 
   it("shows VCS icons beside recent repositories", async () => {

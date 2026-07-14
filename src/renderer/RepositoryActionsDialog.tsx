@@ -31,6 +31,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { TooltipTarget } from "@/components/ui/tooltip";
 import type {
   GitConfiguredAction,
   GitConfiguredActionFile,
@@ -383,7 +384,7 @@ function FilePanel({
           <div className="flex items-start justify-between gap-3 border-b px-4 py-3">
             <div className="min-w-0">
               <p className="text-sm font-medium">{getActionFileLabel(target)} actions</p>
-              <p className="truncate text-xs text-muted-foreground" title={fileLabel}>{fileLabel}</p>
+              <TooltipTarget content={fileLabel}><p className="truncate text-xs text-muted-foreground">{fileLabel}</p></TooltipTarget>
             </div>
             <TooltipButton
               type="button"

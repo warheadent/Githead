@@ -100,6 +100,7 @@ import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
+  TooltipTarget,
   TooltipTrigger
 } from "@/components/ui/tooltip";
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
@@ -5641,24 +5642,25 @@ function RecentRepositoryRow({
           className={rowClassName}
           data-repo-path={repoPath}
         >
-          <button
-            type="button"
-            className="repo-recent-drag-handle"
-            draggable={!disabled}
-            onDragStart={(event) => {
-              onDragStart(event, repoPath);
-            }}
-            onMouseDown={() => {
-              onPointerDragStart(repoPath);
-            }}
-            onDragEnd={onDragEnd}
-            onKeyDown={handleKeyDown}
-            disabled={disabled}
-            aria-label={`Reorder ${repoPath}`}
-            title="Reorder repository"
-          >
-            <GripVertical />
-          </button>
+          <TooltipTarget content="Reorder repository">
+            <button
+              type="button"
+              className="repo-recent-drag-handle"
+              draggable={!disabled}
+              onDragStart={(event) => {
+                onDragStart(event, repoPath);
+              }}
+              onMouseDown={() => {
+                onPointerDragStart(repoPath);
+              }}
+              onDragEnd={onDragEnd}
+              onKeyDown={handleKeyDown}
+              disabled={disabled}
+              aria-label={`Reorder ${repoPath}`}
+            >
+              <GripVertical />
+            </button>
+          </TooltipTarget>
           <button
             type="button"
             className="repo-recent-main"
@@ -5691,9 +5693,9 @@ function RecentRepositoryRow({
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-72">
-        <ContextMenuLabel className="repo-recent-menu-path" title={repoPath}>
-          {repoPath}
-        </ContextMenuLabel>
+        <TooltipTarget content={repoPath}>
+          <ContextMenuLabel className="repo-recent-menu-path">{repoPath}</ContextMenuLabel>
+        </TooltipTarget>
         <ContextMenuSeparator />
         <ContextMenuItem disabled={disabled} onSelect={() => onShowInExplorer(repoPath)}>
           <MapPinned />
@@ -5716,14 +5718,15 @@ function RecentRepositoryVcsIcon({ kind }: { kind: RepoSyncStatus["kind"] }): Re
     };
 
   return (
-    <span
-      className={`repo-recent-vcs-icon ${kind === "lore" ? "is-lore" : "is-git"}`}
-      role="img"
-      aria-label={icon.label}
-      title={icon.label}
-    >
-      <img src={icon.src} alt="" aria-hidden="true" />
-    </span>
+    <TooltipTarget content={icon.label}>
+      <span
+        className={`repo-recent-vcs-icon ${kind === "lore" ? "is-lore" : "is-git"}`}
+        role="img"
+        aria-label={icon.label}
+      >
+        <img src={icon.src} alt="" aria-hidden="true" />
+      </span>
+    </TooltipTarget>
   );
 }
 
@@ -5739,9 +5742,9 @@ function SyncCountChip({
   const classNames = ["sync-count-chip", className].filter(Boolean).join(" ");
 
   return (
-    <span className={classNames} title={title} aria-hidden="true">
-      {children}
-    </span>
+    <TooltipTarget content={title}>
+      <span className={classNames} aria-hidden="true">{children}</span>
+    </TooltipTarget>
   );
 }
 
@@ -6230,7 +6233,7 @@ function BranchFact({
     <div className="repo-branch-fact">
       <dt>Branch</dt>
       <dd>
-        <span className="repo-branch-name selectable-text" title={currentBranch ?? undefined}>{currentBranch ?? "-"}</span>
+        <TooltipTarget content={currentBranch}><span className="repo-branch-name selectable-text">{currentBranch ?? "-"}</span></TooltipTarget>
         <span className="repo-branch-actions">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -6309,7 +6312,7 @@ function UpstreamFact({
     <div className="repo-upstream-fact">
       <dt>Upstream</dt>
       <dd>
-        <span className="repo-upstream-name selectable-text" title={upstream ?? undefined}>{upstream ?? "-"}</span>
+        <TooltipTarget content={upstream}><span className="repo-upstream-name selectable-text">{upstream ?? "-"}</span></TooltipTarget>
         <TooltipButton
           type="button"
           variant="outline"
@@ -7077,9 +7080,9 @@ function FileRow({
           }}
         >
           <StatusBadge file={file} side={side} />
-          <span className="file-path" title={file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}>
-            {treeLevel ? fileName(file.path) : file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}
-          </span>
+          <TooltipTarget content={file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}>
+            <span className="file-path">{treeLevel ? fileName(file.path) : file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}</span>
+          </TooltipTarget>
         </button>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-52">
@@ -7136,14 +7139,15 @@ function CommitFileStatusBadge({ status }: { status: string }): ReactNode {
 
 function StatusChip({ visuals }: { visuals: FileStatusVisuals }): ReactNode {
   return (
-    <Badge
-      className={`status-chip status-chip-${visuals.tone}`}
-      data-status-tone={visuals.tone}
-      title={visuals.label}
-      aria-label={visuals.label}
-    >
-      {visuals.code}
-    </Badge>
+    <TooltipTarget content={visuals.label}>
+      <Badge
+        className={`status-chip status-chip-${visuals.tone}`}
+        data-status-tone={visuals.tone}
+        aria-label={visuals.label}
+      >
+        {visuals.code}
+      </Badge>
+    </TooltipTarget>
   );
 }
 
@@ -7189,7 +7193,7 @@ function DiffPanel({
       <div className="flex min-h-14 items-center justify-between gap-4 border-b px-4 py-3">
         <div className="min-w-0">
           <p className="eyebrow">{eyebrow}</p>
-          <h2 className="truncate text-sm font-semibold" title={title}>{title}</h2>
+          <TooltipTarget content={title}><h2 className="truncate text-sm font-semibold">{title}</h2></TooltipTarget>
         </div>
         {action}
       </div>
@@ -7245,18 +7249,19 @@ function DiffRows({
             <span className="diff-hunk-title">{formatHunkTitle(group.rows, hunkNumber)}</span>
             <span className="diff-hunk-actions">
               {hunkAction && group.patch ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="xs"
-                  className="diff-hunk-action"
-                  aria-label={hunkActionLabel}
-                  title={hunkActionLabel}
-                  disabled={hunkAction.disabled}
-                  onClick={() => hunkAction.onApply(group.patch!)}
-                >
-                  {hunkActionLabel}
-                </Button>
+                <TooltipTarget content={hunkActionLabel}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    className="diff-hunk-action"
+                    aria-label={hunkActionLabel}
+                    disabled={hunkAction.disabled}
+                    onClick={() => hunkAction.onApply(group.patch!)}
+                  >
+                    {hunkActionLabel}
+                  </Button>
+                </TooltipTarget>
               ) : null}
             </span>
           </div>
@@ -7598,17 +7603,17 @@ function WorkflowRunRow({
     >
       <span className={`github-status ${getWorkflowRunStatusClass(run)}`}>
         <span className="github-status-dot" aria-hidden="true" />
-        <span className="truncate" title={statusText}>{statusText}</span>
+        <TooltipTarget content={statusText}><span className="truncate">{statusText}</span></TooltipTarget>
       </span>
       <span className="min-w-0">
-        <span className="github-primary-text" title={run.name}>{run.name}</span>
-        <span className="github-secondary-text" title={run.commitMessage || run.commitSha}>
-          {run.commitMessage || formatShortHash(run.commitSha)}
-        </span>
+        <TooltipTarget content={run.name}><span className="github-primary-text">{run.name}</span></TooltipTarget>
+        <TooltipTarget content={run.commitMessage || run.commitSha}>
+          <span className="github-secondary-text">{run.commitMessage || formatShortHash(run.commitSha)}</span>
+        </TooltipTarget>
       </span>
-      <span className="truncate" title={run.branch}>{run.branch}</span>
-      <span className="truncate" title={run.event}>{run.event}</span>
-      <span className="truncate" title={formatDate(run.updatedAt)}>{formatDate(run.updatedAt)}</span>
+      <TooltipTarget content={run.branch}><span className="truncate">{run.branch}</span></TooltipTarget>
+      <TooltipTarget content={run.event}><span className="truncate">{run.event}</span></TooltipTarget>
+      <TooltipTarget content={formatDate(run.updatedAt)}><span className="truncate">{formatDate(run.updatedAt)}</span></TooltipTarget>
     </a>
   );
 }
@@ -7733,16 +7738,22 @@ function PullRequestRow({
         </TooltipButton>
       </span>
       <span className="min-w-0">
-        <button type="button" className="github-primary-text text-left" title={pullRequest.title} onClick={() => onOpenExternalUrl(pullRequest.url)}>{pullRequest.title}</button>
-        <span className="github-secondary-text" title={pullRequest.authorLogin}>
-          {pullRequest.authorLogin} · {pullRequest.comments} {pullRequest.comments === 1 ? "comment" : "comments"}
+        <TooltipTarget content={pullRequest.title}>
+          <button type="button" className="github-primary-text text-left" onClick={() => onOpenExternalUrl(pullRequest.url)}>{pullRequest.title}</button>
+        </TooltipTarget>
+        <TooltipTarget content={pullRequest.authorLogin}>
+          <span className="github-secondary-text">
+            {pullRequest.authorLogin} · {pullRequest.comments} {pullRequest.comments === 1 ? "comment" : "comments"}
+          </span>
+        </TooltipTarget>
+      </span>
+      <TooltipTarget content={pullRequest.sourceBranch && pullRequest.targetBranch ? `${pullRequest.sourceBranch} -> ${pullRequest.targetBranch}` : "Branch details unavailable in search results"}>
+        <span className="github-secondary-text">
+          {pullRequest.sourceBranch && pullRequest.targetBranch ? <>{pullRequest.sourceBranch} -&gt; {pullRequest.targetBranch}</> : "Branch details unavailable"}
         </span>
-      </span>
-      <span className="github-secondary-text" title={pullRequest.sourceBranch && pullRequest.targetBranch ? `${pullRequest.sourceBranch} -> ${pullRequest.targetBranch}` : "Branch details unavailable in search results"}>
-        {pullRequest.sourceBranch && pullRequest.targetBranch ? <>{pullRequest.sourceBranch} -&gt; {pullRequest.targetBranch}</> : "Branch details unavailable"}
-      </span>
+      </TooltipTarget>
       <GitHubLabels labels={pullRequest.labels} />
-      <span className="truncate" title={formatDate(pullRequest.updatedAt)}>{formatDate(pullRequest.updatedAt)}</span>
+      <TooltipTarget content={formatDate(pullRequest.updatedAt)}><span className="truncate">{formatDate(pullRequest.updatedAt)}</span></TooltipTarget>
     </div>
   );
 }
@@ -7858,25 +7869,27 @@ function IssueRow({
       }}
     >
       <span className="github-issue-number">#{issue.number}</span>
-      <span className="github-primary-text" title={issue.title}>{issue.title}</span>
+      <TooltipTarget content={issue.title}><span className="github-primary-text">{issue.title}</span></TooltipTarget>
       <GitHubLabels labels={issue.labels} />
       <span className="github-secondary-text">{issue.comments}</span>
-      <span className="truncate" title={formatDate(issue.updatedAt)}>{formatDate(issue.updatedAt)}</span>
+      <TooltipTarget content={formatDate(issue.updatedAt)}><span className="truncate">{formatDate(issue.updatedAt)}</span></TooltipTarget>
     </a>
   );
 }
 
 function GitHubLabels({ labels }: { labels: string[] }): ReactNode {
   return (
-    <span className="github-labels" title={labels.join(", ")}>
-      {labels.length === 0 ? (
-        <span className="github-secondary-text">-</span>
-      ) : (
-        labels.slice(0, 3).map((label) => (
-          <span key={label} className="github-label-chip">{label}</span>
-        ))
-      )}
-    </span>
+    <TooltipTarget content={labels.join(", ")}>
+      <span className="github-labels">
+        {labels.length === 0 ? (
+          <span className="github-secondary-text">-</span>
+        ) : (
+          labels.slice(0, 3).map((label) => (
+            <span key={label} className="github-label-chip">{label}</span>
+          ))
+        )}
+      </span>
+    </TooltipTarget>
   );
 }
 
@@ -7928,7 +7941,7 @@ function GitHubViewHeader({
       <div className="min-w-0">
         <p className="eyebrow">{eyebrow}</p>
         <h2 className="truncate text-sm font-semibold">{title}</h2>
-        <p className="github-secondary-text" title={repositoryName}>{repositoryName}</p>
+        <TooltipTarget content={repositoryName}><p className="github-secondary-text">{repositoryName}</p></TooltipTarget>
       </div>
       <div className="github-view-actions">
         <span className="github-count">{countLabel}</span>
@@ -8027,7 +8040,8 @@ function HistoryRow({
           }}
         >
           <span className="history-graph-cell" aria-hidden="true" />
-          <span className="history-description" title={commit.subject || undefined}>
+          <TooltipTarget content={commit.subject || undefined}>
+            <span className="history-description">
             <span className="history-refs">
               {commit.refs.map((ref) => (
                 <span key={`${commit.hash}:${ref.kind}:${ref.name}`} className={`ref-badge ${ref.kind}`}>
@@ -8069,12 +8083,13 @@ function HistoryRow({
                 <span className={`history-check-state is-${association.checkState}`} aria-label={formatCheckStateLabel(association.checkState)} role="img" />
               </span>
             ) : null}
-          </span>
-          <span className="history-date" title={formatDate(commit.authorDate)}>
-            {commit.relativeDate || formatDate(commit.authorDate)}
-          </span>
-          <span className="history-author" title={commit.authorEmail}>{commit.authorName}</span>
-          <span className="history-hash" title={commit.hash}>{commit.shortHash}</span>
+            </span>
+          </TooltipTarget>
+          <TooltipTarget content={formatDate(commit.authorDate)}>
+            <span className="history-date">{commit.relativeDate || formatDate(commit.authorDate)}</span>
+          </TooltipTarget>
+          <TooltipTarget content={commit.authorEmail}><span className="history-author">{commit.authorName}</span></TooltipTarget>
+          <TooltipTarget content={commit.hash}><span className="history-hash">{commit.shortHash}</span></TooltipTarget>
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-64">
@@ -8169,14 +8184,16 @@ function CommitDetailsPanel({
     const references = parseGitHubReferences(`${details.subject}\n${details.body}`, repository);
     meta = (
       <div className="commit-meta-card selectable-text">
-        <h2 className="commit-title text-base font-semibold" title={details.subject || undefined}>
-          <CommitSubject
-            subject={details.subject}
-            className="commit-title-subject"
-            scopeClassName="commit-title-scope"
-            descriptionClassName="commit-title-description"
-          />
-        </h2>
+        <TooltipTarget content={details.subject || undefined}>
+          <h2 className="commit-title text-base font-semibold">
+            <CommitSubject
+              subject={details.subject}
+              className="commit-title-subject"
+              scopeClassName="commit-title-scope"
+              descriptionClassName="commit-title-description"
+            />
+          </h2>
+        </TooltipTarget>
         <dl className="commit-facts">
           <Fact label="Commit" value={details.hash} />
           <Fact
@@ -8261,17 +8278,18 @@ function ParentCommitLinks({
       {parents.map((parent, index) => (
         <Fragment key={parent}>
           {index > 0 ? <span aria-hidden="true">, </span> : null}
-          <a
-            className="commit-link"
-            href={`#commit-${parent}`}
-            title={parent}
-            onClick={(event) => {
-              event.preventDefault();
-              onSelectCommit(parent);
-            }}
-          >
-            {parent.slice(0, 10)}
-          </a>
+          <TooltipTarget content={parent}>
+            <a
+              className="commit-link"
+              href={`#commit-${parent}`}
+              onClick={(event) => {
+                event.preventDefault();
+                onSelectCommit(parent);
+              }}
+            >
+              {parent.slice(0, 10)}
+            </a>
+          </TooltipTarget>
         </Fragment>
       ))}
     </span>
@@ -8309,9 +8327,9 @@ function CommitFileRow({
           onClick={() => onSelectCommitFile(file.path)}
         >
           <CommitFileStatusBadge status={file.status} />
-          <span className="file-path" title={file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}>
-            {file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}
-          </span>
+          <TooltipTarget content={file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}>
+            <span className="file-path">{file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}</span>
+          </TooltipTarget>
           <span className="commit-file-stats">+{file.additions} -{file.deletions}</span>
         </button>
       </ContextMenuTrigger>
@@ -9738,7 +9756,7 @@ function RemoteFact({ remotes, disabled, onManage }: { remotes: string; disabled
     <div className="repo-upstream-fact">
       <dt>Remotes</dt>
       <dd>
-        <span className="repo-upstream-name" title={remotes === "-" ? undefined : remotes}>{remotes}</span>
+        <TooltipTarget content={remotes === "-" ? undefined : remotes}><span className="repo-upstream-name">{remotes}</span></TooltipTarget>
         <TooltipButton
           type="button"
           variant="outline"

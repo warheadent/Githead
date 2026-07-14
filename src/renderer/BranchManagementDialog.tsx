@@ -5,6 +5,7 @@ import { Button, TooltipButton } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { TooltipTarget } from "@/components/ui/tooltip";
 import type { GitBranch, RepoCapabilities, VcsKind } from "../shared/types";
 
 type Mode = { kind: "list" } | { kind: "rename"; branch: GitBranch } | { kind: "remove"; branch: GitBranch };
@@ -70,14 +71,14 @@ export function BranchManagementDialog(props: BranchManagementDialogProps): Reac
       <DialogHeader>
         <p className="eyebrow">Repository</p>
         <DialogTitle>Manage Branches</DialogTitle>
-        <DialogDescription className="truncate" title={repoPath}>{repoPath}</DialogDescription>
+        <TooltipTarget content={repoPath}><DialogDescription className="truncate">{repoPath}</DialogDescription></TooltipTarget>
       </DialogHeader>
       {mode.kind === "list" ? <div className="grid min-h-0 gap-4 overflow-hidden">
         {branches.length ? <div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input aria-label="Search branches" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search branches" className="pl-9" autoFocus /></div> : null}
         <div className="grid min-h-0 gap-2 overflow-auto" role="list" aria-label="Local branches">
           {!visibleBranches.length ? <p className="py-8 text-center text-sm text-muted-foreground">{branches.length ? "No branches match your search." : "No local branches found."}</p> : visibleBranches.map((branch) => <div key={branch.name} role="listitem" className="flex items-center gap-3 rounded-md border p-3">
             <GitBranchIcon className="size-4 shrink-0" aria-hidden="true" />
-            <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className="truncate font-medium" title={branch.name}>{branch.name}</span>{branch.current ? <Badge>Current</Badge> : null}</div>{branch.upstream ? <p className="truncate text-xs text-muted-foreground" title={branch.upstream}>{branch.upstream}</p> : null}</div>
+            <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><TooltipTarget content={branch.name}><span className="truncate font-medium">{branch.name}</span></TooltipTarget>{branch.current ? <Badge>Current</Badge> : null}</div>{branch.upstream ? <TooltipTarget content={branch.upstream}><p className="truncate text-xs text-muted-foreground">{branch.upstream}</p></TooltipTarget> : null}</div>
             {capabilities.renameBranches ? <TooltipButton type="button" variant="ghost" size="icon" disabled={busy} aria-label={`Rename ${branch.name}`} tooltip={`Rename ${branch.name}`} onClick={() => beginRename(branch)}><Pencil /></TooltipButton> : null}
             {capabilities.removeBranches ? <TooltipButton type="button" variant="ghost" size="icon" disabled={busy || branch.current} aria-label={`${archive ? "Archive" : "Delete"} ${branch.name}`} tooltip={`${archive ? "Archive" : "Delete"} ${branch.name}`} disabledTooltip={branch.current ? `Switch to another branch before ${archive ? "archiving" : "deleting"} this branch` : undefined} onClick={() => { setError(""); setForceDelete(false); setMode({ kind: "remove", branch }); }}>{archive ? <Archive /> : <Trash2 />}</TooltipButton> : null}
           </div>)}

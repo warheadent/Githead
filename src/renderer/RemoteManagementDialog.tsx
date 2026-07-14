@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { TooltipTarget } from "@/components/ui/tooltip";
 import type { GitRemoteConfig } from "../shared/types";
 
 type RemoteDialogMode =
@@ -151,9 +152,11 @@ export function RemoteManagementDialog({
         <DialogHeader>
           <p className="eyebrow">Repository</p>
           <DialogTitle>Manage Remotes</DialogTitle>
-          <DialogDescription className="truncate" title={repoPath}>
-            {repoPath}. Changes are saved locally; use Fetch when you want to contact a remote.
-          </DialogDescription>
+          <TooltipTarget content={repoPath}>
+            <DialogDescription className="truncate">
+              {repoPath}. Changes are saved locally; use Fetch when you want to contact a remote.
+            </DialogDescription>
+          </TooltipTarget>
         </DialogHeader>
 
         {mode.kind === "list" ? (
