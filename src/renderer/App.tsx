@@ -3209,27 +3209,38 @@ export function App(): ReactNode {
       return;
     }
 
-    if (selection.side === "unstaged") {
-      await runRepoOperation("Staging hunk", selection, () =>
-        window.githead.stageHunk({
-          repoPath: stateRef.current.repoPath,
-          path: selection.path,
-          side: selection.side,
-          patch
-        })
-      );
+    const result = selection.side === "unstaged"
+      ? await runRepoOperation("Staging hunk", selection, () =>
+          window.githead.stageHunk({
+            repoPath: stateRef.current.repoPath,
+            path: selection.path,
+            side: selection.side,
+            patch
+          })
+        )
+      : await runRepoOperation("Unstaging hunk", selection, () =>
+          window.githead.unstageHunk({
+            repoPath: stateRef.current.repoPath,
+            path: selection.path,
+            side: selection.side,
+            patch
+          })
+        );
+
+    if (result?.exitCode !== 0) {
       return;
     }
 
-    await runRepoOperation("Unstaging hunk", selection, () =>
-      window.githead.unstageHunk({
-        repoPath: stateRef.current.repoPath,
-        path: selection.path,
-        side: selection.side,
-        patch
-      })
-    );
-  }, [runRepoOperation]);
+    const nextSelection = resolvePostHunkSelection(stateRef.current.summary, selection);
+    updateState({
+      selection: nextSelection,
+      diff: null
+    });
+
+    if (nextSelection) {
+      await loadSelectedDiff(nextSelection);
+    }
+  }, [loadSelectedDiff, runRepoOperation, updateState]);
 
   const openGitIdentityPrompt = useCallback(async (retryMessage: string): Promise<void> => {
     const gitIdentity = stateRef.current.gitIdentity ?? await loadGitIdentity(stateRef.current.repoPath);
@@ -9400,6 +9411,25 @@ function reconcileSelection(state: AppState): AppState {
     selection: createFileSelection(state.selection.side, selectedPaths, path, anchorPath),
     diff: path === state.selection.path ? state.diff : null
   };
+}
+
+function resolvePostHunkSelection(summary: RepoSummary | null, selection: FileSelection): FileSelection | null {
+  if (!summary?.isValid) {
+    return null;
+  }
+
+  const currentSidePaths = new Set(getFilesForSide(summary, selection.side).map((file) => file.path));
+  if (currentSidePaths.has(selection.path)) {
+    const selectedPaths = getSelectionPaths(selection).filter((path) => currentSidePaths.has(path));
+    return createFileSelection(selection.side, selectedPaths, selection.path, selection.anchorPath);
+  }
+
+  const destinationSide: GitDiffSide = selection.side === "unstaged" ? "staged" : "unstaged";
+  if (getFilesForSide(summary, destinationSide).some((file) => file.path === selection.path)) {
+    return createFileSelection(destinationSide, [selection.path], selection.path, selection.path);
+  }
+
+  return null;
 }
 
 function areStringArraysEqual(left: string[], right: string[]): boolean {

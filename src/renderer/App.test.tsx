@@ -1057,32 +1057,26 @@ describe("App", () => {
     });
   });
 
-  it("stages an unstaged hunk through the preload API", async () => {
+  it("keeps an unstaged file selected and reloads its remaining diff after staging a hunk", async () => {
     const user = userEvent.setup();
-    const file = createStatusFile("src/App.tsx", {
+    const initialFile = createStatusFile("src/App.tsx", {
       isUnstaged: true,
       worktreeStatus: "M"
     });
-    const diffText = [
-      "diff --git a/src/App.tsx b/src/App.tsx",
-      "index 1234567..89abcde 100644",
-      "--- a/src/App.tsx",
-      "+++ b/src/App.tsx",
-      "@@ -1 +1 @@",
-      "-old",
-      "+new"
-    ].join("\n");
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      files: [
-        file
-      ]
-    }));
-    vi.mocked(githead.getFileDiff).mockResolvedValue({
-      path: file.path,
-      side: "unstaged",
-      kind: "text",
-      text: diffText
+    const refreshedFile = createStatusFile("src/App.tsx", {
+      isStaged: true,
+      isUnstaged: true,
+      indexStatus: "M",
+      worktreeStatus: "M"
     });
+    const initialDiff = createTextDiff(initialFile.path, "first-hunk");
+    const remainingDiff = createTextDiff(initialFile.path, "remaining-hunk");
+    vi.mocked(githead.getRepoSummary)
+      .mockResolvedValueOnce(createSummary({ files: [initialFile] }))
+      .mockResolvedValue(createSummary({ files: [refreshedFile] }));
+    vi.mocked(githead.getFileDiff)
+      .mockResolvedValueOnce(initialDiff)
+      .mockResolvedValue(remainingDiff);
 
     render(<App />);
 
@@ -1094,37 +1088,40 @@ describe("App", () => {
         repoPath,
         path: "src/App.tsx",
         side: "unstaged",
-        patch: `${diffText}\n`
+        patch: `${initialDiff.text}\n`
       });
+    });
+    expect(await screen.findByText("remaining-hunk")).toBeTruthy();
+    const unstagedList = screen.getByRole("listbox", { name: "Unstaged files" });
+    expect(within(unstagedList).getByRole("option", { name: /src\/App\.tsx/ }).getAttribute("aria-selected")).toBe("true");
+    expect(githead.getFileDiff).toHaveBeenLastCalledWith({
+      repoPath,
+      path: "src/App.tsx",
+      side: "unstaged",
+      requestId: expect.any(String)
     });
   });
 
-  it("unstages a staged hunk through the preload API", async () => {
+  it("keeps a staged file selected and reloads its remaining diff after unstaging a hunk", async () => {
     const user = userEvent.setup();
-    const file = createStatusFile("src/App.tsx", {
+    const initialFile = createStatusFile("src/App.tsx", {
       isStaged: true,
       indexStatus: "M"
     });
-    const diffText = [
-      "diff --git a/src/App.tsx b/src/App.tsx",
-      "index 1234567..89abcde 100644",
-      "--- a/src/App.tsx",
-      "+++ b/src/App.tsx",
-      "@@ -1 +1 @@",
-      "-old",
-      "+new"
-    ].join("\n");
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      files: [
-        file
-      ]
-    }));
-    vi.mocked(githead.getFileDiff).mockResolvedValue({
-      path: file.path,
-      side: "staged",
-      kind: "text",
-      text: diffText
+    const refreshedFile = createStatusFile("src/App.tsx", {
+      isStaged: true,
+      isUnstaged: true,
+      indexStatus: "M",
+      worktreeStatus: "M"
     });
+    const initialDiff = createTextDiff(initialFile.path, "first-hunk", "staged");
+    const remainingDiff = createTextDiff(initialFile.path, "remaining-hunk", "staged");
+    vi.mocked(githead.getRepoSummary)
+      .mockResolvedValueOnce(createSummary({ files: [initialFile] }))
+      .mockResolvedValue(createSummary({ files: [refreshedFile] }));
+    vi.mocked(githead.getFileDiff)
+      .mockResolvedValueOnce(initialDiff)
+      .mockResolvedValue(remainingDiff);
 
     render(<App />);
 
@@ -1136,9 +1133,72 @@ describe("App", () => {
         repoPath,
         path: "src/App.tsx",
         side: "staged",
-        patch: `${diffText}\n`
+        patch: `${initialDiff.text}\n`
       });
     });
+    expect(await screen.findByText("remaining-hunk")).toBeTruthy();
+    const stagedList = screen.getByRole("listbox", { name: "Staged files" });
+    expect(within(stagedList).getByRole("option", { name: /src\/App\.tsx/ }).getAttribute("aria-selected")).toBe("true");
+    expect(githead.getFileDiff).toHaveBeenLastCalledWith({
+      repoPath,
+      path: "src/App.tsx",
+      side: "staged",
+      requestId: expect.any(String)
+    });
+  });
+
+  it("moves selection to the destination side after staging the final hunk", async () => {
+    const user = userEvent.setup();
+    const unstagedFile = createStatusFile("src/App.tsx", { isUnstaged: true, worktreeStatus: "M" });
+    const stagedFile = createStatusFile("src/App.tsx", { isStaged: true, indexStatus: "M" });
+    const initialDiff = createTextDiff(unstagedFile.path, "only-hunk");
+    const stagedDiff = createTextDiff(stagedFile.path, "staged-version", "staged");
+    vi.mocked(githead.getRepoSummary)
+      .mockResolvedValueOnce(createSummary({ files: [unstagedFile] }))
+      .mockResolvedValue(createSummary({ files: [stagedFile] }));
+    vi.mocked(githead.getFileDiff)
+      .mockResolvedValueOnce(initialDiff)
+      .mockResolvedValue(stagedDiff);
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
+    await user.click(await screen.findByRole("button", { name: /^Stage Hunk$/ }));
+
+    expect(await screen.findByText("staged-version")).toBeTruthy();
+    const stagedList = screen.getByRole("listbox", { name: "Staged files" });
+    expect(within(stagedList).getByRole("option", { name: /src\/App\.tsx/ }).getAttribute("aria-selected")).toBe("true");
+    expect(githead.getFileDiff).toHaveBeenLastCalledWith({
+      repoPath,
+      path: "src/App.tsx",
+      side: "staged",
+      requestId: expect.any(String)
+    });
+  });
+
+  it("keeps the current selection and diff when staging a hunk fails", async () => {
+    const user = userEvent.setup();
+    const file = createStatusFile("src/App.tsx", { isUnstaged: true, worktreeStatus: "M" });
+    const initialDiff = createTextDiff(file.path, "unchanged-hunk");
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [file] }));
+    vi.mocked(githead.getFileDiff).mockResolvedValue(initialDiff);
+    vi.mocked(githead.stageHunk).mockResolvedValue({
+      repoPath,
+      exitCode: 1,
+      stdout: "",
+      stderr: "Unable to apply hunk."
+    });
+
+    render(<App />);
+
+    const option = await screen.findByRole("option", { name: /src\/App\.tsx/ });
+    await user.click(option);
+    await user.click(await screen.findByRole("button", { name: /^Stage Hunk$/ }));
+
+    await waitFor(() => expect(githead.getRepoSummary).toHaveBeenCalledTimes(2));
+    expect(option.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText("unchanged-hunk")).toBeTruthy();
+    expect(githead.getFileDiff).toHaveBeenCalledTimes(1);
   });
 
   it("stages multiple ctrl-selected unstaged files through the preload API", async () => {
@@ -6244,10 +6304,10 @@ function createRunResult(action: string, overrides: Partial<GitRunResult> = {}):
   };
 }
 
-function createTextDiff(path: string, value: string): GitFileDiff {
+function createTextDiff(path: string, value: string, side: GitFileDiff["side"] = "unstaged"): GitFileDiff {
   return {
     path,
-    side: "unstaged",
+    side,
     kind: "text",
     text: [
       `diff --git a/${path} b/${path}`,
