@@ -1800,7 +1800,9 @@ textarea,
 .history-check-state.is-success { background: var(--success, #2da44e); }
 .history-check-state.is-failure { background: var(--destructive); }
 .history-check-state.is-pending { background: var(--warning, #bf8700); }
-.history-insights-error { display: flex; min-height: 28px; align-items: center; justify-content: center; gap: 6px; color: var(--muted-foreground); font-size: .75rem; }
+.history-insights-error,
+.history-refresh-error { display: flex; min-height: 28px; align-items: center; justify-content: center; gap: 6px; color: var(--muted-foreground); font-size: .75rem; }
+.history-refresh-error { padding: 4px 10px; color: var(--destructive); }
 .commit-reference-list { flex-wrap: wrap; }
 .commit-reference-link { color: var(--primary); cursor: pointer; }
 

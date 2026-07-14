@@ -350,6 +350,130 @@ describe("App", () => {
     expect(screen.getByText("Add MeshBites Shader")).toBeTruthy();
   });
 
+  it("keeps the current history and latest selection visible during a background refresh", async () => {
+    const user = userEvent.setup();
+    const firstCommit = createCommit({
+      hash: "a".repeat(40),
+      shortHash: "aaaaaaa",
+      subject: "feat: first commit"
+    });
+    const secondCommit = createCommit({
+      hash: "b".repeat(40),
+      shortHash: "bbbbbbb",
+      subject: "fix: selected commit"
+    });
+    const newHead = createCommit({
+      hash: "c".repeat(40),
+      shortHash: "ccccccc",
+      subject: "feat: refreshed head"
+    });
+    const pendingHistory = defer<GitCommitGraphRow[]>();
+    vi.mocked(githead.getCommitHistory)
+      .mockResolvedValueOnce([firstCommit, secondCommit])
+      .mockReturnValueOnce(pendingHistory.promise);
+    vi.mocked(githead.getCommitDetails).mockImplementation(async ({ hash }) => createCommitDetails(hash, {
+      files: [{ path: `${hash.slice(0, 1)}.ts`, status: "modified", additions: 1, deletions: 0 }]
+    }));
+    vi.mocked(githead.getCommitFileDiff).mockImplementation(async ({ path }) => createTextDiff(path, path));
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    const secondRow = await screen.findByRole("option", { name: /selected commit/ });
+
+    emitRepoChanged({ reason: "filesystem-metadata" });
+    await waitFor(() => expect(githead.getCommitHistory).toHaveBeenCalledTimes(2));
+    await user.click(secondRow);
+    await screen.findByRole("option", { name: /b\.ts/ });
+    await waitFor(() => expect(githead.getCommitFileDiff).toHaveBeenCalledTimes(2));
+    const detailsCallsBeforeRefreshCompletes = vi.mocked(githead.getCommitDetails).mock.calls.length;
+    const diffCallsBeforeRefreshCompletes = vi.mocked(githead.getCommitFileDiff).mock.calls.length;
+
+    expect(secondRow.getAttribute("aria-selected")).toBe("true");
+    expect(screen.queryByText("Loading commit history...")).toBeNull();
+    expect(screen.getByText("Refreshing commit history")).toBeTruthy();
+
+    pendingHistory.resolve([newHead, firstCommit, secondCommit]);
+    await screen.findByRole("option", { name: /refreshed head/ });
+    await waitFor(() => expect(screen.queryByText("Refreshing commit history")).toBeNull());
+
+    expect(screen.getByRole("option", { name: /selected commit/ }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("option", { name: /b\.ts/ })).toBeTruthy();
+    expect(githead.getCommitDetails).toHaveBeenCalledTimes(detailsCallsBeforeRefreshCompletes);
+    expect(githead.getCommitFileDiff).toHaveBeenCalledTimes(diffCallsBeforeRefreshCompletes);
+  });
+
+  it("selects and loads the refreshed head when the previous commit disappears", async () => {
+    const user = userEvent.setup();
+    const removedCommit = createCommit({
+      hash: "a".repeat(40),
+      shortHash: "aaaaaaa",
+      subject: "feat: removed commit"
+    });
+    const refreshedHead = createCommit({
+      hash: "b".repeat(40),
+      shortHash: "bbbbbbb",
+      subject: "fix: replacement head"
+    });
+    const pendingHistory = defer<GitCommitGraphRow[]>();
+    vi.mocked(githead.getCommitHistory)
+      .mockResolvedValueOnce([removedCommit])
+      .mockReturnValueOnce(pendingHistory.promise);
+    vi.mocked(githead.getCommitDetails).mockImplementation(async ({ hash }) => createCommitDetails(hash));
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await screen.findByRole("option", { name: /removed commit/ });
+
+    emitRepoChanged({ reason: "filesystem-metadata" });
+    await waitFor(() => expect(githead.getCommitHistory).toHaveBeenCalledTimes(2));
+    pendingHistory.resolve([refreshedHead]);
+
+    const replacementRow = await screen.findByRole("option", { name: /replacement head/ });
+    expect(replacementRow.getAttribute("aria-selected")).toBe("true");
+    await waitFor(() => expect(githead.getCommitDetails).toHaveBeenLastCalledWith({
+      repoPath,
+      hash: refreshedHead.hash,
+      requestId: expect.any(String)
+    }));
+  });
+
+  it("retains stale history after a background refresh failure", async () => {
+    const user = userEvent.setup();
+    const commit = createCommit({ subject: "feat: stable stale history" });
+    const pendingHistory = defer<GitCommitGraphRow[]>();
+    vi.mocked(githead.getCommitHistory)
+      .mockResolvedValueOnce([commit])
+      .mockReturnValueOnce(pendingHistory.promise);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash));
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    const commitRow = await screen.findByRole("option", { name: /stable stale history/ });
+
+    emitRepoChanged({ reason: "filesystem-metadata" });
+    await waitFor(() => expect(githead.getCommitHistory).toHaveBeenCalledTimes(2));
+    pendingHistory.reject(new Error("history unavailable"));
+
+    expect(await screen.findByText("Commit history refresh failed: history unavailable")).toBeTruthy();
+    expect(commitRow.getAttribute("aria-selected")).toBe("true");
+    expect(screen.queryByText("Loading commit history...")).toBeNull();
+  });
+
+  it("shows a blocking error when the initial history load fails", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getCommitHistory).mockRejectedValue(new Error("initial history unavailable"));
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+
+    expect(await screen.findByText("initial history unavailable")).toBeTruthy();
+    expect(screen.queryByRole("listbox", { name: "Commit history" })?.querySelector(".history-rows")).toBeNull();
+  });
+
   it("renders selected commit bodies as markdown", async () => {
     const user = userEvent.setup();
     const commit = createCommit({

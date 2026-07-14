@@ -855,13 +855,12 @@ export function App(): ReactNode {
     cancelRepositoryRead("history", requestIds.current.history);
     const requestId = requestIds.current.history + 1;
     requestIds.current.history = requestId;
-    const previousCommitHash = current.selectedCommitHash;
     updateState({
       historyLoading: true,
       historyError: ""
     });
 
-    let selectedCommitHash: string | null = null;
+    let commitHashToLoad: string | null = null;
 
     try {
       const history = await window.githead.getCommitHistory({
@@ -874,31 +873,50 @@ export function App(): ReactNode {
         return;
       }
 
-      selectedCommitHash = history.some((commit) => commit.hash === previousCommitHash)
-        ? previousCommitHash
+      const latest = stateRef.current;
+      const selectedCommitHash = history.some((commit) => commit.hash === latest.selectedCommitHash)
+        ? latest.selectedCommitHash
         : history[0]?.hash ?? null;
+      const selectionChanged = selectedCommitHash !== latest.selectedCommitHash;
 
-      updateState({
+      updateState(selectionChanged ? {
         history,
         historyLoaded: true,
+        historyError: "",
         selectedCommitHash,
         commitDetails: null,
         commitDetailsError: "",
         selectedCommitFilePath: null,
         commitFileDiff: null,
         commitFileDiffError: ""
+      } : {
+        history,
+        historyLoaded: true,
+        historyError: ""
       });
+
+      if (selectionChanged) {
+        commitHashToLoad = selectedCommitHash;
+      }
     } catch (error) {
       if (requestId === requestIds.current.history) {
-        updateState({
-          history: [],
-          historyLoaded: false,
-          historyError: error instanceof Error ? error.message : "Unable to read commit history.",
-          selectedCommitHash: null,
-          commitDetails: null,
-          selectedCommitFilePath: null,
-          commitFileDiff: null
-        });
+        const historyError = error instanceof Error ? error.message : "Unable to read commit history.";
+        if (stateRef.current.history.length > 0) {
+          updateState({
+            historyLoaded: true,
+            historyError
+          });
+        } else {
+          updateState({
+            history: [],
+            historyLoaded: false,
+            historyError,
+            selectedCommitHash: null,
+            commitDetails: null,
+            selectedCommitFilePath: null,
+            commitFileDiff: null
+          });
+        }
       }
     } finally {
       if (requestId === requestIds.current.history) {
@@ -908,8 +926,8 @@ export function App(): ReactNode {
       }
     }
 
-    if (selectedCommitHash) {
-      await loadCommitDetails(selectedCommitHash);
+    if (commitHashToLoad) {
+      await loadCommitDetails(commitHashToLoad);
     }
   }, [loadCommitDetails, updateState]);
 
@@ -7319,30 +7337,38 @@ function HistoryView({
                 <Button type="button" variant="ghost" size="sm" onClick={onRetryInsights}>Retry</Button>
               </div>
             ) : insightsLoading ? <span className="sr-only" role="status">Loading GitHub annotations</span> : null}
-            {historyLoading ? (
+            {historyLoading && history.length === 0 ? (
               <p className="empty-state">Loading commit history...</p>
-            ) : historyError ? (
+            ) : historyError && history.length === 0 ? (
               <p className="empty-state bad selectable-text">{historyError}</p>
             ) : !summary?.isValid ? (
               <p className="empty-state">Select a valid repository.</p>
             ) : history.length === 0 ? (
               <p className="empty-state">No commits in this repository.</p>
             ) : (
-              <div className="history-rows">
-                <CommitGraphSvg layout={graphLayout} selectedCommitHash={selectedCommitHash} />
-                {history.map((commit) => (
-                  <HistoryRow
-                    key={commit.hash}
-                    commit={commit}
-                    selected={commit.hash === selectedCommitHash}
-                    tagsEnabled={summary?.capabilities.tags ?? true}
-                    {...(associations.get(commit.hash) ? { association: associations.get(commit.hash)! } : {})}
-                    onOpenExternalUrl={onOpenExternalUrl}
-                    onSelectCommit={onSelectCommit}
-                    onCommitContextAction={onCommitContextAction}
-                  />
-                ))}
-              </div>
+              <>
+                {historyLoading ? <span className="sr-only" role="status">Refreshing commit history</span> : null}
+                {historyError ? (
+                  <div className="history-refresh-error selectable-text" role="status">
+                    Commit history refresh failed: {historyError}
+                  </div>
+                ) : null}
+                <div className="history-rows">
+                  <CommitGraphSvg layout={graphLayout} selectedCommitHash={selectedCommitHash} />
+                  {history.map((commit) => (
+                    <HistoryRow
+                      key={commit.hash}
+                      commit={commit}
+                      selected={commit.hash === selectedCommitHash}
+                      tagsEnabled={summary?.capabilities.tags ?? true}
+                      {...(associations.get(commit.hash) ? { association: associations.get(commit.hash)! } : {})}
+                      onOpenExternalUrl={onOpenExternalUrl}
+                      onSelectCommit={onSelectCommit}
+                      onCommitContextAction={onCommitContextAction}
+                    />
+                  ))}
+                </div>
+              </>
             )}
           </div>
         </section>
