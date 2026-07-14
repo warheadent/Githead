@@ -464,11 +464,37 @@ export class GitService {
       "--verify",
       "HEAD"
     ]);
-    if (headResult.exitCode !== 0) {
+    const scope = request.scope === "all" ? "all" : "current";
+    if (headResult.exitCode !== 0 && scope === "current") {
       return [];
     }
 
+    if (headResult.exitCode !== 0) {
+      const refsResult = await this.runGit(request.repoPath, [
+        "for-each-ref",
+        "--count=1",
+        "--format=%(objectname)",
+        "refs/heads",
+        "refs/remotes",
+        "refs/tags"
+      ]);
+      if (refsResult.exitCode !== 0) {
+        throw new Error(refsResult.stderr.trim() || refsResult.error || "Unable to read repository refs.");
+      }
+      if (!refsResult.stdout.trim()) {
+        return [];
+      }
+    }
+
     const limit = sanitizeHistoryLimit(request.limit);
+    const revisions = scope === "all"
+      ? [
+        ...(headResult.exitCode === 0 ? ["HEAD"] : []),
+        "--branches",
+        "--remotes",
+        "--tags"
+      ]
+      : [];
     const result = await this.runGit(request.repoPath, [
       "log",
       "--topo-order",
@@ -476,7 +502,8 @@ export class GitService {
       `--max-count=${limit}`,
       "--date=iso-strict",
       "--decorate=full",
-      "--pretty=format:%x1f%H%x1f%h%x1f%D%x1f%s%x1f%an%x1f%ae%x1f%aI%x1f%ar%x1f%P%x1e"
+      "--pretty=format:%x1f%H%x1f%h%x1f%D%x1f%s%x1f%an%x1f%ae%x1f%aI%x1f%ar%x1f%P%x1e",
+      ...revisions
     ]);
 
     if (result.exitCode !== 0) {

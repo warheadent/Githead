@@ -113,6 +113,7 @@ import type {
   AppColorTheme,
   AppSettings,
   AppUpdateState,
+  CommitHistoryScope,
   GitBranch,
   GitAction,
   GitConfiguredActionFile,
@@ -333,6 +334,7 @@ interface AppState {
   actionManager: RepositoryActionManagerState;
   remoteManager: RemoteManagerState;
   activeView: WorkspaceView;
+  historyScope: CommitHistoryScope;
   history: GitCommitGraphRow[];
   historyLoading: boolean;
   historyLoaded: boolean;
@@ -564,6 +566,7 @@ const initialState: AppState = {
   actionManager: emptyActionManager,
   remoteManager: emptyRemoteManager,
   activeView: "status",
+  historyScope: "current",
   history: [],
   historyLoading: false,
   historyLoaded: false,
@@ -605,7 +608,7 @@ export function App(): ReactNode {
     repoPath: githubRepository?.repoPath ?? "",
     githubFullName: githubRepository?.githubFullName ?? "",
     currentBranch: state.summary?.branch ?? null,
-    headSha: state.history[0]?.hash ?? null,
+    headSha: getCurrentHistoryHeadSha(state.history, state.historyScope, state.summary?.branch ?? null),
     commitShas: state.history.map((commit) => commit.hash),
     enabled: state.activeView === "history" && state.historyLoaded && Boolean(githubRepository)
   });
@@ -852,6 +855,9 @@ export function App(): ReactNode {
       return;
     }
 
+    const repoPath = current.repoPath;
+    const scope = current.historyScope;
+
     cancelRepositoryRead("history", requestIds.current.history);
     const requestId = requestIds.current.history + 1;
     requestIds.current.history = requestId;
@@ -864,8 +870,9 @@ export function App(): ReactNode {
 
     try {
       const history = await window.githead.getCommitHistory({
-        repoPath: stateRef.current.repoPath,
+        repoPath,
         limit: HISTORY_LIMIT,
+        scope,
         requestId: repositoryReadRequestId("history", requestId)
       });
 
@@ -878,6 +885,7 @@ export function App(): ReactNode {
         ? latest.selectedCommitHash
         : history[0]?.hash ?? null;
       const selectionChanged = selectedCommitHash !== latest.selectedCommitHash;
+      const detailsNeedLoading = Boolean(selectedCommitHash) && latest.commitDetails?.hash !== selectedCommitHash;
 
       updateState(selectionChanged ? {
         history,
@@ -895,7 +903,7 @@ export function App(): ReactNode {
         historyError: ""
       });
 
-      if (selectionChanged) {
+      if (selectionChanged || detailsNeedLoading) {
         commitHashToLoad = selectedCommitHash;
       }
     } catch (error) {
@@ -930,6 +938,33 @@ export function App(): ReactNode {
       await loadCommitDetails(commitHashToLoad);
     }
   }, [loadCommitDetails, updateState]);
+
+  const changeHistoryScope = useCallback((scope: CommitHistoryScope): void => {
+    const current = stateRef.current;
+    if (current.historyScope === scope || current.summary?.kind !== "git") {
+      return;
+    }
+
+    cancelRepositoryRead("commit-details", requestIds.current.commitDetails);
+    cancelRepositoryRead("commit-file-diff", requestIds.current.commitFileDiff);
+    requestIds.current.commitDetails += 1;
+    requestIds.current.commitFileDiff += 1;
+    updateState({
+      historyScope: scope,
+      history: [],
+      historyLoading: false,
+      historyLoaded: false,
+      historyError: "",
+      commitDetails: null,
+      commitDetailsLoading: false,
+      commitDetailsError: "",
+      selectedCommitFilePath: null,
+      commitFileDiff: null,
+      commitFileDiffLoading: false,
+      commitFileDiffError: ""
+    });
+    void loadCommitHistory(false);
+  }, [loadCommitHistory, updateState]);
 
   const loadSelectedDiff = useCallback(async (selectionOverride?: FileSelection): Promise<void> => {
     const selection = selectionOverride ?? stateRef.current.selection;
@@ -1269,6 +1304,7 @@ export function App(): ReactNode {
       repositorySnapshots.current.set(leaving.repoPath, {
         summary: leaving.summary,
         history: leaving.history,
+        historyScope: leaving.historyScope,
         selection: leaving.selection,
         activeView: leaving.activeView === "history" ? "history" : "status"
       });
@@ -1323,7 +1359,7 @@ export function App(): ReactNode {
       diff: null,
       diffLoading: false
       }));
-      return cached ? { ...reset, history: cached.history, historyLoaded: cached.history.length > 0, selection: cached.selection } : reset;
+      return cached ? { ...reset, history: cached.history, historyScope: cached.historyScope, historyLoaded: cached.history.length > 0, selection: cached.selection } : reset;
     });
 
     await refreshRepo({
@@ -4570,6 +4606,7 @@ export function App(): ReactNode {
               <TabsContent forceMount value="history" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
                 <HistoryView
                   summary={state.summary}
+                  historyScope={state.historyScope}
                   history={state.history}
                   historyLoading={state.historyLoading}
                   historyError={state.historyError}
@@ -4587,6 +4624,7 @@ export function App(): ReactNode {
                   insightsError={historyInsights.error}
                   onRetryInsights={historyInsights.retry}
                   onOpenExternalUrl={openExternalUrl}
+                  onHistoryScopeChange={changeHistoryScope}
                   onSelectCommit={selectCommit}
                   onSelectCommitFile={selectCommitFile}
                   onCommitContextAction={runCommitContextAction}
@@ -7277,6 +7315,7 @@ function DiffCode({ row, filePath }: { row: DiffRow; filePath: string }): ReactN
 
 function HistoryView({
   summary,
+  historyScope,
   history,
   historyLoading,
   historyError,
@@ -7294,6 +7333,7 @@ function HistoryView({
   insightsError,
   onRetryInsights,
   onOpenExternalUrl,
+  onHistoryScopeChange,
   onSelectCommit,
   onSelectCommitFile,
   onCommitContextAction,
@@ -7301,6 +7341,7 @@ function HistoryView({
   onDownloadImage
 }: {
   summary: RepoSummary | null;
+  historyScope: CommitHistoryScope;
   history: GitCommitGraphRow[];
   historyLoading: boolean;
   historyError: string;
@@ -7318,6 +7359,7 @@ function HistoryView({
   insightsError: string;
   onRetryInsights: () => void;
   onOpenExternalUrl: (url: string) => void;
+  onHistoryScopeChange: (scope: CommitHistoryScope) => void;
   onSelectCommit: (hash: string) => void;
   onSelectCommitFile: (filePath: string) => void;
   onCommitContextAction: (commit: GitCommitGraphRow, action: CommitContextActionKind) => void;
@@ -7326,6 +7368,7 @@ function HistoryView({
 }): ReactNode {
   const graphLayout = useMemo(() => buildCommitGraphLayout(history), [history]);
   const associations = useMemo(() => createCommitAssociationMap(insights), [insights]);
+  const showHistoryScope = summary?.isValid && summary.kind === "git";
   const historyStyle = {
     "--history-graph-width": `${graphLayout.width}px`
   } as CSSProperties;
@@ -7333,7 +7376,26 @@ function HistoryView({
   return (
     <ResizablePanelGroup orientation="vertical" className="h-full min-h-0 bg-background" style={historyStyle}>
       <ResizablePanel defaultSize="44%" minSize="180px">
-        <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] border-b bg-card" aria-label="Commit list">
+        <section className={`grid h-full min-h-0 ${showHistoryScope ? "grid-rows-[auto_auto_minmax(0,1fr)]" : "grid-rows-[auto_minmax(0,1fr)]"} border-b bg-card`} aria-label="Commit list">
+          {showHistoryScope ? (
+            <div className="history-scope-toolbar">
+              <span className="history-scope-label">Show</span>
+              <div className="history-scope-control" role="group" aria-label="Commit history scope">
+                {(["current", "all"] as const).map((scope) => (
+                  <Button
+                    key={scope}
+                    type="button"
+                    size="xs"
+                    variant={historyScope === scope ? "secondary" : "ghost"}
+                    aria-pressed={historyScope === scope}
+                    onClick={() => onHistoryScopeChange(scope)}
+                  >
+                    {scope === "current" ? "Current" : "All"}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <div className="history-table-header" aria-hidden="true">
             <span>Graph</span>
             <span>Description</span>
@@ -9469,6 +9531,7 @@ function reconcileGitHubUiState(state: AppState, previousSummary: RepoSummary | 
 function resetHistoryState(state: AppState): AppState {
   return {
     ...state,
+    historyScope: "current",
     history: [],
     historyLoading: false,
     historyLoaded: false,
@@ -9486,6 +9549,17 @@ function resetHistoryState(state: AppState): AppState {
     commitFileDiffLoading: false,
     commitFileDiffError: ""
   };
+}
+
+function getCurrentHistoryHeadSha(
+  history: GitCommitGraphRow[],
+  scope: CommitHistoryScope,
+  currentBranch: string | null
+): string | null {
+  const decoratedHead = history.find((commit) => commit.refs.some((ref) => (
+    ref.kind === "head" || (ref.kind === "branch" && ref.name === currentBranch)
+  )));
+  return decoratedHead?.hash ?? (scope === "current" ? history[0]?.hash ?? null : null);
 }
 
 function isGitHubView(view: WorkspaceView): boolean {

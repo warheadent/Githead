@@ -6,7 +6,7 @@ const summary = (repoPath: string, fileCount = 1): RepoSummary => ({
   repoPath, kind: "git", capabilities: {} as RepoSummary["capabilities"], isValid: true, branch: "main", upstream: null, branches: [], hasHead: true, remotes: [], remoteBranches: [], defaultRemoteBranch: null, commitsAheadOfDefaultBranch: null, githubRepository: null, statusLines: [], files: Array.from({ length: fileCount }, (_, index) => ({ path: `file-${index}`, indexStatus: ".", worktreeStatus: "M", isStaged: false, isUnstaged: true, isConflicted: false })), safeDirectory: null, actionsConfig: {} as RepoSummary["actionsConfig"], validationErrors: []
 });
 
-const snapshot = (repoPath: string, fileCount = 1) => ({ summary: summary(repoPath, fileCount), history: [], selection: fileCount ? { path: "file-0", side: "unstaged" as const, paths: ["file-0"], anchorPath: "file-0" } : null, activeView: "status" as const });
+const snapshot = (repoPath: string, fileCount = 1) => ({ summary: summary(repoPath, fileCount), history: [], historyScope: "current" as const, selection: fileCount ? { path: "file-0", side: "unstaged" as const, paths: ["file-0"], anchorPath: "file-0" } : null, activeView: "status" as const });
 
 describe("RepositorySnapshotCache", () => {
   it("normalizes equivalent Repository paths", () => {
@@ -20,6 +20,12 @@ describe("RepositorySnapshotCache", () => {
     cache.markStale("D:\\Repo", ["status"]);
     expect(cache.size).toBe(1);
     expect(cache.get("D:\\Repo")?.stale.has("status")).toBe(true);
+  });
+
+  it("preserves the history scope with cached rows", () => {
+    const cache = new RepositorySnapshotCache();
+    cache.set("D:\\Repo", { ...snapshot("D:\\Repo"), historyScope: "all" });
+    expect(cache.get("D:\\Repo")?.historyScope).toBe("all");
   });
 
   it("evicts the least recently used entry", () => {

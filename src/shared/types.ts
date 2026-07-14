@@ -126,6 +126,8 @@ export type GitDiffKind = "text" | "image" | "binary" | "empty" | "error";
 
 export type CommitRefKind = "head" | "branch" | "remote" | "tag" | "other";
 
+export type CommitHistoryScope = "current" | "all";
+
 export interface CommitRef {
   name: string;
   kind: CommitRefKind;
@@ -472,6 +474,7 @@ export interface RepoMetadataSection {
 export interface GitCommitHistoryRequest extends RepositoryReadRequest {
   repoPath: string;
   limit?: number;
+  scope?: CommitHistoryScope;
 }
 
 export interface GitCommitDetailsRequest extends RepositoryReadRequest {

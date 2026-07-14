@@ -1797,6 +1797,32 @@ textarea,
   cursor: default;
 }
 
+.history-scope-toolbar {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+  padding: 4px 12px;
+}
+
+.history-scope-label {
+  color: var(--muted-foreground);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.history-scope-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 2px;
+  background: var(--muted);
+}
+
 .history-description,
 .history-github-badges,
 .commit-reference-list { display: flex; min-width: 0; align-items: center; gap: 5px; }

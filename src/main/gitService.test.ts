@@ -1470,6 +1470,9 @@ describe("GitService", () => {
       ])
     });
     expect(runner.calls.at(-1)?.args).not.toContain("--graph");
+    expect(runner.calls.at(-1)?.args).not.toContain("--branches");
+    expect(runner.calls.at(-1)?.args).not.toContain("--remotes");
+    expect(runner.calls.at(-1)?.args).not.toContain("--tags");
     expect(runner.calls.at(-1)?.args).toContain("--pretty=format:%x1f%H%x1f%h%x1f%D%x1f%s%x1f%an%x1f%ae%x1f%aI%x1f%ar%x1f%P%x1e");
     expect(history).toEqual([
       expect.objectContaining({
@@ -1505,6 +1508,91 @@ describe("GitService", () => {
         ]
       })
     ]);
+  });
+
+  it("loads all local, remote-tracking, and tag histories without contacting remotes", async () => {
+    const remoteOid = "f".repeat(40);
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok(`${oid}\n`),
+      ok([
+        `\x1f${remoteOid}\x1fffffff\x1frefs/remotes/origin/feature\x1ffeat: remote only\x1fTaylor\x1ftaylor@example.test\x1f2026-05-27T10:00:00-07:00\x1f1 hour ago\x1f\x1e`,
+        `\x1f${oid}\x1fad4f1df\x1fHEAD -> refs/heads/master\x1ffeat: current\x1fTaylor\x1ftaylor@example.test\x1f2026-05-26T10:00:00-07:00\x1fyesterday\x1f\x1e`
+      ].join("\n"))
+    ]);
+    const service = new GitService(runner);
+
+    const history = await service.getCommitHistory({
+      repoPath: "D:\\Repo",
+      limit: 200,
+      scope: "all"
+    });
+
+    expect(runner.calls.at(-1)?.args).toEqual(expect.arrayContaining([
+      "log",
+      "HEAD",
+      "--branches",
+      "--remotes",
+      "--tags"
+    ]));
+    expect(runner.calls.at(-1)?.args).not.toContain("--all");
+    expect(history[0]).toMatchObject({
+      hash: remoteOid,
+      refs: [{ name: "origin/feature", kind: "remote" }]
+    });
+  });
+
+  it("loads fetched remote history in all scope when local HEAD is missing", async () => {
+    const remoteOid = "f".repeat(40);
+    const runner = new FakeRunner([
+      ok("true\n"),
+      failure("fatal: Needed a single revision"),
+      ok(`${remoteOid}\n`),
+      ok(`\x1f${remoteOid}\x1fffffff\x1frefs/remotes/origin/main\x1ffeat: fetched remote\x1fTaylor\x1ftaylor@example.test\x1f2026-05-27T10:00:00-07:00\x1f1 hour ago\x1f\x1e`)
+    ]);
+    const service = new GitService(runner);
+
+    await expect(service.getCommitHistory({ repoPath: "D:\\Repo", scope: "all" })).resolves.toEqual([
+      expect.objectContaining({ hash: remoteOid })
+    ]);
+    expect(runner.calls[2]?.args).toEqual([
+      "-C",
+      "D:\\Repo",
+      "for-each-ref",
+      "--count=1",
+      "--format=%(objectname)",
+      "refs/heads",
+      "refs/remotes",
+      "refs/tags"
+    ]);
+    expect(runner.calls.at(-1)?.args).not.toContain("HEAD");
+  });
+
+  it("returns empty all-scope history when HEAD and relevant refs do not exist", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      failure("fatal: Needed a single revision"),
+      ok("")
+    ]);
+    const service = new GitService(runner);
+
+    await expect(service.getCommitHistory({ repoPath: "D:\\Repo", scope: "all" })).resolves.toEqual([]);
+    expect(runner.calls).toHaveLength(3);
+  });
+
+  it("keeps explicit current scope on the HEAD-only history path", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok(`${oid}\n`),
+      ok(`\x1f${oid}\x1fad4f1df\x1fHEAD -> refs/heads/master\x1ffeat: current\x1fTaylor\x1ftaylor@example.test\x1f2026-05-26T10:00:00-07:00\x1fyesterday\x1f\x1e`)
+    ]);
+    const service = new GitService(runner);
+
+    await service.getCommitHistory({ repoPath: "D:\\Repo", scope: "current" });
+
+    expect(runner.calls.at(-1)?.args).not.toContain("--branches");
+    expect(runner.calls.at(-1)?.args).not.toContain("--remotes");
+    expect(runner.calls.at(-1)?.args).not.toContain("--tags");
   });
 
   it("returns empty commit history when HEAD does not exist", async () => {

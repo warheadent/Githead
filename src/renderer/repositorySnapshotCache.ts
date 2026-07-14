@@ -1,4 +1,4 @@
-import type { GitCommitGraphRow, RepoSummary } from "../shared/types";
+import type { CommitHistoryScope, GitCommitGraphRow, RepoSummary } from "../shared/types";
 
 export const REPOSITORY_SNAPSHOT_MAX_ENTRIES = 4;
 export const REPOSITORY_SNAPSHOT_MAX_FILES_PER_ENTRY = 10_000;
@@ -10,6 +10,7 @@ export interface SnapshotSelection { path: string; side: "staged" | "unstaged"; 
 export interface RepositorySnapshot {
   summary: RepoSummary;
   history: GitCommitGraphRow[];
+  historyScope: CommitHistoryScope;
   selection: SnapshotSelection | null;
   activeView: "status" | "history";
   stale: ReadonlySet<SnapshotSection>;
@@ -38,6 +39,7 @@ export class RepositorySnapshotCache {
     const entry: StoredSnapshot = {
       summary: { ...snapshot.summary, files, statusLines: retainStatus ? snapshot.summary.statusLines.slice() : [], ...(retainStatus && snapshot.summary.submodules ? { submodules: snapshot.summary.submodules.slice() } : { submodules: [] }) },
       history,
+      historyScope: snapshot.historyScope,
       selection,
       activeView: snapshot.activeView,
       stale: new Set<SnapshotSection>(["identity", "status", "metadata"]),

@@ -350,6 +350,137 @@ describe("App", () => {
     expect(screen.getByText("Add MeshBites Shader")).toBeTruthy();
   });
 
+  it("switches between current and all commit history with an accessible scope control", async () => {
+    const user = userEvent.setup();
+    const currentCommit = createCommit({
+      hash: "a".repeat(40),
+      shortHash: "aaaaaaa",
+      subject: "feat: current branch commit",
+      refs: [{ name: "main", kind: "branch" }]
+    });
+    const remoteCommit = createCommit({
+      hash: "b".repeat(40),
+      shortHash: "bbbbbbb",
+      subject: "feat: remote branch commit",
+      refs: [{ name: "origin/feature", kind: "remote" }]
+    });
+    vi.mocked(githead.getCommitHistory).mockImplementation(async ({ scope }) => (
+      scope === "all" ? [remoteCommit, currentCommit] : [currentCommit]
+    ));
+    vi.mocked(githead.getCommitDetails).mockImplementation(async ({ hash }) => createCommitDetails(hash));
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+
+    const scopeControl = screen.getByRole("group", { name: "Commit history scope" });
+    const currentButton = within(scopeControl).getByRole("button", { name: "Current" });
+    const allButton = within(scopeControl).getByRole("button", { name: "All" });
+    expect(currentButton.getAttribute("aria-pressed")).toBe("true");
+    expect(allButton.getAttribute("aria-pressed")).toBe("false");
+    await waitFor(() => expect(githead.getCommitHistory).toHaveBeenLastCalledWith(expect.objectContaining({ scope: "current" })));
+
+    await user.click(allButton);
+    await screen.findByRole("option", { name: /remote branch commit/ });
+
+    expect(currentButton.getAttribute("aria-pressed")).toBe("false");
+    expect(allButton.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText("origin/feature").closest(".ref-badge")?.className).toContain("remote");
+    expect(screen.getByRole("option", { name: /current branch commit/ }).getAttribute("aria-selected")).toBe("true");
+    expect(githead.getCommitHistory).toHaveBeenLastCalledWith(expect.objectContaining({ scope: "all" }));
+    expect(githead.cancelRepositoryRead).toHaveBeenCalledWith({ requestId: "commit-details:1" });
+    await waitFor(() => expect(githead.getCommitDetails).toHaveBeenCalledTimes(2));
+  });
+
+  it("ignores an unresolved all-history response after switching back to current", async () => {
+    const user = userEvent.setup();
+    const currentCommit = createCommit({
+      hash: "a".repeat(40),
+      subject: "feat: stable current history",
+      refs: [{ name: "main", kind: "branch" }]
+    });
+    const staleRemoteCommit = createCommit({
+      hash: "b".repeat(40),
+      subject: "feat: stale remote history",
+      refs: [{ name: "origin/stale", kind: "remote" }]
+    });
+    const pendingAllHistory = defer<GitCommitGraphRow[]>();
+    vi.mocked(githead.getCommitHistory)
+      .mockResolvedValueOnce([currentCommit])
+      .mockReturnValueOnce(pendingAllHistory.promise)
+      .mockResolvedValueOnce([currentCommit]);
+    vi.mocked(githead.getCommitDetails).mockImplementation(async ({ hash }) => createCommitDetails(hash));
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await screen.findByRole("option", { name: /stable current history/ });
+
+    await user.click(screen.getByRole("button", { name: "All" }));
+    expect(await screen.findByText("Loading commit history...")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Current" }));
+    await screen.findByRole("option", { name: /stable current history/ });
+    pendingAllHistory.resolve([staleRemoteCommit, currentCommit]);
+    await flushRendererAsync();
+
+    expect(screen.queryByRole("option", { name: /stale remote history/ })).toBeNull();
+    expect(githead.cancelRepositoryRead).toHaveBeenCalledWith({ requestId: "history:2" });
+    expect(githead.getCommitHistory).toHaveBeenLastCalledWith(expect.objectContaining({ scope: "current" }));
+  });
+
+  it("refreshes the active all-history scope after Fetch", async () => {
+    const user = userEvent.setup();
+    const currentCommit = createCommit({ hash: "a".repeat(40), subject: "feat: current" });
+    const firstRemoteCommit = createCommit({ hash: "b".repeat(40), subject: "feat: first remote" });
+    const refreshedRemoteCommit = createCommit({ hash: "c".repeat(40), subject: "feat: refreshed remote" });
+    vi.mocked(githead.getCommitHistory)
+      .mockResolvedValueOnce([currentCommit])
+      .mockResolvedValueOnce([firstRemoteCommit, currentCommit])
+      .mockResolvedValueOnce([refreshedRemoteCommit, firstRemoteCommit, currentCommit]);
+    vi.mocked(githead.getCommitDetails).mockImplementation(async ({ hash }) => createCommitDetails(hash));
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("button", { name: "All" }));
+    await screen.findByRole("option", { name: /first remote/ });
+    await user.click(screen.getByRole("button", { name: "Fetch" }));
+
+    await screen.findByRole("option", { name: /refreshed remote/ });
+    expect(githead.getCommitHistory).toHaveBeenLastCalledWith(expect.objectContaining({ scope: "all" }));
+  });
+
+  it("uses the decorated current branch as the GitHub head in all-history scope", async () => {
+    const user = userEvent.setup();
+    const currentCommit = createCommit({
+      hash: "a".repeat(40),
+      subject: "feat: current GitHub head",
+      refs: [{ name: "main", kind: "branch" }]
+    });
+    const newerRemoteCommit = createCommit({
+      hash: "b".repeat(40),
+      subject: "feat: newer remote",
+      refs: [{ name: "origin/feature", kind: "remote" }]
+    });
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      githubRepository: { owner: "openai", name: "githead", fullName: "openai/githead", webUrl: "https://github.com/openai/githead" }
+    }));
+    vi.mocked(githead.getCommitHistory).mockImplementation(async ({ scope }) => (
+      scope === "all" ? [newerRemoteCommit, currentCommit] : [currentCommit]
+    ));
+    vi.mocked(githead.getCommitDetails).mockImplementation(async ({ hash }) => createCommitDetails(hash));
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("button", { name: "All" }));
+
+    await waitFor(() => expect(githead.getGitHubHistoryInsights).toHaveBeenLastCalledWith(expect.objectContaining({
+      headSha: currentCommit.hash,
+      commitShas: expect.arrayContaining([newerRemoteCommit.hash, currentCommit.hash])
+    })));
+  });
+
   it("keeps the current history and latest selection visible during a background refresh", async () => {
     const user = userEvent.setup();
     const firstCommit = createCommit({
@@ -4282,6 +4413,38 @@ describe("App", () => {
       `Switch to ${repoPath}`,
       `Switch to ${otherRepo}`
     ]);
+  });
+
+  it("restores each repository's in-session commit history scope", async () => {
+    const user = userEvent.setup();
+    const otherRepo = "D:\\Work\\Other";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([repoPath, otherRepo]);
+    vi.mocked(githead.addRepoRecent).mockResolvedValue([repoPath, otherRepo]);
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({ repoPath: requestedRepoPath }));
+    vi.mocked(githead.getCommitHistory).mockImplementation(async ({ repoPath: requestedRepoPath, scope }) => [createCommit({
+      hash: requestedRepoPath === repoPath ? "a".repeat(40) : "b".repeat(40),
+      subject: `${scope} history for ${requestedRepoPath}`,
+      refs: scope === "all" ? [{ name: "origin/feature", kind: "remote" }] : []
+    })]);
+    vi.mocked(githead.getCommitDetails).mockImplementation(async ({ hash }) => createCommitDetails(hash));
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("button", { name: "All" }));
+    await screen.findByText(`all history for ${repoPath}`);
+
+    await user.click(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
+    await screen.findByText(`current history for ${otherRepo}`);
+    expect(screen.getByRole("button", { name: "Current" }).getAttribute("aria-pressed")).toBe("true");
+
+    await user.click(screen.getByRole("button", { name: `Switch to ${repoPath}` }));
+    await screen.findByText(`all history for ${repoPath}`);
+    expect(screen.getByRole("button", { name: "All" }).getAttribute("aria-pressed")).toBe("true");
+    await waitFor(() => expect(githead.getCommitHistory).toHaveBeenLastCalledWith(expect.objectContaining({
+      repoPath,
+      scope: "all"
+    })));
   });
 
   it("keeps only the active Repository summary visible during rapid A to B to A switching", async () => {
