@@ -76,7 +76,7 @@ describe("GitService progressive Repository sections", () => {
 
     await service.getRepoStatus({ repoPath: "D:\\Repo", generation: 2 });
 
-    expect(runner.calls[0]?.args).toEqual(["-C", "D:\\Repo", "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all"]);
+    expect(runner.calls[0]?.args).toEqual(["-C", "D:\\Repo", "--no-optional-locks", "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all"]);
   });
 });
 
@@ -1144,6 +1144,7 @@ describe("GitService", () => {
       args: [
         "-C",
         "D:\\Repo",
+        "--no-optional-locks",
         "status",
         "--porcelain=v2",
         "-z",
@@ -1762,6 +1763,59 @@ describe("GitService", () => {
       ]
     });
     expect(stdinText(runner.calls.at(-1)!)).toBe("a file.ts\0src/nested.ts\0");
+  });
+
+  it("uses lock-free status reads before staging without changing git add locking", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok(),
+      ok()
+    ]);
+    const service = new GitService(runner);
+
+    await service.stageFiles({
+      repoPath: "D:\\Repo",
+      paths: ["src/app.ts"]
+    });
+
+    expect(runner.calls[1]?.args).toEqual([
+      "-C",
+      "D:\\Repo",
+      "--no-optional-locks",
+      "status",
+      "--porcelain=v2",
+      "-z",
+      "--untracked-files=all",
+      "--",
+      "src/app.ts"
+    ]);
+    expect(runner.calls[2]?.args).toEqual([
+      "-C",
+      "D:\\Repo",
+      "add",
+      "--pathspec-from-file=-",
+      "--pathspec-file-nul"
+    ]);
+  });
+
+  it("explains index lock failures without removing the lock", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok(),
+      failure("fatal: Unable to create 'D:/Repo/.git/index.lock': File exists.\n")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.stageFiles({
+      repoPath: "D:\\Repo",
+      paths: ["src/app.ts"]
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Unable to create 'D:/Repo/.git/index.lock'");
+    expect(result.stderr).toContain("Another Git process may still be using this repository.");
+    expect(result.stderr).toContain("remove the stale .git/index.lock file and retry");
+    expect(result.stderr).toContain("Githead will not remove it automatically");
   });
 
   it("unstages with restore when HEAD exists", async () => {

@@ -151,7 +151,7 @@ export class GitService {
   }
 
   async getRepoStatus(request: RepoSectionRequest): Promise<RepoStatusSection> {
-    const result = await this.runGit(request.repoPath, ["status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all"]);
+    const result = await this.runGitStatus(request.repoPath, ["--porcelain=v2", "-z", "--branch", "--untracked-files=all"]);
     const status = parsePorcelainStatus(result.stdout);
     return { repoPath: request.repoPath, generation: request.generation, statusLines: status.statusLines, files: status.files, submodules: await this.getSubmodules(request.repoPath, status.files) };
   }
@@ -214,8 +214,7 @@ export class GitService {
         return createInvalidRepoSyncStatus(repoPath, validation.validationErrors.join(" "));
       }
 
-      const statusResult = await this.runGit(repoPath, [
-        "status",
+      const statusResult = await this.runGitStatus(repoPath, [
         "--porcelain=v2",
         "-z",
         "--branch",
@@ -1892,9 +1891,16 @@ export class GitService {
     ], options);
   }
 
-  private async getUnstagedDiff(repoPath: string, filePath: string, submoduleShort = false): Promise<ProcessResult> {
-    const statusResult = await this.runGit(repoPath, [
+  private runGitStatus(repoPath: string, args: string[]): Promise<ProcessResult> {
+    return this.runGit(repoPath, [
+      "--no-optional-locks",
       "status",
+      ...args
+    ]);
+  }
+
+  private async getUnstagedDiff(repoPath: string, filePath: string, submoduleShort = false): Promise<ProcessResult> {
+    const statusResult = await this.runGitStatus(repoPath, [
       "--porcelain=v2",
       "-z",
       "--untracked-files=all",
@@ -2047,8 +2053,7 @@ export class GitService {
   }
 
   private async getStatusFiles(repoPath: string, filePaths: string[]): Promise<Array<GitStatusFile | undefined>> {
-    const statusResult = await this.runGit(repoPath, [
-      "status",
+    const statusResult = await this.runGitStatus(repoPath, [
       "--porcelain=v2",
       "-z",
       "--untracked-files=all",
@@ -2183,12 +2188,13 @@ export class GitService {
   ): Promise<GitOperationResult> {
     const input = paths ? createPathspecInput(paths) : stdin;
     const result = await this.runGit(repoPath, args, undefined, input);
+    const stderr = result.error ? `${result.stderr}${result.error}` : result.stderr;
 
     return {
       repoPath,
       exitCode: result.exitCode,
       stdout: result.stdout,
-      stderr: result.error ? `${result.stderr}${result.error}` : result.stderr
+      stderr: appendIndexLockGuidance(stderr)
     };
   }
 
@@ -2497,6 +2503,19 @@ function sanitizeHistoryLimit(limit: number | undefined): number {
 
 function createPathspecInput(paths: string[]): Buffer {
   return Buffer.from(`${paths.join("\0")}\0`, "utf8");
+}
+
+const INDEX_LOCK_GUIDANCE = [
+  "Git could not acquire the repository index lock. Another Git process may still be using this repository.",
+  "If no Git process is running, remove the stale .git/index.lock file and retry. Githead will not remove it automatically."
+].join(" ");
+
+function appendIndexLockGuidance(stderr: string): string {
+  if (!/index\.lock/i.test(stderr) || stderr.includes(INDEX_LOCK_GUIDANCE)) {
+    return stderr;
+  }
+
+  return `${stderr.trimEnd()}\n\n${INDEX_LOCK_GUIDANCE}`;
 }
 
 function getShellCommand(action: GitConfiguredAction): { command: string; args: string[] } {
