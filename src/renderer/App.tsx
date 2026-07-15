@@ -38,6 +38,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -1072,7 +1073,10 @@ export function App(): ReactNode {
       return;
     }
     try {
-      const groups = await window.githead.getRepositoryGroups(repoPaths);
+      const groups = await window.githead.getRepositoryGroups({
+        repoPaths,
+        activeRepoPath: stateRef.current.repoPath || null
+      });
       if (!groups.length) {
         updateState({ repositoryGroups: [] });
         return;
@@ -1092,6 +1096,7 @@ export function App(): ReactNode {
 
   const refreshRepo = useCallback(async (options: {
     addToRecents?: boolean;
+    recentAnchorPath?: string;
     silent?: boolean;
     statusOnly?: boolean;
   } = {}): Promise<void> => {
@@ -1165,12 +1170,21 @@ export function App(): ReactNode {
 
       if (options.addToRecents && summary.isValid) {
         try {
-          const repoRecents = await window.githead.addRepoRecent(summary.repoPath);
+          const recents = await window.githead.addRepoRecent({
+            repoPath: summary.repoPath,
+            ...(options.recentAnchorPath ? { anchorPath: options.recentAnchorPath } : {})
+          });
+          const repoRecents = recents.map((recent) => recent.anchorPath);
           if (requestId === requestIds.current.repo && isSameRepoPath(repoPath, stateRef.current.repoPath)) {
             const previousRepoRecents = stateRef.current.repoRecents;
-            updateState({
-              repoRecents
-            });
+            updateState((current) => ({
+              ...current,
+              repoRecents,
+              repositoryGroups: current.repositoryGroups.map((group) =>
+                isSameRepoPath(group.anchorPath, options.recentAnchorPath ?? summary.repoPath)
+                  ? { ...group, lastUsedPath: summary.repoPath }
+                  : group)
+            }));
             if (!areRepoPathListsEqual(previousRepoRecents, repoRecents)) {
               void loadRepoSyncStatuses(repoRecents);
             }
@@ -1337,7 +1351,7 @@ export function App(): ReactNode {
     };
   }, [loadRepoSyncStatuses, loadRepositoryGroups, refreshDirtyFileStatus]);
 
-  const switchRepo = useCallback(async (repoPath: string, options: { addToRecents?: boolean } = {}): Promise<void> => {
+  const switchRepo = useCallback(async (repoPath: string, options: { addToRecents?: boolean; recentAnchorPath?: string } = {}): Promise<void> => {
     const nextRepoPath = repoPath.trim();
     if (!nextRepoPath) {
       return;
@@ -1412,12 +1426,13 @@ export function App(): ReactNode {
     });
 
     await refreshRepo({
-      addToRecents: options.addToRecents ?? false
+      addToRecents: options.addToRecents ?? false,
+      ...(options.recentAnchorPath ? { recentAnchorPath: options.recentAnchorPath } : {})
     });
   }, [refreshRepo, updateState]);
 
   const initializeRepository = useCallback(async (): Promise<void> => {
-    let repoRecents: string[] = [];
+    let repoRecents: Awaited<ReturnType<typeof window.githead.getRepoRecents>> = [];
 
     try {
       repoRecents = await window.githead.getRepoRecents();
@@ -1435,18 +1450,18 @@ export function App(): ReactNode {
 
     updateState((current) => ({
       ...current,
-      repoPath: repoRecents[0] ?? "",
-      repoRecents,
-      repoSyncStatuses: pruneRepoSyncStatusMap(repoRecents, current.repoSyncStatuses),
+      repoPath: repoRecents[0]?.lastUsedPath ?? "",
+      repoRecents: repoRecents.map((recent) => recent.anchorPath),
+      repoSyncStatuses: pruneRepoSyncStatusMap(repoRecents.map((recent) => recent.anchorPath), current.repoSyncStatuses),
       showSetup: repoRecents.length === 0,
       setupError: repoRecents.length === 0 ? "" : current.setupError
     }));
 
-    void loadRepoSyncStatuses(repoRecents);
+    void loadRepoSyncStatuses(repoRecents.map((recent) => recent.anchorPath));
 
     if (repoRecents.length > 0) {
       await refreshRepo({
-        addToRecents: true
+        addToRecents: false
       });
     }
   }, [loadRepoSyncStatuses, refreshRepo, updateState]);
@@ -1820,14 +1835,20 @@ export function App(): ReactNode {
       return;
     }
 
+    const group = stateRef.current.repositoryGroups.find((candidate) =>
+      isSameRepoPath(candidate.anchorPath, repoPath)
+      || isSameRepoPath(candidate.lastUsedPath, repoPath)
+      || candidate.worktrees.some((worktree) => isSameRepoPath(worktree.path, repoPath)));
     await switchRepo(repoPath, {
-      addToRecents: true
+      addToRecents: true,
+      ...(group ? { recentAnchorPath: group.anchorPath } : {})
     });
   }, [switchRepo]);
 
   const removeRecentRepo = useCallback(async (repoPath: string): Promise<void> => {
     try {
-      const repoRecents = await window.githead.removeRepoRecent(repoPath);
+      const recents = await window.githead.removeRepoRecent(repoPath);
+      const repoRecents = recents.map((recent) => recent.anchorPath);
       updateState({
         repoRecents,
         repoSyncStatuses: pruneRepoSyncStatusMap(repoRecents, stateRef.current.repoSyncStatuses)
@@ -1853,7 +1874,8 @@ export function App(): ReactNode {
     });
 
     try {
-      const repoRecents = await window.githead.reorderRepoRecents(repoPaths);
+      const recents = await window.githead.reorderRepoRecents(repoPaths);
+      const repoRecents = recents.map((recent) => recent.anchorPath);
       updateState({
         repoRecents,
         repoSyncStatuses: pruneRepoSyncStatusMap(repoRecents, stateRef.current.repoSyncStatuses)
@@ -2472,6 +2494,8 @@ export function App(): ReactNode {
 
   const createWorktree = useCallback(async (request: GitWorktreeCreateDraft): Promise<string | null> => {
     const repoPath = stateRef.current.repoPath;
+    const repositoryGroup = stateRef.current.repositoryGroups.find((group) =>
+      group.worktrees.some((worktree) => isSameRepoPath(worktree.path, repoPath)));
     if (!(await ensureTrustedRepo())) return "Trust this workspace before creating a worktree.";
     if (!isSameRepoPath(repoPath, stateRef.current.repoPath) || !stateRef.current.worktreeDialogOpen) return "The active repository changed. Reopen Add Worktree and try again.";
     const result = await runRepoOperation("Creating worktree", undefined, () => window.githead.createWorktree({ ...request, repoPath } as GitWorktreeCreateRequest));
@@ -2479,7 +2503,10 @@ export function App(): ReactNode {
     if (result.exitCode !== 0) return result.stderr || "Unable to create worktree.";
     updateState({ worktreeDialogOpen: false });
     await loadRepositoryGroups();
-    await switchRepo(request.destinationPath, { addToRecents: false });
+    await switchRepo(request.destinationPath, {
+      addToRecents: true,
+      ...(repositoryGroup ? { recentAnchorPath: repositoryGroup.anchorPath } : {})
+    });
     return null;
   }, [ensureTrustedRepo, loadRepositoryGroups, runRepoOperation, switchRepo, updateState]);
 
@@ -5560,11 +5587,6 @@ function RepositoryList({
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    const activeGroup = groups?.find((group) => group.worktrees.some((worktree) => isSameRepoPath(worktree.path, repoPath)));
-    if (activeGroup) setExpandedGroupIds((current) => current.has(activeGroup.id) ? current : new Set([...current, activeGroup.id]));
-  }, [groups, repoPath]);
-
-  useEffect(() => {
     const activeKey = repoPath ? getRepoPathKey(repoPath) : null;
     if (!activeKey) {
       return;
@@ -5791,7 +5813,12 @@ function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled,
   onAddWorktree?: () => void;
   onRemoveWorktree?: (worktree: GitWorktree) => void;
 }): ReactNode {
+  const worktreeListId = useId();
   const worktrees = group.worktrees.length ? group.worktrees : [{ path: group.anchorPath, head: null, branch: null, isMain: true, isBare: false, isDetached: false, locked: false, lockReason: null, prunable: false, prunableReason: null } satisfies GitWorktree];
+  const displayName = getRepoDisplayName(group.anchorPath);
+  const navigationWorktree = worktrees.find((worktree) => isSameRepoPath(worktree.path, group.lastUsedPath));
+  const navigationUnavailable = Boolean(navigationWorktree?.isBare || navigationWorktree?.prunable);
+  const navigationActive = isSameRepoPath(group.lastUsedPath, activeRepoPath);
   const rowClassName = ["repo-group", active ? "is-active" : "", dragging ? "is-dragging" : "", dropPosition ? `is-drop-${dropPosition}` : ""].filter(Boolean).join(" ");
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>): void => {
     if (event.key === "ArrowUp" || event.key === "ArrowDown") {
@@ -5802,11 +5829,12 @@ function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled,
   return <div ref={rowRef} className={rowClassName} data-repo-path={group.anchorPath}>
     <div className="repo-group-heading">
       <button type="button" className="repo-recent-drag-handle" draggable={!disabled} disabled={disabled} onDragStart={(event) => onDragStart(event, group.anchorPath)} onMouseDown={() => onPointerDragStart(group.anchorPath)} onDragEnd={onDragEnd} onKeyDown={handleKeyDown} aria-label={`Reorder ${group.anchorPath}`}><GripVertical /></button>
-      <button type="button" className="repo-group-toggle" onClick={onToggle} aria-expanded={expanded}>{expanded ? <ChevronDown /> : <ChevronRight />}<RecentRepositoryVcsIcon kind={group.kind} /><span className="repo-recent-title">{getRepoDisplayName(group.anchorPath)}</span><Badge variant="outline">{worktrees.length}</Badge></button>
+      <button type="button" className="repo-group-toggle" disabled={disabled} onClick={onToggle} aria-expanded={expanded} aria-controls={worktreeListId} aria-label={`${expanded ? "Collapse" : "Expand"} worktrees for ${displayName}`}>{expanded ? <ChevronDown /> : <ChevronRight />}</button>
+      <button type="button" className="repo-group-main" disabled={disabled || navigationActive || navigationUnavailable} onClick={() => onSelect(group.lastUsedPath)} aria-current={navigationActive ? "true" : undefined} aria-label={`Switch to ${group.anchorPath}`}><RecentRepositoryVcsIcon kind={group.kind} /><span className="repo-recent-title">{displayName}</span><Badge variant="outline">{worktrees.length}</Badge></button>
       {active && group.kind === "git" && onAddWorktree ? <TooltipButton type="button" variant="ghost" size="icon-xs" disabled={disabled} onClick={onAddWorktree} aria-label="Add worktree" tooltip="Add worktree"><GitFork /></TooltipButton> : null}
       <TooltipButton type="button" variant="ghost" size="icon-xs" disabled={disabled} onClick={onRemove} aria-label={`Remove ${group.anchorPath} from recent repositories`} tooltip="Remove from recents"><X /></TooltipButton>
     </div>
-    {expanded ? <div className="repo-worktree-list">{worktrees.map((worktree) => {
+    {expanded ? <div id={worktreeListId} className="repo-worktree-list">{worktrees.map((worktree) => {
       const workspaceActive = isSameRepoPath(worktree.path, activeRepoPath);
       const unavailable = worktree.isBare || worktree.prunable;
       const status = syncStatuses[getRepoPathKey(worktree.path)] ?? null;

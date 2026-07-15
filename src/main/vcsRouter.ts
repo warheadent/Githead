@@ -80,6 +80,7 @@ export class VcsRouter {
         id,
         kind: item.kind,
         anchorPath: item.worktrees.find((worktree) => worktree.isMain && !worktree.isBare)?.path ?? item.repoPath,
+        lastUsedPath: item.repoPath,
         recentPaths: [item.repoPath],
         commonDir: item.commonDir,
         worktrees: item.worktrees,

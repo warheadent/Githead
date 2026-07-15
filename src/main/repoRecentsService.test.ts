@@ -2,211 +2,155 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vite-plus/test";
+import type { GitWorktree, RepositoryGroup } from "../shared/types";
 import { RepoRecentsService } from "./repoRecentsService";
 
 async function withTempDir<T>(callback: (dir: string) => Promise<T>): Promise<T> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "githead-repo-recents-test-"));
-
   try {
     return await callback(dir);
   } finally {
-    await fs.rm(dir, {
-      recursive: true,
-      force: true
-    });
+    await fs.rm(dir, { recursive: true, force: true });
   }
 }
 
 describe("RepoRecentsService", () => {
-  it("returns an empty list when no recents file exists", async () => {
-    await withTempDir(async (dir) => {
-      const service = new RepoRecentsService(dir);
-
-      await expect(service.getRecents()).resolves.toEqual([]);
-    });
-  });
-
-  it("falls back to an empty list for corrupt or non-array stored recents", async () => {
+  it("returns an empty list for missing, corrupt, or invalid storage", async () => {
     await withTempDir(async (dir) => {
       const service = new RepoRecentsService(dir);
       const recentsPath = path.join(dir, "repo-recents.json");
-
+      await expect(service.getRecents()).resolves.toEqual([]);
       await fs.writeFile(recentsPath, "{bad json", "utf8");
       await expect(service.getRecents()).resolves.toEqual([]);
-
-      await fs.writeFile(recentsPath, JSON.stringify({ repoPath: path.join(dir, "Repo") }), "utf8");
+      await fs.writeFile(recentsPath, JSON.stringify({ version: 2, repositories: "bad" }), "utf8");
       await expect(service.getRecents()).resolves.toEqual([]);
     });
   });
 
-  it("persists more than eight repositories without promoting existing entries", async () => {
+  it("migrates the legacy string-array format in place on the next mutation", async () => {
     await withTempDir(async (dir) => {
       const service = new RepoRecentsService(dir);
-      const repoPaths = Array.from({ length: 10 }, (_value, index) => path.join(dir, `Repo${index}`));
-
-      for (const repoPath of repoPaths) {
-        await service.addRecent(repoPath);
-      }
-
-      expect(await service.getRecents()).toEqual(repoPaths);
-
-      const promotedRepo = repoPaths[4]!;
-      const duplicatePromotedRepo = process.platform === "win32" ? promotedRepo.toLocaleUpperCase() : promotedRepo;
-      expect(await service.addRecent(duplicatePromotedRepo)).toEqual(repoPaths);
-    });
-  });
-
-  it("retains more than eight valid unique repositories from existing storage", async () => {
-    await withTempDir(async (dir) => {
-      const service = new RepoRecentsService(dir);
+      const repo = path.join(dir, "Repo");
+      const other = path.join(dir, "Other");
       const recentsPath = path.join(dir, "repo-recents.json");
-      const repoPaths = Array.from({ length: 12 }, (_value, index) => path.join(dir, `Repo${index}`));
-      const duplicate = process.platform === "win32" ? repoPaths[3]!.toLocaleUpperCase() : repoPaths[3]!;
+      await fs.writeFile(recentsPath, JSON.stringify([repo, other]), "utf8");
 
-      await fs.writeFile(recentsPath, JSON.stringify([
-        ...repoPaths,
-        duplicate,
-        "relative-repo"
-      ]), "utf8");
-
-      await expect(service.getRecents()).resolves.toEqual(repoPaths);
-    });
-  });
-
-  it("appends new repositories to the bottom", async () => {
-    await withTempDir(async (dir) => {
-      const service = new RepoRecentsService(dir);
-      const firstRepo = path.join(dir, "First");
-      const secondRepo = path.join(dir, "Second");
-
-      await expect(service.addRecent(firstRepo)).resolves.toEqual([
-        firstRepo
-      ]);
-      await expect(service.addRecent(secondRepo)).resolves.toEqual([
-        firstRepo,
-        secondRepo
-      ]);
-    });
-  });
-
-  it("persists manual repository order", async () => {
-    await withTempDir(async (dir) => {
-      const service = new RepoRecentsService(dir);
-      const firstRepo = path.join(dir, "First");
-      const secondRepo = path.join(dir, "Second");
-      const thirdRepo = path.join(dir, "Third");
-
-      await service.addRecent(firstRepo);
-      await service.addRecent(secondRepo);
-      await service.addRecent(thirdRepo);
-
-      await expect(service.reorderRecents([
-        thirdRepo,
-        firstRepo,
-        secondRepo
-      ])).resolves.toEqual([
-        thirdRepo,
-        firstRepo,
-        secondRepo
-      ]);
       await expect(service.getRecents()).resolves.toEqual([
-        thirdRepo,
-        firstRepo,
-        secondRepo
+        { anchorPath: repo, lastUsedPath: repo },
+        { anchorPath: other, lastUsedPath: other }
+      ]);
+      await service.addRecent(repo, repo);
+      await expect(readStored(recentsPath)).resolves.toMatchObject({ version: 2 });
+    });
+  });
+
+  it("updates a repository's last-used worktree without changing manual order", async () => {
+    await withTempDir(async (dir) => {
+      const service = new RepoRecentsService(dir);
+      const repo = path.join(dir, "Repo");
+      const linked = path.join(dir, "Repo-feature");
+      const other = path.join(dir, "Other");
+      await service.addRecent(repo, repo);
+      await service.addRecent(other, other);
+
+      await expect(service.addRecent(repo, linked)).resolves.toEqual([
+        { anchorPath: repo, lastUsedPath: linked },
+        { anchorPath: other, lastUsedPath: other }
       ]);
     });
   });
 
-  it("reconciles recent repository anchors and removes duplicates", async () => {
+  it("persists manual order while retaining each last-used worktree", async () => {
+    await withTempDir(async (dir) => {
+      const service = new RepoRecentsService(dir);
+      const first = path.join(dir, "First");
+      const firstLinked = path.join(dir, "First-feature");
+      const second = path.join(dir, "Second");
+      await service.addRecent(first, firstLinked);
+      await service.addRecent(second, second);
+
+      await expect(service.reorderRecents([second, first])).resolves.toEqual([
+        { anchorPath: second, lastUsedPath: second },
+        { anchorPath: first, lastUsedPath: firstLinked }
+      ]);
+    });
+  });
+
+  it("reconciles legacy linked entries into one group and preserves the active worktree", async () => {
     await withTempDir(async (dir) => {
       const service = new RepoRecentsService(dir);
       const main = path.join(dir, "Repo");
       const linked = path.join(dir, "Repo-feature");
-      await service.addRecent(linked);
-      await service.addRecent(main);
-      await expect(service.replaceRecents([main, main])).resolves.toEqual([main]);
-      await expect(service.getRecents()).resolves.toEqual([main]);
+      await fs.writeFile(path.join(dir, "repo-recents.json"), JSON.stringify([linked, main]), "utf8");
+
+      const [group] = await service.reconcileGroups([createGroup(main, linked)], linked);
+      expect(group?.lastUsedPath).toBe(linked);
+      await expect(service.getRecents()).resolves.toEqual([{ anchorPath: main, lastUsedPath: linked }]);
     });
   });
 
-  it("reorders more than eight repositories without discarding entries", async () => {
+  it("falls back from missing, bare, and prunable worktrees to a usable main worktree", async () => {
     await withTempDir(async (dir) => {
       const service = new RepoRecentsService(dir);
-      const repoPaths = Array.from({ length: 10 }, (_value, index) => path.join(dir, `Repo${index}`));
+      const main = path.join(dir, "Repo");
+      const missing = path.join(dir, "Repo-missing");
+      await service.addRecent(main, missing);
+      const group = createGroup(main, missing);
+      group.worktrees[1] = { ...group.worktrees[1]!, prunable: true };
 
-      for (const repoPath of repoPaths) {
-        await service.addRecent(repoPath);
-      }
-
-      const reordered = [...repoPaths].reverse();
-      await expect(service.reorderRecents(reordered)).resolves.toEqual(reordered);
-      await expect(service.getRecents()).resolves.toEqual(reordered);
+      const [reconciled] = await service.reconcileGroups([group], null);
+      expect(reconciled?.lastUsedPath).toBe(main);
+      await expect(service.getRecents()).resolves.toEqual([{ anchorPath: main, lastUsedPath: main }]);
     });
   });
 
-  it("sanitizes reordered repositories and preserves stored entries missing from stale requests", async () => {
+  it("serializes concurrent additions without losing repositories", async () => {
     await withTempDir(async (dir) => {
       const service = new RepoRecentsService(dir);
-      const firstRepo = path.join(dir, "First");
-      const secondRepo = path.join(dir, "Second");
-      const thirdRepo = path.join(dir, "Third");
-      const unknownRepo = path.join(dir, "Unknown");
-      const duplicateSecondRepo = process.platform === "win32" ? secondRepo.toLocaleUpperCase() : secondRepo;
-
-      await service.addRecent(firstRepo);
-      await service.addRecent(secondRepo);
-      await service.addRecent(thirdRepo);
-
-      await expect(service.reorderRecents([
-        thirdRepo,
-        "relative-repo",
-        unknownRepo,
-        duplicateSecondRepo,
-        secondRepo
-      ])).resolves.toEqual([
-        thirdRepo,
-        secondRepo,
-        firstRepo
-      ]);
+      const repos = Array.from({ length: 12 }, (_value, index) => path.join(dir, `Repo${index}`));
+      await Promise.all(repos.map((repo) => service.addRecent(repo, repo)));
+      expect(await service.getRecents()).toEqual(repos.map((repo) => ({ anchorPath: repo, lastUsedPath: repo })));
     });
   });
 
-  it("removes repository paths using the platform path key", async () => {
+  it("removes repository anchors using platform path comparison", async () => {
     await withTempDir(async (dir) => {
       const service = new RepoRecentsService(dir);
-      const firstRepo = path.join(dir, "First");
-      const secondRepo = path.join(dir, "Second");
-      const removePath = process.platform === "win32" ? firstRepo.toLocaleUpperCase() : firstRepo;
-
-      await service.addRecent(firstRepo);
-      await service.addRecent(secondRepo);
-
-      await expect(service.removeRecent(removePath)).resolves.toEqual([
-        secondRepo
-      ]);
-    });
-  });
-
-  it("sanitizes stored values and ignores relative paths", async () => {
-    await withTempDir(async (dir) => {
-      const service = new RepoRecentsService(dir);
-      const validRepo = path.join(dir, "Repo");
-      const recentsPath = path.join(dir, "repo-recents.json");
-
-      await fs.writeFile(recentsPath, JSON.stringify([
-        `  ${validRepo}${path.sep}  `,
-        "relative-repo",
-        "",
-        null,
-        validRepo
-      ]), "utf8");
-
-      await expect(service.getRecents()).resolves.toEqual([
-        validRepo
-      ]);
-      await expect(service.addRecent("relative-repo")).resolves.toEqual([
-        validRepo
-      ]);
+      const first = path.join(dir, "First");
+      const second = path.join(dir, "Second");
+      await service.addRecent(first, first);
+      await service.addRecent(second, second);
+      const removePath = process.platform === "win32" ? first.toLocaleUpperCase() : first;
+      await expect(service.removeRecent(removePath)).resolves.toEqual([{ anchorPath: second, lastUsedPath: second }]);
     });
   });
 });
+
+function createGroup(main: string, linked: string): RepositoryGroup {
+  const worktree = (repoPath: string, isMain: boolean): GitWorktree => ({
+    path: repoPath,
+    head: "abc",
+    branch: isMain ? "main" : "feature/test",
+    isMain,
+    isBare: false,
+    isDetached: false,
+    locked: false,
+    lockReason: null,
+    prunable: false,
+    prunableReason: null
+  });
+  return {
+    id: "repo-group",
+    kind: "git",
+    anchorPath: main,
+    lastUsedPath: main,
+    recentPaths: [linked, main],
+    commonDir: path.join(main, ".git"),
+    worktrees: [worktree(main, true), worktree(linked, false)],
+    error: ""
+  };
+}
+
+async function readStored(recentsPath: string): Promise<unknown> {
+  return JSON.parse(await fs.readFile(recentsPath, "utf8")) as unknown;
+}

@@ -41,7 +41,7 @@ import type {
   RepoSyncStatus,
   RepoSummary
 } from "../shared/types";
-import { gitCapabilities, type AiCommitMessageProvider } from "../shared/types";
+import { gitCapabilities, type AiCommitMessageProvider, type RepositoryRecent } from "../shared/types";
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -50,6 +50,11 @@ interface Deferred<T> {
 }
 
 const repoPath = "D:\\Githead";
+
+function repositoryRecents(...repoPaths: string[]): RepositoryRecent[] {
+  return repoPaths.map((recentPath) => ({ anchorPath: recentPath, lastUsedPath: recentPath }));
+}
+
 let githead: GitheadApi;
 let cleanupGitOutput: Mock<() => void>;
 let cleanupUpdateState: Mock<() => void>;
@@ -4200,14 +4205,8 @@ describe("App", () => {
   it("loads recent repositories and starts on the most recent repo", async () => {
     const recentRepo = "D:\\Work\\Recent";
     const otherRepo = "D:\\Work\\Other";
-    vi.mocked(githead.getRepoRecents).mockResolvedValue([
-      recentRepo,
-      otherRepo
-    ]);
-    vi.mocked(githead.addRepoRecent).mockResolvedValue([
-      recentRepo,
-      otherRepo
-    ]);
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(recentRepo, otherRepo));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(recentRepo, otherRepo));
     vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
       repoPath: requestedRepoPath
     }));
@@ -4230,6 +4229,7 @@ describe("App", () => {
       id: "d:\\githead\\.git",
       kind: "git",
       anchorPath: repoPath,
+      lastUsedPath: repoPath,
       recentPaths: [repoPath],
       commonDir: "D:\\Githead\\.git",
       error: "",
@@ -4249,7 +4249,12 @@ describe("App", () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
+    const disclosure = await screen.findByRole("button", { name: "Expand worktrees for Githead" });
+    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText("feature/worktrees")).toBeNull();
+    await user.click(disclosure);
     expect(await screen.findByText("feature/worktrees")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Collapse worktrees for Githead" }).getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByRole("button", { name: "Add worktree" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Switch branch" }));
@@ -4258,12 +4263,44 @@ describe("App", () => {
     expect(githead.switchBranch).not.toHaveBeenCalled();
   });
 
+  it("opens a repository's last-used worktree without expanding its worktree list", async () => {
+    const user = userEvent.setup();
+    const linked = "D:\\Githead-feature";
+    vi.mocked(githead.getRepositoryGroups).mockResolvedValue([{
+      id: "d:\\githead\\.git",
+      kind: "git",
+      anchorPath: repoPath,
+      lastUsedPath: linked,
+      recentPaths: [repoPath],
+      commonDir: "D:\\Githead\\.git",
+      error: "",
+      worktrees: [
+        { path: repoPath, head: "abc", branch: "main", isMain: true, isBare: false, isDetached: false, locked: false, lockReason: null, prunable: false, prunableReason: null },
+        { path: linked, head: "def", branch: "feature/worktrees", isMain: false, isBare: false, isDetached: false, locked: false, lockReason: null, prunable: false, prunableReason: null }
+      ]
+    }]);
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({ repoPath: requestedRepoPath }));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue([{ anchorPath: repoPath, lastUsedPath: linked }]);
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    const disclosure = await screen.findByRole("button", { name: "Expand worktrees for Githead" });
+    expect(screen.queryByText("feature/worktrees")).toBeNull();
+    await user.click(screen.getByRole("button", { name: `Switch to ${repoPath}` }));
+
+    await waitFor(() => expect(githead.getRepoSummary).toHaveBeenCalledWith(linked));
+    expect(githead.addRepoRecent).toHaveBeenCalledWith({ repoPath: linked, anchorPath: repoPath });
+    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText("feature/worktrees")).toBeNull();
+  });
+
   it("creates a new worktree with the guided sibling destination", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepositoryGroups).mockResolvedValue([{
       id: "d:\\githead\\.git",
       kind: "git",
       anchorPath: repoPath,
+      lastUsedPath: repoPath,
       recentPaths: [repoPath],
       commonDir: "D:\\Githead\\.git",
       error: "",
@@ -4290,14 +4327,8 @@ describe("App", () => {
   it("shows local push and pull counts beside recent repositories", async () => {
     const recentRepo = "D:\\Work\\Recent";
     const otherRepo = "D:\\Work\\Other";
-    vi.mocked(githead.getRepoRecents).mockResolvedValue([
-      recentRepo,
-      otherRepo
-    ]);
-    vi.mocked(githead.addRepoRecent).mockResolvedValue([
-      recentRepo,
-      otherRepo
-    ]);
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(recentRepo, otherRepo));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(recentRepo, otherRepo));
     vi.mocked(githead.getRepoSyncStatuses).mockResolvedValue([
       createRepoSyncStatus({
         repoPath: recentRepo,
@@ -4331,14 +4362,8 @@ describe("App", () => {
   it("shows VCS icons beside recent repositories", async () => {
     const loreRepo = "D:\\Work\\Story";
     const gitRepo = "D:\\Work\\Git";
-    vi.mocked(githead.getRepoRecents).mockResolvedValue([
-      loreRepo,
-      gitRepo
-    ]);
-    vi.mocked(githead.addRepoRecent).mockResolvedValue([
-      loreRepo,
-      gitRepo
-    ]);
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(loreRepo, gitRepo));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(loreRepo, gitRepo));
     vi.mocked(githead.getRepoSyncStatuses).mockResolvedValue([
       createRepoSyncStatus({
         repoPath: loreRepo,
@@ -4365,14 +4390,8 @@ describe("App", () => {
   it("leaves recent repository names unchanged when sync counts are zero or unavailable", async () => {
     const recentRepo = "D:\\Work\\Recent";
     const otherRepo = "D:\\Work\\Other";
-    vi.mocked(githead.getRepoRecents).mockResolvedValue([
-      recentRepo,
-      otherRepo
-    ]);
-    vi.mocked(githead.addRepoRecent).mockResolvedValue([
-      recentRepo,
-      otherRepo
-    ]);
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(recentRepo, otherRepo));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(recentRepo, otherRepo));
     vi.mocked(githead.getRepoSyncStatuses).mockResolvedValue([
       createRepoSyncStatus({
         repoPath: recentRepo
@@ -4409,9 +4428,7 @@ describe("App", () => {
 
   it("shows the setup screen when the initial recent repository is invalid", async () => {
     const invalidRepo = "D:\\MissingRepo";
-    vi.mocked(githead.getRepoRecents).mockResolvedValue([
-      invalidRepo
-    ]);
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(invalidRepo));
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       repoPath: invalidRepo,
       isValid: false,
@@ -4432,9 +4449,7 @@ describe("App", () => {
 
   it("shows a safe.directory prompt for an initial recent repository blocked by dubious ownership", async () => {
     const blockedRepo = "D:\\Work\\Blocked";
-    vi.mocked(githead.getRepoRecents).mockResolvedValue([
-      blockedRepo
-    ]);
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(blockedRepo));
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSafeDirectorySummary(blockedRepo));
 
     render(<App />);
@@ -4447,14 +4462,8 @@ describe("App", () => {
   it("switches repositories from a recent entry", async () => {
     const user = userEvent.setup();
     const otherRepo = "D:\\Work\\Other";
-    vi.mocked(githead.getRepoRecents).mockResolvedValue([
-      repoPath,
-      otherRepo
-    ]);
-    vi.mocked(githead.addRepoRecent).mockResolvedValue([
-      repoPath,
-      otherRepo
-    ]);
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
     vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
       repoPath: requestedRepoPath
     }));
@@ -4468,7 +4477,7 @@ describe("App", () => {
       expect(screen.getByRole("button", { name: `Switch to ${otherRepo}` }).getAttribute("aria-current")).toBe("true");
     });
     await waitFor(() => {
-      expect(githead.addRepoRecent).toHaveBeenCalledWith(otherRepo);
+      expect(githead.addRepoRecent).toHaveBeenCalledWith({ repoPath: otherRepo });
     });
     const repositories = within(screen.getByRole("region", { name: "Repositories" })).getAllByRole("button", {
       name: /^Switch to /
@@ -4482,8 +4491,8 @@ describe("App", () => {
   it("restores each repository's in-session commit history scope", async () => {
     const user = userEvent.setup();
     const otherRepo = "D:\\Work\\Other";
-    vi.mocked(githead.getRepoRecents).mockResolvedValue([repoPath, otherRepo]);
-    vi.mocked(githead.addRepoRecent).mockResolvedValue([repoPath, otherRepo]);
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
     vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({ repoPath: requestedRepoPath }));
     vi.mocked(githead.getCommitHistory).mockImplementation(async ({ repoPath: requestedRepoPath, scope }) => [createCommit({
       hash: requestedRepoPath === repoPath ? "a".repeat(40) : "b".repeat(40),
@@ -4516,8 +4525,8 @@ describe("App", () => {
     const otherRepo = "D:\\Work\\Other";
     const pendingOther = defer<RepoSummary>();
     const pendingReturn = defer<RepoSummary>();
-    vi.mocked(githead.getRepoRecents).mockResolvedValue([repoPath, otherRepo]);
-    vi.mocked(githead.addRepoRecent).mockResolvedValue([repoPath, otherRepo]);
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
     vi.mocked(githead.getRepoSummary)
       .mockResolvedValueOnce(createSummary({
         files: [createStatusFile("src/initial-a.ts", { isUnstaged: true, worktreeStatus: "M" })]
@@ -4574,8 +4583,8 @@ describe("App", () => {
     const user = userEvent.setup();
     const otherRepo = "D:\\Work\\Other";
     const pendingDiff = defer<GitFileDiff>();
-    vi.mocked(githead.getRepoRecents).mockResolvedValue([repoPath, otherRepo]);
-    vi.mocked(githead.addRepoRecent).mockResolvedValue([repoPath, otherRepo]);
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
     vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
       repoPath: requestedRepoPath,
       files: [createStatusFile(
@@ -4612,8 +4621,8 @@ describe("App", () => {
       repository: { name, email: `${name.toLowerCase()}@example.test` },
       global: { name: "Global", email: "global@example.test" }
     });
-    vi.mocked(githead.getRepoRecents).mockResolvedValue([repoPath, otherRepo]);
-    vi.mocked(githead.addRepoRecent).mockResolvedValue([repoPath, otherRepo]);
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
     vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({ repoPath: requestedRepoPath }));
     vi.mocked(githead.getGitIdentity).mockImplementation(async (requestedRepoPath) => {
       if (!requestedRepoPath) return identity("Empty");
@@ -4636,17 +4645,9 @@ describe("App", () => {
   it("removes a recent entry without switching repositories", async () => {
     const user = userEvent.setup();
     const otherRepo = "D:\\Work\\Other";
-    vi.mocked(githead.getRepoRecents).mockResolvedValue([
-      repoPath,
-      otherRepo
-    ]);
-    vi.mocked(githead.addRepoRecent).mockResolvedValue([
-      repoPath,
-      otherRepo
-    ]);
-    vi.mocked(githead.removeRepoRecent).mockResolvedValue([
-      repoPath
-    ]);
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.removeRepoRecent).mockResolvedValue(repositoryRecents(repoPath));
 
     render(<App />);
 
@@ -4664,15 +4665,9 @@ describe("App", () => {
   it("reorders repositories with the keyboard handle", async () => {
     const user = userEvent.setup();
     const otherRepo = "D:\\Work\\Other";
-    vi.mocked(githead.getRepoRecents).mockResolvedValue([
-      repoPath,
-      otherRepo
-    ]);
-    vi.mocked(githead.addRepoRecent).mockResolvedValue([
-      repoPath,
-      otherRepo
-    ]);
-    vi.mocked(githead.reorderRepoRecents).mockImplementation(async (repoPaths) => repoPaths);
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.reorderRepoRecents).mockImplementation(async (repoPaths) => repositoryRecents(...repoPaths));
 
     render(<App />);
 
@@ -4698,15 +4693,9 @@ describe("App", () => {
 
   it("reorders repositories with drag and drop", async () => {
     const otherRepo = "D:\\Work\\Other";
-    vi.mocked(githead.getRepoRecents).mockResolvedValue([
-      repoPath,
-      otherRepo
-    ]);
-    vi.mocked(githead.addRepoRecent).mockResolvedValue([
-      repoPath,
-      otherRepo
-    ]);
-    vi.mocked(githead.reorderRepoRecents).mockImplementation(async (repoPaths) => repoPaths);
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.reorderRepoRecents).mockImplementation(async (repoPaths) => repositoryRecents(...repoPaths));
 
     render(<App />);
 
@@ -4743,14 +4732,8 @@ describe("App", () => {
   it("rolls back repository order when reordering fails", async () => {
     const user = userEvent.setup();
     const otherRepo = "D:\\Work\\Other";
-    vi.mocked(githead.getRepoRecents).mockResolvedValue([
-      repoPath,
-      otherRepo
-    ]);
-    vi.mocked(githead.addRepoRecent).mockResolvedValue([
-      repoPath,
-      otherRepo
-    ]);
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
     vi.mocked(githead.reorderRepoRecents).mockRejectedValue(new Error("Unable to save order."));
 
     render(<App />);
@@ -4779,14 +4762,8 @@ describe("App", () => {
   it("shows a recent repository in Explorer from the context menu", async () => {
     const user = userEvent.setup();
     const otherRepo = "D:\\Work\\Other";
-    vi.mocked(githead.getRepoRecents).mockResolvedValue([
-      repoPath,
-      otherRepo
-    ]);
-    vi.mocked(githead.addRepoRecent).mockResolvedValue([
-      repoPath,
-      otherRepo
-    ]);
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
 
     render(<App />);
 
@@ -4808,16 +4785,13 @@ describe("App", () => {
       repoPath,
       ...Array.from({ length: 7 }, (_value, index) => `D:\\Work\\Existing${index + 1}`)
     ];
-    vi.mocked(githead.getRepoRecents).mockResolvedValue(existingRepos);
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(...existingRepos));
     vi.mocked(githead.chooseRepo).mockResolvedValue(browsedRepo);
     vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
       repoPath: requestedRepoPath
     }));
-    vi.mocked(githead.addRepoRecent).mockImplementation(async (requestedRepoPath) =>
-      requestedRepoPath === repoPath ? existingRepos : [
-        ...existingRepos,
-        requestedRepoPath
-      ]
+    vi.mocked(githead.addRepoRecent).mockImplementation(async (request) =>
+      repositoryRecents(...(request.repoPath === repoPath ? existingRepos : [...existingRepos, request.repoPath]))
     );
 
     render(<App />);
@@ -4832,7 +4806,7 @@ describe("App", () => {
       expect(screen.getByRole("button", { name: `Switch to ${browsedRepo}` }).getAttribute("aria-current")).toBe("true");
     });
     await waitFor(() => {
-      expect(githead.addRepoRecent).toHaveBeenCalledWith(browsedRepo);
+      expect(githead.addRepoRecent).toHaveBeenCalledWith({ repoPath: browsedRepo });
     });
     const repositories = within(screen.getByRole("region", { name: "Repositories" })).getAllByRole("button", {
       name: /^Switch to /
@@ -4930,7 +4904,7 @@ describe("App", () => {
     expect(githead.addSafeDirectory).toHaveBeenCalledWith({
       repoPath: "D:/Work/Blocked"
     });
-    expect(githead.addRepoRecent).toHaveBeenCalledWith(blockedRepo);
+    expect(githead.addRepoRecent).toHaveBeenCalledWith({ repoPath: blockedRepo });
   });
 
   it("keeps setup visible and shows the config error when safe.directory cannot be added", async () => {
@@ -4968,9 +4942,7 @@ describe("App", () => {
     vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
       repoPath: requestedRepoPath
     }));
-    vi.mocked(githead.addRepoRecent).mockImplementation(async (requestedRepoPath) => [
-      requestedRepoPath
-    ]);
+    vi.mocked(githead.addRepoRecent).mockImplementation(async (request) => repositoryRecents(request.repoPath));
 
     render(<App />);
 
@@ -4992,7 +4964,7 @@ describe("App", () => {
     await waitForRepositoryWorkspace();
     expect(screen.getByRole("button", { name: `Switch to ${clonedRepo}` }).getAttribute("aria-current")).toBe("true");
     await waitFor(() => {
-      expect(githead.addRepoRecent).toHaveBeenCalledWith(clonedRepo);
+      expect(githead.addRepoRecent).toHaveBeenCalledWith({ repoPath: clonedRepo });
     });
   });
 
@@ -5215,10 +5187,7 @@ describe("App", () => {
     vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
       repoPath: requestedRepoPath
     }));
-    vi.mocked(githead.addRepoRecent).mockImplementation(async (requestedRepoPath) => [
-      repoPath,
-      requestedRepoPath
-    ]);
+    vi.mocked(githead.addRepoRecent).mockImplementation(async (request) => repositoryRecents(repoPath, request.repoPath));
 
     render(<App />);
 
@@ -5244,7 +5213,7 @@ describe("App", () => {
       expect(screen.getByRole("button", { name: `Switch to ${clonedRepo}` }).getAttribute("aria-current")).toBe("true");
     });
     await waitFor(() => {
-      expect(githead.addRepoRecent).toHaveBeenCalledWith(clonedRepo);
+      expect(githead.addRepoRecent).toHaveBeenCalledWith({ repoPath: clonedRepo });
     });
     await waitFor(() => {
       expect(screen.queryByLabelText("Repository URL or path")).toBeNull();
@@ -5285,16 +5254,8 @@ describe("App", () => {
     const secondRepo = "D:\\Work\\Second";
     const firstSummary = defer<RepoSummary>();
     const secondSummary = defer<RepoSummary>();
-    vi.mocked(githead.getRepoRecents).mockResolvedValue([
-      repoPath,
-      firstRepo,
-      secondRepo
-    ]);
-    vi.mocked(githead.addRepoRecent).mockImplementation(async (_requestedRepoPath) => [
-      repoPath,
-      firstRepo,
-      secondRepo
-    ]);
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, firstRepo, secondRepo));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, firstRepo, secondRepo));
     vi.mocked(githead.getRepoSummary).mockImplementation((requestedRepoPath) => {
       if (requestedRepoPath === firstRepo) {
         return firstSummary.promise;
@@ -6082,17 +6043,13 @@ function createGitheadMock(): GitheadApi {
     cancelRepositoryRead: vi.fn().mockResolvedValue(undefined),
     watchRepoChanges: vi.fn().mockResolvedValue(undefined),
     unwatchRepoChanges: vi.fn().mockResolvedValue(undefined),
-    getRepoRecents: vi.fn().mockResolvedValue([
-      repoPath
-    ]),
+    getRepoRecents: vi.fn().mockResolvedValue(repositoryRecents(repoPath)),
     getRepoSyncStatuses: vi.fn().mockImplementation(async (repoPaths: string[]) => repoPaths.map((nextRepoPath) => createRepoSyncStatus({
       repoPath: nextRepoPath
     }))),
-    addRepoRecent: vi.fn().mockImplementation(async (nextRepoPath: string) => [
-      nextRepoPath
-    ]),
+    addRepoRecent: vi.fn().mockImplementation(async (request) => repositoryRecents(request.repoPath)),
     removeRepoRecent: vi.fn().mockResolvedValue([]),
-    reorderRepoRecents: vi.fn().mockImplementation(async (repoPaths: string[]) => repoPaths),
+    reorderRepoRecents: vi.fn().mockImplementation(async (repoPaths: string[]) => repositoryRecents(...repoPaths)),
     getRepositoryGroups: vi.fn().mockResolvedValue([]),
     getRepoTrust: vi.fn().mockResolvedValue({
       trusted: true

@@ -52,6 +52,8 @@ import type {
   GitRemoveRemoteRequest,
   GitRenameRemoteRequest,
   GitRepositoryAccessCheckRequest,
+  RepositoryGroupsRequest,
+  RepositoryRecentSelectionRequest,
   GitResetCommitRequest,
   RepoTrustRequest,
   RepoSummaryReadRequest,
@@ -320,8 +322,13 @@ ipcMain.handle(IPC_CHANNELS.getRepoSyncStatuses, async (_event, repoPaths: strin
   return vcsRouter.getRepoSyncStatuses(repoPaths);
 });
 
-ipcMain.handle(IPC_CHANNELS.addRepoRecent, async (_event, repoPath: string) => {
-  return getRepoRecentsService().addRecent(repoPath);
+ipcMain.handle(IPC_CHANNELS.addRepoRecent, async (_event, request: RepositoryRecentSelectionRequest) => {
+  let anchorPath = request.anchorPath;
+  if (!anchorPath) {
+    const [group] = await vcsRouter.getRepositoryGroups([request.repoPath]);
+    anchorPath = group?.anchorPath ?? request.repoPath;
+  }
+  return getRepoRecentsService().addRecent(anchorPath, request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.removeRepoRecent, async (_event, repoPath: string) => {
@@ -332,10 +339,9 @@ ipcMain.handle(IPC_CHANNELS.reorderRepoRecents, async (_event, repoPaths: string
   return getRepoRecentsService().reorderRecents(repoPaths);
 });
 
-ipcMain.handle(IPC_CHANNELS.getRepositoryGroups, async (_event, repoPaths: string[]) => {
-  const groups = await vcsRouter.getRepositoryGroups(repoPaths);
-  await getRepoRecentsService().replaceRecents(groups.map((group) => group.anchorPath));
-  return groups;
+ipcMain.handle(IPC_CHANNELS.getRepositoryGroups, async (_event, request: RepositoryGroupsRequest) => {
+  const groups = await vcsRouter.getRepositoryGroups(request.repoPaths);
+  return getRepoRecentsService().reconcileGroups(groups, request.activeRepoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.getRepoTrust, async (_event, request: RepoTrustRequest) => {

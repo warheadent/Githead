@@ -144,10 +144,26 @@ export interface RepositoryGroup {
   id: string;
   kind: VcsKind;
   anchorPath: string;
+  lastUsedPath: string;
   recentPaths: string[];
   commonDir: string | null;
   worktrees: GitWorktree[];
   error: string;
+}
+
+export interface RepositoryRecent {
+  anchorPath: string;
+  lastUsedPath: string;
+}
+
+export interface RepositoryRecentSelectionRequest {
+  repoPath: string;
+  anchorPath?: string;
+}
+
+export interface RepositoryGroupsRequest {
+  repoPaths: string[];
+  activeRepoPath: string | null;
 }
 
 export type GitDiffSide = "staged" | "unstaged";
@@ -1093,12 +1109,12 @@ export interface GitheadApi {
   cancelRepositoryRead(request: CancelRepositoryReadRequest): Promise<void>;
   watchRepoChanges(repoPath: string): Promise<void>;
   unwatchRepoChanges(repoPath?: string): Promise<void>;
-  getRepoRecents(): Promise<string[]>;
+  getRepoRecents(): Promise<RepositoryRecent[]>;
   getRepoSyncStatuses(repoPaths: string[]): Promise<RepoSyncStatus[]>;
-  addRepoRecent(repoPath: string): Promise<string[]>;
-  removeRepoRecent(repoPath: string): Promise<string[]>;
-  reorderRepoRecents(repoPaths: string[]): Promise<string[]>;
-  getRepositoryGroups(repoPaths: string[]): Promise<RepositoryGroup[]>;
+  addRepoRecent(request: RepositoryRecentSelectionRequest): Promise<RepositoryRecent[]>;
+  removeRepoRecent(repoPath: string): Promise<RepositoryRecent[]>;
+  reorderRepoRecents(repoPaths: string[]): Promise<RepositoryRecent[]>;
+  getRepositoryGroups(request: RepositoryGroupsRequest): Promise<RepositoryGroup[]>;
   getRepoTrust(request: RepoTrustRequest): Promise<RepoTrustResult>;
   addRepoTrust(request: RepoTrustRequest): Promise<RepoTrustResult>;
   addSafeDirectory(request: GitSafeDirectoryRequest): Promise<GitOperationResult>;

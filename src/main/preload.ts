@@ -48,6 +48,8 @@ import type {
   GitRemoveRemoteRequest,
   GitRenameRemoteRequest,
   GitRepositoryAccessCheckRequest,
+  RepositoryGroupsRequest,
+  RepositoryRecentSelectionRequest,
   GitResetCommitRequest,
   GitRunRequest,
   GitSafeDirectoryRequest,
@@ -94,14 +96,14 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getRepoRecents) as ReturnType<GitheadApi["getRepoRecents"]>,
   getRepoSyncStatuses: (repoPaths: string[]) =>
     ipcRenderer.invoke(IPC_CHANNELS.getRepoSyncStatuses, repoPaths) as ReturnType<GitheadApi["getRepoSyncStatuses"]>,
-  addRepoRecent: (repoPath: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.addRepoRecent, repoPath) as ReturnType<GitheadApi["addRepoRecent"]>,
+  addRepoRecent: (request: RepositoryRecentSelectionRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.addRepoRecent, request) as ReturnType<GitheadApi["addRepoRecent"]>,
   removeRepoRecent: (repoPath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.removeRepoRecent, repoPath) as ReturnType<GitheadApi["removeRepoRecent"]>,
   reorderRepoRecents: (repoPaths: string[]) =>
     ipcRenderer.invoke(IPC_CHANNELS.reorderRepoRecents, repoPaths) as ReturnType<GitheadApi["reorderRepoRecents"]>,
-  getRepositoryGroups: (repoPaths: string[]) =>
-    ipcRenderer.invoke(IPC_CHANNELS.getRepositoryGroups, repoPaths) as ReturnType<GitheadApi["getRepositoryGroups"]>,
+  getRepositoryGroups: (request: RepositoryGroupsRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getRepositoryGroups, request) as ReturnType<GitheadApi["getRepositoryGroups"]>,
   getRepoTrust: (request: RepoTrustRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getRepoTrust, request) as ReturnType<GitheadApi["getRepoTrust"]>,
   addRepoTrust: (request: RepoTrustRequest) =>

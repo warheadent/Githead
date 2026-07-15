@@ -1178,12 +1178,29 @@ textarea,
 
 .repo-group-heading {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto auto;
+  grid-template-columns: 28px 28px minmax(0, 1fr) auto auto;
   align-items: center;
   min-height: 38px;
 }
 
 .repo-group-toggle {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.repo-group-toggle:hover:not(:disabled) { background: var(--accent); color: var(--accent-foreground); }
+.repo-group-toggle:disabled { cursor: default; }
+.repo-group-toggle > svg { width: 14px; height: 14px; }
+
+.repo-group-main {
   display: flex;
   min-width: 0;
   align-items: center;
@@ -1197,11 +1214,12 @@ textarea,
   cursor: pointer;
 }
 
-.repo-group-toggle > svg { width: 14px; height: 14px; flex: none; }
+.repo-group-main:disabled { cursor: default; }
+.repo-group-main > svg { width: 14px; height: 14px; flex: none; }
 
 .repo-worktree-list {
   display: grid;
-  padding: 0 5px 5px 28px;
+  padding: 0 5px 5px 56px;
 }
 
 .repo-worktree-row {
