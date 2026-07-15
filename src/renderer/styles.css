@@ -1270,7 +1270,7 @@ textarea,
   justify-content: center;
   width: 14px;
   height: 14px;
-  margin-left: 6px;
+  margin-right: 6px;
   color: var(--muted-foreground);
   line-height: 1;
 }

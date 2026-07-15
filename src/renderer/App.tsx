@@ -5672,8 +5672,8 @@ function RecentRepositoryRow({
             aria-label={syncDescription ? `Switch to ${repoPath}, ${syncDescription}` : `Switch to ${repoPath}`}
           >
             <span className="repo-recent-name">
-              <span className="repo-recent-title">{displayName}</span>
               {syncStatus?.isValid ? <RecentRepositoryVcsIcon kind={syncStatus.kind} /> : null}
+              <span className="repo-recent-title">{displayName}</span>
               <RepoSyncStatusChips status={syncStatus} />
             </span>
           </button>
