@@ -123,7 +123,7 @@ export function SettingsDialog({
         if (!nextOpen) requestClose();
       }}>
         <DialogContent
-          className="h-[min(780px,calc(100vh-2rem))] max-h-[min(780px,calc(100vh-2rem))] overflow-hidden p-0 sm:max-w-[880px]"
+          className="h-[min(780px,calc(100vh-2rem))] max-h-[min(780px,calc(100vh-2rem))] overflow-clip p-0 sm:max-w-[880px]"
           showCloseButton={!saving}
         >
           <form className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]" onSubmit={onSave}>

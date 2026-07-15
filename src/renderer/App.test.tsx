@@ -5703,7 +5703,7 @@ describe("App", () => {
     const settingsDialog = screen.getByRole("dialog", { name: "Settings" });
     expect(settingsDialog.className).toContain("sm:max-w-[880px]");
     expect(settingsDialog.className).toContain("h-[min(780px,calc(100vh-2rem))]");
-    expect(settingsDialog.className).toContain("overflow-hidden");
+    expect(settingsDialog.className).toContain("overflow-clip");
     expect(screen.getByRole("tab", { name: "Appearance", selected: false })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Git Identity", selected: true })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Sync", selected: false })).toBeTruthy();
@@ -5804,6 +5804,13 @@ describe("App", () => {
     expect(themes).toHaveLength(12);
     expect((screen.getByRole("radio", { name: /Githead/ }) as HTMLInputElement).checked).toBe(true);
     expect((screen.getByRole("radio", { name: "System" }) as HTMLInputElement).checked).toBe(true);
+
+    for (const theme of ["Copper", "Sakura", "Midnight"] as const) {
+      await user.click(screen.getByRole("radio", { name: new RegExp(theme) }));
+      expect(document.documentElement.dataset.theme).toBe(theme.toLowerCase());
+      expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(false);
+      expect(screen.getByText("You have unsaved changes.")).toBeTruthy();
+    }
 
     await user.click(screen.getByRole("radio", { name: /Tidepool/ }));
     await user.click(screen.getByRole("radio", { name: "Dark" }));
