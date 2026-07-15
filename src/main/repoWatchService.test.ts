@@ -122,6 +122,25 @@ describe("RepoWatchService", () => {
     expect(fixture.watchers[1]?.close).not.toHaveBeenCalled();
   });
 
+  it("watches content and shared metadata while keeping healthy targets after a partial failure", async () => {
+    const fixture = createWatchFixture();
+    fixture.service.watchRepo(repoPath, [
+      { path: repoPath, recursive: true, kind: "content" },
+      { path: "D:\\Repo\\.git\\worktrees\\feature", recursive: false, kind: "metadata" },
+      { path: "D:\\Repo\\.git\\refs", recursive: true, kind: "metadata" }
+    ]);
+
+    expect(fixture.watchFactory).toHaveBeenCalledTimes(3);
+    fixture.watchers[1]?.emit("error", new Error("metadata unavailable"));
+    fixture.emitChange(2, "heads\\main");
+    await vi.advanceTimersByTimeAsync(750);
+
+    expect(fixture.watchers[1]?.close).toHaveBeenCalledTimes(1);
+    expect(fixture.watchers[0]?.close).not.toHaveBeenCalled();
+    expect(fixture.watchers[2]?.close).not.toHaveBeenCalled();
+    expect(fixture.send).toHaveBeenLastCalledWith(IPC_CHANNELS.repoChanged, expect.objectContaining({ reason: "filesystem-metadata" }));
+  });
+
   it("clears pending work when replacing a watcher", async () => {
     const fixture = createWatchFixture();
     const nextRepoPath = "D:\\Other";

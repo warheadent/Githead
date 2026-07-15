@@ -88,6 +88,17 @@ export class RepoRecentsService {
     });
   }
 
+  async replaceRecents(repoPaths: string[]): Promise<string[]> {
+    return this.enqueueMutation(async () => {
+      const next = dedupeRecents(repoPaths.flatMap((repoPath) => {
+        const normalized = normalizeRepoPath(repoPath);
+        return normalized ? [normalized] : [];
+      }));
+      await this.writeRecents(next);
+      return next;
+    });
+  }
+
   private async readRecents(): Promise<string[]> {
     try {
       const text = await fs.readFile(this.recentsPath, "utf8");

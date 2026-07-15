@@ -75,4 +75,23 @@ describe("VcsRouter", () => {
     await expect(router.getRepoSyncStatuses([])).resolves.toEqual([]);
     expect(serviceForRepo).not.toHaveBeenCalled();
   });
+
+  it("groups recent linked worktrees by their shared Git directory", async () => {
+    const service = {
+      getWorktrees: vi.fn(async (_repoPath: string) => ({
+        commonDir: "D:\\Repo\\.git",
+        worktrees: [
+          { path: "D:\\Repo", head: "abc", branch: "main", isMain: true, isBare: false, isDetached: false, locked: false, lockReason: null, prunable: false, prunableReason: null },
+          { path: "D:\\Repo-feature", head: "def", branch: "feature", isMain: false, isBare: false, isDetached: false, locked: false, lockReason: null, prunable: false, prunableReason: null }
+        ]
+      }))
+    } as unknown as VcsService;
+    const router = new VcsRouter(service, service);
+    vi.spyOn(router, "resolveKind").mockResolvedValue("git");
+
+    const groups = await router.getRepositoryGroups(["D:\\Repo-feature", "D:\\Repo"]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({ anchorPath: "D:\\Repo", recentPaths: ["D:\\Repo-feature", "D:\\Repo"] });
+    expect(groups[0]?.worktrees).toHaveLength(2);
+  });
 });

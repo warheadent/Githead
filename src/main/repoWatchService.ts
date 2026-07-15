@@ -15,6 +15,12 @@ export type RepoWatchFactory = (
   listener: (eventType: string, filename: string | Buffer | null) => void
 ) => RepoWatcherLike;
 
+export interface RepoWatchTarget {
+  path: string;
+  recursive: boolean;
+  kind: "content" | "metadata";
+}
+
 export interface RepoWatchServiceOptions {
   getWindows: () => BrowserWindow[];
   watchFactory?: RepoWatchFactory;
@@ -32,7 +38,7 @@ export class RepoWatchService {
   private readonly debounceMs: number;
   private readonly maxWaitMs: number;
   private readonly clock: () => Date;
-  private watcher: RepoWatcherLike | null = null;
+  private watchers: RepoWatcherLike[] = [];
   private watchedRepoPath: string | null = null;
   private debounceTimer: NodeJS.Timeout | null = null;
   private maxWaitTimer: NodeJS.Timeout | null = null;
@@ -46,14 +52,14 @@ export class RepoWatchService {
     this.clock = options.clock ?? (() => new Date());
   }
 
-  watchRepo(repoPath: string): void {
+  watchRepo(repoPath: string, targets?: RepoWatchTarget[]): void {
     const nextRepoPath = normalizeRepoPath(repoPath);
     if (!nextRepoPath) {
       this.stopWatching();
       return;
     }
 
-    if (this.watcher && this.watchedRepoPath && isSameRepoPath(this.watchedRepoPath, nextRepoPath)) {
+    if (this.watchers.length && this.watchedRepoPath && isSameRepoPath(this.watchedRepoPath, nextRepoPath)) {
       return;
     }
 
@@ -61,26 +67,25 @@ export class RepoWatchService {
     const generation = ++this.watcherGeneration;
     this.watchedRepoPath = nextRepoPath;
 
-    try {
-      this.watcher = this.watchFactory(nextRepoPath, {
-        recursive: true
-      }, (_eventType, filename) => {
-        if (generation !== this.watcherGeneration) return;
-        if (isInternalVcsWatchEvent(filename)) {
-          return;
-        }
-
-        this.scheduleChange(classifyWatchReason(filename), generation);
-      });
-
-      this.watcher.on("error", () => {
-        if (generation !== this.watcherGeneration) return;
+    const watchTargets = targets?.length ? targets : [{ path: nextRepoPath, recursive: true, kind: "content" as const }];
+    for (const target of dedupeWatchTargets(watchTargets)) {
+      try {
+        const watcher = this.watchFactory(target.path, { recursive: target.recursive }, (_eventType, filename) => {
+          if (generation !== this.watcherGeneration) return;
+          if (target.kind === "content" && isInternalVcsWatchEvent(filename)) return;
+          if (target.kind === "metadata" && isNoisyGitMetadataEvent(filename)) return;
+          this.scheduleChange(target.kind === "metadata" ? "filesystem-metadata" : classifyWatchReason(filename), generation);
+        });
+        this.watchers.push(watcher);
+        watcher.on("error", () => {
+          if (generation !== this.watcherGeneration) return;
+          this.emitChange("watcher-error");
+          try { watcher.close(); } catch { /* already closed */ }
+          this.watchers = this.watchers.filter((candidate) => candidate !== watcher);
+        });
+      } catch {
         this.emitChange("watcher-error");
-        this.stopWatching(nextRepoPath);
-      });
-    } catch {
-      this.emitChange("watcher-error");
-      this.stopWatching(nextRepoPath);
+      }
     }
   }
 
@@ -105,12 +110,12 @@ export class RepoWatchService {
       this.maxWaitTimer = null;
     }
 
-    const watcher = this.watcher;
-    this.watcher = null;
+    const watchers = this.watchers;
+    this.watchers = [];
     this.watchedRepoPath = null;
 
     try {
-      watcher?.close();
+      for (const watcher of watchers) watcher.close();
     } catch {
       // A watcher can already be closed after an OS-level error.
     }
@@ -151,6 +156,22 @@ export class RepoWatchService {
       window.webContents.send(IPC_CHANNELS.repoChanged, event);
     }
   }
+}
+
+function dedupeWatchTargets(targets: RepoWatchTarget[]): RepoWatchTarget[] {
+  const byKey = new Map<string, RepoWatchTarget>();
+  for (const target of targets) {
+    const resolved = path.resolve(target.path);
+    const key = `${process.platform === "win32" ? resolved.toLocaleLowerCase() : resolved}:${target.recursive}:${target.kind}`;
+    if (!byKey.has(key)) byKey.set(key, { ...target, path: resolved });
+  }
+  return [...byKey.values()];
+}
+
+function isNoisyGitMetadataEvent(filename: string | Buffer | null): boolean {
+  if (!filename) return false;
+  const normalized = filename.toString().replaceAll("\\", "/").toLocaleLowerCase();
+  return normalized === "index" || normalized === "index.lock" || normalized.endsWith("/index") || normalized.endsWith("/index.lock") || normalized === "objects" || normalized.startsWith("objects/") || normalized.includes("/objects/") || normalized === "logs" || normalized.startsWith("logs/") || normalized.includes("/logs/");
 }
 
 function defaultWatchFactory(

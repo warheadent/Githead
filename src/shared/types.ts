@@ -118,6 +118,36 @@ export interface GitBranch {
   name: string;
   current: boolean;
   upstream: string | null;
+  /** Absolute path of the worktree currently checking out this branch. */
+  worktreePath?: string | null;
+}
+
+export interface GitWorktree {
+  path: string;
+  head: string | null;
+  branch: string | null;
+  isMain: boolean;
+  isBare: boolean;
+  isDetached: boolean;
+  locked: boolean;
+  lockReason: string | null;
+  prunable: boolean;
+  prunableReason: string | null;
+}
+
+export interface GitWorktreeList {
+  commonDir: string;
+  worktrees: GitWorktree[];
+}
+
+export interface RepositoryGroup {
+  id: string;
+  kind: VcsKind;
+  anchorPath: string;
+  recentPaths: string[];
+  commonDir: string | null;
+  worktrees: GitWorktree[];
+  error: string;
 }
 
 export type GitDiffSide = "staged" | "unstaged";
@@ -219,6 +249,7 @@ export interface RepoCapabilities {
   safeDirectory: boolean;
   github: boolean;
   ignoreFile: boolean;
+  worktrees: boolean;
 }
 
 export function gitCapabilities(): RepoCapabilities {
@@ -235,7 +266,8 @@ export function gitCapabilities(): RepoCapabilities {
     resetModes: true,
     safeDirectory: true,
     github: true,
-    ignoreFile: true
+    ignoreFile: true,
+    worktrees: true
   };
 }
 
@@ -253,7 +285,8 @@ export function loreCapabilities(): RepoCapabilities {
     resetModes: false,
     safeDirectory: false,
     github: false,
-    ignoreFile: false
+    ignoreFile: false,
+    worktrees: false
   };
 }
 
@@ -638,6 +671,34 @@ export interface GitDeleteBranchRequest {
   force: boolean;
 }
 
+export type GitWorktreeCreateDraft = {
+  destinationPath: string;
+} & (
+  | {
+      mode: "new-branch";
+      branchName: string;
+      startPoint: string;
+      track: boolean;
+    }
+  | {
+      mode: "existing-branch";
+      branchName: string;
+    }
+);
+
+export interface GitWorktreeRequest {
+  repoPath: string;
+  worktreePath: string;
+}
+
+export interface GitWorktreeRemovalCheck {
+  repoPath: string;
+  worktreePath: string;
+  canRemove: boolean;
+  isClean: boolean;
+  reason: string;
+}
+
 export interface GitAddRemoteRequest {
   repoPath: string;
   name: string;
@@ -934,6 +995,8 @@ export type GitFileDiff = GitFileDiffBase & (
   }
 );
 
+export type GitWorktreeCreateRequest = GitWorktreeCreateDraft & { repoPath: string };
+
 export interface GitOperationResult {
   repoPath: string;
   exitCode: number;
@@ -1022,6 +1085,7 @@ export interface AppWindowState {
 export interface GitheadApi {
   chooseRepo(defaultPath?: string): Promise<string | null>;
   chooseCloneParent(defaultPath?: string): Promise<string | null>;
+  chooseWorktreeParent(defaultPath?: string): Promise<string | null>;
   getRepoSummary(repoPath: string, requestId?: string): Promise<RepoSummary>;
   getRepoIdentity(request: RepoSectionRequest): Promise<RepoIdentitySection>;
   getRepoStatus(request: RepoSectionRequest): Promise<RepoStatusSection>;
@@ -1034,6 +1098,7 @@ export interface GitheadApi {
   addRepoRecent(repoPath: string): Promise<string[]>;
   removeRepoRecent(repoPath: string): Promise<string[]>;
   reorderRepoRecents(repoPaths: string[]): Promise<string[]>;
+  getRepositoryGroups(repoPaths: string[]): Promise<RepositoryGroup[]>;
   getRepoTrust(request: RepoTrustRequest): Promise<RepoTrustResult>;
   addRepoTrust(request: RepoTrustRequest): Promise<RepoTrustResult>;
   addSafeDirectory(request: GitSafeDirectoryRequest): Promise<GitOperationResult>;
@@ -1068,6 +1133,9 @@ export interface GitheadApi {
   createBranch(request: GitBranchRequest): Promise<GitOperationResult>;
   renameBranch(request: GitRenameBranchRequest): Promise<GitOperationResult>;
   deleteBranch(request: GitDeleteBranchRequest): Promise<GitOperationResult>;
+  createWorktree(request: GitWorktreeCreateRequest): Promise<GitOperationResult>;
+  checkWorktreeRemoval(request: GitWorktreeRequest): Promise<GitWorktreeRemovalCheck>;
+  removeWorktree(request: GitWorktreeRequest): Promise<GitOperationResult>;
   setBranchUpstream(request: GitUpstreamRequest): Promise<GitOperationResult>;
   publishBranch(request: GitPublishBranchRequest): Promise<GitRunResult>;
   getRemoteConfigs(repoPath: string): Promise<GitRemoteConfig[]>;

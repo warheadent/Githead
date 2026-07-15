@@ -61,6 +61,11 @@ import type {
   GitSubmodule,
   GitSubmoduleRequest,
   GitUpstreamRequest,
+  GitWorktree,
+  GitWorktreeCreateRequest,
+  GitWorktreeList,
+  GitWorktreeRemovalCheck,
+  GitWorktreeRequest,
   GitHubRepository,
   RepoSummary
 } from "../shared/types";
@@ -158,7 +163,7 @@ export class GitService {
 
   async getRepoMetadata(request: RepoSectionRequest): Promise<RepoMetadataSection> {
     const [upstream, remotesResult, branchesResult, remoteBranchesResult, root] = await Promise.all([
-      this.runGit(request.repoPath, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]), this.runGit(request.repoPath, ["remote", "-v"]), this.runGit(request.repoPath, ["branch", "--format=%(refname:short)%09%(upstream:short)%09%(HEAD)"]), this.runGit(request.repoPath, ["for-each-ref", "--format=%(refname)%09%(refname:short)%09%(symref)", "refs/remotes"]), this.runGit(request.repoPath, ["rev-parse", "--show-toplevel"])
+      this.runGit(request.repoPath, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]), this.runGit(request.repoPath, ["remote", "-v"]), this.runGit(request.repoPath, ["branch", "--format=%(refname:short)%09%(upstream:short)%09%(HEAD)%09%(worktreepath)"]), this.runGit(request.repoPath, ["for-each-ref", "--format=%(refname)%09%(refname:short)%09%(symref)", "refs/remotes"]), this.runGit(request.repoPath, ["rev-parse", "--show-toplevel"])
     ]);
     const remotes = parseRemotes(remotesResult.stdout);
     const remoteBranches = remoteBranchesResult.exitCode === 0 ? parseRemoteBranches(remoteBranchesResult.stdout, remotes) : [];
@@ -1722,6 +1727,29 @@ export class GitService {
     };
   }
 
+  private async validateWorktreeDestination(repoPath: string, destinationPath: string): Promise<{ path: string } | { error: string }> {
+    const trimmed = destinationPath.trim();
+    if (!trimmed || !path.isAbsolute(trimmed)) return { error: "Choose an absolute worktree destination." };
+    const normalized = path.normalize(trimmed);
+    try {
+      await fs.stat(normalized);
+      return { error: "Worktree destination already exists." };
+    } catch (error) {
+      if (!isNodeError(error) || error.code !== "ENOENT") return { error: "Unable to inspect the worktree destination." };
+    }
+    try {
+      const parent = await fs.stat(path.dirname(normalized));
+      if (!parent.isDirectory()) return { error: "Worktree destination parent is not a folder." };
+    } catch {
+      return { error: "Worktree destination parent does not exist." };
+    }
+    const list = await this.getWorktrees(repoPath);
+    if (list.worktrees.some((worktree) => isPathInside(normalized, worktree.path))) {
+      return { error: "Worktree destination cannot be inside an existing worktree." };
+    }
+    return { path: normalized };
+  }
+
   private async validateBranchName(repoPath: string, branchName: string): Promise<
     { branchName: string } | { error: string }
   > {
@@ -1889,6 +1917,106 @@ export class GitService {
       repoPath,
       ...args
     ], options);
+  }
+
+  async getWorktrees(repoPath: string): Promise<GitWorktreeList> {
+    const validation = await this.validateRepo(repoPath);
+    if (!validation.isValid) {
+      throw new Error(validation.validationErrors.join(" "));
+    }
+
+    const [commonDirResult, listResult] = await Promise.all([
+      this.runGit(repoPath, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+      this.runGit(repoPath, ["worktree", "list", "--porcelain", "-z"])
+    ]);
+    if (commonDirResult.exitCode !== 0) {
+      throw new Error(commonDirResult.stderr.trim() || "Unable to locate shared Git metadata.");
+    }
+    if (listResult.exitCode !== 0) {
+      throw new Error(listResult.stderr.trim() || "Unable to list worktrees.");
+    }
+
+    return {
+      commonDir: path.resolve(repoPath, commonDirResult.stdout.trim()),
+      worktrees: parseWorktrees(listResult.stdout)
+    };
+  }
+
+  async getWorktreeAdminPaths(repoPath: string): Promise<{ gitDir: string; commonDir: string }> {
+    const [gitDir, commonDir] = await Promise.all([
+      this.runGit(repoPath, ["rev-parse", "--path-format=absolute", "--git-dir"]),
+      this.runGit(repoPath, ["rev-parse", "--path-format=absolute", "--git-common-dir"])
+    ]);
+    if (gitDir.exitCode !== 0 || commonDir.exitCode !== 0) throw new Error(gitDir.stderr.trim() || commonDir.stderr.trim() || "Unable to locate Git metadata.");
+    return {
+      gitDir: path.resolve(repoPath, gitDir.stdout.trim()),
+      commonDir: path.resolve(repoPath, commonDir.stdout.trim())
+    };
+  }
+
+  async createWorktree(request: GitWorktreeCreateRequest): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+
+    const destination = await this.validateWorktreeDestination(request.repoPath, request.destinationPath);
+    if ("error" in destination) return this.createOperationFailure(request.repoPath, destination.error);
+    const branch = await this.validateBranchName(request.repoPath, request.branchName);
+    if ("error" in branch) return this.createOperationFailure(request.repoPath, branch.error);
+
+    const worktreeList = await this.getWorktrees(request.repoPath);
+    if (worktreeList.worktrees.some((worktree) => worktree.branch === branch.branchName)) {
+      return this.createOperationFailure(request.repoPath, "Branch is already checked out in another worktree.");
+    }
+
+    if (request.mode === "existing-branch") {
+      const exists = await this.runGit(request.repoPath, ["show-ref", "--verify", "--quiet", `refs/heads/${branch.branchName}`]);
+      if (exists.exitCode !== 0) return this.createOperationFailure(request.repoPath, "Branch does not exist.");
+      return this.runGitOperation(request.repoPath, ["worktree", "add", "--", destination.path, branch.branchName]);
+    }
+
+    const exists = await this.runGit(request.repoPath, ["show-ref", "--verify", "--quiet", `refs/heads/${branch.branchName}`]);
+    if (exists.exitCode === 0) return this.createOperationFailure(request.repoPath, "Branch already exists.");
+    const startPoint = request.startPoint.trim() || "HEAD";
+    if (startPoint.startsWith("-")) return this.createOperationFailure(request.repoPath, "Invalid starting point.");
+    const startExists = await this.runGit(request.repoPath, ["rev-parse", "--verify", "--quiet", `${startPoint}^{commit}`]);
+    if (startExists.exitCode !== 0) return this.createOperationFailure(request.repoPath, "Starting point does not exist.");
+    return this.runGitOperation(request.repoPath, [
+      "worktree", "add",
+      ...(request.track ? ["--track"] : []),
+      "-b", branch.branchName,
+      "--", destination.path, startPoint
+    ]);
+  }
+
+  async checkWorktreeRemoval(request: GitWorktreeRequest): Promise<GitWorktreeRemovalCheck> {
+    const result = (canRemove: boolean, isClean: boolean, reason: string): GitWorktreeRemovalCheck => ({
+      repoPath: request.repoPath,
+      worktreePath: request.worktreePath,
+      canRemove,
+      isClean,
+      reason
+    });
+    try {
+      const list = await this.getWorktrees(request.repoPath);
+      const target = findWorktree(list.worktrees, request.worktreePath);
+      if (!target) return result(false, false, "This path is not a worktree in the active repository.");
+      if (target.isMain || target.isBare) return result(false, false, "The main worktree cannot be removed.");
+      if (isSameFileSystemPath(target.path, request.repoPath)) return result(false, false, "Switch to another worktree before removing this one.");
+      if (target.locked) return result(false, false, target.lockReason ? `Worktree is locked: ${target.lockReason}` : "Worktree is locked.");
+      if (target.prunable) return result(false, false, target.prunableReason || "Worktree path is missing and requires pruning.");
+      const status = await this.runGitStatus(target.path, ["--porcelain=v2", "-z", "--untracked-files=all"]);
+      if (status.exitCode !== 0) return result(false, false, status.stderr.trim() || "Unable to check worktree status.");
+      const isClean = status.stdout.length === 0;
+      return result(isClean, isClean, isClean ? "" : "Worktree has uncommitted or untracked files.");
+    } catch (error) {
+      return result(false, false, error instanceof Error ? error.message : "Unable to check worktree status.");
+    }
+  }
+
+  async removeWorktree(request: GitWorktreeRequest): Promise<GitOperationResult> {
+    const check = await this.checkWorktreeRemoval(request);
+    if (!check.canRemove) return this.createOperationFailure(request.repoPath, check.reason);
+    return this.runGitOperation(request.repoPath, ["worktree", "remove", "--", path.normalize(request.worktreePath)]);
   }
 
   private runGitStatus(repoPath: string, args: string[]): Promise<ProcessResult> {
@@ -2572,6 +2700,23 @@ function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
 }
 
+function isSameFileSystemPath(left: string, right: string): boolean {
+  const normalize = (value: string): string => {
+    const normalized = path.resolve(value);
+    return process.platform === "win32" ? normalized.toLocaleLowerCase() : normalized;
+  };
+  return normalize(left) === normalize(right);
+}
+
+function isPathInside(candidate: string, parent: string): boolean {
+  const relative = path.relative(path.resolve(parent), path.resolve(candidate));
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function findWorktree(worktrees: GitWorktree[], worktreePath: string): GitWorktree | undefined {
+  return worktrees.find((worktree) => isSameFileSystemPath(worktree.path, worktreePath));
+}
+
 function normalizeIgnorePattern(filePath: string): string {
   return filePath.replace(/\\/g, "/");
 }
@@ -2899,7 +3044,7 @@ function parseBranches(text: string, currentBranch: string | null): GitBranch[] 
   const branchesByName = new Map<string, GitBranch>();
 
   for (const line of splitLines(text)) {
-    const [name = "", upstream = "", head = ""] = line.split("\t");
+    const [name = "", upstream = "", head = "", worktreePath = ""] = line.split("\t");
     const branchName = name.trim();
 
     if (!branchName) {
@@ -2909,7 +3054,8 @@ function parseBranches(text: string, currentBranch: string | null): GitBranch[] 
     branchesByName.set(branchName, {
       name: branchName,
       current: head.trim() === "*" || branchName === currentBranch,
-      upstream: upstream.trim() || null
+      upstream: upstream.trim() || null,
+      ...(worktreePath.trim() ? { worktreePath: worktreePath.trim() } : {})
     });
   }
 
@@ -2927,6 +3073,36 @@ function parseBranches(text: string, currentBranch: string | null): GitBranch[] 
     }
 
     return left.name.localeCompare(right.name);
+  });
+}
+
+export function parseWorktrees(text: string): GitWorktree[] {
+  const records = text.split("\0\0").filter(Boolean);
+  return records.flatMap((record, index) => {
+    const fields = record.split("\0").filter(Boolean);
+    const first = fields[0];
+    if (!first?.startsWith("worktree ")) return [];
+    const values = new Map<string, string | null>();
+    for (const field of fields.slice(1)) {
+      const separator = field.indexOf(" ");
+      values.set(separator === -1 ? field : field.slice(0, separator), separator === -1 ? null : field.slice(separator + 1));
+    }
+    const bare = values.has("bare");
+    const branchRef = values.get("branch");
+    const locked = values.has("locked");
+    const prunable = values.has("prunable");
+    return [{
+      path: path.normalize(first.slice("worktree ".length)),
+      head: values.get("HEAD") ?? null,
+      branch: typeof branchRef === "string" ? branchRef.replace(/^refs\/heads\//, "") : null,
+      isMain: index === 0 && !bare,
+      isBare: bare,
+      isDetached: values.has("detached"),
+      locked,
+      lockReason: locked ? values.get("locked") ?? null : null,
+      prunable,
+      prunableReason: prunable ? values.get("prunable") ?? null : null
+    }];
   });
 }
 

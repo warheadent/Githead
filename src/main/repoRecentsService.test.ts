@@ -117,6 +117,18 @@ describe("RepoRecentsService", () => {
     });
   });
 
+  it("reconciles recent repository anchors and removes duplicates", async () => {
+    await withTempDir(async (dir) => {
+      const service = new RepoRecentsService(dir);
+      const main = path.join(dir, "Repo");
+      const linked = path.join(dir, "Repo-feature");
+      await service.addRecent(linked);
+      await service.addRecent(main);
+      await expect(service.replaceRecents([main, main])).resolves.toEqual([main]);
+      await expect(service.getRecents()).resolves.toEqual([main]);
+    });
+  });
+
   it("reorders more than eight repositories without discarding entries", async () => {
     await withTempDir(async (dir) => {
       const service = new RepoRecentsService(dir);

@@ -60,7 +60,9 @@ import type {
   GitSafeDirectoryRequest,
   GitSetRemoteUrlRequest,
   GitSubmoduleRequest,
-  GitUpstreamRequest
+  GitUpstreamRequest,
+  GitWorktreeCreateRequest,
+  GitWorktreeRequest
 } from "../shared/types";
 import { AiCliStatusService } from "./aiCliStatusService";
 import { AiSettingsService } from "./aiSettingsService";
@@ -80,7 +82,7 @@ import { PrDescriptionService } from "./prDescriptionService";
 import { getOpenRepositoryFileError } from "./openFilePolicy";
 import { RepoRecentsService } from "./repoRecentsService";
 import { RepoTrustService } from "./repoTrustService";
-import { RepoWatchService } from "./repoWatchService";
+import { RepoWatchService, type RepoWatchTarget } from "./repoWatchService";
 import { AppUpdateService } from "./updateService";
 import { VcsRouter } from "./vcsRouter";
 import { MIN_WINDOW_BOUNDS, WindowStateService } from "./windowStateService";
@@ -260,6 +262,16 @@ ipcMain.handle(IPC_CHANNELS.chooseCloneParent, async (_event, defaultPath?: stri
   return result.filePaths[0] ?? null;
 });
 
+ipcMain.handle(IPC_CHANNELS.chooseWorktreeParent, async (_event, defaultPath?: string) => {
+  const options: Electron.OpenDialogOptions = {
+    title: "Select Worktree Parent Folder",
+    defaultPath: defaultPath?.trim() || app.getPath("documents"),
+    properties: ["openDirectory"]
+  };
+  const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+  return result.canceled ? null : result.filePaths[0] ?? null;
+});
+
 ipcMain.handle(IPC_CHANNELS.getRepoSummary, (event, request: RepoSummaryReadRequest) =>
   handleRead(event, request, async (signal) =>
     processRunner.runWithSignal(signal, async () =>
@@ -280,7 +292,20 @@ ipcMain.handle(IPC_CHANNELS.cancelRepositoryRead, (event, request: CancelReposit
 });
 
 ipcMain.handle(IPC_CHANNELS.watchRepoChanges, async (_event, repoPath: string) => {
-  getRepoWatchService().watchRepo(repoPath);
+  const targets: RepoWatchTarget[] = [{ path: repoPath, recursive: true, kind: "content" }];
+  if (await vcsRouter.resolveKind(repoPath) === "git") {
+    try {
+      const admin = await gitService.getWorktreeAdminPaths(repoPath);
+      targets.push({ path: admin.gitDir, recursive: false, kind: "metadata" });
+      targets.push({ path: admin.commonDir, recursive: false, kind: "metadata" });
+      for (const metadataPath of [path.join(admin.commonDir, "refs"), path.join(admin.commonDir, "worktrees")]) {
+        try {
+          if ((await fs.stat(metadataPath)).isDirectory()) targets.push({ path: metadataPath, recursive: true, kind: "metadata" });
+        } catch { /* optional metadata directory */ }
+      }
+    } catch { /* content watching still provides focus-refresh fallback */ }
+  }
+  getRepoWatchService().watchRepo(repoPath, targets);
 });
 
 ipcMain.handle(IPC_CHANNELS.unwatchRepoChanges, async (_event, repoPath?: string) => {
@@ -305,6 +330,12 @@ ipcMain.handle(IPC_CHANNELS.removeRepoRecent, async (_event, repoPath: string) =
 
 ipcMain.handle(IPC_CHANNELS.reorderRepoRecents, async (_event, repoPaths: string[]) => {
   return getRepoRecentsService().reorderRecents(repoPaths);
+});
+
+ipcMain.handle(IPC_CHANNELS.getRepositoryGroups, async (_event, repoPaths: string[]) => {
+  const groups = await vcsRouter.getRepositoryGroups(repoPaths);
+  await getRepoRecentsService().replaceRecents(groups.map((group) => group.anchorPath));
+  return groups;
 });
 
 ipcMain.handle(IPC_CHANNELS.getRepoTrust, async (_event, request: RepoTrustRequest) => {
@@ -556,6 +587,22 @@ ipcMain.handle(IPC_CHANNELS.deleteBranch, async (_event, request: GitDeleteBranc
   const trusted = await requireTrustedRepo(request.repoPath);
   if (trusted) return trusted;
   return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).deleteBranch(request), request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.createWorktree, async (_event, request: GitWorktreeCreateRequest) => {
+  const trusted = await requireTrustedRepo(request.repoPath);
+  if (trusted) return trusted;
+  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).createWorktree(request), request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.checkWorktreeRemoval, async (_event, request: GitWorktreeRequest) => {
+  return (await vcsRouter.serviceForRepo(request.repoPath)).checkWorktreeRemoval(request);
+});
+
+ipcMain.handle(IPC_CHANNELS.removeWorktree, async (_event, request: GitWorktreeRequest) => {
+  const trusted = await requireTrustedRepo(request.repoPath);
+  if (trusted) return trusted;
+  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).removeWorktree(request), request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.getAiReasoningCapabilities, async (_event, request: GetAiReasoningCapabilitiesRequest) => {

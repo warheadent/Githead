@@ -46,6 +46,10 @@ import type {
   GitSafeDirectoryRequest,
   GitSetRemoteUrlRequest,
   GitUpstreamRequest,
+  GitWorktreeCreateRequest,
+  GitWorktreeList,
+  GitWorktreeRemovalCheck,
+  GitWorktreeRequest,
   RepoSummary,
   RepoIdentitySection,
   RepoMetadataSection,
@@ -221,6 +225,22 @@ export class LoreService implements VcsService {
 
   async getRepoSyncStatuses(repoPaths: string[]): Promise<RepoSyncStatus[]> {
     return mapRepoSyncStatuses(repoPaths, (repoPath) => this.getRepoSyncStatus(repoPath));
+  }
+
+  async getWorktrees(repoPath: string): Promise<GitWorktreeList> {
+    return { commonDir: path.resolve(repoPath), worktrees: [] };
+  }
+
+  async createWorktree(request: GitWorktreeCreateRequest): Promise<GitOperationResult> {
+    return this.failure(request.repoPath, "Worktrees are not supported for Lore repositories.");
+  }
+
+  async checkWorktreeRemoval(request: GitWorktreeRequest): Promise<GitWorktreeRemovalCheck> {
+    return { repoPath: request.repoPath, worktreePath: request.worktreePath, canRemove: false, isClean: false, reason: "Worktrees are not supported for Lore repositories." };
+  }
+
+  async removeWorktree(request: GitWorktreeRequest): Promise<GitOperationResult> {
+    return this.failure(request.repoPath, "Worktrees are not supported for Lore repositories.");
   }
 
   async getGitHubRepository(_repoPath: string): Promise<GitHubRepository | null> {

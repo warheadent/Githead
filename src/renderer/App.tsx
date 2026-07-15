@@ -139,6 +139,10 @@ import type {
   GitIdentityScope,
   GitIdentitySettings,
   GitOperationResult,
+  GitWorktree,
+  GitWorktreeCreateDraft,
+  GitWorktreeCreateRequest,
+  GitWorktreeRemovalCheck,
   GitOutputEvent,
   GitRemoteConfig,
   GitRemoteBranch,
@@ -151,6 +155,7 @@ import type {
   RepoIdentitySection,
   RepoTrustResult,
   RepoSummary,
+  RepositoryGroup,
   StatusFileViewMode
 } from "../shared/types";
 import { AI_COMMIT_MESSAGE_PROVIDERS, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
@@ -158,6 +163,7 @@ import { parseCommitSubject } from "../shared/commitSubject";
 import { parseGitHubReferences } from "../shared/githubReference";
 import { ActivityLogView } from "./ActivityLogView";
 import { BranchManagementDialog } from "./BranchManagementDialog";
+import { WorktreeCreateDialog, WorktreeRemoveDialog } from "./WorktreeDialogs";
 import { RemoteManagementDialog } from "./RemoteManagementDialog";
 import { useGitHubQueries } from "./useGitHubQueries";
 import { GitHubQueryToolbar } from "./GitHubQueryToolbar";
@@ -286,6 +292,7 @@ interface CreatePrDialogState {
 interface AppState {
   repoPath: string;
   repoRecents: string[];
+  repositoryGroups: RepositoryGroup[];
   repoSyncStatuses: Record<string, RepoSyncStatus>;
   repoLoading: boolean;
   showSetup: boolean;
@@ -306,6 +313,10 @@ interface AppState {
   branchNameDraft: string;
   branchError: string;
   branchCheckoutTarget: { kind: "remote"; remoteBranch: string } | { kind: "pullRequest"; pullRequest: GitHubPullRequest } | null;
+  worktreeDialogOpen: boolean;
+  worktreeRemoveTarget: GitWorktree | null;
+  worktreeRemovalCheck: GitWorktreeRemovalCheck | null;
+  worktreeRemovalChecking: boolean;
   upstreamDialogOpen: boolean;
   upstreamDraft: string | null;
   upstreamError: string;
@@ -518,6 +529,7 @@ const TRUST_WORKSPACE_DESCRIPTION = "This is the first time Githead will run Git
 const initialState: AppState = {
   repoPath: "",
   repoRecents: [],
+  repositoryGroups: [],
   repoSyncStatuses: {},
   repoLoading: false,
   showSetup: true,
@@ -538,6 +550,10 @@ const initialState: AppState = {
   branchNameDraft: "",
   branchError: "",
   branchCheckoutTarget: null,
+  worktreeDialogOpen: false,
+  worktreeRemoveTarget: null,
+  worktreeRemovalCheck: null,
+  worktreeRemovalChecking: false,
   upstreamDialogOpen: false,
   upstreamDraft: null,
   upstreamError: "",
@@ -1018,7 +1034,7 @@ export function App(): ReactNode {
   }, [updateState]);
 
   const loadRepoSyncStatuses = useCallback(async (repoPathsOverride?: string[]): Promise<void> => {
-    const repoPaths = repoPathsOverride ?? stateRef.current.repoRecents;
+    const repoPaths = repoPathsOverride ?? getRepositoryWorkspacePaths(stateRef.current.repositoryGroups, stateRef.current.repoRecents);
     const requestId = requestIds.current.repoSyncStatuses + 1;
     requestIds.current.repoSyncStatuses = requestId;
 
@@ -1037,17 +1053,42 @@ export function App(): ReactNode {
 
       updateState((current) => ({
         ...current,
-        repoSyncStatuses: createRepoSyncStatusMap(current.repoRecents, statuses, current.repoSyncStatuses)
+        repoSyncStatuses: createRepoSyncStatusMap(repoPaths, statuses, current.repoSyncStatuses)
       }));
     } catch {
       if (requestId === requestIds.current.repoSyncStatuses) {
         updateState((current) => ({
           ...current,
-          repoSyncStatuses: pruneRepoSyncStatusMap(current.repoRecents, current.repoSyncStatuses)
+          repoSyncStatuses: pruneRepoSyncStatusMap(repoPaths, current.repoSyncStatuses)
         }));
       }
     }
   }, [updateState]);
+
+  const loadRepositoryGroups = useCallback(async (repoPathsOverride?: string[]): Promise<void> => {
+    const repoPaths = repoPathsOverride ?? stateRef.current.repoRecents;
+    if (!repoPaths.length) {
+      updateState({ repositoryGroups: [] });
+      return;
+    }
+    try {
+      const groups = await window.githead.getRepositoryGroups(repoPaths);
+      if (!groups.length) {
+        updateState({ repositoryGroups: [] });
+        return;
+      }
+      const anchors = groups.map((group) => group.anchorPath);
+      updateState((current) => ({
+        ...current,
+        repositoryGroups: groups,
+        repoRecents: anchors,
+        repoSyncStatuses: pruneRepoSyncStatusMap(getRepositoryWorkspacePaths(groups, anchors), current.repoSyncStatuses)
+      }));
+      void loadRepoSyncStatuses(getRepositoryWorkspacePaths(groups, anchors));
+    } catch {
+      updateState({ repositoryGroups: [] });
+    }
+  }, [loadRepoSyncStatuses, updateState]);
 
   const refreshRepo = useCallback(async (options: {
     addToRecents?: boolean;
@@ -1243,11 +1284,12 @@ export function App(): ReactNode {
         void refreshDirtyFileStatus();
       } else {
         void refreshRepo({ silent: true });
+        void loadRepositoryGroups();
       }
     });
 
     return cleanupRepoChanged;
-  }, [refreshDirtyFileStatus, refreshRepo]);
+  }, [loadRepositoryGroups, refreshDirtyFileStatus, refreshRepo]);
 
   useEffect(() => {
     setWorkflowQuery({ ...DEFAULT_WORKFLOW_QUERY });
@@ -1284,6 +1326,7 @@ export function App(): ReactNode {
         force: true
       });
       void loadRepoSyncStatuses();
+      void loadRepositoryGroups();
     };
 
     window.addEventListener("blur", handleWindowBlur);
@@ -1292,7 +1335,7 @@ export function App(): ReactNode {
       window.removeEventListener("blur", handleWindowBlur);
       window.removeEventListener("focus", handleWindowFocus);
     };
-  }, [loadRepoSyncStatuses, refreshDirtyFileStatus]);
+  }, [loadRepoSyncStatuses, loadRepositoryGroups, refreshDirtyFileStatus]);
 
   const switchRepo = useCallback(async (repoPath: string, options: { addToRecents?: boolean } = {}): Promise<void> => {
     const nextRepoPath = repoPath.trim();
@@ -1343,6 +1386,11 @@ export function App(): ReactNode {
       branchManagerOpen: false,
       branchNameDraft: "",
       branchError: "",
+      branchCheckoutTarget: null,
+      worktreeDialogOpen: false,
+      worktreeRemoveTarget: null,
+      worktreeRemovalCheck: null,
+      worktreeRemovalChecking: false,
       upstreamDialogOpen: false,
       upstreamDraft: null,
       upstreamError: "",
@@ -1484,6 +1532,10 @@ export function App(): ReactNode {
     void loadAiSettings();
     void loadAppSettings();
   }, [initializeRepository, loadAiSettings, loadAppSettings]);
+
+  useEffect(() => {
+    void loadRepositoryGroups();
+  }, [loadRepositoryGroups, state.repoRecents.join("\0")]);
 
   useEffect(() => {
     if (!state.settingsOpen && state.appSettings) {
@@ -2407,6 +2459,64 @@ export function App(): ReactNode {
     }
     return operationResult;
   }, [appendOperationLog, refreshRepo, updateState]);
+
+  const openWorktreeDialog = useCallback((): void => {
+    const current = stateRef.current;
+    if (!current.summary?.isValid || !current.summary.capabilities.worktrees || isOperationRunning(current)) return;
+    updateState({ worktreeDialogOpen: true });
+  }, [updateState]);
+
+  const closeWorktreeDialog = useCallback((): void => {
+    if (!isOperationRunning(stateRef.current)) updateState({ worktreeDialogOpen: false });
+  }, [updateState]);
+
+  const createWorktree = useCallback(async (request: GitWorktreeCreateDraft): Promise<string | null> => {
+    const repoPath = stateRef.current.repoPath;
+    if (!(await ensureTrustedRepo())) return "Trust this workspace before creating a worktree.";
+    if (!isSameRepoPath(repoPath, stateRef.current.repoPath) || !stateRef.current.worktreeDialogOpen) return "The active repository changed. Reopen Add Worktree and try again.";
+    const result = await runRepoOperation("Creating worktree", undefined, () => window.githead.createWorktree({ ...request, repoPath } as GitWorktreeCreateRequest));
+    if (!result) return "Another repository operation is already running.";
+    if (result.exitCode !== 0) return result.stderr || "Unable to create worktree.";
+    updateState({ worktreeDialogOpen: false });
+    await loadRepositoryGroups();
+    await switchRepo(request.destinationPath, { addToRecents: false });
+    return null;
+  }, [ensureTrustedRepo, loadRepositoryGroups, runRepoOperation, switchRepo, updateState]);
+
+  const openWorktreeRemoval = useCallback(async (worktree: GitWorktree): Promise<void> => {
+    const repoPath = stateRef.current.repoPath;
+    updateState({ worktreeRemoveTarget: worktree, worktreeRemovalCheck: null, worktreeRemovalChecking: true });
+    try {
+      const check = await window.githead.checkWorktreeRemoval({ repoPath, worktreePath: worktree.path });
+      if (!isSameRepoPath(repoPath, stateRef.current.repoPath) || !isSameRepoPath(worktree.path, stateRef.current.worktreeRemoveTarget?.path ?? "")) return;
+      updateState({ worktreeRemovalCheck: check, worktreeRemovalChecking: false });
+    } catch (error) {
+      if (isSameRepoPath(worktree.path, stateRef.current.worktreeRemoveTarget?.path ?? "")) {
+        updateState({
+          worktreeRemovalCheck: { repoPath, worktreePath: worktree.path, canRemove: false, isClean: false, reason: error instanceof Error ? error.message : "Unable to check worktree." },
+          worktreeRemovalChecking: false
+        });
+      }
+    }
+  }, [updateState]);
+
+  const closeWorktreeRemoval = useCallback((): void => {
+    if (!isOperationRunning(stateRef.current)) updateState({ worktreeRemoveTarget: null, worktreeRemovalCheck: null, worktreeRemovalChecking: false });
+  }, [updateState]);
+
+  const removeWorktree = useCallback(async (): Promise<void> => {
+    const current = stateRef.current;
+    const target = current.worktreeRemoveTarget;
+    if (!target || !current.worktreeRemovalCheck?.canRemove || !(await ensureTrustedRepo())) return;
+    const result = await runRepoOperation("Removing worktree", undefined, () => window.githead.removeWorktree({ repoPath: current.repoPath, worktreePath: target.path }));
+    if (result?.exitCode === 0) {
+      repositorySnapshots.current.delete(target.path);
+      updateState({ worktreeRemoveTarget: null, worktreeRemovalCheck: null, worktreeRemovalChecking: false });
+      await loadRepositoryGroups();
+    } else if (result) {
+      updateState({ worktreeRemovalCheck: { ...current.worktreeRemovalCheck, canRemove: false, reason: result.stderr || "Unable to remove worktree." } });
+    }
+  }, [ensureTrustedRepo, loadRepositoryGroups, runRepoOperation, updateState]);
 
   const downloadStatusLfsPreview = useCallback(async (): Promise<void> => {
     const snapshot = stateRef.current.selection;
@@ -4407,6 +4517,7 @@ export function App(): ReactNode {
           <RepositoryPanel
             repoPath={state.repoPath}
             repoRecents={state.repoRecents}
+            repositoryGroups={state.repositoryGroups}
             repoSyncStatuses={state.repoSyncStatuses}
             summary={state.summary}
             running={running}
@@ -4435,6 +4546,8 @@ export function App(): ReactNode {
             onShowInExplorer={(repoPath) => {
               void showRecentRepositoryInExplorer(repoPath);
             }}
+            onAddWorktree={openWorktreeDialog}
+            onRemoveWorktree={(worktree) => { void openWorktreeRemoval(worktree); }}
             onSwitchBranch={(branchName) => {
               void switchBranch(branchName);
             }}
@@ -4884,6 +4997,26 @@ export function App(): ReactNode {
         onOpenChange={(open) => { if (!open) closeBranchManager(); }}
         onRename={(branchName, newBranchName) => runBranchOperation("rename", `Renaming branch ${branchName}`, branchName, (repoPath) => window.githead.renameBranch({ repoPath, branchName, newBranchName }))}
         onRemove={(branchName, force) => runBranchOperation("remove", `${force ? "Force deleting" : "Removing"} branch ${branchName}`, branchName, (repoPath) => window.githead.deleteBranch({ repoPath, branchName, force }))}
+      />
+
+      <WorktreeCreateDialog
+        open={state.worktreeDialogOpen}
+        group={findRepositoryGroup(state.repositoryGroups, state.repoPath)}
+        branches={state.summary?.branches ?? []}
+        remoteBranches={state.summary?.remoteBranches ?? []}
+        busy={running}
+        onOpenChange={(open) => { if (!open) closeWorktreeDialog(); }}
+        onChooseParent={(defaultPath) => window.githead.chooseWorktreeParent(defaultPath)}
+        onCreate={createWorktree}
+      />
+
+      <WorktreeRemoveDialog
+        target={state.worktreeRemoveTarget}
+        check={state.worktreeRemovalCheck}
+        checking={state.worktreeRemovalChecking}
+        busy={running}
+        onClose={closeWorktreeRemoval}
+        onRemove={() => { void removeWorktree(); }}
       />
 
       <GitIdentityDialog
@@ -5375,11 +5508,14 @@ interface RepositoryListProps {
   headingAction?: ReactNode;
   repoPath: string;
   repoPaths: string[];
+  groups?: RepositoryGroup[];
   syncStatuses: Record<string, RepoSyncStatus>;
   onSelect: (repoPath: string) => void;
   onRemove: (repoPath: string) => void;
   onReorder: (repoPaths: string[]) => void;
   onShowInExplorer: (repoPath: string) => void;
+  onAddWorktree?: () => void;
+  onRemoveWorktree?: (worktree: GitWorktree) => void;
 }
 
 interface RecentRepositoryRowProps {
@@ -5408,16 +5544,25 @@ function RepositoryList({
   headingAction,
   repoPath,
   repoPaths,
+  groups,
   syncStatuses,
   onSelect,
   onRemove,
   onReorder,
-  onShowInExplorer
+  onShowInExplorer,
+  onAddWorktree,
+  onRemoveWorktree
 }: RepositoryListProps): ReactNode {
   const draggedRepoPathRef = useRef<string | null>(null);
   const repositoryRowsRef = useRef(new Map<string, HTMLDivElement>());
   const [draggedRepoPath, setDraggedRepoPath] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ repoPath: string; position: RepositoryDropPosition } | null>(null);
+  const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const activeGroup = groups?.find((group) => group.worktrees.some((worktree) => isSameRepoPath(worktree.path, repoPath)));
+    if (activeGroup) setExpandedGroupIds((current) => current.has(activeGroup.id) ? current : new Set([...current, activeGroup.id]));
+  }, [groups, repoPath]);
 
   useEffect(() => {
     const activeKey = repoPath ? getRepoPathKey(repoPath) : null;
@@ -5557,7 +5702,33 @@ function RepositoryList({
           }
         }}
       >
-        {repoPaths.map((recentRepoPath) => {
+        {groups?.length ? groups.map((group) => {
+          const key = getRepoPathKey(group.anchorPath);
+          const active = group.worktrees.some((worktree) => isSameRepoPath(worktree.path, repoPath)) || isSameRepoPath(group.anchorPath, repoPath);
+          const currentDropPosition = dropTarget && isSameRepoPath(dropTarget.repoPath, group.anchorPath) ? dropTarget.position : null;
+          return <RepositoryGroupRow
+            key={group.id}
+            group={group}
+            activeRepoPath={repoPath}
+            active={active}
+            expanded={expandedGroupIds.has(group.id)}
+            disabled={disabled}
+            dragging={Boolean(draggedRepoPath && isSameRepoPath(draggedRepoPath, group.anchorPath))}
+            dropPosition={currentDropPosition}
+            syncStatuses={syncStatuses}
+            rowRef={(element) => { if (element) repositoryRowsRef.current.set(key, element); else repositoryRowsRef.current.delete(key); }}
+            onToggle={() => setExpandedGroupIds((current) => { const next = new Set(current); if (next.has(group.id)) next.delete(group.id); else next.add(group.id); return next; })}
+            onDragStart={startDrag}
+            onPointerDragStart={startPointerDrag}
+            onDragEnd={() => { draggedRepoPathRef.current = null; setDraggedRepoPath(null); setDropTarget(null); }}
+            onKeyboardMove={moveRepositoryByKeyboard}
+            onSelect={onSelect}
+            onRemove={() => onRemove(group.anchorPath)}
+            onShowInExplorer={onShowInExplorer}
+            {...(onAddWorktree ? { onAddWorktree } : {})}
+            {...(onRemoveWorktree ? { onRemoveWorktree } : {})}
+          />;
+        }) : repoPaths.map((recentRepoPath) => {
           const key = getRepoPathKey(recentRepoPath);
           const active = repoPath ? isSameRepoPath(recentRepoPath, repoPath) : false;
           const currentDropPosition = dropTarget && isSameRepoPath(dropTarget.repoPath, recentRepoPath)
@@ -5597,6 +5768,51 @@ function RepositoryList({
       </div>
     </section>
   );
+}
+
+function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled, dragging, dropPosition, syncStatuses, rowRef, onToggle, onDragStart, onPointerDragStart, onDragEnd, onKeyboardMove, onSelect, onRemove, onShowInExplorer, onAddWorktree, onRemoveWorktree }: {
+  group: RepositoryGroup;
+  activeRepoPath: string;
+  active: boolean;
+  expanded: boolean;
+  disabled: boolean;
+  dragging: boolean;
+  dropPosition: RepositoryDropPosition | null;
+  syncStatuses: Record<string, RepoSyncStatus>;
+  rowRef: (element: HTMLDivElement | null) => void;
+  onToggle: () => void;
+  onDragStart: (event: DragEvent<HTMLButtonElement>, repoPath: string) => void;
+  onPointerDragStart: (repoPath: string) => void;
+  onDragEnd: () => void;
+  onKeyboardMove: (repoPath: string, direction: RepositoryMoveDirection) => void;
+  onSelect: (repoPath: string) => void;
+  onRemove: () => void;
+  onShowInExplorer: (repoPath: string) => void;
+  onAddWorktree?: () => void;
+  onRemoveWorktree?: (worktree: GitWorktree) => void;
+}): ReactNode {
+  const worktrees = group.worktrees.length ? group.worktrees : [{ path: group.anchorPath, head: null, branch: null, isMain: true, isBare: false, isDetached: false, locked: false, lockReason: null, prunable: false, prunableReason: null } satisfies GitWorktree];
+  const rowClassName = ["repo-group", active ? "is-active" : "", dragging ? "is-dragging" : "", dropPosition ? `is-drop-${dropPosition}` : ""].filter(Boolean).join(" ");
+  const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>): void => {
+    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      event.preventDefault();
+      onKeyboardMove(group.anchorPath, event.key === "ArrowUp" ? "up" : "down");
+    }
+  };
+  return <div ref={rowRef} className={rowClassName} data-repo-path={group.anchorPath}>
+    <div className="repo-group-heading">
+      <button type="button" className="repo-recent-drag-handle" draggable={!disabled} disabled={disabled} onDragStart={(event) => onDragStart(event, group.anchorPath)} onMouseDown={() => onPointerDragStart(group.anchorPath)} onDragEnd={onDragEnd} onKeyDown={handleKeyDown} aria-label={`Reorder ${group.anchorPath}`}><GripVertical /></button>
+      <button type="button" className="repo-group-toggle" onClick={onToggle} aria-expanded={expanded}>{expanded ? <ChevronDown /> : <ChevronRight />}<RecentRepositoryVcsIcon kind={group.kind} /><span className="repo-recent-title">{getRepoDisplayName(group.anchorPath)}</span><Badge variant="outline">{worktrees.length}</Badge></button>
+      {active && group.kind === "git" && onAddWorktree ? <TooltipButton type="button" variant="ghost" size="icon-xs" disabled={disabled} onClick={onAddWorktree} aria-label="Add worktree" tooltip="Add worktree"><GitFork /></TooltipButton> : null}
+      <TooltipButton type="button" variant="ghost" size="icon-xs" disabled={disabled} onClick={onRemove} aria-label={`Remove ${group.anchorPath} from recent repositories`} tooltip="Remove from recents"><X /></TooltipButton>
+    </div>
+    {expanded ? <div className="repo-worktree-list">{worktrees.map((worktree) => {
+      const workspaceActive = isSameRepoPath(worktree.path, activeRepoPath);
+      const unavailable = worktree.isBare || worktree.prunable;
+      const status = syncStatuses[getRepoPathKey(worktree.path)] ?? null;
+      return <ContextMenu key={getRepoPathKey(worktree.path)}><ContextMenuTrigger asChild><div className={`repo-worktree-row ${workspaceActive ? "is-active" : ""}`}><button type="button" className="repo-worktree-main" disabled={disabled || workspaceActive || unavailable} onClick={() => onSelect(worktree.path)} aria-current={workspaceActive ? "true" : undefined}><GitBranchIcon /><span className="min-w-0 flex-1"><span className="repo-worktree-branch">{worktree.branch ?? (worktree.isDetached ? "Detached HEAD" : getRepoDisplayName(worktree.path))}</span><span className="repo-worktree-path">{getRepoDisplayName(worktree.path)}</span></span>{worktree.isMain ? <Badge variant="outline">Main</Badge> : null}{worktree.locked ? <Badge variant="outline">Locked</Badge> : null}{worktree.prunable ? <Badge variant="destructive">Missing</Badge> : null}<RepoSyncStatusChips status={status} /></button></div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{worktree.path}</ContextMenuLabel><ContextMenuSeparator /><ContextMenuItem disabled={unavailable} onSelect={() => onShowInExplorer(worktree.path)}><MapPinned />Show in Explorer</ContextMenuItem>{!worktree.isMain && !workspaceActive && onRemoveWorktree ? <ContextMenuItem disabled={disabled || unavailable || worktree.locked} onSelect={() => onRemoveWorktree(worktree)}><Trash2 />Remove Worktree…</ContextMenuItem> : null}</ContextMenuContent></ContextMenu>;
+    })}{group.error ? <p className="px-3 py-2 text-xs text-destructive">{group.error}</p> : null}</div> : null}
+  </div>;
 }
 
 function RecentRepositoryRow({
@@ -5989,6 +6205,7 @@ function CloneRepositoryForm({
 function RepositoryPanel({
   repoPath,
   repoRecents,
+  repositoryGroups,
   repoSyncStatuses,
   summary,
   running,
@@ -6007,6 +6224,8 @@ function RepositoryPanel({
   onRemoveRecent,
   onReorderRepositories,
   onShowInExplorer,
+  onAddWorktree,
+  onRemoveWorktree,
   onSwitchBranch,
   onCheckoutRemoteBranch,
   onOpenBranchDialog,
@@ -6025,6 +6244,7 @@ function RepositoryPanel({
 }: {
   repoPath: string;
   repoRecents: string[];
+  repositoryGroups: RepositoryGroup[];
   repoSyncStatuses: Record<string, RepoSyncStatus>;
   summary: RepoSummary | null;
   running: boolean;
@@ -6043,6 +6263,8 @@ function RepositoryPanel({
   onRemoveRecent: (repoPath: string) => void;
   onReorderRepositories: (repoPaths: string[]) => void;
   onShowInExplorer: (repoPath: string) => void;
+  onAddWorktree: () => void;
+  onRemoveWorktree: (worktree: GitWorktree) => void;
   onSwitchBranch: (branchName: string) => void;
   onCheckoutRemoteBranch: (remoteBranch: GitRemoteBranch) => void;
   onOpenBranchDialog: () => void;
@@ -6089,12 +6311,15 @@ function RepositoryPanel({
       <RepositoryList
         repoPath={repoPath}
         repoPaths={repoRecents}
+        groups={repositoryGroups}
         syncStatuses={repoSyncStatuses}
         disabled={running}
         onSelect={onSelectRecent}
         onRemove={onRemoveRecent}
         onReorder={onReorderRepositories}
         onShowInExplorer={onShowInExplorer}
+        onAddWorktree={onAddWorktree}
+        onRemoveWorktree={onRemoveWorktree}
         headingAction={(
           <Popover open={clonePanelOpen} onOpenChange={updateAddPopoverOpen}>
           <PopoverTrigger asChild>
@@ -6165,11 +6390,13 @@ function RepositoryPanel({
 
       <dl className="repo-facts">
         <BranchFact
+          repoPath={repoPath}
           currentBranch={summary?.branch ?? null}
           branches={summary?.branches ?? []}
           remoteBranches={summary?.remoteBranches ?? []}
           disabled={running || !summary?.isValid}
           onSwitchBranch={onSwitchBranch}
+          onOpenWorktree={onSelectRecent}
           onCheckoutRemoteBranch={onCheckoutRemoteBranch}
           onCreateBranch={onOpenBranchDialog}
           onManageBranches={onOpenBranchManager}
@@ -6207,20 +6434,24 @@ function RepositoryPanel({
 }
 
 function BranchFact({
+  repoPath,
   currentBranch,
   branches,
   remoteBranches,
   disabled,
   onSwitchBranch,
+  onOpenWorktree,
   onCheckoutRemoteBranch,
   onCreateBranch,
   onManageBranches
 }: {
+  repoPath: string;
   currentBranch: string | null;
   branches: GitBranch[];
   remoteBranches: GitRemoteBranch[];
   disabled: boolean;
   onSwitchBranch: (branchName: string) => void;
+  onOpenWorktree: (repoPath: string) => void;
   onCheckoutRemoteBranch: (remoteBranch: GitRemoteBranch) => void;
   onCreateBranch: () => void;
   onManageBranches: () => void;
@@ -6249,13 +6480,16 @@ function BranchFact({
               </TooltipButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="branch-menu-content">
-              {switchableBranches.map((branch) => (
-                <DropdownMenuItem key={branch.name} onSelect={() => onSwitchBranch(branch.name)}>
-                  <GitBranchIcon />
+              {switchableBranches.map((branch) => {
+                const occupiedElsewhere = Boolean(branch.worktreePath && !isSameRepoPath(branch.worktreePath, repoPath));
+                return (
+                <DropdownMenuItem key={branch.name} onSelect={() => occupiedElsewhere && branch.worktreePath ? onOpenWorktree(branch.worktreePath) : onSwitchBranch(branch.name)}>
+                  {occupiedElsewhere ? <FolderOpen /> : <GitBranchIcon />}
                   <span className="branch-menu-name">{branch.name}</span>
-                  {branch.upstream ? <span className="branch-menu-upstream">{branch.upstream}</span> : null}
+                  <span className="branch-menu-upstream">{occupiedElsewhere ? getRepoDisplayName(branch.worktreePath ?? "") : branch.upstream}</span>
                 </DropdownMenuItem>
-              ))}
+                );
+              })}
               {checkoutableRemoteBranches.length ? <DropdownMenuSeparator /> : null}
               {checkoutableRemoteBranches.length ? <DropdownMenuItem disabled>Remote branches</DropdownMenuItem> : null}
               {checkoutableRemoteBranches.map((remoteBranch) => (
@@ -10066,6 +10300,18 @@ function isSameRepoPath(left: string, right: string): boolean {
 
 function areRepoPathListsEqual(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((repoPath, index) => isSameRepoPath(repoPath, right[index] ?? ""));
+}
+
+function getRepositoryWorkspacePaths(groups: RepositoryGroup[], fallback: string[]): string[] {
+  if (!groups.length) return fallback;
+  const paths = groups.flatMap((group) => group.worktrees.length
+    ? group.worktrees.filter((worktree) => !worktree.isBare && !worktree.prunable).map((worktree) => worktree.path)
+    : [group.anchorPath]);
+  return [...new Map(paths.map((repoPath) => [getRepoPathKey(repoPath), repoPath])).values()];
+}
+
+function findRepositoryGroup(groups: RepositoryGroup[], repoPath: string): RepositoryGroup | null {
+  return groups.find((group) => group.worktrees.some((worktree) => isSameRepoPath(worktree.path, repoPath)) || group.recentPaths.some((recent) => isSameRepoPath(recent, repoPath))) ?? null;
 }
 
 function createRepoSyncStatusMap(

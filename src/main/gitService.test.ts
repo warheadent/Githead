@@ -3,7 +3,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ProcessResult, ProcessRunOptions, ProcessRunner } from "./processRunner";
-import { createTerminalColorEnv, GitService, parsePorcelainStatus } from "./gitService";
+import { NodeProcessRunner } from "./processRunner";
+import { createTerminalColorEnv, GitService, parsePorcelainStatus, parseWorktrees } from "./gitService";
 
 interface RunnerCall {
   command: string;
@@ -182,6 +183,56 @@ function repoSummaryResults(repoRoot: string): ProcessResult[] {
 }
 
 describe("GitService", () => {
+  it("parses NUL-delimited worktree records and preserves worktree state", () => {
+    const parsed = parseWorktrees([
+      "worktree D:/Repo", `HEAD ${oid}`, "branch refs/heads/main", "",
+      "worktree D:/Repo feature", `HEAD ${oid}`, "branch refs/heads/feature/nav", "locked portable drive", "",
+      "worktree D:/Missing", `HEAD ${oid}`, "detached", "prunable gitdir file points to non-existent location", ""
+    ].join("\0"));
+
+    expect(parsed).toEqual([
+      expect.objectContaining({ path: path.normalize("D:/Repo"), branch: "main", isMain: true, isBare: false }),
+      expect.objectContaining({ path: path.normalize("D:/Repo feature"), branch: "feature/nav", isMain: false, locked: true, lockReason: "portable drive" }),
+      expect.objectContaining({ path: path.normalize("D:/Missing"), branch: null, isDetached: true, prunable: true, prunableReason: "gitdir file points to non-existent location" })
+    ]);
+  });
+
+  it("parses bare and reasonless locked worktrees", () => {
+    expect(parseWorktrees(["worktree D:/Bare.git", "bare", "", "worktree D:/Linked", `HEAD ${oid}`, "detached", "locked", ""].join("\0"))).toEqual([
+      expect.objectContaining({ isMain: false, isBare: true }),
+      expect.objectContaining({ isMain: false, isDetached: true, locked: true, lockReason: null })
+    ]);
+  });
+
+  it("creates, discovers, checks, and safely removes a linked worktree", async () => {
+    await withTempDir(async (dir) => {
+      const repo = path.join(dir, "Repo");
+      const linked = path.join(dir, "Repo-feature");
+      const runner = new NodeProcessRunner();
+      const run = async (args: string[]): Promise<void> => {
+        const result = await runner.run("git", args);
+        expect(result.exitCode, result.stderr).toBe(0);
+      };
+      await run(["init", "-b", "main", repo]);
+      await run(["-C", repo, "config", "user.name", "Githead Test"]);
+      await run(["-C", repo, "config", "user.email", "githead@example.test"]);
+      await fs.writeFile(path.join(repo, "README.md"), "test\n", "utf8");
+      await run(["-C", repo, "add", "README.md"]);
+      await run(["-C", repo, "commit", "-m", "Initial"]);
+      await run(["-C", repo, "branch", "feature"]);
+
+      const service = new GitService(runner);
+      await expect(service.createWorktree({ repoPath: repo, destinationPath: linked, mode: "existing-branch", branchName: "feature" })).resolves.toMatchObject({ exitCode: 0 });
+      await expect(service.getWorktrees(repo)).resolves.toMatchObject({ worktrees: [expect.objectContaining({ isMain: true, branch: "main" }), expect.objectContaining({ path: path.normalize(linked), branch: "feature" })] });
+
+      await fs.writeFile(path.join(linked, "dirty.txt"), "dirty\n", "utf8");
+      await expect(service.checkWorktreeRemoval({ repoPath: repo, worktreePath: linked })).resolves.toMatchObject({ canRemove: false, isClean: false });
+      await fs.rm(path.join(linked, "dirty.txt"));
+      await expect(service.removeWorktree({ repoPath: repo, worktreePath: linked })).resolves.toMatchObject({ exitCode: 0 });
+      await expect(fs.stat(linked)).rejects.toMatchObject({ code: "ENOENT" });
+    });
+  });
+
   it("parses porcelain v2 submodule commit and dirty flags", () => {
     const parsed = parsePorcelainStatus([
       `1 .M S.MU 160000 160000 160000 ${oid} ${oid} vendor/engine`,

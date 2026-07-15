@@ -4223,6 +4223,70 @@ describe("App", () => {
     expect(githead.getRepoSummary).toHaveBeenCalledWith(recentRepo);
   });
 
+  it("groups linked worktrees and opens an occupied branch in its workspace", async () => {
+    const user = userEvent.setup();
+    const linked = "D:\\Githead-feature";
+    vi.mocked(githead.getRepositoryGroups).mockResolvedValue([{
+      id: "d:\\githead\\.git",
+      kind: "git",
+      anchorPath: repoPath,
+      recentPaths: [repoPath],
+      commonDir: "D:\\Githead\\.git",
+      error: "",
+      worktrees: [
+        { path: repoPath, head: "abc", branch: "main", isMain: true, isBare: false, isDetached: false, locked: false, lockReason: null, prunable: false, prunableReason: null },
+        { path: linked, head: "def", branch: "feature/worktrees", isMain: false, isBare: false, isDetached: false, locked: false, lockReason: null, prunable: false, prunableReason: null }
+      ]
+    }]);
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
+      repoPath: requestedRepoPath,
+      branch: requestedRepoPath === linked ? "feature/worktrees" : "main",
+      branches: [
+        { name: "main", current: requestedRepoPath === repoPath, upstream: null, worktreePath: repoPath },
+        { name: "feature/worktrees", current: requestedRepoPath === linked, upstream: null, worktreePath: linked }
+      ]
+    }));
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    expect(await screen.findByText("feature/worktrees")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add worktree" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Switch branch" }));
+    await user.click(await screen.findByRole("menuitem", { name: /feature\/worktrees/ }));
+    await waitFor(() => expect(githead.getRepoSummary).toHaveBeenCalledWith(linked));
+    expect(githead.switchBranch).not.toHaveBeenCalled();
+  });
+
+  it("creates a new worktree with the guided sibling destination", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepositoryGroups).mockResolvedValue([{
+      id: "d:\\githead\\.git",
+      kind: "git",
+      anchorPath: repoPath,
+      recentPaths: [repoPath],
+      commonDir: "D:\\Githead\\.git",
+      error: "",
+      worktrees: [{ path: repoPath, head: "abc", branch: "main", isMain: true, isBare: false, isDetached: false, locked: false, lockReason: null, prunable: false, prunableReason: null }]
+    }]);
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(await screen.findByRole("button", { name: "Add worktree" }));
+    await user.type(screen.getByLabelText("Branch"), "feature/worktrees");
+    await waitFor(() => expect((screen.getByLabelText("Destination") as HTMLInputElement).value).toBe("D:\\Githead-feature-worktrees"));
+    await user.click(screen.getByRole("button", { name: "Create Worktree" }));
+
+    await waitFor(() => expect(githead.createWorktree).toHaveBeenCalledWith({
+      repoPath,
+      mode: "new-branch",
+      branchName: "feature/worktrees",
+      destinationPath: "D:\\Githead-feature-worktrees",
+      startPoint: "HEAD",
+      track: false
+    }));
+  });
+
   it("shows local push and pull counts beside recent repositories", async () => {
     const recentRepo = "D:\\Work\\Recent";
     const otherRepo = "D:\\Work\\Other";
@@ -6001,6 +6065,7 @@ function createGitheadMock(): GitheadApi {
   return {
     chooseRepo: vi.fn().mockResolvedValue(null),
     chooseCloneParent: vi.fn().mockResolvedValue(null),
+    chooseWorktreeParent: vi.fn().mockResolvedValue(null),
     getRepoSummary: vi.fn().mockResolvedValue(createSummary()),
     getRepoIdentity: vi.fn(async (request) => {
       const summary = await progressiveSummary(request);
@@ -6028,6 +6093,7 @@ function createGitheadMock(): GitheadApi {
     ]),
     removeRepoRecent: vi.fn().mockResolvedValue([]),
     reorderRepoRecents: vi.fn().mockImplementation(async (repoPaths: string[]) => repoPaths),
+    getRepositoryGroups: vi.fn().mockResolvedValue([]),
     getRepoTrust: vi.fn().mockResolvedValue({
       trusted: true
     }),
@@ -6070,6 +6136,9 @@ function createGitheadMock(): GitheadApi {
     createBranch: vi.fn().mockResolvedValue(okOperation),
     renameBranch: vi.fn().mockResolvedValue(okOperation),
     deleteBranch: vi.fn().mockResolvedValue(okOperation),
+    createWorktree: vi.fn().mockResolvedValue(okOperation),
+    checkWorktreeRemoval: vi.fn().mockResolvedValue({ repoPath, worktreePath: "", canRemove: true, isClean: true, reason: "" }),
+    removeWorktree: vi.fn().mockResolvedValue(okOperation),
     setBranchUpstream: vi.fn().mockResolvedValue(okOperation),
     publishBranch: vi.fn().mockResolvedValue(createRunResult("publish")),
     getRemoteConfigs: vi.fn().mockResolvedValue([]),

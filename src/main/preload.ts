@@ -54,6 +54,8 @@ import type {
   GitSetRemoteUrlRequest,
   GitSubmoduleRequest,
   GitUpstreamRequest,
+  GitWorktreeCreateRequest,
+  GitWorktreeRequest,
   GitheadApi,
   AppUpdateState,
   AppWindowState,
@@ -69,6 +71,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.chooseRepo, defaultPath) as Promise<string | null>,
   chooseCloneParent: (defaultPath?: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.chooseCloneParent, defaultPath) as Promise<string | null>,
+  chooseWorktreeParent: (defaultPath?: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.chooseWorktreeParent, defaultPath) as ReturnType<GitheadApi["chooseWorktreeParent"]>,
   getRepoSummary: (repoPath: string, requestId?: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.getRepoSummary, {
       repoPath,
@@ -96,6 +100,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.removeRepoRecent, repoPath) as ReturnType<GitheadApi["removeRepoRecent"]>,
   reorderRepoRecents: (repoPaths: string[]) =>
     ipcRenderer.invoke(IPC_CHANNELS.reorderRepoRecents, repoPaths) as ReturnType<GitheadApi["reorderRepoRecents"]>,
+  getRepositoryGroups: (repoPaths: string[]) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getRepositoryGroups, repoPaths) as ReturnType<GitheadApi["getRepositoryGroups"]>,
   getRepoTrust: (request: RepoTrustRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getRepoTrust, request) as ReturnType<GitheadApi["getRepoTrust"]>,
   addRepoTrust: (request: RepoTrustRequest) =>
@@ -164,6 +170,12 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.renameBranch, request) as ReturnType<GitheadApi["renameBranch"]>,
   deleteBranch: (request: GitDeleteBranchRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.deleteBranch, request) as ReturnType<GitheadApi["deleteBranch"]>,
+  createWorktree: (request: GitWorktreeCreateRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.createWorktree, request) as ReturnType<GitheadApi["createWorktree"]>,
+  checkWorktreeRemoval: (request: GitWorktreeRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.checkWorktreeRemoval, request) as ReturnType<GitheadApi["checkWorktreeRemoval"]>,
+  removeWorktree: (request: GitWorktreeRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.removeWorktree, request) as ReturnType<GitheadApi["removeWorktree"]>,
   setBranchUpstream: (request: GitUpstreamRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.setBranchUpstream, request) as ReturnType<GitheadApi["setBranchUpstream"]>,
   publishBranch: (request: GitPublishBranchRequest) =>

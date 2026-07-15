@@ -1,6 +1,7 @@
-import type { RepoSyncStatus, VcsKind } from "../shared/types";
+import type { RepositoryGroup, RepoSyncStatus, VcsKind } from "../shared/types";
 import { getRepoPathKey, normalizeRepoPath } from "./repoPath";
 import { mapRepoSyncStatuses } from "./repoSyncStatus";
+import { mapWithConcurrency } from "./asyncMap";
 import { detectVcsKinds } from "./vcsDetect";
 import type { VcsService } from "./vcsService";
 
@@ -48,6 +49,46 @@ export class VcsRouter {
       repoPaths,
       async (repoPath) => (await this.serviceForRepo(repoPath)).getRepoSyncStatus(repoPath)
     );
+  }
+
+  async getRepositoryGroups(repoPaths: string[]): Promise<RepositoryGroup[]> {
+    const resolved = await mapWithConcurrency(repoPaths, 4, async (repoPath) => {
+      const kind = await this.resolveKind(repoPath);
+      if (kind === "lore") {
+        return { repoPath, kind, commonDir: null, worktrees: [], error: "" };
+      }
+      try {
+        const list = await this.git.getWorktrees(repoPath);
+        return { repoPath, kind, ...list, error: "" };
+      } catch (error) {
+        return { repoPath, kind, commonDir: null, worktrees: [], error: error instanceof Error ? error.message : "Unable to list worktrees." };
+      }
+    });
+
+    const groups: RepositoryGroup[] = [];
+    const byId = new Map<string, RepositoryGroup>();
+    for (const item of resolved) {
+      const id = item.commonDir ? getRepoPathKey(normalizeRepoPath(item.commonDir) ?? item.commonDir) : `${item.kind}:${getRepoPathKey(normalizeRepoPath(item.repoPath) ?? item.repoPath)}`;
+      const existing = byId.get(id);
+      if (existing) {
+        existing.recentPaths.push(item.repoPath);
+        if (!existing.worktrees.length && item.worktrees.length) existing.worktrees = item.worktrees;
+        if (existing.error && !item.error) existing.error = "";
+        continue;
+      }
+      const group: RepositoryGroup = {
+        id,
+        kind: item.kind,
+        anchorPath: item.worktrees.find((worktree) => worktree.isMain && !worktree.isBare)?.path ?? item.repoPath,
+        recentPaths: [item.repoPath],
+        commonDir: item.commonDir,
+        worktrees: item.worktrees,
+        error: item.error
+      };
+      byId.set(id, group);
+      groups.push(group);
+    }
+    return groups;
   }
 
   invalidate(repoPath?: string): void {
