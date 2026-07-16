@@ -65,6 +65,7 @@ import type {
   GitSubmoduleRequest,
   GitUpstreamRequest,
   GitWorktreeCreateRequest,
+  GitWorktreeRemoveRequest,
   GitWorktreeRequest
 } from "../shared/types";
 import { AiCliStatusService } from "./aiCliStatusService";
@@ -609,7 +610,7 @@ ipcMain.handle(IPC_CHANNELS.checkWorktreeRemoval, async (_event, request: GitWor
   return (await vcsRouter.serviceForRepo(request.repoPath)).checkWorktreeRemoval(request);
 });
 
-ipcMain.handle(IPC_CHANNELS.removeWorktree, async (_event, request: GitWorktreeRequest) => {
+ipcMain.handle(IPC_CHANNELS.removeWorktree, async (_event, request: GitWorktreeRemoveRequest) => {
   const trusted = await requireTrustedRepo(request.repoPath);
   if (trusted) return trusted;
   return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).removeWorktree(request), request.repoPath);

@@ -2520,7 +2520,7 @@ export function App(): ReactNode {
     } catch (error) {
       if (isSameRepoPath(worktree.path, stateRef.current.worktreeRemoveTarget?.path ?? "")) {
         updateState({
-          worktreeRemovalCheck: { repoPath, worktreePath: worktree.path, canRemove: false, isClean: false, reason: error instanceof Error ? error.message : "Unable to check worktree." },
+          worktreeRemovalCheck: { repoPath, worktreePath: worktree.path, canRemove: false, canForceRemove: false, isClean: false, reason: error instanceof Error ? error.message : "Unable to check worktree." },
           worktreeRemovalChecking: false
         });
       }
@@ -2534,14 +2534,15 @@ export function App(): ReactNode {
   const removeWorktree = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
     const target = current.worktreeRemoveTarget;
-    if (!target || !current.worktreeRemovalCheck?.canRemove || !(await ensureTrustedRepo())) return;
-    const result = await runRepoOperation("Removing worktree", undefined, () => window.githead.removeWorktree({ repoPath: current.repoPath, worktreePath: target.path }));
+    const removalCheck = current.worktreeRemovalCheck;
+    if (!target || (!removalCheck?.canRemove && !removalCheck?.canForceRemove) || !(await ensureTrustedRepo())) return;
+    const result = await runRepoOperation("Removing worktree", undefined, () => window.githead.removeWorktree({ repoPath: current.repoPath, worktreePath: target.path, force: !removalCheck.canRemove }));
     if (result?.exitCode === 0) {
       repositorySnapshots.current.delete(target.path);
       updateState({ worktreeRemoveTarget: null, worktreeRemovalCheck: null, worktreeRemovalChecking: false });
       await loadRepositoryGroups();
     } else if (result) {
-      updateState({ worktreeRemovalCheck: { ...current.worktreeRemovalCheck, canRemove: false, reason: result.stderr || "Unable to remove worktree." } });
+      updateState({ worktreeRemovalCheck: { ...removalCheck, canRemove: false, reason: result.stderr || "Unable to remove worktree." } });
     }
   }, [ensureTrustedRepo, loadRepositoryGroups, runRepoOperation, updateState]);
 

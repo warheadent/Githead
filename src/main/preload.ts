@@ -59,6 +59,7 @@ import type {
   GitUpstreamRequest,
   GitWorktreeCreateRequest,
   GitWorktreeRequest,
+  GitWorktreeRemoveRequest,
   GitheadApi,
   AppUpdateState,
   AppWindowState,
@@ -179,7 +180,7 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.createWorktree, request) as ReturnType<GitheadApi["createWorktree"]>,
   checkWorktreeRemoval: (request: GitWorktreeRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.checkWorktreeRemoval, request) as ReturnType<GitheadApi["checkWorktreeRemoval"]>,
-  removeWorktree: (request: GitWorktreeRequest) =>
+  removeWorktree: (request: GitWorktreeRemoveRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.removeWorktree, request) as ReturnType<GitheadApi["removeWorktree"]>,
   setBranchUpstream: (request: GitUpstreamRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.setBranchUpstream, request) as ReturnType<GitheadApi["setBranchUpstream"]>,

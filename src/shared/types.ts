@@ -711,10 +711,15 @@ export interface GitWorktreeRequest {
   worktreePath: string;
 }
 
+export interface GitWorktreeRemoveRequest extends GitWorktreeRequest {
+  force?: boolean;
+}
+
 export interface GitWorktreeRemovalCheck {
   repoPath: string;
   worktreePath: string;
   canRemove: boolean;
+  canForceRemove: boolean;
   isClean: boolean;
   reason: string;
 }
@@ -1156,7 +1161,7 @@ export interface GitheadApi {
   deleteBranch(request: GitDeleteBranchRequest): Promise<GitOperationResult>;
   createWorktree(request: GitWorktreeCreateRequest): Promise<GitOperationResult>;
   checkWorktreeRemoval(request: GitWorktreeRequest): Promise<GitWorktreeRemovalCheck>;
-  removeWorktree(request: GitWorktreeRequest): Promise<GitOperationResult>;
+  removeWorktree(request: GitWorktreeRemoveRequest): Promise<GitOperationResult>;
   setBranchUpstream(request: GitUpstreamRequest): Promise<GitOperationResult>;
   publishBranch(request: GitPublishBranchRequest): Promise<GitRunResult>;
   getRemoteConfigs(repoPath: string): Promise<GitRemoteConfig[]>;

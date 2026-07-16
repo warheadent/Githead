@@ -66,6 +66,7 @@ import type {
   GitWorktreeList,
   GitWorktreeRemovalCheck,
   GitWorktreeRequest,
+  GitWorktreeRemoveRequest,
   GitHubRepository,
   RepoSummary
 } from "../shared/types";
@@ -1989,10 +1990,11 @@ export class GitService {
   }
 
   async checkWorktreeRemoval(request: GitWorktreeRequest): Promise<GitWorktreeRemovalCheck> {
-    const result = (canRemove: boolean, isClean: boolean, reason: string): GitWorktreeRemovalCheck => ({
+    const result = (canRemove: boolean, isClean: boolean, reason: string, canForceRemove = false): GitWorktreeRemovalCheck => ({
       repoPath: request.repoPath,
       worktreePath: request.worktreePath,
       canRemove,
+      canForceRemove,
       isClean,
       reason
     });
@@ -2007,16 +2009,16 @@ export class GitService {
       const status = await this.runGitStatus(target.path, ["--porcelain=v2", "-z", "--untracked-files=all"]);
       if (status.exitCode !== 0) return result(false, false, status.stderr.trim() || "Unable to check worktree status.");
       const isClean = status.stdout.length === 0;
-      return result(isClean, isClean, isClean ? "" : "Worktree has uncommitted or untracked files.");
+      return result(isClean, isClean, isClean ? "" : "Worktree has uncommitted or untracked files.", !isClean);
     } catch (error) {
       return result(false, false, error instanceof Error ? error.message : "Unable to check worktree status.");
     }
   }
 
-  async removeWorktree(request: GitWorktreeRequest): Promise<GitOperationResult> {
+  async removeWorktree(request: GitWorktreeRemoveRequest): Promise<GitOperationResult> {
     const check = await this.checkWorktreeRemoval(request);
-    if (!check.canRemove) return this.createOperationFailure(request.repoPath, check.reason);
-    return this.runGitOperation(request.repoPath, ["worktree", "remove", "--", path.normalize(request.worktreePath)]);
+    if (!check.canRemove && !(request.force && check.canForceRemove)) return this.createOperationFailure(request.repoPath, check.reason);
+    return this.runGitOperation(request.repoPath, ["worktree", "remove", ...(request.force ? ["--force"] : []), "--", path.normalize(request.worktreePath)]);
   }
 
   private runGitStatus(repoPath: string, args: string[]): Promise<ProcessResult> {

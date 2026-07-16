@@ -50,6 +50,7 @@ import type {
   GitWorktreeList,
   GitWorktreeRemovalCheck,
   GitWorktreeRequest,
+  GitWorktreeRemoveRequest,
   RepoSummary,
   RepoIdentitySection,
   RepoMetadataSection,
@@ -236,10 +237,10 @@ export class LoreService implements VcsService {
   }
 
   async checkWorktreeRemoval(request: GitWorktreeRequest): Promise<GitWorktreeRemovalCheck> {
-    return { repoPath: request.repoPath, worktreePath: request.worktreePath, canRemove: false, isClean: false, reason: "Worktrees are not supported for Lore repositories." };
+    return { repoPath: request.repoPath, worktreePath: request.worktreePath, canRemove: false, canForceRemove: false, isClean: false, reason: "Worktrees are not supported for Lore repositories." };
   }
 
-  async removeWorktree(request: GitWorktreeRequest): Promise<GitOperationResult> {
+  async removeWorktree(request: GitWorktreeRemoveRequest): Promise<GitOperationResult> {
     return this.failure(request.repoPath, "Worktrees are not supported for Lore repositories.");
   }
 

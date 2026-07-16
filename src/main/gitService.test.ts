@@ -226,9 +226,9 @@ describe("GitService", () => {
       await expect(service.getWorktrees(repo)).resolves.toMatchObject({ worktrees: [expect.objectContaining({ isMain: true, branch: "main" }), expect.objectContaining({ path: path.normalize(linked), branch: "feature" })] });
 
       await fs.writeFile(path.join(linked, "dirty.txt"), "dirty\n", "utf8");
-      await expect(service.checkWorktreeRemoval({ repoPath: repo, worktreePath: linked })).resolves.toMatchObject({ canRemove: false, isClean: false });
-      await fs.rm(path.join(linked, "dirty.txt"));
-      await expect(service.removeWorktree({ repoPath: repo, worktreePath: linked })).resolves.toMatchObject({ exitCode: 0 });
+      await expect(service.checkWorktreeRemoval({ repoPath: repo, worktreePath: linked })).resolves.toMatchObject({ canRemove: false, canForceRemove: true, isClean: false });
+      await expect(service.removeWorktree({ repoPath: repo, worktreePath: linked })).resolves.toMatchObject({ exitCode: -1, stderr: "Worktree has uncommitted or untracked files." });
+      await expect(service.removeWorktree({ repoPath: repo, worktreePath: linked, force: true })).resolves.toMatchObject({ exitCode: 0 });
       await expect(fs.stat(linked)).rejects.toMatchObject({ code: "ENOENT" });
     });
   });
