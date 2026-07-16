@@ -482,6 +482,10 @@ export interface CancelRepositoryReadRequest {
   requestId: string;
 }
 
+export interface CancelGitOperationRequest {
+  repoPath: string;
+}
+
 export interface RepoSectionRequest extends RepositoryReadRequest {
   repoPath: string;
   generation: number;
@@ -1107,6 +1111,7 @@ export interface GitheadApi {
   getRepoStatus(request: RepoSectionRequest): Promise<RepoStatusSection>;
   getRepoMetadata(request: RepoSectionRequest): Promise<RepoMetadataSection>;
   cancelRepositoryRead(request: CancelRepositoryReadRequest): Promise<void>;
+  cancelGitOperation(request: CancelGitOperationRequest): Promise<boolean>;
   watchRepoChanges(repoPath: string): Promise<void>;
   unwatchRepoChanges(repoPath?: string): Promise<void>;
   getRepoRecents(): Promise<RepositoryRecent[]>;

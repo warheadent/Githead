@@ -37,6 +37,23 @@ describe("NodeProcessRunner.run", () => {
     });
   });
 
+  it("preserves a coordinator timeout reason from an abort signal", async () => {
+    const controller = new AbortController();
+    const run = new NodeProcessRunner().run(process.execPath, ["-e", "process.stdout.write('started'); setInterval(() => {}, 1000)"], {
+      signal: controller.signal,
+      onOutput: ({ text }) => {
+        if (text.includes("started")) {
+          controller.abort(new DOMException("Operation timed out after 50ms.", "TimeoutError"));
+        }
+      }
+    });
+
+    await expect(run).resolves.toMatchObject({
+      error: "Operation timed out after 50ms.",
+      terminationReason: "timedOut"
+    });
+  });
+
   it("reports timeout as the termination reason", async () => {
     const result = await new NodeProcessRunner().run(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
       timeoutMs: 50

@@ -8,6 +8,7 @@ import type {
   AppSettingsSaveRequest,
   ClipboardTextRequest,
   CancelRepositoryReadRequest,
+  CancelGitOperationRequest,
   CancelGitHubRequest,
   CreatePullRequestRequest,
   ExternalUrlRequest,
@@ -85,6 +86,7 @@ import { getOpenRepositoryFileError } from "./openFilePolicy";
 import { RepoRecentsService } from "./repoRecentsService";
 import { RepoTrustService } from "./repoTrustService";
 import { RepoWatchService, type RepoWatchTarget } from "./repoWatchService";
+import { RepositoryOperationCoordinator } from "./repositoryOperationCoordinator";
 import { AppUpdateService } from "./updateService";
 import { VcsRouter } from "./vcsRouter";
 import { MIN_WINDOW_BOUNDS, WindowStateService } from "./windowStateService";
@@ -94,13 +96,16 @@ const processRunner = new CancellableProcessRunner(new NodeProcessRunner());
 const gitService = new GitService(processRunner);
 const loreService = new LoreService(processRunner);
 const vcsRouter = new VcsRouter(gitService, loreService);
+const repositoryOperations = new RepositoryOperationCoordinator();
+
+const LOCAL_OPERATION_TIMEOUT_MS = 10 * 60_000;
+const NETWORK_OPERATION_TIMEOUT_MS = 30 * 60_000;
 
 function isLoreSource(source: string): boolean {
   return source.trim().toLowerCase().startsWith("lore://");
 }
 
 let mainWindow: BrowserWindow | null = null;
-let commandRunning = false;
 let aiCliStatusService: AiCliStatusService | null = null;
 let aiSettingsService: AiSettingsService | null = null;
 let aiReasoningCapabilityService: AiReasoningCapabilityService | null = null;
@@ -291,6 +296,10 @@ ipcMain.handle(IPC_CHANNELS.getRepoMetadata, (event, request: RepoSectionRequest
 
 ipcMain.handle(IPC_CHANNELS.cancelRepositoryRead, (event, request: CancelRepositoryReadRequest) => {
   readRequests.cancel(event.sender.id, request.requestId);
+});
+
+ipcMain.handle(IPC_CHANNELS.cancelGitOperation, (_event, request: CancelGitOperationRequest) => {
+  return repositoryOperations.cancel(request.repoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.watchRepoChanges, async (_event, repoPath: string) => {
@@ -535,7 +544,7 @@ ipcMain.handle(IPC_CHANNELS.publishBranch, async (_event, request: GitPublishBra
     return trusted;
   }
 
-  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).publishBranch(request, sendGitOutput), request.repoPath);
+  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).publishBranch(request, sendGitOutput), request.repoPath, NETWORK_OPERATION_TIMEOUT_MS);
 });
 
 ipcMain.handle(IPC_CHANNELS.getGitIdentity, async (_event, repoPath: string) => {
@@ -550,17 +559,12 @@ ipcMain.handle(IPC_CHANNELS.saveGitIdentity, async (_event, request: GitIdentity
     }
   }
 
-  if (commandRunning) {
-    throw new Error("Another git command is already running.");
-  }
-
-  commandRunning = true;
-
-  try {
-    return await getGitIdentityService().saveIdentity(request);
-  } finally {
-    commandRunning = false;
-  }
+  const operationKey = request.scope === "repository" ? request.repoPath : "git-global-config";
+  return runExclusiveRepositoryOperation(
+    operationKey,
+    () => getGitIdentityService().saveIdentity(request),
+    () => { throw new Error("Another git command is already running for this repository."); }
+  );
 });
 
 ipcMain.handle(IPC_CHANNELS.getAiSettings, async () => {
@@ -580,7 +584,7 @@ ipcMain.handle(IPC_CHANNELS.checkoutRemoteBranch, async (_event, request: GitRem
 ipcMain.handle(IPC_CHANNELS.checkoutGitHubPullRequest, async (_event, request: GitHubPullRequestCheckoutRequest) => {
   const trusted = await requireTrustedRepo(request.repoPath);
   if (trusted) return trusted;
-  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).checkoutGitHubPullRequest(request), request.repoPath);
+  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).checkoutGitHubPullRequest(request), request.repoPath, NETWORK_OPERATION_TIMEOUT_MS);
 });
 
 ipcMain.handle(IPC_CHANNELS.renameBranch, async (_event, request: GitRenameBranchRequest) => {
@@ -776,29 +780,26 @@ ipcMain.handle(IPC_CHANNELS.addPathToIgnore, async (_event, request: GitIgnorePa
 
 ipcMain.handle(IPC_CHANNELS.cloneRepository, async (_event, request: GitCloneRequest) => {
   const service = isLoreSource(request.source) ? loreService : gitService;
-  return runExclusiveGitOperation(() => service.cloneRepository(request), request.parentPath);
+  return runExclusiveGitOperation(() => service.cloneRepository(request), request.parentPath, NETWORK_OPERATION_TIMEOUT_MS);
 });
 
 ipcMain.handle(IPC_CHANNELS.checkRepositoryAccess, async (_event, request: GitRepositoryAccessCheckRequest) => {
-  if (commandRunning) {
-    return {
+  return runExclusiveRepositoryOperation(
+    request.source,
+    async () => {
+      const service = isLoreSource(request.source) ? loreService : gitService;
+      return service.checkRepositoryAccess(request);
+    },
+    () => ({
       source: request.source,
       exitCode: -1,
       stdout: "",
-      stderr: "Another git command is already running.",
+      stderr: "Another git command is already running for this repository.",
       branches: [],
       defaultBranch: null
-    };
-  }
-
-  commandRunning = true;
-
-  try {
-    const service = isLoreSource(request.source) ? loreService : gitService;
-    return await service.checkRepositoryAccess(request);
-  } finally {
-    commandRunning = false;
-  }
+    }),
+    NETWORK_OPERATION_TIMEOUT_MS
+  );
 });
 
 ipcMain.handle(IPC_CHANNELS.runGitAction, async (_event, request: GitRunRequest) => {
@@ -817,28 +818,27 @@ ipcMain.handle(IPC_CHANNELS.runGitAction, async (_event, request: GitRunRequest)
     };
   }
 
-  if (commandRunning) {
-    const now = new Date().toISOString();
-    return {
-      runId: "busy",
-      action: request.action,
-      repoPath: request.repoPath,
-      exitCode: -1,
-      stdout: "",
-      stderr: "Another git command is already running.",
-      startedAt: now,
-      endedAt: now
-    };
-  }
-
-  commandRunning = true;
-
-  try {
-    const service = await vcsRouter.serviceForRepo(request.repoPath);
-    return await service.runGitAction(request, sendGitOutput);
-  } finally {
-    commandRunning = false;
-  }
+  return runExclusiveRepositoryOperation(
+    request.repoPath,
+    async () => {
+      const service = await vcsRouter.serviceForRepo(request.repoPath);
+      return service.runGitAction(request, sendGitOutput);
+    },
+    () => {
+      const now = new Date().toISOString();
+      return {
+        runId: "busy",
+        action: request.action,
+        repoPath: request.repoPath,
+        exitCode: -1,
+        stdout: "",
+        stderr: "Another git command is already running for this repository.",
+        startedAt: now,
+        endedAt: now
+      };
+    },
+    NETWORK_OPERATION_TIMEOUT_MS
+  );
 });
 
 ipcMain.handle(IPC_CHANNELS.runConfiguredAction, async (_event, request: GitConfiguredActionRunRequest) => {
@@ -858,12 +858,31 @@ ipcMain.handle(IPC_CHANNELS.runConfiguredAction, async (_event, request: GitConf
     };
   }
 
-  const service = await vcsRouter.serviceForRepo(request.repoPath);
-  return service.runConfiguredAction(request, sendGitOutput);
+  return runExclusiveRepositoryOperation(
+    request.repoPath,
+    async () => {
+      const service = await vcsRouter.serviceForRepo(request.repoPath);
+      return service.runConfiguredAction(request, sendGitOutput);
+    },
+    () => {
+      const now = new Date().toISOString();
+      return {
+        runId: "busy",
+        action: actionName,
+        repoPath: request.repoPath,
+        exitCode: -1,
+        stdout: "",
+        stderr: "Another git command is already running for this repository.",
+        startedAt: now,
+        endedAt: now
+      };
+    },
+    NETWORK_OPERATION_TIMEOUT_MS
+  );
 });
 
 ipcMain.handle(IPC_CHANNELS.updateSubmodules, async (_event, request: GitSubmoduleRequest) => {
-  return runExclusiveGitOperation(() => gitService.updateSubmodules(request), request.repoPath);
+  return runExclusiveGitOperation(() => gitService.updateSubmodules(request), request.repoPath, NETWORK_OPERATION_TIMEOUT_MS);
 });
 
 ipcMain.handle(IPC_CHANNELS.syncSubmodules, async (_event, request: GitSubmoduleRequest) => {
@@ -921,24 +940,34 @@ ipcMain.handle(IPC_CHANNELS.getWindowState, () => {
 
 async function runExclusiveGitOperation(
   operation: () => Promise<GitOperationResult>,
-  repoPath: string
+  repoPath: string,
+  timeoutMs = LOCAL_OPERATION_TIMEOUT_MS
 ): Promise<GitOperationResult> {
-  if (commandRunning) {
-    return {
+  return runExclusiveRepositoryOperation(
+    repoPath,
+    operation,
+    () => ({
       repoPath,
       exitCode: -1,
       stdout: "",
-      stderr: "Another git command is already running."
-    };
-  }
+      stderr: "Another git command is already running for this repository."
+    }),
+    timeoutMs
+  );
+}
 
-  commandRunning = true;
-
-  try {
-    return await operation();
-  } finally {
-    commandRunning = false;
-  }
+async function runExclusiveRepositoryOperation<T>(
+  repoPath: string,
+  operation: () => Promise<T>,
+  busyResult: () => T,
+  timeoutMs = LOCAL_OPERATION_TIMEOUT_MS
+): Promise<T> {
+  const result = await repositoryOperations.run(
+    repoPath,
+    timeoutMs,
+    (signal) => processRunner.runWithSignal(signal, operation)
+  );
+  return result.started ? result.value : busyResult();
 }
 
 async function requireTrustedRepo(repoPath: string): Promise<GitOperationResult | null> {

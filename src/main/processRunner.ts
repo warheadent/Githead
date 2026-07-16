@@ -33,7 +33,15 @@ export class NodeProcessRunner implements ProcessRunner {
     const binary = maxBytes !== undefined;
     const empty = binary ? new Uint8Array() : "";
     if (options.signal?.aborted) {
-      return Promise.resolve({ exitCode: -1, stdout: empty, stderr: "", error: "Command was cancelled.", terminationReason: "aborted" } as ProcessResult | BinaryProcessResult);
+      const abortReason = options.signal.reason;
+      const timedOut = abortReason instanceof Error && abortReason.name === "TimeoutError";
+      return Promise.resolve({
+        exitCode: -1,
+        stdout: empty,
+        stderr: "",
+        error: timedOut && abortReason instanceof Error ? abortReason.message : timedOut ? "Command timed out." : "Command was cancelled.",
+        terminationReason: timedOut ? "timedOut" : "aborted"
+      } as ProcessResult | BinaryProcessResult);
     }
     return new Promise<ProcessResult | BinaryProcessResult>((resolve) => {
       const stdout: Buffer[] = [];
@@ -41,6 +49,7 @@ export class NodeProcessRunner implements ProcessRunner {
       let stdoutLength = 0;
       let exceededLimit = false;
       let requested: "aborted" | "timedOut" | null = null;
+      let requestedError: string | undefined;
       let settled = false;
       let timer: NodeJS.Timeout | undefined;
       let child: ChildProcessWithoutNullStreams;
@@ -52,15 +61,19 @@ export class NodeProcessRunner implements ProcessRunner {
         cleanup();
         resolve({ exitCode: code, stdout: output(), stderr: Buffer.concat(stderr).toString(), ...(error ? { error } : {}), terminationReason: reason, ...(exceededLimit ? { exceededLimit: true } : {}) } as ProcessResult | BinaryProcessResult);
       };
-      const stop = (reason: "aborted" | "timedOut") => { if (requested) return; requested = reason; terminateProcessTree(child); };
-      const onAbort = () => stop("aborted");
+      const stop = (reason: "aborted" | "timedOut", error?: string) => { if (requested) return; requested = reason; requestedError = error; terminateProcessTree(child); };
+      const onAbort = () => {
+        const abortReason = options.signal?.reason;
+        const timedOut = abortReason instanceof Error && abortReason.name === "TimeoutError";
+        stop(timedOut ? "timedOut" : "aborted", timedOut && abortReason instanceof Error ? abortReason.message : undefined);
+      };
       try {
         child = spawn(command, args, { cwd: options.cwd, env: options.env, shell: false, windowsHide: true });
       } catch (error) {
         finish(-1, error instanceof Error ? error.message : "Unable to start command.", "spawnFailed"); return;
       }
       options.signal?.addEventListener("abort", onAbort, { once: true });
-      if (options.timeoutMs !== undefined) timer = setTimeout(() => stop("timedOut"), options.timeoutMs);
+      if (options.timeoutMs !== undefined) timer = setTimeout(() => stop("timedOut", `Command timed out after ${options.timeoutMs}ms.`), options.timeoutMs);
       child.stdin.end(options.stdin);
       child.stdout.on("data", (chunk: Buffer) => {
         if (exceededLimit) return;
@@ -73,7 +86,7 @@ export class NodeProcessRunner implements ProcessRunner {
       child.on("error", (error) => finish(-1, error.message, "spawnFailed"));
       child.on("close", (code) => {
         const reason = requested ?? "exited";
-        const error = reason === "timedOut" ? `Command timed out after ${options.timeoutMs}ms.` : reason === "aborted" ? "Command was cancelled." : undefined;
+        const error = requestedError ?? (reason === "timedOut" ? "Command timed out." : reason === "aborted" ? "Command was cancelled." : undefined);
         finish(code ?? -1, error, reason);
       });
     });

@@ -4453,6 +4453,12 @@ export function App(): ReactNode {
     void window.githead.closeWindow().catch(() => undefined);
   }, []);
 
+  const cancelRunningOperation = useCallback((): void => {
+    const repoPath = stateRef.current.repoPath;
+    if (!repoPath) return;
+    void window.githead.cancelGitOperation({ repoPath });
+  }, []);
+
   const stagedFiles = useMemo(() => getStagedFiles(state.summary), [state.summary]);
   const unstagedFiles = useMemo(() => getUnstagedFiles(state.summary), [state.summary]);
   const running = isOperationRunning(state);
@@ -4619,6 +4625,7 @@ export function App(): ReactNode {
               runningAction={state.runningAction}
               configuredActionRuns={state.configuredActionRuns}
               disabled={disableActions}
+              cancellable={Boolean(state.runningAction || state.runningOperation || state.configuredActionRuns.length)}
               showCreatePullRequest={shouldShowCreatePullRequest(state.summary, historyInsights.data.currentBranchPullRequests, historyInsights.loaded)}
               branchPullRequests={historyInsights.data.currentBranchPullRequests}
               onOpenExternalUrl={openExternalUrl}
@@ -4630,6 +4637,7 @@ export function App(): ReactNode {
               }}
               onManageActions={openActionManager}
               onCreatePullRequest={openCreatePrDialog}
+              onCancel={cancelRunningOperation}
             />
 
             <Tabs
@@ -6747,12 +6755,14 @@ function ActionBar({
   runningAction,
   configuredActionRuns,
   disabled,
+  cancellable,
   showCreatePullRequest,
   branchPullRequests,
   onRunAction,
   onRunConfiguredAction,
   onManageActions,
   onCreatePullRequest,
+  onCancel,
   onOpenExternalUrl
 }: {
   heading: string;
@@ -6760,12 +6770,14 @@ function ActionBar({
   runningAction: string | null;
   configuredActionRuns: ConfiguredActionRun[];
   disabled: boolean;
+  cancellable: boolean;
   showCreatePullRequest: boolean;
   branchPullRequests: GitHubPullRequestAssociation[];
   onRunAction: (action: GitAction) => void;
   onRunConfiguredAction: (action: GitConfiguredAction) => void;
   onManageActions: () => void;
   onCreatePullRequest: () => void;
+  onCancel: () => void;
   onOpenExternalUrl: (url: string) => void;
 }): ReactNode {
   const capabilities = summary?.capabilities ?? null;
@@ -6798,6 +6810,12 @@ function ActionBar({
         <h2 className="truncate text-base font-semibold">{heading}</h2>
       </div>
       <div className="flex flex-wrap justify-end gap-2" role="group" aria-label="Git actions">
+        {cancellable ? (
+          <Button type="button" variant="destructive" onClick={onCancel}>
+            <X />
+            Cancel
+          </Button>
+        ) : null}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button

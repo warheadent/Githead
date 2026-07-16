@@ -7,6 +7,7 @@ export const IPC_CHANNELS = {
   getRepoStatus: "repo:status",
   getRepoMetadata: "repo:metadata",
   cancelRepositoryRead: "repo:read-cancel",
+  cancelGitOperation: "git:operation-cancel",
   watchRepoChanges: "repo:watch",
   unwatchRepoChanges: "repo:unwatch",
   repoChanged: "repo:changed",

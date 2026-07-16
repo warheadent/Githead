@@ -3903,6 +3903,31 @@ describe("App", () => {
     await flushRendererAsync();
   });
 
+  it("lets the user cancel a pending repository operation", async () => {
+    const pendingStage = defer<GitOperationResult>();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/pending.ts", {
+          isUnstaged: true,
+          worktreeStatus: "M"
+        })
+      ]
+    }));
+    vi.mocked(githead.stageFiles).mockReturnValue(pendingStage.promise);
+
+    render(<App />);
+    await flushRendererAsync();
+    fireEvent.click(screen.getByRole("option", { name: /src\/pending\.ts/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Stage$/ }));
+    await flushRendererAsync();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(githead.cancelGitOperation).toHaveBeenCalledWith({ repoPath });
+    pendingStage.resolve(createOperationResult({ exitCode: -1, stderr: "Operation was cancelled." }));
+    await flushRendererAsync();
+  });
+
   it("does not start auto-fetch if an operation begins while trust is loading", async () => {
     vi.useFakeTimers();
     const pendingTrust = defer<{ trusted: boolean }>();
@@ -6041,6 +6066,7 @@ function createGitheadMock(): GitheadApi {
       return { repoPath: summary.repoPath, generation: request.generation, upstream: summary.upstream, branches: summary.branches, remotes: summary.remotes, remoteBranches: summary.remoteBranches, defaultRemoteBranch: summary.defaultRemoteBranch, commitsAheadOfDefaultBranch: summary.commitsAheadOfDefaultBranch, githubRepository: summary.githubRepository, actionsConfig: summary.actionsConfig };
     }),
     cancelRepositoryRead: vi.fn().mockResolvedValue(undefined),
+    cancelGitOperation: vi.fn().mockResolvedValue(true),
     watchRepoChanges: vi.fn().mockResolvedValue(undefined),
     unwatchRepoChanges: vi.fn().mockResolvedValue(undefined),
     getRepoRecents: vi.fn().mockResolvedValue(repositoryRecents(repoPath)),

@@ -6,6 +6,7 @@ import type {
   AppSettingsSaveRequest,
   ClipboardTextRequest,
   CancelRepositoryReadRequest,
+  CancelGitOperationRequest,
   CreatePullRequestRequest,
   ExternalUrlRequest,
   GeneratePrDescriptionRequest,
@@ -88,6 +89,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getRepoMetadata, request) as ReturnType<GitheadApi["getRepoMetadata"]>,
   cancelRepositoryRead: (request: CancelRepositoryReadRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.cancelRepositoryRead, request) as ReturnType<GitheadApi["cancelRepositoryRead"]>,
+  cancelGitOperation: (request: CancelGitOperationRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.cancelGitOperation, request) as ReturnType<GitheadApi["cancelGitOperation"]>,
   watchRepoChanges: (repoPath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.watchRepoChanges, repoPath) as ReturnType<GitheadApi["watchRepoChanges"]>,
   unwatchRepoChanges: (repoPath?: string) =>
