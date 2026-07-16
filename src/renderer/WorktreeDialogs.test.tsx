@@ -34,13 +34,18 @@ describe("WorktreeRemoveDialog", () => {
     const onRemove = vi.fn();
     render(<WorktreeRemoveDialog target={target} check={dirtyCheck} checking={false} busy={false} onClose={vi.fn()} onRemove={onRemove} />);
 
-    const removeButton = screen.getByRole("button", { name: "Remove Worktree" }) as HTMLButtonElement;
+    const removeButton = screen.getByRole("button", { name: "Remove Worktree (3)" }) as HTMLButtonElement;
     expect(removeButton.disabled).toBe(true);
     expect(screen.queryByText(/available after 3 seconds/i)).toBeNull();
 
-    act(() => vi.advanceTimersByTime(2_999));
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(screen.getByRole("button", { name: "Remove Worktree (2)" })).toBe(removeButton);
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(screen.getByRole("button", { name: "Remove Worktree (1)" })).toBe(removeButton);
+    act(() => vi.advanceTimersByTime(999));
     expect(removeButton.disabled).toBe(true);
     act(() => vi.advanceTimersByTime(1));
+    expect(screen.getByRole("button", { name: "Remove Worktree" })).toBe(removeButton);
     expect(removeButton.disabled).toBe(false);
     fireEvent.click(removeButton);
     expect(onRemove).toHaveBeenCalledOnce();

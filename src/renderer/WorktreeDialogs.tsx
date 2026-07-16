@@ -111,17 +111,30 @@ export function WorktreeRemoveDialog({ target, check, checking, busy, onClose, o
   onClose: () => void;
   onRemove: () => void;
 }): ReactNode {
-  const [forceRemovalArmed, setForceRemovalArmed] = useState(false);
+  const [forceRemovalCountdown, setForceRemovalCountdown] = useState({ worktreePath: "", secondsRemaining: 3 });
 
   useEffect(() => {
-    setForceRemovalArmed(false);
+    const worktreePath = target?.path ?? "";
+    setForceRemovalCountdown({ worktreePath, secondsRemaining: 3 });
     if (!target) return;
-    const timeout = window.setTimeout(() => setForceRemovalArmed(true), 3_000);
-    return () => window.clearTimeout(timeout);
+    const interval = window.setInterval(() => {
+      setForceRemovalCountdown((current) => {
+        if (current.worktreePath !== worktreePath) return current;
+        if (current.secondsRemaining <= 1) {
+          window.clearInterval(interval);
+          return { ...current, secondsRemaining: 0 };
+        }
+        return { ...current, secondsRemaining: current.secondsRemaining - 1 };
+      });
+    }, 1_000);
+    return () => window.clearInterval(interval);
   }, [target?.path]);
 
+  const secondsRemaining = forceRemovalCountdown.worktreePath === target?.path ? forceRemovalCountdown.secondsRemaining : 3;
+  const forceRemovalArmed = secondsRemaining === 0;
   const canRemove = Boolean(check?.canRemove || (check?.canForceRemove && forceRemovalArmed));
-  return <Dialog open={Boolean(target)} onOpenChange={(open) => { if (!open && !busy) onClose(); }}><DialogContent><DialogHeader><DialogTitle>Remove Worktree</DialogTitle><DialogDescription>Git will delete the linked worktree folder. The branch and its commits are not deleted.</DialogDescription></DialogHeader><div className="rounded-md border p-3"><p className="font-medium">{target?.branch ?? "Detached worktree"}</p><p className="break-all text-sm text-muted-foreground">{target?.path}</p></div>{checking ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Checking worktree…</p> : check?.reason ? <div className="grid gap-1 text-sm text-destructive" role="alert"><p>{check.reason}</p>{check.canForceRemove && forceRemovalArmed ? <p>Removing it will permanently discard those files.</p> : null}</div> : <p className="text-sm text-muted-foreground">This worktree is clean and can be removed safely.</p>}<DialogFooter><Button type="button" variant="outline" onClick={onClose} disabled={busy}>Cancel</Button><Button type="button" variant="destructive" onClick={onRemove} disabled={busy || checking || !canRemove}>{busy ? <Loader2 className="animate-spin" /> : <Trash2 />}Remove Worktree</Button></DialogFooter></DialogContent></Dialog>;
+  const removeLabel = check?.canForceRemove && !forceRemovalArmed ? `Remove Worktree (${secondsRemaining})` : "Remove Worktree";
+  return <Dialog open={Boolean(target)} onOpenChange={(open) => { if (!open && !busy) onClose(); }}><DialogContent><DialogHeader><DialogTitle>Remove worktree?</DialogTitle><DialogDescription>This deletes the worktree folder from your computer. Its branch and committed changes remain in the repository.</DialogDescription></DialogHeader><div className="rounded-md border p-3"><p className="font-medium">{target?.branch ?? "Detached worktree"}</p><p className="break-all text-sm text-muted-foreground">{target?.path}</p></div>{checking ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Checking worktree…</p> : check?.reason ? <div className="grid gap-1 text-sm text-destructive" role="alert"><p>{check.reason}</p>{check.canForceRemove && forceRemovalArmed ? <p>Removing it will permanently discard those files.</p> : null}</div> : <p className="text-sm text-muted-foreground">This worktree is clean and can be removed safely.</p>}<DialogFooter><Button type="button" variant="outline" onClick={onClose} disabled={busy}>Cancel</Button><Button type="button" variant="destructive" onClick={onRemove} disabled={busy || checking || !canRemove}>{busy ? <Loader2 className="animate-spin" /> : <Trash2 />}{removeLabel}</Button></DialogFooter></DialogContent></Dialog>;
 }
 
 function suggestWorktreePath(mainPath: string, branchName: string): string {
