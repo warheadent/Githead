@@ -2006,7 +2006,7 @@ export class GitService {
       if (isSameFileSystemPath(target.path, request.repoPath)) return result(false, false, "Switch to another worktree before removing this one.");
       if (target.locked) return result(false, false, target.lockReason ? `Worktree is locked: ${target.lockReason}` : "Worktree is locked.");
       if (target.prunable) return result(false, false, target.prunableReason || "Worktree path is missing and requires pruning.");
-      const status = await this.runGitStatus(target.path, ["--porcelain=v2", "-z", "--untracked-files=all"]);
+      const status = await this.runGitStatusWithRetry(target.path, ["--porcelain=v2", "-z", "--untracked-files=all"]);
       if (status.exitCode !== 0) return result(false, false, status.stderr.trim() || "Unable to check worktree status.");
       const isClean = status.stdout.length === 0;
       return result(isClean, isClean, isClean ? "" : "Worktree has uncommitted or untracked files.", !isClean);
@@ -2027,6 +2027,17 @@ export class GitService {
       "status",
       ...args
     ]);
+  }
+
+  private async runGitStatusWithRetry(repoPath: string, args: string[]): Promise<ProcessResult> {
+    const retryDelaysMs = [25, 75];
+    let result = await this.runGitStatus(repoPath, args);
+    for (const delayMs of retryDelaysMs) {
+      if (result.exitCode === 0) return result;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      result = await this.runGitStatus(repoPath, args);
+    }
+    return result;
   }
 
   private async getUnstagedDiff(repoPath: string, filePath: string, submoduleShort = false): Promise<ProcessResult> {

@@ -204,6 +204,37 @@ describe("GitService", () => {
     ]);
   });
 
+  it("retries transient status failures before checking worktree removal", async () => {
+    const repo = path.resolve("D:/Repo");
+    const linked = path.resolve("D:/Repo-feature");
+    const worktrees = [
+      `worktree ${repo}`,
+      `HEAD ${oid}`,
+      "branch refs/heads/main",
+      "",
+      `worktree ${linked}`,
+      `HEAD ${oid}`,
+      "branch refs/heads/feature",
+      ""
+    ].join("\0");
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok(`${path.join(repo, ".git")}\n`),
+      ok(worktrees),
+      failure("fatal: transient status failure"),
+      ok("? dirty.txt\0")
+    ]);
+    const service = new GitService(runner);
+
+    await expect(service.checkWorktreeRemoval({ repoPath: repo, worktreePath: linked })).resolves.toMatchObject({
+      canRemove: false,
+      canForceRemove: true,
+      isClean: false,
+      reason: "Worktree has uncommitted or untracked files."
+    });
+    expect(runner.calls.filter((call) => call.args.includes("status"))).toHaveLength(2);
+  });
+
   it("creates, discovers, checks, and safely removes a linked worktree", async () => {
     await withTempDir(async (dir) => {
       const repo = path.join(dir, "Repo");
