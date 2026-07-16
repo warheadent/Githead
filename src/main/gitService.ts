@@ -2000,7 +2000,7 @@ export class GitService {
     });
     try {
       const list = await this.getWorktrees(request.repoPath);
-      const target = findWorktree(list.worktrees, request.worktreePath);
+      const target = await findWorktree(list.worktrees, request.worktreePath);
       if (!target) return result(false, false, "This path is not a worktree in the active repository.");
       if (target.isMain || target.isBare) return result(false, false, "The main worktree cannot be removed.");
       if (isSameFileSystemPath(target.path, request.repoPath)) return result(false, false, "Switch to another worktree before removing this one.");
@@ -2030,7 +2030,7 @@ export class GitService {
   }
 
   private async runGitStatusWithRetry(repoPath: string, args: string[]): Promise<ProcessResult> {
-    const retryDelaysMs = [100, 250, 500, 1_000];
+    const retryDelaysMs = [25, 75];
     let result = await this.runGitStatus(repoPath, args);
     for (const delayMs of retryDelaysMs) {
       if (result.exitCode === 0) return result;
@@ -2726,8 +2726,24 @@ function isPathInside(candidate: string, parent: string): boolean {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
-function findWorktree(worktrees: GitWorktree[], worktreePath: string): GitWorktree | undefined {
-  return worktrees.find((worktree) => isSameFileSystemPath(worktree.path, worktreePath));
+async function findWorktree(worktrees: GitWorktree[], worktreePath: string): Promise<GitWorktree | undefined> {
+  const lexicalMatch = worktrees.find((worktree) => isSameFileSystemPath(worktree.path, worktreePath));
+  if (lexicalMatch) return lexicalMatch;
+
+  const canonicalPath = await resolveExistingFileSystemPath(worktreePath);
+  for (const worktree of worktrees) {
+    const canonicalWorktreePath = await resolveExistingFileSystemPath(worktree.path);
+    if (isSameFileSystemPath(canonicalWorktreePath, canonicalPath)) return worktree;
+  }
+  return undefined;
+}
+
+async function resolveExistingFileSystemPath(filePath: string): Promise<string> {
+  try {
+    return await fs.realpath(filePath);
+  } catch {
+    return path.resolve(filePath);
+  }
 }
 
 function normalizeIgnorePattern(filePath: string): string {

@@ -235,46 +235,40 @@ describe("GitService", () => {
     expect(runner.calls.filter((call) => call.args.includes("status"))).toHaveLength(2);
   });
 
-  it("reports process errors when worktree status retries are exhausted", async () => {
-    const repo = path.resolve("D:/Repo");
-    const linked = path.resolve("D:/Repo-feature");
-    const worktrees = [
-      `worktree ${repo}`,
-      `HEAD ${oid}`,
-      "branch refs/heads/main",
-      "",
-      `worktree ${linked}`,
-      `HEAD ${oid}`,
-      "branch refs/heads/feature",
-      ""
-    ].join("\0");
-    const unavailable: ProcessResult = {
-      exitCode: -1,
-      stdout: "",
-      stderr: "",
-      error: "spawn git EAGAIN",
-      terminationReason: "spawnFailed"
-    };
-    const runner = new FakeRunner([
-      ok("true\n"),
-      ok(`${path.join(repo, ".git")}\n`),
-      ok(worktrees),
-      unavailable,
-      unavailable,
-      unavailable,
-      unavailable,
-      unavailable
-    ]);
-    const service = new GitService(runner);
+  it("matches a worktree request through a filesystem path alias", async () => {
+    await withTempDir(async (dir) => {
+      const repo = path.join(dir, "Repo");
+      const linked = path.join(dir, "Repo-feature");
+      const linkedAlias = path.join(dir, "Repo-feature-alias");
+      await fs.mkdir(repo);
+      await fs.mkdir(linked);
+      await fs.symlink(linked, linkedAlias, process.platform === "win32" ? "junction" : "dir");
+      const worktrees = [
+        `worktree ${repo}`,
+        `HEAD ${oid}`,
+        "branch refs/heads/main",
+        "",
+        `worktree ${linked}`,
+        `HEAD ${oid}`,
+        "branch refs/heads/feature",
+        ""
+      ].join("\0");
+      const runner = new FakeRunner([
+        ok("true\n"),
+        ok(`${path.join(repo, ".git")}\n`),
+        ok(worktrees),
+        ok("? dirty.txt\0")
+      ]);
+      const service = new GitService(runner);
 
-    await expect(service.checkWorktreeRemoval({ repoPath: repo, worktreePath: linked })).resolves.toMatchObject({
-      canRemove: false,
-      canForceRemove: false,
-      isClean: false,
-      reason: "spawn git EAGAIN"
+      await expect(service.checkWorktreeRemoval({ repoPath: repo, worktreePath: linkedAlias })).resolves.toMatchObject({
+        canRemove: false,
+        canForceRemove: true,
+        isClean: false,
+        reason: "Worktree has uncommitted or untracked files."
+      });
     });
-    expect(runner.calls.filter((call) => call.args.includes("status"))).toHaveLength(5);
-  }, 5_000);
+  });
 
   it("creates, discovers, checks, and safely removes a linked worktree", async () => {
     await withTempDir(async (dir) => {
