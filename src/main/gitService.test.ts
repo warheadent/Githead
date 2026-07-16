@@ -223,7 +223,8 @@ describe("GitService", () => {
 
       const service = new GitService(runner);
       await expect(service.createWorktree({ repoPath: repo, destinationPath: linked, mode: "existing-branch", branchName: "feature" })).resolves.toMatchObject({ exitCode: 0 });
-      await expect(service.getWorktrees(repo)).resolves.toMatchObject({ worktrees: [expect.objectContaining({ isMain: true, branch: "main" }), expect.objectContaining({ path: path.normalize(linked), branch: "feature" })] });
+      const canonicalLinkedPath = await fs.realpath(linked);
+      await expect(service.getWorktrees(repo)).resolves.toMatchObject({ worktrees: [expect.objectContaining({ isMain: true, branch: "main" }), expect.objectContaining({ path: path.normalize(canonicalLinkedPath), branch: "feature" })] });
 
       await fs.writeFile(path.join(linked, "dirty.txt"), "dirty\n", "utf8");
       await expect(service.checkWorktreeRemoval({ repoPath: repo, worktreePath: linked })).resolves.toMatchObject({ canRemove: false, canForceRemove: true, isClean: false });
