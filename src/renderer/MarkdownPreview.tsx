@@ -95,7 +95,7 @@ function MarkdownCodeBlock({ children, ...props }: ComponentProps<"pre">): React
 
 function MarkdownTable({ node: _node, ...props }: ComponentProps<"table"> & ExtraProps): ReactNode {
   return (
-    <div className="markdown-preview-table" role="region" aria-label="Scrollable Markdown table" tabIndex={0}>
+    <div className="markdown-preview-table">
       <table {...props} />
     </div>
   );

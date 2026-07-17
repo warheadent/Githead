@@ -3125,7 +3125,7 @@ describe("App", () => {
     expect(githead.getFilePreview).toHaveBeenCalledTimes(1);
   });
 
-  it("renders GFM pipe tables in a horizontally scrollable semantic table", async () => {
+  it("renders GFM pipe tables as a semantic table constrained to the preview", async () => {
     const user = userEvent.setup();
     const file = createStatusFile("README.md", { isUnstaged: true, worktreeStatus: "M" });
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [file] }));
@@ -3152,7 +3152,8 @@ describe("App", () => {
     expect(headers.map((header) => header.style.textAlign)).toEqual(["left", "center", "right"]);
     expect(within(table).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["Alpha", "Beta", "Gamma"]);
     expect(table.parentElement?.classList.contains("markdown-preview-table")).toBe(true);
-    expect(screen.getByRole("region", { name: "Scrollable Markdown table" }).getAttribute("tabindex")).toBe("0");
+    expect(table.parentElement?.getAttribute("role")).toBeNull();
+    expect(table.parentElement?.getAttribute("tabindex")).toBeNull();
     expect(screen.queryByText("Unsafe HTML table")).toBeNull();
   });
 

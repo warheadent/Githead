@@ -64,7 +64,7 @@ describe("MarkdownPreview", () => {
     expect(screen.queryByRole("button", { name: "Copy code" })).toBeNull();
   });
 
-  it("preserves a table's horizontal scroll position across parent re-renders", () => {
+  it("keeps a table's semantic DOM stable across parent re-renders", () => {
     const text = "| Name | Description |\n| --- | --- |\n| Githead | A deliberately long table value |";
     const preview = (
       <TooltipProvider>
@@ -72,13 +72,12 @@ describe("MarkdownPreview", () => {
       </TooltipProvider>
     );
     const { rerender } = render(preview);
-    const scrollRegion = screen.getByRole("region", { name: "Scrollable Markdown table" });
-    scrollRegion.scrollLeft = 120;
+    const table = screen.getByRole("table");
 
     rerender(preview);
 
-    expect(screen.getByRole("region", { name: "Scrollable Markdown table" })).toBe(scrollRegion);
-    expect(scrollRegion.scrollLeft).toBe(120);
+    expect(screen.getByRole("table")).toBe(table);
+    expect(table.parentElement?.getAttribute("tabindex")).toBeNull();
   });
 
   it("resets successful feedback after two seconds", async () => {

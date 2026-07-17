@@ -1742,18 +1742,13 @@ textarea,
 .markdown-preview-table {
   width: 100%;
   margin: 0 0 1em;
-  overflow-x: auto;
+  overflow: hidden;
   border-radius: 6px;
 }
 
-.markdown-preview-table:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-}
-
 .markdown-preview-table table {
-  width: max-content;
-  min-width: 100%;
+  width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   border-spacing: 0;
 }
@@ -1762,7 +1757,7 @@ textarea,
 .markdown-preview-table td {
   border: 1px solid var(--border);
   padding: 0.45em 0.75em;
-  overflow-wrap: normal;
+  overflow-wrap: anywhere;
   text-align: left;
   vertical-align: top;
 }
