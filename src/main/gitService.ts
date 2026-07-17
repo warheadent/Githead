@@ -2300,6 +2300,75 @@ export class GitService {
     runId: string,
     onOutput?: GitOutputHandler
   ): Promise<ProcessResult> {
+    if (request.action !== "push") {
+      return {
+        exitCode: -1,
+        stdout: "",
+        stderr: "Targeted push is only available for push actions."
+      };
+    }
+
+    const target = request.pushTarget;
+    if (target) {
+      const expectedBranch = target.sourceBranch.trim();
+      const currentBranchResult = await this.runGit(request.repoPath, [
+        "branch",
+        "--show-current"
+      ]);
+      if (
+        !expectedBranch ||
+        currentBranchResult.exitCode !== 0 ||
+        currentBranchResult.stdout.trim() !== expectedBranch
+      ) {
+        return {
+          exitCode: -1,
+          stdout: "",
+          stderr: "Current branch changed before pushing. Refresh and try again."
+        };
+      }
+
+      const remoteResult = await this.validateRemoteName(request.repoPath, target.remoteName);
+      if ("error" in remoteResult) {
+        return {
+          exitCode: -1,
+          stdout: "",
+          stderr: remoteResult.error
+        };
+      }
+
+      const destinationResult = await this.validateBranchName(request.repoPath, target.destinationBranch);
+      if ("error" in destinationResult) {
+        return {
+          exitCode: -1,
+          stdout: "",
+          stderr: destinationResult.error
+        };
+      }
+
+      const pushResult = await this.runActionCommand(request, runId, [
+        "push",
+        remoteResult.remoteName,
+        `HEAD:refs/heads/${destinationResult.branchName}`
+      ], onOutput);
+
+      if (pushResult.exitCode !== 0) {
+        return pushResult;
+      }
+
+      const tagResult = await this.runActionCommand(request, runId, [
+        "push",
+        remoteResult.remoteName,
+        "--tags"
+      ], onOutput);
+
+      return {
+        exitCode: tagResult.exitCode,
+        stdout: `${pushResult.stdout}${tagResult.stdout}`,
+        stderr: `${pushResult.stderr}${tagResult.stderr}`,
+        ...(tagResult.error ? { error: tagResult.error } : {})
+      };
+    }
+
     const pushResult = await this.runActionCommand(request, runId, [
       "push"
     ], onOutput);

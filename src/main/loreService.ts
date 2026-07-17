@@ -692,6 +692,20 @@ export class LoreService implements VcsService {
       };
     }
 
+    if (request.action === "push" && request.pushTarget) {
+      const endedAt = new Date().toISOString();
+      return {
+        runId,
+        action: request.action,
+        repoPath: request.repoPath,
+        exitCode: -1,
+        stdout: "",
+        stderr: "Pushing to another branch is not supported for Lore repositories.",
+        startedAt,
+        endedAt
+      };
+    }
+
     const args = LORE_ACTION_COMMANDS[request.action] ?? [
       "sync"
     ];

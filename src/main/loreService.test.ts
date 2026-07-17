@@ -544,6 +544,28 @@ describe("LoreService", () => {
     });
   });
 
+  it("returns unsupported failure for a targeted push", async () => {
+    await withLoreRepo(async (dir) => {
+      const service = new LoreService(new FakeRunner([
+        ok("ok")
+      ]));
+
+      const result = await service.runGitAction({
+        repoPath: dir,
+        action: "push",
+        pushTarget: {
+          sourceBranch: "feature/source",
+          remoteName: "origin",
+          destinationBranch: "release/candidate"
+        }
+      });
+
+      expect(result.action).toBe("push");
+      expect(result.exitCode).toBe(-1);
+      expect(result.stderr).toBe("Pushing to another branch is not supported for Lore repositories.");
+    });
+  });
+
   it("creates a branch and switches to it", async () => {
     await withLoreRepo(async (dir) => {
       const runner = new FakeRunner([

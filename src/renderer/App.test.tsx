@@ -3009,13 +3009,14 @@ describe("App", () => {
     const actionsGroup = await screen.findByRole("group", { name: "Git actions" });
     const buttons = within(actionsGroup).getAllByRole("button");
 
-    expect(buttons.map((button) => button.textContent?.trim())).toEqual([
+    expect(buttons.slice(0, 4).map((button) => button.textContent?.trim())).toEqual([
       "Actions",
       "Fetch",
       "Pull",
       "Push"
     ]);
     expect(buttons[0]?.getAttribute("aria-label")).toBe("Repository actions");
+    expect(buttons[4]?.getAttribute("aria-label")).toBe("More push actions");
   });
 
   it("shows upstream commits ready to push in the Push action", async () => {
@@ -3090,6 +3091,137 @@ describe("App", () => {
     });
     expect(screen.getByRole("tab", { name: "Commit History" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByRole("tab", { name: "Activity Log" }).getAttribute("aria-selected")).toBe("false");
+  });
+
+  it("pushes the current branch to a selected existing remote branch without changing upstream", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      branch: "feature/source",
+      upstream: "upstream/main",
+      remotes: [
+        { name: "origin", url: "https://example.test/repo.git", direction: "push" },
+        { name: "upstream", url: "https://example.test/upstream.git", direction: "push" }
+      ],
+      remoteBranches: [
+        { name: "origin/release", remote: "origin", branch: "release" },
+        { name: "upstream/main", remote: "upstream", branch: "main" },
+        { name: "upstream/release", remote: "upstream", branch: "release" }
+      ]
+    }));
+    vi.mocked(githead.runGitAction).mockResolvedValue(createRunResult("push"));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "More push actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Push to another branch…" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Push to Another Branch" });
+    expect((within(dialog).getByLabelText("Remote") as HTMLSelectElement).value).toBe("upstream");
+    expect(within(dialog).queryByRole("option", { name: "main" })).toBeNull();
+    await user.selectOptions(within(dialog).getByLabelText("Destination branch"), "release");
+    await user.click(within(dialog).getByRole("button", { name: "Push" }));
+
+    await waitFor(() => {
+      expect(githead.runGitAction).toHaveBeenCalledWith({
+        repoPath,
+        action: "push",
+        pushTarget: {
+          sourceBranch: "feature/source",
+          remoteName: "upstream",
+          destinationBranch: "release"
+        }
+      });
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Push to Another Branch" })).toBeNull();
+    });
+    expect(githead.setBranchUpstream).not.toHaveBeenCalled();
+  });
+
+  it("can push a Publish-state branch to a new remote branch without tracking it", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      branch: "feature/source",
+      upstream: null,
+      remotes: [
+        { name: "origin", url: "https://example.test/repo.git", direction: "push" }
+      ],
+      remoteBranches: [
+        { name: "origin/main", remote: "origin", branch: "main" }
+      ]
+    }));
+    vi.mocked(githead.runGitAction).mockResolvedValue(createRunResult("push"));
+
+    render(<App />);
+
+    expect(await screen.findByRole("button", { name: "Publish branch" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "More push actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Push to another branch…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Push to Another Branch" });
+    await user.selectOptions(
+      within(dialog).getByLabelText("Destination branch"),
+      within(dialog).getByRole("option", { name: "New branch…" })
+    );
+    await user.type(within(dialog).getByLabelText("New branch name"), "release/candidate");
+    await user.click(within(dialog).getByRole("button", { name: "Push" }));
+
+    await waitFor(() => {
+      expect(githead.runGitAction).toHaveBeenCalledWith({
+        repoPath,
+        action: "push",
+        pushTarget: {
+          sourceBranch: "feature/source",
+          remoteName: "origin",
+          destinationBranch: "release/candidate"
+        }
+      });
+    });
+    expect(githead.publishBranch).not.toHaveBeenCalled();
+  });
+
+  it("keeps the push-to-branch dialog open when the targeted push fails", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      branch: "feature/source",
+      upstream: "origin/main",
+      remotes: [
+        { name: "origin", url: "https://example.test/repo.git", direction: "push" }
+      ],
+      remoteBranches: [
+        { name: "origin/main", remote: "origin", branch: "main" },
+        { name: "origin/release", remote: "origin", branch: "release" }
+      ]
+    }));
+    vi.mocked(githead.runGitAction).mockResolvedValue(createRunResult("push", {
+      exitCode: 1,
+      stderr: "rejected non-fast-forward"
+    }));
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "More push actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Push to another branch…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Push to Another Branch" });
+    await user.selectOptions(within(dialog).getByLabelText("Destination branch"), "release");
+    await user.click(within(dialog).getByRole("button", { name: "Push" }));
+
+    expect(await within(dialog).findByText("rejected non-fast-forward")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Push to Another Branch" })).toBeTruthy();
+  });
+
+  it("disables push-to-branch when no push remote exists and hides it when unsupported", async () => {
+    const { unmount } = render(<App />);
+    expect((await screen.findByRole("button", { name: "More push actions" }) as HTMLButtonElement).disabled).toBe(true);
+
+    unmount();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      capabilities: {
+        ...gitCapabilities(),
+        pushToBranch: false
+      }
+    }));
+    render(<App />);
+    await screen.findByRole("button", { name: /^Push$/ });
+    expect(screen.queryByRole("button", { name: "More push actions" })).toBeNull();
   });
 
   it("shows Publish instead of Push when the current branch has no upstream", async () => {

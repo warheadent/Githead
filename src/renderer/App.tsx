@@ -149,6 +149,7 @@ import type {
   GitRemoteBranch,
   GitResetMode,
   GitRepositoryAccessCheckResult,
+  GitPushTarget,
   GitRunResult,
   GitSafeDirectoryInfo,
   GitStatusFile,
@@ -165,6 +166,7 @@ import { parseGitHubReferences } from "../shared/githubReference";
 import { ActivityLogView } from "./ActivityLogView";
 import { BranchManagementDialog } from "./BranchManagementDialog";
 import { WorktreeCreateDialog, WorktreeRemoveDialog } from "./WorktreeDialogs";
+import { PushToBranchDialog, emptyPushToBranchDialog, type PushToBranchDialogState } from "./PushToBranchDialog";
 import { RemoteManagementDialog } from "./RemoteManagementDialog";
 import { useGitHubQueries } from "./useGitHubQueries";
 import { GitHubQueryToolbar } from "./GitHubQueryToolbar";
@@ -324,6 +326,7 @@ interface AppState {
   publishDialogOpen: boolean;
   publishRemoteDraft: string;
   publishError: string;
+  pushToBranchDialog: PushToBranchDialogState;
   createPrDialog: CreatePrDialogState;
   runningAction: string | null;
   configuredActionRuns: ConfiguredActionRun[];
@@ -561,6 +564,7 @@ const initialState: AppState = {
   publishDialogOpen: false,
   publishRemoteDraft: "",
   publishError: "",
+  pushToBranchDialog: emptyPushToBranchDialog,
   createPrDialog: emptyCreatePrDialog,
   runningAction: null,
   configuredActionRuns: [],
@@ -1411,6 +1415,7 @@ export function App(): ReactNode {
       publishDialogOpen: false,
       publishRemoteDraft: "",
       publishError: "",
+      pushToBranchDialog: emptyPushToBranchDialog,
       lastResult: null,
       lastOperationResult: null,
       gitIdentity: null,
@@ -1961,23 +1966,23 @@ export function App(): ReactNode {
     }
   }, [confirmWorkspaceTrust, createTrustFailure, updateState]);
 
-  const runAction = useCallback(async (action: GitAction): Promise<void> => {
+  const runAction = useCallback(async (action: GitAction, pushTarget?: GitPushTarget): Promise<GitRunResult | null> => {
     const current = stateRef.current;
     if (!current.summary?.isValid || isOperationRunning(current)) {
-      return;
+      return null;
     }
 
-    if (action === "push" && shouldPublishInsteadOfPush(current.summary)) {
+    if (action === "push" && !pushTarget && shouldPublishInsteadOfPush(current.summary)) {
       updateState({
         publishDialogOpen: true,
         publishRemoteDraft: getDefaultPublishRemote(current.summary),
         publishError: ""
       });
-      return;
+      return null;
     }
 
     if (!(await ensureTrustedRepo())) {
-      return;
+      return null;
     }
 
     let completedResult: GitRunResult | null = null;
@@ -1989,10 +1994,13 @@ export function App(): ReactNode {
     }));
 
     try {
-      const lastResult = await window.githead.runGitAction({
-        repoPath: stateRef.current.repoPath,
-        action
-      });
+      const repoPath = stateRef.current.repoPath;
+      const request = action === "push"
+        ? pushTarget
+          ? { repoPath, action, pushTarget }
+          : { repoPath, action }
+        : { repoPath, action };
+      const lastResult = await window.githead.runGitAction(request);
       updateState({
         lastResult
       });
@@ -2026,6 +2034,7 @@ export function App(): ReactNode {
       await refreshRepo();
       if (
         action === "push" &&
+        !pushTarget &&
         completedResult &&
         completedResult.exitCode !== 0 &&
         shouldOfferPublishAfterFailedPush(completedResult, stateRef.current.summary)
@@ -2038,6 +2047,7 @@ export function App(): ReactNode {
         });
       }
     }
+    return completedResult;
   }, [appendSystemLine, ensureTrustedRepo, refreshRepo, updateState]);
 
   const runAutomaticFetch = useCallback(async (): Promise<void> => {
@@ -2768,6 +2778,38 @@ export function App(): ReactNode {
     });
   }, [updateState]);
 
+  const openPushToBranchDialog = useCallback((): void => {
+    const current = stateRef.current;
+    const summary = current.summary;
+    if (
+      !summary?.isValid ||
+      !summary.capabilities.pushToBranch ||
+      !summary.branch ||
+      getPushRemotes(summary).length === 0 ||
+      isOperationRunning(current)
+    ) {
+      return;
+    }
+
+    updateState({
+      pushToBranchDialog: {
+        ...emptyPushToBranchDialog,
+        open: true,
+        sourceBranch: summary.branch,
+        remoteName: getDefaultPushRemote(summary)
+      }
+    });
+  }, [updateState]);
+
+  const closePushToBranchDialog = useCallback((): void => {
+    if (isOperationRunning(stateRef.current)) {
+      return;
+    }
+    updateState({
+      pushToBranchDialog: emptyPushToBranchDialog
+    });
+  }, [updateState]);
+
   const switchBranch = useCallback(async (branchName: string): Promise<void> => {
     const current = stateRef.current;
     const nextBranchName = branchName.trim();
@@ -2935,6 +2977,117 @@ export function App(): ReactNode {
       publishError: completedResult?.stderr.trim() || "Unable to publish branch."
     });
   }, [appendSystemLine, ensureTrustedRepo, refreshRepo, updateState]);
+
+  const pushToBranch = useCallback(async (): Promise<void> => {
+    const current = stateRef.current;
+    const summary = current.summary;
+    const dialog = current.pushToBranchDialog;
+    if (
+      !dialog.open ||
+      !summary?.isValid ||
+      !summary.capabilities.pushToBranch ||
+      !summary.branch ||
+      isOperationRunning(current)
+    ) {
+      return;
+    }
+
+    if (summary.branch !== dialog.sourceBranch) {
+      updateState({
+        pushToBranchDialog: {
+          ...dialog,
+          error: "Current branch changed. Refresh and try again."
+        }
+      });
+      return;
+    }
+
+    const pushRemotes = getPushRemotes(summary);
+    const remoteName = dialog.remoteName.trim();
+    if (!remoteName || !pushRemotes.includes(remoteName)) {
+      updateState({
+        pushToBranchDialog: {
+          ...dialog,
+          error: pushRemotes.length === 0 ? "No push remote is configured." : "Select a push remote."
+        }
+      });
+      return;
+    }
+
+    const destinationBranch = (
+      dialog.destinationMode === "new" ? dialog.newBranchName : dialog.destinationBranch
+    ).trim();
+    if (!destinationBranch) {
+      updateState({
+        pushToBranchDialog: {
+          ...dialog,
+          error: dialog.destinationMode === "new" ? "Enter a destination branch name." : "Select a destination branch."
+        }
+      });
+      return;
+    }
+    if (
+      dialog.destinationMode === "existing" &&
+      !summary.remoteBranches.some((remoteBranch) =>
+        remoteBranch.remote === remoteName && remoteBranch.branch === destinationBranch
+      )
+    ) {
+      updateState({
+        pushToBranchDialog: {
+          ...dialog,
+          error: "Select a fetched remote branch."
+        }
+      });
+      return;
+    }
+
+    const repoPath = current.repoPath;
+    updateState({
+      pushToBranchDialog: {
+        ...dialog,
+        error: ""
+      }
+    });
+    if (!(await ensureTrustedRepo())) {
+      const latest = stateRef.current;
+      if (latest.repoPath === repoPath && latest.pushToBranchDialog.open) {
+        updateState({
+          pushToBranchDialog: {
+            ...latest.pushToBranchDialog,
+            error: "Repository trust is required before pushing branches."
+          }
+        });
+      }
+      return;
+    }
+
+    const latest = stateRef.current;
+    if (latest.repoPath !== repoPath || !latest.pushToBranchDialog.open) {
+      return;
+    }
+
+    const completedResult = await runAction("push", {
+      sourceBranch: dialog.sourceBranch,
+      remoteName,
+      destinationBranch
+    });
+    if (completedResult?.exitCode === 0) {
+      updateState({
+        pushToBranchDialog: emptyPushToBranchDialog
+      });
+      return;
+    }
+
+    const afterPush = stateRef.current;
+    if (afterPush.repoPath === repoPath && afterPush.pushToBranchDialog.open) {
+      updateState({
+        pushToBranchDialog: {
+          ...afterPush.pushToBranchDialog,
+          error: completedResult?.stderr.trim() || "Unable to push to the selected branch."
+        }
+      });
+    }
+  }, [ensureTrustedRepo, runAction, updateState]);
 
   const openCreatePrDialog = useCallback((): void => {
     const current = stateRef.current;
@@ -4633,6 +4786,7 @@ export function App(): ReactNode {
               onRunAction={(action) => {
                 void runAction(action);
               }}
+              onOpenPushToBranch={openPushToBranchDialog}
               onRunConfiguredAction={(action) => {
                 void runConfiguredAction(action);
               }}
@@ -5164,6 +5318,26 @@ export function App(): ReactNode {
         onPublish={(event) => {
           event.preventDefault();
           void publishBranch();
+        }}
+      />
+
+      <PushToBranchDialog
+        state={state.pushToBranchDialog}
+        remotes={getPushRemotes(state.summary)}
+        remoteBranches={state.summary?.remoteBranches ?? []}
+        currentUpstream={state.summary?.upstream ?? null}
+        saving={state.runningAction === "push" && state.pushToBranchDialog.open}
+        onOpenChange={(open) => {
+          if (!open) {
+            closePushToBranchDialog();
+          }
+        }}
+        onStateChange={(pushToBranchDialog) => {
+          updateState({ pushToBranchDialog });
+        }}
+        onPush={(event) => {
+          event.preventDefault();
+          void pushToBranch();
         }}
       />
 
@@ -6760,6 +6934,7 @@ function ActionBar({
   showCreatePullRequest,
   branchPullRequests,
   onRunAction,
+  onOpenPushToBranch,
   onRunConfiguredAction,
   onManageActions,
   onCreatePullRequest,
@@ -6775,6 +6950,7 @@ function ActionBar({
   showCreatePullRequest: boolean;
   branchPullRequests: GitHubPullRequestAssociation[];
   onRunAction: (action: GitAction) => void;
+  onOpenPushToBranch: () => void;
   onRunConfiguredAction: (action: GitConfiguredAction) => void;
   onManageActions: () => void;
   onCreatePullRequest: () => void;
@@ -6797,6 +6973,8 @@ function ActionBar({
     : pushableCommitCount > 0
     ? formatActionCountLabel("Push", pushableCommitCount)
     : undefined;
+  const showPushMenu = capabilities?.pushToBranch ?? false;
+  const pushMenuDisabled = disabled || !summary?.branch || getPushRemotes(summary).length === 0;
   const actionsConfig = summary?.actionsConfig;
   const configuredActions = actionsConfig?.actions ?? [];
   const actionsConfigError = actionsConfig?.error.trim() ?? "";
@@ -6892,22 +7070,45 @@ function ActionBar({
             </SyncCountChip>
           ) : null}
         </Button>
-        <Button
-          type="button"
-          variant={runningAction === "push" ? "secondary" : "outline"}
-          disabled={disabled}
-          onClick={() => onRunAction("push")}
-          aria-label={pushAriaLabel}
-          className="min-w-24"
-        >
-          {runningAction === "push" ? <Loader2 className="animate-spin" /> : <Upload />}
-          {publishInsteadOfPush ? "Publish" : "Push"}
-          {!publishInsteadOfPush && pushableCommitCount > 0 ? (
-            <SyncCountChip title={formatCommitCountLabel(pushableCommitCount, "ahead")}>
-              {pushableCommitCount}
-            </SyncCountChip>
+        <div className="flex items-stretch">
+          <Button
+            type="button"
+            variant={runningAction === "push" ? "secondary" : "outline"}
+            disabled={disabled}
+            onClick={() => onRunAction("push")}
+            aria-label={pushAriaLabel}
+            className={`min-w-24 ${showPushMenu ? "rounded-r-none" : ""}`}
+          >
+            {runningAction === "push" ? <Loader2 className="animate-spin" /> : <Upload />}
+            {publishInsteadOfPush ? "Publish" : "Push"}
+            {!publishInsteadOfPush && pushableCommitCount > 0 ? (
+              <SyncCountChip title={formatCommitCountLabel(pushableCommitCount, "ahead")}>
+                {pushableCommitCount}
+              </SyncCountChip>
+            ) : null}
+          </Button>
+          {showPushMenu ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant={runningAction === "push" ? "secondary" : "outline"}
+                  disabled={pushMenuDisabled}
+                  aria-label="More push actions"
+                  className="rounded-l-none border-l-border px-2"
+                >
+                  <ChevronDown />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={onOpenPushToBranch}>
+                  <GitBranchIcon />
+                  Push to another branch…
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           ) : null}
-        </Button>
+        </div>
         {branchPullRequests.length === 1 ? (
           <Button type="button" variant="outline" onClick={() => onOpenExternalUrl(branchPullRequests[0]!.url)} className="min-w-24">
             <GitPullRequest />
@@ -9917,7 +10118,18 @@ function shouldPublishInsteadOfPush(summary: RepoSummary | null): summary is Rep
 }
 
 function getDefaultPublishRemote(summary: RepoSummary): string {
+  return getDefaultPushRemote(summary);
+}
+
+function getDefaultPushRemote(summary: RepoSummary): string {
   const pushRemotes = getPushRemotes(summary);
+  const upstreamRemote = summary.upstream
+    ? summary.remoteBranches.find((remoteBranch) => remoteBranch.name === summary.upstream)?.remote
+      ?? pushRemotes.find((remoteName) => summary.upstream?.startsWith(`${remoteName}/`))
+    : undefined;
+  if (upstreamRemote && pushRemotes.includes(upstreamRemote)) {
+    return upstreamRemote;
+  }
   return pushRemotes.includes("origin") ? "origin" : pushRemotes[0] ?? "";
 }
 

@@ -454,6 +454,129 @@ describe("GitService", () => {
     });
   });
 
+  it("pushes HEAD to a selected remote branch before pushing tags to that remote", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("feature/source\n"),
+      ok("origin\nupstream\n"),
+      ok("release/candidate\n"),
+      ok("branch pushed\n"),
+      ok("tags pushed\n")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.runGitAction({
+      repoPath: "D:\\Repo",
+      action: "push",
+      pushTarget: {
+        sourceBranch: "feature/source",
+        remoteName: "upstream",
+        destinationBranch: "release/candidate"
+      }
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("branch pushed\ntags pushed\n");
+    expect(runner.calls.slice(1)).toMatchObject([
+      { args: ["-C", "D:\\Repo", "branch", "--show-current"] },
+      { args: ["-C", "D:\\Repo", "remote"] },
+      { args: ["-C", "D:\\Repo", "check-ref-format", "--branch", "release/candidate"] },
+      { args: ["-C", "D:\\Repo", "push", "upstream", "HEAD:refs/heads/release/candidate"] },
+      { args: ["-C", "D:\\Repo", "push", "upstream", "--tags"] }
+    ]);
+  });
+
+  it("rejects a targeted push when the current branch changed", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("feature/other\n")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.runGitAction({
+      repoPath: "D:\\Repo",
+      action: "push",
+      pushTarget: {
+        sourceBranch: "feature/source",
+        remoteName: "origin",
+        destinationBranch: "release/candidate"
+      }
+    });
+
+    expect(result.exitCode).toBe(-1);
+    expect(result.stderr).toBe("Current branch changed before pushing. Refresh and try again.");
+    expect(runner.calls).toHaveLength(2);
+  });
+
+  it("rejects targeted pushes to missing remotes and invalid branch names", async () => {
+    const missingRemoteRunner = new FakeRunner([
+      ok("true\n"),
+      ok("feature/source\n"),
+      ok("origin\n")
+    ]);
+    const missingRemoteResult = await new GitService(missingRemoteRunner).runGitAction({
+      repoPath: "D:\\Repo",
+      action: "push",
+      pushTarget: {
+        sourceBranch: "feature/source",
+        remoteName: "missing",
+        destinationBranch: "release/candidate"
+      }
+    });
+    expect(missingRemoteResult.exitCode).toBe(-1);
+    expect(missingRemoteResult.stderr).toBe("Remote is invalid.");
+
+    const invalidBranchRunner = new FakeRunner([
+      ok("true\n"),
+      ok("feature/source\n"),
+      ok("origin\n"),
+      failure("fatal: invalid branch name")
+    ]);
+    const invalidBranchResult = await new GitService(invalidBranchRunner).runGitAction({
+      repoPath: "D:\\Repo",
+      action: "push",
+      pushTarget: {
+        sourceBranch: "feature/source",
+        remoteName: "origin",
+        destinationBranch: "invalid branch"
+      }
+    });
+    expect(invalidBranchResult.exitCode).toBe(-1);
+    expect(invalidBranchResult.stderr).toBe("fatal: invalid branch name");
+    expect(invalidBranchRunner.calls).toHaveLength(4);
+  });
+
+  it("does not push targeted tags when the branch push fails", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("feature/source\n"),
+      ok("origin\n"),
+      ok("release/candidate\n"),
+      failure("rejected non-fast-forward")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.runGitAction({
+      repoPath: "D:\\Repo",
+      action: "push",
+      pushTarget: {
+        sourceBranch: "feature/source",
+        remoteName: "origin",
+        destinationBranch: "release/candidate"
+      }
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("rejected non-fast-forward");
+    expect(runner.calls.at(-1)?.args).toEqual([
+      "-C",
+      "D:\\Repo",
+      "push",
+      "origin",
+      "HEAD:refs/heads/release/candidate"
+    ]);
+  });
+
   it("publishes a branch with upstream before pushing tags to the same remote", async () => {
     const runner = new FakeRunner([
       ok("true\n"),

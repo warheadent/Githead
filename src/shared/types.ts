@@ -259,6 +259,7 @@ export interface RepoCapabilities {
   multipleRemotes: boolean;
   manageRemotes: boolean;
   setUpstream: boolean;
+  pushToBranch: boolean;
   fetch: boolean;
   sync: boolean;
   resetModes: boolean;
@@ -277,6 +278,7 @@ export function gitCapabilities(): RepoCapabilities {
     multipleRemotes: true,
     manageRemotes: true,
     setUpstream: true,
+    pushToBranch: true,
     fetch: true,
     sync: false,
     resetModes: true,
@@ -296,6 +298,7 @@ export function loreCapabilities(): RepoCapabilities {
     multipleRemotes: false,
     manageRemotes: false,
     setUpstream: false,
+    pushToBranch: false,
     fetch: false,
     sync: true,
     resetModes: false,
@@ -351,10 +354,25 @@ export interface GitSafeDirectoryRequest {
   repoPath: string;
 }
 
-export interface GitRunRequest {
-  repoPath: string;
-  action: GitAction;
+export interface GitPushTarget {
+  sourceBranch: string;
+  remoteName: string;
+  destinationBranch: string;
 }
+
+interface GitBaseRunRequest {
+  repoPath: string;
+}
+
+export type GitRunRequest =
+  | (GitBaseRunRequest & {
+      action: "fetch" | "pull";
+      pushTarget?: never;
+    })
+  | (GitBaseRunRequest & {
+      action: "push";
+      pushTarget?: GitPushTarget;
+    });
 
 export interface GitConfiguredActionRunRequest {
   repoPath: string;
