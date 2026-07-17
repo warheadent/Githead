@@ -91,6 +91,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { TagDialog, type TagDialogState } from "./TagDialog";
+import { MotionPresence, MotionSwap, useFlipList } from "./motion";
 import {
   RepositoryActionsDialog,
   type RepositoryActionDraft,
@@ -5771,6 +5772,10 @@ function RepositoryList({
   const [draggedRepoPath, setDraggedRepoPath] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ repoPath: string; position: RepositoryDropPosition } | null>(null);
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
+  const repositoryOrder = groups?.length
+    ? groups.map((group) => getRepoPathKey(group.anchorPath))
+    : repoPaths.map(getRepoPathKey);
+  const captureRepositoryPositions = useFlipList(repositoryOrder, repositoryRowsRef);
 
   useEffect(() => {
     const activeKey = repoPath ? getRepoPathKey(repoPath) : null;
@@ -5790,9 +5795,10 @@ function RepositoryList({
 
     const next = moveRepoPath(repoPaths, fromRepoPath, toRepoPath, position);
     if (!areRepoPathListsEqual(repoPaths, next)) {
+      captureRepositoryPositions();
       onReorder(next);
     }
-  }, [disabled, onReorder, repoPaths]);
+  }, [captureRepositoryPositions, disabled, onReorder, repoPaths]);
 
   const moveRepositoryByKeyboard = useCallback((moveRepoPathValue: string, direction: RepositoryMoveDirection): void => {
     if (disabled) {
@@ -5812,8 +5818,9 @@ function RepositoryList({
     }
 
     next.splice(targetIndex, 0, moved);
+    captureRepositoryPositions();
     onReorder(next);
-  }, [disabled, onReorder, repoPaths]);
+  }, [captureRepositoryPositions, disabled, onReorder, repoPaths]);
 
   const startDrag = (event: DragEvent<HTMLButtonElement>, dragRepoPath: string): void => {
     if (disabled) {
@@ -6015,17 +6022,17 @@ function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled,
   return <div ref={rowRef} className={rowClassName} data-repo-path={group.anchorPath}>
     <div className="repo-group-heading">
       <button type="button" className="repo-recent-drag-handle" draggable={!disabled} disabled={disabled} onDragStart={(event) => onDragStart(event, group.anchorPath)} onMouseDown={() => onPointerDragStart(group.anchorPath)} onDragEnd={onDragEnd} onKeyDown={handleKeyDown} aria-label={`Reorder ${group.anchorPath}`}><GripVertical /></button>
-      <button type="button" className="repo-group-toggle" disabled={disabled} onClick={onToggle} aria-expanded={expanded} aria-controls={worktreeListId} aria-label={`${expanded ? "Collapse" : "Expand"} worktrees for ${displayName}`}>{expanded ? <ChevronDown /> : <ChevronRight />}</button>
+      <button type="button" className="repo-group-toggle" disabled={disabled} onClick={onToggle} aria-expanded={expanded} aria-controls={worktreeListId} aria-label={`${expanded ? "Collapse" : "Expand"} worktrees for ${displayName}`}><ChevronRight className="repo-group-chevron" /></button>
       <button type="button" className="repo-group-main" disabled={disabled || navigationActive || navigationUnavailable} onClick={() => onSelect(group.lastUsedPath)} aria-current={navigationActive ? "true" : undefined} aria-label={`Switch to ${group.anchorPath}`}><RecentRepositoryVcsIcon kind={group.kind} /><span className="repo-recent-title">{displayName}</span></button>
       {active && group.kind === "git" && onAddWorktree ? <TooltipButton type="button" variant="ghost" size="icon-xs" disabled={disabled} onClick={onAddWorktree} aria-label="Add worktree" tooltip="Add worktree"><GitFork /></TooltipButton> : null}
       <TooltipButton type="button" variant="ghost" size="icon-xs" disabled={disabled} onClick={onRemove} aria-label={`Remove ${group.anchorPath} from recent repositories`} tooltip="Remove from recents"><X /></TooltipButton>
     </div>
-    {expanded ? <div id={worktreeListId} className="repo-worktree-list">{worktrees.map((worktree) => {
+    <MotionPresence present={expanded} id={worktreeListId} className="repo-worktree-list">{worktrees.map((worktree) => {
       const workspaceActive = isSameRepoPath(worktree.path, activeRepoPath);
       const unavailable = worktree.isBare || worktree.prunable;
       const status = syncStatuses[getRepoPathKey(worktree.path)] ?? null;
       return <ContextMenu key={getRepoPathKey(worktree.path)}><ContextMenuTrigger asChild><div className={`repo-worktree-row ${workspaceActive ? "is-active" : ""}`}><button type="button" className="repo-worktree-main" disabled={disabled || workspaceActive || unavailable} onClick={() => onSelect(worktree.path)} aria-current={workspaceActive ? "true" : undefined}><GitBranchIcon /><span className="min-w-0 flex-1"><span className="repo-worktree-branch">{worktree.branch ?? (worktree.isDetached ? "Detached HEAD" : getRepoDisplayName(worktree.path))}</span><span className="repo-worktree-path">{getRepoDisplayName(worktree.path)}</span></span>{worktree.isMain ? <Badge variant="outline">Main</Badge> : null}{worktree.locked ? <Badge variant="outline">Locked</Badge> : null}{worktree.prunable ? <Badge variant="destructive">Missing</Badge> : null}<RepoSyncStatusChips status={status} /></button></div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{worktree.path}</ContextMenuLabel><ContextMenuSeparator /><ContextMenuItem disabled={unavailable} onSelect={() => onShowInExplorer(worktree.path)}><MapPinned />Show in Explorer</ContextMenuItem>{!worktree.isMain && !workspaceActive && onRemoveWorktree ? <ContextMenuItem disabled={disabled || unavailable || worktree.locked} onSelect={() => onRemoveWorktree(worktree)}><Trash2 />Remove Worktree…</ContextMenuItem> : null}</ContextMenuContent></ContextMenu>;
-    })}{group.error ? <p className="px-3 py-2 text-xs text-destructive">{group.error}</p> : null}</div> : null}
+    })}{group.error ? <p className="px-3 py-2 text-xs text-destructive">{group.error}</p> : null}</MotionPresence>
   </div>;
 }
 
@@ -6402,11 +6409,18 @@ function CloneRepositoryForm({
       {cloneError ? (
         <p className="setup-error selectable-text" role="alert">{cloneError}</p>
       ) : null}
-      {cloneCheckMessage ? (
-        <p className={`${cloneCheckStatus === "success" ? "setup-success" : "setup-error"} selectable-text`} role={cloneCheckStatus === "error" ? "alert" : "status"}>
-          {cloneCheckMessage}
-        </p>
-      ) : null}
+      <MotionSwap
+        item={cloneCheckMessage ? {
+          key: `${cloneCheckStatus}:${cloneCheckMessage}`,
+          content: (
+            <p className={`${cloneCheckStatus === "success" ? "setup-success" : "setup-error"} selectable-text`} role={cloneCheckStatus === "error" ? "alert" : "status"}>
+              {cloneCheckMessage}
+            </p>
+          )
+        } : null}
+        className="clone-check-message-swap"
+        presenceClassName="clone-check-message-presence"
+      />
 
       <Button type="submit" className="w-full justify-center" disabled={cloneBusy}>
         {cloneRunning ? <Loader2 className="animate-spin" /> : <Download />}
@@ -6799,28 +6813,31 @@ function AppUpdateControl({
   onInstall: () => void;
 }): ReactNode {
   const action = resolveAppUpdateAction(state);
-  if (action === "none") {
-    return null;
+  const present = action !== "none";
+  const visibleStateRef = useRef(state);
+  if (present) {
+    visibleStateRef.current = state;
   }
-
-  const version = state.downloadedVersion ?? state.availableVersion;
-  const label = getAppUpdateButtonLabel(state);
-  const disabled = state.status === "checking" || state.status === "downloading";
-  const icon = state.status === "downloaded"
+  const visibleState = present ? state : visibleStateRef.current;
+  const visibleAction = resolveAppUpdateAction(visibleState);
+  const version = visibleState.downloadedVersion ?? visibleState.availableVersion;
+  const label = getAppUpdateButtonLabel(visibleState);
+  const disabled = visibleState.status === "checking" || visibleState.status === "downloading";
+  const icon = visibleState.status === "downloaded"
     ? <RotateCcw />
-    : state.status === "checking" || state.status === "downloading"
+    : visibleState.status === "checking" || visibleState.status === "downloading"
       ? <Loader2 className="animate-spin" />
-      : action === "check"
+      : visibleAction === "check"
         ? <RefreshCw />
         : <Download />;
 
   const runAction = (): void => {
-    if (action === "check") {
+    if (visibleAction === "check") {
       onCheck();
       return;
     }
 
-    if (action === "download") {
+    if (visibleAction === "download") {
       onDownload();
       return;
     }
@@ -6831,29 +6848,35 @@ function AppUpdateControl({
   };
 
   return (
-    <section className={`app-update-control is-${state.status}`} aria-label="App update">
-      {state.message ? (
+    <MotionPresence
+      present={present}
+      className={`app-update-control is-${visibleState.status}`}
+      element="section"
+      ariaLabel="App update"
+      enterDuration={200}
+    >
+      {visibleState.message ? (
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
               type="button"
-              variant={state.status === "error" ? "outline" : "secondary"}
+              variant={visibleState.status === "error" ? "outline" : "secondary"}
               disabled={disabled}
               onClick={runAction}
-              aria-label={`${label}: ${state.message}`}
+              aria-label={`${label}: ${visibleState.message}`}
             >
               {icon}
               {label}
             </Button>
           </TooltipTrigger>
           <TooltipContent className="max-w-72">
-            {state.message}
+            {visibleState.message}
           </TooltipContent>
         </Tooltip>
       ) : (
         <Button
           type="button"
-          variant={state.status === "error" ? "outline" : "secondary"}
+          variant={visibleState.status === "error" ? "outline" : "secondary"}
           disabled={disabled}
           onClick={runAction}
         >
@@ -6864,10 +6887,10 @@ function AppUpdateControl({
       {version ? (
         <div className="app-update-version-row">
           <p className="app-update-version">Version {version}</p>
-          {state.releaseNotes ? <AppUpdateReleaseNotesPopover state={state} /> : null}
+          {visibleState.releaseNotes ? <AppUpdateReleaseNotesPopover state={visibleState} /> : null}
         </div>
       ) : null}
-    </section>
+    </MotionPresence>
   );
 }
 

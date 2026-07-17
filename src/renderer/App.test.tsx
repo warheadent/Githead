@@ -5363,7 +5363,10 @@ describe("App", () => {
     expect(await screen.findByText("fatal: authentication failed")).toBeTruthy();
     await user.type(sourceInput, "-copy");
 
-    expect(screen.queryByText("fatal: authentication failed")).toBeNull();
+    const exitingMessage = screen.getByText("fatal: authentication failed").closest(".motion-presence");
+    expect(exitingMessage?.getAttribute("data-motion-state")).toBe("exiting");
+    expect(exitingMessage?.getAttribute("aria-hidden")).toBe("true");
+    await waitFor(() => expect(screen.queryByText("fatal: authentication failed")).toBeNull());
   });
 
   it("disables clone actions while checking repository access", async () => {

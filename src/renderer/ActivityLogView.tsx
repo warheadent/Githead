@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode, type UIEvent 
 import { Button, TooltipButton } from "@/components/ui/button";
 import type { ActivityLogBlock, ActivityLogState } from "./activityLog";
 import { hasActivityLogOutput } from "./activityLog";
+import { MotionPresence } from "./motion";
 
 interface ActivityLogViewProps {
   log: ActivityLogState;
@@ -101,12 +102,15 @@ export function ActivityLogView({
           <div className="activity-log-empty">No command output yet.</div>
         )}
       </div>
-      {hasOutput && !stickToBottom ? (
+      <MotionPresence
+        present={hasOutput && !stickToBottom}
+        className="activity-log-jump-presence"
+      >
         <Button type="button" className="activity-log-jump" size="sm" onClick={jumpToLatest}>
           <ArrowDown />
           Jump to latest
         </Button>
-      ) : null}
+      </MotionPresence>
     </section>
   );
 }
