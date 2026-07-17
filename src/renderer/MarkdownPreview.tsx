@@ -7,7 +7,7 @@ import {
   type ComponentProps,
   type ReactNode
 } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { TooltipButton } from "@/components/ui/button";
 
@@ -93,6 +93,14 @@ function MarkdownCodeBlock({ children, ...props }: ComponentProps<"pre">): React
   );
 }
 
+function MarkdownTable({ node: _node, ...props }: ComponentProps<"table"> & ExtraProps): ReactNode {
+  return (
+    <div className="markdown-preview-table" role="region" aria-label="Scrollable Markdown table" tabIndex={0}>
+      <table {...props} />
+    </div>
+  );
+}
+
 export function MarkdownPreview({ text }: { text: string }): ReactNode {
   return (
     <article className="markdown-preview selectable-text">
@@ -106,11 +114,7 @@ export function MarkdownPreview({ text }: { text: string }): ReactNode {
             </a>
           ),
           pre: MarkdownCodeBlock,
-          table: ({ node: _node, ...props }) => (
-            <div className="markdown-preview-table" role="region" aria-label="Scrollable Markdown table" tabIndex={0}>
-              <table {...props} />
-            </div>
-          )
+          table: MarkdownTable
         }}
       >
         {text}

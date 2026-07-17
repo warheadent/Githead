@@ -64,6 +64,23 @@ describe("MarkdownPreview", () => {
     expect(screen.queryByRole("button", { name: "Copy code" })).toBeNull();
   });
 
+  it("preserves a table's horizontal scroll position across parent re-renders", () => {
+    const text = "| Name | Description |\n| --- | --- |\n| Githead | A deliberately long table value |";
+    const preview = (
+      <TooltipProvider>
+        <MarkdownPreview text={text} />
+      </TooltipProvider>
+    );
+    const { rerender } = render(preview);
+    const scrollRegion = screen.getByRole("region", { name: "Scrollable Markdown table" });
+    scrollRegion.scrollLeft = 120;
+
+    rerender(preview);
+
+    expect(screen.getByRole("region", { name: "Scrollable Markdown table" })).toBe(scrollRegion);
+    expect(scrollRegion.scrollLeft).toBe(120);
+  });
+
   it("resets successful feedback after two seconds", async () => {
     renderPreview("```ts\nconst value = true;\n```");
 
