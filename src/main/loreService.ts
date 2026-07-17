@@ -27,6 +27,8 @@ import type {
   GitFileChangesRequest,
   GitFileDiff,
   GitFileDiffRequest,
+  GitFilePreview,
+  GitFilePreviewRequest,
   GitHubRepository,
   GitHunkRequest,
   GitLfsImageFetchRequest,
@@ -65,6 +67,7 @@ import type { GitOutputHandler } from "./gitService";
 import type { ProcessResult, ProcessRunOptions, ProcessRunner } from "./processRunner";
 import { mapRepoSyncStatuses } from "./repoSyncStatus";
 import { imageFallbackText, isPreviewableImagePath, readImageFile, type ImageReadResult } from "./imageDiff";
+import { readMarkdownPreviewFile, validateMarkdownPreviewPath } from "./filePreview";
 import type { VcsService } from "./vcsService";
 import {
   type LoreRevision,
@@ -403,6 +406,40 @@ export class LoreService implements VcsService {
       kind: text ? "text" : "empty",
       text
     };
+  }
+
+  async getFilePreview(request: GitFilePreviewRequest): Promise<GitFilePreview> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) throw new Error(validation.error);
+
+    const filePath = validateMarkdownPreviewPath(request.path);
+    if (request.source.kind !== "commit") {
+      return { path: request.path, text: await readMarkdownPreviewFile(validation.rootPath, filePath) };
+    }
+
+    const revision = sanitizeHash(request.source.hash);
+    if (!revision) throw new Error("Revision signature is invalid.");
+
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "githead-markdown-"));
+    const outputName = "preview.md";
+    try {
+      const result = await this.runLore(validation.rootPath, [
+        "file",
+        "write",
+        "--path",
+        filePath,
+        "--revision",
+        revision,
+        "--output",
+        path.join(tempDir, outputName)
+      ]);
+      if (result.exitCode !== 0) {
+        throw new Error(result.stderr.trim() || result.error || "Markdown file is missing from the selected revision.");
+      }
+      return { path: request.path, text: await readMarkdownPreviewFile(tempDir, outputName) };
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+    }
   }
 
   async getStagedDiff(repoPath: string): Promise<GitOperationResult> {

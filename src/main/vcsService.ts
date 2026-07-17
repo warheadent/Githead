@@ -23,6 +23,7 @@ export type VcsService = Pick<
   | "checkRepositoryAccess"
   | "cloneRepository"
   | "getFileDiff"
+  | "getFilePreview"
   | "fetchLfsImageVersions"
   | "getStagedDiff"
   | "getCommitHistory"

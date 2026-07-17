@@ -47,6 +47,7 @@ const LANGUAGE_BY_EXTENSION = new Map<string, string>([
   ["jsx", "javascript"],
   ["ksh", "bash"],
   ["md", "markdown"],
+  ["markdown", "markdown"],
   ["mjs", "javascript"],
   ["php", "php"],
   ["ps1", "powershell"],

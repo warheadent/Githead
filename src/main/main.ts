@@ -37,6 +37,7 @@ import type {
   GitDeleteTagRequest,
   GitFileChangesRequest,
   GitFileDiffRequest,
+  GitFilePreviewRequest,
   GitHunkRequest,
   GitLfsImageFetchRequest,
   GitHubWorkflowRunsRequest,
@@ -427,6 +428,11 @@ ipcMain.handle(IPC_CHANNELS.getFileDiff, (event, request: GitFileDiffRequest) =>
   handleRead(event, request, async (signal) =>
     processRunner.runWithSignal(signal, async () =>
       (await vcsRouter.serviceForRepo(request.repoPath)).getFileDiff(request))));
+
+ipcMain.handle(IPC_CHANNELS.getFilePreview, (event, request: GitFilePreviewRequest) =>
+  handleRead(event, request, async (signal) =>
+    processRunner.runWithSignal(signal, async () =>
+      (await vcsRouter.serviceForRepo(request.repoPath)).getFilePreview(request))));
 
 ipcMain.handle(IPC_CHANNELS.fetchLfsImageVersions, async (_event, request: GitLfsImageFetchRequest) => {
   const trusted = await requireTrustedRepo(request.repoPath);

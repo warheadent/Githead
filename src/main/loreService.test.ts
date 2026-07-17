@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -128,6 +128,38 @@ hello.txt
 `;
 
 describe("LoreService", () => {
+  it("loads working and historical Markdown preview versions", async () => {
+    await withLoreRepo(async (dir) => {
+      await fs.writeFile(path.join(dir, "README.md"), "# Working Lore\n", "utf8");
+      const revision = "7154881d5d929c4487cdee9d65fd7b9c6edb6de8994f819c80ac4191a8f08af4";
+      const runner = new FakeRunner([
+        ok("On branch main"),
+        ok("On branch main"),
+        ok("written")
+      ]);
+      const run = runner.run.bind(runner);
+      vi.spyOn(runner, "run").mockImplementation(async (command, args, options) => {
+        const result = await run(command, args, options);
+        const outputIndex = args.indexOf("--output");
+        if (outputIndex >= 0) await fs.writeFile(args[outputIndex + 1]!, "# Historical Lore\n", "utf8");
+        return result;
+      });
+      const service = new LoreService(runner);
+
+      await expect(service.getFilePreview({ repoPath: dir, path: "README.md", source: { kind: "staged" } }))
+        .resolves.toEqual({ path: "README.md", text: "# Working Lore\n" });
+
+      const historical = await service.getFilePreview({ repoPath: dir, path: "README.md", source: { kind: "commit", hash: revision } });
+      const outputIndex = runner.calls[2]?.args.indexOf("--output") ?? -1;
+      const outputPath = runner.calls[2]?.args[outputIndex + 1];
+      expect(outputPath).toBeTruthy();
+      expect(historical).toEqual({ path: "README.md", text: "# Historical Lore\n" });
+      expect(runner.calls[2]?.args).toEqual([
+        "--repository", dir, "-P", "file", "write", "--path", "README.md", "--revision", revision, "--output", outputPath
+      ]);
+    });
+  });
+
   it("builds a lore repo summary from status and branch output", async () => {
     await withLoreRepo(async (dir) => {
       const runner = new FakeRunner([

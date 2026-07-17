@@ -32,6 +32,8 @@ import type {
   GitFileChangesRequest,
   GitFileDiff,
   GitFileDiffRequest,
+  GitFilePreview,
+  GitFilePreviewRequest,
   GitHunkRequest,
   GitLfsImageFetchRequest,
   GitIgnorePathRequest,
@@ -78,6 +80,7 @@ import type { ProcessOutput, ProcessResult, ProcessRunner } from "./processRunne
 import { mapRepoSyncStatuses } from "./repoSyncStatus";
 import { IMAGE_PREVIEW_LIMIT, imageFallbackText, imageVersionFromBytes, isPreviewableImagePath, type ImageReadResult } from "./imageDiff";
 import { escapeLfsIncludePath, isGitLfsPointerDiff, parseGitLfsPointer, parseLocalMediaDir, resolveLocalLfsImage, type GitLfsPointer } from "./gitLfs";
+import { readMarkdownPreviewFile, validateMarkdownPreviewPath, validateMarkdownPreviewText } from "./filePreview";
 
 export const GIT_ACTION_COMMANDS: Record<GitAction, string[]> = {
   fetch: [
@@ -456,6 +459,31 @@ export class GitService {
     return (normalized.kind === "binary" || (normalized.kind === "text" && isGitLfsPointerDiff(normalized.text))) && isPreviewableImagePath(request.path) && this.runner.runBinary
       ? await this.getWorkingImageDiff(request)
       : normalized;
+  }
+
+  async getFilePreview(request: GitFilePreviewRequest): Promise<GitFilePreview> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) throw new Error(validation.validationErrors.join(" "));
+
+    const filePath = validateMarkdownPreviewPath(request.path);
+    if (request.source.kind === "working") {
+      const rootResult = await this.runGit(request.repoPath, ["rev-parse", "--show-toplevel"]);
+      if (rootResult.exitCode !== 0) {
+        throw new Error(rootResult.stderr.trim() || "Unable to locate the repository root.");
+      }
+      return { path: request.path, text: await readMarkdownPreviewFile(rootResult.stdout.trim(), filePath) };
+    }
+
+    const hashResult = request.source.kind === "commit" ? sanitizeCommitHash(request.source.hash) : null;
+    if (hashResult && "error" in hashResult) throw new Error(hashResult.error);
+    const objectName = request.source.kind === "staged"
+      ? `:${filePath}`
+      : `${hashResult?.hash}:${filePath}`;
+    const result = await this.runGit(request.repoPath, ["cat-file", "blob", objectName]);
+    if (result.exitCode !== 0) {
+      throw new Error(result.stderr.trim() || "Markdown file is missing from the selected version.");
+    }
+    return { path: request.path, text: validateMarkdownPreviewText(result.stdout) };
   }
 
   async getCommitHistory(request: GitCommitHistoryRequest): Promise<GitCommitGraphRow[]> {

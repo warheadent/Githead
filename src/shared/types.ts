@@ -981,6 +981,22 @@ export interface GitFileDiffRequest extends RepositoryReadRequest {
   side: GitDiffSide;
 }
 
+export type GitFilePreviewSource =
+  | { kind: "working" }
+  | { kind: "staged" }
+  | { kind: "commit"; hash: string };
+
+export interface GitFilePreviewRequest extends RepositoryReadRequest {
+  repoPath: string;
+  path: string;
+  source: GitFilePreviewSource;
+}
+
+export interface GitFilePreview {
+  path: string;
+  text: string;
+}
+
 export interface GitFileChangesRequest {
   repoPath: string;
   paths: string[];
@@ -1158,6 +1174,7 @@ export interface GitheadApi {
   getCommitDetails(request: GitCommitDetailsRequest): Promise<GitCommitDetails>;
   getCommitFileDiff(request: GitCommitFileDiffRequest): Promise<GitFileDiff>;
   getFileDiff(request: GitFileDiffRequest): Promise<GitFileDiff>;
+  getFilePreview(request: GitFilePreviewRequest): Promise<GitFilePreview>;
   fetchLfsImageVersions(request: GitLfsImageFetchRequest): Promise<GitOperationResult>;
   resetFilesToCommit(request: GitCommitFileResetRequest): Promise<GitOperationResult>;
   openCommitFileVersion(request: GitCommitFileVersionRequest): Promise<GitOperationResult>;

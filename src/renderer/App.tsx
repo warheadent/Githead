@@ -7,6 +7,7 @@ import {
   Copy,
   Download,
   ExternalLink,
+  Eye,
   FileCode2,
   FolderOpen,
   Folder,
@@ -126,6 +127,7 @@ import type {
   GitCommitGraphRow,
   GitDiffSide,
   GitFileDiff,
+  GitFilePreviewSource,
   GitImageSide,
   GitHubIssue,
   GitHubIssueQuery,
@@ -161,6 +163,7 @@ import type {
   StatusFileViewMode
 } from "../shared/types";
 import { AI_COMMIT_MESSAGE_PROVIDERS, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
+import { isMarkdownPath } from "../shared/filePreview";
 import { parseCommitSubject } from "../shared/commitSubject";
 import { parseGitHubReferences } from "../shared/githubReference";
 import { ActivityLogView } from "./ActivityLogView";
@@ -372,7 +375,7 @@ interface AppState {
 }
 
 type AppStateUpdater = Partial<AppState> | ((state: AppState) => AppState);
-type RepositoryReadKind = "summary" | "identity" | "status" | "metadata" | "history" | "commit-details" | "commit-file-diff" | "diff";
+type RepositoryReadKind = "summary" | "identity" | "status" | "metadata" | "history" | "commit-details" | "commit-file-diff" | "diff" | "file-preview";
 
 function repositoryReadRequestId(kind: RepositoryReadKind, generation: number): string {
   return `${kind}:${generation}`;
@@ -7323,17 +7326,17 @@ function StatusView({
           emptyMessage={selection ? "Refresh the diff to view this file." : "Select a file to view the diff"}
           onDownloadImage={onDownloadImage}
           imageDownloadLoading={disabled}
+          repoPath={summary?.repoPath ?? ""}
+          previewSource={selection && selectedFile && !selectedFile.submodule && isMarkdownPath(selection.path) && !isDeletedOnSide(selectedFile, selection.side)
+            ? { kind: selection.side === "staged" ? "staged" : "working" }
+            : undefined}
           hunkAction={canApplyHunks && selection ? {
             side: selection.side,
             disabled,
             onApply: onApplyHunk
           } : undefined}
-          action={
-            <Button type="button" variant="outline" size="sm" disabled={disabled || !selection} onClick={onRefreshDiff}>
-              <RefreshCw />
-              Refresh Diff
-            </Button>
-          }
+          onRefresh={selection ? onRefreshDiff : undefined}
+          refreshDisabled={disabled}
         />
       </ResizablePanel>
     </ResizablePanelGroup>
@@ -7641,7 +7644,10 @@ function DiffPanel({
   loading,
   emptyMessage,
   hunkAction,
-  action,
+  repoPath,
+  previewSource,
+  onRefresh,
+  refreshDisabled = false,
   onDownloadImage,
   imageDownloadLoading = false
 }: {
@@ -7652,14 +7658,87 @@ function DiffPanel({
   loading: boolean;
   emptyMessage: string;
   hunkAction?: DiffHunkAction | undefined;
-  action?: ReactNode;
+  repoPath: string;
+  previewSource?: GitFilePreviewSource | undefined;
+  onRefresh?: (() => void) | undefined;
+  refreshDisabled?: boolean;
   onDownloadImage?: () => void;
   imageDownloadLoading?: boolean;
 }): ReactNode {
+  const previewInstanceId = useId();
+  const previewGeneration = useRef(0);
+  const activePreviewRequestId = useRef<string | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+  const [preview, setPreview] = useState<{ text: string | null; loading: boolean; error: string }>({
+    text: null,
+    loading: false,
+    error: ""
+  });
+  const previewKey = previewSource
+    ? `${repoPath}\0${filePath}\0${previewSource.kind}\0${previewSource.kind === "commit" ? previewSource.hash : ""}`
+    : "";
+
+  const cancelActivePreview = useCallback((): void => {
+    const requestId = activePreviewRequestId.current;
+    activePreviewRequestId.current = null;
+    if (requestId) void window.githead.cancelRepositoryRead({ requestId }).catch(() => undefined);
+  }, []);
+
+  const resetPreview = useCallback((): void => {
+    previewGeneration.current += 1;
+    cancelActivePreview();
+    setShowPreview(false);
+    setPreview({ text: null, loading: false, error: "" });
+  }, [cancelActivePreview]);
+
+  useEffect(() => {
+    resetPreview();
+    return cancelActivePreview;
+  }, [previewKey, diff, resetPreview, cancelActivePreview]);
+
+  const togglePreview = useCallback((): void => {
+    if (!previewSource) return;
+    if (showPreview) {
+      setShowPreview(false);
+      return;
+    }
+
+    setShowPreview(true);
+    if (preview.text !== null || preview.loading) return;
+
+    const generation = previewGeneration.current + 1;
+    previewGeneration.current = generation;
+    const requestId = `file-preview:${previewInstanceId}:${generation}`;
+    activePreviewRequestId.current = requestId;
+    setPreview({ text: null, loading: true, error: "" });
+    void window.githead.getFilePreview({ repoPath, path: filePath, source: previewSource, requestId })
+      .then((result) => {
+        if (generation !== previewGeneration.current) return;
+        activePreviewRequestId.current = null;
+        setPreview({ text: result.text, loading: false, error: "" });
+      })
+      .catch((error: unknown) => {
+        if (generation !== previewGeneration.current) return;
+        activePreviewRequestId.current = null;
+        setPreview({
+          text: null,
+          loading: false,
+          error: error instanceof Error ? error.message : "Unable to load Markdown preview."
+        });
+      });
+  }, [filePath, preview.loading, preview.text, previewInstanceId, previewSource, repoPath, showPreview]);
+
   let content: ReactNode = emptyMessage;
   let outputClass = "diff-output";
 
-  if (loading) {
+  if (showPreview && previewSource) {
+    outputClass = "markdown-preview-output";
+    content = preview.loading
+      ? <p className="markdown-preview-status" role="status" aria-live="polite">Loading Markdown preview...</p>
+      : preview.error
+        ? <p className="markdown-preview-status bad selectable-text" role="alert">{preview.error}</p>
+        : <MarkdownPreview text={preview.text ?? ""} />;
+  } else if (loading) {
     content = "Loading diff...";
   } else if (diff) {
     outputClass = `diff-output ${diff.kind}`;
@@ -7677,12 +7756,53 @@ function DiffPanel({
           <p className="eyebrow">{eyebrow}</p>
           <TooltipTarget content={title}><h2 className="truncate text-sm font-semibold">{title}</h2></TooltipTarget>
         </div>
-        {action}
+        <div className="flex shrink-0 items-center gap-2">
+          {previewSource ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              aria-pressed={showPreview}
+              onClick={togglePreview}
+            >
+              <Eye />
+              {showPreview ? "Show Diff" : "Preview"}
+            </Button>
+          ) : null}
+          {onRefresh ? (
+            <Button type="button" variant="outline" size="sm" disabled={refreshDisabled} onClick={() => {
+              resetPreview();
+              onRefresh();
+            }}>
+              <RefreshCw />
+              Refresh Diff
+            </Button>
+          ) : null}
+        </div>
       </div>
       <div className={outputClass}>
         {content}
       </div>
     </section>
+  );
+}
+
+function MarkdownPreview({ text }: { text: string }): ReactNode {
+  return (
+    <article className="markdown-preview selectable-text">
+      <ReactMarkdown
+        skipHtml
+        components={{
+          a: ({ children, ...props }) => (
+            <a {...props} target="_blank" rel="noreferrer">
+              {children}
+            </a>
+          )
+        }}
+      >
+        {text}
+      </ReactMarkdown>
+    </article>
   );
 }
 
@@ -7855,6 +7975,9 @@ function HistoryView({
 }): ReactNode {
   const graphLayout = useMemo(() => buildCommitGraphLayout(history), [history]);
   const associations = useMemo(() => createCommitAssociationMap(insights), [insights]);
+  const selectedCommitFile = selectedCommitFilePath
+    ? commitDetails?.files.find((file) => file.path === selectedCommitFilePath) ?? null
+    : null;
   const showHistoryScope = summary?.isValid && summary.kind === "git";
   const historyStyle = {
     "--history-graph-width": `${graphLayout.width}px`
@@ -7961,6 +8084,10 @@ function HistoryView({
               emptyMessage={commitFileDiffError || (selectedCommitFilePath ? "Loading diff..." : "Select a file to view the diff")}
               onDownloadImage={onDownloadImage}
               imageDownloadLoading={disabled}
+              repoPath={summary?.repoPath ?? ""}
+              previewSource={selectedCommitHash && selectedCommitFile && selectedCommitFile.status !== "D" && isMarkdownPath(selectedCommitFile.path)
+                ? { kind: "commit", hash: selectedCommitHash }
+                : undefined}
             />
           </ResizablePanel>
         </ResizablePanelGroup>

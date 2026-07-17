@@ -183,6 +183,48 @@ function repoSummaryResults(repoRoot: string): ProcessResult[] {
 }
 
 describe("GitService", () => {
+  it("loads working, staged, and commit Markdown preview versions", async () => {
+    await withTempDir(async (dir) => {
+      await fs.writeFile(path.join(dir, "README.md"), "# Working\n", "utf8");
+      const runner = new FakeRunner([
+        ok("true\n"), ok(`${dir}\n`),
+        ok("true\n"), ok("# Staged\n"),
+        ok("true\n"), ok("# Commit\n")
+      ]);
+      const service = new GitService(runner);
+
+      await expect(service.getFilePreview({ repoPath: dir, path: "README.md", source: { kind: "working" } }))
+        .resolves.toEqual({ path: "README.md", text: "# Working\n" });
+      await expect(service.getFilePreview({ repoPath: dir, path: "README.md", source: { kind: "staged" } }))
+        .resolves.toEqual({ path: "README.md", text: "# Staged\n" });
+      await expect(service.getFilePreview({ repoPath: dir, path: "README.md", source: { kind: "commit", hash: oid } }))
+        .resolves.toEqual({ path: "README.md", text: "# Commit\n" });
+
+      expect(runner.calls[3]?.args).toEqual(["-C", dir, "cat-file", "blob", ":README.md"]);
+      expect(runner.calls[5]?.args).toEqual(["-C", dir, "cat-file", "blob", `${oid}:README.md`]);
+    });
+  });
+
+  it("rejects unsafe, missing, invalid-revision, and oversized Markdown previews", async () => {
+    const oversized = "x".repeat(1_000_001);
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("true\n"),
+      ok("true\n"), failure("fatal: not found"),
+      ok("true\n"), ok(oversized)
+    ]);
+    const service = new GitService(runner);
+
+    await expect(service.getFilePreview({ repoPath: "D:\\Repo", path: "../README.md", source: { kind: "staged" } }))
+      .rejects.toThrow("inside the repository");
+    await expect(service.getFilePreview({ repoPath: "D:\\Repo", path: "README.md", source: { kind: "commit", hash: "HEAD~1" } }))
+      .rejects.toThrow("Commit hash is invalid");
+    await expect(service.getFilePreview({ repoPath: "D:\\Repo", path: "README.md", source: { kind: "staged" } }))
+      .rejects.toThrow("fatal: not found");
+    await expect(service.getFilePreview({ repoPath: "D:\\Repo", path: "README.md", source: { kind: "staged" } }))
+      .rejects.toThrow("larger than 1 MB");
+  });
+
   it("parses NUL-delimited worktree records and preserves worktree state", () => {
     const parsed = parseWorktrees([
       "worktree D:/Repo", `HEAD ${oid}`, "branch refs/heads/main", "",

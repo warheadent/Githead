@@ -3093,6 +3093,113 @@ describe("App", () => {
     expect(screen.getByRole("tab", { name: "Activity Log" }).getAttribute("aria-selected")).toBe("false");
   });
 
+  it("lazily renders and caches the working Markdown preview", async () => {
+    const user = userEvent.setup();
+    const file = createStatusFile("README.md", { isUnstaged: true, worktreeStatus: "M" });
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [file] }));
+    vi.mocked(githead.getFileDiff).mockResolvedValue(createTextDiff(file.path, "diff-value"));
+    vi.mocked(githead.getFilePreview).mockResolvedValue({
+      path: file.path,
+      text: "# Rendered heading\n\n**bold text**\n\n<script>unsafe</script>"
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("option", { name: /README\.md/ }));
+    const previewButton = await screen.findByRole("button", { name: "Preview" });
+    expect(githead.getFilePreview).not.toHaveBeenCalled();
+    await user.click(previewButton);
+
+    expect(await screen.findByRole("heading", { name: "Rendered heading" })).toBeTruthy();
+    expect(screen.getByText("bold text").tagName).toBe("STRONG");
+    expect(screen.queryByText("unsafe")).toBeNull();
+    expect(githead.getFilePreview).toHaveBeenCalledWith({
+      repoPath,
+      path: "README.md",
+      source: { kind: "working" },
+      requestId: expect.stringMatching(/^file-preview:/)
+    });
+
+    await user.click(screen.getByRole("button", { name: "Show Diff" }));
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    expect(githead.getFilePreview).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the staged source for .markdown files and hides preview for deleted targets", async () => {
+    const user = userEvent.setup();
+    const staged = createStatusFile("docs/guide.markdown", { isStaged: true, indexStatus: "M" });
+    const deleted = createStatusFile("deleted.md", { isUnstaged: true, worktreeStatus: "D" });
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [staged, deleted] }));
+    vi.mocked(githead.getFileDiff).mockImplementation(async ({ path, side }) => createTextDiff(path, "value", side));
+    vi.mocked(githead.getFilePreview).mockImplementation(async ({ path }) => ({ path, text: "# Preview" }));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("option", { name: /docs\/guide\.markdown/ }));
+    await user.click(await screen.findByRole("button", { name: "Preview" }));
+    await waitFor(() => expect(githead.getFilePreview).toHaveBeenCalledWith(expect.objectContaining({
+      path: staged.path,
+      source: { kind: "staged" }
+    })));
+
+    await user.click(screen.getByRole("option", { name: /deleted\.md/ }));
+    expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
+  });
+
+  it("renders the selected commit version of a Markdown file", async () => {
+    const user = userEvent.setup();
+    const commit = createCommit();
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash, {
+      files: [{ path: "README.md", status: "M", additions: 2, deletions: 1 }]
+    }));
+    vi.mocked(githead.getCommitFileDiff).mockResolvedValue(createTextDiff("README.md", "commit-diff"));
+    vi.mocked(githead.getFilePreview).mockResolvedValue({ path: "README.md", text: "# Commit preview" });
+
+    render(<App />);
+
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await screen.findByRole("option", { name: /README\.md/ });
+    await user.click(await screen.findByRole("button", { name: "Preview" }));
+
+    expect(await screen.findByRole("heading", { name: "Commit preview" })).toBeTruthy();
+    expect(githead.getFilePreview).toHaveBeenCalledWith(expect.objectContaining({
+      repoPath,
+      path: "README.md",
+      source: { kind: "commit", hash: commit.hash }
+    }));
+  });
+
+  it("cancels and ignores a stale Markdown preview when file selection changes", async () => {
+    const user = userEvent.setup();
+    const firstPreview = defer<{ path: string; text: string }>();
+    const files = [
+      createStatusFile("first.md", { isUnstaged: true, worktreeStatus: "M" }),
+      createStatusFile("second.md", { isUnstaged: true, worktreeStatus: "M" })
+    ];
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files }));
+    vi.mocked(githead.getFileDiff).mockImplementation(async ({ path, side }) => createTextDiff(path, "value", side));
+    vi.mocked(githead.getFilePreview)
+      .mockReturnValueOnce(firstPreview.promise)
+      .mockResolvedValueOnce({ path: "second.md", text: "# Second preview" });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("option", { name: /first\.md/ }));
+    await user.click(await screen.findByRole("button", { name: "Preview" }));
+    const firstRequestId = vi.mocked(githead.getFilePreview).mock.calls[0]?.[0].requestId;
+    await user.click(screen.getByRole("option", { name: /second\.md/ }));
+
+    await waitFor(() => expect(githead.cancelRepositoryRead).toHaveBeenCalledWith({ requestId: firstRequestId }));
+    await user.click(await screen.findByRole("button", { name: "Preview" }));
+    expect(await screen.findByRole("heading", { name: "Second preview" })).toBeTruthy();
+
+    firstPreview.resolve({ path: "first.md", text: "# Stale first preview" });
+    await flushRendererAsync();
+    expect(screen.queryByRole("heading", { name: "Stale first preview" })).toBeNull();
+  });
+
   it("pushes the current branch to a selected existing remote branch without changing upstream", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
@@ -6232,6 +6339,7 @@ function createGitheadMock(): GitheadApi {
     getCommitDetails: vi.fn(),
     getCommitFileDiff: vi.fn(),
     getFileDiff: vi.fn(),
+    getFilePreview: vi.fn(),
     fetchLfsImageVersions: vi.fn(),
     resetFilesToCommit: vi.fn().mockResolvedValue(okOperation),
     openCommitFileVersion: vi.fn().mockResolvedValue(okOperation),
