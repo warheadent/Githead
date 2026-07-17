@@ -3125,6 +3125,37 @@ describe("App", () => {
     expect(githead.getFilePreview).toHaveBeenCalledTimes(1);
   });
 
+  it("renders GFM pipe tables in a horizontally scrollable semantic table", async () => {
+    const user = userEvent.setup();
+    const file = createStatusFile("README.md", { isUnstaged: true, worktreeStatus: "M" });
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [file] }));
+    vi.mocked(githead.getFileDiff).mockResolvedValue(createTextDiff(file.path, "diff-value"));
+    vi.mocked(githead.getFilePreview).mockResolvedValue({
+      path: file.path,
+      text: [
+        "| Left | Center | Right |",
+        "| :--- | :----: | ---: |",
+        "| Alpha | Beta | Gamma |",
+        "",
+        "<table><tbody><tr><td>Unsafe HTML table</td></tr></tbody></table>"
+      ].join("\n")
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("option", { name: /README\.md/ }));
+    await user.click(await screen.findByRole("button", { name: "Preview" }));
+
+    const table = await screen.findByRole("table");
+    const headers = within(table).getAllByRole("columnheader");
+    expect(headers.map((header) => header.textContent)).toEqual(["Left", "Center", "Right"]);
+    expect(headers.map((header) => header.style.textAlign)).toEqual(["left", "center", "right"]);
+    expect(within(table).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["Alpha", "Beta", "Gamma"]);
+    expect(table.parentElement?.classList.contains("markdown-preview-table")).toBe(true);
+    expect(screen.getByRole("region", { name: "Scrollable Markdown table" }).getAttribute("tabindex")).toBe("0");
+    expect(screen.queryByText("Unsafe HTML table")).toBeNull();
+  });
+
   it("uses the staged source for .markdown files and hides preview for deleted targets", async () => {
     const user = userEvent.setup();
     const staged = createStatusFile("docs/guide.markdown", { isStaged: true, indexStatus: "M" });

@@ -91,6 +91,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { TagDialog, type TagDialogState } from "./TagDialog";
+import { MarkdownPreview } from "./MarkdownPreview";
 import { MotionPresence, MotionSwap, useFlipList } from "./motion";
 import {
   RepositoryActionsDialog,
@@ -7807,25 +7808,6 @@ function DiffPanel({
         {content}
       </div>
     </section>
-  );
-}
-
-function MarkdownPreview({ text }: { text: string }): ReactNode {
-  return (
-    <article className="markdown-preview selectable-text">
-      <ReactMarkdown
-        skipHtml
-        components={{
-          a: ({ children, ...props }) => (
-            <a {...props} target="_blank" rel="noreferrer">
-              {children}
-            </a>
-          )
-        }}
-      >
-        {text}
-      </ReactMarkdown>
-    </article>
   );
 }
 

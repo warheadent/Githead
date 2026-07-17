@@ -1691,7 +1691,7 @@ textarea,
 .markdown-preview ul,
 .markdown-preview ol,
 .markdown-preview blockquote,
-.markdown-preview pre {
+.markdown-code-block {
   margin: 0 0 1em;
 }
 
@@ -1729,13 +1729,52 @@ textarea,
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 14px 16px;
+  padding: 14px 52px 14px 16px;
   background: var(--muted);
 }
 
+.markdown-code-block { position: relative; }
+.markdown-code-copy { position: absolute; z-index: 1; top: 8px; right: 8px; }
 .markdown-preview pre code { padding: 0; background: transparent; font-size: 0.875rem; }
 .markdown-preview hr { margin: 1.5em 0; border: 0; border-top: 1px solid var(--border); }
 .markdown-preview img { display: block; max-width: 100%; height: auto; margin: 1em 0; border-radius: 6px; }
+
+.markdown-preview-table {
+  width: 100%;
+  margin: 0 0 1em;
+  overflow-x: auto;
+  border-radius: 6px;
+}
+
+.markdown-preview-table:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.markdown-preview-table table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+.markdown-preview-table th,
+.markdown-preview-table td {
+  border: 1px solid var(--border);
+  padding: 0.45em 0.75em;
+  overflow-wrap: normal;
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-preview-table th[align="center"],
+.markdown-preview-table td[align="center"] { text-align: center; }
+.markdown-preview-table th[align="right"],
+.markdown-preview-table td[align="right"] { text-align: right; }
+
+.markdown-preview-table thead { background: var(--muted); }
+.markdown-preview-table th { font-weight: 650; }
+.markdown-preview-table tbody tr:nth-child(even) { background: color-mix(in srgb, var(--muted) 45%, transparent); }
 
 .markdown-preview-status {
   margin: 0;
