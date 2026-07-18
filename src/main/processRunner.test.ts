@@ -81,6 +81,27 @@ describe("NodeProcessRunner.run", () => {
     expect(removeEventListener).toHaveBeenCalledTimes(1);
     expect(removeEventListener).toHaveBeenCalledWith("abort", expect.any(Function));
   });
+
+  it("settles after process exit when a detached helper keeps stdout open", async () => {
+    const helperLifetimeMs = 1_000;
+    const runner = new NodeProcessRunner(25);
+    const script = [
+      "const { spawn } = require('node:child_process');",
+      `const helper = spawn(process.execPath, ['-e', 'setTimeout(() => {}, ${helperLifetimeMs})'], { detached: true, stdio: ['ignore', 'inherit', 'inherit'], windowsHide: true });`,
+      "helper.unref();",
+      "process.stdout.write('done');"
+    ].join(" ");
+
+    const startedAt = Date.now();
+    const result = await runner.run(process.execPath, ["-e", script]);
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stdout: "done",
+      terminationReason: "exited"
+    });
+    expect(Date.now() - startedAt).toBeLessThan(helperLifetimeMs);
+  });
 });
 
 describe("NodeProcessRunner.runBinary", () => {
