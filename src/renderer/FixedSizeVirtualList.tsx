@@ -25,6 +25,7 @@ interface FixedSizeVirtualListProps<T> {
   ariaLabel: string;
   selectedKey?: string | null | undefined;
   className?: string;
+  multiSelectable?: boolean;
   renderItem: (item: T, index: number, rowProps: VirtualRowProps) => ReactNode;
 }
 
@@ -58,6 +59,7 @@ export function FixedSizeVirtualList<T>({
   ariaLabel,
   selectedKey,
   className,
+  multiSelectable = true,
   renderItem
 }: FixedSizeVirtualListProps<T>): ReactNode {
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -144,7 +146,7 @@ export function FixedSizeVirtualList<T>({
       className={className}
       role="listbox"
       aria-label={ariaLabel}
-      aria-multiselectable="true"
+      aria-multiselectable={multiSelectable}
       tabIndex={0}
       onScroll={handleScroll}
     >

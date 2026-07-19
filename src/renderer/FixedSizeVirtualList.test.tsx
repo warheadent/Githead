@@ -79,6 +79,14 @@ describe("FixedSizeVirtualList", () => {
     expect(disconnect).toHaveBeenCalledOnce();
   });
 
+  it("supports a single-selection listbox contract", () => {
+    render(
+      <FixedSizeVirtualList items={["line"]} itemKey={(item) => item} rowHeight={20} ariaLabel="Blame" multiSelectable={false}
+        renderItem={(item, index, props) => <div role="option" aria-selected="false" data-virtual-index={index} {...props}>{item}</div>} />
+    );
+    expect(screen.getByRole("listbox", { name: "Blame" }).getAttribute("aria-multiselectable")).toBe("false");
+  });
+
   it("uses and cleans up the window resize fallback", () => {
     vi.unstubAllGlobals();
     const add = vi.spyOn(window, "addEventListener");

@@ -2940,6 +2940,86 @@ textarea,
   bottom: 18px;
 }
 
+.historical-file-view,
+.blame-view {
+  display: grid;
+  min-height: 0;
+  height: 100%;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--card);
+}
+
+.historical-file-header {
+  display: flex;
+  min-width: 0;
+  min-height: 58px;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--border);
+  padding: 8px 16px;
+}
+
+.historical-file-body {
+  display: grid;
+  min-height: 0;
+  grid-template-columns: minmax(320px, 40%) minmax(0, 1fr);
+}
+
+.file-history-list,
+.historical-file-content,
+.blame-list {
+  min-height: 0;
+  overflow: auto;
+}
+
+.file-history-list { border-right: 1px solid var(--border); padding: 6px; }
+
+.file-history-row {
+  display: grid;
+  width: 100%;
+  min-height: 58px;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 7px 9px;
+  color: inherit;
+  text-align: left;
+}
+
+.file-history-row:hover { background: var(--accent); }
+.file-history-row.is-selected { border-color: var(--ring); background: color-mix(in oklch, var(--ring) 18%, transparent); }
+.file-history-subject,
+.file-history-meta,
+.file-history-rename { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-history-subject { font-size: .82rem; font-weight: 600; }
+.file-history-meta,
+.file-history-rename { color: var(--muted-foreground); font-size: .72rem; }
+.file-history-limit { padding: 12px; color: var(--muted-foreground); font-size: .75rem; text-align: center; }
+
+.blame-list { position: relative; font-family: "Cascadia Mono", Consolas, "Courier New", monospace; }
+.blame-row {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 92px 150px 64px minmax(max-content, 1fr);
+  align-items: stretch;
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 70%, transparent);
+  color: inherit;
+  font-size: .78rem;
+  text-align: left;
+}
+.blame-row:hover { background: var(--accent); }
+.blame-commit { overflow: hidden; padding: 4px 8px; color: var(--primary); text-align: left; text-overflow: ellipsis; }
+.blame-author { overflow: hidden; padding: 4px 8px; color: var(--muted-foreground); text-overflow: ellipsis; white-space: nowrap; }
+.blame-line-number { padding: 4px 10px; color: var(--muted-foreground); background: var(--diff-line-number-bg); text-align: right; user-select: none; }
+.blame-code { min-width: 100%; padding: 4px 10px; background: var(--diff-code); white-space: pre; }
+
+@media (max-width: 900px) {
+  .historical-file-body { grid-template-columns: minmax(260px, 44%) minmax(0, 1fr); }
+  .blame-row { grid-template-columns: 84px 110px 54px minmax(max-content, 1fr); }
+}
+
 .activity-log-jump {
   box-shadow: 0 12px 28px oklch(0 0 0 / 0.22);
 }

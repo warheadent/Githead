@@ -812,7 +812,7 @@ describe("App", () => {
     });
   });
 
-  it("shows commit file context menu actions with log and blame disabled", async () => {
+  it("enables commit file history and blame actions for Git repositories", async () => {
     const user = userEvent.setup();
     const commit = createCommit();
     vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
@@ -847,8 +847,89 @@ describe("App", () => {
     for (const action of expectedActions) {
       expect(await screen.findByRole("menuitem", { name: action })).toBeTruthy();
     }
-    expect(screen.getByRole("menuitem", { name: "Log Selected" }).getAttribute("data-disabled")).toBe("");
-    expect(screen.getByRole("menuitem", { name: "Blame Selected" }).getAttribute("data-disabled")).toBe("");
+    expect(screen.getByRole("menuitem", { name: "Log Selected" }).getAttribute("data-disabled")).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Blame Selected" }).getAttribute("data-disabled")).toBeNull();
+  });
+
+  it("opens bounded File History and restores Commit History without refetching", async () => {
+    const user = userEvent.setup();
+    const commit = createCommit();
+    const file = { path: "src/App.tsx", status: "M", additions: 3, deletions: 1 };
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash, { files: [file] }));
+    vi.mocked(githead.getCommitFileDiff).mockResolvedValue(createTextDiff(file.path, "history-diff"));
+    vi.mocked(githead.getFileHistory).mockResolvedValue({
+      repoPath,
+      startHash: commit.hash,
+      requestedPath: file.path,
+      hasMore: true,
+      entries: [{ ...commit, path: file.path, status: "M" }]
+    });
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    const commitFile = await screen.findByRole("option", { name: /src\/App\.tsx/ });
+    fireEvent.contextMenu(commitFile);
+    await user.click(await screen.findByRole("menuitem", { name: "Log Selected" }));
+    expect(await screen.findByRole("region", { name: `File History for ${file.path}` })).toBeTruthy();
+    expect(screen.getByText("Showing the newest 200 changes for this file.")).toBeTruthy();
+    expect(githead.getFileHistory).toHaveBeenCalledWith({ repoPath, startHash: commit.hash, path: file.path, limit: 200, requestId: expect.any(String) });
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    expect(await screen.findByRole("listbox", { name: "Commit history" })).toBeTruthy();
+    expect(githead.getCommitHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens a virtualized Blame view for the selected commit file", async () => {
+    const user = userEvent.setup();
+    const commit = createCommit();
+    const file = { path: "src/App.tsx", status: "M", additions: 1, deletions: 0 };
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash, { files: [file] }));
+    vi.mocked(githead.getCommitFileDiff).mockResolvedValue(createTextDiff(file.path, "diff"));
+    vi.mocked(githead.getFileBlame).mockResolvedValue({
+      kind: "text", repoPath, hash: commit.hash, path: file.path, byteLength: 13,
+      commits: [{ hash: commit.hash, shortHash: commit.shortHash, authorName: "Taylor", authorEmail: "t@example.test", authorDate: commit.authorDate, summary: commit.subject }],
+      lines: [{ finalLine: 1, originalLine: 1, commitHash: commit.hash, originalPath: file.path, text: "const a = 1;", boundary: false }]
+    });
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    const commitFile = await screen.findByRole("option", { name: /src\/App\.tsx/ });
+    fireEvent.contextMenu(commitFile);
+    await user.click(await screen.findByRole("menuitem", { name: "Blame Selected" }));
+    expect(await screen.findByRole("region", { name: `Blame for ${file.path}` })).toBeTruthy();
+    expect(screen.getByText("const a = 1;")).toBeTruthy();
+    expect(githead.getFileBlame).toHaveBeenCalledWith({ repoPath, hash: commit.hash, path: file.path, requestId: expect.any(String) });
+  });
+
+  it("cancels Blame and ignores its late result after switching Repositories", async () => {
+    const user = userEvent.setup();
+    const otherRepo = "D:\\Work\\Other";
+    const commit = createCommit();
+    const file = { path: "src/App.tsx", status: "M", additions: 1, deletions: 0 };
+    const pendingBlame = defer<Awaited<ReturnType<GitheadApi["getFileBlame"]>>>();
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({ repoPath: requestedRepoPath }));
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash, { files: [file] }));
+    vi.mocked(githead.getCommitFileDiff).mockResolvedValue(createTextDiff(file.path, "diff"));
+    vi.mocked(githead.getFileBlame).mockReturnValue(pendingBlame.promise);
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
+    await user.click(await screen.findByRole("menuitem", { name: "Blame Selected" }));
+    await screen.findByText("Loading blame...");
+    await user.click(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
+    pendingBlame.resolve({
+      kind: "text", repoPath, hash: commit.hash, path: file.path, byteLength: 4,
+      commits: [{ hash: commit.hash, shortHash: commit.shortHash, authorName: "Stale", authorEmail: "", authorDate: "", summary: "" }],
+      lines: [{ finalLine: 1, originalLine: 1, commitHash: commit.hash, originalPath: file.path, text: "stale blame", boundary: false }]
+    });
+    await flushRendererAsync();
+    expect(screen.queryByText("stale blame")).toBeNull();
+    expect(githead.cancelRepositoryRead).toHaveBeenCalledWith({ requestId: "file-blame:1" });
   });
 
   it("runs commit file context menu open and copy actions through preload APIs", async () => {
@@ -6373,6 +6454,8 @@ function createGitheadMock(): GitheadApi {
     getGitHubHistoryInsights: vi.fn().mockResolvedValue({ ok: true, data: { currentBranchPullRequests: [], commits: [], unavailableCommitShas: [] }, rateLimit: null }),
     getCommitDetails: vi.fn(),
     getCommitFileDiff: vi.fn(),
+    getFileHistory: vi.fn().mockResolvedValue({ repoPath, startHash: "a".repeat(40), requestedPath: "", entries: [], hasMore: false }),
+    getFileBlame: vi.fn(),
     getFileDiff: vi.fn(),
     getFilePreview: vi.fn(),
     fetchLfsImageVersions: vi.fn(),

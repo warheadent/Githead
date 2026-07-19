@@ -34,6 +34,8 @@ import type {
   GitDeleteTagRequest,
   GitFileChangesRequest,
   GitFileDiffRequest,
+  GitFileHistoryRequest,
+  GitFileBlameRequest,
   GitFilePreviewRequest,
   GitHunkRequest,
   GitLfsImageFetchRequest,
@@ -137,6 +139,10 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getCommitDetails, request) as ReturnType<GitheadApi["getCommitDetails"]>,
   getCommitFileDiff: (request: GitCommitFileDiffRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getCommitFileDiff, request) as ReturnType<GitheadApi["getCommitFileDiff"]>,
+  getFileHistory: (request: GitFileHistoryRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getFileHistory, request) as ReturnType<GitheadApi["getFileHistory"]>,
+  getFileBlame: (request: GitFileBlameRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getFileBlame, request) as ReturnType<GitheadApi["getFileBlame"]>,
   getFileDiff: (request: GitFileDiffRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getFileDiff, request) as ReturnType<GitheadApi["getFileDiff"]>,
   getFilePreview: (request: GitFilePreviewRequest) =>

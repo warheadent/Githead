@@ -32,6 +32,10 @@ import type {
   GitFileChangesRequest,
   GitFileDiff,
   GitFileDiffRequest,
+  GitFileHistoryRequest,
+  GitFileHistoryResult,
+  GitFileBlameRequest,
+  GitFileBlameResult,
   GitFilePreview,
   GitFilePreviewRequest,
   GitHunkRequest,
@@ -81,6 +85,9 @@ import { mapRepoSyncStatuses } from "./repoSyncStatus";
 import { IMAGE_PREVIEW_LIMIT, imageFallbackText, imageVersionFromBytes, isPreviewableImagePath, type ImageReadResult } from "./imageDiff";
 import { escapeLfsIncludePath, isGitLfsPointerDiff, parseGitLfsPointer, parseLocalMediaDir, resolveLocalLfsImage, type GitLfsPointer } from "./gitLfs";
 import { readMarkdownPreviewFile, validateMarkdownPreviewPath, validateMarkdownPreviewText } from "./filePreview";
+import { sanitizeCommitHash, sanitizeHistoryLimit, sanitizeSingleRepoPath } from "./gitReadValidation";
+import { readGitFileHistory } from "./gitFileHistory";
+import { readGitFileBlame } from "./gitBlame";
 
 export const GIT_ACTION_COMMANDS: Record<GitAction, string[]> = {
   fetch: [
@@ -136,8 +143,6 @@ const emptySummary = (
 });
 
 const DIFF_TEXT_LIMIT = 250_000;
-const DEFAULT_HISTORY_LIMIT = 200;
-const MAX_HISTORY_LIMIT = 500;
 const REPOSITORY_ACCESS_CHECK_TIMEOUT_MS = 30_000;
 
 export class GitService {
@@ -2049,6 +2054,26 @@ export class GitService {
     return this.runGitOperation(request.repoPath, ["worktree", "remove", ...(request.force ? ["--force"] : []), "--", path.normalize(request.worktreePath)]);
   }
 
+  async getFileHistory(request: GitFileHistoryRequest): Promise<GitFileHistoryResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) throw new Error(validation.validationErrors.join(" "));
+    const hashResult = sanitizeCommitHash(request.startHash);
+    if ("error" in hashResult) throw new Error(hashResult.error);
+    const pathResult = sanitizeSingleRepoPath(request.path);
+    if ("error" in pathResult) throw new Error(pathResult.error);
+    return readGitFileHistory(this.runner, request.repoPath, hashResult.hash, pathResult.path, sanitizeHistoryLimit(request.limit));
+  }
+
+  async getFileBlame(request: GitFileBlameRequest): Promise<GitFileBlameResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) throw new Error(validation.validationErrors.join(" "));
+    const hashResult = sanitizeCommitHash(request.hash);
+    if ("error" in hashResult) throw new Error(hashResult.error);
+    const pathResult = sanitizeSingleRepoPath(request.path);
+    if ("error" in pathResult) throw new Error(pathResult.error);
+    return readGitFileBlame(this.runner, request.repoPath, hashResult.hash, pathResult.path);
+  }
+
   private runGitStatus(repoPath: string, args: string[]): Promise<ProcessResult> {
     return this.runGit(repoPath, [
       "--no-optional-locks",
@@ -2676,33 +2701,6 @@ function sanitizeRepoPaths(paths: string[]): { paths: string[] } | { error: stri
   };
 }
 
-function sanitizeSingleRepoPath(filePath: string): { path: string } | { error: string } {
-  const trimmedPath = filePath.trim();
-
-  if (!trimmedPath) {
-    return {
-      error: "Select a file."
-    };
-  }
-
-  if (path.isAbsolute(trimmedPath)) {
-    return {
-      error: "File path must be relative to the repository."
-    };
-  }
-
-  const normalizedPath = path.normalize(trimmedPath);
-  if (normalizedPath === ".." || normalizedPath.startsWith(`..${path.sep}`)) {
-    return {
-      error: "File path must stay inside the repository."
-    };
-  }
-
-  return {
-    path: trimmedPath
-  };
-}
-
 function isMissingAuthorIdentityError(result: GitOperationResult): boolean {
   if (result.exitCode === 0) {
     return false;
@@ -2713,30 +2711,8 @@ function isMissingAuthorIdentityError(result: GitOperationResult): boolean {
     || output.includes("unable to auto-detect email address");
 }
 
-function sanitizeCommitHash(hash: string): { hash: string } | { error: string } {
-  const trimmedHash = hash.trim();
-
-  if (!/^[0-9a-f]{7,64}$/i.test(trimmedHash)) {
-    return {
-      error: "Commit hash is invalid."
-    };
-  }
-
-  return {
-    hash: trimmedHash
-  };
-}
-
 function isResetMode(mode: string): mode is GitResetCommitRequest["mode"] {
   return mode === "soft" || mode === "mixed" || mode === "hard";
-}
-
-function sanitizeHistoryLimit(limit: number | undefined): number {
-  if (!Number.isFinite(limit)) {
-    return DEFAULT_HISTORY_LIMIT;
-  }
-
-  return Math.max(1, Math.min(MAX_HISTORY_LIMIT, Math.trunc(limit ?? DEFAULT_HISTORY_LIMIT)));
 }
 
 function createPathspecInput(paths: string[]): Buffer {

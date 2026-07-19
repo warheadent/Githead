@@ -29,6 +29,8 @@ export type VcsService = Pick<
   | "getCommitHistory"
   | "getCommitDetails"
   | "getCommitFileDiff"
+  | "getFileHistory"
+  | "getFileBlame"
   | "writeCommitFileVersionToPath"
   | "resetFilesToCommit"
   | "stageFiles"

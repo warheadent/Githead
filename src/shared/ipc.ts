@@ -31,6 +31,8 @@ export const IPC_CHANNELS = {
   getCommitHistory: "git:commit-history",
   getCommitDetails: "git:commit-details",
   getCommitFileDiff: "git:commit-file-diff",
+  getFileHistory: "git:file-history",
+  getFileBlame: "git:file-blame",
   getFileDiff: "git:file-diff",
   getFilePreview: "git:file-preview",
   fetchLfsImageVersions: "git:lfs-image-fetch",

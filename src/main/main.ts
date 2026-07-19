@@ -37,6 +37,8 @@ import type {
   GitDeleteTagRequest,
   GitFileChangesRequest,
   GitFileDiffRequest,
+  GitFileHistoryRequest,
+  GitFileBlameRequest,
   GitFilePreviewRequest,
   GitHunkRequest,
   GitLfsImageFetchRequest,
@@ -423,6 +425,16 @@ ipcMain.handle(IPC_CHANNELS.getCommitFileDiff, (event, request: GitCommitFileDif
   handleRead(event, request, async (signal) =>
     processRunner.runWithSignal(signal, async () =>
       (await vcsRouter.serviceForRepo(request.repoPath)).getCommitFileDiff(request))));
+
+ipcMain.handle(IPC_CHANNELS.getFileHistory, (event, request: GitFileHistoryRequest) =>
+  handleRead(event, request, async (signal) =>
+    processRunner.runWithSignal(signal, async () =>
+      (await vcsRouter.serviceForRepo(request.repoPath)).getFileHistory(request))));
+
+ipcMain.handle(IPC_CHANNELS.getFileBlame, (event, request: GitFileBlameRequest) =>
+  handleRead(event, request, async (signal) =>
+    processRunner.runWithSignal(signal, async () =>
+      (await vcsRouter.serviceForRepo(request.repoPath)).getFileBlame(request))));
 
 ipcMain.handle(IPC_CHANNELS.getFileDiff, (event, request: GitFileDiffRequest) =>
   handleRead(event, request, async (signal) =>

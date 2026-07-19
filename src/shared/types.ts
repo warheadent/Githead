@@ -215,6 +215,59 @@ export interface GitCommitDetails {
   files: GitCommitChangedFile[];
 }
 
+export interface GitFileHistoryEntry extends GitCommitGraphRow {
+  path: string;
+  originalPath?: string;
+  status: string;
+}
+
+export interface GitFileHistoryResult {
+  repoPath: string;
+  startHash: string;
+  requestedPath: string;
+  entries: GitFileHistoryEntry[];
+  hasMore: boolean;
+}
+
+export interface GitBlameCommit {
+  hash: string;
+  shortHash: string;
+  authorName: string;
+  authorEmail: string;
+  authorDate: string;
+  summary: string;
+}
+
+export interface GitBlameLine {
+  finalLine: number;
+  originalLine: number;
+  commitHash: string;
+  originalPath: string;
+  text: string;
+  boundary: boolean;
+}
+
+export type GitFileBlameResult =
+  | {
+    kind: "text";
+    repoPath: string;
+    hash: string;
+    path: string;
+    byteLength: number;
+    lines: GitBlameLine[];
+    commits: GitBlameCommit[];
+  }
+  | {
+    kind: "unavailable";
+    repoPath: string;
+    hash: string;
+    path: string;
+    reason: "missing" | "binary" | "oversized" | "too-many-lines" | "metadata-limit" | "timed-out";
+    message: string;
+    byteLength?: number;
+    lineCount?: number;
+  };
+
 export interface GitStatusFile {
   path: string;
   originalPath?: string;
@@ -267,6 +320,8 @@ export interface RepoCapabilities {
   github: boolean;
   ignoreFile: boolean;
   worktrees: boolean;
+  fileHistory: boolean;
+  blame: boolean;
 }
 
 export function gitCapabilities(): RepoCapabilities {
@@ -285,7 +340,9 @@ export function gitCapabilities(): RepoCapabilities {
     safeDirectory: true,
     github: true,
     ignoreFile: true,
-    worktrees: true
+    worktrees: true,
+    fileHistory: true,
+    blame: true
   };
 }
 
@@ -305,7 +362,9 @@ export function loreCapabilities(): RepoCapabilities {
     safeDirectory: false,
     github: false,
     ignoreFile: false,
-    worktrees: false
+    worktrees: false,
+    fileHistory: false,
+    blame: false
   };
 }
 
@@ -727,6 +786,19 @@ export type GitWorktreeCreateDraft = {
 export interface GitWorktreeRequest {
   repoPath: string;
   worktreePath: string;
+}
+
+export interface GitFileHistoryRequest extends RepositoryReadRequest {
+  repoPath: string;
+  startHash: string;
+  path: string;
+  limit?: number;
+}
+
+export interface GitFileBlameRequest extends RepositoryReadRequest {
+  repoPath: string;
+  hash: string;
+  path: string;
 }
 
 export interface GitWorktreeRemoveRequest extends GitWorktreeRequest {
@@ -1173,6 +1245,8 @@ export interface GitheadApi {
   getCommitHistory(request: GitCommitHistoryRequest): Promise<GitCommitGraphRow[]>;
   getCommitDetails(request: GitCommitDetailsRequest): Promise<GitCommitDetails>;
   getCommitFileDiff(request: GitCommitFileDiffRequest): Promise<GitFileDiff>;
+  getFileHistory(request: GitFileHistoryRequest): Promise<GitFileHistoryResult>;
+  getFileBlame(request: GitFileBlameRequest): Promise<GitFileBlameResult>;
   getFileDiff(request: GitFileDiffRequest): Promise<GitFileDiff>;
   getFilePreview(request: GitFilePreviewRequest): Promise<GitFilePreview>;
   fetchLfsImageVersions(request: GitLfsImageFetchRequest): Promise<GitOperationResult>;

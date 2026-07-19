@@ -27,6 +27,10 @@ import type {
   GitFileChangesRequest,
   GitFileDiff,
   GitFileDiffRequest,
+  GitFileHistoryRequest,
+  GitFileHistoryResult,
+  GitFileBlameRequest,
+  GitFileBlameResult,
   GitFilePreview,
   GitFilePreviewRequest,
   GitHubRepository,
@@ -406,6 +410,14 @@ export class LoreService implements VcsService {
       kind: text ? "text" : "empty",
       text
     };
+  }
+
+  async getFileHistory(request: GitFileHistoryRequest): Promise<GitFileHistoryResult> {
+    throw new Error(`File History is not supported for Lore repositories: ${request.repoPath}`);
+  }
+
+  async getFileBlame(request: GitFileBlameRequest): Promise<GitFileBlameResult> {
+    throw new Error(`Blame is not supported for Lore repositories: ${request.repoPath}`);
   }
 
   async getFilePreview(request: GitFilePreviewRequest): Promise<GitFilePreview> {

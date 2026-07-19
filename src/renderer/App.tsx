@@ -129,6 +129,8 @@ import type {
   GitCommitGraphRow,
   GitDiffSide,
   GitFileDiff,
+  GitFileHistoryEntry,
+  GitFileBlameResult,
   GitFilePreviewSource,
   GitImageSide,
   GitHubIssue,
@@ -195,6 +197,9 @@ import { FixedSizeVirtualList, type VirtualRowProps } from "./FixedSizeVirtualLi
 import { highlightDiffCode } from "./syntaxHighlighter";
 import { buildStatusFileTree, fileName, type StatusFileTreeFolder } from "./statusFileTree";
 import { applyColorTheme } from "./themes";
+import { FileHistoryView } from "./FileHistoryView";
+import { BlameView } from "./BlameView";
+import { repositoryHistoryRoute, targetFromCommitFile, targetFromHistoryEntry, type HistoricalFileTarget, type HistoryRoute } from "./historyNavigation";
 import gitIconUrl from "./assets/git-icon-white.svg";
 import loreIconUrl from "./assets/lore-icon-white.svg";
 
@@ -372,12 +377,25 @@ interface AppState {
   commitFileDiff: GitFileDiff | null;
   commitFileDiffLoading: boolean;
   commitFileDiffError: string;
+  historyRoute: HistoryRoute;
+  fileHistoryOrigin: HistoricalFileTarget | null;
+  fileHistoryEntries: GitFileHistoryEntry[];
+  fileHistoryLoading: boolean;
+  fileHistoryError: string;
+  fileHistoryHasMore: boolean;
+  selectedFileHistoryHash: string | null;
+  fileHistoryDiff: GitFileDiff | null;
+  fileHistoryDiffLoading: boolean;
+  fileHistoryDiffError: string;
+  fileBlame: GitFileBlameResult | null;
+  fileBlameLoading: boolean;
+  fileBlameError: string;
   activityLog: ActivityLogState;
   appUpdate: AppUpdateState;
 }
 
 type AppStateUpdater = Partial<AppState> | ((state: AppState) => AppState);
-type RepositoryReadKind = "summary" | "identity" | "status" | "metadata" | "history" | "commit-details" | "commit-file-diff" | "diff" | "file-preview";
+type RepositoryReadKind = "summary" | "identity" | "status" | "metadata" | "history" | "commit-details" | "commit-file-diff" | "file-history" | "file-history-diff" | "file-blame" | "diff" | "file-preview";
 
 function repositoryReadRequestId(kind: RepositoryReadKind, generation: number): string {
   return `${kind}:${generation}`;
@@ -397,6 +415,9 @@ interface RequestIds {
   history: number;
   commitDetails: number;
   commitFileDiff: number;
+  fileHistory: number;
+  fileHistoryDiff: number;
+  fileBlame: number;
   identity: number;
   remoteConfigs: number;
 }
@@ -610,6 +631,19 @@ const initialState: AppState = {
   commitFileDiff: null,
   commitFileDiffLoading: false,
   commitFileDiffError: "",
+  historyRoute: repositoryHistoryRoute,
+  fileHistoryOrigin: null,
+  fileHistoryEntries: [],
+  fileHistoryLoading: false,
+  fileHistoryError: "",
+  fileHistoryHasMore: false,
+  selectedFileHistoryHash: null,
+  fileHistoryDiff: null,
+  fileHistoryDiffLoading: false,
+  fileHistoryDiffError: "",
+  fileBlame: null,
+  fileBlameLoading: false,
+  fileBlameError: "",
   activityLog: createActivityLogState(),
   appUpdate: createInitialRendererUpdateState()
 };
@@ -637,7 +671,7 @@ export function App(): ReactNode {
     currentBranch: state.summary?.branch ?? null,
     headSha: getCurrentHistoryHeadSha(state.history, state.historyScope, state.summary?.branch ?? null),
     commitShas: state.history.map((commit) => commit.hash),
-    enabled: state.activeView === "history" && state.historyLoaded && Boolean(githubRepository)
+    enabled: state.activeView === "history" && state.historyRoute.kind === "repository" && state.historyLoaded && Boolean(githubRepository)
   });
   const [windowState, setWindowState] = useState<AppWindowState>(initialWindowState);
   const appearanceMode = state.settingsOpen
@@ -654,6 +688,9 @@ export function App(): ReactNode {
     history: 0,
     commitDetails: 0,
     commitFileDiff: 0,
+    fileHistory: 0,
+    fileHistoryDiff: 0,
+    fileBlame: 0,
     identity: 0,
     remoteConfigs: 0
   });
@@ -1257,7 +1294,7 @@ export function App(): ReactNode {
     }
 
     const latest = stateRef.current;
-    if (latest.activeView === "history") {
+    if (latest.activeView === "history" && latest.historyRoute.kind === "repository") {
       await loadCommitHistory(true);
     }
   }, [loadCommitHistory, loadRepoSyncStatuses, updateState]);
@@ -1385,10 +1422,16 @@ export function App(): ReactNode {
     cancelRepositoryRead("history", requestIds.current.history);
     cancelRepositoryRead("commit-details", requestIds.current.commitDetails);
     cancelRepositoryRead("commit-file-diff", requestIds.current.commitFileDiff);
+    cancelRepositoryRead("file-history", requestIds.current.fileHistory);
+    cancelRepositoryRead("file-history-diff", requestIds.current.fileHistoryDiff);
+    cancelRepositoryRead("file-blame", requestIds.current.fileBlame);
     requestIds.current.diff += 1;
     requestIds.current.history += 1;
     requestIds.current.commitDetails += 1;
     requestIds.current.commitFileDiff += 1;
+    requestIds.current.fileHistory += 1;
+    requestIds.current.fileHistoryDiff += 1;
+    requestIds.current.fileBlame += 1;
     requestIds.current.remoteConfigs += 1;
     fileStatusGenerationRef.current = 0;
     acknowledgedFileStatusGenerationRef.current = 0;
@@ -1580,6 +1623,9 @@ export function App(): ReactNode {
     cancelRepositoryRead("history", requestIds.current.history);
     cancelRepositoryRead("commit-details", requestIds.current.commitDetails);
     cancelRepositoryRead("commit-file-diff", requestIds.current.commitFileDiff);
+    cancelRepositoryRead("file-history", requestIds.current.fileHistory);
+    cancelRepositoryRead("file-history-diff", requestIds.current.fileHistoryDiff);
+    cancelRepositoryRead("file-blame", requestIds.current.fileBlame);
   }, []);
 
   useEffect(() => {
@@ -2781,6 +2827,94 @@ export function App(): ReactNode {
       publishDialogOpen: false,
       publishError: ""
     });
+  }, [updateState]);
+
+  const loadFileHistoryDiff = useCallback(async (entry: GitFileHistoryEntry): Promise<void> => {
+    cancelRepositoryRead("file-history-diff", requestIds.current.fileHistoryDiff);
+    const requestId = requestIds.current.fileHistoryDiff + 1;
+    requestIds.current.fileHistoryDiff = requestId;
+    const repoPath = stateRef.current.repoPath;
+    updateState({ selectedFileHistoryHash: entry.hash, fileHistoryDiff: null, fileHistoryDiffLoading: true, fileHistoryDiffError: "" });
+    try {
+      const diff = await window.githead.getCommitFileDiff({
+        repoPath,
+        hash: entry.hash,
+        path: entry.path,
+        requestId: repositoryReadRequestId("file-history-diff", requestId),
+        ...(entry.originalPath ? { originalPath: entry.originalPath } : {})
+      });
+      if (requestId !== requestIds.current.fileHistoryDiff || !isSameRepoPath(repoPath, stateRef.current.repoPath) || stateRef.current.historyRoute.kind !== "file") return;
+      updateState({ fileHistoryDiff: diff });
+    } catch (error) {
+      if (requestId === requestIds.current.fileHistoryDiff && isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        updateState({ fileHistoryDiffError: error instanceof Error ? error.message : "Unable to read the historical file diff." });
+      }
+    } finally {
+      if (requestId === requestIds.current.fileHistoryDiff) updateState({ fileHistoryDiffLoading: false });
+    }
+  }, [updateState]);
+
+  const loadFileHistory = useCallback(async (target: HistoricalFileTarget): Promise<void> => {
+    cancelRepositoryRead("file-history", requestIds.current.fileHistory);
+    cancelRepositoryRead("file-history-diff", requestIds.current.fileHistoryDiff);
+    cancelRepositoryRead("file-blame", requestIds.current.fileBlame);
+    requestIds.current.fileHistoryDiff += 1;
+    requestIds.current.fileBlame += 1;
+    const requestId = requestIds.current.fileHistory + 1;
+    requestIds.current.fileHistory = requestId;
+    const repoPath = stateRef.current.repoPath;
+    updateState({
+      activeView: "history",
+      historyRoute: { kind: "file", origin: target },
+      fileHistoryOrigin: target,
+      fileHistoryEntries: [],
+      fileHistoryLoading: true,
+      fileHistoryError: "",
+      fileHistoryHasMore: false,
+      selectedFileHistoryHash: null,
+      fileHistoryDiff: null,
+      fileHistoryDiffLoading: false,
+      fileHistoryDiffError: "",
+      fileBlame: null,
+      fileBlameLoading: false,
+      fileBlameError: ""
+    });
+    try {
+      const result = await window.githead.getFileHistory({ repoPath, startHash: target.hash, path: target.path, limit: HISTORY_LIMIT, requestId: repositoryReadRequestId("file-history", requestId) });
+      const route = stateRef.current.historyRoute;
+      if (requestId !== requestIds.current.fileHistory || !isSameRepoPath(repoPath, stateRef.current.repoPath) || route.kind !== "file" || route.origin.hash !== target.hash || route.origin.path !== target.path) return;
+      const first = result.entries[0] ?? null;
+      updateState({ fileHistoryEntries: result.entries, fileHistoryHasMore: result.hasMore, selectedFileHistoryHash: first?.hash ?? null });
+      if (first) await loadFileHistoryDiff(first);
+    } catch (error) {
+      if (requestId === requestIds.current.fileHistory && isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        updateState({ fileHistoryError: error instanceof Error ? error.message : "Unable to read file history." });
+      }
+    } finally {
+      if (requestId === requestIds.current.fileHistory) updateState({ fileHistoryLoading: false });
+    }
+  }, [loadFileHistoryDiff, updateState]);
+
+  const loadFileBlame = useCallback(async (target: HistoricalFileTarget, returnTo: "repository" | "file"): Promise<void> => {
+    cancelRepositoryRead("file-blame", requestIds.current.fileBlame);
+    cancelRepositoryRead("file-history-diff", requestIds.current.fileHistoryDiff);
+    requestIds.current.fileHistoryDiff += 1;
+    const requestId = requestIds.current.fileBlame + 1;
+    requestIds.current.fileBlame = requestId;
+    const repoPath = stateRef.current.repoPath;
+    updateState({ activeView: "history", historyRoute: { kind: "blame", target, returnTo }, fileBlame: null, fileBlameLoading: true, fileBlameError: "" });
+    try {
+      const result = await window.githead.getFileBlame({ repoPath, hash: target.hash, path: target.path, requestId: repositoryReadRequestId("file-blame", requestId) });
+      const route = stateRef.current.historyRoute;
+      if (requestId !== requestIds.current.fileBlame || !isSameRepoPath(repoPath, stateRef.current.repoPath) || route.kind !== "blame" || route.target.hash !== target.hash || route.target.path !== target.path) return;
+      updateState({ fileBlame: result });
+    } catch (error) {
+      if (requestId === requestIds.current.fileBlame && isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        updateState({ fileBlameError: error instanceof Error ? error.message : "Unable to read blame." });
+      }
+    } finally {
+      if (requestId === requestIds.current.fileBlame) updateState({ fileBlameLoading: false });
+    }
   }, [updateState]);
 
   const openPushToBranchDialog = useCallback((): void => {
@@ -4115,7 +4249,13 @@ export function App(): ReactNode {
       return;
     }
 
-    if (action === "log" || action === "blame") {
+    if (action === "log") {
+      if (stateRef.current.summary?.capabilities.fileHistory) void loadFileHistory(targetFromCommitFile(hash, file));
+      return;
+    }
+
+    if (action === "blame") {
+      if (file.status !== "D" && stateRef.current.summary?.capabilities.blame) void loadFileBlame(targetFromCommitFile(hash, file), "repository");
       return;
     }
 
@@ -4155,7 +4295,7 @@ export function App(): ReactNode {
         path: file.path
       })
     );
-  }, [openResetCommitFileDialog, runRepoOperation, selectCommitFile]);
+  }, [loadFileBlame, loadFileHistory, openResetCommitFileDialog, runRepoOperation, selectCommitFile]);
 
   const createTag = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
@@ -4697,6 +4837,8 @@ export function App(): ReactNode {
     );
   }
 
+  const selectedFileHistoryEntry = state.fileHistoryEntries.find((entry) => entry.hash === state.selectedFileHistoryHash) ?? null;
+
   return (
     <AppChrome
       isMaximized={windowState.isMaximized}
@@ -4913,7 +5055,57 @@ export function App(): ReactNode {
               </TabsContent>
 
               <TabsContent forceMount value="history" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
-                <HistoryView
+                {state.historyRoute.kind === "file" ? (
+                  <FileHistoryView
+                    path={state.historyRoute.origin.path}
+                    entries={state.fileHistoryEntries}
+                    selectedHash={state.selectedFileHistoryHash}
+                    loading={state.fileHistoryLoading}
+                    error={state.fileHistoryError}
+                    hasMore={state.fileHistoryHasMore}
+                    onBack={() => {
+                      cancelRepositoryRead("file-history", requestIds.current.fileHistory);
+                      cancelRepositoryRead("file-history-diff", requestIds.current.fileHistoryDiff);
+                      requestIds.current.fileHistory += 1;
+                      requestIds.current.fileHistoryDiff += 1;
+                      updateState({ historyRoute: repositoryHistoryRoute });
+                    }}
+                    onRetry={() => { void loadFileHistory(state.historyRoute.kind === "file" ? state.historyRoute.origin : state.fileHistoryOrigin!); }}
+                    onSelect={(entry) => { void loadFileHistoryDiff(entry); }}
+                    onBlame={(entry) => { void loadFileBlame(targetFromHistoryEntry(entry), "file"); }}
+                    diffContent={
+                      <DiffPanel
+                        title={selectedFileHistoryEntry?.path ?? state.historyRoute.origin.path}
+                        eyebrow="File history diff"
+                        diff={state.fileHistoryDiff}
+                        filePath={selectedFileHistoryEntry?.path ?? state.historyRoute.origin.path}
+                        loading={state.fileHistoryDiffLoading}
+                        emptyMessage={state.fileHistoryDiffError || (state.selectedFileHistoryHash ? "Loading diff..." : "Select a change to view its diff")}
+                        repoPath={state.repoPath}
+                      />
+                    }
+                  />
+                ) : state.historyRoute.kind === "blame" ? (
+                  <BlameView
+                    path={state.historyRoute.target.path}
+                    result={state.fileBlame}
+                    loading={state.fileBlameLoading}
+                    error={state.fileBlameError}
+                    backLabel={state.historyRoute.returnTo === "file" ? "Back to File History" : "Back"}
+                    onBack={() => {
+                      cancelRepositoryRead("file-blame", requestIds.current.fileBlame);
+                      requestIds.current.fileBlame += 1;
+                      updateState({ historyRoute: state.historyRoute.kind === "blame" && state.historyRoute.returnTo === "file" && state.fileHistoryOrigin ? { kind: "file", origin: state.fileHistoryOrigin } : repositoryHistoryRoute });
+                    }}
+                    onRetry={() => { if (state.historyRoute.kind === "blame") void loadFileBlame(state.historyRoute.target, state.historyRoute.returnTo); }}
+                    onOpenCommit={(hash) => {
+                      cancelRepositoryRead("file-blame", requestIds.current.fileBlame);
+                      requestIds.current.fileBlame += 1;
+                      updateState({ historyRoute: repositoryHistoryRoute });
+                      selectCommit(hash);
+                    }}
+                  />
+                ) : <HistoryView
                   summary={state.summary}
                   historyScope={state.historyScope}
                   history={state.history}
@@ -4939,7 +5131,7 @@ export function App(): ReactNode {
                   onCommitContextAction={runCommitContextAction}
                   onCommitFileContextAction={runCommitFileContextAction}
                   onDownloadImage={() => { void downloadCommitLfsPreview(); }}
-                />
+                />}
               </TabsContent>
 
               {showGitHubTabs ? (
@@ -8073,6 +8265,8 @@ function HistoryView({
               onOpenExternalUrl={onOpenExternalUrl}
               selectedFilePath={selectedCommitFilePath}
               disabled={disabled}
+              fileHistoryEnabled={Boolean(summary?.capabilities.fileHistory)}
+              blameEnabled={Boolean(summary?.capabilities.blame)}
               onSelectCommit={onSelectCommit}
               onSelectCommitFile={onSelectCommitFile}
               onCommitFileContextAction={onCommitFileContextAction}
@@ -8765,6 +8959,8 @@ function CommitDetailsPanel({
   onOpenExternalUrl,
   selectedFilePath,
   disabled,
+  fileHistoryEnabled,
+  blameEnabled,
   onSelectCommit,
   onSelectCommitFile,
   onCommitFileContextAction
@@ -8776,6 +8972,8 @@ function CommitDetailsPanel({
   onOpenExternalUrl: (url: string) => void;
   selectedFilePath: string | null;
   disabled: boolean;
+  fileHistoryEnabled: boolean;
+  blameEnabled: boolean;
   onSelectCommit: (hash: string) => void;
   onSelectCommitFile: (filePath: string) => void;
   onCommitFileContextAction: (file: GitCommitChangedFile, action: CommitFileContextActionKind) => void;
@@ -8855,6 +9053,8 @@ function CommitDetailsPanel({
           file={file}
           selected={file.path === selectedFilePath}
           disabled={disabled}
+          fileHistoryEnabled={fileHistoryEnabled}
+          blameEnabled={blameEnabled}
           onSelectCommitFile={onSelectCommitFile}
           onContextAction={onCommitFileContextAction}
         />
@@ -8914,12 +9114,16 @@ function CommitFileRow({
   file,
   selected,
   disabled,
+  fileHistoryEnabled,
+  blameEnabled,
   onSelectCommitFile,
   onContextAction
 }: {
   file: GitCommitChangedFile;
   selected: boolean;
   disabled: boolean;
+  fileHistoryEnabled: boolean;
+  blameEnabled: boolean;
   onSelectCommitFile: (filePath: string) => void;
   onContextAction: (file: GitCommitChangedFile, action: CommitFileContextActionKind) => void;
 }): ReactNode {
@@ -8948,11 +9152,11 @@ function CommitFileRow({
         </button>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-56">
-        <ContextMenuItem disabled onSelect={() => onContextAction(file, "log")}>
+        <ContextMenuItem disabled={disabled || !fileHistoryEnabled} onSelect={() => onContextAction(file, "log")}>
           <History />
           Log Selected
         </ContextMenuItem>
-        <ContextMenuItem disabled onSelect={() => onContextAction(file, "blame")}>
+        <ContextMenuItem disabled={disabled || !blameEnabled || file.status === "D"} onSelect={() => onContextAction(file, "blame")}>
           <GitFork />
           Blame Selected
         </ContextMenuItem>
@@ -10179,7 +10383,20 @@ function resetHistoryState(state: AppState): AppState {
     selectedCommitFilePath: null,
     commitFileDiff: null,
     commitFileDiffLoading: false,
-    commitFileDiffError: ""
+    commitFileDiffError: "",
+    historyRoute: repositoryHistoryRoute,
+    fileHistoryOrigin: null,
+    fileHistoryEntries: [],
+    fileHistoryLoading: false,
+    fileHistoryError: "",
+    fileHistoryHasMore: false,
+    selectedFileHistoryHash: null,
+    fileHistoryDiff: null,
+    fileHistoryDiffLoading: false,
+    fileHistoryDiffError: "",
+    fileBlame: null,
+    fileBlameLoading: false,
+    fileBlameError: ""
   };
 }
 
