@@ -37,9 +37,11 @@ export class CommitMessageService {
     private readonly reasoningCapabilities?: AiReasoningCapabilityResolver
   ) {}
 
-  async generateCommitMessage(request: GenerateCommitMessageRequest): Promise<GitOperationResult> {
+  async generateCommitMessage(request: GenerateCommitMessageRequest, signal?: AbortSignal): Promise<GitOperationResult> {
     try {
+      throwIfAborted(signal);
       const settings = await this.settingsService.getSettings();
+      throwIfAborted(signal);
       const selectedProvider = settings.selectedProvider;
       const providerSettings = settings.providers[selectedProvider];
       const providerLabel = getProviderLabel(selectedProvider);
@@ -51,12 +53,14 @@ export class CommitMessageService {
         this.fetchImpl,
         this.runner
       );
+      throwIfAborted(signal);
       if (resolution.kind === "error") {
         return createFailure(request.repoPath, resolution.message);
       }
 
       const service = await this.resolveService(request.repoPath);
       const diffResult = await service.getStagedDiff(request.repoPath);
+      throwIfAborted(signal);
       if (diffResult.exitCode !== 0) {
         return diffResult;
       }
@@ -72,9 +76,11 @@ export class CommitMessageService {
         providerSettings.model,
         providerSettings.reasoningEffort
       );
+      throwIfAborted(signal);
       const message = normalizeGeneratedMessage(await resolution.provider.generate({
         repoPath: request.repoPath,
         model: providerSettings.model,
+        ...(signal ? { signal } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
         systemPrompt: createCommitMessageSystemPrompt(),
         userPrompt: createCommitMessageUserPrompt(
@@ -83,6 +89,7 @@ export class CommitMessageService {
           request.additionalContext
         )
       }));
+      throwIfAborted(signal);
       if (!message) {
         return createFailure(request.repoPath, `${providerLabel} returned an empty commit message.`);
       }
@@ -94,12 +101,23 @@ export class CommitMessageService {
         stderr: ""
       };
     } catch (error) {
+      if (signal?.aborted) {
+        throw signal.reason ?? error;
+      }
       return createFailure(
         request.repoPath,
         error instanceof Error ? error.message : "Unable to generate commit message."
       );
     }
   }
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) {
+    return;
+  }
+
+  throw signal.reason ?? new DOMException("Operation was cancelled.", "AbortError");
 }
 
 export async function resolveReasoningEffort(

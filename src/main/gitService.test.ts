@@ -183,6 +183,34 @@ function repoSummaryResults(repoRoot: string): ProcessResult[] {
 }
 
 describe("GitService", () => {
+  it("streams commit file versions through the shared runner and preserves failures", async () => {
+    const runner = new FakeRunner([{
+      exitCode: -1,
+      stdout: "",
+      stderr: "fatal: unable to read blob",
+      error: "Command was cancelled."
+    }]);
+    const service = new GitService(runner);
+
+    await expect(service.writeCommitFileVersionToPath(
+      "D:\\Repo",
+      oid,
+      "assets/large.bin",
+      "D:\\Temp\\large.bin"
+    )).resolves.toEqual({
+      exitCode: -1,
+      stderr: "fatal: unable to read blob",
+      error: "Command was cancelled."
+    });
+    expect(runner.calls).toEqual([{
+      command: "git",
+      args: ["-C", "D:\\Repo", "cat-file", "blob", `${oid}:assets/large.bin`],
+      options: {
+        stdoutFilePath: "D:\\Temp\\large.bin"
+      }
+    }]);
+  });
+
   it("loads working, staged, and commit Markdown preview versions", async () => {
     await withTempDir(async (dir) => {
       await fs.writeFile(path.join(dir, "README.md"), "# Working\n", "utf8");

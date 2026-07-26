@@ -109,7 +109,10 @@ export function SettingsDialog({
   }, [draft, open]);
 
   const requestClose = (): void => {
-    if (saving) return;
+    if (saving) {
+      onOpenChange(false);
+      return;
+    }
     if (dirty) {
       setConfirmDiscard(true);
       return;
@@ -124,9 +127,15 @@ export function SettingsDialog({
       }}>
         <DialogContent
           className="h-[min(780px,calc(100vh-2rem))] max-h-[min(780px,calc(100vh-2rem))] overflow-clip p-0 sm:max-w-[880px]"
-          showCloseButton={!saving}
+          aria-busy={saving}
         >
-          <form className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]" onSubmit={onSave}>
+          <form className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]" onSubmit={(event) => {
+            if (saving) {
+              event.preventDefault();
+              return;
+            }
+            onSave(event);
+          }}>
             <DialogHeader className="border-b px-6 py-5 pr-14">
               <p className="eyebrow">Preferences</p>
               <DialogTitle>Settings</DialogTitle>
@@ -244,7 +253,7 @@ export function SettingsDialog({
                 {error ? <p id="settings-git-identity-error" className="flex items-center gap-2 text-destructive" role="alert"><CircleAlert className="size-4 shrink-0" aria-hidden="true" /><span>{error}</span></p> : dirty ? <p className="text-muted-foreground" role="status">You have unsaved changes.</p> : <p className="text-muted-foreground">All changes are saved.</p>}
               </div>
               <DialogFooter className="shrink-0">
-                <Button type="button" variant="outline" disabled={saving} onClick={requestClose}>Cancel</Button>
+                <Button type="button" variant="outline" onClick={requestClose}>{saving ? "Cancel operation" : "Cancel"}</Button>
                 <Button type="submit" disabled={saving || !dirty}>{saving ? <Loader2 className="animate-spin" /> : <Save />}{saving ? "Saving…" : "Save"}</Button>
               </DialogFooter>
             </div>

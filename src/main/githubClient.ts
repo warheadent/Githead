@@ -26,6 +26,13 @@ export interface GitHubClient {
   invalidateRepository(repository: GitHubRepository): void;
 }
 
+export class GitHubResponseBodyError extends Error {
+  constructor(status: number, cause?: unknown) {
+    super(`GitHub returned invalid JSON with status ${status}.`, { cause });
+    this.name = "GitHubResponseBodyError";
+  }
+}
+
 type GitHubAuthStrategy =
   | { kind: "token"; source: "GITHUB_TOKEN" | "GH_TOKEN" | "gh"; token: string }
   | { kind: "anonymous" };
@@ -86,6 +93,7 @@ export class DefaultGitHubClient implements GitHubClient {
   }
 
   async requestJson<T>(repository: GitHubRepository, path: string, request: GitHubClientRequest = {}): Promise<GitHubClientResponse<T>> {
+    request.signal?.throwIfAborted();
     validatePath(path);
     const method = request.method ?? "GET";
     if (method === "POST" && request.cache?.mode === "conditional") {
@@ -93,6 +101,7 @@ export class DefaultGitHubClient implements GitHubClient {
     }
 
     const auth = await this.resolveAuthStrategy();
+    request.signal?.throwIfAborted();
     const generation = this.authGeneration;
     const key = this.createKey(generation, repository, method, path);
     if (method !== "GET" || this.inFlight.size >= this.maxInFlightRequests) {
@@ -177,16 +186,19 @@ export class DefaultGitHubClient implements GitHubClient {
     if (cached) headers.set("If-None-Match", cached.etag);
     if (auth.kind === "token") headers.set("Authorization", `Bearer ${auth.token}`);
 
-    const response = await this.fetchWithTimeout(`${GITHUB_API_BASE_URL}${path}`, {
+    const result = await this.fetchJsonWithTimeout(`${GITHUB_API_BASE_URL}${path}`, {
       method,
       headers,
       ...(body === undefined ? {} : { body })
-    }, request.signal, method === "POST" ? this.mutationTimeoutMs : this.requestTimeoutMs);
+    }, request.signal, method === "POST" ? this.mutationTimeoutMs : this.requestTimeoutMs, method === "GET" && !authRetried);
+    const { response } = result;
+    request.signal?.throwIfAborted();
 
     if (response.status === 401) {
       this.invalidateAuthentication(generation);
       if (method === "GET" && !authRetried) {
         const refreshed = await this.resolveAuthStrategy();
+        request.signal?.throwIfAborted();
         return this.protectToken(this.performRequest(repository, path, request, refreshed, this.authGeneration, true), refreshed);
       }
     }
@@ -198,7 +210,11 @@ export class DefaultGitHubClient implements GitHubClient {
       return { payload: cached.payload as T, status: 304, headers: new Headers(cached.headers), source: "not-modified" };
     }
 
-    const payload = await parseJson(response);
+    if (!result.hasPayload) {
+      throw new Error(`GitHub returned status ${response.status} without a response payload.`);
+    }
+    const payload = result.payload;
+    request.signal?.throwIfAborted();
     if (!response.ok) throw new Error(createGitHubRequestError(repository, response.status, payload));
 
     if (cacheEnabled) {
@@ -208,13 +224,37 @@ export class DefaultGitHubClient implements GitHubClient {
     return { payload: payload as T, status: response.status, headers: new Headers(response.headers), source: "network" };
   }
 
-  private async fetchWithTimeout(url: string, init: RequestInit, signal: AbortSignal | undefined, timeoutMs: number): Promise<Response> {
+  private async fetchJsonWithTimeout(
+    url: string,
+    init: RequestInit,
+    signal: AbortSignal | undefined,
+    timeoutMs: number,
+    discardUnauthorizedBody: boolean
+  ): Promise<GitHubFetchResult> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(new Error("GitHub REST request timed out.")), timeoutMs);
     const abort = () => controller.abort(signal?.reason);
     signal?.addEventListener("abort", abort, { once: true });
     try {
-      return await this.fetchImpl(url, { ...init, signal: controller.signal });
+      // Handle signals that were already aborted before listener registration,
+      // closing the only window in which a cancelled mutation could still POST.
+      if (signal?.aborted) {
+        abort();
+      }
+      controller.signal.throwIfAborted();
+      const response = await waitForAbortable(
+        this.fetchImpl(url, { ...init, signal: controller.signal }),
+        controller.signal
+      );
+      controller.signal.throwIfAborted();
+      if (response.status === 304) return { response, hasPayload: false };
+      if (response.status === 401 && discardUnauthorizedBody) {
+        await cancelResponseBody(response, controller.signal);
+        return { response, hasPayload: false };
+      }
+      const payload = await parseJson(response, controller.signal);
+      controller.signal.throwIfAborted();
+      return { response, hasPayload: true, payload };
     } finally {
       clearTimeout(timeout);
       signal?.removeEventListener("abort", abort);
@@ -257,6 +297,10 @@ export class DefaultGitHubClient implements GitHubClient {
   }
 }
 
+type GitHubFetchResult =
+  | { response: Response; hasPayload: false }
+  | { response: Response; hasPayload: true; payload: unknown };
+
 function validatePath(path: string): void {
   if (!path.startsWith("/") || path.startsWith("//") || /^[a-z][a-z\d+.-]*:/i.test(path)) {
     throw new Error("GitHub API requests require a relative path beginning with '/'.");
@@ -271,9 +315,78 @@ function bodySize(payload: unknown): number {
   try { return Buffer.byteLength(JSON.stringify(payload)); } catch { return Number.POSITIVE_INFINITY; }
 }
 
-async function parseJson(response: Response): Promise<unknown> {
-  try { return await response.json(); }
-  catch { throw new Error(`GitHub returned invalid JSON with status ${response.status}.`); }
+async function parseJson(response: Response, signal: AbortSignal): Promise<unknown> {
+  try {
+    const text = await readResponseBody(response, signal);
+    signal.throwIfAborted();
+    return JSON.parse(text) as unknown;
+  } catch (error) {
+    signal.throwIfAborted();
+    if (error instanceof GitHubResponseBodyError) throw error;
+    throw new GitHubResponseBodyError(response.status, error);
+  }
+}
+
+async function readResponseBody(response: Response, signal: AbortSignal): Promise<string> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let rejectAbort!: (reason?: unknown) => void;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    rejectAbort = reject;
+  });
+  // The promise is also raced below. This handler covers the narrow window in
+  // which the signal is already aborted before the first read is registered.
+  void aborted.catch(() => undefined);
+  const abort = () => {
+    rejectAbort(signal.reason);
+    void reader.cancel(signal.reason).catch(() => undefined);
+  };
+  signal.addEventListener("abort", abort, { once: true });
+  if (signal.aborted) abort();
+
+  let text = "";
+  try {
+    while (true) {
+      const chunk = await Promise.race([reader.read(), aborted]);
+      signal.throwIfAborted();
+      if (chunk.done) return text + decoder.decode();
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+  } finally {
+    signal.removeEventListener("abort", abort);
+    try { reader.releaseLock(); } catch { /* A pending cancelled read still owns the lock. */ }
+  }
+}
+
+async function cancelResponseBody(response: Response, signal: AbortSignal): Promise<void> {
+  if (!response.body) return;
+  const reader = response.body.getReader();
+  try {
+    await waitForAbortable(reader.cancel(), signal);
+  } catch {
+    // A failed best-effort disposal must not suppress the established 401
+    // authentication retry. Abort and timeout reasons still take precedence.
+    signal.throwIfAborted();
+  } finally {
+    try { reader.releaseLock(); } catch { /* The cancellation is still settling. */ }
+  }
+}
+
+async function waitForAbortable<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  let rejectAbort!: (reason?: unknown) => void;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    rejectAbort = reject;
+  });
+  void aborted.catch(() => undefined);
+  const abort = () => rejectAbort(signal.reason);
+  signal.addEventListener("abort", abort, { once: true });
+  if (signal.aborted) abort();
+  try {
+    return await Promise.race([operation, aborted]);
+  } finally {
+    signal.removeEventListener("abort", abort);
+  }
 }
 
 function createGitHubRequestError(repository: GitHubRepository, status: number, rawPayload: unknown): string {

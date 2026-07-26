@@ -755,6 +755,36 @@ describe("App", () => {
     });
   });
 
+  it("does not lock repository actions while a clipboard request is pending", async () => {
+    const user = userEvent.setup();
+    const pendingCopy = defer<GitOperationResult>();
+    const commit = createCommit({
+      hash: "c".repeat(40),
+      shortHash: "ccccccc",
+      subject: "docs: copy without blocking"
+    });
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash));
+    vi.mocked(githead.copyCommitShaToClipboard).mockReturnValueOnce(pendingCopy.promise);
+
+    render(<App />);
+
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    const row = await screen.findByRole("option", { name: /copy without blocking/ });
+    fireEvent.contextMenu(row);
+    await user.click(await screen.findByRole("menuitem", { name: /Copy SHA to clipboard/ }));
+    await waitFor(() => expect(githead.copyCommitShaToClipboard).toHaveBeenCalledOnce());
+
+    expect((screen.getByRole("button", { name: "Fetch" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByText("Copying commit SHA")).toBeNull();
+
+    await act(async () => {
+      pendingCopy.resolve(createOperationResult({ repoPath, stdout: "Commit SHA copied to clipboard." }));
+      await pendingCopy.promise;
+    });
+  });
+
   it("resets the current branch to a commit with the selected mode", async () => {
     const user = userEvent.setup();
     const commit = createCommit({
@@ -778,7 +808,8 @@ describe("App", () => {
       expect(githead.resetBranchToCommit).toHaveBeenCalledWith({
         repoPath,
         hash: commit.hash,
-        mode: "hard"
+        mode: "hard",
+        operationId: expect.any(String)
       });
     });
   });
@@ -807,7 +838,8 @@ describe("App", () => {
     await waitFor(() => {
       expect(githead.revertCommit).toHaveBeenCalledWith({
         repoPath,
-        hash: commit.hash
+        hash: commit.hash,
+        operationId: expect.any(String)
       });
     });
   });
@@ -969,7 +1001,8 @@ describe("App", () => {
       expect(githead.openCommitFileVersion).toHaveBeenCalledWith({
         repoPath,
         hash: commit.hash,
-        path: "src/App.test.tsx"
+        path: "src/App.test.tsx",
+        operationId: expect.any(String)
       });
     });
 
@@ -1026,7 +1059,8 @@ describe("App", () => {
         hash: commit.hash,
         paths: [
           "src/App.test.tsx"
-        ]
+        ],
+        operationId: expect.any(String)
       });
     });
   });
@@ -1106,7 +1140,8 @@ describe("App", () => {
         message: "Release 1.2.3",
         lightweight: false,
         force: false,
-        pushRemote: "origin"
+        pushRemote: "origin",
+        operationId: expect.any(String)
       });
     });
   });
@@ -1137,7 +1172,8 @@ describe("App", () => {
       message: "",
       lightweight: true,
       force: true,
-      pushRemote: null
+      pushRemote: null,
+      operationId: expect.any(String)
     }));
   });
 
@@ -1160,7 +1196,7 @@ describe("App", () => {
     expect(within(unstagedTree).queryByRole("button", { name: "Stage folder src" })).toBeNull();
     await user.pointer({ target: srcFolder, keys: "[MouseRight]" });
     await user.click(screen.getByRole("menuitem", { name: "Stage folder" }));
-    await waitFor(() => expect(githead.stageFiles).toHaveBeenCalledWith({ repoPath, paths: ["src/App.tsx", "src/lib/utils.ts"] }));
+    await waitFor(() => expect(githead.stageFiles).toHaveBeenCalledWith({ repoPath, paths: ["src/App.tsx", "src/lib/utils.ts"], operationId: expect.any(String) }));
     await user.click(srcFolder);
     expect(srcFolder.getAttribute("aria-expanded")).toBe("false");
     expect(screen.getByRole("tree", { name: "Staged files" })).toBeTruthy();
@@ -1178,7 +1214,7 @@ describe("App", () => {
     expect(within(stagedSection).queryByRole("button", { name: "Submodules" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Submodules" }));
     await user.click(screen.getByRole("menuitem", { name: "Sync submodule URLs" }));
-    await waitFor(() => expect(githead.syncSubmodules).toHaveBeenCalledWith({ repoPath }));
+    await waitFor(() => expect(githead.syncSubmodules).toHaveBeenCalledWith({ repoPath, operationId: expect.any(String) }));
   });
 
   it("removes an existing tag from the selected commit", async () => {
@@ -1211,7 +1247,8 @@ describe("App", () => {
       expect(githead.deleteTag).toHaveBeenCalledWith({
         repoPath,
         tagName: "v1.2.3",
-        pushRemote: null
+        pushRemote: null,
+        operationId: expect.any(String)
       });
     });
   });
@@ -1269,7 +1306,8 @@ describe("App", () => {
         repoPath,
         paths: [
           "src/App.tsx"
-        ]
+        ],
+        operationId: expect.any(String)
       });
     });
   });
@@ -1305,7 +1343,8 @@ describe("App", () => {
         repoPath,
         path: "src/App.tsx",
         side: "unstaged",
-        patch: `${initialDiff.text}\n`
+        patch: `${initialDiff.text}\n`,
+        operationId: expect.any(String)
       });
     });
     expect(await screen.findByText("remaining-hunk")).toBeTruthy();
@@ -1350,7 +1389,8 @@ describe("App", () => {
         repoPath,
         path: "src/App.tsx",
         side: "staged",
-        patch: `${initialDiff.text}\n`
+        patch: `${initialDiff.text}\n`,
+        operationId: expect.any(String)
       });
     });
     expect(await screen.findByText("remaining-hunk")).toBeTruthy();
@@ -1418,6 +1458,47 @@ describe("App", () => {
     expect(githead.getFileDiff).toHaveBeenCalledTimes(1);
   });
 
+  it("does not continue a completed hunk operation into a repository selected during refresh", async () => {
+    const user = userEvent.setup();
+    const otherRepo = "D:\\Work\\Hunk-B";
+    const file = createStatusFile("src/shared.ts", { isUnstaged: true, worktreeStatus: "M" });
+    const pendingRepositoryARefresh = defer<RepoSummary>();
+    const pendingRepositoryChoice = defer<string | null>();
+    let blockRepositoryARefresh = false;
+    vi.mocked(githead.chooseRepo).mockReturnValue(pendingRepositoryChoice.promise);
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.getRepoSummary).mockImplementation((requestedRepoPath) => {
+      if (requestedRepoPath === repoPath && blockRepositoryARefresh) {
+        return pendingRepositoryARefresh.promise;
+      }
+      return Promise.resolve(createSummary({ repoPath: requestedRepoPath, files: [file] }));
+    });
+    vi.mocked(githead.getFileDiff).mockImplementation(async ({ repoPath: requestedRepoPath, path, side }) => (
+      createTextDiff(path, requestedRepoPath === repoPath ? "repository-a" : "repository-b", side)
+    ));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("option", { name: /src\/shared\.ts/ }));
+    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await user.click(await screen.findByRole("button", { name: "Add existing" }));
+    await waitFor(() => expect(githead.chooseRepo).toHaveBeenCalledTimes(1));
+    blockRepositoryARefresh = true;
+    await user.click(await screen.findByRole("button", { name: /^Stage Hunk$/ }));
+    await waitFor(() => expect(githead.stageHunk).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(vi.mocked(githead.getRepoSummary).mock.calls.length).toBeGreaterThan(1));
+
+    pendingRepositoryChoice.resolve(otherRepo);
+    await waitFor(() => expect(screen.getByRole("button", { name: `Switch to ${otherRepo}` }).getAttribute("aria-current")).toBe("true"));
+
+    pendingRepositoryARefresh.resolve(createSummary({ repoPath, files: [file] }));
+    await flushRendererAsync();
+
+    expect(vi.mocked(githead.getFileDiff).mock.calls.every(([request]) => request.repoPath === repoPath)).toBe(true);
+    expect(screen.queryByText("repository-b")).toBeNull();
+  });
+
   it("stages multiple ctrl-selected unstaged files through the preload API", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
@@ -1451,7 +1532,8 @@ describe("App", () => {
         paths: [
           "src/first.ts",
           "src/second.ts"
-        ]
+        ],
+        operationId: expect.any(String)
       });
     });
   });
@@ -1489,7 +1571,8 @@ describe("App", () => {
         paths: [
           "src/first.ts",
           "src/second.ts"
-        ]
+        ],
+        operationId: expect.any(String)
       });
     });
   });
@@ -1614,7 +1697,8 @@ describe("App", () => {
           "src/a.ts",
           "src/b.ts",
           "src/c.ts"
-        ]
+        ],
+        operationId: expect.any(String)
       });
     });
   });
@@ -1671,7 +1755,7 @@ describe("App", () => {
     await waitFor(() => expect(screen.queryByRole("option", { name: /src\/first\.ts/ })).toBeNull());
     expect(screen.getByRole("option", { name: /src\/second\.ts/ }).getAttribute("aria-selected")).toBe("true");
     fireEvent.click(screen.getByRole("button", { name: /^Stage$/ }));
-    await waitFor(() => expect(githead.stageFiles).toHaveBeenCalledWith({ repoPath, paths: ["src/second.ts"] }));
+    await waitFor(() => expect(githead.stageFiles).toHaveBeenCalledWith({ repoPath, paths: ["src/second.ts"], operationId: expect.any(String) }));
   });
 
   it("stages multiple selected unstaged files from a selected row context menu", async () => {
@@ -1705,7 +1789,8 @@ describe("App", () => {
         paths: [
           "src/first.ts",
           "src/second.ts"
-        ]
+        ],
+        operationId: expect.any(String)
       });
     });
   });
@@ -1741,7 +1826,8 @@ describe("App", () => {
         paths: [
           "src/first.ts",
           "src/second.ts"
-        ]
+        ],
+        operationId: expect.any(String)
       });
     });
   });
@@ -1777,7 +1863,8 @@ describe("App", () => {
         paths: [
           "src/first.ts",
           "src/second.ts"
-        ]
+        ],
+        operationId: expect.any(String)
       });
     });
   });
@@ -1814,7 +1901,8 @@ describe("App", () => {
           "src/first.ts",
           "src/second.ts"
         ],
-        side: "unstaged"
+        side: "unstaged",
+        operationId: expect.any(String)
       });
     });
   });
@@ -1854,7 +1942,8 @@ describe("App", () => {
         repoPath,
         paths: [
           "src/third.ts"
-        ]
+        ],
+        operationId: expect.any(String)
       });
     });
   });
@@ -2088,7 +2177,8 @@ describe("App", () => {
     await waitFor(() => {
       expect(githead.commitChanges).toHaveBeenCalledWith({
         repoPath,
-        message: "feat: log commit output"
+        message: "feat: log commit output",
+        operationId: expect.any(String)
       });
     });
 
@@ -2122,7 +2212,8 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(githead.generateCommitMessage).toHaveBeenCalledWith({
-        repoPath
+        repoPath,
+        operationId: expect.any(String)
       });
     });
     expect((screen.getByPlaceholderText("Summarize staged changes...") as HTMLTextAreaElement).value).toBe("feat: add generated context menu");
@@ -2158,7 +2249,8 @@ describe("App", () => {
     await waitFor(() => {
       expect(githead.generateCommitMessage).toHaveBeenCalledWith({
         repoPath,
-        additionalContext: "Preserve legacy project naming."
+        additionalContext: "Preserve legacy project naming.",
+        operationId: expect.any(String)
       });
     });
     await waitFor(() => {
@@ -2197,7 +2289,8 @@ describe("App", () => {
     await waitFor(() => {
       expect(githead.generateCommitMessage).toHaveBeenCalledWith({
         repoPath,
-        additionalContext: "Important product context"
+        additionalContext: "Important product context",
+        operationId: expect.any(String)
       });
     });
     expect(await screen.findByRole("dialog", { name: "Generate with Context" })).toBeTruthy();
@@ -2267,7 +2360,8 @@ describe("App", () => {
       });
       expect(githead.commitChanges).toHaveBeenCalledWith({
         repoPath,
-        message: "feat: trust repo"
+        message: "feat: trust repo",
+        operationId: expect.any(String)
       });
     });
   });
@@ -2298,6 +2392,38 @@ describe("App", () => {
         repoPath
       });
     });
+    expect(githead.addRepoTrust).not.toHaveBeenCalled();
+    expect(githead.commitChanges).not.toHaveBeenCalled();
+  });
+
+  it("cancels a repository trust prompt instead of retargeting it after a repository switch", async () => {
+    const user = userEvent.setup();
+    const otherRepo = "D:\\Work\\Trust-B";
+    const pendingRepositoryChoice = defer<string | null>();
+    vi.mocked(githead.chooseRepo).mockReturnValue(pendingRepositoryChoice.promise);
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.getRepoTrust).mockResolvedValue({ trusted: false });
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
+      repoPath: requestedRepoPath,
+      files: [createStatusFile("src/trust.ts", { indexStatus: "M", isStaged: true })]
+    }));
+
+    render(<App />);
+
+    await screen.findByRole("option", { name: /src\/trust\.ts/ });
+    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await user.click(await screen.findByRole("button", { name: "Add existing" }));
+    await waitFor(() => expect(githead.chooseRepo).toHaveBeenCalledTimes(1));
+    await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: trust A");
+    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+
+    const trustDialog = await screen.findByRole("dialog", { name: "Do you trust this workspace?" });
+    expect(within(trustDialog).getByText(repoPath)).toBeTruthy();
+    pendingRepositoryChoice.resolve(otherRepo);
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Do you trust this workspace?" })).toBeNull());
+    expect(screen.getByRole("button", { name: `Switch to ${otherRepo}` }).getAttribute("aria-current")).toBe("true");
     expect(githead.addRepoTrust).not.toHaveBeenCalled();
     expect(githead.commitChanges).not.toHaveBeenCalled();
   });
@@ -2338,15 +2464,75 @@ describe("App", () => {
         repoPath,
         name: "Taylor",
         email: "taylor@example.test",
-        scope: "repository"
+        scope: "repository",
+        operationId: expect.any(String)
       });
       expect(githead.commitChanges).toHaveBeenCalledTimes(2);
       expect(githead.commitChanges).toHaveBeenLastCalledWith({
         repoPath,
-        message: "feat: identify author"
+        message: "feat: identify author",
+        operationId: expect.any(String)
       });
     });
     expect((screen.getByPlaceholderText("Summarize staged changes...") as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("does not open an old repository identity retry after identity loading crosses a repository switch", async () => {
+    const user = userEvent.setup();
+    const otherRepo = "D:\\Work\\Identity-B";
+    const pendingIdentity = defer<GitIdentitySettings>();
+    const pendingRepositoryChoice = defer<string | null>();
+    let waitForRepositoryAIdentity = false;
+    vi.mocked(githead.chooseRepo).mockReturnValue(pendingRepositoryChoice.promise);
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
+      repoPath: requestedRepoPath,
+      files: [createStatusFile(
+        requestedRepoPath === repoPath ? "src/identity-a.ts" : "src/identity-b.ts",
+        { indexStatus: "M", isStaged: true }
+      )]
+    }));
+    vi.mocked(githead.getGitIdentity).mockImplementation((requestedRepoPath) => {
+      if (requestedRepoPath === repoPath && waitForRepositoryAIdentity) {
+        return pendingIdentity.promise;
+      }
+      return Promise.reject(new Error("Identity unavailable during startup."));
+    });
+    vi.mocked(githead.commitChanges).mockResolvedValue(createOperationResult({
+      exitCode: 1,
+      stderr: "Author identity unknown",
+      errorKind: "missing-author-identity"
+    }));
+
+    render(<App />);
+
+    await screen.findByRole("option", { name: /src\/identity-a\.ts/ });
+    await waitFor(() => expect(vi.mocked(githead.getGitIdentity).mock.calls.length).toBeGreaterThan(0));
+    await flushRendererAsync();
+    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await user.click(await screen.findByRole("button", { name: "Add existing" }));
+    await waitFor(() => expect(githead.chooseRepo).toHaveBeenCalledTimes(1));
+    const identityCallsBeforeCommit = vi.mocked(githead.getGitIdentity).mock.calls.length;
+    waitForRepositoryAIdentity = true;
+    await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: identity A");
+    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await waitFor(() => expect(vi.mocked(githead.getGitIdentity).mock.calls.length).toBeGreaterThan(identityCallsBeforeCommit));
+
+    pendingRepositoryChoice.resolve(otherRepo);
+    await screen.findByRole("option", { name: /src\/identity-b\.ts/ });
+    pendingIdentity.resolve({
+      scope: "repository",
+      name: "Repository A User",
+      email: "a@example.test",
+      repository: { name: "Repository A User", email: "a@example.test" },
+      global: { name: "", email: "" }
+    });
+    await flushRendererAsync();
+
+    expect(screen.queryByRole("dialog", { name: "Set Git Author Identity" })).toBeNull();
+    expect(githead.saveGitIdentity).not.toHaveBeenCalled();
+    expect(githead.commitChanges).toHaveBeenCalledTimes(1);
   });
 
   it("saves missing Git identity globally when selected", async () => {
@@ -2380,7 +2566,8 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(githead.saveGitIdentity).toHaveBeenCalledWith(expect.objectContaining({
-        scope: "global"
+        scope: "global",
+        operationId: expect.any(String)
       }));
     });
   });
@@ -2444,6 +2631,52 @@ describe("App", () => {
     });
     expect(githead.saveGitIdentity).not.toHaveBeenCalled();
     expect(githead.commitChanges).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not push the newly selected repository when an old commit-and-push completes late", async () => {
+    const user = userEvent.setup();
+    const otherRepo = "D:\\Work\\Commit-B";
+    const pendingCommit = defer<GitOperationResult>();
+    const pendingRepositoryChoice = defer<string | null>();
+    vi.mocked(githead.chooseRepo).mockReturnValue(pendingRepositoryChoice.promise);
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
+      repoPath: requestedRepoPath,
+      statusLines: ["# branch.ab +1 -0"],
+      files: [createStatusFile(
+        requestedRepoPath === repoPath ? "src/a.ts" : "src/b.ts",
+        { indexStatus: "M", isStaged: true }
+      )]
+    }));
+    vi.mocked(githead.commitChanges).mockReturnValue(pendingCommit.promise);
+
+    render(<App />);
+
+    await screen.findByRole("option", { name: /src\/a\.ts/ });
+    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await user.click(await screen.findByRole("button", { name: "Add existing" }));
+    await waitFor(() => expect(githead.chooseRepo).toHaveBeenCalledTimes(1));
+    await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: repository A");
+    await user.click(screen.getByRole("button", { name: "More commit actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Commit & Push" }));
+    await waitFor(() => expect(githead.commitChanges).toHaveBeenCalledWith({
+      repoPath,
+      message: "feat: repository A",
+      operationId: expect.any(String)
+    }));
+
+    pendingCommit.resolve(createOperationResult({ repoPath }));
+    pendingRepositoryChoice.resolve(otherRepo);
+    await screen.findByRole("option", { name: /src\/b\.ts/ });
+    const message = screen.getByPlaceholderText("Summarize staged changes...") as HTMLTextAreaElement;
+    await user.clear(message);
+    await user.type(message, "feat: repository B");
+
+    await flushRendererAsync();
+
+    expect(githead.runGitAction).not.toHaveBeenCalled();
+    expect(message.value).toBe("feat: repository B");
   });
 
   it("subscribes to git output and removes the listener on unmount", async () => {
@@ -2964,7 +3197,7 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: "Download missing Git LFS image preview" }));
     await waitFor(() => expect(githead.fetchLfsImageVersions).toHaveBeenCalledWith({
-      context: "status", repoPath, path: "assets/image.png", side: "unstaged"
+      context: "status", repoPath, path: "assets/image.png", side: "unstaged", operationId: expect.any(String)
     }));
     await waitFor(() => expect(githead.getFileDiff).toHaveBeenCalledTimes(2));
   });
@@ -3013,10 +3246,78 @@ describe("App", () => {
       expect(githead.generatePrTitle).toHaveBeenCalledWith({
         repoPath,
         baseRef: "origin/main",
-        headRef: "feature/pr-title"
+        headRef: "feature/pr-title",
+        operationId: expect.any(String)
       });
     });
     expect((within(dialog).getByLabelText("Title") as HTMLInputElement).value).toBe("Add generated PR titles");
+  });
+
+  it("cancels and dismisses a hung pull request creation without accepting its stale completion", async () => {
+    const user = userEvent.setup();
+    const pendingCreate = defer<Awaited<ReturnType<GitheadApi["createGitHubPullRequest"]>>>();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary({
+      branch: "feature/hung-pr",
+      upstream: "origin/feature/hung-pr",
+      branches: [{ name: "feature/hung-pr", current: true, upstream: "origin/feature/hung-pr" }],
+      remoteBranches: [
+        { name: "origin/main", remote: "origin", branch: "main" },
+        { name: "origin/feature/hung-pr", remote: "origin", branch: "feature/hung-pr" }
+      ],
+      commitsAheadOfDefaultBranch: 2,
+      statusLines: ["# branch.ab +0 -0"]
+    }));
+    vi.mocked(githead.createGitHubPullRequest).mockReturnValue(pendingCreate.promise);
+    vi.mocked(githead.cancelGitOperation).mockResolvedValueOnce({ accepted: false, state: "not-found" });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Create PR" }));
+    let dialog = screen.getByRole("dialog", { name: "Create Pull Request" });
+    await user.click(within(dialog).getByRole("button", { name: "Create Pull Request" }));
+    await waitFor(() => expect(githead.createGitHubPullRequest).toHaveBeenCalledWith(expect.objectContaining({
+      repoPath,
+      headBranch: "feature/hung-pr",
+      operationId: expect.any(String)
+    })));
+
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    const operationId = vi.mocked(githead.createGitHubPullRequest).mock.calls[0]?.[0].operationId;
+    await waitFor(() => expect(githead.cancelGitOperation).toHaveBeenCalledWith({ operationId }));
+    expect(await screen.findByText("The tracked operation is no longer running.")).toBeTruthy();
+    dialog = screen.getByRole("dialog", { name: "Create Pull Request" });
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Create Pull Request" })).toBeNull());
+
+    pendingCreate.resolve({ ok: true, data: { number: 42, url: "https://github.com/openai/githead/pull/42", title: "Late PR", draft: false }, rateLimit: null });
+    await flushRendererAsync();
+
+    expect(screen.queryByRole("dialog", { name: "Create Pull Request" })).toBeNull();
+    expect(screen.queryByText(/Created pull request #42/)).toBeNull();
+  });
+
+  it("preserves outcome-unknown guidance when pull request creation throws", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary({
+      branch: "feature/timeout-pr",
+      upstream: "origin/feature/timeout-pr",
+      branches: [{ name: "feature/timeout-pr", current: true, upstream: "origin/feature/timeout-pr" }],
+      remoteBranches: [
+        { name: "origin/main", remote: "origin", branch: "main" },
+        { name: "origin/feature/timeout-pr", remote: "origin", branch: "feature/timeout-pr" }
+      ],
+      commitsAheadOfDefaultBranch: 2,
+      statusLines: ["# branch.ab +0 -0"]
+    }));
+    vi.mocked(githead.createGitHubPullRequest).mockRejectedValue(new Error("Operation timed out."));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Create PR" }));
+    const dialog = screen.getByRole("dialog", { name: "Create Pull Request" });
+    await user.click(within(dialog).getByRole("button", { name: "Create Pull Request" }));
+
+    expect(await within(dialog).findByText("Operation timed out. Check GitHub before retrying; the pull request may have been created.")).toBeTruthy();
   });
 
   it("loads open issues from GitHub when the Issues tab opens", async () => {
@@ -3167,7 +3468,8 @@ describe("App", () => {
     await waitFor(() => {
       expect(githead.runGitAction).toHaveBeenCalledWith({
         repoPath,
-        action: "push"
+        action: "push",
+        operationId: expect.any(String)
       });
     });
     expect(screen.getByRole("tab", { name: "Commit History" }).getAttribute("aria-selected")).toBe("true");
@@ -3349,7 +3651,8 @@ describe("App", () => {
           sourceBranch: "feature/source",
           remoteName: "upstream",
           destinationBranch: "release"
-        }
+        },
+        operationId: expect.any(String)
       });
     });
     await waitFor(() => {
@@ -3393,7 +3696,8 @@ describe("App", () => {
           sourceBranch: "feature/source",
           remoteName: "origin",
           destinationBranch: "release/candidate"
-        }
+        },
+        operationId: expect.any(String)
       });
     });
     expect(githead.publishBranch).not.toHaveBeenCalled();
@@ -3513,7 +3817,8 @@ describe("App", () => {
       expect(githead.publishBranch).toHaveBeenCalledWith({
         repoPath,
         branchName: "feature/publish",
-        remoteName: "origin"
+        remoteName: "origin",
+        operationId: expect.any(String)
       });
     });
   });
@@ -3547,7 +3852,8 @@ describe("App", () => {
       expect(githead.publishBranch).toHaveBeenCalledWith({
         repoPath,
         branchName: "feature/publish",
-        remoteName: "upstream"
+        remoteName: "upstream",
+        operationId: expect.any(String)
       });
     });
   });
@@ -3652,7 +3958,8 @@ describe("App", () => {
     await waitFor(() => {
       expect(githead.runGitAction).toHaveBeenCalledWith({
         repoPath,
-        action: "push"
+        action: "push",
+        operationId: expect.any(String)
       });
     });
     expect(screen.queryByRole("heading", { name: "Publish Branch" })).toBeNull();
@@ -3727,7 +4034,8 @@ describe("App", () => {
             command: "npm run build",
             shell: "powershell"
           }
-        ]
+        ],
+        operationId: expect.any(String)
       });
     });
   });
@@ -3808,10 +4116,47 @@ describe("App", () => {
     await waitFor(() => {
       expect(githead.runConfiguredAction).toHaveBeenCalledWith({
         repoPath,
-        name: "Build"
+        name: "Build",
+        operationId: expect.any(String)
       });
     });
     expect(screen.getByRole("tab", { name: "Activity Log" }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("does not retarget a configured action when the repository changes during trust lookup", async () => {
+    const user = userEvent.setup();
+    const otherRepo = "D:\\Work\\Other";
+    const pendingTrust = defer<{ trusted: boolean }>();
+    const action = {
+      name: "Build",
+      description: "",
+      command: "npm run build",
+      shell: "powershell" as const
+    };
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
+      repoPath: requestedRepoPath,
+      actionsConfig: {
+        hasGitheadDir: true,
+        actions: [action],
+        error: ""
+      }
+    }));
+    vi.mocked(githead.getRepoTrust).mockReturnValue(pendingTrust.promise);
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Repository actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Build" }));
+    await waitFor(() => expect(githead.getRepoTrust).toHaveBeenCalledWith({ repoPath }));
+
+    fireEvent.click(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
+    await waitFor(() => expect(screen.getByRole("button", { name: `Switch to ${otherRepo}` }).getAttribute("aria-current")).toBe("true"));
+
+    pendingTrust.resolve({ trusted: true });
+    await flushRendererAsync();
+
+    expect(githead.runConfiguredAction).not.toHaveBeenCalled();
   });
 
   it("shows configured action running and result headings", async () => {
@@ -3909,7 +4254,7 @@ describe("App", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Build" }));
     await user.click(await screen.findByRole("button", { name: "Fetch" }));
 
-    expect(githead.runGitAction).toHaveBeenCalledWith({ repoPath, action: "fetch" });
+    expect(githead.runGitAction).toHaveBeenCalledWith({ repoPath, action: "fetch", operationId: expect.any(String) });
     expect(screen.getByRole("button", { name: "Repository actions" }).hasAttribute("disabled")).toBe(false);
 
     fetch.resolve(createRunResult("fetch"));
@@ -4032,7 +4377,8 @@ describe("App", () => {
             command: "npm run build",
             shell: "powershell"
           }
-        ]
+        ],
+        operationId: expect.any(String)
       });
     });
   });
@@ -4113,6 +4459,33 @@ describe("App", () => {
     expect(screen.queryByRole("dialog", { name: "Repository Actions" })).toBeNull();
   });
 
+  it("closes and clears a repository action draft when an open picker switches repositories", async () => {
+    const user = userEvent.setup();
+    const otherRepo = "D:\\Work\\Actions-B";
+    const pendingRepositoryChoice = defer<string | null>();
+    vi.mocked(githead.chooseRepo).mockReturnValue(pendingRepositoryChoice.promise);
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({ repoPath: requestedRepoPath }));
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await user.click(await screen.findByRole("button", { name: "Add existing" }));
+    await user.click(screen.getByRole("button", { name: "Repository actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
+    await user.click(screen.getByRole("button", { name: "Add action" }));
+    await user.type(screen.getByLabelText("Name"), "Repository A Draft");
+
+    pendingRepositoryChoice.resolve(otherRepo);
+    await waitFor(() => expect(githead.getRepoSummary).toHaveBeenCalledWith(otherRepo));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Repository Actions" })).toBeNull());
+
+    await user.click(screen.getByRole("button", { name: "Repository actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
+    expect(screen.queryByDisplayValue("Repository A Draft")).toBeNull();
+  });
+
   it("refreshes File Status after active repository file changes", async () => {
     const changedFile = createStatusFile("src/App.tsx", {
       isUnstaged: true,
@@ -4159,7 +4532,8 @@ describe("App", () => {
 
     expect(githead.runGitAction).toHaveBeenCalledWith({
       repoPath,
-      action: "fetch"
+      action: "fetch",
+      operationId: expect.any(String)
     });
   });
 
@@ -4176,8 +4550,56 @@ describe("App", () => {
 
     expect(githead.runGitAction).toHaveBeenCalledWith({
       repoPath,
-      action: "fetch"
+      action: "fetch",
+      operationId: expect.any(String)
     });
+  });
+
+  it("releases an old auto-fetch owner when the native picker switches repositories", async () => {
+    vi.useFakeTimers();
+    const nextRepoPath = "D:\\Work\\Picked";
+    const pendingPicker = defer<string | null>();
+    const pendingFetch = defer<GitRunResult>();
+    vi.mocked(githead.chooseRepo).mockReturnValue(pendingPicker.promise);
+    vi.mocked(githead.runGitAction).mockReturnValue(pendingFetch.promise);
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
+      repoPath: requestedRepoPath
+    }));
+
+    render(<App />);
+    await flushRendererAsync();
+    fireEvent.click(screen.getByRole("button", { name: "Add repository" }));
+    await flushRendererAsync();
+    fireEvent.click(screen.getByRole("button", { name: "Add existing" }));
+    await flushRendererAsync();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+    });
+    await flushRendererAsync();
+    expect(githead.runGitAction).toHaveBeenCalledWith({
+      repoPath,
+      action: "fetch",
+      operationId: expect.any(String)
+    });
+
+    await act(async () => {
+      pendingPicker.resolve(nextRepoPath);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await flushRendererAsync();
+    await flushRendererAsync();
+    expect(githead.getRepoSummary).toHaveBeenCalledWith(nextRepoPath);
+    expect(screen.getByRole("button", { name: `Switch to ${nextRepoPath}` }).getAttribute("aria-current")).toBe("true");
+    expect((screen.getByRole("button", { name: /^Fetch$/ }) as HTMLButtonElement).disabled).toBe(false);
+
+    pendingFetch.resolve(createRunResult("fetch", { repoPath }));
+    await flushRendererAsync();
+
+    expect((screen.getByRole("button", { name: /^Fetch$/ }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByText("Fetch running")).toBeNull();
   });
 
   it("does not auto-fetch immediately on startup", async () => {
@@ -4222,7 +4644,8 @@ describe("App", () => {
 
     expect(githead.runGitAction).toHaveBeenCalledWith({
       repoPath,
-      action: "fetch"
+      action: "fetch",
+      operationId: expect.any(String)
     });
   });
 
@@ -4273,10 +4696,46 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Stage$/ }));
     await flushRendererAsync();
 
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    const operationId = vi.mocked(githead.stageFiles).mock.calls[0]?.[0].operationId;
+    expect(operationId).toEqual(expect.any(String));
 
-    expect(githead.cancelGitOperation).toHaveBeenCalledWith({ repoPath });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await flushRendererAsync();
+
+    expect(githead.cancelGitOperation).toHaveBeenCalledWith({ operationId });
+    expect((screen.getByRole("button", { name: "Cancelling" }) as HTMLButtonElement).disabled).toBe(true);
     pendingStage.resolve(createOperationResult({ exitCode: -1, stderr: "Operation was cancelled." }));
+    await flushRendererAsync();
+  });
+
+  it("lets the user dismiss stale operation state when cancellation reports it missing", async () => {
+    const pendingStage = defer<GitOperationResult>();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/stale.ts", {
+          isUnstaged: true,
+          worktreeStatus: "M"
+        })
+      ]
+    }));
+    vi.mocked(githead.stageFiles).mockReturnValue(pendingStage.promise);
+    vi.mocked(githead.cancelGitOperation).mockResolvedValueOnce({ accepted: false, state: "not-found" });
+
+    render(<App />);
+    await flushRendererAsync();
+    fireEvent.click(screen.getByRole("option", { name: /src\/stale\.ts/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Stage$/ }));
+    await flushRendererAsync();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await flushRendererAsync();
+
+    expect(screen.getByRole("alert").textContent).toContain("The tracked operation is no longer running.");
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss Stale Status" }));
+    await flushRendererAsync();
+
+    expect((screen.getByRole("button", { name: /^Fetch$/ }) as HTMLButtonElement).disabled).toBe(false);
+    pendingStage.resolve(createOperationResult());
     await flushRendererAsync();
   });
 
@@ -4697,8 +5156,58 @@ describe("App", () => {
       branchName: "feature/worktrees",
       destinationPath: "D:\\Githead-feature-worktrees",
       startPoint: "HEAD",
-      track: false
+      track: false,
+      operationId: expect.any(String)
     }));
+  });
+
+  it("does not switch to a created worktree after the user moves repositories during group reload", async () => {
+    const user = userEvent.setup();
+    const otherRepo = "D:\\Work\\Worktree-B";
+    const destinationPath = "D:\\Githead-feature-late";
+    const pendingGroupReload = defer<Awaited<ReturnType<GitheadApi["getRepositoryGroups"]>>>();
+    const pendingRepositoryChoice = defer<string | null>();
+    vi.mocked(githead.chooseRepo).mockReturnValue(pendingRepositoryChoice.promise);
+    const groups = [{
+      id: "d:\\githead\\.git",
+      kind: "git" as const,
+      anchorPath: repoPath,
+      lastUsedPath: repoPath,
+      recentPaths: [repoPath],
+      commonDir: "D:\\Githead\\.git",
+      error: "",
+      worktrees: [{ path: repoPath, head: "abc", branch: "main", isMain: true, isBare: false, isDetached: false, locked: false, lockReason: null, prunable: false, prunableReason: null }]
+    }];
+    let blockGroupReload = false;
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.getRepositoryGroups).mockImplementation(() => (
+      blockGroupReload ? pendingGroupReload.promise : Promise.resolve(groups)
+    ));
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({ repoPath: requestedRepoPath }));
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await user.click(await screen.findByRole("button", { name: "Add existing" }));
+    await waitFor(() => expect(githead.chooseRepo).toHaveBeenCalledTimes(1));
+    await user.click(await screen.findByRole("button", { name: "Add worktree" }));
+    await user.type(screen.getByLabelText("Branch"), "feature/late");
+    await user.clear(screen.getByLabelText("Destination"));
+    await user.type(screen.getByLabelText("Destination"), destinationPath);
+    const groupCallsBeforeCreate = vi.mocked(githead.getRepositoryGroups).mock.calls.length;
+    blockGroupReload = true;
+    await user.click(screen.getByRole("button", { name: "Create Worktree" }));
+
+    await waitFor(() => expect(githead.createWorktree).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(githead.getRepositoryGroups).toHaveBeenCalledTimes(groupCallsBeforeCreate + 1));
+    pendingRepositoryChoice.resolve(otherRepo);
+    await waitFor(() => expect(githead.getRepoSummary).toHaveBeenCalledWith(otherRepo));
+
+    pendingGroupReload.resolve(groups);
+    await flushRendererAsync();
+
+    expect(vi.mocked(githead.getRepoSummary).mock.calls.some(([requestedRepoPath]) => requestedRepoPath === destinationPath)).toBe(false);
   });
 
   it("shows local push and pull counts beside recent repositories", async () => {
@@ -5259,6 +5768,35 @@ describe("App", () => {
     });
   });
 
+  it("cancels and dismisses a stale safe.directory operation from its dialog", async () => {
+    const user = userEvent.setup();
+    const blockedRepo = "D:\\Work\\Blocked";
+    const pendingAdd = defer<GitOperationResult>();
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([]);
+    vi.mocked(githead.chooseRepo).mockResolvedValue(blockedRepo);
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSafeDirectorySummary(blockedRepo));
+    vi.mocked(githead.addSafeDirectory).mockReturnValue(pendingAdd.promise);
+    vi.mocked(githead.cancelGitOperation).mockResolvedValue({ accepted: false, state: "not-found" });
+
+    render(<App />);
+
+    await screen.findByText("Select a repository to continue.");
+    await user.click(screen.getByRole("button", { name: "Browse for Repository" }));
+    await user.click(await screen.findByRole("button", { name: "Allow Git Exception" }));
+    await user.click(screen.getByRole("button", { name: "Allow Exception" }));
+
+    const operationId = vi.mocked(githead.addSafeDirectory).mock.calls[0]?.[0].operationId;
+    expect(operationId).toEqual(expect.any(String));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(githead.cancelGitOperation).toHaveBeenCalledWith({ operationId }));
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("heading", { name: "Allow Git Ownership Exception?" })).toBeNull();
+
+    pendingAdd.resolve(createOperationResult({ repoPath: blockedRepo }));
+    await flushRendererAsync();
+  });
+
   it("adds a safe.directory exception, refreshes, and adds the repository to recents", async () => {
     const user = userEvent.setup();
     const blockedRepo = "D:\\Work\\Blocked";
@@ -5279,7 +5817,8 @@ describe("App", () => {
 
     await waitForRepositoryWorkspace();
     expect(githead.addSafeDirectory).toHaveBeenCalledWith({
-      repoPath: "D:/Work/Blocked"
+      repoPath: "D:/Work/Blocked",
+      operationId: expect.any(String)
     });
     expect(githead.addRepoRecent).toHaveBeenCalledWith({ repoPath: blockedRepo });
   });
@@ -5335,7 +5874,8 @@ describe("App", () => {
         directoryName: "repo",
         branchName: "",
         depth: null,
-        recurseSubmodules: true
+        recurseSubmodules: true,
+        operationId: expect.any(String)
       });
     });
     await waitForRepositoryWorkspace();
@@ -5389,7 +5929,8 @@ describe("App", () => {
         directoryName: "repo",
         branchName: "main",
         depth: 1,
-        recurseSubmodules: true
+        recurseSubmodules: true,
+        operationId: expect.any(String)
       });
     });
   });
@@ -5417,7 +5958,8 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(githead.checkRepositoryAccess).toHaveBeenCalledWith({
-        source: "https://github.com/openai/repo.git"
+        source: "https://github.com/openai/repo.git",
+        operationId: expect.any(String)
       });
     });
     expect(await screen.findByText("Repository is accessible.")).toBeTruthy();
@@ -5482,6 +6024,33 @@ describe("App", () => {
     await waitFor(() => expect(screen.queryByText("fatal: authentication failed")).toBeNull());
   });
 
+  it("releases the clone latch before the cloned repository refresh settles", async () => {
+    const user = userEvent.setup();
+    const clonedRepo = "D:\\Work\\repo";
+    const pendingRefresh = defer<RepoSummary>();
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([]);
+    vi.mocked(githead.cloneRepository).mockResolvedValue(createOperationResult({ repoPath: clonedRepo }));
+    vi.mocked(githead.getRepoSummary).mockImplementation((requestedRepoPath) => requestedRepoPath === clonedRepo
+      ? pendingRefresh.promise
+      : Promise.resolve(createSummary({ repoPath: requestedRepoPath })));
+
+    render(<App />);
+    await screen.findByText("Select a repository to continue.");
+    await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
+    await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
+    await user.click(screen.getByRole("button", { name: "Clone Repository" }));
+
+    await waitFor(() => {
+      expect(githead.getRepoSummary).toHaveBeenCalledWith(clonedRepo);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add repository" }));
+    await flushRendererAsync();
+    expect((screen.getByRole("button", { name: "Add existing" }) as HTMLButtonElement).disabled).toBe(false);
+
+    pendingRefresh.resolve(createSummary({ repoPath: clonedRepo }));
+    await flushRendererAsync();
+  });
+
   it("disables clone actions while checking repository access", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoRecents).mockResolvedValue([]);
@@ -5525,7 +6094,8 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(githead.cloneRepository).toHaveBeenCalledWith(expect.objectContaining({
-        depth: null
+        depth: null,
+        operationId: expect.any(String)
       }));
     });
   });
@@ -5586,7 +6156,8 @@ describe("App", () => {
         directoryName: "repo",
         branchName: "",
         depth: null,
-        recurseSubmodules: true
+        recurseSubmodules: true,
+        operationId: expect.any(String)
       });
     });
     await waitFor(() => {
@@ -5700,7 +6271,8 @@ describe("App", () => {
     await waitFor(() => {
       expect(githead.switchBranch).toHaveBeenCalledWith({
         repoPath,
-        branchName: "feature/nav"
+        branchName: "feature/nav",
+        operationId: expect.any(String)
       });
     });
   });
@@ -5719,7 +6291,8 @@ describe("App", () => {
     await waitFor(() => {
       expect(githead.createBranch).toHaveBeenCalledWith({
         repoPath,
-        branchName: "feature/new"
+        branchName: "feature/new",
+        operationId: expect.any(String)
       });
     });
   });
@@ -5772,7 +6345,8 @@ describe("App", () => {
       expect(githead.setBranchUpstream).toHaveBeenCalledWith({
         repoPath,
         branchName: "main",
-        upstream: "origin/feature"
+        upstream: "origin/feature",
+        operationId: expect.any(String)
       });
     });
   });
@@ -5792,7 +6366,8 @@ describe("App", () => {
       expect(githead.setBranchUpstream).toHaveBeenCalledWith({
         repoPath,
         branchName: "main",
-        upstream: null
+        upstream: null,
+        operationId: expect.any(String)
       });
     });
   });
@@ -5941,7 +6516,7 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Switch branch" }));
     await user.click(await screen.findByRole("menuitem", { name: /feature\/review.*origin/ }));
     await waitFor(() => expect(githead.checkoutRemoteBranch).toHaveBeenCalledWith({
-      repoPath, branchName: "feature/review", remoteBranch: "origin/feature/review"
+      repoPath, branchName: "feature/review", remoteBranch: "origin/feature/review", operationId: expect.any(String)
     }));
   });
 
@@ -5980,7 +6555,7 @@ describe("App", () => {
     await user.clear(input);
     await user.type(input, "feature/new");
     await user.click(screen.getByRole("button", { name: "Rename Branch" }));
-    await waitFor(() => expect(githead.renameBranch).toHaveBeenCalledWith({ repoPath, branchName: "feature/old", newBranchName: "feature/new" }));
+    await waitFor(() => expect(githead.renameBranch).toHaveBeenCalledWith({ repoPath, branchName: "feature/old", newBranchName: "feature/new", operationId: expect.any(String) }));
     vi.mocked(githead.deleteBranch).mockResolvedValue({
       repoPath,
       exitCode: 1,
@@ -5989,13 +6564,13 @@ describe("App", () => {
     });
     await user.click(await screen.findByRole("button", { name: "Delete feature/old" }));
     await user.click(screen.getByRole("button", { name: "Delete Branch" }));
-    expect(githead.deleteBranch).toHaveBeenCalledWith({ repoPath, branchName: "feature/old", force: false });
+    expect(githead.deleteBranch).toHaveBeenCalledWith({ repoPath, branchName: "feature/old", force: false, operationId: expect.any(String) });
     expect(await screen.findByText("This branch has commits that haven’t been merged. Merge them into another branch before deleting it.")).toBeTruthy();
     expect(screen.queryByText(/git branch -D/)).toBeNull();
     vi.mocked(githead.deleteBranch).mockResolvedValue({ repoPath, exitCode: 0, stdout: "", stderr: "" });
     await user.click(screen.getByRole("checkbox", { name: /Force delete/ }));
     await user.click(screen.getByRole("button", { name: "Force Delete Branch" }));
-    await waitFor(() => expect(githead.deleteBranch).toHaveBeenLastCalledWith({ repoPath, branchName: "feature/old", force: true }));
+    await waitFor(() => expect(githead.deleteBranch).toHaveBeenLastCalledWith({ repoPath, branchName: "feature/old", force: true, operationId: expect.any(String) }));
   });
 
   it("shows model-aware reasoning controls and a separate PR description effort", async () => {
@@ -6131,7 +6706,8 @@ describe("App", () => {
         repoPath,
         name: "Taylor",
         email: "taylor@example.test",
-        scope: "repository"
+        scope: "repository",
+        operationId: expect.any(String)
       });
     });
   });
@@ -6161,6 +6737,64 @@ describe("App", () => {
     });
   });
 
+  it("lets an unregistered settings save be dismissed and does not start later save phases", async () => {
+    const user = userEvent.setup();
+    const pendingAiSave = defer<AiSettings>();
+    vi.mocked(githead.saveAiSettings).mockReturnValue(pendingAiSave.promise);
+    vi.mocked(githead.cancelGitOperation).mockResolvedValueOnce({ accepted: false, state: "not-found" });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("tab", { name: "AI" }));
+    const model = screen.getByLabelText("Model");
+    await user.clear(model);
+    await user.type(model, "vendor/detached-model");
+    await user.click(screen.getByRole("tab", { name: "Sync" }));
+    const interval = screen.getByLabelText("Auto-fetch interval");
+    await user.clear(interval);
+    await user.type(interval, "15");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(githead.saveAiSettings).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole("button", { name: "Cancel operation" }));
+    await waitFor(() => expect(githead.cancelGitOperation).toHaveBeenCalledWith({ operationId: expect.any(String) }));
+    expect(await screen.findByText("The tracked operation is no longer running.")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Cancel operation" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull());
+
+    pendingAiSave.resolve(createAiSettings());
+    await flushRendererAsync();
+
+    expect(githead.saveAppSettings).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull();
+  });
+
+  it("owns settings trust preflight so dismissing it cannot start a late identity save", async () => {
+    const user = userEvent.setup();
+    const pendingTrust = defer<{ trusted: boolean }>();
+    vi.mocked(githead.getRepoTrust).mockReturnValueOnce(pendingTrust.promise);
+    vi.mocked(githead.cancelGitOperation).mockResolvedValueOnce({ accepted: false, state: "not-found" });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    const name = screen.getByLabelText("Name");
+    await user.type(name, "Late Identity");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(githead.getRepoTrust).toHaveBeenCalledWith({ repoPath }));
+
+    await user.click(screen.getByRole("button", { name: "Cancel operation" }));
+    await waitFor(() => expect(githead.cancelGitOperation).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole("button", { name: "Cancel operation" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull());
+
+    pendingTrust.resolve({ trusted: true });
+    await flushRendererAsync();
+
+    expect(githead.saveGitIdentity).not.toHaveBeenCalled();
+  });
+
   it("protects unsaved settings and keeps drafts while navigating categories", async () => {
     const user = userEvent.setup();
 
@@ -6188,6 +6822,31 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Close" }));
     await user.click(screen.getByRole("button", { name: "Discard changes" }));
     expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull();
+  });
+
+  it("closes settings and drops repository identity drafts when an open picker switches repositories", async () => {
+    const user = userEvent.setup();
+    const otherRepo = "D:\\Work\\Settings-B";
+    const pendingRepositoryChoice = defer<string | null>();
+    vi.mocked(githead.chooseRepo).mockReturnValue(pendingRepositoryChoice.promise);
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({ repoPath: requestedRepoPath }));
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await user.click(await screen.findByRole("button", { name: "Add existing" }));
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.type(screen.getByLabelText("Name"), "Repository A Draft");
+
+    pendingRepositoryChoice.resolve(otherRepo);
+    await waitFor(() => expect(githead.getRepoSummary).toHaveBeenCalledWith(otherRepo));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull());
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    expect((screen.getByLabelText("Name") as HTMLInputElement).value).not.toContain("Repository A Draft");
+    expect(githead.saveGitIdentity).not.toHaveBeenCalled();
   });
 
   it("previews, restores, and saves accessible color themes", async () => {
@@ -6302,7 +6961,8 @@ describe("App", () => {
     await waitFor(() => expect(githead.addRemote).toHaveBeenCalledWith({
       repoPath,
       name: "origin",
-      url: "https://example.test/project.git"
+      url: "https://example.test/project.git",
+      operationId: expect.any(String)
     }));
     expect(githead.runGitAction).not.toHaveBeenCalled();
   });
@@ -6429,7 +7089,7 @@ function createGitheadMock(): GitheadApi {
       return { repoPath: summary.repoPath, generation: request.generation, upstream: summary.upstream, branches: summary.branches, remotes: summary.remotes, remoteBranches: summary.remoteBranches, defaultRemoteBranch: summary.defaultRemoteBranch, commitsAheadOfDefaultBranch: summary.commitsAheadOfDefaultBranch, githubRepository: summary.githubRepository, actionsConfig: summary.actionsConfig };
     }),
     cancelRepositoryRead: vi.fn().mockResolvedValue(undefined),
-    cancelGitOperation: vi.fn().mockResolvedValue(true),
+    cancelGitOperation: vi.fn().mockResolvedValue({ accepted: true, state: "cancelling" }),
     watchRepoChanges: vi.fn().mockResolvedValue(undefined),
     unwatchRepoChanges: vi.fn().mockResolvedValue(undefined),
     getRepoRecents: vi.fn().mockResolvedValue(repositoryRecents(repoPath)),

@@ -1,7 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
-import { createWriteStream } from "node:fs";
 import path from "node:path";
 import type {
   CommitRef,
@@ -348,72 +346,27 @@ export class GitService {
     };
   }
 
-  writeCommitFileVersionToPath(
+  async writeCommitFileVersionToPath(
     repoPath: string,
     hash: string,
     filePath: string,
     outputPath: string
   ): Promise<{ exitCode: number; stderr: string; error?: string }> {
-    return new Promise((resolve) => {
-      const child = spawn("git", [
-        "-C",
-        repoPath,
-        "cat-file",
-        "blob",
-        `${hash}:${filePath}`
-      ], {
-        shell: false,
-        windowsHide: true
-      });
-      const output = createWriteStream(outputPath);
-      const stderrChunks: Buffer[] = [];
-      let processResult: { exitCode: number; stderr: string; error?: string } | null = null;
-      let outputFinished = false;
-      let resolved = false;
-
-      const maybeResolve = () => {
-        if (resolved || !processResult || !outputFinished) {
-          return;
-        }
-
-        resolved = true;
-        resolve(processResult);
-      };
-
-      child.stdout.pipe(output);
-      output.on("finish", () => {
-        outputFinished = true;
-        maybeResolve();
-      });
-      output.on("error", (error) => {
-        outputFinished = true;
-        processResult ??= {
-          exitCode: -1,
-          stderr: Buffer.concat(stderrChunks).toString("utf8"),
-          error: error.message
-        };
-        maybeResolve();
-      });
-      child.stderr.on("data", (chunk: Buffer) => {
-        stderrChunks.push(chunk);
-      });
-      child.on("error", (error) => {
-        processResult ??= {
-          exitCode: -1,
-          stderr: Buffer.concat(stderrChunks).toString("utf8"),
-          error: error.message
-        };
-        output.end();
-        maybeResolve();
-      });
-      child.on("close", (code) => {
-        processResult ??= {
-          exitCode: code ?? -1,
-          stderr: Buffer.concat(stderrChunks).toString("utf8")
-        };
-        maybeResolve();
-      });
+    const result = await this.runner.run("git", [
+      "-C",
+      repoPath,
+      "cat-file",
+      "blob",
+      `${hash}:${filePath}`
+    ], {
+      stdoutFilePath: outputPath
     });
+
+    return {
+      exitCode: result.exitCode,
+      stderr: result.stderr,
+      ...(result.error === undefined ? {} : { error: result.error })
+    };
   }
 
   async getFileDiff(request: GitFileDiffRequest): Promise<GitFileDiff> {

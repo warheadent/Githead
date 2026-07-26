@@ -9,8 +9,10 @@ import type {
   ClipboardTextRequest,
   CancelRepositoryReadRequest,
   CancelGitOperationRequest,
+  CoordinatedRequest,
   CancelGitHubRequest,
   CreatePullRequestRequest,
+  CreatePullRequestResult,
   ExternalUrlRequest,
   GeneratePrDescriptionRequest,
   GeneratePrTitleRequest,
@@ -43,6 +45,7 @@ import type {
   GitHunkRequest,
   GitLfsImageFetchRequest,
   GitHubWorkflowRunsRequest,
+  GitHubOperationResult,
   GitHubPullRequestsRequest,
   GitHubIssuesRequest,
   GitHubHistoryInsightsRequest,
@@ -63,6 +66,7 @@ import type {
   RepoSummaryReadRequest,
   RepoSectionRequest,
   GitRunRequest,
+  GitRunResult,
   GitSafeDirectoryRequest,
   GitSetRemoteUrlRequest,
   GitSubmoduleRequest,
@@ -77,6 +81,10 @@ import { AiReasoningCapabilityService } from "./aiReasoningCapabilityService";
 import { AppSettingsService, normalizeZoomFactorForSave } from "./appSettingsService";
 import { CommitMessageService } from "./commitMessageService";
 import { CancellableProcessRunner } from "./cancellableProcessRunner";
+import {
+  runCoordinatedRepositoryOperation,
+  runCoordinatedRepositoryOperationAfterPreflight
+} from "./coordinatedRepositoryOperation";
 import { deleteFiles, getStats, resolveRepoFilePath, showRepositoryInExplorer } from "./fileOperationService";
 import { GitIdentityService } from "./gitIdentityService";
 import { GitService } from "./gitService";
@@ -90,7 +98,11 @@ import { getOpenRepositoryFileError } from "./openFilePolicy";
 import { RepoRecentsService } from "./repoRecentsService";
 import { RepoTrustService } from "./repoTrustService";
 import { RepoWatchService, type RepoWatchTarget } from "./repoWatchService";
-import { RepositoryOperationCoordinator } from "./repositoryOperationCoordinator";
+import {
+  RepositoryOperationCoordinator,
+  repositoryOperationOwnerId,
+  type RepositoryOperationOptions
+} from "./repositoryOperationCoordinator";
 import { AppUpdateService } from "./updateService";
 import { VcsRouter } from "./vcsRouter";
 import { MIN_WINDOW_BOUNDS, WindowStateService } from "./windowStateService";
@@ -121,6 +133,7 @@ let githubService: GitHubService | null = null;
 let githubClient: GitHubClient | null = null;
 const readRequests = new RequestRegistry<number>();
 const readRequestOwners = new Set<number>();
+const repositoryOperationOwnerSessions = new WeakMap<Electron.WebContents, Set<string>>();
 let repoRecentsService: RepoRecentsService | null = null;
 let repoTrustService: RepoTrustService | null = null;
 let repoWatchService: RepoWatchService | null = null;
@@ -152,6 +165,7 @@ async function createWindow(): Promise<void> {
   });
   const { zoomFactor } = await getAppSettingsService().getSettings();
   mainWindow.webContents.setZoomFactor(zoomFactor);
+  watchRepositoryOperationOwner(mainWindow.webContents);
   getWindowStateService().watchWindow(mainWindow);
   Menu.setApplicationMenu(null);
   mainWindow.on("maximize", () => {
@@ -181,6 +195,41 @@ async function createWindow(): Promise<void> {
   if (restoredWindowState.isMaximized) {
     mainWindow.maximize();
   }
+}
+
+function watchRepositoryOperationOwner(webContents: Electron.WebContents): Set<string> {
+  const existingOwnerSessions = repositoryOperationOwnerSessions.get(webContents);
+  if (existingOwnerSessions) {
+    return existingOwnerSessions;
+  }
+
+  const ownerSessions = new Set<string>();
+  repositoryOperationOwnerSessions.set(webContents, ownerSessions);
+  const cancelOwnedOperations = () => {
+    for (const ownerId of ownerSessions) {
+      repositoryOperations.cancelAll(ownerId);
+    }
+    ownerSessions.clear();
+  };
+  const handleNavigation = (details: Electron.Event<Electron.WebContentsDidStartNavigationEventParams>) => {
+    if (details.isMainFrame && !details.isSameDocument) {
+      cancelOwnedOperations();
+    }
+  };
+  const handleDestroyed = () => {
+    cancelOwnedOperations();
+    repositoryOperationOwnerSessions.delete(webContents);
+    webContents.off("did-start-navigation", handleNavigation);
+    webContents.off("render-process-gone", cancelOwnedOperations);
+  };
+
+  // These listeners are registered once per WebContents, rather than once per
+  // operation. Main-frame navigation includes reload, where the WebContents ID
+  // remains stable even though the renderer document that owns the work is gone.
+  webContents.on("did-start-navigation", handleNavigation);
+  webContents.on("render-process-gone", cancelOwnedOperations);
+  webContents.once("destroyed", handleDestroyed);
+  return ownerSessions;
 }
 
 function getWindowBackgroundColor(): string {
@@ -302,8 +351,8 @@ ipcMain.handle(IPC_CHANNELS.cancelRepositoryRead, (event, request: CancelReposit
   readRequests.cancel(event.sender.id, request.requestId);
 });
 
-ipcMain.handle(IPC_CHANNELS.cancelGitOperation, (_event, request: CancelGitOperationRequest) => {
-  return repositoryOperations.cancel(request.repoPath);
+ipcMain.handle(IPC_CHANNELS.cancelGitOperation, (event, request: CancelGitOperationRequest) => {
+  return repositoryOperations.cancel(request.operationId, getRepositoryOperationOwnerId(event));
 });
 
 ipcMain.handle(IPC_CHANNELS.watchRepoChanges, async (_event, repoPath: string) => {
@@ -369,8 +418,11 @@ ipcMain.handle(IPC_CHANNELS.addRepoTrust, async (_event, request: RepoTrustReque
   };
 });
 
-ipcMain.handle(IPC_CHANNELS.addSafeDirectory, async (_event, request: GitSafeDirectoryRequest) => {
-  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).addSafeDirectory(request), request.repoPath);
+ipcMain.handle(IPC_CHANNELS.addSafeDirectory, async (event, request: CoordinatedRequest<GitSafeDirectoryRequest>) => {
+  return runExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).addSafeDirectory(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
 });
 
 function handleRead<T>(event: Electron.IpcMainInvokeEvent, request: { requestId?: string }, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
@@ -407,9 +459,24 @@ ipcMain.handle(IPC_CHANNELS.getGitHubPullRequests, (event, request: GitHubPullRe
 ipcMain.handle(IPC_CHANNELS.getGitHubHistoryInsights, (event, request: GitHubHistoryInsightsRequest) =>
   handleGitHubRead(event, request, (signal) => getGitHubService().getHistoryInsights(request, signal)));
 
-ipcMain.handle(IPC_CHANNELS.createGitHubPullRequest, async (_event, request: CreatePullRequestRequest) => {
-  return getGitHubService().createPullRequest(request);
-});
+ipcMain.handle(IPC_CHANNELS.createGitHubPullRequest, (event, request: CoordinatedRequest<CreatePullRequestRequest>) =>
+  runExclusiveRepositoryOperation(
+    repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS),
+    (signal) => getGitHubService().createPullRequest(request, signal),
+    () => createGitHubMutationFailure(
+      "unexpected",
+      "Another operation is already running for this repository.",
+      false
+    )
+  ).catch((error: unknown) => {
+    if (isAbortError(error)) {
+      return createGitHubMutationFailure("cancelled", getErrorMessage(error), true);
+    }
+    if (isTimeoutError(error)) {
+      return createGitHubMutationFailure("timeout", getErrorMessage(error), true);
+    }
+    throw error;
+  }));
 
 ipcMain.handle(IPC_CHANNELS.getCommitHistory, (event, request: GitCommitHistoryRequest) =>
   handleRead(event, request, async (signal) =>
@@ -446,47 +513,76 @@ ipcMain.handle(IPC_CHANNELS.getFilePreview, (event, request: GitFilePreviewReque
     processRunner.runWithSignal(signal, async () =>
       (await vcsRouter.serviceForRepo(request.repoPath)).getFilePreview(request))));
 
-ipcMain.handle(IPC_CHANNELS.fetchLfsImageVersions, async (_event, request: GitLfsImageFetchRequest) => {
-  const trusted = await requireTrustedRepo(request.repoPath);
-  return trusted ?? (await vcsRouter.serviceForRepo(request.repoPath)).fetchLfsImageVersions(request);
+ipcMain.handle(IPC_CHANNELS.fetchLfsImageVersions, async (event, request: CoordinatedRequest<GitLfsImageFetchRequest>) => {
+  return runTrustedExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).fetchLfsImageVersions(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS)
+  );
 });
 
-ipcMain.handle(IPC_CHANNELS.resetFilesToCommit, async (_event, request: GitCommitFileResetRequest) => {
-  const trusted = await requireTrustedRepo(request.repoPath);
-  if (trusted) {
-    return trusted;
+ipcMain.handle(IPC_CHANNELS.resetFilesToCommit, async (event, request: CoordinatedRequest<GitCommitFileResetRequest>) => {
+  return runTrustedExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).resetFilesToCommit(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
+});
+
+ipcMain.handle(IPC_CHANNELS.openCommitFileVersion, async (event, request: CoordinatedRequest<GitCommitFileVersionRequest>) => {
+  const prepared = await runExclusiveRepositoryOperation<PreparedCommitFileVersion>(
+    repositoryOperationOptions(event, request.operationId, request.repoPath),
+    () => prepareCommitFileVersion(request),
+    () => ({
+      result: createOperationFailure(request.repoPath, "Another git command is already running for this repository.")
+    })
+  );
+
+  if (!prepared.tempDir || !prepared.tempPath) {
+    return prepared.result;
   }
 
-  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).resetFilesToCommit(request), request.repoPath);
-});
-
-ipcMain.handle(IPC_CHANNELS.openCommitFileVersion, async (_event, request: GitCommitFileVersionRequest) => {
-  return openCommitFileVersion(request);
-});
-
-ipcMain.handle(IPC_CHANNELS.stageFiles, async (_event, request: GitPathRequest) => {
-  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).stageFiles(request), request.repoPath);
-});
-
-ipcMain.handle(IPC_CHANNELS.unstageFiles, async (_event, request: GitPathRequest) => {
-  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).unstageFiles(request), request.repoPath);
-});
-
-ipcMain.handle(IPC_CHANNELS.stageHunk, async (_event, request: GitHunkRequest) => {
-  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).stageHunk(request), request.repoPath);
-});
-
-ipcMain.handle(IPC_CHANNELS.unstageHunk, async (_event, request: GitHunkRequest) => {
-  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).unstageHunk(request), request.repoPath);
-});
-
-ipcMain.handle(IPC_CHANNELS.commitChanges, async (_event, request: GitCommitRequest) => {
-  const trusted = await requireTrustedRepo(request.repoPath);
-  if (trusted) {
-    return trusted;
+  await fs.chmod(prepared.tempPath, 0o444).catch(() => undefined);
+  const error = await shell.openPath(prepared.tempPath);
+  if (error) {
+    await fs.rm(prepared.tempDir, { recursive: true, force: true }).catch(() => undefined);
+    return createOperationFailure(request.repoPath, error);
   }
 
-  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).commitChanges(request), request.repoPath);
+  return createOperationSuccess(request.repoPath, "Selected file version opened.");
+});
+
+ipcMain.handle(IPC_CHANNELS.stageFiles, async (event, request: CoordinatedRequest<GitPathRequest>) => {
+  return runExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).stageFiles(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
+});
+
+ipcMain.handle(IPC_CHANNELS.unstageFiles, async (event, request: CoordinatedRequest<GitPathRequest>) => {
+  return runExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).unstageFiles(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
+});
+
+ipcMain.handle(IPC_CHANNELS.stageHunk, async (event, request: CoordinatedRequest<GitHunkRequest>) => {
+  return runExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).stageHunk(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
+});
+
+ipcMain.handle(IPC_CHANNELS.unstageHunk, async (event, request: CoordinatedRequest<GitHunkRequest>) => {
+  return runExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).unstageHunk(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
+});
+
+ipcMain.handle(IPC_CHANNELS.commitChanges, async (event, request: CoordinatedRequest<GitCommitRequest>) => {
+  return runTrustedExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).commitChanges(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
 });
 
 ipcMain.handle(IPC_CHANNELS.copyCommitShaToClipboard, async (_event, request: GitCommitHashRequest) => {
@@ -494,96 +590,80 @@ ipcMain.handle(IPC_CHANNELS.copyCommitShaToClipboard, async (_event, request: Gi
   return createOperationSuccess(request.repoPath, "Commit SHA copied to clipboard.");
 });
 
-ipcMain.handle(IPC_CHANNELS.resetBranchToCommit, async (_event, request: GitResetCommitRequest) => {
-  const trusted = await requireTrustedRepo(request.repoPath);
-  if (trusted) {
-    return trusted;
-  }
-
-  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).resetBranchToCommit(request), request.repoPath);
+ipcMain.handle(IPC_CHANNELS.resetBranchToCommit, async (event, request: CoordinatedRequest<GitResetCommitRequest>) => {
+  return runTrustedExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).resetBranchToCommit(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
 });
 
-ipcMain.handle(IPC_CHANNELS.revertCommit, async (_event, request: GitCommitHashRequest) => {
-  const trusted = await requireTrustedRepo(request.repoPath);
-  if (trusted) {
-    return trusted;
-  }
-
-  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).revertCommit(request), request.repoPath);
+ipcMain.handle(IPC_CHANNELS.revertCommit, async (event, request: CoordinatedRequest<GitCommitHashRequest>) => {
+  return runTrustedExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).revertCommit(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
 });
 
-ipcMain.handle(IPC_CHANNELS.createTag, async (_event, request: GitCreateTagRequest) => {
-  const trusted = await requireTrustedRepo(request.repoPath);
-  if (trusted) {
-    return trusted;
-  }
-
-  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).createTag(request), request.repoPath);
+ipcMain.handle(IPC_CHANNELS.createTag, async (event, request: CoordinatedRequest<GitCreateTagRequest>) => {
+  return runTrustedExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).createTag(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
 });
 
-ipcMain.handle(IPC_CHANNELS.deleteTag, async (_event, request: GitDeleteTagRequest) => {
-  const trusted = await requireTrustedRepo(request.repoPath);
-  if (trusted) {
-    return trusted;
-  }
-
-  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).deleteTag(request), request.repoPath);
+ipcMain.handle(IPC_CHANNELS.deleteTag, async (event, request: CoordinatedRequest<GitDeleteTagRequest>) => {
+  return runTrustedExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).deleteTag(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
 });
 
-ipcMain.handle(IPC_CHANNELS.switchBranch, async (_event, request: GitBranchRequest) => {
-  const trusted = await requireTrustedRepo(request.repoPath);
-  if (trusted) {
-    return trusted;
-  }
-
-  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).switchBranch(request), request.repoPath);
+ipcMain.handle(IPC_CHANNELS.switchBranch, async (event, request: CoordinatedRequest<GitBranchRequest>) => {
+  return runTrustedExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).switchBranch(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
 });
 
-ipcMain.handle(IPC_CHANNELS.createBranch, async (_event, request: GitBranchRequest) => {
-  const trusted = await requireTrustedRepo(request.repoPath);
-  if (trusted) {
-    return trusted;
-  }
-
-  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).createBranch(request), request.repoPath);
+ipcMain.handle(IPC_CHANNELS.createBranch, async (event, request: CoordinatedRequest<GitBranchRequest>) => {
+  return runTrustedExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).createBranch(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
 });
 
-ipcMain.handle(IPC_CHANNELS.setBranchUpstream, async (_event, request: GitUpstreamRequest) => {
-  const trusted = await requireTrustedRepo(request.repoPath);
-  if (trusted) {
-    return trusted;
-  }
-
-  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).setBranchUpstream(request), request.repoPath);
+ipcMain.handle(IPC_CHANNELS.setBranchUpstream, async (event, request: CoordinatedRequest<GitUpstreamRequest>) => {
+  return runTrustedExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).setBranchUpstream(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
 });
 
-ipcMain.handle(IPC_CHANNELS.publishBranch, async (_event, request: GitPublishBranchRequest) => {
-  const trusted = await requireTrustedRepo(request.repoPath);
-  if (trusted) {
-    return trusted;
-  }
-
-  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).publishBranch(request, sendGitOutput), request.repoPath, NETWORK_OPERATION_TIMEOUT_MS);
+ipcMain.handle(IPC_CHANNELS.publishBranch, async (event, request: CoordinatedRequest<GitPublishBranchRequest>) => {
+  return runTrustedExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).publishBranch(request, sendGitOutput),
+    repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS)
+  );
 });
 
 ipcMain.handle(IPC_CHANNELS.getGitIdentity, async (_event, repoPath: string) => {
   return getGitIdentityService().getIdentity(repoPath);
 });
 
-ipcMain.handle(IPC_CHANNELS.saveGitIdentity, async (_event, request: GitIdentitySaveRequest) => {
-  if (request.scope === "repository") {
-    const trusted = await requireTrustedRepo(request.repoPath);
-    if (trusted) {
-      throw new Error(trusted.stderr);
-    }
-  }
-
+ipcMain.handle(IPC_CHANNELS.saveGitIdentity, async (event, request: CoordinatedRequest<GitIdentitySaveRequest>) => {
   const operationKey = request.scope === "repository" ? request.repoPath : "git-global-config";
-  return runExclusiveRepositoryOperation(
-    operationKey,
-    () => getGitIdentityService().saveIdentity(request),
-    () => { throw new Error("Another git command is already running for this repository."); }
-  );
+  const options = repositoryOperationOptions(event, request.operationId, operationKey);
+  const operation = () => getGitIdentityService().saveIdentity(request);
+  const busyResult = () => { throw new Error("Another git command is already running for this repository."); };
+
+  return request.scope === "repository"
+    ? runTrustedExclusiveRepositoryOperation(
+        operation,
+        options,
+        (failure) => { throw new Error(failure.stderr); },
+        busyResult
+      )
+    : runExclusiveRepositoryOperation(options, operation, busyResult);
 });
 
 ipcMain.handle(IPC_CHANNELS.getAiSettings, async () => {
@@ -594,44 +674,50 @@ ipcMain.handle(IPC_CHANNELS.saveAiSettings, async (_event, request: AiSettingsSa
   return getAiSettingsService().saveSettings(request);
 });
 
-ipcMain.handle(IPC_CHANNELS.checkoutRemoteBranch, async (_event, request: GitRemoteBranchCheckoutRequest) => {
-  const trusted = await requireTrustedRepo(request.repoPath);
-  if (trusted) return trusted;
-  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).checkoutRemoteBranch(request), request.repoPath);
+ipcMain.handle(IPC_CHANNELS.checkoutRemoteBranch, async (event, request: CoordinatedRequest<GitRemoteBranchCheckoutRequest>) => {
+  return runTrustedExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).checkoutRemoteBranch(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
 });
 
-ipcMain.handle(IPC_CHANNELS.checkoutGitHubPullRequest, async (_event, request: GitHubPullRequestCheckoutRequest) => {
-  const trusted = await requireTrustedRepo(request.repoPath);
-  if (trusted) return trusted;
-  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).checkoutGitHubPullRequest(request), request.repoPath, NETWORK_OPERATION_TIMEOUT_MS);
+ipcMain.handle(IPC_CHANNELS.checkoutGitHubPullRequest, async (event, request: CoordinatedRequest<GitHubPullRequestCheckoutRequest>) => {
+  return runTrustedExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).checkoutGitHubPullRequest(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS)
+  );
 });
 
-ipcMain.handle(IPC_CHANNELS.renameBranch, async (_event, request: GitRenameBranchRequest) => {
-  const trusted = await requireTrustedRepo(request.repoPath);
-  if (trusted) return trusted;
-  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).renameBranch(request), request.repoPath);
+ipcMain.handle(IPC_CHANNELS.renameBranch, async (event, request: CoordinatedRequest<GitRenameBranchRequest>) => {
+  return runTrustedExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).renameBranch(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
 });
 
-ipcMain.handle(IPC_CHANNELS.deleteBranch, async (_event, request: GitDeleteBranchRequest) => {
-  const trusted = await requireTrustedRepo(request.repoPath);
-  if (trusted) return trusted;
-  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).deleteBranch(request), request.repoPath);
+ipcMain.handle(IPC_CHANNELS.deleteBranch, async (event, request: CoordinatedRequest<GitDeleteBranchRequest>) => {
+  return runTrustedExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).deleteBranch(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
 });
 
-ipcMain.handle(IPC_CHANNELS.createWorktree, async (_event, request: GitWorktreeCreateRequest) => {
-  const trusted = await requireTrustedRepo(request.repoPath);
-  if (trusted) return trusted;
-  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).createWorktree(request), request.repoPath);
+ipcMain.handle(IPC_CHANNELS.createWorktree, async (event, request: CoordinatedRequest<GitWorktreeCreateRequest>) => {
+  return runTrustedExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).createWorktree(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
 });
 
 ipcMain.handle(IPC_CHANNELS.checkWorktreeRemoval, async (_event, request: GitWorktreeRequest) => {
   return (await vcsRouter.serviceForRepo(request.repoPath)).checkWorktreeRemoval(request);
 });
 
-ipcMain.handle(IPC_CHANNELS.removeWorktree, async (_event, request: GitWorktreeRemoveRequest) => {
-  const trusted = await requireTrustedRepo(request.repoPath);
-  if (trusted) return trusted;
-  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).removeWorktree(request), request.repoPath);
+ipcMain.handle(IPC_CHANNELS.removeWorktree, async (event, request: CoordinatedRequest<GitWorktreeRemoveRequest>) => {
+  return runTrustedExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).removeWorktree(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
 });
 
 ipcMain.handle(IPC_CHANNELS.getAiReasoningCapabilities, async (_event, request: GetAiReasoningCapabilitiesRequest) => {
@@ -650,64 +736,57 @@ ipcMain.handle(IPC_CHANNELS.setWindowZoomFactor, (event, zoomFactor: number) => 
   event.sender.setZoomFactor(normalizeZoomFactorForSave(zoomFactor));
 });
 
-ipcMain.handle(IPC_CHANNELS.generateCommitMessage, async (_event, request: GenerateCommitMessageRequest) => {
-  return runExclusiveGitOperation(() => getCommitMessageService().generateCommitMessage(request), request.repoPath);
+ipcMain.handle(IPC_CHANNELS.generateCommitMessage, async (event, request: CoordinatedRequest<GenerateCommitMessageRequest>) => {
+  return runExclusiveGitOperation(
+    (signal) => getCommitMessageService().generateCommitMessage(request, signal),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
 });
 
 ipcMain.handle(IPC_CHANNELS.getRemoteConfigs, async (_event, repoPath: string) => {
   return (await vcsRouter.serviceForRepo(repoPath)).getRemoteConfigs(repoPath);
 });
 
-ipcMain.handle(IPC_CHANNELS.addRemote, async (_event, request: GitAddRemoteRequest) => {
-  const trusted = await requireTrustedRepo(request.repoPath);
-  if (trusted) {
-    return trusted;
-  }
-  return runExclusiveGitOperation(
+ipcMain.handle(IPC_CHANNELS.addRemote, async (event, request: CoordinatedRequest<GitAddRemoteRequest>) => {
+  return runTrustedExclusiveGitOperation(
     async () => (await vcsRouter.serviceForRepo(request.repoPath)).addRemote(request),
-    request.repoPath
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
   );
 });
 
-ipcMain.handle(IPC_CHANNELS.renameRemote, async (_event, request: GitRenameRemoteRequest) => {
-  const trusted = await requireTrustedRepo(request.repoPath);
-  if (trusted) {
-    return trusted;
-  }
-  return runExclusiveGitOperation(
+ipcMain.handle(IPC_CHANNELS.renameRemote, async (event, request: CoordinatedRequest<GitRenameRemoteRequest>) => {
+  return runTrustedExclusiveGitOperation(
     async () => (await vcsRouter.serviceForRepo(request.repoPath)).renameRemote(request),
-    request.repoPath
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
   );
 });
 
-ipcMain.handle(IPC_CHANNELS.setRemoteUrl, async (_event, request: GitSetRemoteUrlRequest) => {
-  const trusted = await requireTrustedRepo(request.repoPath);
-  if (trusted) {
-    return trusted;
-  }
-  return runExclusiveGitOperation(
+ipcMain.handle(IPC_CHANNELS.setRemoteUrl, async (event, request: CoordinatedRequest<GitSetRemoteUrlRequest>) => {
+  return runTrustedExclusiveGitOperation(
     async () => (await vcsRouter.serviceForRepo(request.repoPath)).setRemoteUrl(request),
-    request.repoPath
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
   );
 });
 
-ipcMain.handle(IPC_CHANNELS.removeRemote, async (_event, request: GitRemoveRemoteRequest) => {
-  const trusted = await requireTrustedRepo(request.repoPath);
-  if (trusted) {
-    return trusted;
-  }
-  return runExclusiveGitOperation(
+ipcMain.handle(IPC_CHANNELS.removeRemote, async (event, request: CoordinatedRequest<GitRemoveRemoteRequest>) => {
+  return runTrustedExclusiveGitOperation(
     async () => (await vcsRouter.serviceForRepo(request.repoPath)).removeRemote(request),
-    request.repoPath
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
   );
 });
 
-ipcMain.handle(IPC_CHANNELS.generatePrTitle, async (_event, request: GeneratePrTitleRequest) => {
-  return runExclusiveGitOperation(() => getPrDescriptionService().generatePrTitle(request), request.repoPath);
+ipcMain.handle(IPC_CHANNELS.generatePrTitle, async (event, request: CoordinatedRequest<GeneratePrTitleRequest>) => {
+  return runExclusiveGitOperation(
+    (signal) => getPrDescriptionService().generatePrTitle(request, signal),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
 });
 
-ipcMain.handle(IPC_CHANNELS.generatePrDescription, async (_event, request: GeneratePrDescriptionRequest) => {
-  return runExclusiveGitOperation(() => getPrDescriptionService().generatePrDescription(request), request.repoPath);
+ipcMain.handle(IPC_CHANNELS.generatePrDescription, async (event, request: CoordinatedRequest<GeneratePrDescriptionRequest>) => {
+  return runExclusiveGitOperation(
+    (signal) => getPrDescriptionService().generatePrDescription(request, signal),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
 });
 
 ipcMain.handle(IPC_CHANNELS.openExternalUrl, async (_event, request: ExternalUrlRequest) => {
@@ -776,35 +855,47 @@ ipcMain.handle(IPC_CHANNELS.copyTextToClipboard, async (_event, request: Clipboa
   return createOperationSuccess("", "Text copied to clipboard.");
 });
 
-ipcMain.handle(IPC_CHANNELS.deleteFile, async (_event, request: FileSystemPathRequest) => {
+ipcMain.handle(IPC_CHANNELS.deleteFile, async (event, request: CoordinatedRequest<FileSystemPathRequest>) => {
   return runExclusiveGitOperation(() => deleteFiles({
     repoPath: request.repoPath,
     paths: [
       request.path
     ]
-  }, shell.trashItem), request.repoPath);
+  }, shell.trashItem), repositoryOperationOptions(event, request.operationId, request.repoPath));
 });
 
-ipcMain.handle(IPC_CHANNELS.deleteFiles, async (_event, request: FileSystemPathListRequest) => {
-  return runExclusiveGitOperation(() => deleteFiles(request, shell.trashItem), request.repoPath);
+ipcMain.handle(IPC_CHANNELS.deleteFiles, async (event, request: CoordinatedRequest<FileSystemPathListRequest>) => {
+  return runExclusiveGitOperation(
+    () => deleteFiles(request, shell.trashItem),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
 });
 
-ipcMain.handle(IPC_CHANNELS.revertFileChanges, async (_event, request: GitFileChangesRequest) => {
-  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).revertFileChanges(request), request.repoPath);
+ipcMain.handle(IPC_CHANNELS.revertFileChanges, async (event, request: CoordinatedRequest<GitFileChangesRequest>) => {
+  return runExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).revertFileChanges(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
 });
 
-ipcMain.handle(IPC_CHANNELS.addPathToIgnore, async (_event, request: GitIgnorePathRequest) => {
-  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).addPathToIgnore(request), request.repoPath);
+ipcMain.handle(IPC_CHANNELS.addPathToIgnore, async (event, request: CoordinatedRequest<GitIgnorePathRequest>) => {
+  return runExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).addPathToIgnore(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
 });
 
-ipcMain.handle(IPC_CHANNELS.cloneRepository, async (_event, request: GitCloneRequest) => {
+ipcMain.handle(IPC_CHANNELS.cloneRepository, async (event, request: CoordinatedRequest<GitCloneRequest>) => {
   const service = isLoreSource(request.source) ? loreService : gitService;
-  return runExclusiveGitOperation(() => service.cloneRepository(request), request.parentPath, NETWORK_OPERATION_TIMEOUT_MS);
+  return runExclusiveGitOperation(
+    () => service.cloneRepository(request),
+    repositoryOperationOptions(event, request.operationId, request.parentPath, NETWORK_OPERATION_TIMEOUT_MS)
+  );
 });
 
-ipcMain.handle(IPC_CHANNELS.checkRepositoryAccess, async (_event, request: GitRepositoryAccessCheckRequest) => {
+ipcMain.handle(IPC_CHANNELS.checkRepositoryAccess, async (event, request: CoordinatedRequest<GitRepositoryAccessCheckRequest>) => {
   return runExclusiveRepositoryOperation(
-    request.source,
+    repositoryOperationOptions(event, request.operationId, request.source, NETWORK_OPERATION_TIMEOUT_MS),
     async () => {
       const service = isLoreSource(request.source) ? loreService : gitService;
       return service.checkRepositoryAccess(request);
@@ -816,100 +907,64 @@ ipcMain.handle(IPC_CHANNELS.checkRepositoryAccess, async (_event, request: GitRe
       stderr: "Another git command is already running for this repository.",
       branches: [],
       defaultBranch: null
-    }),
-    NETWORK_OPERATION_TIMEOUT_MS
+    })
   );
 });
 
-ipcMain.handle(IPC_CHANNELS.runGitAction, async (_event, request: GitRunRequest) => {
-  const trusted = await requireTrustedRepo(request.repoPath);
-  if (trusted) {
-    const now = new Date().toISOString();
-    return {
-      runId: "untrusted",
-      action: request.action,
-      repoPath: request.repoPath,
-      exitCode: -1,
-      stdout: "",
-      stderr: trusted.stderr,
-      startedAt: now,
-      endedAt: now
-    };
-  }
-
-  return runExclusiveRepositoryOperation(
-    request.repoPath,
+ipcMain.handle(IPC_CHANNELS.runGitAction, async (event, request: CoordinatedRequest<GitRunRequest>) => {
+  return runTrustedExclusiveRepositoryOperation(
     async () => {
       const service = await vcsRouter.serviceForRepo(request.repoPath);
       return service.runGitAction(request, sendGitOutput);
     },
-    () => {
-      const now = new Date().toISOString();
-      return {
-        runId: "busy",
-        action: request.action,
-        repoPath: request.repoPath,
-        exitCode: -1,
-        stdout: "",
-        stderr: "Another git command is already running for this repository.",
-        startedAt: now,
-        endedAt: now
-      };
-    },
-    NETWORK_OPERATION_TIMEOUT_MS
+    repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS),
+    (failure) => createGitRunFailure("untrusted", request.action, request.repoPath, failure.stderr),
+    () => createGitRunFailure(
+      "busy",
+      request.action,
+      request.repoPath,
+      "Another git command is already running for this repository."
+    )
   );
 });
 
-ipcMain.handle(IPC_CHANNELS.runConfiguredAction, async (_event, request: GitConfiguredActionRunRequest) => {
+ipcMain.handle(IPC_CHANNELS.runConfiguredAction, async (event, request: CoordinatedRequest<GitConfiguredActionRunRequest>) => {
   const actionName = request.name.trim() || "Actions";
-  const trusted = await requireTrustedRepo(request.repoPath);
-  if (trusted) {
-    const now = new Date().toISOString();
-    return {
-      runId: "untrusted",
-      action: actionName,
-      repoPath: request.repoPath,
-      exitCode: -1,
-      stdout: "",
-      stderr: trusted.stderr,
-      startedAt: now,
-      endedAt: now
-    };
-  }
-
-  return runExclusiveRepositoryOperation(
-    request.repoPath,
+  return runTrustedExclusiveRepositoryOperation(
     async () => {
       const service = await vcsRouter.serviceForRepo(request.repoPath);
       return service.runConfiguredAction(request, sendGitOutput);
     },
-    () => {
-      const now = new Date().toISOString();
-      return {
-        runId: "busy",
-        action: actionName,
-        repoPath: request.repoPath,
-        exitCode: -1,
-        stdout: "",
-        stderr: "Another git command is already running for this repository.",
-        startedAt: now,
-        endedAt: now
-      };
-    },
-    NETWORK_OPERATION_TIMEOUT_MS
+    repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS),
+    (failure) => createGitRunFailure("untrusted", actionName, request.repoPath, failure.stderr),
+    () => createGitRunFailure(
+      "busy",
+      actionName,
+      request.repoPath,
+      "Another git command is already running for this repository."
+    )
   );
 });
 
-ipcMain.handle(IPC_CHANNELS.updateSubmodules, async (_event, request: GitSubmoduleRequest) => {
-  return runExclusiveGitOperation(() => gitService.updateSubmodules(request), request.repoPath, NETWORK_OPERATION_TIMEOUT_MS);
+ipcMain.handle(IPC_CHANNELS.updateSubmodules, async (event, request: CoordinatedRequest<GitSubmoduleRequest>) => {
+  return runExclusiveGitOperation(
+    () => gitService.updateSubmodules(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS)
+  );
 });
 
-ipcMain.handle(IPC_CHANNELS.syncSubmodules, async (_event, request: GitSubmoduleRequest) => {
-  return runExclusiveGitOperation(() => gitService.syncSubmodules(request), request.repoPath);
+ipcMain.handle(IPC_CHANNELS.syncSubmodules, async (event, request: CoordinatedRequest<GitSubmoduleRequest>) => {
+  return runExclusiveGitOperation(
+    () => gitService.syncSubmodules(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
 });
 
-ipcMain.handle(IPC_CHANNELS.saveConfiguredActions, async (_event, request: GitConfiguredActionSaveRequest) => {
-  return runExclusiveGitOperation(async () => (await vcsRouter.serviceForRepo(request.repoPath)).saveConfiguredActions(request), request.repoPath);
+ipcMain.handle(IPC_CHANNELS.saveConfiguredActions, async (event, request: CoordinatedRequest<GitConfiguredActionSaveRequest>) => {
+  return runExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).saveConfiguredActions(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
 });
 
 ipcMain.handle(IPC_CHANNELS.getUpdateState, async () => {
@@ -957,36 +1012,134 @@ ipcMain.handle(IPC_CHANNELS.getWindowState, () => {
   return getAppWindowState(getWindowForControl());
 });
 
-async function runExclusiveGitOperation(
-  operation: () => Promise<GitOperationResult>,
-  repoPath: string,
-  timeoutMs = LOCAL_OPERATION_TIMEOUT_MS
+function runExclusiveGitOperation(
+  operation: (signal: AbortSignal) => Promise<GitOperationResult>,
+  options: RepositoryOperationOptions
 ): Promise<GitOperationResult> {
   return runExclusiveRepositoryOperation(
-    repoPath,
+    options,
     operation,
     () => ({
-      repoPath,
+      repoPath: options.repoPath,
       exitCode: -1,
       stdout: "",
       stderr: "Another git command is already running for this repository."
-    }),
-    timeoutMs
+    })
   );
 }
 
-async function runExclusiveRepositoryOperation<T>(
-  repoPath: string,
-  operation: () => Promise<T>,
-  busyResult: () => T,
-  timeoutMs = LOCAL_OPERATION_TIMEOUT_MS
-): Promise<T> {
-  const result = await repositoryOperations.run(
-    repoPath,
-    timeoutMs,
-    (signal) => processRunner.runWithSignal(signal, operation)
+function runTrustedExclusiveGitOperation(
+  operation: (signal: AbortSignal) => Promise<GitOperationResult>,
+  options: RepositoryOperationOptions
+): Promise<GitOperationResult> {
+  return runTrustedExclusiveRepositoryOperation(
+    operation,
+    options,
+    (failure) => failure,
+    () => createOperationFailure(
+      options.repoPath,
+      "Another git command is already running for this repository."
+    )
   );
-  return result.started ? result.value : busyResult();
+}
+
+function runTrustedExclusiveRepositoryOperation<T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  options: RepositoryOperationOptions,
+  trustFailure: (failure: GitOperationResult) => T | Promise<T>,
+  busyResult: () => T
+): Promise<T> {
+  return runCoordinatedRepositoryOperationAfterPreflight(
+    repositoryOperations,
+    processRunner,
+    options,
+    () => requireTrustedRepo(options.repoPath),
+    operation,
+    trustFailure,
+    busyResult
+  );
+}
+
+function runExclusiveRepositoryOperation<T>(
+  options: RepositoryOperationOptions,
+  operation: (signal: AbortSignal) => Promise<T>,
+  busyResult: () => T
+): Promise<T> {
+  return runCoordinatedRepositoryOperation(
+    repositoryOperations,
+    processRunner,
+    options,
+    operation,
+    busyResult
+  );
+}
+
+function createGitRunFailure(
+  runId: string,
+  action: GitRunResult["action"],
+  repoPath: string,
+  stderr: string
+): GitRunResult {
+  const now = new Date().toISOString();
+  return {
+    runId,
+    action,
+    repoPath,
+    exitCode: -1,
+    stdout: "",
+    stderr,
+    startedAt: now,
+    endedAt: now
+  };
+}
+
+function createGitHubMutationFailure(
+  kind: "cancelled" | "timeout" | "unexpected",
+  message: string,
+  outcomeUnknown: boolean
+): GitHubOperationResult<CreatePullRequestResult> {
+  return {
+    ok: false,
+    error: {
+      kind,
+      message,
+      retryable: false,
+      retryAfterAt: null,
+      outcomeUnknown,
+      source: "combined",
+      rateLimit: null
+    }
+  };
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof Error && error.name === "TimeoutError";
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "The GitHub request did not complete.";
+}
+
+function repositoryOperationOptions(
+  event: Electron.IpcMainInvokeEvent,
+  operationId: string,
+  repoPath: string,
+  timeoutMs = LOCAL_OPERATION_TIMEOUT_MS
+): RepositoryOperationOptions {
+  if (!event.senderFrame || event.senderFrame.isDestroyed()) {
+    throw new DOMException("Operation owner is no longer available.", "AbortError");
+  }
+  const ownerId = getRepositoryOperationOwnerId(event);
+  watchRepositoryOperationOwner(event.sender).add(ownerId);
+  return { operationId, ownerId, repoPath, timeoutMs };
+}
+
+function getRepositoryOperationOwnerId(event: Electron.IpcMainInvokeEvent): string {
+  return repositoryOperationOwnerId(event.sender.id, event.processId, event.frameId);
 }
 
 async function requireTrustedRepo(repoPath: string): Promise<GitOperationResult | null> {
@@ -1019,23 +1172,29 @@ function normalizeExternalUrl(url: string): { url: string } | { error: string } 
   }
 }
 
-async function openCommitFileVersion(request: GitCommitFileVersionRequest): Promise<GitOperationResult> {
+interface PreparedCommitFileVersion {
+  result: GitOperationResult;
+  tempDir?: string;
+  tempPath?: string;
+}
+
+async function prepareCommitFileVersion(request: GitCommitFileVersionRequest): Promise<PreparedCommitFileVersion> {
   const resolved = resolveRepoFilePath({
     repoPath: request.repoPath,
     path: request.path
   });
   if ("error" in resolved) {
-    return createOperationFailure(request.repoPath, resolved.error);
+    return { result: createOperationFailure(request.repoPath, resolved.error) };
   }
 
   const hash = request.hash.trim();
   if (!/^[0-9a-f]{7,64}$/i.test(hash)) {
-    return createOperationFailure(request.repoPath, "Commit hash is invalid.");
+    return { result: createOperationFailure(request.repoPath, "Commit hash is invalid.") };
   }
 
   const policyError = getOpenRepositoryFileError(resolved.absolutePath);
   if (policyError) {
-    return createOperationFailure(request.repoPath, policyError);
+    return { result: createOperationFailure(request.repoPath, policyError) };
   }
 
   const tempDir = await fs.mkdtemp(path.join(app.getPath("temp"), "githead-commit-file-"));
@@ -1050,20 +1209,19 @@ async function openCommitFileVersion(request: GitCommitFileVersionRequest): Prom
 
   if (result.exitCode !== 0) {
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
-    return createOperationFailure(
-      request.repoPath,
-      result.stderr.trim() || result.error || "Unable to read file at the selected commit."
-    );
+    return {
+      result: createOperationFailure(
+        request.repoPath,
+        result.stderr.trim() || result.error || "Unable to read file at the selected commit."
+      )
+    };
   }
 
-  await fs.chmod(tempPath, 0o444).catch(() => undefined);
-  const error = await shell.openPath(tempPath);
-  if (error) {
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
-    return createOperationFailure(request.repoPath, error);
-  }
-
-  return createOperationSuccess(request.repoPath, "Selected file version opened.");
+  return {
+    result: createOperationSuccess(request.repoPath, "Selected file version prepared."),
+    tempDir,
+    tempPath
+  };
 }
 
 async function getExplorerTarget(absolutePath: string, repoRoot: string): Promise<string> {

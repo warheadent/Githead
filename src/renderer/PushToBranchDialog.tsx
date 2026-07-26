@@ -66,8 +66,14 @@ export function PushToBranchDialog({
 
   return (
     <Dialog open={state.open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[460px]">
-        <form className="grid gap-4" onSubmit={onPush}>
+      <DialogContent className="sm:max-w-[460px]" aria-busy={saving}>
+        <form className="grid gap-4" onSubmit={(event) => {
+          if (saving) {
+            event.preventDefault();
+            return;
+          }
+          onPush(event);
+        }}>
           <DialogHeader>
             <DialogTitle>Push to Another Branch</DialogTitle>
             <DialogDescription>
@@ -158,8 +164,8 @@ export function PushToBranchDialog({
           </p>
           <p className="min-h-5 text-sm text-destructive" role="alert">{state.error}</p>
           <DialogFooter>
-            <Button type="button" variant="outline" disabled={saving} onClick={() => onOpenChange(false)}>
-              Cancel
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              {saving ? "Cancel push" : "Cancel"}
             </Button>
             <Button type="submit" disabled={saving || !state.sourceBranch || !state.remoteName || !destinationReady}>
               {saving ? <Loader2 className="animate-spin" /> : <Upload />}

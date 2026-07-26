@@ -57,8 +57,8 @@ export function TagDialog({ state, commit, remotes, saving, onOpenChange, onStat
   const set = (patch: Partial<TagDialogState>): void => onStateChange(update(state, patch));
 
   return (
-    <Dialog open={state.open} onOpenChange={(open) => { if (!saving) onOpenChange(open); }}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl" showCloseButton={!saving} aria-busy={saving}>
+    <Dialog open={state.open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl" aria-busy={saving}>
         <DialogHeader className="pr-8">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Commit action</p>
           <DialogTitle>Manage tag</DialogTitle>
@@ -72,12 +72,18 @@ export function TagDialog({ state, commit, remotes, saving, onOpenChange, onStat
 
         <Tabs value={state.tab} onValueChange={(value) => set({ tab: value === "remove" ? "remove" : "add", error: "", deleteConfirmed: false })}>
           <TabsList className="grid h-10 w-full grid-cols-2" aria-label="Tag action">
-            <TabsTrigger value="add"><Tag />Create</TabsTrigger>
-            <TabsTrigger value="remove"><Trash2 />Remove{tags.length ? ` (${tags.length})` : ""}</TabsTrigger>
+            <TabsTrigger value="add" disabled={saving}><Tag />Create</TabsTrigger>
+            <TabsTrigger value="remove" disabled={saving}><Trash2 />Remove{tags.length ? ` (${tags.length})` : ""}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="add" className="pt-3">
-            <form className="grid gap-5" onSubmit={onCreate} noValidate>
+            <form className="grid gap-5" onSubmit={(event) => {
+              if (saving) {
+                event.preventDefault();
+                return;
+              }
+              onCreate(event);
+            }} noValidate>
               <div className={fieldClass}>
                 <Label htmlFor="tag-name">Tag name</Label>
                 <Input id="tag-name" value={state.tagName} disabled={saving} autoFocus autoComplete="off" aria-invalid={Boolean(state.error)} aria-describedby={state.error ? "tag-create-error" : "tag-name-help"} onChange={(event) => set({ tagName: event.currentTarget.value, error: "" })} />
@@ -120,14 +126,20 @@ export function TagDialog({ state, commit, remotes, saving, onOpenChange, onStat
 
               {state.error ? <p id="tag-create-error" className="text-sm text-destructive" role="alert">{state.error}</p> : null}
               <DialogFooter>
-                <Button type="button" variant="outline" disabled={saving} onClick={() => onOpenChange(false)}>Cancel</Button>
+                <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{saving ? "Cancel operation" : "Cancel"}</Button>
                 <Button type="submit" disabled={saving}>{saving ? <Loader2 className="animate-spin" /> : <Tag />}{saving ? "Creating…" : "Create tag"}</Button>
               </DialogFooter>
             </form>
           </TabsContent>
 
           <TabsContent value="remove" className="pt-3">
-            {tags.length === 0 ? <div className="grid justify-items-center gap-2 rounded-lg border border-dashed px-6 py-10 text-center"><Tag className="size-6 text-muted-foreground" /><p className="font-medium">No tags on this commit</p><p className="max-w-sm text-sm text-muted-foreground">Create a tag first, or choose another commit that already has one.</p></div> : <form className="grid gap-5" onSubmit={onDelete}>
+            {tags.length === 0 ? <div className="grid justify-items-center gap-2 rounded-lg border border-dashed px-6 py-10 text-center"><Tag className="size-6 text-muted-foreground" /><p className="font-medium">No tags on this commit</p><p className="max-w-sm text-sm text-muted-foreground">Create a tag first, or choose another commit that already has one.</p></div> : <form className="grid gap-5" onSubmit={(event) => {
+              if (saving) {
+                event.preventDefault();
+                return;
+              }
+              onDelete(event);
+            }}>
               <div className={fieldClass}>
                 <Label htmlFor="tag-remove-name">Local tag</Label>
                 <select id="tag-remove-name" className={selectClass} value={state.deleteTagName} disabled={saving} onChange={(event) => set({ deleteTagName: event.currentTarget.value, deleteConfirmed: false, error: "" })}>
@@ -151,7 +163,7 @@ export function TagDialog({ state, commit, remotes, saving, onOpenChange, onStat
               </label>
               {state.error ? <p id="tag-remove-error" className="text-sm text-destructive" role="alert">{state.error}</p> : null}
               <DialogFooter>
-                <Button type="button" variant="outline" disabled={saving} onClick={() => onOpenChange(false)}>Cancel</Button>
+                <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{saving ? "Cancel operation" : "Cancel"}</Button>
                 <Button type="submit" variant="destructive" disabled={saving || !state.deleteConfirmed}>{saving ? <Loader2 className="animate-spin" /> : <Trash2 />}{saving ? "Removing…" : "Remove tag"}</Button>
               </DialogFooter>
             </form>}

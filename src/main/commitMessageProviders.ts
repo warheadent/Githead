@@ -1,5 +1,6 @@
 import { createCliProcessEnv } from "./cliEnvironment";
 import { createCliInvocation } from "./cliInvocation";
+import { fetchJsonWithTimeout } from "./fetchJsonWithTimeout";
 import type { ProcessRunner } from "./processRunner";
 import type { AiReasoningEffort } from "../shared/types";
 
@@ -21,6 +22,7 @@ export interface CommitMessageProviderInput {
   model: string;
   systemPrompt: string;
   userPrompt: string;
+  signal?: AbortSignal;
   /** Response token budget for API providers; CLI providers ignore it. */
   maxTokens?: number;
   reasoningEffort?: AiReasoningEffort;
@@ -71,7 +73,7 @@ export class OpenRouterCommitMessageProvider implements CommitMessageProvider {
   ) {}
 
   async generate(input: CommitMessageProviderInput): Promise<string> {
-    const response = await fetchWithTimeout(this.fetchImpl, OPENROUTER_CHAT_COMPLETIONS_URL, {
+    const { response, payload } = await fetchJsonWithTimeout<OpenRouterResponse>(this.fetchImpl, OPENROUTER_CHAT_COMPLETIONS_URL, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${this.apiKey}`,
@@ -96,8 +98,12 @@ export class OpenRouterCommitMessageProvider implements CommitMessageProvider {
         ...(input.reasoningEffort ? { reasoning: { effort: input.reasoningEffort } } : {}),
         max_tokens: input.maxTokens ?? DEFAULT_MAX_TOKENS
       })
+    }, {
+      timeoutMs: API_TIMEOUT_MS,
+      timeoutReason: createApiTimeoutReason(),
+      ...(input.signal ? { signal: input.signal } : {}),
+      createJsonFallback: () => ({} as OpenRouterResponse)
     });
-    const payload = await parseJson<OpenRouterResponse>(response);
     if (!response.ok) {
       throw new Error(payload.error?.message || `OpenRouter request failed with status ${response.status}.`);
     }
@@ -113,7 +119,7 @@ export class OpenAiCommitMessageProvider implements CommitMessageProvider {
   ) {}
 
   async generate(input: CommitMessageProviderInput): Promise<string> {
-    const response = await fetchWithTimeout(this.fetchImpl, OPENAI_RESPONSES_URL, {
+    const { response, payload } = await fetchJsonWithTimeout<OpenAiResponse>(this.fetchImpl, OPENAI_RESPONSES_URL, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${this.apiKey}`,
@@ -127,8 +133,12 @@ export class OpenAiCommitMessageProvider implements CommitMessageProvider {
         ...(input.reasoningEffort ? { reasoning: { effort: input.reasoningEffort } } : {}),
         max_output_tokens: input.maxTokens ?? DEFAULT_MAX_TOKENS
       })
+    }, {
+      timeoutMs: API_TIMEOUT_MS,
+      timeoutReason: createApiTimeoutReason(),
+      ...(input.signal ? { signal: input.signal } : {}),
+      createJsonFallback: () => ({} as OpenAiResponse)
     });
-    const payload = await parseJson<OpenAiResponse>(response);
     if (!response.ok) {
       throw new Error(payload.error?.message || `OpenAI request failed with status ${response.status}.`);
     }
@@ -144,7 +154,7 @@ export class AnthropicCommitMessageProvider implements CommitMessageProvider {
   ) {}
 
   async generate(input: CommitMessageProviderInput): Promise<string> {
-    const response = await fetchWithTimeout(this.fetchImpl, ANTHROPIC_MESSAGES_URL, {
+    const { response, payload } = await fetchJsonWithTimeout<AnthropicResponse>(this.fetchImpl, ANTHROPIC_MESSAGES_URL, {
       method: "POST",
       headers: {
         "x-api-key": this.apiKey,
@@ -164,8 +174,12 @@ export class AnthropicCommitMessageProvider implements CommitMessageProvider {
         ...(input.reasoningEffort ? { output_config: { effort: input.reasoningEffort } } : {}),
         max_tokens: input.maxTokens ?? DEFAULT_MAX_TOKENS
       })
+    }, {
+      timeoutMs: API_TIMEOUT_MS,
+      timeoutReason: createApiTimeoutReason(),
+      ...(input.signal ? { signal: input.signal } : {}),
+      createJsonFallback: () => ({} as AnthropicResponse)
     });
-    const payload = await parseJson<AnthropicResponse>(response);
     if (!response.ok) {
       throw new Error(payload.error?.message || `Anthropic request failed with status ${response.status}.`);
     }
@@ -198,7 +212,8 @@ export class CodexCliCommitMessageProvider implements CommitMessageProvider {
       cwd: input.repoPath,
       env: createCliProcessEnv(),
       stdin: createCliPrompt(input),
-      timeoutMs: CLI_TIMEOUT_MS
+      timeoutMs: CLI_TIMEOUT_MS,
+      ...(input.signal ? { signal: input.signal } : {})
     });
 
     if (result.exitCode !== 0) {
@@ -234,7 +249,8 @@ export class ClaudeCodeCommitMessageProvider implements CommitMessageProvider {
       cwd: input.repoPath,
       env: createCliProcessEnv(),
       stdin: createCliPrompt(input),
-      timeoutMs: CLI_TIMEOUT_MS
+      timeoutMs: CLI_TIMEOUT_MS,
+      ...(input.signal ? { signal: input.signal } : {})
     });
 
     if (result.exitCode !== 0) {
@@ -245,28 +261,11 @@ export class ClaudeCodeCommitMessageProvider implements CommitMessageProvider {
   }
 }
 
-async function fetchWithTimeout(fetchImpl: Fetch, url: string, init: RequestInit): Promise<Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => {
-    controller.abort();
-  }, API_TIMEOUT_MS);
-
-  try {
-    return await fetchImpl(url, {
-      ...init,
-      signal: controller.signal
-    });
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function parseJson<T>(response: Response): Promise<T> {
-  try {
-    return await response.json() as T;
-  } catch {
-    return {} as T;
-  }
+function createApiTimeoutReason(): DOMException {
+  return new DOMException(
+    `AI provider request timed out after ${API_TIMEOUT_MS}ms.`,
+    "TimeoutError"
+  );
 }
 
 function extractOpenAiOutputText(payload: OpenAiResponse): string {

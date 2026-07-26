@@ -143,12 +143,8 @@ export function RemoteManagementDialog({
   const impactsGitHub = selectedRemote?.name === "origin" && hasGitHubOrigin;
 
   return (
-    <Dialog open={open} onOpenChange={(nextOpen) => {
-      if (!busy) {
-        onOpenChange(nextOpen);
-      }
-    }}>
-      <DialogContent className="max-h-[85vh] overflow-hidden sm:max-w-3xl" showCloseButton={!busy}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[85vh] overflow-hidden sm:max-w-3xl" aria-busy={busy}>
         <DialogHeader>
           <p className="eyebrow">Repository</p>
           <DialogTitle>Manage Remotes</DialogTitle>
@@ -242,7 +238,7 @@ export function RemoteManagementDialog({
             {error ? <p className="error-text selectable-text" role="alert">{error}</p> : null}
 
             <DialogFooter>
-              <Button type="button" variant="outline" disabled={busy} onClick={returnToList}>Back</Button>
+              <Button type="button" variant="outline" onClick={busy ? () => onOpenChange(false) : returnToList}>{busy ? "Cancel operation" : "Back"}</Button>
               <Button type="submit" variant={mode.kind === "remove" ? "destructive" : "default"} disabled={busy}>
                 {busy ? <Loader2 className="animate-spin" /> : null}
                 {mode.kind === "add" ? "Add Remote" : mode.kind === "rename" ? "Rename Remote" : mode.kind === "edit" ? "Save URL" : "Remove Remote"}

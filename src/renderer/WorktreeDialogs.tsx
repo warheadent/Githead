@@ -46,6 +46,7 @@ export function WorktreeCreateDialog({ open, group, branches, remoteBranches, bu
 
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
+    if (saving || busy) return;
     const name = branchName.trim();
     if (!name) return setError(mode === "existing-branch" ? "Select a branch." : "Enter a branch name.");
     if (!destinationPath.trim()) return setError("Enter a destination path.");
@@ -70,16 +71,16 @@ export function WorktreeCreateDialog({ open, group, branches, remoteBranches, bu
   };
 
   return (
-    <Dialog open={open} onOpenChange={(next) => { if (!saving && !busy) onOpenChange(next); }}>
-      <DialogContent>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent aria-busy={saving || busy}>
         <DialogHeader>
           <DialogTitle>Add Worktree</DialogTitle>
           <DialogDescription>Check out another branch in a separate folder without disturbing this workspace.</DialogDescription>
         </DialogHeader>
         <form className="grid gap-4" onSubmit={(event) => { void submit(event); }}>
           <div className="grid grid-cols-2 gap-2" role="group" aria-label="Worktree branch mode">
-            <Button type="button" variant={mode === "new-branch" ? "default" : "outline"} onClick={() => { setMode("new-branch"); setBranchName(""); setDestinationEdited(false); }}>New branch</Button>
-            <Button type="button" variant={mode === "existing-branch" ? "default" : "outline"} onClick={() => { setMode("existing-branch"); setBranchName(existingBranches[0]?.name ?? ""); setDestinationEdited(false); }}>Existing branch</Button>
+            <Button type="button" variant={mode === "new-branch" ? "default" : "outline"} disabled={saving || busy} onClick={() => { setMode("new-branch"); setBranchName(""); setDestinationEdited(false); }}>New branch</Button>
+            <Button type="button" variant={mode === "existing-branch" ? "default" : "outline"} disabled={saving || busy} onClick={() => { setMode("existing-branch"); setBranchName(existingBranches[0]?.name ?? ""); setDestinationEdited(false); }}>Existing branch</Button>
           </div>
           <div className="grid gap-2">
             <Label htmlFor="worktree-branch">Branch</Label>
@@ -96,7 +97,7 @@ export function WorktreeCreateDialog({ open, group, branches, remoteBranches, bu
             <div className="flex gap-2"><Input id="worktree-destination" value={destinationPath} onChange={(event) => { setDestinationPath(event.target.value); setDestinationEdited(true); }} disabled={saving || busy} /><Button type="button" variant="outline" size="icon" onClick={() => { void chooseParent(); }} disabled={saving || busy} aria-label="Choose worktree parent"><FolderOpen /></Button></div>
           </div>
           {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
-          <DialogFooter><Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving || busy}>Cancel</Button><Button type="submit" disabled={saving || busy}>{saving || busy ? <Loader2 className="animate-spin" /> : <GitFork />}Create Worktree</Button></DialogFooter>
+          <DialogFooter><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{saving || busy ? "Cancel operation" : "Cancel"}</Button><Button type="submit" disabled={saving || busy}>{saving || busy ? <Loader2 className="animate-spin" /> : <GitFork />}Create Worktree</Button></DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -134,7 +135,7 @@ export function WorktreeRemoveDialog({ target, check, checking, busy, onClose, o
   const forceRemovalArmed = secondsRemaining === 0;
   const canRemove = Boolean(check?.canRemove || (check?.canForceRemove && forceRemovalArmed));
   const removeLabel = check?.canForceRemove && !forceRemovalArmed ? `Remove Worktree (${secondsRemaining})` : "Remove Worktree";
-  return <Dialog open={Boolean(target)} onOpenChange={(open) => { if (!open && !busy) onClose(); }}><DialogContent><DialogHeader><DialogTitle>Remove worktree?</DialogTitle><DialogDescription>This deletes the worktree folder from your computer. Its branch and committed changes remain in the repository.</DialogDescription></DialogHeader><div className="rounded-md border p-3"><p className="font-medium">{target?.branch ?? "Detached worktree"}</p><p className="break-all text-sm text-muted-foreground">{target?.path}</p></div>{checking ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Checking worktree…</p> : check?.reason ? <div className="grid gap-1 text-sm text-destructive" role="alert"><p>{check.reason}</p>{check.canForceRemove && forceRemovalArmed ? <p>Removing it will permanently discard those files.</p> : null}</div> : <p className="text-sm text-muted-foreground">This worktree is clean and can be removed safely.</p>}<DialogFooter><Button type="button" variant="outline" onClick={onClose} disabled={busy}>Cancel</Button><Button type="button" variant="destructive" onClick={onRemove} disabled={busy || checking || !canRemove}>{busy ? <Loader2 className="animate-spin" /> : <Trash2 />}{removeLabel}</Button></DialogFooter></DialogContent></Dialog>;
+  return <Dialog open={Boolean(target)} onOpenChange={(open) => { if (!open) onClose(); }}><DialogContent aria-busy={busy}><DialogHeader><DialogTitle>Remove worktree?</DialogTitle><DialogDescription>This deletes the worktree folder from your computer. Its branch and committed changes remain in the repository.</DialogDescription></DialogHeader><div className="rounded-md border p-3"><p className="font-medium">{target?.branch ?? "Detached worktree"}</p><p className="break-all text-sm text-muted-foreground">{target?.path}</p></div>{checking ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Checking worktree…</p> : check?.reason ? <div className="grid gap-1 text-sm text-destructive" role="alert"><p>{check.reason}</p>{check.canForceRemove && forceRemovalArmed ? <p>Removing it will permanently discard those files.</p> : null}</div> : <p className="text-sm text-muted-foreground">This worktree is clean and can be removed safely.</p>}<DialogFooter><Button type="button" variant="outline" onClick={onClose}>{busy ? "Cancel operation" : "Cancel"}</Button><Button type="button" variant="destructive" onClick={onRemove} disabled={busy || checking || !canRemove}>{busy ? <Loader2 className="animate-spin" /> : <Trash2 />}{removeLabel}</Button></DialogFooter></DialogContent></Dialog>;
 }
 
 function suggestWorktreePath(mainPath: string, branchName: string): string {

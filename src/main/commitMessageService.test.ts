@@ -196,6 +196,17 @@ function createService(params: {
 }
 
 describe("CommitMessageService", () => {
+  it("does not convert cancellation into a failed operation result", async () => {
+    const { service } = createService({});
+    const controller = new AbortController();
+    const abortReason = new DOMException("Generation cancelled.", "AbortError");
+    controller.abort(abortReason);
+
+    await expect(service.generateCommitMessage({
+      repoPath: "D:\\Repo"
+    }, controller.signal)).rejects.toBe(abortReason);
+  });
+
   it("builds an OpenRouter chat completion request from the staged diff", async () => {
     const { service, calls } = createService({});
 

@@ -559,9 +559,19 @@ export interface CancelRepositoryReadRequest {
   requestId: string;
 }
 
-export interface CancelGitOperationRequest {
-  repoPath: string;
+export interface GitOperationContext {
+  operationId: string;
 }
+
+export type CoordinatedRequest<T> = T & GitOperationContext;
+
+export interface CancelGitOperationRequest {
+  operationId: string;
+}
+
+export type CancelGitOperationResult =
+  | { accepted: true; state: "cancelling" | "already-cancelling" }
+  | { accepted: false; state: "not-found" | "not-owner" };
 
 export interface RepoSectionRequest extends RepositoryReadRequest {
   repoPath: string;
@@ -1222,7 +1232,7 @@ export interface GitheadApi {
   getRepoStatus(request: RepoSectionRequest): Promise<RepoStatusSection>;
   getRepoMetadata(request: RepoSectionRequest): Promise<RepoMetadataSection>;
   cancelRepositoryRead(request: CancelRepositoryReadRequest): Promise<void>;
-  cancelGitOperation(request: CancelGitOperationRequest): Promise<boolean>;
+  cancelGitOperation(request: CancelGitOperationRequest): Promise<CancelGitOperationResult>;
   watchRepoChanges(repoPath: string): Promise<void>;
   unwatchRepoChanges(repoPath?: string): Promise<void>;
   getRepoRecents(): Promise<RepositoryRecent[]>;
@@ -1233,14 +1243,14 @@ export interface GitheadApi {
   getRepositoryGroups(request: RepositoryGroupsRequest): Promise<RepositoryGroup[]>;
   getRepoTrust(request: RepoTrustRequest): Promise<RepoTrustResult>;
   addRepoTrust(request: RepoTrustRequest): Promise<RepoTrustResult>;
-  addSafeDirectory(request: GitSafeDirectoryRequest): Promise<GitOperationResult>;
+  addSafeDirectory(request: CoordinatedRequest<GitSafeDirectoryRequest>): Promise<GitOperationResult>;
   getGitHubWorkflowRuns(request: GitHubWorkflowRunsRequest): Promise<GitHubOperationResult<GitHubPage<GitHubWorkflowRun>>>;
   getGitHubViewer(request: GitHubRepositoryRequest): Promise<GitHubOperationResult<GitHubViewer>>;
   getGitHubOpenCounts(request: GitHubRepositoryRequest): Promise<GitHubOperationResult<GitHubOpenCounts>>;
   getGitHubIssues(request: GitHubIssuesRequest): Promise<GitHubOperationResult<GitHubPage<GitHubIssue>>>;
   getGitHubPullRequests(request: GitHubPullRequestsRequest): Promise<GitHubOperationResult<GitHubPage<GitHubPullRequest>>>;
   getGitHubHistoryInsights(request: GitHubHistoryInsightsRequest): Promise<GitHubOperationResult<GitHubHistoryInsights>>;
-  createGitHubPullRequest(request: CreatePullRequestRequest): Promise<GitHubOperationResult<CreatePullRequestResult>>;
+  createGitHubPullRequest(request: CoordinatedRequest<CreatePullRequestRequest>): Promise<GitHubOperationResult<CreatePullRequestResult>>;
   cancelGitHubRequest(request: CancelGitHubRequest): Promise<void>;
   getCommitHistory(request: GitCommitHistoryRequest): Promise<GitCommitGraphRow[]>;
   getCommitDetails(request: GitCommitDetailsRequest): Promise<GitCommitDetails>;
@@ -1249,63 +1259,63 @@ export interface GitheadApi {
   getFileBlame(request: GitFileBlameRequest): Promise<GitFileBlameResult>;
   getFileDiff(request: GitFileDiffRequest): Promise<GitFileDiff>;
   getFilePreview(request: GitFilePreviewRequest): Promise<GitFilePreview>;
-  fetchLfsImageVersions(request: GitLfsImageFetchRequest): Promise<GitOperationResult>;
-  resetFilesToCommit(request: GitCommitFileResetRequest): Promise<GitOperationResult>;
-  openCommitFileVersion(request: GitCommitFileVersionRequest): Promise<GitOperationResult>;
-  stageFiles(request: GitPathRequest): Promise<GitOperationResult>;
-  unstageFiles(request: GitPathRequest): Promise<GitOperationResult>;
-  stageHunk(request: GitHunkRequest): Promise<GitOperationResult>;
-  unstageHunk(request: GitHunkRequest): Promise<GitOperationResult>;
-  commitChanges(request: GitCommitRequest): Promise<GitOperationResult>;
+  fetchLfsImageVersions(request: CoordinatedRequest<GitLfsImageFetchRequest>): Promise<GitOperationResult>;
+  resetFilesToCommit(request: CoordinatedRequest<GitCommitFileResetRequest>): Promise<GitOperationResult>;
+  openCommitFileVersion(request: CoordinatedRequest<GitCommitFileVersionRequest>): Promise<GitOperationResult>;
+  stageFiles(request: CoordinatedRequest<GitPathRequest>): Promise<GitOperationResult>;
+  unstageFiles(request: CoordinatedRequest<GitPathRequest>): Promise<GitOperationResult>;
+  stageHunk(request: CoordinatedRequest<GitHunkRequest>): Promise<GitOperationResult>;
+  unstageHunk(request: CoordinatedRequest<GitHunkRequest>): Promise<GitOperationResult>;
+  commitChanges(request: CoordinatedRequest<GitCommitRequest>): Promise<GitOperationResult>;
   copyCommitShaToClipboard(request: GitCommitHashRequest): Promise<GitOperationResult>;
-  resetBranchToCommit(request: GitResetCommitRequest): Promise<GitOperationResult>;
-  revertCommit(request: GitCommitHashRequest): Promise<GitOperationResult>;
-  createTag(request: GitCreateTagRequest): Promise<GitOperationResult>;
-  deleteTag(request: GitDeleteTagRequest): Promise<GitOperationResult>;
-  switchBranch(request: GitBranchRequest): Promise<GitOperationResult>;
-  checkoutRemoteBranch(request: GitRemoteBranchCheckoutRequest): Promise<GitOperationResult>;
-  checkoutGitHubPullRequest(request: GitHubPullRequestCheckoutRequest): Promise<GitOperationResult>;
-  createBranch(request: GitBranchRequest): Promise<GitOperationResult>;
-  renameBranch(request: GitRenameBranchRequest): Promise<GitOperationResult>;
-  deleteBranch(request: GitDeleteBranchRequest): Promise<GitOperationResult>;
-  createWorktree(request: GitWorktreeCreateRequest): Promise<GitOperationResult>;
+  resetBranchToCommit(request: CoordinatedRequest<GitResetCommitRequest>): Promise<GitOperationResult>;
+  revertCommit(request: CoordinatedRequest<GitCommitHashRequest>): Promise<GitOperationResult>;
+  createTag(request: CoordinatedRequest<GitCreateTagRequest>): Promise<GitOperationResult>;
+  deleteTag(request: CoordinatedRequest<GitDeleteTagRequest>): Promise<GitOperationResult>;
+  switchBranch(request: CoordinatedRequest<GitBranchRequest>): Promise<GitOperationResult>;
+  checkoutRemoteBranch(request: CoordinatedRequest<GitRemoteBranchCheckoutRequest>): Promise<GitOperationResult>;
+  checkoutGitHubPullRequest(request: CoordinatedRequest<GitHubPullRequestCheckoutRequest>): Promise<GitOperationResult>;
+  createBranch(request: CoordinatedRequest<GitBranchRequest>): Promise<GitOperationResult>;
+  renameBranch(request: CoordinatedRequest<GitRenameBranchRequest>): Promise<GitOperationResult>;
+  deleteBranch(request: CoordinatedRequest<GitDeleteBranchRequest>): Promise<GitOperationResult>;
+  createWorktree(request: CoordinatedRequest<GitWorktreeCreateRequest>): Promise<GitOperationResult>;
   checkWorktreeRemoval(request: GitWorktreeRequest): Promise<GitWorktreeRemovalCheck>;
-  removeWorktree(request: GitWorktreeRemoveRequest): Promise<GitOperationResult>;
-  setBranchUpstream(request: GitUpstreamRequest): Promise<GitOperationResult>;
-  publishBranch(request: GitPublishBranchRequest): Promise<GitRunResult>;
+  removeWorktree(request: CoordinatedRequest<GitWorktreeRemoveRequest>): Promise<GitOperationResult>;
+  setBranchUpstream(request: CoordinatedRequest<GitUpstreamRequest>): Promise<GitOperationResult>;
+  publishBranch(request: CoordinatedRequest<GitPublishBranchRequest>): Promise<GitRunResult>;
   getRemoteConfigs(repoPath: string): Promise<GitRemoteConfig[]>;
-  addRemote(request: GitAddRemoteRequest): Promise<GitOperationResult>;
-  renameRemote(request: GitRenameRemoteRequest): Promise<GitOperationResult>;
-  setRemoteUrl(request: GitSetRemoteUrlRequest): Promise<GitOperationResult>;
-  removeRemote(request: GitRemoveRemoteRequest): Promise<GitOperationResult>;
+  addRemote(request: CoordinatedRequest<GitAddRemoteRequest>): Promise<GitOperationResult>;
+  renameRemote(request: CoordinatedRequest<GitRenameRemoteRequest>): Promise<GitOperationResult>;
+  setRemoteUrl(request: CoordinatedRequest<GitSetRemoteUrlRequest>): Promise<GitOperationResult>;
+  removeRemote(request: CoordinatedRequest<GitRemoveRemoteRequest>): Promise<GitOperationResult>;
   getGitIdentity(repoPath: string): Promise<GitIdentitySettings>;
-  saveGitIdentity(request: GitIdentitySaveRequest): Promise<GitIdentitySettings>;
+  saveGitIdentity(request: CoordinatedRequest<GitIdentitySaveRequest>): Promise<GitIdentitySettings>;
   getAiSettings(): Promise<AiSettings>;
   saveAiSettings(request: AiSettingsSaveRequest): Promise<AiSettings>;
   getAiReasoningCapabilities(request: GetAiReasoningCapabilitiesRequest): Promise<AiReasoningCapabilities>;
   getAppSettings(): Promise<AppSettings>;
   saveAppSettings(request: AppSettingsSaveRequest): Promise<AppSettings>;
   setWindowZoomFactor(zoomFactor: number): Promise<void>;
-  generateCommitMessage(request: GenerateCommitMessageRequest): Promise<GitOperationResult>;
-  generatePrTitle(request: GeneratePrTitleRequest): Promise<GitOperationResult>;
-  generatePrDescription(request: GeneratePrDescriptionRequest): Promise<GitOperationResult>;
+  generateCommitMessage(request: CoordinatedRequest<GenerateCommitMessageRequest>): Promise<GitOperationResult>;
+  generatePrTitle(request: CoordinatedRequest<GeneratePrTitleRequest>): Promise<GitOperationResult>;
+  generatePrDescription(request: CoordinatedRequest<GeneratePrDescriptionRequest>): Promise<GitOperationResult>;
   openExternalUrl(request: ExternalUrlRequest): Promise<void>;
   openFile(request: FileSystemPathRequest): Promise<GitOperationResult>;
   showInExplorer(request: FileSystemPathRequest): Promise<GitOperationResult>;
   showRepositoryInExplorer(repoPath: string): Promise<GitOperationResult>;
   copyPathToClipboard(request: FileSystemPathRequest): Promise<GitOperationResult>;
   copyTextToClipboard(request: ClipboardTextRequest): Promise<GitOperationResult>;
-  deleteFile(request: FileSystemPathRequest): Promise<GitOperationResult>;
-  deleteFiles(request: FileSystemPathListRequest): Promise<GitOperationResult>;
-  revertFileChanges(request: GitFileChangesRequest): Promise<GitOperationResult>;
-  addPathToIgnore(request: GitIgnorePathRequest): Promise<GitOperationResult>;
-  cloneRepository(request: GitCloneRequest): Promise<GitOperationResult>;
-  updateSubmodules(request: GitSubmoduleRequest): Promise<GitOperationResult>;
-  syncSubmodules(request: GitSubmoduleRequest): Promise<GitOperationResult>;
-  checkRepositoryAccess(request: GitRepositoryAccessCheckRequest): Promise<GitRepositoryAccessCheckResult>;
-  runGitAction(request: GitRunRequest): Promise<GitRunResult>;
-  runConfiguredAction(request: GitConfiguredActionRunRequest): Promise<GitRunResult>;
-  saveConfiguredActions(request: GitConfiguredActionSaveRequest): Promise<GitOperationResult>;
+  deleteFile(request: CoordinatedRequest<FileSystemPathRequest>): Promise<GitOperationResult>;
+  deleteFiles(request: CoordinatedRequest<FileSystemPathListRequest>): Promise<GitOperationResult>;
+  revertFileChanges(request: CoordinatedRequest<GitFileChangesRequest>): Promise<GitOperationResult>;
+  addPathToIgnore(request: CoordinatedRequest<GitIgnorePathRequest>): Promise<GitOperationResult>;
+  cloneRepository(request: CoordinatedRequest<GitCloneRequest>): Promise<GitOperationResult>;
+  updateSubmodules(request: CoordinatedRequest<GitSubmoduleRequest>): Promise<GitOperationResult>;
+  syncSubmodules(request: CoordinatedRequest<GitSubmoduleRequest>): Promise<GitOperationResult>;
+  checkRepositoryAccess(request: CoordinatedRequest<GitRepositoryAccessCheckRequest>): Promise<GitRepositoryAccessCheckResult>;
+  runGitAction(request: CoordinatedRequest<GitRunRequest>): Promise<GitRunResult>;
+  runConfiguredAction(request: CoordinatedRequest<GitConfiguredActionRunRequest>): Promise<GitRunResult>;
+  saveConfiguredActions(request: CoordinatedRequest<GitConfiguredActionSaveRequest>): Promise<GitOperationResult>;
   getUpdateState(): Promise<AppUpdateState>;
   checkForUpdates(): Promise<AppUpdateCheckResult>;
   downloadUpdate(): Promise<AppUpdateActionResult>;

@@ -107,6 +107,109 @@ describe("DefaultGitHubClient", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
+  it("does not fetch when the request signal is already aborted", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const client = new DefaultGitHubClient(fetchImpl, undefined, { env: {} });
+    const controller = new AbortController();
+    const reason = new DOMException("Operation was cancelled.", "AbortError");
+    controller.abort(reason);
+
+    await expect(client.requestJson(repository, "/pulls", {
+      method: "POST",
+      body: {},
+      signal: controller.signal
+    })).rejects.toBe(reason);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("does not fetch when cancellation arrives during deferred authentication", async () => {
+    let resolveToken!: (result: ProcessResult) => void;
+    const runner = new FakeRunner([new Promise((resolve) => { resolveToken = resolve; })]);
+    const fetchImpl = vi.fn<typeof fetch>();
+    const client = new DefaultGitHubClient(fetchImpl, runner, { env: {} });
+    const controller = new AbortController();
+    const reason = new DOMException("Operation was cancelled.", "AbortError");
+    const pending = client.requestJson(repository, "/pulls", {
+      method: "POST",
+      body: {},
+      signal: controller.signal
+    });
+
+    await vi.waitFor(() => expect(runner.calls).toHaveLength(1));
+    controller.abort(reason);
+    resolveToken(ok("token"));
+
+    await expect(pending).rejects.toBe(reason);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("keeps external cancellation active until a deferred response body is consumed", async () => {
+    const controller = new AbortController();
+    const reason = new DOMException("Operation was cancelled.", "AbortError");
+    let cancelledWith: unknown;
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(stream) {
+        stream.enqueue(new TextEncoder().encode('{"ok":'));
+      },
+      cancel(cancelReason) {
+        cancelledWith = cancelReason;
+      }
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response);
+    const client = new DefaultGitHubClient(fetchImpl, undefined, { env: {} });
+
+    const pending = client.requestJson(repository, "/deferred", { signal: controller.signal });
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(1));
+    controller.abort(reason);
+
+    await expect(pending).rejects.toBe(reason);
+    await vi.waitFor(() => expect(cancelledWith).toBe(reason));
+  });
+
+  it("keeps the request timeout active while a response body is stalled", async () => {
+    let cancelledWith: unknown;
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(stream) {
+        stream.enqueue(new TextEncoder().encode('{"ok":'));
+      },
+      cancel(cancelReason) {
+        cancelledWith = cancelReason;
+      }
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response);
+    const client = new DefaultGitHubClient(fetchImpl, undefined, { env: {}, requestTimeoutMs: 10 });
+
+    await expect(client.requestJson(repository, "/stalled")).rejects.toThrow("GitHub REST request timed out.");
+    expect(cancelledWith).toBeInstanceOf(Error);
+    expect((cancelledWith as Error).message).toBe("GitHub REST request timed out.");
+  });
+
+  it("removes the external abort listener only after the response body settles", async () => {
+    const controller = new AbortController();
+    const addListener = vi.spyOn(controller.signal, "addEventListener");
+    const removeListener = vi.spyOn(controller.signal, "removeEventListener");
+    let streamController!: ReadableStreamDefaultController<Uint8Array>;
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(stream) {
+        streamController = stream;
+        stream.enqueue(new TextEncoder().encode('{"ok":'));
+      }
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response);
+    const client = new DefaultGitHubClient(fetchImpl, undefined, { env: {} });
+
+    const pending = client.requestJson<{ ok: boolean }>(repository, "/deferred", { signal: controller.signal });
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(1));
+    const abortRegistration = addListener.mock.calls.find(([event]) => event === "abort");
+    expect(abortRegistration).toBeDefined();
+    expect(removeListener).not.toHaveBeenCalledWith("abort", abortRegistration?.[1]);
+
+    streamController.enqueue(new TextEncoder().encode("true}"));
+    streamController.close();
+    await expect(pending).resolves.toMatchObject({ payload: { ok: true } });
+    expect(removeListener).toHaveBeenCalledWith("abort", abortRegistration?.[1]);
+  });
+
   it("reuses fresh entries and conditionally revalidates stale ETags", async () => {
     let now = 100;
     const fetchImpl = vi.fn<typeof fetch>()

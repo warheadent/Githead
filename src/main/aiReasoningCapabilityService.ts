@@ -6,6 +6,7 @@ import {
   type GetAiReasoningCapabilitiesRequest
 } from "../shared/types";
 import { isApiKeyProvider, type AiSettingsService } from "./aiSettingsService";
+import { fetchJsonWithTimeout } from "./fetchJsonWithTimeout";
 
 const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
 const ANTHROPIC_MODELS_URL = "https://api.anthropic.com/v1/models";
@@ -154,12 +155,16 @@ export class AiReasoningCapabilityService {
     const init: RequestInit = apiKey
       ? { headers: { "Authorization": `Bearer ${apiKey}` } }
       : {};
-    const response = await fetchWithTimeout(this.fetchImpl, OPENROUTER_MODELS_URL, init);
+    const { response, payload } = await fetchJsonWithTimeout<OpenRouterModelsResponse>(
+      this.fetchImpl,
+      OPENROUTER_MODELS_URL,
+      init,
+      { timeoutMs: LOOKUP_TIMEOUT_MS }
+    );
     if (!response.ok) {
       throw new Error(`OpenRouter model lookup failed with status ${response.status}.`);
     }
 
-    const payload = await response.json() as OpenRouterModelsResponse;
     const match = payload.data?.find((candidate) => candidate.id === model);
     if (!match) {
       return null;
@@ -175,12 +180,17 @@ export class AiReasoningCapabilityService {
     if (!apiKey) {
       return null;
     }
-    const response = await fetchWithTimeout(this.fetchImpl, `${ANTHROPIC_MODELS_URL}/${encodeURIComponent(model)}`, {
-      headers: {
-        "x-api-key": apiKey,
-        "anthropic-version": ANTHROPIC_VERSION
-      }
-    });
+    const { response, payload } = await fetchJsonWithTimeout<AnthropicModelResponse>(
+      this.fetchImpl,
+      `${ANTHROPIC_MODELS_URL}/${encodeURIComponent(model)}`,
+      {
+        headers: {
+          "x-api-key": apiKey,
+          "anthropic-version": ANTHROPIC_VERSION
+        }
+      },
+      { timeoutMs: LOOKUP_TIMEOUT_MS }
+    );
     if (response.status === 404) {
       return null;
     }
@@ -188,7 +198,6 @@ export class AiReasoningCapabilityService {
       throw new Error(`Anthropic model lookup failed with status ${response.status}.`);
     }
 
-    const payload = await response.json() as AnthropicModelResponse;
     const effort = payload.capabilities?.effort;
     if (!effort?.supported) {
       return unsupported();
@@ -207,17 +216,4 @@ function fromEffortStrings(values: string[] | null | undefined): AiReasoningCapa
   }
   const supportedEfforts = AI_REASONING_EFFORTS.filter((level) => values.includes(level));
   return supportedEfforts.length > 0 ? supported(supportedEfforts) : unsupported();
-}
-
-async function fetchWithTimeout(fetchImpl: Fetch, url: string, init: RequestInit): Promise<Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), LOOKUP_TIMEOUT_MS);
-  try {
-    return await fetchImpl(url, {
-      ...init,
-      signal: controller.signal
-    });
-  } finally {
-    clearTimeout(timeout);
-  }
 }

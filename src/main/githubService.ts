@@ -20,7 +20,7 @@ import type {
   ,GitHubWorkflowRunsRequest,
   GitHubViewer
 } from "../shared/types";
-import type { GitHubClient } from "./githubClient";
+import { GitHubResponseBodyError, type GitHubClient } from "./githubClient";
 import { buildIssueSearchPath, buildPullRequestSearchPath, buildWorkflowRunsPath, hasPullRequestSearchFilters } from "./githubQuery";
 
 const WORKFLOW_RUN_LIMIT = 30;
@@ -32,6 +32,13 @@ const FULL_SHA_PATTERN = /^[0-9a-f]{40}$/i;
 
 interface GitHubRepositoryProvider {
   getGitHubRepository(repoPath: string): Promise<GitHubRepository | null>;
+}
+
+class GitHubMutationResponseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GitHubMutationResponseError";
+  }
 }
 
 interface GitHubApiErrorResponse {
@@ -144,8 +151,8 @@ export class GitHubService {
   async getHistoryInsights(request: GitHubHistoryInsightsRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubHistoryInsights>> {
     return this.read(() => this.getHistoryInsightsData(request, signal));
   }
-  async createPullRequest(request: CreatePullRequestRequest): Promise<GitHubOperationResult<CreatePullRequestResult>> {
-    try { return { ok: true, data: await this.createPullRequestData(request), rateLimit: null }; }
+  async createPullRequest(request: CreatePullRequestRequest, signal?: AbortSignal): Promise<GitHubOperationResult<CreatePullRequestResult>> {
+    try { return { ok: true, data: await this.createPullRequestData(request, signal), rateLimit: null }; }
     catch (error) { return { ok: false, error: classifyError(error, "combined", true) }; }
   }
 
@@ -327,9 +334,11 @@ export class GitHubService {
     };
   }
 
-  private async createPullRequestData(request: CreatePullRequestRequest): Promise<CreatePullRequestResult> {
+  private async createPullRequestData(request: CreatePullRequestRequest, signal?: AbortSignal): Promise<CreatePullRequestResult> {
+    signal?.throwIfAborted();
     const repository = await this.getRepository(request.repoPath);
-    const { payload: response } = await this.client.requestJson<GitHubApiPullRequest>(
+    signal?.throwIfAborted();
+    const { payload: response } = await this.client.requestJson<unknown>(
       repository,
       `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/pulls`,
       {
@@ -340,20 +349,22 @@ export class GitHubService {
           base: request.baseBranch,
           body: request.body,
           draft: request.draft
-        }
+        },
+        ...(signal ? { signal } : {})
       }
     );
+    signal?.throwIfAborted();
 
-    if (!Number.isFinite(response.number)) {
-      throw new Error("GitHub returned an unexpected response while creating the pull request.");
+    if (!isRecord(response) || !Number.isFinite(response.number)) {
+      throw new GitHubMutationResponseError("GitHub returned an unexpected response while creating the pull request.");
     }
 
     this.client.invalidateRepository(repository);
     this.clearObservedCount(repository, "pullRequests");
     return {
       number: Number(response.number),
-      url: normalizeText(response.html_url, repository.webUrl),
-      title: normalizeText(response.title, request.title),
+      url: normalizeText(typeof response.html_url === "string" ? response.html_url : null, repository.webUrl),
+      title: normalizeText(typeof response.title === "string" ? response.title : null, request.title),
       draft: response.draft === true
     };
   }
@@ -554,7 +565,8 @@ function classifyError(error: unknown, source: GitHubFailure["source"], mutation
   const validation = /\b422\b|validation/.test(lower);
   const offline = /enotfound|econnreset|network|fetch failed|offline/.test(lower);
   const transient = /\b(408|502|503|504)\b|temporar/.test(lower);
-  const outcomeUnknown = mutation && (cancelled || timeout || offline || transient || lower.includes("outcome is unknown"));
+  const responseAmbiguous = error instanceof GitHubResponseBodyError || error instanceof GitHubMutationResponseError;
+  const outcomeUnknown = mutation && (cancelled || timeout || offline || transient || responseAmbiguous || lower.includes("outcome is unknown"));
   const kind: GitHubFailure["kind"] = cancelled ? "cancelled" : timeout ? "timeout" : rateLimited ? "rateLimited"
     : authentication ? "authentication" : authorization ? "authorization" : notFound ? "notFound"
     : validation ? "validation" : offline ? "offline" : transient ? "transient" : "unexpected";

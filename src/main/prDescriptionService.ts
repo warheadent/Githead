@@ -30,9 +30,11 @@ export class PrDescriptionService {
     private readonly reasoningCapabilities?: AiReasoningCapabilityResolver
   ) {}
 
-  async generatePrTitle(request: GeneratePrTitleRequest): Promise<GitOperationResult> {
+  async generatePrTitle(request: GeneratePrTitleRequest, signal?: AbortSignal): Promise<GitOperationResult> {
     try {
+      throwIfAborted(signal);
       const settings = await this.settingsService.getSettings();
+      throwIfAborted(signal);
       const selectedProvider = settings.selectedProvider;
       const providerSettings = settings.providers[selectedProvider];
       const providerLabel = getProviderLabel(selectedProvider);
@@ -45,11 +47,12 @@ export class PrDescriptionService {
         this.fetchImpl,
         this.runner
       );
+      throwIfAborted(signal);
       if (resolution.kind === "error") {
         return createFailure(request.repoPath, resolution.message);
       }
 
-      const range = await this.getRangeContext(request);
+      const range = await this.getRangeContext(request, signal);
       if ("failure" in range) {
         return range.failure;
       }
@@ -60,14 +63,17 @@ export class PrDescriptionService {
         model,
         providerSettings.reasoningEffort
       );
+      throwIfAborted(signal);
       const title = normalizeGeneratedPrTitle(await resolution.provider.generate({
         repoPath: request.repoPath,
         model,
+        ...(signal ? { signal } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
         systemPrompt: createPrTitleSystemPrompt(),
         userPrompt: createPrTitleUserPrompt(range.commitLog, range.diff),
         maxTokens: PR_TITLE_MAX_TOKENS
       }));
+      throwIfAborted(signal);
       if (!title) {
         return createFailure(request.repoPath, `${providerLabel} returned an empty pull request title.`);
       }
@@ -79,6 +85,9 @@ export class PrDescriptionService {
         stderr: ""
       };
     } catch (error) {
+      if (signal?.aborted) {
+        throw signal.reason ?? error;
+      }
       return createFailure(
         request.repoPath,
         error instanceof Error ? error.message : "Unable to generate pull request title."
@@ -86,9 +95,11 @@ export class PrDescriptionService {
     }
   }
 
-  async generatePrDescription(request: GeneratePrDescriptionRequest): Promise<GitOperationResult> {
+  async generatePrDescription(request: GeneratePrDescriptionRequest, signal?: AbortSignal): Promise<GitOperationResult> {
     try {
+      throwIfAborted(signal);
       const settings = await this.settingsService.getSettings();
+      throwIfAborted(signal);
       const selectedProvider = settings.selectedProvider;
       const providerSettings = settings.providers[selectedProvider];
       const providerLabel = getProviderLabel(selectedProvider);
@@ -101,11 +112,12 @@ export class PrDescriptionService {
         this.fetchImpl,
         this.runner
       );
+      throwIfAborted(signal);
       if (resolution.kind === "error") {
         return createFailure(request.repoPath, resolution.message);
       }
 
-      const range = await this.getRangeContext(request);
+      const range = await this.getRangeContext(request, signal);
       if ("failure" in range) {
         return range.failure;
       }
@@ -119,9 +131,11 @@ export class PrDescriptionService {
         model,
         configuredReasoningEffort
       );
+      throwIfAborted(signal);
       const description = normalizeGeneratedMessage(await resolution.provider.generate({
         repoPath: request.repoPath,
         model,
+        ...(signal ? { signal } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
         systemPrompt: createPrDescriptionSystemPrompt(),
         userPrompt: createPrDescriptionUserPrompt(
@@ -132,6 +146,7 @@ export class PrDescriptionService {
         ),
         maxTokens: PR_DESCRIPTION_MAX_TOKENS
       }));
+      throwIfAborted(signal);
       if (!description) {
         return createFailure(request.repoPath, `${providerLabel} returned an empty pull request description.`);
       }
@@ -143,6 +158,9 @@ export class PrDescriptionService {
         stderr: ""
       };
     } catch (error) {
+      if (signal?.aborted) {
+        throw signal.reason ?? error;
+      }
       return createFailure(
         request.repoPath,
         error instanceof Error ? error.message : "Unable to generate pull request description."
@@ -150,15 +168,20 @@ export class PrDescriptionService {
     }
   }
 
-  private async getRangeContext(request: GeneratePrDescriptionRequest | GeneratePrTitleRequest): Promise<
+  private async getRangeContext(
+    request: GeneratePrDescriptionRequest | GeneratePrTitleRequest,
+    signal?: AbortSignal
+  ): Promise<
     | { diff: string; commitLog: string }
     | { failure: GitOperationResult }
   > {
+    throwIfAborted(signal);
     const range = await this.gitService.getBranchRangeContext({
       repoPath: request.repoPath,
       baseRef: request.baseRef,
       headRef: request.headRef
     });
+    throwIfAborted(signal);
     if (range.diff.exitCode !== 0) {
       return { failure: range.diff };
     }
@@ -179,6 +202,14 @@ export class PrDescriptionService {
 
     return { diff, commitLog };
   }
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) {
+    return;
+  }
+
+  throw signal.reason ?? new DOMException("Operation was cancelled.", "AbortError");
 }
 
 function normalizeGeneratedPrTitle(message: string): string {

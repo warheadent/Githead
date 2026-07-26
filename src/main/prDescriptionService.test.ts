@@ -199,6 +199,32 @@ function createService(params: {
 }
 
 describe("PrDescriptionService", () => {
+  it("does not convert title cancellation into a failed operation result", async () => {
+    const { service } = createService({});
+    const controller = new AbortController();
+    const abortReason = new DOMException("Generation cancelled.", "AbortError");
+    controller.abort(abortReason);
+
+    await expect(service.generatePrTitle({
+      repoPath: "D:\\Repo",
+      baseRef: "origin/main",
+      headRef: "feature/pr-dialog"
+    }, controller.signal)).rejects.toBe(abortReason);
+  });
+
+  it("does not convert description cancellation into a failed operation result", async () => {
+    const { service } = createService({});
+    const controller = new AbortController();
+    const abortReason = new DOMException("Generation cancelled.", "AbortError");
+    controller.abort(abortReason);
+
+    await expect(service.generatePrDescription({
+      repoPath: "D:\\Repo",
+      baseRef: "origin/main",
+      headRef: "feature/pr-dialog"
+    }, controller.signal)).rejects.toBe(abortReason);
+  });
+
   it("generates a pull request title with the commit message model", async () => {
     const { service, calls } = createService({
       settings: createSettings("openrouter", {

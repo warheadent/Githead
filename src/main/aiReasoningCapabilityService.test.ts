@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { AiApiKeyProvider } from "../shared/types";
 import { AiReasoningCapabilityService } from "./aiReasoningCapabilityService";
 import type { AiSettingsService } from "./aiSettingsService";
@@ -8,6 +8,23 @@ function createSettingsService(keys: Partial<Record<AiApiKeyProvider, string>> =
     getApiKey: async (provider: AiApiKeyProvider) => keys[provider] ?? null
   } as AiSettingsService;
 }
+
+function createStalledJsonResponse(onBodyRead: () => void): Response {
+  return new Response(new ReadableStream<Uint8Array>({
+    pull: () => {
+      onBodyRead();
+      return new Promise<void>(() => undefined);
+    }
+  }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" }
+  });
+}
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 describe("AiReasoningCapabilityService", () => {
   it("uses static capabilities for known OpenAI and CLI models", async () => {
@@ -107,5 +124,53 @@ describe("AiReasoningCapabilityService", () => {
     });
     await service.getCapabilities(request);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("times out a stalled JSON body and releases the in-flight lookup", async () => {
+    vi.useFakeTimers();
+    let markBodyRead!: () => void;
+    let bodyRead = new Promise<void>((resolve) => {
+      markBodyRead = resolve;
+    });
+    const receivedSignals: AbortSignal[] = [];
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (_input, init) => {
+      receivedSignals.push(init?.signal as AbortSignal);
+      const markThisBodyRead = markBodyRead;
+      return createStalledJsonResponse(markThisBodyRead);
+    });
+    const clearTimeout = vi.spyOn(globalThis, "clearTimeout");
+    const service = new AiReasoningCapabilityService(createSettingsService(), fetchImpl);
+    const request = { provider: "openrouter" as const, model: "vendor/stalled" };
+
+    const first = service.getCapabilities(request);
+    await bodyRead;
+    const firstResult = expect(first).resolves.toEqual({
+      status: "unknown",
+      supportedEfforts: []
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    await firstResult;
+
+    expect(receivedSignals[0]?.aborted).toBe(true);
+    expect(receivedSignals[0]?.reason).toMatchObject({ name: "TimeoutError" });
+    expect(clearTimeout).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+
+    bodyRead = new Promise<void>((resolve) => {
+      markBodyRead = resolve;
+    });
+    const second = service.getCapabilities(request);
+    await bodyRead;
+    const secondResult = expect(second).resolves.toEqual({
+      status: "unknown",
+      supportedEfforts: []
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    await secondResult;
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(receivedSignals[1]?.aborted).toBe(true);
+    expect(clearTimeout).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

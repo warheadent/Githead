@@ -171,6 +171,7 @@ export function RepositoryActionsDialog({
 
   const requestClose = (): void => {
     if (saving) {
+      onOpenChange(false);
       return;
     }
     if (hasDirtyFiles) {
@@ -213,6 +214,7 @@ export function RepositoryActionsDialog({
         <DialogContent
           className="h-[min(760px,calc(100vh-2rem))] max-h-[min(760px,calc(100vh-2rem))] overflow-hidden p-0 sm:max-w-5xl"
           showCloseButton={false}
+          aria-busy={saving}
           onEscapeKeyDown={(event) => {
             if (saving || hasDirtyFiles) {
               event.preventDefault();
@@ -293,7 +295,7 @@ export function RepositoryActionsDialog({
               <p className="min-w-0 truncate text-xs text-muted-foreground" role="status" aria-live="polite">
                 {error || (dirty[activeTarget] ? `Unsaved changes in ${getActionFileLabel(activeTarget)} actions` : "All changes saved")}
               </p>
-              <Button type="button" variant="outline" disabled={saving} onClick={requestClose}>Close</Button>
+              <Button type="button" variant="outline" onClick={requestClose}>{saving ? "Cancel save" : "Close"}</Button>
             </div>
           </div>
         </DialogContent>

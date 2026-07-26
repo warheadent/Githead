@@ -7,6 +7,7 @@ import type {
   ClipboardTextRequest,
   CancelRepositoryReadRequest,
   CancelGitOperationRequest,
+  CoordinatedRequest,
   CreatePullRequestRequest,
   ExternalUrlRequest,
   GeneratePrDescriptionRequest,
@@ -115,7 +116,7 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getRepoTrust, request) as ReturnType<GitheadApi["getRepoTrust"]>,
   addRepoTrust: (request: RepoTrustRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.addRepoTrust, request) as ReturnType<GitheadApi["addRepoTrust"]>,
-  addSafeDirectory: (request: GitSafeDirectoryRequest) =>
+  addSafeDirectory: (request: CoordinatedRequest<GitSafeDirectoryRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.addSafeDirectory, request) as ReturnType<GitheadApi["addSafeDirectory"]>,
   getGitHubWorkflowRuns: (request: GitHubWorkflowRunsRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubWorkflowRuns, request) as ReturnType<GitheadApi["getGitHubWorkflowRuns"]>,
@@ -129,7 +130,7 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubPullRequests, request) as ReturnType<GitheadApi["getGitHubPullRequests"]>,
   getGitHubHistoryInsights: (request: GitHubHistoryInsightsRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubHistoryInsights, request) as ReturnType<GitheadApi["getGitHubHistoryInsights"]>,
-  createGitHubPullRequest: (request: CreatePullRequestRequest) =>
+  createGitHubPullRequest: (request: CoordinatedRequest<CreatePullRequestRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.createGitHubPullRequest, request) as ReturnType<GitheadApi["createGitHubPullRequest"]>,
   cancelGitHubRequest: (request) =>
     ipcRenderer.invoke(IPC_CHANNELS.cancelGitHubRequest, request) as ReturnType<GitheadApi["cancelGitHubRequest"]>,
@@ -147,67 +148,67 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getFileDiff, request) as ReturnType<GitheadApi["getFileDiff"]>,
   getFilePreview: (request: GitFilePreviewRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getFilePreview, request) as ReturnType<GitheadApi["getFilePreview"]>,
-  fetchLfsImageVersions: (request: GitLfsImageFetchRequest) =>
+  fetchLfsImageVersions: (request: CoordinatedRequest<GitLfsImageFetchRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.fetchLfsImageVersions, request) as ReturnType<GitheadApi["fetchLfsImageVersions"]>,
-  resetFilesToCommit: (request: GitCommitFileResetRequest) =>
+  resetFilesToCommit: (request: CoordinatedRequest<GitCommitFileResetRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.resetFilesToCommit, request) as ReturnType<GitheadApi["resetFilesToCommit"]>,
-  openCommitFileVersion: (request: GitCommitFileVersionRequest) =>
+  openCommitFileVersion: (request: CoordinatedRequest<GitCommitFileVersionRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.openCommitFileVersion, request) as ReturnType<GitheadApi["openCommitFileVersion"]>,
-  stageFiles: (request: GitPathRequest) =>
+  stageFiles: (request: CoordinatedRequest<GitPathRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.stageFiles, request) as ReturnType<GitheadApi["stageFiles"]>,
-  unstageFiles: (request: GitPathRequest) =>
+  unstageFiles: (request: CoordinatedRequest<GitPathRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.unstageFiles, request) as ReturnType<GitheadApi["unstageFiles"]>,
-  stageHunk: (request: GitHunkRequest) =>
+  stageHunk: (request: CoordinatedRequest<GitHunkRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.stageHunk, request) as ReturnType<GitheadApi["stageHunk"]>,
-  unstageHunk: (request: GitHunkRequest) =>
+  unstageHunk: (request: CoordinatedRequest<GitHunkRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.unstageHunk, request) as ReturnType<GitheadApi["unstageHunk"]>,
-  commitChanges: (request: GitCommitRequest) =>
+  commitChanges: (request: CoordinatedRequest<GitCommitRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.commitChanges, request) as ReturnType<GitheadApi["commitChanges"]>,
   copyCommitShaToClipboard: (request: GitCommitHashRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.copyCommitShaToClipboard, request) as ReturnType<GitheadApi["copyCommitShaToClipboard"]>,
-  resetBranchToCommit: (request: GitResetCommitRequest) =>
+  resetBranchToCommit: (request: CoordinatedRequest<GitResetCommitRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.resetBranchToCommit, request) as ReturnType<GitheadApi["resetBranchToCommit"]>,
-  revertCommit: (request: GitCommitHashRequest) =>
+  revertCommit: (request: CoordinatedRequest<GitCommitHashRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.revertCommit, request) as ReturnType<GitheadApi["revertCommit"]>,
-  createTag: (request: GitCreateTagRequest) =>
+  createTag: (request: CoordinatedRequest<GitCreateTagRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.createTag, request) as ReturnType<GitheadApi["createTag"]>,
-  deleteTag: (request: GitDeleteTagRequest) =>
+  deleteTag: (request: CoordinatedRequest<GitDeleteTagRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.deleteTag, request) as ReturnType<GitheadApi["deleteTag"]>,
-  switchBranch: (request: GitBranchRequest) =>
+  switchBranch: (request: CoordinatedRequest<GitBranchRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.switchBranch, request) as ReturnType<GitheadApi["switchBranch"]>,
-  checkoutRemoteBranch: (request: GitRemoteBranchCheckoutRequest) =>
+  checkoutRemoteBranch: (request: CoordinatedRequest<GitRemoteBranchCheckoutRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.checkoutRemoteBranch, request) as ReturnType<GitheadApi["checkoutRemoteBranch"]>,
-  checkoutGitHubPullRequest: (request: GitHubPullRequestCheckoutRequest) =>
+  checkoutGitHubPullRequest: (request: CoordinatedRequest<GitHubPullRequestCheckoutRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.checkoutGitHubPullRequest, request) as ReturnType<GitheadApi["checkoutGitHubPullRequest"]>,
-  createBranch: (request: GitBranchRequest) =>
+  createBranch: (request: CoordinatedRequest<GitBranchRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.createBranch, request) as ReturnType<GitheadApi["createBranch"]>,
-  renameBranch: (request: GitRenameBranchRequest) =>
+  renameBranch: (request: CoordinatedRequest<GitRenameBranchRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.renameBranch, request) as ReturnType<GitheadApi["renameBranch"]>,
-  deleteBranch: (request: GitDeleteBranchRequest) =>
+  deleteBranch: (request: CoordinatedRequest<GitDeleteBranchRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.deleteBranch, request) as ReturnType<GitheadApi["deleteBranch"]>,
-  createWorktree: (request: GitWorktreeCreateRequest) =>
+  createWorktree: (request: CoordinatedRequest<GitWorktreeCreateRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.createWorktree, request) as ReturnType<GitheadApi["createWorktree"]>,
   checkWorktreeRemoval: (request: GitWorktreeRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.checkWorktreeRemoval, request) as ReturnType<GitheadApi["checkWorktreeRemoval"]>,
-  removeWorktree: (request: GitWorktreeRemoveRequest) =>
+  removeWorktree: (request: CoordinatedRequest<GitWorktreeRemoveRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.removeWorktree, request) as ReturnType<GitheadApi["removeWorktree"]>,
-  setBranchUpstream: (request: GitUpstreamRequest) =>
+  setBranchUpstream: (request: CoordinatedRequest<GitUpstreamRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.setBranchUpstream, request) as ReturnType<GitheadApi["setBranchUpstream"]>,
-  publishBranch: (request: GitPublishBranchRequest) =>
+  publishBranch: (request: CoordinatedRequest<GitPublishBranchRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.publishBranch, request) as ReturnType<GitheadApi["publishBranch"]>,
   getRemoteConfigs: (repoPath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.getRemoteConfigs, repoPath) as ReturnType<GitheadApi["getRemoteConfigs"]>,
-  addRemote: (request: GitAddRemoteRequest) =>
+  addRemote: (request: CoordinatedRequest<GitAddRemoteRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.addRemote, request) as ReturnType<GitheadApi["addRemote"]>,
-  renameRemote: (request: GitRenameRemoteRequest) =>
+  renameRemote: (request: CoordinatedRequest<GitRenameRemoteRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.renameRemote, request) as ReturnType<GitheadApi["renameRemote"]>,
-  setRemoteUrl: (request: GitSetRemoteUrlRequest) =>
+  setRemoteUrl: (request: CoordinatedRequest<GitSetRemoteUrlRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.setRemoteUrl, request) as ReturnType<GitheadApi["setRemoteUrl"]>,
-  removeRemote: (request: GitRemoveRemoteRequest) =>
+  removeRemote: (request: CoordinatedRequest<GitRemoveRemoteRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.removeRemote, request) as ReturnType<GitheadApi["removeRemote"]>,
   getGitIdentity: (repoPath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitIdentity, repoPath) as ReturnType<GitheadApi["getGitIdentity"]>,
-  saveGitIdentity: (request: GitIdentitySaveRequest) =>
+  saveGitIdentity: (request: CoordinatedRequest<GitIdentitySaveRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.saveGitIdentity, request) as ReturnType<GitheadApi["saveGitIdentity"]>,
   getAiSettings: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getAiSettings) as ReturnType<GitheadApi["getAiSettings"]>,
@@ -221,11 +222,11 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.saveAppSettings, request) as ReturnType<GitheadApi["saveAppSettings"]>,
   setWindowZoomFactor: (zoomFactor: number) =>
     ipcRenderer.invoke(IPC_CHANNELS.setWindowZoomFactor, zoomFactor) as ReturnType<GitheadApi["setWindowZoomFactor"]>,
-  generateCommitMessage: (request: GenerateCommitMessageRequest) =>
+  generateCommitMessage: (request: CoordinatedRequest<GenerateCommitMessageRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.generateCommitMessage, request) as ReturnType<GitheadApi["generateCommitMessage"]>,
-  generatePrTitle: (request: GeneratePrTitleRequest) =>
+  generatePrTitle: (request: CoordinatedRequest<GeneratePrTitleRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.generatePrTitle, request) as ReturnType<GitheadApi["generatePrTitle"]>,
-  generatePrDescription: (request: GeneratePrDescriptionRequest) =>
+  generatePrDescription: (request: CoordinatedRequest<GeneratePrDescriptionRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.generatePrDescription, request) as ReturnType<GitheadApi["generatePrDescription"]>,
   openExternalUrl: (request: ExternalUrlRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.openExternalUrl, request) as ReturnType<GitheadApi["openExternalUrl"]>,
@@ -239,27 +240,27 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.copyPathToClipboard, request) as ReturnType<GitheadApi["copyPathToClipboard"]>,
   copyTextToClipboard: (request: ClipboardTextRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.copyTextToClipboard, request) as ReturnType<GitheadApi["copyTextToClipboard"]>,
-  deleteFile: (request: FileSystemPathRequest) =>
+  deleteFile: (request: CoordinatedRequest<FileSystemPathRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.deleteFile, request) as ReturnType<GitheadApi["deleteFile"]>,
-  deleteFiles: (request: FileSystemPathListRequest) =>
+  deleteFiles: (request: CoordinatedRequest<FileSystemPathListRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.deleteFiles, request) as ReturnType<GitheadApi["deleteFiles"]>,
-  revertFileChanges: (request: GitFileChangesRequest) =>
+  revertFileChanges: (request: CoordinatedRequest<GitFileChangesRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.revertFileChanges, request) as ReturnType<GitheadApi["revertFileChanges"]>,
-  addPathToIgnore: (request: GitIgnorePathRequest) =>
+  addPathToIgnore: (request: CoordinatedRequest<GitIgnorePathRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.addPathToIgnore, request) as ReturnType<GitheadApi["addPathToIgnore"]>,
-  cloneRepository: (request: GitCloneRequest) =>
+  cloneRepository: (request: CoordinatedRequest<GitCloneRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.cloneRepository, request) as ReturnType<GitheadApi["cloneRepository"]>,
-  updateSubmodules: (request: GitSubmoduleRequest) =>
+  updateSubmodules: (request: CoordinatedRequest<GitSubmoduleRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.updateSubmodules, request) as ReturnType<GitheadApi["updateSubmodules"]>,
-  syncSubmodules: (request: GitSubmoduleRequest) =>
+  syncSubmodules: (request: CoordinatedRequest<GitSubmoduleRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.syncSubmodules, request) as ReturnType<GitheadApi["syncSubmodules"]>,
-  checkRepositoryAccess: (request: GitRepositoryAccessCheckRequest) =>
+  checkRepositoryAccess: (request: CoordinatedRequest<GitRepositoryAccessCheckRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.checkRepositoryAccess, request) as ReturnType<GitheadApi["checkRepositoryAccess"]>,
-  runGitAction: (request: GitRunRequest) =>
+  runGitAction: (request: CoordinatedRequest<GitRunRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.runGitAction, request) as ReturnType<GitheadApi["runGitAction"]>,
-  runConfiguredAction: (request: GitConfiguredActionRunRequest) =>
+  runConfiguredAction: (request: CoordinatedRequest<GitConfiguredActionRunRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.runConfiguredAction, request) as ReturnType<GitheadApi["runConfiguredAction"]>,
-  saveConfiguredActions: (request: GitConfiguredActionSaveRequest) =>
+  saveConfiguredActions: (request: CoordinatedRequest<GitConfiguredActionSaveRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.saveConfiguredActions, request) as ReturnType<GitheadApi["saveConfiguredActions"]>,
   getUpdateState: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getUpdateState) as ReturnType<GitheadApi["getUpdateState"]>,

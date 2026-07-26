@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { GitHubRepository } from "../shared/types";
-import type { GitHubClient, GitHubClientRequest, GitHubClientResponse } from "./githubClient";
+import { DefaultGitHubClient, type GitHubClient, type GitHubClientRequest, type GitHubClientResponse } from "./githubClient";
 import { GitHubService } from "./githubService";
 
 const repository: GitHubRepository = {
@@ -102,13 +102,101 @@ describe("GitHubService", () => {
   it("preserves pull request payload and invalidates repository knowledge", async () => {
     const client = new FakeClient([[], { number: 12, title: "New PR", html_url: "pr-url", draft: true }, { total_count: 8 }, { total_count: 1 }]);
     const service = new GitHubService(provider(repository), client);
+    const controller = new AbortController();
     await service.getPullRequests({ repoPath: "D:\\Repo" });
-    const result = await service.createPullRequest({ repoPath: "D:\\Repo", title: "New PR", body: "body", baseBranch: "main", headBranch: "feature", draft: true });
+    const result = await service.createPullRequest(
+      { repoPath: "D:\\Repo", title: "New PR", body: "body", baseBranch: "main", headBranch: "feature", draft: true },
+      controller.signal
+    );
     expect(result).toEqual({ ok: true, rateLimit: null, data: { number: 12, title: "New PR", url: "pr-url", draft: true } });
-    expect(client.calls[1]?.request).toMatchObject({ method: "POST", body: { title: "New PR", head: "feature", base: "main", body: "body", draft: true } });
+    expect(client.calls[1]?.request).toMatchObject({
+      method: "POST",
+      body: { title: "New PR", head: "feature", base: "main", body: "body", draft: true },
+      signal: controller.signal
+    });
     expect(client.invalidated).toEqual([repository]);
     await service.getOpenCounts({ repoPath: "D:\\Repo" });
     expect(client.calls.filter((call) => call.path.startsWith("/search"))).toHaveLength(2);
+  });
+
+  it("marks a malformed 201 pull-request response body as outcome unknown", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response("not json", {
+      status: 201,
+      headers: { "Content-Type": "application/json" }
+    }));
+    const client = new DefaultGitHubClient(fetchImpl, undefined, { env: {} });
+    const result = await new GitHubService(provider(repository), client).createPullRequest({
+      repoPath: "D:\\Repo",
+      title: "New PR",
+      body: "body",
+      baseBranch: "main",
+      headBranch: "feature",
+      draft: false
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        kind: "unexpected",
+        message: "GitHub returned invalid JSON with status 201.",
+        outcomeUnknown: true,
+        retryable: false
+      }
+    });
+  });
+
+  it("marks a 201 pull-request response without a PR number as outcome unknown", async () => {
+    const client = new FakeClient([{
+      payload: { title: "New PR", html_url: "pr-url" },
+      headers: {},
+      status: 201
+    }]);
+    const result = await new GitHubService(provider(repository), client).createPullRequest({
+      repoPath: "D:\\Repo",
+      title: "New PR",
+      body: "body",
+      baseBranch: "main",
+      headBranch: "feature",
+      draft: false
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        kind: "unexpected",
+        outcomeUnknown: true,
+        retryable: false
+      }
+    });
+  });
+
+  it("does not POST after cancellation during repository discovery and preserves mutation outcome semantics", async () => {
+    let finishRepositoryLookup!: (value: GitHubRepository | null) => void;
+    const repositoryProvider = {
+      getGitHubRepository: vi.fn(() => new Promise<GitHubRepository | null>((resolve) => {
+        finishRepositoryLookup = resolve;
+      }))
+    };
+    const client = new FakeClient([{ number: 12 }]);
+    const service = new GitHubService(repositoryProvider, client);
+    const controller = new AbortController();
+    const pending = service.createPullRequest(
+      { repoPath: "D:\\Repo", title: "New PR", body: "body", baseBranch: "main", headBranch: "feature", draft: false },
+      controller.signal
+    );
+
+    controller.abort(new DOMException("Operation was cancelled.", "AbortError"));
+    finishRepositoryLookup(repository);
+
+    await expect(pending).resolves.toMatchObject({
+      ok: false,
+      error: {
+        kind: "cancelled",
+        outcomeUnknown: true,
+        retryable: false
+      }
+    });
+    expect(client.calls).toHaveLength(0);
   });
 
   it("classifies transport errors without changing IPC-facing shapes", async () => {
@@ -171,12 +259,12 @@ class FakeClient implements GitHubClient {
     const queued = this.handler ? await this.handler(path) : this.payloads.shift();
     if (queued === undefined) throw new Error(`No payload queued for ${path}`);
     const fixture = isFixture(queued) ? queued : { payload: queued, headers: {} };
-    return { payload: fixture.payload as T, status: 200, headers: new Headers(fixture.headers), source: "network" };
+    return { payload: fixture.payload as T, status: fixture.status ?? 200, headers: new Headers(fixture.headers), source: "network" };
   }
   invalidateRepository(repo: GitHubRepository): void { this.invalidated.push(repo); }
 }
 
-function isFixture(value: unknown): value is { payload: unknown; headers: Record<string, string> } {
+function isFixture(value: unknown): value is { payload: unknown; headers: Record<string, string>; status?: number } {
   return typeof value === "object" && value !== null && "payload" in value && "headers" in value;
 }
 

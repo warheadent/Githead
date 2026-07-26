@@ -241,6 +241,7 @@ interface SettingsDraft {
 
 interface GitIdentityPromptState {
   open: boolean;
+  repoPath: string;
   name: string;
   email: string;
   scope: GitIdentityScope;
@@ -341,6 +342,7 @@ interface AppState {
   runningAction: string | null;
   configuredActionRuns: ConfiguredActionRun[];
   runningOperation: string | null;
+  activeOperation: ActiveRendererOperation | null;
   lastResult: GitRunResult | null;
   lastOperationResult: GitOperationResult | null;
   selection: FileSelection | null;
@@ -424,8 +426,102 @@ interface RequestIds {
 
 interface ConfiguredActionRun {
   id: number;
+  operationId: string;
   name: string;
   repoPath: string;
+  cancelStatus: OperationCancelStatus;
+  cancelError: string;
+}
+
+type RendererCancellationTarget =
+  | { kind: "active"; token: number; operationId: string }
+  | { kind: "configured"; id: number; operationId: string };
+
+type OperationCancelStatus = "idle" | "canceling" | "not-found" | "error";
+
+type ActiveRendererOperationKind =
+  | "action"
+  | "repo-operation"
+  | "clone"
+  | "clone-check"
+  | "safe-directory"
+  | "action-save"
+  | "identity-save"
+  | "settings-save"
+  | "pr-generation"
+  | "pr-push"
+  | "pr-create";
+
+interface ActiveRendererOperation {
+  token: number;
+  operationId: string;
+  label: string;
+  repoPath: string;
+  kind: ActiveRendererOperationKind;
+  cancellable: boolean;
+  cancelStatus: OperationCancelStatus;
+  cancelError: string;
+}
+
+interface PendingTrustConfirmation {
+  repoPath: string;
+  promise: Promise<boolean>;
+  resolve(trusted: boolean): void;
+}
+
+function createRendererOperationId(token: number): string {
+  const uniquePart = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${token.toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return `renderer-${uniquePart}`;
+}
+
+function clearActiveRendererOperation(state: AppState, operation: ActiveRendererOperation): AppState {
+  const next: AppState = {
+    ...state,
+    activeOperation: null
+  };
+
+  if (operation.kind === "action") {
+    next.runningAction = null;
+  } else if (operation.kind === "repo-operation") {
+    next.runningOperation = null;
+  } else if (operation.kind === "clone") {
+    next.cloneRunning = false;
+  } else if (operation.kind === "clone-check") {
+    next.cloneCheckRunning = false;
+  } else if (operation.kind === "safe-directory") {
+    next.safeDirectoryRunning = false;
+  } else if (operation.kind === "action-save") {
+    next.actionManager = {
+      ...next.actionManager,
+      savingTarget: null
+    };
+  } else if (operation.kind === "identity-save") {
+    next.gitIdentitySaving = false;
+  } else if (operation.kind === "settings-save") {
+    next.settingsSaving = false;
+  } else if (operation.kind === "pr-generation") {
+    next.runningOperation = null;
+    next.createPrDialog = {
+      ...next.createPrDialog,
+      generating: null
+    };
+  } else if (operation.kind === "pr-push") {
+    next.runningAction = null;
+    next.createPrDialog = {
+      ...next.createPrDialog,
+      step: next.createPrDialog.open ? "idle" : next.createPrDialog.step
+    };
+  } else if (operation.kind === "pr-create") {
+    next.runningOperation = null;
+    next.createPrDialog = {
+      ...next.createPrDialog,
+      step: next.createPrDialog.open ? "idle" : next.createPrDialog.step
+    };
+  }
+
+  return next;
 }
 
 interface RemoteManagerState {
@@ -468,6 +564,7 @@ const emptySettingsDraft: SettingsDraft = {
 
 const emptyGitIdentityPrompt: GitIdentityPromptState = {
   open: false,
+  repoPath: "",
   name: "",
   email: "",
   scope: "repository",
@@ -595,6 +692,7 @@ const initialState: AppState = {
   runningAction: null,
   configuredActionRuns: [],
   runningOperation: null,
+  activeOperation: null,
   lastResult: null,
   lastOperationResult: null,
   selection: null,
@@ -695,15 +793,17 @@ export function App(): ReactNode {
     remoteConfigs: 0
   });
   const repositorySnapshots = useRef(new RepositorySnapshotCache());
-  const trustDialogResolveRef = useRef<((trusted: boolean) => void) | null>(null);
+  const pendingTrustConfirmationRef = useRef<PendingTrustConfirmation | null>(null);
   const repoRefreshInFlightRef = useRef(false);
   const autoFetchInFlightRef = useRef(false);
+  const rendererOperationTokenRef = useRef(0);
+  const actionManagerSaveTokenRef = useRef(0);
   const configuredActionRunIdRef = useRef(0);
   const fileStatusGenerationRef = useRef(0);
   const acknowledgedFileStatusGenerationRef = useRef(0);
   const refreshDirtyFileStatusRef = useRef<() => Promise<void>>(async () => undefined);
   const windowFocusedRef = useRef(true);
-  const [trustDialogOpen, setTrustDialogOpen] = useState(false);
+  const [trustDialogRepoPath, setTrustDialogRepoPath] = useState<string | null>(null);
 
   const updateState = useCallback((updater: AppStateUpdater): void => {
     const current = stateRef.current;
@@ -713,6 +813,34 @@ export function App(): ReactNode {
     };
     stateRef.current = next;
     setState(next);
+  }, []);
+
+  const closeTrustDialog = useCallback((trusted: boolean): void => {
+    const pending = pendingTrustConfirmationRef.current;
+    pendingTrustConfirmationRef.current = null;
+    setTrustDialogRepoPath(null);
+    pending?.resolve(trusted);
+  }, []);
+
+  const confirmWorkspaceTrust = useCallback((repoPath: string): Promise<boolean> => {
+    const pending = pendingTrustConfirmationRef.current;
+    if (pending) {
+      return isSameRepoPath(pending.repoPath, repoPath)
+        ? pending.promise
+        : Promise.resolve(false);
+    }
+
+    let resolvePending: (trusted: boolean) => void = () => undefined;
+    const promise = new Promise<boolean>((resolve) => {
+      resolvePending = resolve;
+    });
+    pendingTrustConfirmationRef.current = {
+      repoPath,
+      promise,
+      resolve: resolvePending
+    };
+    setTrustDialogRepoPath(repoPath);
+    return promise;
   }, []);
 
   useEffect(() => {
@@ -1414,6 +1542,27 @@ export function App(): ReactNode {
       });
     }
     const cached = repositorySnapshots.current.get(nextRepoPath);
+    const changingRepositories = !isSameRepoPath(leaving.repoPath, nextRepoPath);
+
+    if (changingRepositories && leaving.settingsOpen) {
+      applyColorTheme(leaving.appSettings?.colorTheme ?? "githead");
+      void window.githead.setWindowZoomFactor(leaving.appSettings?.zoomFactor ?? 1).catch(() => undefined);
+    }
+
+    const pendingTrust = pendingTrustConfirmationRef.current;
+    if (pendingTrust && !isSameRepoPath(pendingTrust.repoPath, nextRepoPath)) {
+      closeTrustDialog(false);
+    }
+
+    const detachedOperation = leaving.activeOperation;
+    if (
+      detachedOperation?.cancellable &&
+      detachedOperation.repoPath &&
+      isSameRepoPath(detachedOperation.repoPath, leaving.repoPath) &&
+      !isSameRepoPath(detachedOperation.repoPath, nextRepoPath)
+    ) {
+      void window.githead.cancelGitOperation({ operationId: detachedOperation.operationId }).catch(() => undefined);
+    }
 
     cancelRepositoryRead("identity", requestIds.current.repo);
     cancelRepositoryRead("status", requestIds.current.repo);
@@ -1437,8 +1586,17 @@ export function App(): ReactNode {
     acknowledgedFileStatusGenerationRef.current = 0;
 
     updateState((current) => {
+      const operation = current.activeOperation;
+      const operationBelongsToLeavingRepo = Boolean(
+        operation?.repoPath &&
+        isSameRepoPath(operation.repoPath, current.repoPath) &&
+        !isSameRepoPath(operation.repoPath, nextRepoPath)
+      );
+      const base = operationBelongsToLeavingRepo && operation
+        ? clearActiveRendererOperation(current, operation)
+        : current;
       const reset = resetGitHubUiState(resetHistoryState({
-      ...current,
+      ...base,
       repoPath: nextRepoPath,
       repoLoading: true,
       showSetup: false,
@@ -1469,6 +1627,11 @@ export function App(): ReactNode {
       gitIdentity: null,
       gitIdentityPrompt: emptyGitIdentityPrompt,
       gitIdentitySaving: false,
+      settingsOpen: changingRepositories ? false : base.settingsOpen,
+      settingsDraft: changingRepositories ? emptySettingsDraft : base.settingsDraft,
+      settingsError: changingRepositories ? "" : base.settingsError,
+      settingsSaving: changingRepositories ? false : base.settingsSaving,
+      actionManager: changingRepositories ? emptyActionManager : base.actionManager,
       remoteManager: emptyRemoteManager,
       activeView: cached?.activeView ?? (isGitHubView(current.activeView) ? "status" : current.activeView),
       selection: cached?.selection ?? null,
@@ -1482,7 +1645,7 @@ export function App(): ReactNode {
       addToRecents: options.addToRecents ?? false,
       ...(options.recentAnchorPath ? { recentAnchorPath: options.recentAnchorPath } : {})
     });
-  }, [refreshRepo, updateState]);
+  }, [closeTrustDialog, refreshRepo, updateState]);
 
   const initializeRepository = useCallback(async (): Promise<void> => {
     let repoRecents: Awaited<ReturnType<typeof window.githead.getRepoRecents>> = [];
@@ -1626,7 +1789,47 @@ export function App(): ReactNode {
     cancelRepositoryRead("file-history", requestIds.current.fileHistory);
     cancelRepositoryRead("file-history-diff", requestIds.current.fileHistoryDiff);
     cancelRepositoryRead("file-blame", requestIds.current.fileBlame);
+    const pendingTrust = pendingTrustConfirmationRef.current;
+    pendingTrustConfirmationRef.current = null;
+    pendingTrust?.resolve(false);
   }, []);
+
+  const createActiveOperation = useCallback((
+    label: string,
+    repoPath: string,
+    kind: ActiveRendererOperationKind,
+    cancellable = true
+  ): ActiveRendererOperation => {
+    const token = ++rendererOperationTokenRef.current;
+    return {
+      token,
+      operationId: createRendererOperationId(token),
+      label,
+      repoPath,
+      kind,
+      cancellable,
+      cancelStatus: "idle",
+      cancelError: ""
+    };
+  }, []);
+
+  const isActiveOperationCurrent = useCallback((token: number): boolean => (
+    stateRef.current.activeOperation?.token === token
+  ), []);
+
+  const finishActiveOperation = useCallback((
+    token: number,
+    updater: (state: AppState) => AppState = (current) => current
+  ): void => {
+    updateState((current) => {
+      const operation = current.activeOperation;
+      if (!operation || operation.token !== token) {
+        return current;
+      }
+
+      return clearActiveRendererOperation(updater(current), operation);
+    });
+  }, [updateState]);
 
   useEffect(() => {
     if (!state.summary?.isValid) {
@@ -1685,40 +1888,52 @@ export function App(): ReactNode {
       return;
     }
 
+    const operation = createActiveOperation(
+      "Adding safe directory",
+      safeDirectory.path,
+      "safe-directory"
+    );
     updateState({
+      activeOperation: operation,
       safeDirectoryRunning: true,
       setupError: ""
     });
 
     try {
       const result = await window.githead.addSafeDirectory({
-        repoPath: safeDirectory.path
+        repoPath: safeDirectory.path,
+        operationId: operation.operationId
       });
 
-      if (result.exitCode !== 0) {
-        updateState({
-          safeDirectoryDialogOpen: false,
-          safeDirectoryRunning: false,
-          setupError: getOperationFailureMessage(result, "Unable to add Git safe.directory exception.")
-        });
+      if (!isActiveOperationCurrent(operation.token)) {
         return;
       }
 
-      updateState({
-        safeDirectoryDialogOpen: false,
-        safeDirectoryRunning: false
-      });
-      await refreshRepo({
-        addToRecents: true
-      });
+      if (result.exitCode !== 0) {
+        finishActiveOperation(operation.token, (latest) => ({
+          ...latest,
+          safeDirectoryDialogOpen: false,
+          setupError: getOperationFailureMessage(result, "Unable to add Git safe.directory exception.")
+        }));
+        return;
+      }
+
+      finishActiveOperation(operation.token, (latest) => ({
+        ...latest,
+        safeDirectoryDialogOpen: false
+      }));
+      void refreshRepo({ addToRecents: true });
     } catch (error) {
-      updateState({
+      if (!isActiveOperationCurrent(operation.token)) {
+        return;
+      }
+      finishActiveOperation(operation.token, (latest) => ({
+        ...latest,
         safeDirectoryDialogOpen: false,
-        safeDirectoryRunning: false,
         setupError: error instanceof Error ? error.message : "Unable to add Git safe.directory exception."
-      });
+      }));
     }
-  }, [refreshRepo, updateState]);
+  }, [createActiveOperation, finishActiveOperation, isActiveOperationCurrent, refreshRepo, updateState]);
 
   const chooseCloneParent = useCallback(async (): Promise<void> => {
     const parentPath = await window.githead.chooseCloneParent(stateRef.current.cloneDraft.parentPath);
@@ -1768,7 +1983,15 @@ export function App(): ReactNode {
       return;
     }
 
+    const source = current.cloneDraft.source;
+    const operation = createActiveOperation(
+      "Checking repository access",
+      current.repoPath,
+      "clone-check"
+    );
+
     updateState({
+      activeOperation: operation,
       cloneCheckRunning: true,
       cloneCheckStatus: "idle",
       cloneCheckMessage: "",
@@ -1778,8 +2001,13 @@ export function App(): ReactNode {
 
     try {
       const result = await window.githead.checkRepositoryAccess({
-        source: current.cloneDraft.source
+        source,
+        operationId: operation.operationId
       });
+
+      if (!isActiveOperationCurrent(operation.token)) {
+        return;
+      }
 
       if (result.exitCode !== 0) {
         updateState({
@@ -1801,17 +2029,18 @@ export function App(): ReactNode {
         cloneBranches: result.branches
       }));
     } catch (error) {
+      if (!isActiveOperationCurrent(operation.token)) {
+        return;
+      }
       updateState({
         cloneCheckStatus: "error",
         cloneCheckMessage: error instanceof Error ? error.message : "Unable to check repository access.",
         cloneBranches: []
       });
     } finally {
-      updateState({
-        cloneCheckRunning: false
-      });
+      finishActiveOperation(operation.token);
     }
-  }, [updateState]);
+  }, [createActiveOperation, finishActiveOperation, isActiveOperationCurrent, updateState]);
 
   const cloneRepository = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
@@ -1828,8 +2057,15 @@ export function App(): ReactNode {
       return;
     }
     const depth = requestedDepth && requestedDepth > 0 ? requestedDepth : null;
+    const submittedDraft = current.cloneDraft;
+    const operation = createActiveOperation(
+      "Cloning repository",
+      current.repoPath,
+      "clone"
+    );
 
     updateState({
+      activeOperation: operation,
       cloneRunning: true,
       cloneError: "",
       lastOperationResult: null
@@ -1842,8 +2078,12 @@ export function App(): ReactNode {
         directoryName: current.cloneDraft.directoryName,
         branchName: current.cloneDraft.branchName,
         depth,
-        recurseSubmodules: current.cloneDraft.recurseSubmodules
+        recurseSubmodules: current.cloneDraft.recurseSubmodules,
+        operationId: operation.operationId
       });
+      if (!isActiveOperationCurrent(operation.token)) {
+        return;
+      }
       updateState({
         lastOperationResult: result
       });
@@ -1856,18 +2096,36 @@ export function App(): ReactNode {
         return;
       }
 
+      finishActiveOperation(operation.token);
+
       await switchRepo(result.repoPath, {
         addToRecents: true
       });
-      updateState({
-        cloneDraft: emptyCloneDraft,
-        cloneError: "",
-        cloneCheckStatus: "idle",
-        cloneCheckMessage: "",
-        cloneBranches: [],
-        clonePanelOpen: false
+      updateState((latest) => {
+        const draftStillBelongsToThisClone =
+          latest.cloneDraft.source === submittedDraft.source &&
+          latest.cloneDraft.parentPath === submittedDraft.parentPath &&
+          latest.cloneDraft.directoryName === submittedDraft.directoryName &&
+          latest.cloneDraft.branchName === submittedDraft.branchName &&
+          latest.cloneDraft.depth === submittedDraft.depth &&
+          latest.cloneDraft.recurseSubmodules === submittedDraft.recurseSubmodules;
+        if (!isSameRepoPath(latest.repoPath, result.repoPath) || !draftStillBelongsToThisClone) {
+          return latest;
+        }
+        return {
+          ...latest,
+          cloneDraft: emptyCloneDraft,
+          cloneError: "",
+          cloneCheckStatus: "idle",
+          cloneCheckMessage: "",
+          cloneBranches: [],
+          clonePanelOpen: false
+        };
       });
     } catch (error) {
+      if (!isActiveOperationCurrent(operation.token)) {
+        return;
+      }
       const result: GitOperationResult = {
         repoPath: stateRef.current.cloneDraft.parentPath,
         exitCode: -1,
@@ -1880,11 +2138,9 @@ export function App(): ReactNode {
       });
       appendOperationLog("Cloning repository", result);
     } finally {
-      updateState({
-        cloneRunning: false
-      });
+      finishActiveOperation(operation.token);
     }
-  }, [appendOperationLog, switchRepo, updateState]);
+  }, [appendOperationLog, createActiveOperation, finishActiveOperation, isActiveOperationCurrent, switchRepo, updateState]);
 
   const selectRecentRepo = useCallback(async (repoPath: string): Promise<void> => {
     if (isSameRepoPath(repoPath, stateRef.current.repoPath)) {
@@ -1951,71 +2207,78 @@ export function App(): ReactNode {
     }
   }, [updateState]);
 
-  const createTrustFailure = useCallback((): GitOperationResult => ({
-    repoPath: stateRef.current.repoPath,
+  const createTrustFailure = useCallback((repoPath: string): GitOperationResult => ({
+    repoPath,
     exitCode: -1,
     stdout: "",
     stderr: `${TRUST_WORKSPACE_TITLE} ${TRUST_WORKSPACE_DESCRIPTION}`
   }), []);
 
-  const closeTrustDialog = useCallback((trusted: boolean): void => {
-    const resolve = trustDialogResolveRef.current;
-    trustDialogResolveRef.current = null;
-    setTrustDialogOpen(false);
-    resolve?.(trusted);
-  }, []);
-
-  const confirmWorkspaceTrust = useCallback(async (): Promise<boolean> => {
-    if (trustDialogResolveRef.current) {
-      return false;
-    }
-
-    setTrustDialogOpen(true);
-    return new Promise((resolve) => {
-      trustDialogResolveRef.current = resolve;
-    });
-  }, []);
-
-  const ensureTrustedRepo = useCallback(async (): Promise<boolean> => {
-    const repoPath = stateRef.current.repoPath;
-    if (!repoPath.trim()) {
+  const ensureTrustedRepo = useCallback(async (
+    expectedRepoPath?: string,
+    isRequestCurrent: () => boolean = () => true
+  ): Promise<boolean> => {
+    const repoPath = expectedRepoPath ?? stateRef.current.repoPath;
+    if (!repoPath.trim() || !isRequestCurrent()) {
       return false;
     }
 
     try {
       const existingTrust = await window.githead.getRepoTrust({ repoPath });
+      if (!isRequestCurrent() || !isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        return false;
+      }
       if (existingTrust.trusted) {
         return true;
       }
 
-      if (!(await confirmWorkspaceTrust())) {
-        updateState({
-          lastOperationResult: createTrustFailure()
-        });
+      if (!(await confirmWorkspaceTrust(repoPath))) {
+        if (isRequestCurrent() && isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+          updateState({
+            lastOperationResult: createTrustFailure(repoPath)
+          });
+        }
+        return false;
+      }
+
+      if (!isRequestCurrent() || !isSameRepoPath(repoPath, stateRef.current.repoPath)) {
         return false;
       }
 
       const nextTrust: RepoTrustResult = await window.githead.addRepoTrust({ repoPath });
+      if (!isRequestCurrent() || !isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        return false;
+      }
       if (nextTrust.trusted) {
         return true;
       }
 
       updateState({
-        lastOperationResult: createTrustFailure()
+        lastOperationResult: createTrustFailure(repoPath)
       });
       return false;
     } catch (error) {
-      updateState({
-        lastOperationResult: {
-          repoPath,
-          exitCode: -1,
-          stdout: "",
-          stderr: error instanceof Error ? error.message : "Unable to update repository trust."
-        }
-      });
+      if (isRequestCurrent() && isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        updateState({
+          lastOperationResult: {
+            repoPath,
+            exitCode: -1,
+            stdout: "",
+            stderr: error instanceof Error ? error.message : "Unable to update repository trust."
+          }
+        });
+      }
       return false;
     }
   }, [confirmWorkspaceTrust, createTrustFailure, updateState]);
+
+  const isInvocationCurrent = useCallback((repoPath: string, predicate?: (state: AppState) => boolean): boolean => {
+    const latest = stateRef.current;
+    return isSameRepoPath(repoPath, latest.repoPath)
+      && Boolean(latest.summary?.isValid)
+      && !isOperationRunning(latest)
+      && (predicate?.(latest) ?? true);
+  }, []);
 
   const runAction = useCallback(async (action: GitAction, pushTarget?: GitPushTarget): Promise<GitRunResult | null> => {
     const current = stateRef.current;
@@ -2032,31 +2295,49 @@ export function App(): ReactNode {
       return null;
     }
 
-    if (!(await ensureTrustedRepo())) {
+    const repoPath = current.repoPath;
+
+    if (!(await ensureTrustedRepo(repoPath))) {
+      return null;
+    }
+
+    const latestBeforeStart = stateRef.current;
+    if (
+      !isSameRepoPath(repoPath, latestBeforeStart.repoPath) ||
+      !latestBeforeStart.summary?.isValid ||
+      isOperationRunning(latestBeforeStart)
+    ) {
       return null;
     }
 
     let completedResult: GitRunResult | null = null;
+    const operation = createActiveOperation(capitalize(action), repoPath, "action");
     updateState((latest) => ({
       ...latest,
+      activeOperation: operation,
       runningAction: action,
       lastResult: null,
       activityLog: hasProcessRunInFlight(latest) ? latest.activityLog : createActivityLogState()
     }));
 
     try {
-      const repoPath = stateRef.current.repoPath;
       const request = action === "push"
         ? pushTarget
-          ? { repoPath, action, pushTarget }
-          : { repoPath, action }
-        : { repoPath, action };
+          ? { repoPath, action, pushTarget, operationId: operation.operationId }
+          : { repoPath, action, operationId: operation.operationId }
+        : { repoPath, action, operationId: operation.operationId };
       const lastResult = await window.githead.runGitAction(request);
+      if (!isActiveOperationCurrent(operation.token)) {
+        return completedResult;
+      }
       updateState({
         lastResult
       });
       completedResult = lastResult;
     } catch (error) {
+      if (!isActiveOperationCurrent(operation.token)) {
+        return completedResult;
+      }
       const message = error instanceof Error ? error.message : "Git command failed.";
       const rendererResult: GitRunResult = {
         runId: "renderer-error",
@@ -2078,12 +2359,12 @@ export function App(): ReactNode {
       }));
       appendSystemLine(message);
     } finally {
-      updateState((latest) => invalidateHistory({
-        ...latest,
-        runningAction: null
-      }));
-      await refreshRepo();
+      finishActiveOperation(operation.token, invalidateHistory);
+      if (isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        await refreshRepo();
+      }
       if (
+        isSameRepoPath(repoPath, stateRef.current.repoPath) &&
         action === "push" &&
         !pushTarget &&
         completedResult &&
@@ -2098,8 +2379,8 @@ export function App(): ReactNode {
         });
       }
     }
-    return completedResult;
-  }, [appendSystemLine, ensureTrustedRepo, refreshRepo, updateState]);
+    return isSameRepoPath(repoPath, stateRef.current.repoPath) ? completedResult : null;
+  }, [appendSystemLine, createActiveOperation, ensureTrustedRepo, finishActiveOperation, isActiveOperationCurrent, refreshRepo, updateState]);
 
   const runAutomaticFetch = useCallback(async (): Promise<void> => {
     if (autoFetchInFlightRef.current) {
@@ -2109,6 +2390,8 @@ export function App(): ReactNode {
     autoFetchInFlightRef.current = true;
     let repoPath = "";
     let fetchStarted = false;
+    let operation: ActiveRendererOperation | null = null;
+    let completedResult: GitRunResult | null = null;
     try {
       const current = stateRef.current;
       const summary = current.summary;
@@ -2136,22 +2419,33 @@ export function App(): ReactNode {
         return;
       }
 
+      operation = createActiveOperation("Fetch", repoPath, "action");
       updateState({
+        activeOperation: operation,
         runningAction: "fetch"
       });
       fetchStarted = true;
 
       const lastResult = await window.githead.runGitAction({
         repoPath,
-        action: "fetch"
+        action: "fetch",
+        operationId: operation.operationId
       });
-      if (isSameRepoPath(repoPath, stateRef.current.summary?.repoPath ?? "")) {
+      completedResult = lastResult;
+      if (
+        isActiveOperationCurrent(operation.token) &&
+        isSameRepoPath(repoPath, stateRef.current.summary?.repoPath ?? "")
+      ) {
         updateState({
           lastResult
         });
       }
     } catch (error) {
-      if (isSameRepoPath(repoPath, stateRef.current.summary?.repoPath ?? "")) {
+      if (
+        operation &&
+        isActiveOperationCurrent(operation.token) &&
+        isSameRepoPath(repoPath, stateRef.current.summary?.repoPath ?? "")
+      ) {
         const message = error instanceof Error ? error.message : "Git command failed.";
         updateState((latest) => ({
           ...latest,
@@ -2169,22 +2463,20 @@ export function App(): ReactNode {
       }
     } finally {
       autoFetchInFlightRef.current = false;
+      if (fetchStarted && operation) {
+        finishActiveOperation(
+          operation.token,
+          completedResult?.exitCode === 0 ? invalidateHistory : (latest) => latest
+        );
+      }
       if (fetchStarted && repoPath && isSameRepoPath(repoPath, stateRef.current.summary?.repoPath ?? "")) {
-        updateState((latest) => {
-          const next = {
-            ...latest,
-            runningAction: latest.runningAction === "fetch" ? null : latest.runningAction
-          };
-
-          return latest.lastResult?.exitCode === 0 ? invalidateHistory(next) : next;
-        });
         await refreshRepo({
           silent: true
         });
         void loadRepoSyncStatuses();
       }
     }
-  }, [loadRepoSyncStatuses, refreshRepo, updateState]);
+  }, [createActiveOperation, finishActiveOperation, isActiveOperationCurrent, loadRepoSyncStatuses, refreshRepo, updateState]);
 
   const autoFetchRepoPath = state.summary?.isValid && state.summary.capabilities.fetch && hasFetchRemote(state.summary)
     ? state.summary.repoPath
@@ -2215,15 +2507,21 @@ export function App(): ReactNode {
       return;
     }
 
-    if (!(await ensureTrustedRepo())) {
+    const repoPath = current.repoPath;
+    if (!(await ensureTrustedRepo(repoPath))) {
       return;
     }
 
-    const repoPath = stateRef.current.repoPath;
+    if (!isInvocationCurrent(repoPath)) {
+      return;
+    }
     const invocation: ConfiguredActionRun = {
       id: ++configuredActionRunIdRef.current,
       name: action.name,
-      repoPath
+      repoPath,
+      operationId: createRendererOperationId(++rendererOperationTokenRef.current),
+      cancelStatus: "idle",
+      cancelError: ""
     };
     updateState((latest) => ({
       ...latest,
@@ -2236,7 +2534,8 @@ export function App(): ReactNode {
     try {
       const lastResult = await window.githead.runConfiguredAction({
         repoPath,
-        name: action.name
+        name: action.name,
+        operationId: invocation.operationId
       });
       updateState((latest) => isSameRepoPath(repoPath, latest.repoPath) ? {
         ...latest,
@@ -2270,10 +2569,10 @@ export function App(): ReactNode {
         return isSameRepoPath(repoPath, latest.repoPath) ? invalidateHistory(next) : next;
       });
       if (isSameRepoPath(repoPath, stateRef.current.repoPath)) {
-        await refreshRepo();
+        void refreshRepo();
       }
     }
-  }, [appendSystemLine, ensureTrustedRepo, refreshRepo, updateState]);
+  }, [appendSystemLine, ensureTrustedRepo, isInvocationCurrent, refreshRepo, updateState]);
 
   const openActionManager = useCallback((): void => {
     const current = stateRef.current;
@@ -2427,7 +2726,15 @@ export function App(): ReactNode {
       return;
     }
 
+    const saveToken = ++actionManagerSaveTokenRef.current;
+    const operation = createActiveOperation(
+      `Saving ${target} actions`,
+      current.repoPath,
+      "action-save"
+    );
+
     updateState({
+      activeOperation: operation,
       actionManager: {
         ...current.actionManager,
         savingTarget: target,
@@ -2439,46 +2746,50 @@ export function App(): ReactNode {
       const result = await window.githead.saveConfiguredActions({
         repoPath: current.repoPath,
         target,
-        actions
+        actions,
+        operationId: operation.operationId
       });
+      if (saveToken !== actionManagerSaveTokenRef.current || !isActiveOperationCurrent(operation.token)) {
+        return;
+      }
       if (result.exitCode !== 0) {
-        updateState((latest) => ({
+        finishActiveOperation(operation.token, (latest) => ({
           ...latest,
           actionManager: {
             ...latest.actionManager,
-            savingTarget: null,
             error: result.stderr || "Unable to save Repository Actions."
           }
         }));
         return;
       }
 
-      await refreshRepo();
-      updateState((latest) => ({
+      finishActiveOperation(operation.token, (latest) => ({
         ...latest,
         actionManager: {
           ...latest.actionManager,
-          savingTarget: null,
           error: ""
         }
       }));
+      void refreshRepo();
     } catch (error) {
-      updateState((latest) => ({
+      if (saveToken !== actionManagerSaveTokenRef.current || !isActiveOperationCurrent(operation.token)) {
+        return;
+      }
+      finishActiveOperation(operation.token, (latest) => ({
         ...latest,
         actionManager: {
           ...latest.actionManager,
-          savingTarget: null,
           error: error instanceof Error ? error.message : "Unable to save Repository Actions."
         }
       }));
     }
-  }, [refreshRepo, updateState]);
+  }, [createActiveOperation, finishActiveOperation, isActiveOperationCurrent, refreshRepo, updateState]);
 
   const runRepoOperation = useCallback(async (
     label: string,
     nextSelection: FileSelection | null | undefined,
-    operation: () => Promise<GitOperationResult>,
-    options: { requireValidRepo?: boolean } = {}
+    operation: (operationId: string) => Promise<GitOperationResult>,
+    options: { requireValidRepo?: boolean; cancellable?: boolean } = {}
   ): Promise<GitOperationResult | null> => {
     const current = stateRef.current;
     if ((options.requireValidRepo ?? true) && !current.summary?.isValid) {
@@ -2489,42 +2800,55 @@ export function App(): ReactNode {
     }
 
     repositorySnapshots.current.delete(current.repoPath);
+    const repoPath = current.repoPath;
+    const activeOperation = createActiveOperation(label, repoPath, "repo-operation", options.cancellable ?? true);
 
     let operationResult: GitOperationResult | null = null;
 
     updateState({
+      activeOperation,
       runningOperation: label,
       lastOperationResult: null
     });
 
     try {
-      const lastOperationResult = await operation();
+      const lastOperationResult = await operation(activeOperation.operationId);
+      if (
+        !isActiveOperationCurrent(activeOperation.token) ||
+        !isSameRepoPath(repoPath, stateRef.current.repoPath)
+      ) {
+        return null;
+      }
       operationResult = lastOperationResult;
       updateState({
         lastOperationResult
       });
       appendOperationLog(label, lastOperationResult);
     } catch (error) {
+      if (
+        !isActiveOperationCurrent(activeOperation.token) ||
+        !isSameRepoPath(repoPath, stateRef.current.repoPath)
+      ) {
+        return null;
+      }
       const lastOperationResult: GitOperationResult = {
-        repoPath: stateRef.current.repoPath,
+        repoPath,
         exitCode: -1,
         stdout: "",
         stderr: error instanceof Error ? error.message : `${label} failed.`
       };
       operationResult = lastOperationResult;
-
       updateState({
         lastOperationResult
       });
       appendOperationLog(label, lastOperationResult);
     } finally {
-      updateState((latest) => {
-        let next: AppState = {
-          ...latest,
-          runningOperation: null
-        };
+      const completionIsCurrent = isActiveOperationCurrent(activeOperation.token) &&
+        isSameRepoPath(repoPath, stateRef.current.repoPath);
+      if (completionIsCurrent) finishActiveOperation(activeOperation.token, (latest) => {
+        let next = latest;
 
-        if (latest.lastOperationResult?.exitCode === 0 && nextSelection !== undefined) {
+        if (operationResult?.exitCode === 0 && nextSelection !== undefined) {
           next = {
             ...next,
             selection: nextSelection,
@@ -2532,16 +2856,18 @@ export function App(): ReactNode {
           };
         }
 
-        if (latest.lastOperationResult?.exitCode === 0) {
+        if (operationResult?.exitCode === 0) {
           next = invalidateHistory(next);
         }
 
         return next;
       });
-      await refreshRepo();
+      if (completionIsCurrent) {
+        void refreshRepo();
+      }
     }
     return operationResult;
-  }, [appendOperationLog, refreshRepo, updateState]);
+  }, [appendOperationLog, createActiveOperation, finishActiveOperation, isActiveOperationCurrent, refreshRepo, updateState]);
 
   const openWorktreeDialog = useCallback((): void => {
     const current = stateRef.current;
@@ -2557,19 +2883,21 @@ export function App(): ReactNode {
     const repoPath = stateRef.current.repoPath;
     const repositoryGroup = stateRef.current.repositoryGroups.find((group) =>
       group.worktrees.some((worktree) => isSameRepoPath(worktree.path, repoPath)));
-    if (!(await ensureTrustedRepo())) return "Trust this workspace before creating a worktree.";
-    if (!isSameRepoPath(repoPath, stateRef.current.repoPath) || !stateRef.current.worktreeDialogOpen) return "The active repository changed. Reopen Add Worktree and try again.";
-    const result = await runRepoOperation("Creating worktree", undefined, () => window.githead.createWorktree({ ...request, repoPath } as GitWorktreeCreateRequest));
+    if (!(await ensureTrustedRepo(repoPath))) return "Trust this workspace before creating a worktree.";
+    if (!isInvocationCurrent(repoPath, (latest) => latest.worktreeDialogOpen)) return "The active repository changed. Reopen Add Worktree and try again.";
+    const result = await runRepoOperation("Creating worktree", undefined, (operationId) => window.githead.createWorktree({ ...request, repoPath, operationId } as GitWorktreeCreateRequest & { operationId: string }));
     if (!result) return "Another repository operation is already running.";
     if (result.exitCode !== 0) return result.stderr || "Unable to create worktree.";
+    if (!isSameRepoPath(repoPath, stateRef.current.repoPath)) return "The active repository changed. Reopen Add Worktree and try again.";
     updateState({ worktreeDialogOpen: false });
     await loadRepositoryGroups();
+    if (!isSameRepoPath(repoPath, stateRef.current.repoPath)) return null;
     await switchRepo(request.destinationPath, {
       addToRecents: true,
       ...(repositoryGroup ? { recentAnchorPath: repositoryGroup.anchorPath } : {})
     });
     return null;
-  }, [ensureTrustedRepo, loadRepositoryGroups, runRepoOperation, switchRepo, updateState]);
+  }, [ensureTrustedRepo, isInvocationCurrent, loadRepositoryGroups, runRepoOperation, switchRepo, updateState]);
 
   const openWorktreeRemoval = useCallback(async (worktree: GitWorktree): Promise<void> => {
     const repoPath = stateRef.current.repoPath;
@@ -2596,8 +2924,12 @@ export function App(): ReactNode {
     const current = stateRef.current;
     const target = current.worktreeRemoveTarget;
     const removalCheck = current.worktreeRemovalCheck;
-    if (!target || (!removalCheck?.canRemove && !removalCheck?.canForceRemove) || !(await ensureTrustedRepo())) return;
-    const result = await runRepoOperation("Removing worktree", undefined, () => window.githead.removeWorktree({ repoPath: current.repoPath, worktreePath: target.path, force: !removalCheck.canRemove }));
+    if (!target || (!removalCheck?.canRemove && !removalCheck?.canForceRemove) || !(await ensureTrustedRepo(current.repoPath))) return;
+    if (!isInvocationCurrent(current.repoPath, (latest) => (
+      isSameRepoPath(latest.worktreeRemoveTarget?.path ?? "", target.path) &&
+      latest.worktreeRemovalCheck === removalCheck
+    ))) return;
+    const result = await runRepoOperation("Removing worktree", undefined, (operationId) => window.githead.removeWorktree({ repoPath: current.repoPath, worktreePath: target.path, force: !removalCheck.canRemove, operationId }));
     if (result?.exitCode === 0) {
       repositorySnapshots.current.delete(target.path);
       updateState({ worktreeRemoveTarget: null, worktreeRemovalCheck: null, worktreeRemovalChecking: false });
@@ -2605,13 +2937,13 @@ export function App(): ReactNode {
     } else if (result) {
       updateState({ worktreeRemovalCheck: { ...removalCheck, canRemove: false, reason: result.stderr || "Unable to remove worktree." } });
     }
-  }, [ensureTrustedRepo, loadRepositoryGroups, runRepoOperation, updateState]);
+  }, [ensureTrustedRepo, isInvocationCurrent, loadRepositoryGroups, runRepoOperation, updateState]);
 
   const downloadStatusLfsPreview = useCallback(async (): Promise<void> => {
     const snapshot = stateRef.current.selection;
     if (!snapshot) return;
-    const result = await runRepoOperation("Downloading LFS image preview", undefined, () => window.githead.fetchLfsImageVersions({
-      context: "status", repoPath: stateRef.current.repoPath, path: snapshot.path, side: snapshot.side
+    const result = await runRepoOperation("Downloading LFS image preview", undefined, (operationId) => window.githead.fetchLfsImageVersions({
+      context: "status", repoPath: stateRef.current.repoPath, path: snapshot.path, side: snapshot.side, operationId
     }));
     const latest = stateRef.current.selection;
     if (result?.exitCode === 0 && latest?.path === snapshot.path && latest.side === snapshot.side) await loadSelectedDiff(snapshot);
@@ -2623,8 +2955,8 @@ export function App(): ReactNode {
     const filePath = current.selectedCommitFilePath;
     if (!hash || !filePath) return;
     const originalPath = current.commitDetails?.files.find((file) => file.path === filePath)?.originalPath;
-    const result = await runRepoOperation("Downloading LFS image preview", undefined, () => window.githead.fetchLfsImageVersions({
-      context: "commit", repoPath: current.repoPath, hash, path: filePath, ...(originalPath ? { originalPath } : {})
+    const result = await runRepoOperation("Downloading LFS image preview", undefined, (operationId) => window.githead.fetchLfsImageVersions({
+      context: "commit", repoPath: current.repoPath, hash, path: filePath, ...(originalPath ? { originalPath } : {}), operationId
     }));
     const latest = stateRef.current;
     if (result?.exitCode === 0 && latest.selectedCommitHash === hash && latest.selectedCommitFilePath === filePath) await loadCommitFileDiff(hash, filePath);
@@ -2698,16 +3030,16 @@ export function App(): ReactNode {
 
   const runRemoteOperation = useCallback(async (
     label: string,
-    operation: (repoPath: string) => Promise<GitOperationResult>
+    operation: (repoPath: string, operationId: string) => Promise<GitOperationResult>
   ): Promise<string | null> => {
     const repoPath = stateRef.current.repoPath;
-    if (!(await ensureTrustedRepo())) {
+    if (!(await ensureTrustedRepo(repoPath))) {
       return "Trust this workspace before changing remotes.";
     }
     if (stateRef.current.repoPath !== repoPath || !stateRef.current.remoteManager.open) {
       return "The active repository changed. Reopen Manage Remotes and try again.";
     }
-    const result = await runRepoOperation(label, undefined, () => operation(repoPath));
+    const result = await runRepoOperation(label, undefined, (operationId) => operation(repoPath, operationId));
     if (!result) {
       return "Another repository operation is already running.";
     }
@@ -2726,7 +3058,8 @@ export function App(): ReactNode {
       undefined,
       () => window.githead.showRepositoryInExplorer(repoPath),
       {
-        requireValidRepo: false
+        requireValidRepo: false,
+        cancellable: false
       }
     );
   }, [runRepoOperation]);
@@ -2767,14 +3100,14 @@ export function App(): ReactNode {
     if (!isOperationRunning(stateRef.current)) updateState({ branchManagerOpen: false });
   }, [updateState]);
 
-  const runBranchOperation = useCallback(async (action: "rename" | "remove", label: string, branchName: string, operation: (repoPath: string) => Promise<GitOperationResult>): Promise<string | null> => {
+  const runBranchOperation = useCallback(async (action: "rename" | "remove", label: string, branchName: string, operation: (repoPath: string, operationId: string) => Promise<GitOperationResult>): Promise<string | null> => {
     const snapshot = stateRef.current;
     const repoPath = snapshot.repoPath;
-    if (!(await ensureTrustedRepo())) return "Trust this workspace before changing branches.";
+    if (!(await ensureTrustedRepo(repoPath))) return "Trust this workspace before changing branches.";
     const latest = stateRef.current;
     if (latest.repoPath !== repoPath || !latest.branchManagerOpen) return "The active repository changed. Reopen Manage Branches and try again.";
     if (action === "remove" && latest.summary?.branch === branchName) return "Switch to another branch before removing this branch.";
-    const result = await runRepoOperation(label, undefined, () => operation(repoPath));
+    const result = await runRepoOperation(label, undefined, (operationId) => operation(repoPath, operationId));
     if (!result) return "Another repository operation is already running.";
     if (result.exitCode === 0) return null;
     if (action === "remove" && /not fully merged/i.test(result.stderr)) {
@@ -2957,17 +3290,23 @@ export function App(): ReactNode {
       return;
     }
 
-    if (!(await ensureTrustedRepo())) {
+    const repoPath = current.repoPath;
+    if (!(await ensureTrustedRepo(repoPath))) {
       return;
     }
 
-    await runRepoOperation(`Switching branch to ${nextBranchName}`, null, () =>
+    if (!isInvocationCurrent(repoPath, (latest) => latest.summary?.branch !== nextBranchName)) {
+      return;
+    }
+
+    await runRepoOperation(`Switching branch to ${nextBranchName}`, null, (operationId) =>
       window.githead.switchBranch({
-        repoPath: stateRef.current.repoPath,
-        branchName: nextBranchName
+        repoPath,
+        branchName: nextBranchName,
+        operationId
       })
     );
-  }, [ensureTrustedRepo, runRepoOperation]);
+  }, [ensureTrustedRepo, isInvocationCurrent, runRepoOperation]);
 
   const setBranchUpstream = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
@@ -2998,23 +3337,32 @@ export function App(): ReactNode {
       upstreamError: ""
     });
 
-    if (!(await ensureTrustedRepo())) {
-      updateState({
-        upstreamError: "Repository trust is required before changing branch upstreams."
-      });
+    const repoPath = current.repoPath;
+    if (!(await ensureTrustedRepo(repoPath))) {
+      if (isSameRepoPath(repoPath, stateRef.current.repoPath) && stateRef.current.upstreamDialogOpen) {
+        updateState({
+          upstreamError: "Repository trust is required before changing branch upstreams."
+        });
+      }
       return;
     }
 
+    if (!isInvocationCurrent(repoPath, (latest) => (
+      latest.upstreamDialogOpen &&
+      latest.summary?.branch === branchName &&
+      latest.upstreamDraft === upstream
+    ))) return;
+
     const label = upstream ? `Changing upstream to ${upstream}` : "Clearing upstream";
-    await runRepoOperation(label, null, () =>
+    const result = await runRepoOperation(label, null, (operationId) =>
       window.githead.setBranchUpstream({
-        repoPath: stateRef.current.repoPath,
+        repoPath,
         branchName,
-        upstream
+        upstream,
+        operationId
       })
     );
 
-    const result = stateRef.current.lastOperationResult;
     if (result?.exitCode === 0) {
       updateState({
         upstreamDialogOpen: false,
@@ -3027,7 +3375,7 @@ export function App(): ReactNode {
     updateState({
       upstreamError: getOperationFailureMessage(result, "Unable to change upstream.")
     });
-  }, [ensureTrustedRepo, runRepoOperation, updateState]);
+  }, [ensureTrustedRepo, isInvocationCurrent, runRepoOperation, updateState]);
 
   const publishBranch = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
@@ -3046,15 +3394,27 @@ export function App(): ReactNode {
       return;
     }
 
-    if (!(await ensureTrustedRepo())) {
-      updateState({
-        publishError: "Repository trust is required before publishing branches."
-      });
+    if (!(await ensureTrustedRepo(current.repoPath))) {
+      if (isSameRepoPath(current.repoPath, stateRef.current.repoPath) && stateRef.current.publishDialogOpen) {
+        updateState({
+          publishError: "Repository trust is required before publishing branches."
+        });
+      }
+      return;
+    }
+
+    if (!isInvocationCurrent(current.repoPath, (latest) => (
+      latest.publishDialogOpen &&
+      latest.publishRemoteDraft.trim() === remoteName &&
+      latest.summary?.branch === summary.branch
+    ))) {
       return;
     }
 
     let completedResult: GitRunResult | null = null;
+    const activeOperation = createActiveOperation("Publish", current.repoPath, "action");
     updateState({
+      activeOperation,
       runningAction: "publish",
       lastResult: null,
       activityLog: hasProcessRunInFlight(stateRef.current)
@@ -3065,11 +3425,15 @@ export function App(): ReactNode {
 
     try {
       const lastResult = await window.githead.publishBranch({
-        repoPath: stateRef.current.repoPath,
+        repoPath: current.repoPath,
         branchName: summary.branch,
-        remoteName
+        remoteName,
+        operationId: activeOperation.operationId
       });
       completedResult = lastResult;
+      if (!isActiveOperationCurrent(activeOperation.token)) {
+        return;
+      }
       updateState({
         lastResult
       });
@@ -3078,32 +3442,28 @@ export function App(): ReactNode {
       completedResult = {
         runId: "renderer-error",
         action: "publish",
-        repoPath: stateRef.current.repoPath,
+        repoPath: current.repoPath,
         exitCode: -1,
         stdout: "",
         stderr: message,
         startedAt: new Date().toISOString(),
         endedAt: new Date().toISOString()
       };
+      if (!isActiveOperationCurrent(activeOperation.token)) {
+        return;
+      }
       updateState({
         lastResult: completedResult
       });
       appendSystemLine(message);
     } finally {
-      updateState((latest) => invalidateHistory({
-        ...latest,
-        runningAction: null
-      }));
-      await refreshRepo();
+      finishActiveOperation(activeOperation.token, invalidateHistory);
+      if (isSameRepoPath(current.repoPath, stateRef.current.repoPath)) {
+        void refreshRepo();
+      }
     }
 
-    const latestSummary = stateRef.current.summary;
-    const branchPublished = Boolean(
-      latestSummary?.isValid &&
-      latestSummary.branch === summary.branch &&
-      latestSummary.upstream
-    );
-    if (completedResult?.exitCode === 0 || branchPublished) {
+    if (completedResult?.exitCode === 0) {
       updateState({
         publishDialogOpen: false,
         publishRemoteDraft: "",
@@ -3115,7 +3475,7 @@ export function App(): ReactNode {
     updateState({
       publishError: completedResult?.stderr.trim() || "Unable to publish branch."
     });
-  }, [appendSystemLine, ensureTrustedRepo, refreshRepo, updateState]);
+  }, [appendSystemLine, createActiveOperation, ensureTrustedRepo, finishActiveOperation, isActiveOperationCurrent, isInvocationCurrent, refreshRepo, updateState]);
 
   const pushToBranch = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
@@ -3187,7 +3547,7 @@ export function App(): ReactNode {
         error: ""
       }
     });
-    if (!(await ensureTrustedRepo())) {
+    if (!(await ensureTrustedRepo(repoPath))) {
       const latest = stateRef.current;
       if (latest.repoPath === repoPath && latest.pushToBranchDialog.open) {
         updateState({
@@ -3200,8 +3560,12 @@ export function App(): ReactNode {
       return;
     }
 
-    const latest = stateRef.current;
-    if (latest.repoPath !== repoPath || !latest.pushToBranchDialog.open) {
+    if (!isInvocationCurrent(repoPath, (candidate) => (
+      candidate.pushToBranchDialog.open &&
+      candidate.pushToBranchDialog.sourceBranch === dialog.sourceBranch &&
+      candidate.pushToBranchDialog.remoteName === dialog.remoteName &&
+      candidate.pushToBranchDialog.destinationBranch === dialog.destinationBranch
+    ))) {
       return;
     }
 
@@ -3226,7 +3590,7 @@ export function App(): ReactNode {
         }
       });
     }
-  }, [ensureTrustedRepo, runAction, updateState]);
+  }, [ensureTrustedRepo, isInvocationCurrent, runAction, updateState]);
 
   const openCreatePrDialog = useCallback((): void => {
     const current = stateRef.current;
@@ -3285,8 +3649,14 @@ export function App(): ReactNode {
 
     const remoteName = getRemoteDefaultBranch(summary)?.remote ?? "origin";
     const trimmedTitle = dialog.title.trim();
+    const activeOperation = createActiveOperation(
+      "Generating pull request description",
+      current.repoPath,
+      "pr-generation"
+    );
     updateState((latest) => ({
       ...latest,
+      activeOperation,
       runningOperation: "Generating pull request description",
       createPrDialog: {
         ...latest.createPrDialog,
@@ -3297,11 +3667,15 @@ export function App(): ReactNode {
 
     try {
       const result = await window.githead.generatePrDescription({
-        repoPath: stateRef.current.repoPath,
+        repoPath: current.repoPath,
         baseRef: `${remoteName}/${dialog.baseBranch}`,
         headRef: summary.branch,
-        ...(trimmedTitle ? { title: trimmedTitle } : {})
+        ...(trimmedTitle ? { title: trimmedTitle } : {}),
+        operationId: activeOperation.operationId
       });
+      if (!isActiveOperationCurrent(activeOperation.token)) {
+        return;
+      }
       appendOperationLog("Generating pull request description", result);
       updateState((latest) => ({
         ...latest,
@@ -3318,6 +3692,9 @@ export function App(): ReactNode {
             }
       }));
     } catch (error) {
+      if (!isActiveOperationCurrent(activeOperation.token)) {
+        return;
+      }
       updateState((latest) => ({
         ...latest,
         createPrDialog: {
@@ -3326,16 +3703,15 @@ export function App(): ReactNode {
         }
       }));
     } finally {
-      updateState((latest) => ({
+      finishActiveOperation(activeOperation.token, (latest) => ({
         ...latest,
-        runningOperation: null,
         createPrDialog: {
           ...latest.createPrDialog,
           generating: null
         }
       }));
     }
-  }, [appendOperationLog, updateState]);
+  }, [appendOperationLog, createActiveOperation, finishActiveOperation, isActiveOperationCurrent, updateState]);
 
   const generatePrTitleForDialog = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
@@ -3362,8 +3738,14 @@ export function App(): ReactNode {
     }
 
     const remoteName = getRemoteDefaultBranch(summary)?.remote ?? "origin";
+    const activeOperation = createActiveOperation(
+      "Generating pull request title",
+      current.repoPath,
+      "pr-generation"
+    );
     updateState((latest) => ({
       ...latest,
+      activeOperation,
       runningOperation: "Generating pull request title",
       createPrDialog: {
         ...latest.createPrDialog,
@@ -3374,10 +3756,14 @@ export function App(): ReactNode {
 
     try {
       const result = await window.githead.generatePrTitle({
-        repoPath: stateRef.current.repoPath,
+        repoPath: current.repoPath,
         baseRef: `${remoteName}/${dialog.baseBranch}`,
-        headRef: summary.branch
+        headRef: summary.branch,
+        operationId: activeOperation.operationId
       });
+      if (!isActiveOperationCurrent(activeOperation.token)) {
+        return;
+      }
       appendOperationLog("Generating pull request title", result);
       updateState((latest) => ({
         ...latest,
@@ -3394,6 +3780,9 @@ export function App(): ReactNode {
             }
       }));
     } catch (error) {
+      if (!isActiveOperationCurrent(activeOperation.token)) {
+        return;
+      }
       updateState((latest) => ({
         ...latest,
         createPrDialog: {
@@ -3402,16 +3791,15 @@ export function App(): ReactNode {
         }
       }));
     } finally {
-      updateState((latest) => ({
+      finishActiveOperation(activeOperation.token, (latest) => ({
         ...latest,
-        runningOperation: null,
         createPrDialog: {
           ...latest.createPrDialog,
           generating: null
         }
       }));
     }
-  }, [appendOperationLog, updateState]);
+  }, [appendOperationLog, createActiveOperation, finishActiveOperation, isActiveOperationCurrent, updateState]);
 
   const submitCreatePullRequest = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
@@ -3453,8 +3841,24 @@ export function App(): ReactNode {
       return;
     }
 
-    if (!(await ensureTrustedRepo())) {
-      setDialogError("Repository trust is required before creating a pull request.");
+    const repoPath = current.repoPath;
+    if (!(await ensureTrustedRepo(repoPath))) {
+      if (isSameRepoPath(repoPath, stateRef.current.repoPath) && stateRef.current.createPrDialog.open) {
+        setDialogError("Repository trust is required before creating a pull request.");
+      }
+      return;
+    }
+
+    if (!isInvocationCurrent(repoPath, (latest) => (
+      latest.createPrDialog.open &&
+      latest.createPrDialog.step === "idle" &&
+      latest.createPrDialog.generating === null &&
+      latest.createPrDialog.headBranch === dialog.headBranch &&
+      latest.createPrDialog.baseBranch === dialog.baseBranch &&
+      latest.createPrDialog.title.trim() === title &&
+      latest.createPrDialog.body === dialog.body &&
+      latest.createPrDialog.draft === dialog.draft
+    ))) {
       return;
     }
 
@@ -3462,8 +3866,14 @@ export function App(): ReactNode {
     const needsPush = !needsPublish && hasUnpushedCommits(summary);
 
     if (needsPublish || needsPush) {
+      const pushOperation = createActiveOperation(
+        needsPublish ? "Publish" : "Push",
+        repoPath,
+        "pr-push"
+      );
       updateState((latest) => ({
         ...latest,
+        activeOperation: pushOperation,
         runningAction: needsPublish ? "publish" : "push",
         lastResult: null,
         activityLog: hasProcessRunInFlight(latest)
@@ -3480,43 +3890,55 @@ export function App(): ReactNode {
       try {
         pushResult = needsPublish
           ? await window.githead.publishBranch({
-              repoPath: stateRef.current.repoPath,
+              repoPath,
               branchName: summary.branch,
-              remoteName: getDefaultPublishRemote(summary)
+              remoteName: getDefaultPublishRemote(summary),
+              operationId: pushOperation.operationId
             })
           : await window.githead.runGitAction({
-              repoPath: stateRef.current.repoPath,
-              action: "push"
+              repoPath,
+              action: "push",
+              operationId: pushOperation.operationId
             });
+        if (!isActiveOperationCurrent(pushOperation.token)) {
+          return;
+        }
         updateState({
           lastResult: pushResult
         });
       } catch (error) {
+        if (!isActiveOperationCurrent(pushOperation.token)) {
+          return;
+        }
         const message = error instanceof Error ? error.message : "Unable to push branch.";
         appendSystemLine(message);
-        updateState((latest) => invalidateHistory({
-          ...latest,
-          runningAction: null
-        }));
-        await refreshRepo();
+        finishActiveOperation(pushOperation.token, invalidateHistory);
+        void refreshRepo();
         setDialogError(message);
         return;
       }
 
-      updateState((latest) => invalidateHistory({
-        ...latest,
-        runningAction: null
-      }));
-      await refreshRepo();
+      finishActiveOperation(pushOperation.token, invalidateHistory);
+      void refreshRepo();
 
       if (pushResult.exitCode !== 0) {
         setDialogError(pushResult.stderr.trim() || "Unable to push branch.");
         return;
       }
+
+      if (!isSameRepoPath(repoPath, stateRef.current.repoPath) || !stateRef.current.createPrDialog.open) {
+        return;
+      }
     }
 
+    const createOperation = createActiveOperation(
+      "Creating pull request",
+      repoPath,
+      "pr-create"
+    );
     updateState((latest) => ({
       ...latest,
+      activeOperation: createOperation,
       runningOperation: "Creating pull request",
       createPrDialog: {
         ...latest.createPrDialog,
@@ -3527,26 +3949,42 @@ export function App(): ReactNode {
 
     try {
       const result = await window.githead.createGitHubPullRequest({
-        repoPath: stateRef.current.repoPath,
+        repoPath,
         title,
         body: dialog.body,
         baseBranch: dialog.baseBranch,
         headBranch: summary.branch,
-        draft: dialog.draft
+        draft: dialog.draft,
+        operationId: createOperation.operationId
       });
 
-      if (!result.ok) {
-        setDialogError(result.error.outcomeUnknown
-          ? `${result.error.message} Check GitHub before retrying; the pull request may have been created.`
-          : result.error.message);
+      if (
+        !isActiveOperationCurrent(createOperation.token) ||
+        !isSameRepoPath(repoPath, stateRef.current.repoPath)
+      ) {
         return;
       }
 
-      updateState((latest) => ({
+      if (!result.ok) {
+        const errorMessage = result.error.outcomeUnknown
+          ? `${result.error.message} Check GitHub before retrying; the pull request may have been created.`
+          : result.error.message;
+        finishActiveOperation(createOperation.token, (latest) => ({
+          ...latest,
+          createPrDialog: {
+            ...latest.createPrDialog,
+            step: "idle",
+            error: errorMessage
+          }
+        }));
+        return;
+      }
+
+      finishActiveOperation(createOperation.token, (latest) => ({
         ...latest,
         createPrDialog: emptyCreatePrDialog,
         lastOperationResult: {
-          repoPath: latest.repoPath,
+          repoPath,
           exitCode: 0,
           stdout: `Created pull request #${result.data.number}: ${result.data.url}`,
           stderr: ""
@@ -3557,20 +3995,20 @@ export function App(): ReactNode {
       void github.ensure("pullRequests");
       void github.ensure("openCounts");
     } catch (error) {
-      setDialogError(error instanceof Error ? error.message : "Unable to create pull request.");
-    } finally {
-      updateState((latest) => ({
+      if (!isActiveOperationCurrent(createOperation.token)) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : "Unable to create pull request.";
+      finishActiveOperation(createOperation.token, (latest) => ({
         ...latest,
-        runningOperation: null,
-        createPrDialog: latest.createPrDialog.open
-          ? {
-              ...latest.createPrDialog,
-              step: "idle"
-            }
-          : latest.createPrDialog
+        createPrDialog: {
+          ...latest.createPrDialog,
+          step: "idle",
+          error: `${message} Check GitHub before retrying; the pull request may have been created.`
+        }
       }));
     }
-  }, [appendSystemLine, ensureTrustedRepo, github, refreshRepo, updateState]);
+  }, [appendSystemLine, createActiveOperation, ensureTrustedRepo, finishActiveOperation, github, isActiveOperationCurrent, isInvocationCurrent, refreshRepo, updateState]);
 
   const createBranch = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
@@ -3591,24 +4029,32 @@ export function App(): ReactNode {
       branchError: ""
     });
 
-    if (!(await ensureTrustedRepo())) {
-      updateState({
-        branchError: "Repository trust is required before creating branches."
-      });
+    const repoPath = current.repoPath;
+    if (!(await ensureTrustedRepo(repoPath))) {
+      if (isSameRepoPath(repoPath, stateRef.current.repoPath) && stateRef.current.branchDialogOpen) {
+        updateState({
+          branchError: "Repository trust is required before creating branches."
+        });
+      }
       return;
     }
+
+    if (!isInvocationCurrent(repoPath, (latest) => (
+      latest.branchDialogOpen &&
+      latest.branchNameDraft.trim() === branchName &&
+      latest.branchCheckoutTarget === current.branchCheckoutTarget
+    ))) return;
 
     const target = current.branchCheckoutTarget;
     const label = target?.kind === "remote" ? `Checking out ${target.remoteBranch}`
       : target?.kind === "pullRequest" ? `Checking out pull request #${target.pullRequest.number}`
       : `Creating branch ${branchName}`;
-    await runRepoOperation(label, null, () => target?.kind === "remote"
-      ? window.githead.checkoutRemoteBranch({ repoPath: stateRef.current.repoPath, branchName, remoteBranch: target.remoteBranch })
+    const result = await runRepoOperation(label, null, (operationId) => target?.kind === "remote"
+      ? window.githead.checkoutRemoteBranch({ repoPath, branchName, remoteBranch: target.remoteBranch, operationId })
       : target?.kind === "pullRequest"
-        ? window.githead.checkoutGitHubPullRequest({ repoPath: stateRef.current.repoPath, branchName, pullRequestNumber: target.pullRequest.number, sourceBranch: target.pullRequest.sourceBranch, sourceRepositoryFullName: target.pullRequest.sourceRepositoryFullName })
-        : window.githead.createBranch({ repoPath: stateRef.current.repoPath, branchName }));
+        ? window.githead.checkoutGitHubPullRequest({ repoPath, branchName, pullRequestNumber: target.pullRequest.number, sourceBranch: target.pullRequest.sourceBranch, sourceRepositoryFullName: target.pullRequest.sourceRepositoryFullName, operationId })
+        : window.githead.createBranch({ repoPath, branchName, operationId }));
 
-    const result = stateRef.current.lastOperationResult;
     if (result?.exitCode === 0) {
       updateState({
         branchDialogOpen: false,
@@ -3622,82 +4068,96 @@ export function App(): ReactNode {
     updateState({
       branchError: getOperationFailureMessage(result, target ? "Unable to check out branch." : "Unable to create branch.")
     });
-  }, [ensureTrustedRepo, runRepoOperation, updateState]);
+  }, [ensureTrustedRepo, isInvocationCurrent, runRepoOperation, updateState]);
 
   const checkoutRemoteBranch = useCallback((remoteBranch: GitRemoteBranch): void => {
-    const summary = stateRef.current.summary;
-    if (!summary?.isValid || isOperationRunning(stateRef.current)) return;
+    const current = stateRef.current;
+    const summary = current.summary;
+    if (!summary?.isValid || isOperationRunning(current)) return;
+    const repoPath = current.repoPath;
     const local = summary.branches.find((branch) => branch.name === remoteBranch.branch);
     if (local && local.upstream !== remoteBranch.name) {
       updateState({ branchDialogOpen: true, branchNameDraft: remoteBranch.branch, branchError: "A different local branch already uses this name. Enter another name.", branchCheckoutTarget: { kind: "remote", remoteBranch: remoteBranch.name } });
       return;
     }
     void (async () => {
-      if (!(await ensureTrustedRepo())) return;
-      await runRepoOperation(`Checking out ${remoteBranch.name}`, null, () => window.githead.checkoutRemoteBranch({ repoPath: stateRef.current.repoPath, branchName: remoteBranch.branch, remoteBranch: remoteBranch.name }));
+      if (!(await ensureTrustedRepo(repoPath)) || !isInvocationCurrent(repoPath)) return;
+      await runRepoOperation(`Checking out ${remoteBranch.name}`, null, (operationId) => window.githead.checkoutRemoteBranch({ repoPath, branchName: remoteBranch.branch, remoteBranch: remoteBranch.name, operationId }));
     })();
-  }, [ensureTrustedRepo, runRepoOperation, updateState]);
+  }, [ensureTrustedRepo, isInvocationCurrent, runRepoOperation, updateState]);
 
   const checkoutPullRequest = useCallback((pullRequest: GitHubPullRequest): void => {
-    const summary = stateRef.current.summary;
-    if (!summary?.isValid || isOperationRunning(stateRef.current) || !pullRequest.sourceBranch) return;
+    const current = stateRef.current;
+    const summary = current.summary;
+    if (!summary?.isValid || isOperationRunning(current) || !pullRequest.sourceBranch) return;
+    const repoPath = current.repoPath;
     if (summary.branches.some((branch) => branch.name === pullRequest.sourceBranch)) {
       updateState({ branchDialogOpen: true, branchNameDraft: pullRequest.sourceBranch, branchError: "A local branch already uses this name. Enter another name.", branchCheckoutTarget: { kind: "pullRequest", pullRequest } });
       return;
     }
     void (async () => {
-      if (!(await ensureTrustedRepo())) return;
-      const result = await runRepoOperation(`Checking out pull request #${pullRequest.number}`, null, () => window.githead.checkoutGitHubPullRequest({ repoPath: stateRef.current.repoPath, branchName: pullRequest.sourceBranch, pullRequestNumber: pullRequest.number, sourceBranch: pullRequest.sourceBranch, sourceRepositoryFullName: pullRequest.sourceRepositoryFullName }));
-      if (result?.errorKind === "branch-name-conflict") updateState({ branchDialogOpen: true, branchNameDraft: pullRequest.sourceBranch, branchError: getOperationFailureMessage(result, "Choose another branch name."), branchCheckoutTarget: { kind: "pullRequest", pullRequest } });
+      if (!(await ensureTrustedRepo(repoPath)) || !isInvocationCurrent(repoPath)) return;
+      const result = await runRepoOperation(`Checking out pull request #${pullRequest.number}`, null, (operationId) => window.githead.checkoutGitHubPullRequest({ repoPath, branchName: pullRequest.sourceBranch, pullRequestNumber: pullRequest.number, sourceBranch: pullRequest.sourceBranch, sourceRepositoryFullName: pullRequest.sourceRepositoryFullName, operationId }));
+      if (result?.errorKind === "branch-name-conflict" && isSameRepoPath(repoPath, stateRef.current.repoPath)) updateState({ branchDialogOpen: true, branchNameDraft: pullRequest.sourceBranch, branchError: getOperationFailureMessage(result, "Choose another branch name."), branchCheckoutTarget: { kind: "pullRequest", pullRequest } });
     })();
-  }, [ensureTrustedRepo, runRepoOperation, updateState]);
+  }, [ensureTrustedRepo, isInvocationCurrent, runRepoOperation, updateState]);
 
   const stageFiles = useCallback(async (paths: string[], nextSelection?: FileSelection): Promise<void> => {
-    await runRepoOperation("Staging files", nextSelection, () =>
+    await runRepoOperation("Staging files", nextSelection, (operationId) =>
       window.githead.stageFiles({
         repoPath: stateRef.current.repoPath,
-        paths
+        paths,
+        operationId
       })
     );
   }, [runRepoOperation]);
 
   const unstageFiles = useCallback(async (paths: string[], nextSelection?: FileSelection): Promise<void> => {
-    await runRepoOperation("Unstaging files", nextSelection, () =>
+    await runRepoOperation("Unstaging files", nextSelection, (operationId) =>
       window.githead.unstageFiles({
         repoPath: stateRef.current.repoPath,
-        paths
+        paths,
+        operationId
       })
     );
   }, [runRepoOperation]);
 
   const applySelectedHunk = useCallback(async (patch: string): Promise<void> => {
-    const selection = stateRef.current.selection;
+    const current = stateRef.current;
+    const selection = current.selection;
     if (!selection) {
       return;
     }
+    const repoPath = current.repoPath;
 
     const result = selection.side === "unstaged"
-      ? await runRepoOperation("Staging hunk", selection, () =>
+      ? await runRepoOperation("Staging hunk", selection, (operationId) =>
           window.githead.stageHunk({
-            repoPath: stateRef.current.repoPath,
+            repoPath,
             path: selection.path,
             side: selection.side,
-            patch
+            patch,
+            operationId
           })
         )
-      : await runRepoOperation("Unstaging hunk", selection, () =>
+      : await runRepoOperation("Unstaging hunk", selection, (operationId) =>
           window.githead.unstageHunk({
-            repoPath: stateRef.current.repoPath,
+            repoPath,
             path: selection.path,
             side: selection.side,
-            patch
+            patch,
+            operationId
           })
         );
 
-    if (result?.exitCode !== 0) {
+    if (result?.exitCode !== 0 || !isSameRepoPath(repoPath, stateRef.current.repoPath)) {
       return;
     }
 
+    await refreshRepo();
+    if (!isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+      return;
+    }
     const nextSelection = resolvePostHunkSelection(stateRef.current.summary, selection);
     updateState({
       selection: nextSelection,
@@ -3707,14 +4167,24 @@ export function App(): ReactNode {
     if (nextSelection) {
       await loadSelectedDiff(nextSelection);
     }
-  }, [loadSelectedDiff, runRepoOperation, updateState]);
+  }, [loadSelectedDiff, refreshRepo, runRepoOperation, updateState]);
 
-  const openGitIdentityPrompt = useCallback(async (retryMessage: string): Promise<void> => {
-    const gitIdentity = stateRef.current.gitIdentity ?? await loadGitIdentity(stateRef.current.repoPath);
+  const openGitIdentityPrompt = useCallback(async (repoPath: string, retryMessage: string): Promise<void> => {
+    const current = stateRef.current;
+    if (!isSameRepoPath(repoPath, current.repoPath) || !current.summary?.isValid) {
+      return;
+    }
+
+    const gitIdentity = current.gitIdentity ?? await loadGitIdentity(repoPath);
+    const latest = stateRef.current;
+    if (!isSameRepoPath(repoPath, latest.repoPath) || !latest.summary?.isValid) {
+      return;
+    }
 
     updateState({
       gitIdentityPrompt: {
         open: true,
+        repoPath,
         name: gitIdentity?.name ?? "",
         email: gitIdentity?.email ?? "",
         scope: gitIdentity?.scope ?? "repository",
@@ -3724,35 +4194,42 @@ export function App(): ReactNode {
     });
   }, [loadGitIdentity, updateState]);
 
-  const commitChanges = useCallback(async (): Promise<void> => {
+  const commitChanges = useCallback(async (): Promise<GitOperationResult | null> => {
     const current = stateRef.current;
     if (!current.summary?.isValid || isOperationRunning(current) || !canCommit(current)) {
-      return;
+      return null;
     }
 
-    if (!(await ensureTrustedRepo())) {
-      return;
+    const repoPath = current.repoPath;
+    const message = current.commitMessage;
+    if (!(await ensureTrustedRepo(repoPath)) || !isInvocationCurrent(repoPath, (latest) => latest.commitMessage === message && canCommit(latest))) {
+      return null;
     }
 
-    await runRepoOperation("Committing changes", null, () =>
+    const result = await runRepoOperation("Committing changes", null, (operationId) =>
       window.githead.commitChanges({
-        repoPath: stateRef.current.repoPath,
-        message: stateRef.current.commitMessage
+        repoPath,
+        message,
+        operationId
       })
     );
 
-    const result = stateRef.current.lastOperationResult;
-    if (result?.exitCode === 0) {
+    if (!result || !isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+      return null;
+    }
+
+    if (result.exitCode === 0) {
       updateState({
         commitMessage: ""
       });
-      return;
+      return result;
     }
 
-    if (result?.errorKind === "missing-author-identity") {
-      await openGitIdentityPrompt(stateRef.current.commitMessage);
+    if (result.errorKind === "missing-author-identity") {
+      await openGitIdentityPrompt(repoPath, message);
     }
-  }, [ensureTrustedRepo, openGitIdentityPrompt, runRepoOperation, updateState]);
+    return result;
+  }, [ensureTrustedRepo, isInvocationCurrent, openGitIdentityPrompt, runRepoOperation, updateState]);
 
   const commitAndPush = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
@@ -3760,8 +4237,8 @@ export function App(): ReactNode {
       return;
     }
 
-    await commitChanges();
-    if (stateRef.current.lastOperationResult?.exitCode === 0 && canPush(stateRef.current.summary)) {
+    const result = await commitChanges();
+    if (result?.exitCode === 0 && canPush(stateRef.current.summary)) {
       await runAction("push");
     }
   }, [commitChanges, runAction]);
@@ -3772,7 +4249,13 @@ export function App(): ReactNode {
       return false;
     }
 
+    const activeOperation = createActiveOperation(
+      "Generating commit message",
+      current.repoPath,
+      "repo-operation"
+    );
     updateState({
+      activeOperation,
       runningOperation: "Generating commit message",
       lastOperationResult: null
     });
@@ -3780,9 +4263,13 @@ export function App(): ReactNode {
     try {
       const trimmedContext = additionalContext?.trim();
       const result = await window.githead.generateCommitMessage({
-        repoPath: stateRef.current.repoPath,
-        ...(trimmedContext ? { additionalContext: trimmedContext } : {})
+        repoPath: current.repoPath,
+        ...(trimmedContext ? { additionalContext: trimmedContext } : {}),
+        operationId: activeOperation.operationId
       });
+      if (!isActiveOperationCurrent(activeOperation.token)) {
+        return false;
+      }
       const generatedMessage = result.exitCode === 0 ? result.stdout.trim() : stateRef.current.commitMessage;
       updateState({
         lastOperationResult: result.exitCode === 0
@@ -3797,23 +4284,24 @@ export function App(): ReactNode {
       return result.exitCode === 0;
     } catch (error) {
       const lastOperationResult: GitOperationResult = {
-        repoPath: stateRef.current.repoPath,
+        repoPath: current.repoPath,
         exitCode: -1,
         stdout: "",
         stderr: error instanceof Error ? error.message : "Unable to generate commit message."
       };
 
+      if (!isActiveOperationCurrent(activeOperation.token)) {
+        return false;
+      }
       updateState({
         lastOperationResult
       });
       appendOperationLog("Generating commit message", lastOperationResult);
       return false;
     } finally {
-      updateState({
-        runningOperation: null
-      });
+      finishActiveOperation(activeOperation.token);
     }
-  }, [appendOperationLog, updateState]);
+  }, [appendOperationLog, createActiveOperation, finishActiveOperation, isActiveOperationCurrent, updateState]);
 
   const openSettingsDialog = useCallback((): void => {
     const settings = stateRef.current.aiSettings;
@@ -3857,18 +4345,26 @@ export function App(): ReactNode {
   }, [updateState]);
 
   const saveSettings = useCallback(async (): Promise<void> => {
-    if (stateRef.current.settingsSaving) {
+    const initial = stateRef.current;
+    if (initial.settingsSaving) {
       return;
     }
 
+    const draft = initial.settingsDraft;
+    const repoPath = initial.repoPath;
+    const operation = createActiveOperation("Saving settings", repoPath, "settings-save");
     updateState({
+      activeOperation: operation,
       settingsError: "",
       settingsSaving: true
     });
 
+    const isSaveCurrent = (): boolean => (
+      isActiveOperationCurrent(operation.token) &&
+      isSameRepoPath(repoPath, stateRef.current.repoPath)
+    );
+
     try {
-      const initial = stateRef.current;
-      const draft = initial.settingsDraft;
       const shouldSaveAiSettings = hasAiSettingsChanges(draft, initial.aiSettings);
       const shouldSaveAppSettings = hasAppSettingsChanges(draft, initial.appSettings);
       const hasGitIdentityValues = draft.gitIdentityName.trim().length > 0 || draft.gitIdentityEmail.trim().length > 0;
@@ -3877,23 +4373,30 @@ export function App(): ReactNode {
       let aiSettings = initial.aiSettings;
       let appSettings = initial.appSettings;
 
-      if (shouldSaveGitIdentity && draft.gitIdentityScope === "repository" && !(await ensureTrustedRepo())) {
-        updateState({
-          settingsSaving: false
-        });
+      if (
+        shouldSaveGitIdentity &&
+        draft.gitIdentityScope === "repository" &&
+        !(await ensureTrustedRepo(repoPath, isSaveCurrent))
+      ) {
         return;
       }
+      if (!isSaveCurrent()) return;
 
       if (shouldSaveGitIdentity) {
         gitIdentity = await window.githead.saveGitIdentity({
-          repoPath: stateRef.current.repoPath,
+          repoPath,
           name: draft.gitIdentityName,
           email: draft.gitIdentityEmail,
-          scope: draft.gitIdentityScope
+          scope: draft.gitIdentityScope,
+          operationId: operation.operationId
         });
+        if (!isSaveCurrent()) {
+          return;
+        }
       }
 
       if (shouldSaveAiSettings) {
+        if (!isSaveCurrent()) return;
         aiSettings = await window.githead.saveAiSettings({
           selectedProvider: draft.selectedProvider,
           providerModels: draft.providerModels,
@@ -3905,16 +4408,20 @@ export function App(): ReactNode {
           commitMessagePrompt: draft.commitMessagePrompt,
           prDescriptionPrompt: draft.prDescriptionPrompt
         });
+        if (!isSaveCurrent()) return;
       }
       if (shouldSaveAppSettings) {
+        if (!isSaveCurrent()) return;
         appSettings = await window.githead.saveAppSettings({
           autoFetchIntervalMinutes: parseAutoFetchIntervalDraft(draft.autoFetchIntervalMinutes),
           colorTheme: draft.colorTheme,
           appearanceMode: draft.appearanceMode,
           zoomFactor: draft.zoomFactor,
-          statusFileViewMode: stateRef.current.appSettings?.statusFileViewMode ?? "list"
+          statusFileViewMode: initial.appSettings?.statusFileViewMode ?? "list"
         });
+        if (!isSaveCurrent()) return;
       }
+      if (!isSaveCurrent()) return;
       updateState({
         gitIdentity,
         aiSettings,
@@ -3922,15 +4429,14 @@ export function App(): ReactNode {
         settingsOpen: false
       });
     } catch (error) {
+      if (!isSaveCurrent()) return;
       updateState({
         settingsError: error instanceof Error ? error.message : "Unable to save settings."
       });
     } finally {
-      updateState({
-        settingsSaving: false
-      });
+      finishActiveOperation(operation.token);
     }
-  }, [ensureTrustedRepo, updateState]);
+  }, [createActiveOperation, ensureTrustedRepo, finishActiveOperation, isActiveOperationCurrent, updateState]);
 
   const closeGitIdentityPrompt = useCallback((): void => {
     if (stateRef.current.gitIdentitySaving) {
@@ -3949,11 +4455,29 @@ export function App(): ReactNode {
       return;
     }
 
-    if (prompt.scope === "repository" && !(await ensureTrustedRepo())) {
+    const repoPath = prompt.repoPath;
+    if (!repoPath || !isSameRepoPath(repoPath, current.repoPath) || !current.summary?.isValid) {
+      return;
+    }
+    if (prompt.scope === "repository" && !(await ensureTrustedRepo(repoPath))) {
       return;
     }
 
+    if (!isInvocationCurrent(repoPath, (latest) => (
+      latest.gitIdentityPrompt.open
+      && isSameRepoPath(latest.gitIdentityPrompt.repoPath, repoPath)
+      && latest.gitIdentityPrompt.name === prompt.name
+      && latest.gitIdentityPrompt.email === prompt.email
+      && latest.gitIdentityPrompt.scope === prompt.scope
+      && latest.gitIdentityPrompt.retryMessage === prompt.retryMessage
+    ))) {
+      return;
+    }
+
+    const operation = createActiveOperation("Saving Git identity", repoPath, "identity-save");
+
     updateState({
+      activeOperation: operation,
       gitIdentitySaving: true,
       gitIdentityPrompt: {
         ...prompt,
@@ -3963,31 +4487,44 @@ export function App(): ReactNode {
 
     try {
       const gitIdentity = await window.githead.saveGitIdentity({
-        repoPath: stateRef.current.repoPath,
-        name: stateRef.current.gitIdentityPrompt.name,
-        email: stateRef.current.gitIdentityPrompt.email,
-        scope: stateRef.current.gitIdentityPrompt.scope
+        repoPath,
+        name: prompt.name,
+        email: prompt.email,
+        scope: prompt.scope,
+        operationId: operation.operationId
       });
-      const retryMessage = stateRef.current.gitIdentityPrompt.retryMessage;
+      if (!isActiveOperationCurrent(operation.token)) {
+        return;
+      }
+      const retryMessage = prompt.retryMessage;
 
-      updateState({
+      finishActiveOperation(operation.token, (latest) => ({
+        ...latest,
         gitIdentity,
         gitIdentityPrompt: emptyGitIdentityPrompt
-      });
+      }));
 
-      await runRepoOperation("Committing changes", null, () =>
+      if (!isInvocationCurrent(repoPath)) {
+        return;
+      }
+
+      const result = await runRepoOperation("Committing changes", null, (operationId) =>
         window.githead.commitChanges({
-          repoPath: stateRef.current.repoPath,
-          message: retryMessage
+          repoPath,
+          message: retryMessage,
+          operationId
         })
       );
 
-      if (stateRef.current.lastOperationResult?.exitCode === 0) {
+      if (result?.exitCode === 0) {
         updateState({
           commitMessage: ""
         });
       }
     } catch (error) {
+      if (!isActiveOperationCurrent(operation.token)) {
+        return;
+      }
       updateState((latest) => ({
         ...latest,
         gitIdentityPrompt: {
@@ -3996,11 +4533,9 @@ export function App(): ReactNode {
         }
       }));
     } finally {
-      updateState({
-        gitIdentitySaving: false
-      });
+      finishActiveOperation(operation.token);
     }
-  }, [ensureTrustedRepo, runRepoOperation, updateState]);
+  }, [createActiveOperation, ensureTrustedRepo, finishActiveOperation, isActiveOperationCurrent, isInvocationCurrent, runRepoOperation, updateState]);
 
   const openExternalUrl = useCallback((url: string): void => {
     void window.githead.openExternalUrl({
@@ -4195,24 +4730,26 @@ export function App(): ReactNode {
     if (!current.summary?.isValid || isOperationRunning(current)) {
       return;
     }
-
-    updateState({
-      runningOperation: "Copying commit SHA",
-      lastOperationResult: null
-    });
+    const repoPath = current.repoPath;
 
     try {
       const lastOperationResult = await window.githead.copyCommitShaToClipboard({
-        repoPath: stateRef.current.repoPath,
+        repoPath,
         hash: commit.hash
       });
+      if (!isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        return;
+      }
       updateState({
         lastOperationResult
       });
       appendOperationLog("Copying commit SHA", lastOperationResult);
     } catch (error) {
+      if (!isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        return;
+      }
       const lastOperationResult: GitOperationResult = {
-        repoPath: stateRef.current.repoPath,
+        repoPath,
         exitCode: -1,
         stdout: "",
         stderr: error instanceof Error ? error.message : "Copying commit SHA failed."
@@ -4221,10 +4758,6 @@ export function App(): ReactNode {
         lastOperationResult
       });
       appendOperationLog("Copying commit SHA", lastOperationResult);
-    } finally {
-      updateState({
-        runningOperation: null
-      });
     }
   }, [appendOperationLog, updateState]);
 
@@ -4282,17 +4815,19 @@ export function App(): ReactNode {
         window.githead.openFile({
           repoPath,
           path: file.path
-        })
+        }),
+        { cancellable: false }
       );
       return;
     }
 
     if (action === "open-selected") {
-      void runRepoOperation("Opening selected file version", undefined, () =>
+      void runRepoOperation("Opening selected file version", undefined, (operationId) =>
         window.githead.openCommitFileVersion({
           repoPath,
           hash,
-          path: file.path
+          path: file.path,
+          operationId
         })
       );
       return;
@@ -4302,7 +4837,8 @@ export function App(): ReactNode {
       window.githead.copyPathToClipboard({
         repoPath,
         path: file.path
-      })
+      }),
+      { cancellable: false }
     );
   }, [loadFileBlame, loadFileHistory, openResetCommitFileDialog, runRepoOperation, selectCommitFile]);
 
@@ -4310,6 +4846,7 @@ export function App(): ReactNode {
     const current = stateRef.current;
     const dialog = current.tagDialog;
     const tagName = dialog.tagName.trim();
+    const repoPath = current.repoPath;
 
     if (!current.summary?.isValid || isOperationRunning(current) || !dialog.hash) {
       return;
@@ -4332,29 +4869,36 @@ export function App(): ReactNode {
       }
     });
 
-    if (!(await ensureTrustedRepo())) {
-      updateState({
-        tagDialog: {
-          ...stateRef.current.tagDialog,
-          error: "Repository trust is required before creating tags."
-        }
-      });
+    if (!(await ensureTrustedRepo(repoPath))) {
+      if (isSameRepoPath(repoPath, stateRef.current.repoPath) && stateRef.current.tagDialog.hash === dialog.hash) {
+        updateState((latest) => ({
+          ...latest,
+          tagDialog: {
+            ...latest.tagDialog,
+            error: "Repository trust is required before creating tags."
+          }
+        }));
+      }
       return;
     }
 
-    await runRepoOperation(`Creating tag ${tagName}`, null, () =>
+    if (!isInvocationCurrent(repoPath, (latest) => (
+      latest.tagDialog.hash === dialog.hash && latest.tagDialog.tagName.trim() === tagName
+    ))) return;
+
+    const result = await runRepoOperation(`Creating tag ${tagName}`, null, (operationId) =>
       window.githead.createTag({
-        repoPath: stateRef.current.repoPath,
-        hash: stateRef.current.tagDialog.hash,
+        repoPath,
+        hash: dialog.hash,
         tagName,
-        message: stateRef.current.tagDialog.message,
-        lightweight: stateRef.current.tagDialog.lightweight,
-        force: stateRef.current.tagDialog.force,
-        pushRemote: stateRef.current.tagDialog.pushRemote
+        message: dialog.message,
+        lightweight: dialog.lightweight,
+        force: dialog.force,
+        pushRemote: dialog.pushRemote,
+        operationId
       })
     );
 
-    const result = stateRef.current.lastOperationResult;
     if (result?.exitCode === 0) {
       updateState({
         tagDialog: emptyTagDialog
@@ -4368,12 +4912,13 @@ export function App(): ReactNode {
         error: getOperationFailureMessage(result, "Unable to create tag.")
       }
     });
-  }, [ensureTrustedRepo, runRepoOperation, updateState]);
+  }, [ensureTrustedRepo, isInvocationCurrent, runRepoOperation, updateState]);
 
   const deleteTag = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
     const dialog = current.tagDialog;
     const tagName = dialog.deleteTagName.trim();
+    const repoPath = current.repoPath;
 
     if (!current.summary?.isValid || isOperationRunning(current) || !dialog.hash) {
       return;
@@ -4406,25 +4951,34 @@ export function App(): ReactNode {
       }
     });
 
-    if (!(await ensureTrustedRepo())) {
-      updateState({
-        tagDialog: {
-          ...stateRef.current.tagDialog,
-          error: "Repository trust is required before removing tags."
-        }
-      });
+    if (!(await ensureTrustedRepo(repoPath))) {
+      if (isSameRepoPath(repoPath, stateRef.current.repoPath) && stateRef.current.tagDialog.hash === dialog.hash) {
+        updateState((latest) => ({
+          ...latest,
+          tagDialog: {
+            ...latest.tagDialog,
+            error: "Repository trust is required before removing tags."
+          }
+        }));
+      }
       return;
     }
 
-    await runRepoOperation(`Removing tag ${tagName}`, null, () =>
+    if (!isInvocationCurrent(repoPath, (latest) => (
+      latest.tagDialog.hash === dialog.hash &&
+      latest.tagDialog.deleteTagName.trim() === tagName &&
+      latest.tagDialog.deleteConfirmed
+    ))) return;
+
+    const result = await runRepoOperation(`Removing tag ${tagName}`, null, (operationId) =>
       window.githead.deleteTag({
-        repoPath: stateRef.current.repoPath,
+        repoPath,
         tagName,
-        pushRemote: stateRef.current.tagDialog.deletePushRemote
+        pushRemote: dialog.deletePushRemote,
+        operationId
       })
     );
 
-    const result = stateRef.current.lastOperationResult;
     if (result?.exitCode === 0) {
       updateState({
         tagDialog: emptyTagDialog
@@ -4438,11 +4992,12 @@ export function App(): ReactNode {
         error: getOperationFailureMessage(result, "Unable to remove tag.")
       }
     });
-  }, [ensureTrustedRepo, runRepoOperation, updateState]);
+  }, [ensureTrustedRepo, isInvocationCurrent, runRepoOperation, updateState]);
 
   const resetBranchToCommit = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
     const dialog = current.resetCommitDialog;
+    const repoPath = current.repoPath;
 
     if (!current.summary?.isValid || isOperationRunning(current) || !dialog.hash) {
       return;
@@ -4455,25 +5010,32 @@ export function App(): ReactNode {
       }
     });
 
-    if (!(await ensureTrustedRepo())) {
-      updateState({
-        resetCommitDialog: {
-          ...stateRef.current.resetCommitDialog,
-          error: "Repository trust is required before resetting branches."
-        }
-      });
+    if (!(await ensureTrustedRepo(repoPath))) {
+      if (isSameRepoPath(repoPath, stateRef.current.repoPath) && stateRef.current.resetCommitDialog.hash === dialog.hash) {
+        updateState((latest) => ({
+          ...latest,
+          resetCommitDialog: {
+            ...latest.resetCommitDialog,
+            error: "Repository trust is required before resetting branches."
+          }
+        }));
+      }
       return;
     }
 
-    await runRepoOperation("Resetting branch to commit", null, () =>
+    if (!isInvocationCurrent(repoPath, (latest) => (
+      latest.resetCommitDialog.hash === dialog.hash && latest.resetCommitDialog.mode === dialog.mode
+    ))) return;
+
+    const result = await runRepoOperation("Resetting branch to commit", null, (operationId) =>
       window.githead.resetBranchToCommit({
-        repoPath: stateRef.current.repoPath,
-        hash: stateRef.current.resetCommitDialog.hash,
-        mode: stateRef.current.resetCommitDialog.mode
+        repoPath,
+        hash: dialog.hash,
+        mode: dialog.mode,
+        operationId
       })
     );
 
-    const result = stateRef.current.lastOperationResult;
     if (result?.exitCode === 0) {
       updateState({
         resetCommitDialog: emptyResetCommitDialog
@@ -4487,11 +5049,12 @@ export function App(): ReactNode {
         error: getOperationFailureMessage(result, "Unable to reset branch.")
       }
     });
-  }, [ensureTrustedRepo, runRepoOperation, updateState]);
+  }, [ensureTrustedRepo, isInvocationCurrent, runRepoOperation, updateState]);
 
   const resetFilesToCommit = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
     const dialog = current.resetCommitFileDialog;
+    const repoPath = current.repoPath;
 
     if (!current.summary?.isValid || isOperationRunning(current) || !dialog.hash || dialog.paths.length === 0) {
       return;
@@ -4504,27 +5067,35 @@ export function App(): ReactNode {
       }
     });
 
-    if (!(await ensureTrustedRepo())) {
-      updateState({
-        resetCommitFileDialog: {
-          ...stateRef.current.resetCommitFileDialog,
-          error: "Repository trust is required before resetting files."
-        }
-      });
+    if (!(await ensureTrustedRepo(repoPath))) {
+      if (isSameRepoPath(repoPath, stateRef.current.repoPath) && stateRef.current.resetCommitFileDialog.hash === dialog.hash) {
+        updateState((latest) => ({
+          ...latest,
+          resetCommitFileDialog: {
+            ...latest.resetCommitFileDialog,
+            error: "Repository trust is required before resetting files."
+          }
+        }));
+      }
       return;
     }
 
-    await runRepoOperation(
+    if (!isInvocationCurrent(repoPath, (latest) => (
+      latest.resetCommitFileDialog.hash === dialog.hash &&
+      latest.resetCommitFileDialog.paths.join("\n") === dialog.paths.join("\n")
+    ))) return;
+
+    const result = await runRepoOperation(
       dialog.paths.length === 1 ? "Resetting file to commit" : "Resetting files to commit",
       null,
-      () => window.githead.resetFilesToCommit({
-        repoPath: stateRef.current.repoPath,
-        hash: stateRef.current.resetCommitFileDialog.hash,
-        paths: stateRef.current.resetCommitFileDialog.paths
+      (operationId) => window.githead.resetFilesToCommit({
+        repoPath,
+        hash: dialog.hash,
+        paths: dialog.paths,
+        operationId
       })
     );
 
-    const result = stateRef.current.lastOperationResult;
     if (result?.exitCode === 0) {
       updateState({
         resetCommitFileDialog: emptyResetCommitFileDialog
@@ -4538,7 +5109,7 @@ export function App(): ReactNode {
         error: getOperationFailureMessage(result, "Unable to reset file.")
       }
     });
-  }, [ensureTrustedRepo, runRepoOperation, updateState]);
+  }, [ensureTrustedRepo, isInvocationCurrent, runRepoOperation, updateState]);
 
   const copyResetCommitFileDialogPaths = useCallback(async (): Promise<void> => {
     const paths = stateRef.current.resetCommitFileDialog.paths;
@@ -4562,6 +5133,7 @@ export function App(): ReactNode {
   const revertCommit = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
     const dialog = current.revertCommitDialog;
+    const repoPath = current.repoPath;
 
     if (!current.summary?.isValid || isOperationRunning(current) || !dialog.hash) {
       return;
@@ -4574,24 +5146,29 @@ export function App(): ReactNode {
       }
     });
 
-    if (!(await ensureTrustedRepo())) {
-      updateState({
-        revertCommitDialog: {
-          ...stateRef.current.revertCommitDialog,
-          error: "Repository trust is required before reversing commits."
-        }
-      });
+    if (!(await ensureTrustedRepo(repoPath))) {
+      if (isSameRepoPath(repoPath, stateRef.current.repoPath) && stateRef.current.revertCommitDialog.hash === dialog.hash) {
+        updateState((latest) => ({
+          ...latest,
+          revertCommitDialog: {
+            ...latest.revertCommitDialog,
+            error: "Repository trust is required before reversing commits."
+          }
+        }));
+      }
       return;
     }
 
-    await runRepoOperation("Reversing commit", null, () =>
+    if (!isInvocationCurrent(repoPath, (latest) => latest.revertCommitDialog.hash === dialog.hash)) return;
+
+    const result = await runRepoOperation("Reversing commit", null, (operationId) =>
       window.githead.revertCommit({
-        repoPath: stateRef.current.repoPath,
-        hash: stateRef.current.revertCommitDialog.hash
+        repoPath,
+        hash: dialog.hash,
+        operationId
       })
     );
 
-    const result = stateRef.current.lastOperationResult;
     if (result?.exitCode === 0) {
       updateState({
         revertCommitDialog: emptyRevertCommitDialog
@@ -4605,7 +5182,7 @@ export function App(): ReactNode {
         error: getOperationFailureMessage(result, "Unable to reverse commit.")
       }
     });
-  }, [ensureTrustedRepo, runRepoOperation, updateState]);
+  }, [ensureTrustedRepo, isInvocationCurrent, runRepoOperation, updateState]);
 
   const runContextFileOperation = useCallback(async (
     file: GitStatusFile,
@@ -4636,8 +5213,8 @@ export function App(): ReactNode {
 
     const repoPath = stateRef.current.repoPath;
     if (kind === "update-submodule") {
-      await runRepoOperation(`Updating submodule ${file.path}`, undefined, () =>
-        window.githead.updateSubmodules({ repoPath, path: file.path })
+      await runRepoOperation(`Updating submodule ${file.path}`, undefined, (operationId) =>
+        window.githead.updateSubmodules({ repoPath, path: file.path, operationId })
       );
       return;
     }
@@ -4650,7 +5227,8 @@ export function App(): ReactNode {
         window.githead.openFile({
           repoPath,
           path: file.path
-        })
+        }),
+        { cancellable: false }
       );
       return;
     }
@@ -4659,7 +5237,8 @@ export function App(): ReactNode {
         window.githead.showInExplorer({
           repoPath,
           path: file.path
-        })
+        }),
+        { cancellable: false }
       );
       return;
     }
@@ -4668,47 +5247,51 @@ export function App(): ReactNode {
         window.githead.copyPathToClipboard({
           repoPath,
           path: file.path
-        })
+        }),
+        { cancellable: false }
       );
       return;
     }
     if (kind === "delete") {
-      await runRepoOperation(paths.length === 1 ? "Deleting file" : "Deleting files", null, () =>
+      await runRepoOperation(paths.length === 1 ? "Deleting file" : "Deleting files", null, (operationId) =>
         window.githead.deleteFiles({
           repoPath,
-          paths
+          paths,
+          operationId
         })
       );
       return;
     }
     if (kind === "revert") {
-      await runRepoOperation(paths.length === 1 ? "Reverting changes" : "Reverting selected changes", null, () =>
+      await runRepoOperation(paths.length === 1 ? "Reverting changes" : "Reverting selected changes", null, (operationId) =>
         window.githead.revertFileChanges({
           repoPath,
           paths,
-          side
+          side,
+          operationId
         })
       );
       return;
     }
 
-    await runRepoOperation("Adding to ignore", undefined, () =>
+    await runRepoOperation("Adding to ignore", undefined, (operationId) =>
       window.githead.addPathToIgnore({
         repoPath,
-        path: file.path
+        path: file.path,
+        operationId
       })
     );
   }, [runRepoOperation, stageFiles, switchRepo, unstageFiles]);
 
   const updateSubmodules = useCallback(async (path?: string): Promise<void> => {
-    await runRepoOperation(path ? `Updating submodule ${path}` : "Updating submodules", undefined, () =>
-      window.githead.updateSubmodules({ repoPath: stateRef.current.repoPath, ...(path ? { path } : {}) })
+    await runRepoOperation(path ? `Updating submodule ${path}` : "Updating submodules", undefined, (operationId) =>
+      window.githead.updateSubmodules({ repoPath: stateRef.current.repoPath, ...(path ? { path } : {}), operationId })
     );
   }, [runRepoOperation]);
 
   const syncSubmodules = useCallback(async (): Promise<void> => {
-    await runRepoOperation("Synchronizing submodule URLs", undefined, () =>
-      window.githead.syncSubmodules({ repoPath: stateRef.current.repoPath })
+    await runRepoOperation("Synchronizing submodule URLs", undefined, (operationId) =>
+      window.githead.syncSubmodules({ repoPath: stateRef.current.repoPath, operationId })
     );
   }, [runRepoOperation]);
 
@@ -4761,11 +5344,138 @@ export function App(): ReactNode {
     void window.githead.closeWindow().catch(() => undefined);
   }, []);
 
-  const cancelRunningOperation = useCallback((): void => {
-    const repoPath = stateRef.current.repoPath;
-    if (!repoPath) return;
-    void window.githead.cancelGitOperation({ repoPath });
-  }, []);
+  const cancelRunningOperation = useCallback(async (requestedTarget?: RendererCancellationTarget): Promise<void> => {
+    const current = stateRef.current;
+    const active = current.activeOperation?.cancellable ? current.activeOperation : null;
+    const hasUnrelatedOwner = Boolean(
+      current.activeOperation || current.runningAction || current.runningOperation ||
+      current.cloneRunning || current.cloneCheckRunning || current.safeDirectoryRunning ||
+      current.settingsSaving || current.gitIdentitySaving || current.actionManager.savingTarget
+    );
+    const configured = active || hasUnrelatedOwner ? null : current.configuredActionRuns.at(-1) ?? null;
+    const target = requestedTarget ?? (active
+      ? { kind: "active" as const, token: active.token, operationId: active.operationId }
+      : configured
+        ? { kind: "configured" as const, id: configured.id, operationId: configured.operationId }
+        : null);
+    if (!target) return;
+
+    const targetStillExists = target.kind === "active"
+      ? current.activeOperation?.token === target.token && current.activeOperation.operationId === target.operationId
+      : current.configuredActionRuns.some((run) => run.id === target.id && run.operationId === target.operationId);
+    if (!targetStillExists) return;
+
+    updateState((latest) => target.kind === "active"
+      ? latest.activeOperation?.token === target.token
+        ? {
+            ...latest,
+            activeOperation: {
+              ...latest.activeOperation,
+              cancelStatus: "canceling",
+              cancelError: ""
+            }
+          }
+        : latest
+      : {
+          ...latest,
+          configuredActionRuns: latest.configuredActionRuns.map((run) => run.id === target.id
+            ? { ...run, cancelStatus: "canceling", cancelError: "" }
+            : run)
+        });
+
+    try {
+      const result = await window.githead.cancelGitOperation({ operationId: target.operationId });
+      if (result.accepted) {
+        return;
+      }
+
+      const cancelError = result.state === "not-owner"
+        ? "This operation belongs to another app session and cannot be canceled here."
+        : "The tracked operation is no longer running.";
+      updateState((latest) => target.kind === "active"
+        ? latest.activeOperation?.token === target.token
+          ? {
+              ...latest,
+              activeOperation: {
+                ...latest.activeOperation,
+                cancelStatus: "not-found",
+                cancelError
+              }
+            }
+          : latest
+        : {
+            ...latest,
+            configuredActionRuns: latest.configuredActionRuns.map((run) => run.id === target.id
+              ? { ...run, cancelStatus: "not-found", cancelError }
+              : run)
+          });
+    } catch (error) {
+      const cancelError = error instanceof Error ? error.message : "Unable to request cancellation.";
+      updateState((latest) => target.kind === "active"
+        ? latest.activeOperation?.token === target.token
+          ? {
+              ...latest,
+              activeOperation: {
+                ...latest.activeOperation,
+                cancelStatus: "error",
+                cancelError
+              }
+            }
+          : latest
+        : {
+            ...latest,
+            configuredActionRuns: latest.configuredActionRuns.map((run) => run.id === target.id
+              ? { ...run, cancelStatus: "error", cancelError }
+              : run)
+          });
+    }
+  }, [updateState]);
+
+  const dismissStaleOperation = useCallback((): void => {
+    const current = stateRef.current;
+    const active = current.activeOperation;
+    if (active && (active.cancelStatus === "not-found" || active.cancelStatus === "error")) {
+      finishActiveOperation(active.token);
+      return;
+    }
+
+    if (active) {
+      return;
+    }
+    const configured = current.configuredActionRuns.at(-1);
+    if (!configured || (configured.cancelStatus !== "not-found" && configured.cancelStatus !== "error")) {
+      return;
+    }
+    updateState((latest) => ({
+      ...latest,
+      configuredActionRuns: latest.configuredActionRuns.filter((run) => run.id !== configured.id)
+    }));
+  }, [finishActiveOperation, updateState]);
+
+  const requestModalClose = useCallback((
+    operationKinds: readonly ActiveRendererOperationKind[],
+    close: () => void
+  ): void => {
+    const active = stateRef.current.activeOperation;
+    if (!active || !operationKinds.includes(active.kind)) {
+      close();
+      return;
+    }
+
+    if (active.cancelStatus === "not-found" || active.cancelStatus === "error") {
+      finishActiveOperation(active.token);
+      close();
+      return;
+    }
+
+    if (active.cancellable) {
+      void cancelRunningOperation({
+        kind: "active",
+        token: active.token,
+        operationId: active.operationId
+      });
+    }
+  }, [cancelRunningOperation, finishActiveOperation]);
 
   const stagedFiles = useMemo(() => getStagedFiles(state.summary), [state.summary]);
   const unstagedFiles = useMemo(() => getUnstagedFiles(state.summary), [state.summary]);
@@ -4774,6 +5484,23 @@ export function App(): ReactNode {
   const disableActions = running || !isValid;
   const primaryCommitAction = getPrimaryCommitAction(state.summary);
   const actionHeading = getActionHeading(state);
+  const cancellationTarget = state.activeOperation
+    ? state.activeOperation.cancellable ? state.activeOperation : null
+    : state.runningAction || state.runningOperation || state.cloneRunning || state.cloneCheckRunning ||
+      state.safeDirectoryRunning || state.settingsSaving || state.gitIdentitySaving || state.actionManager.savingTarget
+      ? null
+      : state.configuredActionRuns.at(-1) ?? null;
+  const cancellationRequestTarget: RendererCancellationTarget | null = cancellationTarget
+    ? "token" in cancellationTarget
+      ? { kind: "active", token: cancellationTarget.token, operationId: cancellationTarget.operationId }
+      : { kind: "configured", id: cancellationTarget.id, operationId: cancellationTarget.operationId }
+    : null;
+  const cloneCancellation = state.activeOperation?.kind === "clone" || state.activeOperation?.kind === "clone-check"
+    ? state.activeOperation
+    : null;
+  const cloneCancellationRequestTarget: RendererCancellationTarget | null = cloneCancellation
+    ? { kind: "active", token: cloneCancellation.token, operationId: cloneCancellation.operationId }
+    : null;
   const showGitHubTabs = Boolean(state.summary?.githubRepository);
   const pullRequestTabCount = github.counts.data ? formatCompactCount(github.counts.data.pullRequests) : null;
   const issueTabCount = github.counts.data ? formatCompactCount(github.counts.data.issues) : null;
@@ -4800,6 +5527,8 @@ export function App(): ReactNode {
           cloneCheckStatus={state.cloneCheckStatus}
           cloneCheckMessage={state.cloneCheckMessage}
           cloneBranches={state.cloneBranches}
+          cancelStatus={cloneCancellation?.cancelStatus ?? "idle"}
+          cancelError={cloneCancellation?.cancelError ?? ""}
           running={running}
           onChooseRepo={() => {
             void chooseRepo();
@@ -4832,12 +5561,16 @@ export function App(): ReactNode {
             event.preventDefault();
             void cloneRepository();
           }}
+          onCancelOperation={() => {
+            if (cloneCancellationRequestTarget) void cancelRunningOperation(cloneCancellationRequestTarget);
+          }}
+          onDismissOperation={dismissStaleOperation}
         />
         <SafeDirectoryDialog
           open={state.safeDirectoryDialogOpen}
           safeDirectory={state.summary?.safeDirectory ?? null}
           saving={state.safeDirectoryRunning}
-          onCancel={closeSafeDirectoryDialog}
+          onCancel={() => requestModalClose(["safe-directory"], closeSafeDirectoryDialog)}
           onAllow={() => {
             void allowSafeDirectory();
           }}
@@ -4873,6 +5606,8 @@ export function App(): ReactNode {
             cloneCheckStatus={state.cloneCheckStatus}
             cloneCheckMessage={state.cloneCheckMessage}
             cloneBranches={state.cloneBranches}
+            cancelStatus={cloneCancellation?.cancelStatus ?? "idle"}
+            cancelError={cloneCancellation?.cancelError ?? ""}
             onClonePanelOpenChange={setClonePanelOpen}
             onChooseRepo={() => {
               void chooseRepo();
@@ -4915,6 +5650,10 @@ export function App(): ReactNode {
               event.preventDefault();
               void cloneRepository();
             }}
+            onCancelOperation={() => {
+              if (cloneCancellationRequestTarget) void cancelRunningOperation(cloneCancellationRequestTarget);
+            }}
+            onDismissOperation={dismissStaleOperation}
             onCheckForUpdates={() => {
               void checkForAppUpdates();
             }}
@@ -4935,7 +5674,9 @@ export function App(): ReactNode {
               runningAction={state.runningAction}
               configuredActionRuns={state.configuredActionRuns}
               disabled={disableActions}
-              cancellable={Boolean(state.runningAction || state.runningOperation || state.configuredActionRuns.length)}
+              cancellable={Boolean(cancellationTarget)}
+              cancelStatus={cancellationTarget?.cancelStatus ?? "idle"}
+              cancelError={cancellationTarget?.cancelError ?? ""}
               showCreatePullRequest={shouldShowCreatePullRequest(state.summary, historyInsights.data.currentBranchPullRequests, historyInsights.loaded)}
               branchPullRequests={historyInsights.data.currentBranchPullRequests}
               onOpenExternalUrl={openExternalUrl}
@@ -4948,7 +5689,10 @@ export function App(): ReactNode {
               }}
               onManageActions={openActionManager}
               onCreatePullRequest={openCreatePrDialog}
-              onCancel={cancelRunningOperation}
+              onCancel={() => {
+                if (cancellationRequestTarget) void cancelRunningOperation(cancellationRequestTarget);
+              }}
+              onDismissCancelFailure={dismissStaleOperation}
             />
 
             <Tabs
@@ -5286,13 +6030,9 @@ export function App(): ReactNode {
         generating={state.runningOperation === "Generating commit message"}
         onOpenChange={(open) => {
           if (!open) {
-            if (state.runningOperation === "Generating commit message") {
-              return;
-            }
-
-            updateState({
+            requestModalClose(["repo-operation"], () => updateState({
               generateContextDialog: emptyGenerateContextDialog
-            });
+            }));
           }
         }}
         onContextChange={(context) => {
@@ -5327,7 +6067,7 @@ export function App(): ReactNode {
         error={state.settingsError}
         onOpenChange={(open) => {
           if (!open) {
-            closeSettingsDialog();
+            requestModalClose(["settings-save"], closeSettingsDialog);
           }
         }}
         onDraftChange={(settingsDraft) => {
@@ -5355,7 +6095,7 @@ export function App(): ReactNode {
         hasGitHubOrigin={Boolean(state.summary?.githubRepository)}
         onOpenChange={(open) => {
           if (!open) {
-            closeRemoteManager();
+            requestModalClose(["repo-operation"], closeRemoteManager);
           }
         }}
         onReload={() => {
@@ -5367,19 +6107,19 @@ export function App(): ReactNode {
         }}
         onAdd={(name, url) => runRemoteOperation(
           `Adding remote ${name.trim()}`,
-          (repoPath) => window.githead.addRemote({ repoPath, name, url })
+          (repoPath, operationId) => window.githead.addRemote({ repoPath, name, url, operationId })
         )}
         onRename={(currentName, newName) => runRemoteOperation(
           `Renaming remote ${currentName}`,
-          (repoPath) => window.githead.renameRemote({ repoPath, currentName, newName })
+          (repoPath, operationId) => window.githead.renameRemote({ repoPath, currentName, newName, operationId })
         )}
         onSetUrl={(name, url) => runRemoteOperation(
           `Updating remote ${name}`,
-          (repoPath) => window.githead.setRemoteUrl({ repoPath, name, url })
+          (repoPath, operationId) => window.githead.setRemoteUrl({ repoPath, name, url, operationId })
         )}
         onRemove={(name) => runRemoteOperation(
           `Removing remote ${name}`,
-          (repoPath) => window.githead.removeRemote({ repoPath, name })
+          (repoPath, operationId) => window.githead.removeRemote({ repoPath, name, operationId })
         )}
       />
 
@@ -5390,9 +6130,9 @@ export function App(): ReactNode {
         capabilities={state.summary?.capabilities ?? gitCapabilities()}
         branches={state.summary?.branches ?? []}
         busy={running}
-        onOpenChange={(open) => { if (!open) closeBranchManager(); }}
-        onRename={(branchName, newBranchName) => runBranchOperation("rename", `Renaming branch ${branchName}`, branchName, (repoPath) => window.githead.renameBranch({ repoPath, branchName, newBranchName }))}
-        onRemove={(branchName, force) => runBranchOperation("remove", `${force ? "Force deleting" : "Removing"} branch ${branchName}`, branchName, (repoPath) => window.githead.deleteBranch({ repoPath, branchName, force }))}
+        onOpenChange={(open) => { if (!open) requestModalClose(["repo-operation"], closeBranchManager); }}
+        onRename={(branchName, newBranchName) => runBranchOperation("rename", `Renaming branch ${branchName}`, branchName, (repoPath, operationId) => window.githead.renameBranch({ repoPath, branchName, newBranchName, operationId }))}
+        onRemove={(branchName, force) => runBranchOperation("remove", `${force ? "Force deleting" : "Removing"} branch ${branchName}`, branchName, (repoPath, operationId) => window.githead.deleteBranch({ repoPath, branchName, force, operationId }))}
       />
 
       <WorktreeCreateDialog
@@ -5401,7 +6141,7 @@ export function App(): ReactNode {
         branches={state.summary?.branches ?? []}
         remoteBranches={state.summary?.remoteBranches ?? []}
         busy={running}
-        onOpenChange={(open) => { if (!open) closeWorktreeDialog(); }}
+        onOpenChange={(open) => { if (!open) requestModalClose(["repo-operation"], closeWorktreeDialog); }}
         onChooseParent={(defaultPath) => window.githead.chooseWorktreeParent(defaultPath)}
         onCreate={createWorktree}
       />
@@ -5411,7 +6151,7 @@ export function App(): ReactNode {
         check={state.worktreeRemovalCheck}
         checking={state.worktreeRemovalChecking}
         busy={running}
-        onClose={closeWorktreeRemoval}
+        onClose={() => requestModalClose(["repo-operation"], closeWorktreeRemoval)}
         onRemove={() => { void removeWorktree(); }}
       />
 
@@ -5421,7 +6161,7 @@ export function App(): ReactNode {
         saving={state.gitIdentitySaving}
         onOpenChange={(open) => {
           if (!open) {
-            closeGitIdentityPrompt();
+            requestModalClose(["identity-save"], closeGitIdentityPrompt);
           }
         }}
         onStateChange={(gitIdentityPrompt) => {
@@ -5443,7 +6183,7 @@ export function App(): ReactNode {
         error={state.actionManager.error}
         onOpenChange={(open) => {
           if (!open) {
-            closeActionManager();
+            requestModalClose(["action-save"], closeActionManager);
           }
         }}
         onDraftChange={updateActionManagerDraft}
@@ -5464,7 +6204,7 @@ export function App(): ReactNode {
         error={state.branchError}
         onOpenChange={(open) => {
           if (!open) {
-            closeBranchDialog();
+            requestModalClose(["repo-operation"], closeBranchDialog);
           }
         }}
         onBranchNameChange={(branchNameDraft) => {
@@ -5488,7 +6228,7 @@ export function App(): ReactNode {
         error={state.upstreamError}
         onOpenChange={(open) => {
           if (!open) {
-            closeUpstreamDialog();
+            requestModalClose(["repo-operation"], closeUpstreamDialog);
           }
         }}
         onUpstreamChange={(upstreamDraft) => {
@@ -5512,7 +6252,7 @@ export function App(): ReactNode {
         error={state.publishError}
         onOpenChange={(open) => {
           if (!open) {
-            closePublishDialog();
+            requestModalClose(["action"], closePublishDialog);
           }
         }}
         onRemoteChange={(publishRemoteDraft) => {
@@ -5535,7 +6275,7 @@ export function App(): ReactNode {
         saving={state.runningAction === "push" && state.pushToBranchDialog.open}
         onOpenChange={(open) => {
           if (!open) {
-            closePushToBranchDialog();
+            requestModalClose(["action"], closePushToBranchDialog);
           }
         }}
         onStateChange={(pushToBranchDialog) => {
@@ -5558,7 +6298,7 @@ export function App(): ReactNode {
         }}
         onOpenChange={(open) => {
           if (!open) {
-            closeCreatePrDialog();
+            requestModalClose(["pr-generation", "pr-push", "pr-create"], closeCreatePrDialog);
           }
         }}
         onStateChange={(createPrDialog) => {
@@ -5582,7 +6322,7 @@ export function App(): ReactNode {
         saving={Boolean(state.runningOperation?.startsWith("Creating tag ") || state.runningOperation?.startsWith("Removing tag "))}
         onOpenChange={(open) => {
           if (!open) {
-            closeTagDialog();
+            requestModalClose(["repo-operation"], closeTagDialog);
           }
         }}
         onStateChange={(tagDialog) => {
@@ -5608,7 +6348,7 @@ export function App(): ReactNode {
         resetModesEnabled={state.summary?.capabilities.resetModes ?? true}
         onOpenChange={(open) => {
           if (!open) {
-            closeResetCommitDialog();
+            requestModalClose(["repo-operation"], closeResetCommitDialog);
           }
         }}
         onStateChange={(resetCommitDialog) => {
@@ -5627,7 +6367,7 @@ export function App(): ReactNode {
         saving={state.runningOperation === "Resetting file to commit" || state.runningOperation === "Resetting files to commit"}
         onOpenChange={(open) => {
           if (!open) {
-            closeResetCommitFileDialog();
+            requestModalClose(["repo-operation"], closeResetCommitFileDialog);
           }
         }}
         onCopy={() => {
@@ -5645,7 +6385,7 @@ export function App(): ReactNode {
         saving={state.runningOperation === "Reversing commit"}
         onOpenChange={(open) => {
           if (!open) {
-            closeRevertCommitDialog();
+            requestModalClose(["repo-operation"], closeRevertCommitDialog);
           }
         }}
         onReverse={(event) => {
@@ -5655,8 +6395,8 @@ export function App(): ReactNode {
       />
 
       <TrustWorkspaceDialog
-        open={trustDialogOpen}
-        repoPath={state.repoPath}
+        open={trustDialogRepoPath !== null}
+        repoPath={trustDialogRepoPath ?? ""}
         onCancel={() => {
           closeTrustDialog(false);
         }}
@@ -5792,6 +6532,8 @@ function RepositorySetupScreen({
   cloneCheckStatus,
   cloneCheckMessage,
   cloneBranches,
+  cancelStatus,
+  cancelError,
   running,
   onChooseRepo,
   onOpenSafeDirectoryDialog,
@@ -5803,7 +6545,9 @@ function RepositorySetupScreen({
   onCloneSourceChange,
   onChooseCloneParent,
   onCheckRepositoryAccess,
-  onClone
+  onClone,
+  onCancelOperation,
+  onDismissOperation
 }: {
   repoRecents: string[];
   repoSyncStatuses: Record<string, RepoSyncStatus>;
@@ -5818,6 +6562,8 @@ function RepositorySetupScreen({
   cloneCheckStatus: "idle" | "success" | "error";
   cloneCheckMessage: string;
   cloneBranches: string[];
+  cancelStatus: OperationCancelStatus;
+  cancelError: string;
   running: boolean;
   onChooseRepo: () => void;
   onOpenSafeDirectoryDialog: () => void;
@@ -5830,6 +6576,8 @@ function RepositorySetupScreen({
   onChooseCloneParent: () => void;
   onCheckRepositoryAccess: () => void;
   onClone: (event: FormEvent<HTMLFormElement>) => void;
+  onCancelOperation: () => void;
+  onDismissOperation: () => void;
 }): ReactNode {
   return (
     <section className="setup-screen">
@@ -5892,11 +6640,15 @@ function RepositorySetupScreen({
             cloneCheckStatus={cloneCheckStatus}
             cloneCheckMessage={cloneCheckMessage}
             cloneBranches={cloneBranches}
+            cancelStatus={cancelStatus}
+            cancelError={cancelError}
             onCloneDraftChange={onCloneDraftChange}
             onCloneSourceChange={onCloneSourceChange}
             onChooseCloneParent={onChooseCloneParent}
             onCheckRepositoryAccess={onCheckRepositoryAccess}
             onClone={onClone}
+            onCancelOperation={onCancelOperation}
+            onDismissOperation={onDismissOperation}
           />
         </section>
       </div>
@@ -6417,11 +7169,15 @@ interface CloneRepositoryFormProps {
   cloneCheckStatus: "idle" | "success" | "error";
   cloneCheckMessage: string;
   cloneBranches: string[];
+  cancelStatus: OperationCancelStatus;
+  cancelError: string;
   onCloneDraftChange: (draft: CloneDraft) => void;
   onCloneSourceChange: (draft: CloneDraft) => void;
   onChooseCloneParent: () => void;
   onCheckRepositoryAccess: () => void;
   onClone: (event: FormEvent<HTMLFormElement>) => void;
+  onCancelOperation: () => void;
+  onDismissOperation: () => void;
 }
 
 function CloneRepositoryForm({
@@ -6433,11 +7189,15 @@ function CloneRepositoryForm({
   cloneCheckStatus,
   cloneCheckMessage,
   cloneBranches,
+  cancelStatus,
+  cancelError,
   onCloneDraftChange,
   onCloneSourceChange,
   onChooseCloneParent,
   onCheckRepositoryAccess,
-  onClone
+  onClone,
+  onCancelOperation,
+  onDismissOperation
 }: CloneRepositoryFormProps): ReactNode {
   const cloneBusy = cloneRunning || cloneCheckRunning;
   const sourceId = `${idPrefix}-source`;
@@ -6628,6 +7388,32 @@ function CloneRepositoryForm({
         {cloneRunning ? <Loader2 className="animate-spin" /> : <Download />}
         {cloneRunning ? "Cloning" : "Clone Repository"}
       </Button>
+      {cloneBusy ? (
+        <Button
+          type="button"
+          variant="destructive"
+          className="w-full justify-center"
+          disabled={cancelStatus === "canceling"}
+          onClick={onCancelOperation}
+        >
+          {cancelStatus === "canceling" ? <Loader2 className="animate-spin" /> : <X />}
+          {cancelStatus === "canceling"
+            ? "Cancelling"
+            : cloneCheckRunning
+              ? "Cancel Check"
+              : "Cancel Clone"}
+        </Button>
+      ) : null}
+      {cancelError ? (
+        <div className="grid gap-2" role="alert">
+          <p className="setup-error selectable-text">{cancelError}</p>
+          {cancelStatus === "not-found" || cancelStatus === "error" ? (
+            <Button type="button" variant="outline" className="w-full justify-center" onClick={onDismissOperation}>
+              Dismiss Stale Status
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
     </form>
   );
 }
@@ -6648,6 +7434,8 @@ function RepositoryPanel({
   cloneCheckStatus,
   cloneCheckMessage,
   cloneBranches,
+  cancelStatus,
+  cancelError,
   onClonePanelOpenChange,
   onChooseRepo,
   onSelectRecent,
@@ -6668,6 +7456,8 @@ function RepositoryPanel({
   onChooseCloneParent,
   onCheckRepositoryAccess,
   onClone,
+  onCancelOperation,
+  onDismissOperation,
   onCheckForUpdates,
   onDownloadUpdate,
   onInstallUpdate
@@ -6687,6 +7477,8 @@ function RepositoryPanel({
   cloneCheckStatus: "idle" | "success" | "error";
   cloneCheckMessage: string;
   cloneBranches: string[];
+  cancelStatus: OperationCancelStatus;
+  cancelError: string;
   onClonePanelOpenChange: (open: boolean) => void;
   onChooseRepo: () => void;
   onSelectRecent: (repoPath: string) => void;
@@ -6707,6 +7499,8 @@ function RepositoryPanel({
   onChooseCloneParent: () => void;
   onCheckRepositoryAccess: () => void;
   onClone: (event: FormEvent<HTMLFormElement>) => void;
+  onCancelOperation: () => void;
+  onDismissOperation: () => void;
   onCheckForUpdates: () => void;
   onDownloadUpdate: () => void;
   onInstallUpdate: () => void;
@@ -6780,11 +7574,15 @@ function RepositoryPanel({
                 cloneCheckStatus={cloneCheckStatus}
                 cloneCheckMessage={cloneCheckMessage}
                 cloneBranches={cloneBranches}
+                cancelStatus={cancelStatus}
+                cancelError={cancelError}
                 onCloneDraftChange={onCloneDraftChange}
                 onCloneSourceChange={onCloneSourceChange}
                 onChooseCloneParent={onChooseCloneParent}
                 onCheckRepositoryAccess={onCheckRepositoryAccess}
                 onClone={onClone}
+                onCancelOperation={onCancelOperation}
+                onDismissOperation={onDismissOperation}
               />
             ) : (
               <div className="repo-add-menu" aria-label="Add repository">
@@ -7159,6 +7957,8 @@ function ActionBar({
   configuredActionRuns,
   disabled,
   cancellable,
+  cancelStatus,
+  cancelError,
   showCreatePullRequest,
   branchPullRequests,
   onRunAction,
@@ -7167,6 +7967,7 @@ function ActionBar({
   onManageActions,
   onCreatePullRequest,
   onCancel,
+  onDismissCancelFailure,
   onOpenExternalUrl
 }: {
   heading: string;
@@ -7175,6 +7976,8 @@ function ActionBar({
   configuredActionRuns: ConfiguredActionRun[];
   disabled: boolean;
   cancellable: boolean;
+  cancelStatus: OperationCancelStatus;
+  cancelError: string;
   showCreatePullRequest: boolean;
   branchPullRequests: GitHubPullRequestAssociation[];
   onRunAction: (action: GitAction) => void;
@@ -7183,6 +7986,7 @@ function ActionBar({
   onManageActions: () => void;
   onCreatePullRequest: () => void;
   onCancel: () => void;
+  onDismissCancelFailure: () => void;
   onOpenExternalUrl: (url: string) => void;
 }): ReactNode {
   const capabilities = summary?.capabilities ?? null;
@@ -7215,13 +8019,21 @@ function ActionBar({
       <div className="min-w-0">
         <p className="eyebrow">Sync</p>
         <h2 className="truncate text-base font-semibold">{heading}</h2>
+        {cancelError ? <p className="mt-1 max-w-xl text-xs text-destructive" role="alert">{cancelError}</p> : null}
       </div>
       <div className="flex flex-wrap justify-end gap-2" role="group" aria-label="Git actions">
         {cancellable ? (
-          <Button type="button" variant="destructive" onClick={onCancel}>
-            <X />
-            Cancel
-          </Button>
+          <>
+            <Button type="button" variant="destructive" disabled={cancelStatus === "canceling"} onClick={onCancel}>
+              {cancelStatus === "canceling" ? <Loader2 className="animate-spin" /> : <X />}
+              {cancelStatus === "canceling" ? "Cancelling" : cancelStatus === "error" ? "Retry Cancel" : "Cancel"}
+            </Button>
+            {cancelStatus === "not-found" || cancelStatus === "error" ? (
+              <Button type="button" variant="outline" onClick={onDismissCancelFailure}>
+                Dismiss Stale Status
+              </Button>
+            ) : null}
+          </>
         ) : null}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -9355,7 +10167,7 @@ function GenerateWithContextDialog({
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="secondary" disabled={generating} onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={generating || context.trim().length === 0}>
@@ -9414,7 +10226,7 @@ function BranchDialog({
 
           <p className="min-h-5 text-sm text-destructive" role="alert">{error}</p>
           <DialogFooter>
-            <Button type="button" variant="outline" disabled={saving} onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={saving}>
@@ -9487,6 +10299,9 @@ function ResetCommitDialog({
           </div>
           {state.error ? <p className="dialog-error">{state.error}</p> : null}
           <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
             <Button type="submit" disabled={saving || !branchName}>
               {saving ? <Loader2 className="animate-spin" /> : <GitBranchIcon />}
               OK
@@ -9542,7 +10357,7 @@ function ResetCommitFileDialog({
               {saving ? <Loader2 className="animate-spin" /> : <RotateCcw />}
               OK
             </Button>
-            <Button type="button" variant="outline" disabled={saving} onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
           </DialogFooter>
@@ -9577,6 +10392,9 @@ function RevertCommitDialog({
           </DialogHeader>
           {state.error ? <p className="dialog-error">{state.error}</p> : null}
           <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
             <Button type="submit" disabled={saving}>
               {saving ? <Loader2 className="animate-spin" /> : <RotateCcw />}
               Yes
@@ -9665,7 +10483,7 @@ function UpstreamDialog({
 
           <p className="min-h-5 text-sm text-destructive" role="alert">{error}</p>
           <DialogFooter>
-            <Button type="button" variant="outline" disabled={saving} onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={saving}>
@@ -9737,7 +10555,7 @@ function PublishBranchDialog({
 
           <p className="min-h-5 text-sm text-destructive" role="alert">{error}</p>
           <DialogFooter>
-            <Button type="button" variant="outline" disabled={saving} onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={saving || !branchName || !hasRemote}>
@@ -9892,7 +10710,7 @@ function CreatePullRequestDialog({
 
           <p className="min-h-5 text-sm text-destructive" role="alert">{state.error}</p>
           <DialogFooter>
-            <Button type="button" variant="outline" disabled={busy || generating} onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={busy || generating || !state.title.trim() || !state.baseBranch}>
@@ -9984,7 +10802,7 @@ function SafeDirectoryDialog({
         ) : null}
 
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={onCancel} disabled={saving}>
+          <Button type="button" variant="outline" onClick={onCancel}>
             Cancel
           </Button>
           <Button type="button" onClick={onAllow} disabled={saving || !safeDirectory?.path} autoFocus>
@@ -10041,7 +10859,7 @@ function GitIdentityDialog({
 
           <p id="git-identity-prompt-error" className="min-h-5 text-sm text-destructive" role="alert">{state.error}</p>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={saving}>
@@ -10893,11 +11711,15 @@ function getGenerateMessageTitle(state: AppState): string {
 
 function isOperationRunning(state: AppState): boolean {
   return Boolean(
+    state.activeOperation ||
     state.runningAction ||
     state.runningOperation ||
     state.cloneRunning ||
     state.cloneCheckRunning ||
-    state.safeDirectoryRunning
+    state.safeDirectoryRunning ||
+    state.settingsSaving ||
+    state.gitIdentitySaving ||
+    state.actionManager.savingTarget
   );
 }
 
