@@ -5911,13 +5911,7 @@ describe("App", () => {
         prDescriptionPrompt: DEFAULT_PR_DESCRIPTION_PROMPT
       });
     });
-    expect(githead.saveAppSettings).toHaveBeenCalledWith({
-      autoFetchIntervalMinutes: 10,
-      colorTheme: "githead",
-      appearanceMode: "system",
-      zoomFactor: 1,
-      statusFileViewMode: "list"
-    });
+    expect(githead.saveAppSettings).not.toHaveBeenCalled();
   });
 
   it("shows provider selection and CLI provider status in AI settings", async () => {
@@ -6244,6 +6238,18 @@ describe("App", () => {
 
   it("previews, restores, and saves every notched interface scale", async () => {
     const user = userEvent.setup();
+    const defaultAiSettings = createAiSettings();
+    const unconfiguredAiSettings = createAiSettings("openrouter", {
+      providers: {
+        ...defaultAiSettings.providers,
+        openrouter: {
+          ...defaultAiSettings.providers.openrouter,
+          hasApiKey: false
+        }
+      }
+    });
+    vi.mocked(githead.getAiSettings).mockResolvedValue(unconfiguredAiSettings);
+    vi.mocked(githead.saveAiSettings).mockRejectedValue(new Error("Enter an OpenRouter API key."));
     render(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Settings" }));
@@ -6275,6 +6281,8 @@ describe("App", () => {
     await waitFor(() => expect(githead.saveAppSettings).toHaveBeenCalledWith(expect.objectContaining({
       zoomFactor: 1.25
     })));
+    expect(githead.saveAiSettings).not.toHaveBeenCalled();
+    expect(githead.saveGitIdentity).not.toHaveBeenCalled();
   });
 
   it("opens remote management from the sidebar and adds a local remote without fetching", async () => {

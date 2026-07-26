@@ -3867,10 +3867,15 @@ export function App(): ReactNode {
     });
 
     try {
-      const draft = stateRef.current.settingsDraft;
-      const autoFetchIntervalMinutes = parseAutoFetchIntervalDraft(draft.autoFetchIntervalMinutes);
-      const shouldSaveGitIdentity = draft.gitIdentityName.trim().length > 0 || draft.gitIdentityEmail.trim().length > 0;
-      let gitIdentity = stateRef.current.gitIdentity;
+      const initial = stateRef.current;
+      const draft = initial.settingsDraft;
+      const shouldSaveAiSettings = hasAiSettingsChanges(draft, initial.aiSettings);
+      const shouldSaveAppSettings = hasAppSettingsChanges(draft, initial.appSettings);
+      const hasGitIdentityValues = draft.gitIdentityName.trim().length > 0 || draft.gitIdentityEmail.trim().length > 0;
+      const shouldSaveGitIdentity = hasGitIdentityValues && hasGitIdentityChanges(draft, initial.gitIdentity);
+      let gitIdentity = initial.gitIdentity;
+      let aiSettings = initial.aiSettings;
+      let appSettings = initial.appSettings;
 
       if (shouldSaveGitIdentity && draft.gitIdentityScope === "repository" && !(await ensureTrustedRepo())) {
         updateState({
@@ -3888,24 +3893,28 @@ export function App(): ReactNode {
         });
       }
 
-      const aiSettings = await window.githead.saveAiSettings({
-        selectedProvider: draft.selectedProvider,
-        providerModels: draft.providerModels,
-        prDescriptionModels: draft.prDescriptionModels,
-        reasoningEfforts: draft.reasoningEfforts,
-        prDescriptionReasoningEfforts: draft.prDescriptionReasoningEfforts,
-        apiKeys: draft.apiKeys,
-        clearApiKeys: draft.clearApiKeys,
-        commitMessagePrompt: draft.commitMessagePrompt,
-        prDescriptionPrompt: draft.prDescriptionPrompt
-      });
-      const appSettings = await window.githead.saveAppSettings({
-        autoFetchIntervalMinutes,
-        colorTheme: draft.colorTheme,
-        appearanceMode: draft.appearanceMode,
-        zoomFactor: draft.zoomFactor,
-        statusFileViewMode: stateRef.current.appSettings?.statusFileViewMode ?? "list"
-      });
+      if (shouldSaveAiSettings) {
+        aiSettings = await window.githead.saveAiSettings({
+          selectedProvider: draft.selectedProvider,
+          providerModels: draft.providerModels,
+          prDescriptionModels: draft.prDescriptionModels,
+          reasoningEfforts: draft.reasoningEfforts,
+          prDescriptionReasoningEfforts: draft.prDescriptionReasoningEfforts,
+          apiKeys: draft.apiKeys,
+          clearApiKeys: draft.clearApiKeys,
+          commitMessagePrompt: draft.commitMessagePrompt,
+          prDescriptionPrompt: draft.prDescriptionPrompt
+        });
+      }
+      if (shouldSaveAppSettings) {
+        appSettings = await window.githead.saveAppSettings({
+          autoFetchIntervalMinutes: parseAutoFetchIntervalDraft(draft.autoFetchIntervalMinutes),
+          colorTheme: draft.colorTheme,
+          appearanceMode: draft.appearanceMode,
+          zoomFactor: draft.zoomFactor,
+          statusFileViewMode: stateRef.current.appSettings?.statusFileViewMode ?? "list"
+        });
+      }
       updateState({
         gitIdentity,
         aiSettings,
@@ -10748,6 +10757,64 @@ function createSettingsDraftReasoningEfforts(
       : settings?.providers[provider]?.reasoningEffort ?? "low";
     return efforts;
   }, {} as Record<AiCommitMessageProvider, AiReasoningEffort>);
+}
+
+function hasAiSettingsChanges(draft: SettingsDraft, settings: AiSettings | null): boolean {
+  if (!settings) {
+    return draft.selectedProvider !== "openrouter"
+      || draft.commitMessagePrompt !== DEFAULT_COMMIT_MESSAGE_PROMPT
+      || draft.prDescriptionPrompt !== DEFAULT_PR_DESCRIPTION_PROMPT
+      || Object.values(draft.providerModels).some((model) => Boolean(model.trim()))
+      || Object.values(draft.prDescriptionModels).some((model) => Boolean(model.trim()))
+      || Object.values(draft.reasoningEfforts).some((effort) => effort !== "low")
+      || Object.values(draft.prDescriptionReasoningEfforts).some((effort) => effort !== "low")
+      || Object.values(draft.apiKeys).some((apiKey) => Boolean(apiKey?.trim()))
+      || Object.values(draft.clearApiKeys).some(Boolean);
+  }
+
+  if (
+    draft.selectedProvider !== settings.selectedProvider
+    || draft.commitMessagePrompt !== settings.commitMessagePrompt
+    || draft.prDescriptionPrompt !== settings.prDescriptionPrompt
+  ) {
+    return true;
+  }
+
+  if (Object.values(draft.apiKeys).some((apiKey) => Boolean(apiKey?.trim()))) {
+    return true;
+  }
+  if (Object.values(draft.clearApiKeys).some(Boolean)) {
+    return true;
+  }
+
+  return AI_COMMIT_MESSAGE_PROVIDERS.some((provider) => {
+    const providerSettings = settings.providers[provider];
+    return draft.providerModels[provider] !== providerSettings.model
+      || draft.prDescriptionModels[provider] !== providerSettings.prDescriptionModel
+      || draft.reasoningEfforts[provider] !== providerSettings.reasoningEffort
+      || draft.prDescriptionReasoningEfforts[provider] !== providerSettings.prDescriptionReasoningEffort;
+  });
+}
+
+function hasAppSettingsChanges(draft: SettingsDraft, settings: AppSettings | null): boolean {
+  if (!settings) {
+    return true;
+  }
+
+  return draft.autoFetchIntervalMinutes.trim() !== String(settings.autoFetchIntervalMinutes)
+    || draft.colorTheme !== settings.colorTheme
+    || draft.appearanceMode !== settings.appearanceMode
+    || draft.zoomFactor !== settings.zoomFactor;
+}
+
+function hasGitIdentityChanges(draft: SettingsDraft, settings: GitIdentitySettings | null): boolean {
+  if (!settings) {
+    return true;
+  }
+
+  return draft.gitIdentityName !== settings.name
+    || draft.gitIdentityEmail !== settings.email
+    || draft.gitIdentityScope !== settings.scope;
 }
 
 function canCommit(state: AppState): boolean {
