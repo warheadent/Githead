@@ -189,7 +189,7 @@ import {
   hasActivityLogOutput,
   type ActivityLogState
 } from "./activityLog";
-import { canPush, getAheadBehindCounts, getPrimaryCommitAction, getPullableCommitCount, getPushableCommitCount, hasStagedChanges, hasUnpushedCommits } from "./commitActions";
+import { getAheadBehindCounts, getPrimaryCommitAction, getPullableCommitCount, getPushableCommitCount, hasStagedChanges, hasUnpushedCommits } from "./commitActions";
 import { buildCommitGraphLayout, type CommitGraphLayout } from "./commitGraph";
 import { groupDiffRowsByHunk, isTechnicalFileHeader, parseUnifiedDiff, type DiffRow, type DiffRowKind } from "./diffParser";
 import { getCommitFileStatusVisuals, getFileStatusVisuals, type FileStatusVisuals } from "./fileStatusVisuals";
@@ -4238,7 +4238,7 @@ export function App(): ReactNode {
     }
 
     const result = await commitChanges();
-    if (result?.exitCode === 0 && canPush(stateRef.current.summary)) {
+    if (result?.exitCode === 0) {
       await runAction("push");
     }
   }, [commitChanges, runAction]);

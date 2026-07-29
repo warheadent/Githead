@@ -2633,6 +2633,69 @@ describe("App", () => {
     expect(githead.commitChanges).toHaveBeenCalledTimes(1);
   });
 
+  it("pushes after a successful commit even when the old summary has no unpushed commits", async () => {
+    const user = userEvent.setup();
+    const pendingCommit = defer<GitOperationResult>();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      statusLines: ["# branch.ab +0 -0"],
+      files: [
+        createStatusFile("src/renderer/App.tsx", {
+          indexStatus: "M",
+          isStaged: true
+        })
+      ]
+    }));
+    vi.mocked(githead.commitChanges).mockReturnValue(pendingCommit.promise);
+    vi.mocked(githead.runGitAction).mockResolvedValue(createRunResult("push"));
+
+    render(<App />);
+
+    await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
+    await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "fix: restore commit and push");
+    await user.click(screen.getByRole("button", { name: "More commit actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Commit & Push" }));
+    await waitFor(() => expect(githead.commitChanges).toHaveBeenCalledTimes(1));
+
+    expect(githead.runGitAction).not.toHaveBeenCalled();
+
+    pendingCommit.resolve(createOperationResult());
+
+    await waitFor(() => {
+      expect(githead.runGitAction).toHaveBeenCalledWith({
+        repoPath,
+        action: "push",
+        operationId: expect.any(String)
+      });
+    });
+  });
+
+  it("does not push after a failed commit", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/renderer/App.tsx", {
+          indexStatus: "M",
+          isStaged: true
+        })
+      ]
+    }));
+    vi.mocked(githead.commitChanges).mockResolvedValue(createOperationResult({
+      exitCode: 1,
+      stderr: "Commit failed."
+    }));
+
+    render(<App />);
+
+    await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
+    await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "fix: failed commit");
+    await user.click(screen.getByRole("button", { name: "More commit actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Commit & Push" }));
+    await waitFor(() => expect(githead.commitChanges).toHaveBeenCalledTimes(1));
+    await flushRendererAsync();
+
+    expect(githead.runGitAction).not.toHaveBeenCalled();
+  });
+
   it("does not push the newly selected repository when an old commit-and-push completes late", async () => {
     const user = userEvent.setup();
     const otherRepo = "D:\\Work\\Commit-B";
