@@ -17,7 +17,8 @@ import {
   type AiSettingsSaveRequest
 } from "../shared/types";
 
-export const DEFAULT_OPENROUTER_MODEL = "openai/gpt-5.4-nano";
+const LEGACY_DEFAULT_OPENROUTER_MODEL = "openai/gpt-5.4-nano";
+export const DEFAULT_OPENROUTER_MODEL = "openai/gpt-5.6-luna";
 export const DEFAULT_OPENAI_MODEL = "gpt-5.4-nano";
 export const DEFAULT_CODEX_CLI_MODEL = "gpt-5.4-mini";
 export const DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
@@ -254,6 +255,9 @@ function createStoredProviderModels(stored: StoredAiSettings): Record<AiCommitMe
   const legacyModel = sanitizeSetting(stored.model);
   if (legacyModel && !sanitizeSetting(stored.providerModels?.openrouter)) {
     models.openrouter = legacyModel;
+  }
+  if (models.openrouter === LEGACY_DEFAULT_OPENROUTER_MODEL) {
+    models.openrouter = DEFAULT_OPENROUTER_MODEL;
   }
 
   return models;

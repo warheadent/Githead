@@ -63,6 +63,19 @@ describe("AiReasoningCapabilityService", () => {
     }));
   });
 
+  it("uses static capabilities for the default OpenRouter model when lookup fails", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockRejectedValue(new Error("offline"));
+    const service = new AiReasoningCapabilityService(createSettingsService(), fetchImpl);
+
+    await expect(service.getCapabilities({
+      provider: "openrouter",
+      model: "openai/gpt-5.6-luna"
+    })).resolves.toEqual({
+      status: "supported",
+      supportedEfforts: ["low", "medium", "high"]
+    });
+  });
+
   it("reports OpenRouter models without reasoning metadata as unsupported", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
       data: [{ id: "vendor/plain-model" }]

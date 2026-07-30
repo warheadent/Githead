@@ -58,7 +58,7 @@ const unknown = (): AiReasoningCapabilities => ({
 
 const STATIC_CAPABILITIES: Partial<Record<AiCommitMessageProvider, Record<string, AiReasoningCapabilities>>> = {
   openrouter: {
-    "openai/gpt-5.4-nano": supported()
+    "openai/gpt-5.6-luna": supported()
   },
   openai: {
     "gpt-5.4-nano": supported(),

@@ -68,7 +68,7 @@ let scrollIntoView: Mock<(options?: ScrollIntoViewOptions) => void>;
 const nativeScrollIntoView = HTMLElement.prototype.scrollIntoView;
 
 const defaultProviderModels: Record<AiCommitMessageProvider, string> = {
-  openrouter: "openai/gpt-5.4-nano",
+  openrouter: "openai/gpt-5.6-luna",
   openai: "gpt-5.4-nano",
   "codex-cli": "gpt-5.4-mini",
   anthropic: "claude-haiku-4-5-20251001",
