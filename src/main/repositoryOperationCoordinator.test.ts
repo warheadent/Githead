@@ -38,9 +38,22 @@ describe("RepositoryOperationCoordinator", () => {
       signal.addEventListener("abort", () => resolve((signal.reason as Error).name), { once: true });
     }));
 
+    expect(coordinator.getStates(["cancel-me", "missing", "cancel-me"], "owner-1")).toEqual([
+      { operationId: "cancel-me", state: "running" },
+      { operationId: "missing", state: "not-found" }
+    ]);
+    expect(coordinator.getStates(["cancel-me"], "other-owner")).toEqual([
+      { operationId: "cancel-me", state: "not-owner" }
+    ]);
     expect(coordinator.cancel("cancel-me", "owner-1")).toEqual({ accepted: true, state: "cancelling" });
+    expect(coordinator.getStates(["cancel-me"], "owner-1")).toEqual([
+      { operationId: "cancel-me", state: "cancelling" }
+    ]);
     await expect(operation).rejects.toMatchObject({ name: "AbortError" });
     expect(coordinator.isRunning("D:\\Repo")).toBe(false);
+    expect(coordinator.getStates(["cancel-me"], "owner-1")).toEqual([
+      { operationId: "cancel-me", state: "not-found" }
+    ]);
     expect(coordinator.cancel("cancel-me", "owner-1")).toEqual({ accepted: false, state: "not-found" });
   });
 

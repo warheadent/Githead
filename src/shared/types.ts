@@ -569,6 +569,15 @@ export interface CancelGitOperationRequest {
   operationId: string;
 }
 
+export interface GetGitOperationStatesRequest {
+  operationIds: string[];
+}
+
+export interface GitOperationStateResult {
+  operationId: string;
+  state: "running" | "cancelling" | "not-found" | "not-owner";
+}
+
 export type CancelGitOperationResult =
   | { accepted: true; state: "cancelling" | "already-cancelling" }
   | { accepted: false; state: "not-found" | "not-owner" };
@@ -1232,6 +1241,7 @@ export interface GitheadApi {
   getRepoStatus(request: RepoSectionRequest): Promise<RepoStatusSection>;
   getRepoMetadata(request: RepoSectionRequest): Promise<RepoMetadataSection>;
   cancelRepositoryRead(request: CancelRepositoryReadRequest): Promise<void>;
+  getGitOperationStates(request: GetGitOperationStatesRequest): Promise<GitOperationStateResult[]>;
   cancelGitOperation(request: CancelGitOperationRequest): Promise<CancelGitOperationResult>;
   watchRepoChanges(repoPath: string): Promise<void>;
   unwatchRepoChanges(repoPath?: string): Promise<void>;

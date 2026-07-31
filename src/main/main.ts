@@ -9,6 +9,7 @@ import type {
   ClipboardTextRequest,
   CancelRepositoryReadRequest,
   CancelGitOperationRequest,
+  GetGitOperationStatesRequest,
   CoordinatedRequest,
   CancelGitHubRequest,
   CreatePullRequestRequest,
@@ -349,6 +350,10 @@ ipcMain.handle(IPC_CHANNELS.getRepoMetadata, (event, request: RepoSectionRequest
 
 ipcMain.handle(IPC_CHANNELS.cancelRepositoryRead, (event, request: CancelRepositoryReadRequest) => {
   readRequests.cancel(event.sender.id, request.requestId);
+});
+
+ipcMain.handle(IPC_CHANNELS.getGitOperationStates, (event, request: GetGitOperationStatesRequest) => {
+  return repositoryOperations.getStates(request.operationIds, getRepositoryOperationOwnerId(event));
 });
 
 ipcMain.handle(IPC_CHANNELS.cancelGitOperation, (event, request: CancelGitOperationRequest) => {

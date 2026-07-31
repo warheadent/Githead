@@ -3316,7 +3316,7 @@ describe("App", () => {
     expect((within(dialog).getByLabelText("Title") as HTMLInputElement).value).toBe("Add generated PR titles");
   });
 
-  it("cancels and dismisses a hung pull request creation without accepting its stale completion", async () => {
+  it("recovers a missing pull request creation without accepting its stale completion", async () => {
     const user = userEvent.setup();
     const pendingCreate = defer<Awaited<ReturnType<GitheadApi["createGitHubPullRequest"]>>>();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary({
@@ -3336,7 +3336,7 @@ describe("App", () => {
     render(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Create PR" }));
-    let dialog = screen.getByRole("dialog", { name: "Create Pull Request" });
+    const dialog = screen.getByRole("dialog", { name: "Create Pull Request" });
     await user.click(within(dialog).getByRole("button", { name: "Create Pull Request" }));
     await waitFor(() => expect(githead.createGitHubPullRequest).toHaveBeenCalledWith(expect.objectContaining({
       repoPath,
@@ -3347,9 +3347,6 @@ describe("App", () => {
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     const operationId = vi.mocked(githead.createGitHubPullRequest).mock.calls[0]?.[0].operationId;
     await waitFor(() => expect(githead.cancelGitOperation).toHaveBeenCalledWith({ operationId }));
-    expect(await screen.findByText("The tracked operation is no longer running.")).toBeTruthy();
-    dialog = screen.getByRole("dialog", { name: "Create Pull Request" });
-    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Create Pull Request" })).toBeNull());
 
     pendingCreate.resolve({ ok: true, data: { number: 42, url: "https://github.com/openai/githead/pull/42", title: "Late PR", draft: false }, rateLimit: null });
@@ -4263,6 +4260,45 @@ describe("App", () => {
     expect(await screen.findByText("Build complete")).toBeTruthy();
   });
 
+  it("recovers a lost configured action result and ignores its late completion", async () => {
+    const user = userEvent.setup();
+    const pendingAction = defer<Awaited<ReturnType<GitheadApi["runConfiguredAction"]>>>();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      actionsConfig: {
+        hasGitheadDir: true,
+        actions: [{ name: "Build", description: "", command: "npm run build", shell: "powershell" }],
+        error: ""
+      }
+    }));
+    vi.mocked(githead.runConfiguredAction).mockReturnValue(pendingAction.promise);
+    vi.mocked(githead.getGitOperationStates).mockImplementation(async ({ operationIds }) => (
+      operationIds.map((operationId) => ({ operationId, state: "not-found" }))
+    ));
+
+    render(<App />);
+    await flushRendererAsync();
+    await user.click(screen.getByRole("button", { name: "Repository actions" }));
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Build" }));
+    await flushRendererAsync();
+
+    expect(screen.getByText("Build running")).toBeTruthy();
+    const operationId = vi.mocked(githead.runConfiguredAction).mock.calls[0]?.[0].operationId;
+    vi.mocked(githead.getRepoStatus).mockClear();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    await flushRendererAsync();
+
+    expect(githead.getGitOperationStates).toHaveBeenCalledWith({ operationIds: [operationId] });
+    expect(screen.queryByText("Build running")).toBeNull();
+    expect(githead.getRepoStatus).toHaveBeenCalled();
+
+    pendingAction.resolve(createRunResult("Build"));
+    await flushRendererAsync();
+    expect(screen.queryByText("Build complete")).toBeNull();
+  });
+
   it("runs repeated configured actions concurrently and tracks each completion", async () => {
     const user = userEvent.setup();
     const first = defer<Awaited<ReturnType<GitheadApi["runConfiguredAction"]>>>();
@@ -4771,7 +4807,7 @@ describe("App", () => {
     await flushRendererAsync();
   });
 
-  it("lets the user dismiss stale operation state when cancellation reports it missing", async () => {
+  it("recovers stale operation state when cancellation reports it missing", async () => {
     const pendingStage = defer<GitOperationResult>();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       files: [
@@ -4793,12 +4829,83 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     await flushRendererAsync();
 
-    expect(screen.getByRole("alert").textContent).toContain("The tracked operation is no longer running.");
-    fireEvent.click(screen.getByRole("button", { name: "Dismiss Stale Status" }));
-    await flushRendererAsync();
-
+    expect(screen.queryByRole("button", { name: "Dismiss Stale Status" })).toBeNull();
     expect((screen.getByRole("button", { name: /^Fetch$/ }) as HTMLButtonElement).disabled).toBe(false);
     pendingStage.resolve(createOperationResult());
+    await flushRendererAsync();
+  });
+
+  it("recovers a lost operation result from authoritative main-process state", async () => {
+    vi.useFakeTimers();
+    const pendingStage = defer<GitOperationResult>();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/lost-result.ts", {
+          isUnstaged: true,
+          worktreeStatus: "M"
+        })
+      ]
+    }));
+    vi.mocked(githead.stageFiles).mockReturnValue(pendingStage.promise);
+    vi.mocked(githead.getGitOperationStates).mockImplementation(async ({ operationIds }) => (
+      operationIds.map((operationId) => ({ operationId, state: "not-found" }))
+    ));
+
+    render(<App />);
+    await flushRendererAsync();
+    fireEvent.click(screen.getByRole("option", { name: /src\/lost-result\.ts/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Stage$/ }));
+    await flushRendererAsync();
+
+    const operationId = vi.mocked(githead.stageFiles).mock.calls[0]?.[0].operationId;
+    vi.mocked(githead.getRepoStatus).mockClear();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    await flushRendererAsync();
+
+    expect(githead.getGitOperationStates).toHaveBeenCalledWith({ operationIds: [operationId] });
+    expect((screen.getByRole("button", { name: /^Fetch$/ }) as HTMLButtonElement).disabled).toBe(false);
+    expect(githead.getRepoStatus).toHaveBeenCalled();
+
+    pendingStage.resolve(createOperationResult());
+    await flushRendererAsync();
+    expect((screen.getByRole("button", { name: /^Fetch$/ }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("keeps an operation locked when cancellation transport fails and permits a retry", async () => {
+    const pendingStage = defer<GitOperationResult>();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/retry-cancel.ts", {
+          isUnstaged: true,
+          worktreeStatus: "M"
+        })
+      ]
+    }));
+    vi.mocked(githead.stageFiles).mockReturnValue(pendingStage.promise);
+    vi.mocked(githead.cancelGitOperation)
+      .mockRejectedValueOnce(new Error("Cancellation IPC failed."))
+      .mockResolvedValueOnce({ accepted: true, state: "cancelling" });
+
+    render(<App />);
+    await flushRendererAsync();
+    fireEvent.click(screen.getByRole("option", { name: /src\/retry-cancel\.ts/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Stage$/ }));
+    await flushRendererAsync();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await flushRendererAsync();
+
+    expect(screen.getByRole("alert").textContent).toContain("Cancellation IPC failed.");
+    expect((screen.getByRole("button", { name: /^Fetch$/ }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Retry Cancel" }));
+    await flushRendererAsync();
+
+    expect(githead.cancelGitOperation).toHaveBeenCalledTimes(2);
+    expect((screen.getByRole("button", { name: "Cancelling" }) as HTMLButtonElement).disabled).toBe(true);
+
+    pendingStage.resolve(createOperationResult({ exitCode: -1, stderr: "Operation was cancelled." }));
     await flushRendererAsync();
   });
 
@@ -5831,7 +5938,7 @@ describe("App", () => {
     });
   });
 
-  it("cancels and dismisses a stale safe.directory operation from its dialog", async () => {
+  it("recovers a stale safe.directory operation from its dialog", async () => {
     const user = userEvent.setup();
     const blockedRepo = "D:\\Work\\Blocked";
     const pendingAdd = defer<GitOperationResult>();
@@ -5852,9 +5959,7 @@ describe("App", () => {
     expect(operationId).toEqual(expect.any(String));
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(githead.cancelGitOperation).toHaveBeenCalledWith({ operationId }));
-
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByRole("heading", { name: "Allow Git Ownership Exception?" })).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Allow Git Ownership Exception?" })).toBeNull());
 
     pendingAdd.resolve(createOperationResult({ repoPath: blockedRepo }));
     await flushRendererAsync();
@@ -6800,7 +6905,7 @@ describe("App", () => {
     });
   });
 
-  it("lets an unregistered settings save be dismissed and does not start later save phases", async () => {
+  it("recovers an unregistered settings save and does not start later save phases", async () => {
     const user = userEvent.setup();
     const pendingAiSave = defer<AiSettings>();
     vi.mocked(githead.saveAiSettings).mockReturnValue(pendingAiSave.promise);
@@ -6822,8 +6927,6 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: "Cancel operation" }));
     await waitFor(() => expect(githead.cancelGitOperation).toHaveBeenCalledWith({ operationId: expect.any(String) }));
-    expect(await screen.findByText("The tracked operation is no longer running.")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Cancel operation" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull());
 
     pendingAiSave.resolve(createAiSettings());
@@ -6833,7 +6936,7 @@ describe("App", () => {
     expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull();
   });
 
-  it("owns settings trust preflight so dismissing it cannot start a late identity save", async () => {
+  it("owns settings trust preflight so recovery cannot start a late identity save", async () => {
     const user = userEvent.setup();
     const pendingTrust = defer<{ trusted: boolean }>();
     vi.mocked(githead.getRepoTrust).mockReturnValueOnce(pendingTrust.promise);
@@ -6849,7 +6952,6 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: "Cancel operation" }));
     await waitFor(() => expect(githead.cancelGitOperation).toHaveBeenCalledTimes(1));
-    await user.click(screen.getByRole("button", { name: "Cancel operation" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull());
 
     pendingTrust.resolve({ trusted: true });
@@ -7152,6 +7254,9 @@ function createGitheadMock(): GitheadApi {
       return { repoPath: summary.repoPath, generation: request.generation, upstream: summary.upstream, branches: summary.branches, remotes: summary.remotes, remoteBranches: summary.remoteBranches, defaultRemoteBranch: summary.defaultRemoteBranch, commitsAheadOfDefaultBranch: summary.commitsAheadOfDefaultBranch, githubRepository: summary.githubRepository, actionsConfig: summary.actionsConfig };
     }),
     cancelRepositoryRead: vi.fn().mockResolvedValue(undefined),
+    getGitOperationStates: vi.fn().mockImplementation(async ({ operationIds }) => (
+      operationIds.map((operationId: string) => ({ operationId, state: "running" }))
+    )),
     cancelGitOperation: vi.fn().mockResolvedValue({ accepted: true, state: "cancelling" }),
     watchRepoChanges: vi.fn().mockResolvedValue(undefined),
     unwatchRepoChanges: vi.fn().mockResolvedValue(undefined),

@@ -437,7 +437,7 @@ type RendererCancellationTarget =
   | { kind: "active"; token: number; operationId: string }
   | { kind: "configured"; id: number; operationId: string };
 
-type OperationCancelStatus = "idle" | "canceling" | "not-found" | "error";
+type OperationCancelStatus = "idle" | "canceling" | "error";
 
 type ActiveRendererOperationKind =
   | "action"
@@ -459,6 +459,7 @@ interface ActiveRendererOperation {
   repoPath: string;
   kind: ActiveRendererOperationKind;
   cancellable: boolean;
+  coordinated: boolean;
   cancelStatus: OperationCancelStatus;
   cancelError: string;
 }
@@ -652,6 +653,8 @@ const emptyRemoteManager: RemoteManagerState = {
 
 const TRUST_WORKSPACE_TITLE = "Do you trust this workspace?";
 const TRUST_WORKSPACE_DESCRIPTION = "This is the first time Githead will run Git operations here that may execute configured hooks or local Git configuration.";
+const OPERATION_RECONCILE_INITIAL_DELAY_MS = 3_000;
+const OPERATION_RECONCILE_INTERVAL_MS = 10_000;
 
 const initialState: AppState = {
   repoPath: "",
@@ -1798,7 +1801,7 @@ export function App(): ReactNode {
     label: string,
     repoPath: string,
     kind: ActiveRendererOperationKind,
-    cancellable = true
+    options: { cancellable?: boolean; coordinated?: boolean } = {}
   ): ActiveRendererOperation => {
     const token = ++rendererOperationTokenRef.current;
     return {
@@ -1807,7 +1810,8 @@ export function App(): ReactNode {
       label,
       repoPath,
       kind,
-      cancellable,
+      cancellable: options.cancellable ?? true,
+      coordinated: options.coordinated ?? true,
       cancelStatus: "idle",
       cancelError: ""
     };
@@ -1830,6 +1834,84 @@ export function App(): ReactNode {
       return clearActiveRendererOperation(updater(current), operation);
     });
   }, [updateState]);
+
+  const recoverMissingOperations = useCallback((operationIds: readonly string[]): void => {
+    const missingIds = new Set(operationIds);
+    if (missingIds.size === 0) return;
+
+    let refreshCurrentRepository = false;
+    updateState((current) => {
+      let next = current;
+      const belongsToCurrentRepository = (repoPath: string): boolean => Boolean(
+        repoPath && current.repoPath && isSameRepoPath(repoPath, current.repoPath)
+      );
+      const active = current.activeOperation;
+      if (active && missingIds.has(active.operationId)) {
+        refreshCurrentRepository ||= belongsToCurrentRepository(active.repoPath);
+        next = clearActiveRendererOperation(next, active);
+      }
+
+      const configuredActionRuns = next.configuredActionRuns.filter((run) => {
+        const missing = missingIds.has(run.operationId);
+        if (missing) {
+          refreshCurrentRepository ||= belongsToCurrentRepository(run.repoPath);
+        }
+        return !missing;
+      });
+      if (configuredActionRuns.length !== next.configuredActionRuns.length) {
+        next = {
+          ...next,
+          configuredActionRuns
+        };
+      }
+
+      return refreshCurrentRepository ? invalidateHistory(next) : next;
+    });
+
+    if (refreshCurrentRepository) {
+      repositorySnapshots.current.delete(stateRef.current.repoPath);
+      void refreshRepo({ silent: true });
+      void loadRepoSyncStatuses();
+    }
+  }, [loadRepoSyncStatuses, refreshRepo, updateState]);
+
+  const coordinatedOperationKey = [
+    ...(state.activeOperation?.coordinated ? [state.activeOperation.operationId] : []),
+    ...state.configuredActionRuns.map((run) => run.operationId)
+  ].join("\0");
+
+  useEffect(() => {
+    if (!coordinatedOperationKey) return;
+    const operationIds = coordinatedOperationKey.split("\0");
+
+    let stopped = false;
+    let timer: number | undefined;
+    const checkOperationStates = async (): Promise<void> => {
+      try {
+        const states = await window.githead.getGitOperationStates({
+          operationIds
+        });
+        if (stopped) return;
+        const missingIds = states
+          .filter((result) => result.state === "not-found")
+          .map((result) => result.operationId);
+        recoverMissingOperations(missingIds);
+      } catch {
+        // The invoke result remains the primary completion path. A failed state
+        // check must not release an operation that can still mutate the repository.
+      } finally {
+        if (!stopped) {
+          timer = window.setTimeout(checkOperationStates, OPERATION_RECONCILE_INTERVAL_MS);
+        }
+      }
+    };
+
+    timer = window.setTimeout(checkOperationStates, OPERATION_RECONCILE_INITIAL_DELAY_MS);
+    return () => {
+      stopped = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [coordinatedOperationKey, recoverMissingOperations]);
 
   useEffect(() => {
     if (!state.summary?.isValid) {
@@ -2530,6 +2612,9 @@ export function App(): ReactNode {
       activeView: "activity",
       activityLog: hasProcessRunInFlight(latest) ? latest.activityLog : createActivityLogState()
     }));
+    const invocationIsTracked = (): boolean => stateRef.current.configuredActionRuns.some((run) => (
+      run.id === invocation.id && run.operationId === invocation.operationId
+    ));
 
     try {
       const lastResult = await window.githead.runConfiguredAction({
@@ -2537,11 +2622,13 @@ export function App(): ReactNode {
         name: action.name,
         operationId: invocation.operationId
       });
+      if (!invocationIsTracked()) return;
       updateState((latest) => isSameRepoPath(repoPath, latest.repoPath) ? {
         ...latest,
         lastResult
       } : latest);
     } catch (error) {
+      if (!invocationIsTracked()) return;
       const message = error instanceof Error ? error.message : "Configured action failed.";
       updateState((latest) => isSameRepoPath(repoPath, latest.repoPath) ? {
         ...latest,
@@ -2561,15 +2648,18 @@ export function App(): ReactNode {
         action: action.name
       });
     } finally {
-      updateState((latest) => {
-        const next = {
-          ...latest,
-          configuredActionRuns: latest.configuredActionRuns.filter((run) => run.id !== invocation.id)
-        };
-        return isSameRepoPath(repoPath, latest.repoPath) ? invalidateHistory(next) : next;
-      });
-      if (isSameRepoPath(repoPath, stateRef.current.repoPath)) {
-        void refreshRepo();
+      const completionIsTracked = invocationIsTracked();
+      if (completionIsTracked) {
+        updateState((latest) => {
+          const next = {
+            ...latest,
+            configuredActionRuns: latest.configuredActionRuns.filter((run) => run.id !== invocation.id)
+          };
+          return isSameRepoPath(repoPath, latest.repoPath) ? invalidateHistory(next) : next;
+        });
+        if (isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+          void refreshRepo();
+        }
       }
     }
   }, [appendSystemLine, ensureTrustedRepo, isInvocationCurrent, refreshRepo, updateState]);
@@ -2801,7 +2891,9 @@ export function App(): ReactNode {
 
     repositorySnapshots.current.delete(current.repoPath);
     const repoPath = current.repoPath;
-    const activeOperation = createActiveOperation(label, repoPath, "repo-operation", options.cancellable ?? true);
+    const activeOperation = createActiveOperation(label, repoPath, "repo-operation", {
+      cancellable: options.cancellable ?? true
+    });
 
     let operationResult: GitOperationResult | null = null;
 
@@ -4352,7 +4444,11 @@ export function App(): ReactNode {
 
     const draft = initial.settingsDraft;
     const repoPath = initial.repoPath;
-    const operation = createActiveOperation("Saving settings", repoPath, "settings-save");
+    // Settings can remain in renderer-only preflight and preference writes for
+    // their full lifetime, so the repository coordinator cannot track them.
+    const operation = createActiveOperation("Saving settings", repoPath, "settings-save", {
+      coordinated: false
+    });
     updateState({
       activeOperation: operation,
       settingsError: "",
@@ -5344,7 +5440,10 @@ export function App(): ReactNode {
     void window.githead.closeWindow().catch(() => undefined);
   }, []);
 
-  const cancelRunningOperation = useCallback(async (requestedTarget?: RendererCancellationTarget): Promise<void> => {
+  const cancelRunningOperation = useCallback(async (
+    requestedTarget?: RendererCancellationTarget,
+    onMissing?: () => void
+  ): Promise<void> => {
     const current = stateRef.current;
     const active = current.activeOperation?.cancellable ? current.activeOperation : null;
     const hasUnrelatedOwner = Boolean(
@@ -5389,16 +5488,20 @@ export function App(): ReactNode {
         return;
       }
 
-      const cancelError = result.state === "not-owner"
-        ? "This operation belongs to another app session and cannot be canceled here."
-        : "The tracked operation is no longer running.";
+      if (result.state === "not-found") {
+        recoverMissingOperations([target.operationId]);
+        onMissing?.();
+        return;
+      }
+
+      const cancelError = "This operation belongs to another app session and cannot be canceled here.";
       updateState((latest) => target.kind === "active"
         ? latest.activeOperation?.token === target.token
           ? {
               ...latest,
               activeOperation: {
                 ...latest.activeOperation,
-                cancelStatus: "not-found",
+                cancelStatus: "error",
                 cancelError
               }
             }
@@ -5406,7 +5509,7 @@ export function App(): ReactNode {
         : {
             ...latest,
             configuredActionRuns: latest.configuredActionRuns.map((run) => run.id === target.id
-              ? { ...run, cancelStatus: "not-found", cancelError }
+              ? { ...run, cancelStatus: "error", cancelError }
               : run)
           });
     } catch (error) {
@@ -5429,28 +5532,7 @@ export function App(): ReactNode {
               : run)
           });
     }
-  }, [updateState]);
-
-  const dismissStaleOperation = useCallback((): void => {
-    const current = stateRef.current;
-    const active = current.activeOperation;
-    if (active && (active.cancelStatus === "not-found" || active.cancelStatus === "error")) {
-      finishActiveOperation(active.token);
-      return;
-    }
-
-    if (active) {
-      return;
-    }
-    const configured = current.configuredActionRuns.at(-1);
-    if (!configured || (configured.cancelStatus !== "not-found" && configured.cancelStatus !== "error")) {
-      return;
-    }
-    updateState((latest) => ({
-      ...latest,
-      configuredActionRuns: latest.configuredActionRuns.filter((run) => run.id !== configured.id)
-    }));
-  }, [finishActiveOperation, updateState]);
+  }, [recoverMissingOperations, updateState]);
 
   const requestModalClose = useCallback((
     operationKinds: readonly ActiveRendererOperationKind[],
@@ -5462,20 +5544,14 @@ export function App(): ReactNode {
       return;
     }
 
-    if (active.cancelStatus === "not-found" || active.cancelStatus === "error") {
-      finishActiveOperation(active.token);
-      close();
-      return;
-    }
-
     if (active.cancellable) {
       void cancelRunningOperation({
         kind: "active",
         token: active.token,
         operationId: active.operationId
-      });
+      }, close);
     }
-  }, [cancelRunningOperation, finishActiveOperation]);
+  }, [cancelRunningOperation]);
 
   const stagedFiles = useMemo(() => getStagedFiles(state.summary), [state.summary]);
   const unstagedFiles = useMemo(() => getUnstagedFiles(state.summary), [state.summary]);
@@ -5564,7 +5640,6 @@ export function App(): ReactNode {
           onCancelOperation={() => {
             if (cloneCancellationRequestTarget) void cancelRunningOperation(cloneCancellationRequestTarget);
           }}
-          onDismissOperation={dismissStaleOperation}
         />
         <SafeDirectoryDialog
           open={state.safeDirectoryDialogOpen}
@@ -5653,7 +5728,6 @@ export function App(): ReactNode {
             onCancelOperation={() => {
               if (cloneCancellationRequestTarget) void cancelRunningOperation(cloneCancellationRequestTarget);
             }}
-            onDismissOperation={dismissStaleOperation}
             onCheckForUpdates={() => {
               void checkForAppUpdates();
             }}
@@ -5692,7 +5766,6 @@ export function App(): ReactNode {
               onCancel={() => {
                 if (cancellationRequestTarget) void cancelRunningOperation(cancellationRequestTarget);
               }}
-              onDismissCancelFailure={dismissStaleOperation}
             />
 
             <Tabs
@@ -6546,8 +6619,7 @@ function RepositorySetupScreen({
   onChooseCloneParent,
   onCheckRepositoryAccess,
   onClone,
-  onCancelOperation,
-  onDismissOperation
+  onCancelOperation
 }: {
   repoRecents: string[];
   repoSyncStatuses: Record<string, RepoSyncStatus>;
@@ -6577,7 +6649,6 @@ function RepositorySetupScreen({
   onCheckRepositoryAccess: () => void;
   onClone: (event: FormEvent<HTMLFormElement>) => void;
   onCancelOperation: () => void;
-  onDismissOperation: () => void;
 }): ReactNode {
   return (
     <section className="setup-screen">
@@ -6648,7 +6719,6 @@ function RepositorySetupScreen({
             onCheckRepositoryAccess={onCheckRepositoryAccess}
             onClone={onClone}
             onCancelOperation={onCancelOperation}
-            onDismissOperation={onDismissOperation}
           />
         </section>
       </div>
@@ -7177,7 +7247,6 @@ interface CloneRepositoryFormProps {
   onCheckRepositoryAccess: () => void;
   onClone: (event: FormEvent<HTMLFormElement>) => void;
   onCancelOperation: () => void;
-  onDismissOperation: () => void;
 }
 
 function CloneRepositoryForm({
@@ -7196,8 +7265,7 @@ function CloneRepositoryForm({
   onChooseCloneParent,
   onCheckRepositoryAccess,
   onClone,
-  onCancelOperation,
-  onDismissOperation
+  onCancelOperation
 }: CloneRepositoryFormProps): ReactNode {
   const cloneBusy = cloneRunning || cloneCheckRunning;
   const sourceId = `${idPrefix}-source`;
@@ -7405,14 +7473,7 @@ function CloneRepositoryForm({
         </Button>
       ) : null}
       {cancelError ? (
-        <div className="grid gap-2" role="alert">
-          <p className="setup-error selectable-text">{cancelError}</p>
-          {cancelStatus === "not-found" || cancelStatus === "error" ? (
-            <Button type="button" variant="outline" className="w-full justify-center" onClick={onDismissOperation}>
-              Dismiss Stale Status
-            </Button>
-          ) : null}
-        </div>
+        <p className="setup-error selectable-text" role="alert">{cancelError}</p>
       ) : null}
     </form>
   );
@@ -7457,7 +7518,6 @@ function RepositoryPanel({
   onCheckRepositoryAccess,
   onClone,
   onCancelOperation,
-  onDismissOperation,
   onCheckForUpdates,
   onDownloadUpdate,
   onInstallUpdate
@@ -7500,7 +7560,6 @@ function RepositoryPanel({
   onCheckRepositoryAccess: () => void;
   onClone: (event: FormEvent<HTMLFormElement>) => void;
   onCancelOperation: () => void;
-  onDismissOperation: () => void;
   onCheckForUpdates: () => void;
   onDownloadUpdate: () => void;
   onInstallUpdate: () => void;
@@ -7582,7 +7641,6 @@ function RepositoryPanel({
                 onCheckRepositoryAccess={onCheckRepositoryAccess}
                 onClone={onClone}
                 onCancelOperation={onCancelOperation}
-                onDismissOperation={onDismissOperation}
               />
             ) : (
               <div className="repo-add-menu" aria-label="Add repository">
@@ -7967,7 +8025,6 @@ function ActionBar({
   onManageActions,
   onCreatePullRequest,
   onCancel,
-  onDismissCancelFailure,
   onOpenExternalUrl
 }: {
   heading: string;
@@ -7986,7 +8043,6 @@ function ActionBar({
   onManageActions: () => void;
   onCreatePullRequest: () => void;
   onCancel: () => void;
-  onDismissCancelFailure: () => void;
   onOpenExternalUrl: (url: string) => void;
 }): ReactNode {
   const capabilities = summary?.capabilities ?? null;
@@ -8023,17 +8079,10 @@ function ActionBar({
       </div>
       <div className="flex flex-wrap justify-end gap-2" role="group" aria-label="Git actions">
         {cancellable ? (
-          <>
-            <Button type="button" variant="destructive" disabled={cancelStatus === "canceling"} onClick={onCancel}>
-              {cancelStatus === "canceling" ? <Loader2 className="animate-spin" /> : <X />}
-              {cancelStatus === "canceling" ? "Cancelling" : cancelStatus === "error" ? "Retry Cancel" : "Cancel"}
-            </Button>
-            {cancelStatus === "not-found" || cancelStatus === "error" ? (
-              <Button type="button" variant="outline" onClick={onDismissCancelFailure}>
-                Dismiss Stale Status
-              </Button>
-            ) : null}
-          </>
+          <Button type="button" variant="destructive" disabled={cancelStatus === "canceling"} onClick={onCancel}>
+            {cancelStatus === "canceling" ? <Loader2 className="animate-spin" /> : <X />}
+            {cancelStatus === "canceling" ? "Cancelling" : cancelStatus === "error" ? "Retry Cancel" : "Cancel"}
+          </Button>
         ) : null}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

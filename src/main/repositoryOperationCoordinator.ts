@@ -1,4 +1,5 @@
 import path from "node:path";
+import type { GitOperationStateResult } from "../shared/types";
 
 export type CoordinatedOperationResult<T> =
   | { started: false }
@@ -151,6 +152,19 @@ export class RepositoryOperationCoordinator {
 
     this.requestAbort(operation, new DOMException("Operation was cancelled.", "AbortError"));
     return { accepted: true, state: "cancelling" };
+  }
+
+  getStates(operationIds: string[], ownerId: string): GitOperationStateResult[] {
+    return [...new Set(operationIds)].map((operationId) => {
+      const operation = this.activeById.get(operationId);
+      if (!operation) {
+        return { operationId, state: "not-found" };
+      }
+      if (operation.ownerId !== ownerId) {
+        return { operationId, state: "not-owner" };
+      }
+      return { operationId, state: operation.state };
+    });
   }
 
   cancelAll(ownerId: string): void {
