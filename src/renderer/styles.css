@@ -1234,32 +1234,77 @@ textarea,
   --motion-scale: 1;
   --motion-reduced-opacity: 0.85;
   display: grid;
-  padding: 0 5px 5px 56px;
+  padding: 1px 5px 5px 34px;
 }
 
 .repo-worktree-row {
+  --repo-worktree-connector: color-mix(in oklch, var(--muted-foreground) 34%, transparent);
+  position: relative;
   overflow: hidden;
   border-radius: 6px;
 }
 
-.repo-worktree-row:hover,
-.repo-worktree-row.is-active { background: color-mix(in oklch, var(--primary) 10%, transparent); }
+.repo-worktree-row::before,
+.repo-worktree-row::after {
+  position: absolute;
+  z-index: 0;
+  background: var(--repo-worktree-connector);
+  content: "";
+  pointer-events: none;
+}
+
+.repo-worktree-row::before {
+  top: -1px;
+  bottom: -1px;
+  left: 8px;
+  width: 1px;
+}
+
+.repo-worktree-row:last-of-type::before {
+  bottom: 50%;
+}
+
+.repo-worktree-row::after {
+  top: 50%;
+  left: 8px;
+  width: 10px;
+  height: 1px;
+}
+
+.repo-worktree-row:hover:not(.is-active),
+.repo-worktree-row:focus-within:not(.is-active) {
+  background: color-mix(in oklch, var(--accent) 72%, transparent);
+}
+
+.repo-worktree-row.is-active {
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+  box-shadow: inset 2px 0 0 color-mix(in oklch, var(--primary) 72%, transparent);
+}
 
 .repo-worktree-main {
+  position: relative;
+  z-index: 1;
   display: flex;
   width: 100%;
   min-width: 0;
+  min-height: 34px;
   align-items: center;
   gap: 7px;
   border: 0;
   background: transparent;
-  padding: 7px 8px;
+  padding: 5px 8px 5px 22px;
   color: inherit;
   text-align: left;
 }
 
 .repo-worktree-main:not(:disabled) { cursor: pointer; }
 .repo-worktree-main > svg { width: 14px; height: 14px; flex: none; color: var(--muted-foreground); }
+.repo-worktree-main:focus-visible {
+  border-radius: 5px;
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.repo-worktree-row.is-active .repo-worktree-main > svg { color: var(--primary); }
 .repo-worktree-branch, .repo-worktree-path { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .repo-worktree-branch { font-size: 0.82rem; font-weight: 650; }
 .repo-worktree-path { color: var(--muted-foreground); font-size: 0.7rem; }
