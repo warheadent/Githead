@@ -6657,6 +6657,41 @@ describe("App", () => {
     expect(githead.saveAppSettings).not.toHaveBeenCalled();
   });
 
+  it("resets commit and pull request prompts to their defaults", async () => {
+    const user = userEvent.setup();
+    const savedSettings = createAiSettings("openrouter", {
+      commitMessagePrompt: "Use a custom commit message prompt.",
+      prDescriptionPrompt: "Use a custom pull request prompt."
+    });
+    vi.mocked(githead.getAiSettings).mockResolvedValue(savedSettings);
+    vi.mocked(githead.saveAiSettings).mockResolvedValue({
+      ...savedSettings,
+      commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT,
+      prDescriptionPrompt: DEFAULT_PR_DESCRIPTION_PROMPT
+    });
+
+    render(<App />);
+
+    await screen.findByRole("button", { name: "Settings" });
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("tab", { name: "AI" }));
+
+    await user.click(screen.getByRole("button", { name: "Reset commit message prompt to default" }));
+    await user.click(screen.getByRole("button", { name: "Reset pr description prompt to default" }));
+
+    expect((screen.getByLabelText("Commit Message Prompt") as HTMLTextAreaElement).value).toBe(DEFAULT_COMMIT_MESSAGE_PROMPT);
+    expect((screen.getByLabelText("PR Description Prompt") as HTMLTextAreaElement).value).toBe(DEFAULT_PR_DESCRIPTION_PROMPT);
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(githead.saveAiSettings).toHaveBeenCalledWith(expect.objectContaining({
+        commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT,
+        prDescriptionPrompt: DEFAULT_PR_DESCRIPTION_PROMPT
+      }));
+    });
+  });
+
   it("shows provider selection and CLI provider status in AI settings", async () => {
     const user = userEvent.setup();
 

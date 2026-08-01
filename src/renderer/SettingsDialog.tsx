@@ -8,6 +8,7 @@ import {
   Moon,
   Palette,
   RefreshCw,
+  RotateCcw,
   Save,
   Sun
 } from "lucide-react";
@@ -37,6 +38,8 @@ import type {
   GitIdentityScope
 } from "../shared/types";
 import { AI_COMMIT_MESSAGE_PROVIDERS, AI_REASONING_EFFORTS, APP_ZOOM_FACTORS } from "../shared/types";
+import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
+import { DEFAULT_PR_DESCRIPTION_PROMPT } from "../shared/prDescriptionPrompt";
 import { COLOR_THEME_OPTIONS } from "./themes";
 import { getAiProviderLabel, getCliStatusMessage, isCliProvider } from "./aiProvider";
 
@@ -235,13 +238,27 @@ export function SettingsDialog({
                     <SettingsCard title="Commit generation" description="Model, reasoning, and instructions for commit messages.">
                       <div className="grid gap-2"><Label htmlFor="ai-model">Model</Label><Input id="ai-model" type="text" autoComplete="off" value={draft.providerModels[provider]} disabled={saving} onChange={(event) => onDraftChange({ ...draft, providerModels: { ...draft.providerModels, [provider]: event.target.value } })} /></div>
                       <ReasoningEffortField id="ai-reasoning-effort" label="Reasoning" value={draft.reasoningEfforts[provider]} capabilities={primaryReasoning.capabilities} loading={primaryReasoning.loading} disabled={saving} onChange={(reasoningEffort) => onDraftChange({ ...draft, reasoningEfforts: { ...draft.reasoningEfforts, [provider]: reasoningEffort } })} />
-                      <div className="grid gap-2"><Label htmlFor="ai-commit-message-prompt">Commit Message Prompt</Label><Textarea id="ai-commit-message-prompt" className="min-h-44 resize-y field-sizing-fixed" rows={7} value={draft.commitMessagePrompt} disabled={saving} onChange={(event) => onDraftChange({ ...draft, commitMessagePrompt: event.target.value })} /></div>
+                      <PromptField
+                        id="ai-commit-message-prompt"
+                        label="Commit Message Prompt"
+                        value={draft.commitMessagePrompt}
+                        defaultValue={DEFAULT_COMMIT_MESSAGE_PROMPT}
+                        disabled={saving}
+                        onChange={(commitMessagePrompt) => onDraftChange({ ...draft, commitMessagePrompt })}
+                      />
                     </SettingsCard>
 
                     <SettingsCard title="Pull request generation" description="Optional model override and instructions for pull request descriptions.">
                       <div className="grid gap-2"><Label htmlFor="ai-pr-description-model">PR Description Model</Label><Input id="ai-pr-description-model" type="text" autoComplete="off" placeholder="Leave blank to use the commit message model" value={draft.prDescriptionModels[provider]} disabled={saving} onChange={(event) => onDraftChange({ ...draft, prDescriptionModels: { ...draft.prDescriptionModels, [provider]: event.target.value } })} /></div>
                       {prDescriptionModel ? <ReasoningEffortField id="ai-pr-description-reasoning-effort" label="PR Description Reasoning" value={draft.prDescriptionReasoningEfforts[provider]} capabilities={prDescriptionReasoning.capabilities} loading={prDescriptionReasoning.loading} disabled={saving} onChange={(reasoningEffort) => onDraftChange({ ...draft, prDescriptionReasoningEfforts: { ...draft.prDescriptionReasoningEfforts, [provider]: reasoningEffort } })} /> : <p className="text-sm text-muted-foreground">PR descriptions inherit the primary model and reasoning setting.</p>}
-                      <div className="grid gap-2"><Label htmlFor="ai-pr-description-prompt">PR Description Prompt</Label><Textarea id="ai-pr-description-prompt" className="min-h-44 resize-y field-sizing-fixed" rows={7} value={draft.prDescriptionPrompt} disabled={saving} onChange={(event) => onDraftChange({ ...draft, prDescriptionPrompt: event.target.value })} /></div>
+                      <PromptField
+                        id="ai-pr-description-prompt"
+                        label="PR Description Prompt"
+                        value={draft.prDescriptionPrompt}
+                        defaultValue={DEFAULT_PR_DESCRIPTION_PROMPT}
+                        disabled={saving}
+                        onChange={(prDescriptionPrompt) => onDraftChange({ ...draft, prDescriptionPrompt })}
+                      />
                     </SettingsCard>
                   </div>
                 </SettingsPanel>
@@ -280,6 +297,10 @@ function SettingsPanel({ value, title, description, children }: { value: Setting
 
 function SettingsCard({ title, description, children }: { title: string; description: string; children: ReactNode }): ReactNode {
   return <section className="grid gap-4 rounded-lg border bg-card p-4"><div><h3 className="text-sm font-semibold">{title}</h3><p className="text-sm text-muted-foreground">{description}</p></div>{children}</section>;
+}
+
+function PromptField({ id, label, value, defaultValue, disabled, onChange }: { id: string; label: string; value: string; defaultValue: string; disabled: boolean; onChange: (value: string) => void }): ReactNode {
+  return <div className="grid gap-2"><div className="flex items-center justify-between gap-3"><Label htmlFor={id}>{label}</Label><Button type="button" variant="ghost" size="sm" disabled={disabled || value === defaultValue} aria-label={`Reset ${label.toLowerCase()} to default`} onClick={() => onChange(defaultValue)}><RotateCcw />Reset to default</Button></div><Textarea id={id} className="min-h-44 resize-y field-sizing-fixed" rows={7} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} /></div>;
 }
 
 function AppearanceSettings({ draft, saving, onDraftChange }: { draft: SettingsDraft; saving: boolean; onDraftChange: (draft: SettingsDraft) => void }): ReactNode {
