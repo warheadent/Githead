@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vite-plus/test";
-import { detectDiffLanguage, highlightDiffCode } from "./syntaxHighlighter";
+import hljs from "highlight.js/lib/core";
+import { describe, expect, it, vi } from "vite-plus/test";
+import { parseUnifiedDiff } from "./diffParser";
+import { detectDiffLanguage, highlightDiffRows } from "./syntaxHighlighter";
 
 describe("detectDiffLanguage", () => {
   it("maps common code file extensions to registered languages", () => {
@@ -36,40 +38,128 @@ describe("detectDiffLanguage", () => {
   });
 });
 
-describe("highlightDiffCode", () => {
+describe("highlightDiffRows", () => {
   it("highlights supported code lines", () => {
-    const result = highlightDiffCode("src/app.ts", "const value = 1;");
+    const rows = parseUnifiedDiff("@@ -0,0 +1 @@\n+const value = 1;");
+    const result = highlightDiffRows("src/app.ts", rows);
 
-    expect(result.kind).toBe("highlighted");
-    expect(result.value).toContain("hljs-keyword");
-    expect(result.value).toContain("const");
+    expect(result[1]?.kind).toBe("highlighted");
+    expect(result[1]?.value).toContain("hljs-keyword");
+    expect(result[1]?.value).toContain("const");
   });
 
   it("highlights PowerShell code lines", () => {
-    const result = highlightDiffCode("scripts/deploy.ps1", "$service = Get-Service -Name 'Githead'");
+    const rows = parseUnifiedDiff("@@ -0,0 +1 @@\n+$service = Get-Service -Name 'Githead'");
+    const result = highlightDiffRows("scripts/deploy.ps1", rows);
 
-    expect(result.kind).toBe("highlighted");
-    expect(result.value).toContain("hljs-variable");
-    expect(result.value).toContain("$service");
+    expect(result[1]?.kind).toBe("highlighted");
+    expect(result[1]?.value).toContain("hljs-variable");
+    expect(result[1]?.value).toContain("$service");
   });
 
-  it("returns plain code for unsupported file types and empty lines", () => {
-    expect(highlightDiffCode("assets/logo.png", "const value = 1;")).toEqual({
-      kind: "plain",
-      value: "const value = 1;"
-    });
-    expect(highlightDiffCode("src/app.ts", "")).toEqual({
-      kind: "plain",
-      value: ""
-    });
+  it("keeps C++ documentation comments highlighted across added lines", () => {
+    const rows = parseUnifiedDiff([
+      "@@ -238,0 +238,5 @@",
+      "+/**",
+      "+ * Gets the current lock-on focus point for camera framing.",
+      "+ * Returns false when no valid target is locked.",
+      "+ */",
+      "+bool GetLockOnCameraTarget() const;"
+    ].join("\n"));
+
+    const result = highlightDiffRows("Source/MyPlayerStateCharacter.h", rows);
+
+    for (const rowIndex of [1, 2, 3, 4]) {
+      expect(result[rowIndex]?.kind).toBe("highlighted");
+      expect(result[rowIndex]?.value).toContain("hljs-comment");
+      expect(countOccurrences(result[rowIndex]?.value ?? "", "<span")).toBe(countOccurrences(result[rowIndex]?.value ?? "", "</span>"));
+    }
+    expect(result[3]?.value).not.toContain("hljs-literal");
+    expect(result[5]?.value).not.toContain("hljs-comment");
+    expect(result[5]?.value).toContain("hljs-type");
   });
 
-  it("escapes HTML-like source text in highlighted output", () => {
-    const result = highlightDiffCode("src/app.ts", "const tag = '<script>alert(1)</script>';");
+  it("uses separate syntax state for the old and new streams", () => {
+    const rows = parseUnifiedDiff([
+      "@@ -1,4 +1,3 @@",
+      " /**",
+      "- * old false",
+      "- */",
+      "+ */ bool added = false;",
+      " bool context = false;"
+    ].join("\n"));
+    const highlightSpy = vi.spyOn(hljs, "highlight");
 
-    expect(result.kind).toBe("highlighted");
-    expect(result.value).toContain("&lt;script&gt;");
-    expect(result.value).not.toContain("<script>");
-    expect(result.value).not.toContain("</script>");
+    try {
+      const result = highlightDiffRows("src/example.cpp", rows);
+
+      expect(highlightSpy).toHaveBeenCalledTimes(2);
+      expect(result[2]?.value).toContain("hljs-comment");
+      expect(result[3]?.value).toContain("hljs-comment");
+      expect(result[4]?.value).toContain("hljs-comment");
+      expect(result[4]?.value).toContain("hljs-literal");
+      expect(result[5]?.value).not.toContain("hljs-comment");
+      expect(result[5]?.value).toContain("hljs-literal");
+    } finally {
+      highlightSpy.mockRestore();
+    }
+  });
+
+  it("keeps blank lines aligned with their diff rows", () => {
+    const rows = parseUnifiedDiff([
+      "@@ -0,0 +1,4 @@",
+      "+/**",
+      "+",
+      "+ * false",
+      "+ */"
+    ].join("\n"));
+
+    const result = highlightDiffRows("src/example.cpp", rows);
+
+    expect(result).toHaveLength(rows.length);
+    expect(result[2]?.kind).toBe("highlighted");
+    expect(result[2]?.value).toContain("hljs-comment");
+    expect(countOccurrences(result[2]?.value ?? "", "<span")).toBe(countOccurrences(result[2]?.value ?? "", "</span>"));
+    expect(result[3]?.value).toContain("hljs-comment");
+  });
+
+  it("returns plain rows for unsupported file types", () => {
+    const rows = parseUnifiedDiff("@@ -0,0 +1 @@\n+const value = false;");
+
+    expect(highlightDiffRows("assets/logo.png", rows)).toEqual(rows.map((row) => ({
+      kind: "plain",
+      value: row.text
+    })));
+  });
+
+  it("returns plain rows when Highlight.js fails", () => {
+    const rows = parseUnifiedDiff("@@ -0,0 +1 @@\n+const value = false;");
+    const highlightSpy = vi.spyOn(hljs, "highlight").mockImplementationOnce(() => {
+      throw new Error("Highlight failure");
+    });
+
+    try {
+      const result = highlightDiffRows("src/example.ts", rows);
+
+      expect(result[1]).toEqual({
+        kind: "plain",
+        value: "const value = false;"
+      });
+    } finally {
+      highlightSpy.mockRestore();
+    }
+  });
+
+  it("escapes HTML-like source text in row output", () => {
+    const rows = parseUnifiedDiff("@@ -0,0 +1 @@\n+const tag = '<script>alert(1)</script>'; ");
+    const result = highlightDiffRows("src/example.ts", rows);
+
+    expect(result[1]?.value).toContain("&lt;script&gt;");
+    expect(result[1]?.value).not.toContain("<script>");
+    expect(result[1]?.value).not.toContain("</script>");
   });
 });
+
+function countOccurrences(value: string, token: string): number {
+  return value.split(token).length - 1;
+}

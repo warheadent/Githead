@@ -191,10 +191,10 @@ import {
 } from "./activityLog";
 import { getAheadBehindCounts, getPrimaryCommitAction, getPullableCommitCount, getPushableCommitCount, hasStagedChanges, hasUnpushedCommits } from "./commitActions";
 import { buildCommitGraphLayout, type CommitGraphLayout } from "./commitGraph";
-import { groupDiffRowsByHunk, isTechnicalFileHeader, parseUnifiedDiff, type DiffRow, type DiffRowKind } from "./diffParser";
+import { groupDiffRowsByHunk, isTechnicalFileHeader, parseUnifiedDiff, type DiffRow } from "./diffParser";
 import { getCommitFileStatusVisuals, getFileStatusVisuals, type FileStatusVisuals } from "./fileStatusVisuals";
 import { FixedSizeVirtualList, type VirtualRowProps } from "./FixedSizeVirtualList";
-import { highlightDiffCode } from "./syntaxHighlighter";
+import { highlightDiffRows, type HighlightedCode } from "./syntaxHighlighter";
 import { buildStatusFileTree, fileName, type StatusFileTreeFolder } from "./statusFileTree";
 import { applyColorTheme } from "./themes";
 import { FileHistoryView } from "./FileHistoryView";
@@ -8892,19 +8892,26 @@ function DiffRows({
 }): ReactNode {
   const groups = useMemo(() => {
     const rows = parseUnifiedDiff(text, truncated ? ["Diff truncated."] : []);
-    return groupDiffRowsByHunk(rows);
-  }, [text, truncated]);
+    return groupDiffRowsByHunk(rows).map((group) => ({
+      ...group,
+      highlightedRows: highlightDiffRows(filePath, group.rows)
+    }));
+  }, [filePath, text, truncated]);
 
   let hunkNumber = 0;
 
   return groups.map((group, groupIndex) => {
     const groupKey = `${groupIndex}:${group.kind}:${group.rows[0]?.text ?? ""}`;
-    const visibleRows = group.kind === "hunk"
-      ? group.rows.filter((row) => row.kind !== "hunk")
-      : group.rows.filter((row) => !isTechnicalFileHeader(row));
-    const rowViews = visibleRows.map((row, rowIndex) => (
-      <DiffRowView key={`${rowIndex}:${row.kind}:${row.oldLine ?? ""}:${row.newLine ?? ""}`} row={row} filePath={filePath} />
-    ));
+    const rowViews = group.rows.flatMap((row, rowIndex) => {
+      const visible = group.kind === "hunk" ? row.kind !== "hunk" : !isTechnicalFileHeader(row);
+      return visible ? [
+        <DiffRowView
+          key={`${rowIndex}:${row.kind}:${row.oldLine ?? ""}:${row.newLine ?? ""}`}
+          row={row}
+          highlighted={group.highlightedRows[rowIndex] ?? { kind: "plain", value: row.text }}
+        />
+      ] : [];
+    });
     const hunkActionLabel = hunkAction?.side === "unstaged" ? "Stage Hunk" : "Unstage Hunk";
 
     if (group.kind === "hunk") {
@@ -8963,23 +8970,18 @@ function formatHunkTitle(rows: DiffRow[], hunkNumber: number): string {
     : `Hunk ${hunkNumber}: Lines ${minLine}-${maxLine}`;
 }
 
-function DiffRowView({ row, filePath }: { row: DiffRow; filePath: string }): ReactNode {
+function DiffRowView({ row, highlighted }: { row: DiffRow; highlighted: HighlightedCode }): ReactNode {
   return (
     <div className={`diff-row ${row.kind}`}>
       <span className="diff-line-number old-line">{row.oldLine === null ? "" : row.oldLine}</span>
       <span className="diff-line-number new-line">{row.newLine === null ? "" : row.newLine}</span>
       <span className="diff-marker">{row.marker}</span>
-      <DiffCode row={row} filePath={filePath} />
+      <DiffCode highlighted={highlighted} />
     </div>
   );
 }
 
-function DiffCode({ row, filePath }: { row: DiffRow; filePath: string }): ReactNode {
-  if (!shouldHighlightDiffRow(row.kind)) {
-    return <span className="diff-code">{row.text}</span>;
-  }
-
-  const highlighted = highlightDiffCode(filePath, row.text);
+function DiffCode({ highlighted }: { highlighted: HighlightedCode }): ReactNode {
   if (highlighted.kind === "highlighted") {
     return <span className="diff-code hljs" dangerouslySetInnerHTML={{ __html: highlighted.value }} />;
   }
@@ -12091,10 +12093,6 @@ function getWorkflowRunStatusClass(run: GitHubWorkflowRun): string {
 
 function formatShortHash(hash: string): string {
   return hash ? hash.slice(0, 7) : "-";
-}
-
-function shouldHighlightDiffRow(kind: DiffRowKind): boolean {
-  return kind === "context" || kind === "add" || kind === "delete";
 }
 
 function isDeletedOnSide(file: GitStatusFile, side: GitDiffSide): boolean {

@@ -20,6 +20,7 @@ import sql from "highlight.js/lib/languages/sql";
 import typescript from "highlight.js/lib/languages/typescript";
 import xml from "highlight.js/lib/languages/xml";
 import yaml from "highlight.js/lib/languages/yaml";
+import type { DiffRow } from "./diffParser";
 
 export interface HighlightedCode {
   kind: "highlighted" | "plain";
@@ -115,37 +116,105 @@ export function detectDiffLanguage(filePath: string): string | null {
   return LANGUAGE_BY_EXTENSION.get(extension) ?? null;
 }
 
-export function highlightDiffCode(filePath: string, code: string): HighlightedCode {
-  if (!code) {
-    return {
-      kind: "plain",
-      value: code
-    };
-  }
-
+export function highlightDiffRows(filePath: string, rows: readonly DiffRow[]): HighlightedCode[] {
+  const highlightedRows = rows.map(({ text }) => createPlainCode(text));
   const language = detectDiffLanguage(filePath);
 
   if (!language) {
-    return {
-      kind: "plain",
-      value: code
-    };
+    return highlightedRows;
+  }
+
+  const oldRowIndexes = collectCodeRowIndexes(rows, "old");
+  const newRowIndexes = collectCodeRowIndexes(rows, "new");
+  const oldLines = highlightCodeLines(language, oldRowIndexes.map((rowIndex) => rows[rowIndex]?.text ?? ""));
+  const newLines = highlightCodeLines(language, newRowIndexes.map((rowIndex) => rows[rowIndex]?.text ?? ""));
+
+  if (oldLines) {
+    oldRowIndexes.forEach((rowIndex, lineIndex) => {
+      if (rows[rowIndex]?.kind === "delete") {
+        highlightedRows[rowIndex] = oldLines[lineIndex] ?? highlightedRows[rowIndex]!;
+      }
+    });
+  }
+
+  if (newLines) {
+    newRowIndexes.forEach((rowIndex, lineIndex) => {
+      highlightedRows[rowIndex] = newLines[lineIndex] ?? highlightedRows[rowIndex]!;
+    });
+  }
+
+  return highlightedRows;
+}
+
+function collectCodeRowIndexes(rows: readonly DiffRow[], side: "old" | "new"): number[] {
+  const indexes: number[] = [];
+
+  rows.forEach((row, rowIndex) => {
+    if (row.kind === "context" || (side === "old" ? row.kind === "delete" : row.kind === "add")) {
+      indexes.push(rowIndex);
+    }
+  });
+
+  return indexes;
+}
+
+function highlightCodeLines(language: string, lines: readonly string[]): HighlightedCode[] | null {
+  if (lines.length === 0) {
+    return [];
   }
 
   try {
-    return {
-      kind: "highlighted",
-      value: hljs.highlight(code, {
-        language,
-        ignoreIllegals: true
-      }).value
-    };
+    const html = hljs.highlight(lines.join("\n"), {
+      language,
+      ignoreIllegals: true
+    }).value;
+    const lineHtml = splitHighlightedHtml(html, lines.length);
+    return lineHtml.map((value) => ({ kind: "highlighted", value }));
   } catch {
-    return {
-      kind: "plain",
-      value: code
-    };
+    return null;
   }
+}
+
+function splitHighlightedHtml(html: string, expectedLineCount: number): string[] {
+  const lines = [""];
+  const openSpans: string[] = [];
+  const tokenPattern = /<span class="[^"]+">|<\/span>|\n/g;
+  let cursor = 0;
+
+  for (const match of html.matchAll(tokenPattern)) {
+    const tokenIndex = match.index;
+    const token = match[0];
+    lines[lines.length - 1] += html.slice(cursor, tokenIndex);
+
+    if (token === "\n") {
+      lines[lines.length - 1] += "</span>".repeat(openSpans.length);
+      lines.push(openSpans.join(""));
+    } else if (token === "</span>") {
+      if (openSpans.length === 0) {
+        throw new Error("Highlight.js returned unbalanced HTML.");
+      }
+      openSpans.pop();
+      lines[lines.length - 1] += token;
+    } else {
+      openSpans.push(token);
+      lines[lines.length - 1] += token;
+    }
+
+    cursor = tokenIndex + token.length;
+  }
+
+  lines[lines.length - 1] += html.slice(cursor);
+  if (openSpans.length !== 0 || lines.length !== expectedLineCount) {
+    throw new Error("Highlight.js returned invalid line markup.");
+  }
+  return lines;
+}
+
+function createPlainCode(value: string): HighlightedCode {
+  return {
+    kind: "plain",
+    value
+  };
 }
 
 function getFileName(filePath: string): string {
