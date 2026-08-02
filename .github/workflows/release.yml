@@ -54,7 +54,6 @@ jobs:
         shell: pwsh
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          OPENROUTER_MODEL: anthropic/claude-sonnet-4.5
         run: vp node scripts/summarize-release.mjs
 
       - name: Publish GitHub Release

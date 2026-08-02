@@ -1,9 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { FLEX_SERVICE_TIER, generateReleaseSummary } from "./releaseSummaryClient.mjs";
 
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
-const DEFAULT_MODEL = "anthropic/claude-sonnet-4.6";
+const DEFAULT_MODEL = "openai/gpt-5.6-luna";
 const MAX_COMMITS_CHARS = 40_000;
 const MAX_STAT_CHARS = 20_000;
 const MAX_DIFF_CHARS = 120_000;
@@ -99,7 +100,10 @@ if (dryRun) {
         changedFilesChars: changedFiles.length,
         diffStatChars: diffStat.length,
         diffChars: diff.length,
-        payload
+        payload: {
+          ...payload,
+          service_tier: FLEX_SERVICE_TIER
+        }
       },
       null,
       2
@@ -112,39 +116,23 @@ if (!process.env.OPENROUTER_API_KEY) {
   fail("OPENROUTER_API_KEY is required to generate release notes.");
 }
 
-const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-  method: "POST",
-  headers: {
-    Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-    "Content-Type": "application/json",
-    "HTTP-Referer": process.env.GITHUB_SERVER_URL
-      ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY ?? ""}`
-      : "https://github.com",
-    "X-Title": "Githead Release Summary"
-  },
-  body: JSON.stringify(payload)
-});
-
-const responseText = await response.text();
-
-if (!response.ok) {
-  fail(`OpenRouter request failed with ${response.status}: ${responseText}`);
-}
-
-let body;
+let summary;
 
 try {
-  body = JSON.parse(responseText).choices?.[0]?.message?.content?.trim();
+  summary = await generateReleaseSummary({
+    apiKey: process.env.OPENROUTER_API_KEY,
+    payload,
+    referer: process.env.GITHUB_SERVER_URL
+      ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY ?? ""}`
+      : "https://github.com",
+    title: "Githead Release Summary"
+  });
 } catch (error) {
-  fail(`OpenRouter returned invalid JSON: ${error.message}`);
+  fail(error instanceof Error ? error.message : String(error));
 }
 
-if (!body) {
-  fail("OpenRouter returned an empty release summary.");
-}
-
-writeGithubOutput("body", body);
-console.log(`Generated release summary for ${rangeLabel}.`);
+writeGithubOutput("body", summary.body);
+console.log(`Generated release summary for ${rangeLabel} with ${payload.model} on ${summary.serviceTier ?? "an unreported"} service tier.`);
 
 function getExactHeadTag() {
   return runGit(["describe", "--tags", "--exact-match", "HEAD"], { allowFailure: true }).trim();
