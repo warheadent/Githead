@@ -172,3 +172,50 @@ describe("commit message provider cancellation", () => {
     expect(receivedOptions?.signal).toBe(controller.signal);
   });
 });
+
+describe("OpenRouter Flex fallback", () => {
+  it("uses the default tier after two temporary Flex failures", async () => {
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(createResponse(429, "Flex capacity is unavailable."))
+      .mockResolvedValueOnce(createResponse(503, "Flex service is unavailable."))
+      .mockResolvedValueOnce(createResponse(200, undefined, "feat: use the default tier"));
+    const provider = new OpenRouterCommitMessageProvider("test-key", fetchImpl);
+
+    await expect(provider.generate(providerInput)).resolves.toBe("feat: use the default tier");
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(getServiceTiers(fetchImpl)).toEqual(["flex", "flex", "default"]);
+  });
+
+  it("returns a successful second Flex attempt without using the default tier", async () => {
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(createResponse(429, "Flex capacity is unavailable."))
+      .mockResolvedValueOnce(createResponse(200, undefined, "fix: retry Flex generation"));
+    const provider = new OpenRouterCommitMessageProvider("test-key", fetchImpl);
+
+    await expect(provider.generate(providerInput)).resolves.toBe("fix: retry Flex generation");
+    expect(getServiceTiers(fetchImpl)).toEqual(["flex", "flex"]);
+  });
+
+  it("does not retry a permanent OpenRouter failure", async () => {
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(createResponse(400, "Invalid model."));
+    const provider = new OpenRouterCommitMessageProvider("test-key", fetchImpl);
+
+    await expect(provider.generate(providerInput)).rejects.toThrow("Invalid model.");
+    expect(getServiceTiers(fetchImpl)).toEqual(["flex"]);
+  });
+});
+
+function createResponse(status: number, error?: string, content?: string): Response {
+  return new Response(JSON.stringify({
+    ...(error ? { error: { message: error } } : {}),
+    ...(content ? { choices: [{ message: { content } }] } : {})
+  }), { status });
+}
+
+function getServiceTiers(fetchImpl: ReturnType<typeof vi.fn<typeof fetch>>): string[] {
+  return fetchImpl.mock.calls.map(([, init]) => {
+    const body = JSON.parse(String(init?.body)) as { service_tier: string };
+    return body.service_tier;
+  });
+}

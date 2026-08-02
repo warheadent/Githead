@@ -6,6 +6,8 @@ import type { AiReasoningEffort } from "../shared/types";
 
 const OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions";
 const OPENROUTER_PREFERRED_SERVICE_TIER = "flex";
+const OPENROUTER_FALLBACK_SERVICE_TIER = "default";
+const OPENROUTER_MAX_FLEX_ATTEMPTS = 2;
 const OPENROUTER_SITE_URL = "https://github.com/warheadent/Githead#readme";
 const OPENROUTER_SITE_TITLE = "Githead";
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
@@ -73,7 +75,29 @@ export class OpenRouterCommitMessageProvider implements CommitMessageProvider {
   ) {}
 
   async generate(input: CommitMessageProviderInput): Promise<string> {
-    const { response, payload } = await fetchJsonWithTimeout<OpenRouterResponse>(this.fetchImpl, OPENROUTER_CHAT_COMPLETIONS_URL, {
+    for (let attempt = 0; attempt < OPENROUTER_MAX_FLEX_ATTEMPTS; attempt += 1) {
+      const result = await this.sendRequest(input, OPENROUTER_PREFERRED_SERVICE_TIER);
+      if (result.response.ok) {
+        return extractOpenRouterContent(result.payload);
+      }
+      if (!isTemporaryFlexFailure(result.response.status)) {
+        throw createOpenRouterError(result.response, result.payload);
+      }
+    }
+
+    const fallback = await this.sendRequest(input, OPENROUTER_FALLBACK_SERVICE_TIER);
+    if (!fallback.response.ok) {
+      throw createOpenRouterError(fallback.response, fallback.payload);
+    }
+
+    return extractOpenRouterContent(fallback.payload);
+  }
+
+  private sendRequest(
+    input: CommitMessageProviderInput,
+    serviceTier: typeof OPENROUTER_PREFERRED_SERVICE_TIER | typeof OPENROUTER_FALLBACK_SERVICE_TIER
+  ) {
+    return fetchJsonWithTimeout<OpenRouterResponse>(this.fetchImpl, OPENROUTER_CHAT_COMPLETIONS_URL, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${this.apiKey}`,
@@ -83,7 +107,7 @@ export class OpenRouterCommitMessageProvider implements CommitMessageProvider {
       },
       body: JSON.stringify({
         model: input.model,
-        service_tier: OPENROUTER_PREFERRED_SERVICE_TIER,
+        service_tier: serviceTier,
         messages: [
           {
             role: "system",
@@ -104,11 +128,6 @@ export class OpenRouterCommitMessageProvider implements CommitMessageProvider {
       ...(input.signal ? { signal: input.signal } : {}),
       createJsonFallback: () => ({} as OpenRouterResponse)
     });
-    if (!response.ok) {
-      throw new Error(payload.error?.message || `OpenRouter request failed with status ${response.status}.`);
-    }
-
-    return payload.choices?.[0]?.message?.content ?? "";
   }
 }
 
@@ -266,6 +285,18 @@ function createApiTimeoutReason(): DOMException {
     `AI provider request timed out after ${API_TIMEOUT_MS}ms.`,
     "TimeoutError"
   );
+}
+
+function isTemporaryFlexFailure(status: number): boolean {
+  return status === 429 || status === 503;
+}
+
+function createOpenRouterError(response: Response, payload: OpenRouterResponse): Error {
+  return new Error(payload.error?.message || `OpenRouter request failed with status ${response.status}.`);
+}
+
+function extractOpenRouterContent(payload: OpenRouterResponse): string {
+  return payload.choices?.[0]?.message?.content ?? "";
 }
 
 function extractOpenAiOutputText(payload: OpenAiResponse): string {
