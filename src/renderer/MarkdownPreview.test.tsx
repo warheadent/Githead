@@ -5,6 +5,16 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import type { GitheadApi } from "@/shared/types";
 import { MarkdownPreview } from "./MarkdownPreview";
 
+const renderMermaid = vi.fn();
+const initializeMermaid = vi.fn();
+
+vi.mock("mermaid", () => ({
+  default: {
+    initialize: initializeMermaid,
+    render: renderMermaid
+  }
+}));
+
 const copyTextToClipboard = vi.fn<GitheadApi["copyTextToClipboard"]>();
 
 function renderPreview(text: string): void {
@@ -29,6 +39,9 @@ beforeEach(() => {
     disconnect(): void {}
   });
   copyTextToClipboard.mockReset();
+  initializeMermaid.mockReset();
+  renderMermaid.mockReset();
+  renderMermaid.mockResolvedValue({ svg: "<svg><text>Rendered diagram</text></svg>" });
   copyTextToClipboard.mockResolvedValue({
     repoPath: "",
     exitCode: 0,
@@ -62,6 +75,34 @@ describe("MarkdownPreview", () => {
     renderPreview("Use `git status` to inspect the repository.");
 
     expect(screen.queryByRole("button", { name: "Copy code" })).toBeNull();
+  });
+
+  it("renders Mermaid fences as diagrams and leaves other fences unchanged", async () => {
+    renderPreview("```mermaid\ngraph TD\n  A --> B\n```\n\n```text\nplain text\n```");
+
+    expect(screen.getByText("Rendering Mermaid diagram...")).toBeTruthy();
+    expect(screen.getByText("plain text")).toBeTruthy();
+    await vi.waitFor(() => expect(screen.getByRole("img", { name: "Mermaid diagram" })).toBeTruthy());
+
+    expect(renderMermaid).toHaveBeenCalledOnce();
+    expect(initializeMermaid).toHaveBeenCalledWith(expect.objectContaining({
+      securityLevel: "strict",
+      startOnLoad: false,
+      suppressErrorRendering: true
+    }));
+    expect(renderMermaid.mock.calls[0]?.[1]).toBe("graph TD\n  A --> B");
+    expect(screen.getByText("Rendered diagram")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Copy code" })).toHaveLength(1);
+  });
+
+  it("shows invalid Mermaid source with a copy button", async () => {
+    renderMermaid.mockRejectedValueOnce(new Error("Parse error on line 1"));
+    renderPreview("```mermaid\nnot a diagram\n```");
+
+    await vi.waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Parse error on line 1"));
+
+    expect(screen.getByText("not a diagram")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy code" })).toBeTruthy();
   });
 
   it("keeps a table's semantic DOM stable across parent re-renders", () => {

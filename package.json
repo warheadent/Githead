@@ -127,6 +127,7 @@
     "electron-updater": "^6.8.9",
     "highlight.js": "^11.11.1",
     "lucide-react": "^1.28.0",
+    "mermaid": "^11.16.0",
     "radix-ui": "^1.6.7",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

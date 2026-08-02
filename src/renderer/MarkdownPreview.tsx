@@ -10,6 +10,7 @@ import {
 import ReactMarkdown, { type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { TooltipButton } from "@/components/ui/button";
+import { MermaidDiagram } from "./MermaidDiagram";
 
 const COPY_FEEDBACK_DURATION_MS = 2_000;
 
@@ -31,7 +32,24 @@ function getNodeText(node: ReactNode): string {
   return "";
 }
 
-function MarkdownCodeBlock({ children, ...props }: ComponentProps<"pre">): ReactNode {
+function MarkdownCodeBlock({ children, node: _node, ...props }: ComponentProps<"pre"> & ExtraProps): ReactNode {
+  if (
+    isValidElement<{ className?: string; children?: ReactNode }>(children)
+    && /(?:^|\s)language-mermaid(?:\s|$)/i.test(children.props.className ?? "")
+  ) {
+    const definition = getNodeText(children).replace(/\n$/, "");
+    return (
+      <MermaidDiagram
+        definition={definition}
+        fallback={<MarkdownCopyableCodeBlock {...props}>{children}</MarkdownCopyableCodeBlock>}
+      />
+    );
+  }
+
+  return <MarkdownCopyableCodeBlock {...props}>{children}</MarkdownCopyableCodeBlock>;
+}
+
+function MarkdownCopyableCodeBlock({ children, ...props }: ComponentProps<"pre">): ReactNode {
   const [status, setStatus] = useState<CopyStatus>("idle");
   const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const copyGeneration = useRef(0);
