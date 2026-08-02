@@ -1,0 +1,277 @@
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type PointerEvent,
+  type ReactNode,
+  type RefObject
+} from "react";
+import { GripVertical } from "lucide-react";
+
+const STORAGE_VERSION = 1;
+const WIDTH_STEP = 10;
+
+export interface ColumnDefinition<Id extends string> {
+  id: Id;
+  label: string;
+  defaultWidth: number;
+  minWidth: number;
+  maxWidth?: number;
+}
+
+export interface ColumnLayout<Id extends string> {
+  order: Id[];
+  widths: Record<Id, number>;
+}
+
+interface StoredColumnLayout {
+  version: number;
+  order: string[];
+  widths: Record<string, number>;
+}
+
+export function normalizeColumnLayout<Id extends string>(
+  value: Partial<StoredColumnLayout> | null,
+  columns: readonly ColumnDefinition<Id>[]
+): ColumnLayout<Id> {
+  const ids = columns.map((column) => column.id);
+  const validIds = new Set<Id>(ids);
+  const savedOrder = Array.isArray(value?.order)
+    ? value.order.filter((id): id is Id => validIds.has(id as Id))
+    : [];
+  const order = [...new Set(savedOrder), ...ids.filter((id) => !savedOrder.includes(id))];
+  const widths = {} as Record<Id, number>;
+  for (const column of columns) {
+    const savedWidth = value?.widths?.[column.id];
+    const width = typeof savedWidth === "number" && Number.isFinite(savedWidth)
+      ? savedWidth
+      : column.defaultWidth;
+    widths[column.id] = clampWidth(width, column);
+  }
+  return { order, widths };
+}
+
+export function reorderColumn<Id extends string>(order: readonly Id[], source: Id, target: Id): Id[] {
+  if (source === target || !order.includes(source) || !order.includes(target)) return [...order];
+  const next = order.filter((id) => id !== source);
+  const targetIndex = order.indexOf(target);
+  next.splice(targetIndex, 0, source);
+  return next;
+}
+
+function clampWidth<Id extends string>(width: number, column: ColumnDefinition<Id>): number {
+  return Math.round(Math.min(column.maxWidth ?? 900, Math.max(column.minWidth, width)));
+}
+
+function loadLayout<Id extends string>(storageKey: string, columns: readonly ColumnDefinition<Id>[]): ColumnLayout<Id> {
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return normalizeColumnLayout(null, columns);
+    const stored = JSON.parse(raw) as Partial<StoredColumnLayout>;
+    return normalizeColumnLayout(stored.version === STORAGE_VERSION ? stored : null, columns);
+  } catch {
+    return normalizeColumnLayout(null, columns);
+  }
+}
+
+function saveLayout<Id extends string>(storageKey: string, layout: ColumnLayout<Id>): void {
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify({ version: STORAGE_VERSION, ...layout }));
+  } catch {
+    // A read-only storage area must not stop column interactions.
+  }
+}
+
+function getTemplate<Id extends string>(layout: ColumnLayout<Id>): string {
+  return layout.order.map((id) => `${layout.widths[id]}px`).join(" ");
+}
+
+export interface PersistentColumnLayout<Id extends string> {
+  layout: ColumnLayout<Id>;
+  containerRef: RefObject<HTMLElement | null>;
+  style: CSSProperties;
+  previewWidth: (id: Id, width: number) => number;
+  commitWidth: (id: Id, width: number) => void;
+  resetWidth: (id: Id) => void;
+  move: (id: Id, direction: -1 | 1) => void;
+  reorder: (source: Id, target: Id) => void;
+}
+
+export function usePersistentColumnLayout<Id extends string>(
+  storageKey: string,
+  columns: readonly ColumnDefinition<Id>[]
+): PersistentColumnLayout<Id> {
+  const columnsById = useMemo(() => new Map(columns.map((column) => [column.id, column])), [columns]);
+  const [layout, setLayout] = useState<ColumnLayout<Id>>(() => loadLayout(storageKey, columns));
+  const containerRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    setLayout((current) => normalizeColumnLayout({ version: STORAGE_VERSION, ...current }, columns));
+  }, [columns]);
+
+  useEffect(() => {
+    saveLayout(storageKey, layout);
+  }, [layout, storageKey]);
+
+  const applyPreview = useCallback((next: ColumnLayout<Id>) => {
+    containerRef.current?.style.setProperty("--data-grid-columns", getTemplate(next));
+  }, []);
+
+  const previewWidth = useCallback((id: Id, width: number): number => {
+    const column = columnsById.get(id);
+    if (!column) return width;
+    const nextWidth = clampWidth(width, column);
+    applyPreview({ ...layout, widths: { ...layout.widths, [id]: nextWidth } });
+    return nextWidth;
+  }, [applyPreview, columnsById, layout]);
+
+  const commitWidth = useCallback((id: Id, width: number) => {
+    const column = columnsById.get(id);
+    if (!column) return;
+    setLayout((current) => ({ ...current, widths: { ...current.widths, [id]: clampWidth(width, column) } }));
+  }, [columnsById]);
+
+  const resetWidth = useCallback((id: Id) => {
+    const column = columnsById.get(id);
+    if (column) commitWidth(id, column.defaultWidth);
+  }, [columnsById, commitWidth]);
+
+  const move = useCallback((id: Id, direction: -1 | 1) => {
+    setLayout((current) => {
+      const index = current.order.indexOf(id);
+      const target = current.order[index + direction];
+      return target ? { ...current, order: reorderColumn(current.order, id, target) } : current;
+    });
+  }, []);
+
+  const reorder = useCallback((source: Id, target: Id) => {
+    setLayout((current) => ({ ...current, order: reorderColumn(current.order, source, target) }));
+  }, []);
+
+  return {
+    layout,
+    containerRef,
+    style: { "--data-grid-columns": getTemplate(layout) } as CSSProperties,
+    previewWidth,
+    commitWidth,
+    resetWidth,
+    move,
+    reorder
+  };
+}
+
+export function AdjustableColumnHeader<Id extends string>({
+  columns,
+  controller,
+  className
+}: {
+  columns: readonly ColumnDefinition<Id>[];
+  controller: PersistentColumnLayout<Id>;
+  className: string;
+}): ReactNode {
+  const columnsById = useMemo(() => new Map(columns.map((column) => [column.id, column])), [columns]);
+  const labelPrefix = useId();
+  const draggedId = useRef<Id | null>(null);
+  const resize = useRef<{ id: Id; startX: number; startWidth: number; width: number } | null>(null);
+
+  const startResize = (event: PointerEvent<HTMLSpanElement>, id: Id): void => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    resize.current = { id, startX: event.clientX, startWidth: controller.layout.widths[id], width: controller.layout.widths[id] };
+  };
+
+  const updateResize = (event: PointerEvent<HTMLSpanElement>): void => {
+    if (!resize.current) return;
+    resize.current.width = controller.previewWidth(resize.current.id, resize.current.startWidth + event.clientX - resize.current.startX);
+  };
+
+  const finishResize = (event: PointerEvent<HTMLSpanElement>): void => {
+    if (!resize.current) return;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    controller.commitWidth(resize.current.id, resize.current.width);
+    resize.current = null;
+  };
+
+  const resizeWithKeyboard = (event: KeyboardEvent<HTMLSpanElement>, id: Id): void => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const delta = (event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? 1 : WIDTH_STEP);
+    controller.commitWidth(id, controller.layout.widths[id] + delta);
+  };
+
+  return (
+    <div className={className} role="row">
+      {controller.layout.order.map((id) => {
+        const column = columnsById.get(id);
+        if (!column) return null;
+        return (
+          <span
+            key={id}
+            className="adjustable-column-header"
+            data-column-id={id}
+            role="columnheader"
+            tabIndex={0}
+            draggable
+            title={`Drag ${column.label} to move it, or press Alt and an arrow key`}
+            onKeyDown={(event) => {
+              if (!event.altKey || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
+              event.preventDefault();
+              controller.move(id, event.key === "ArrowLeft" ? -1 : 1);
+            }}
+            onDragStart={(event) => {
+              draggedId.current = id;
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData("text/plain", id);
+            }}
+            onDragEnd={() => { draggedId.current = null; }}
+            onDragOver={(event) => {
+              if (draggedId.current && draggedId.current !== id) {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+              }
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              if (draggedId.current) controller.reorder(draggedId.current, id);
+              draggedId.current = null;
+            }}
+          >
+            <GripVertical className="adjustable-column-grip" aria-hidden="true" />
+            <span id={`${labelPrefix}-${id}`} className="truncate">{column.label}</span>
+            <span
+              className="column-resize-handle"
+              role="separator"
+              tabIndex={0}
+              aria-label="Resize column"
+              aria-describedby={`${labelPrefix}-${id}`}
+              aria-orientation="vertical"
+              aria-valuemin={column.minWidth}
+              aria-valuemax={column.maxWidth ?? 900}
+              aria-valuenow={controller.layout.widths[id]}
+              onPointerDown={(event) => startResize(event, id)}
+              onPointerMove={updateResize}
+              onPointerUp={finishResize}
+              onPointerCancel={finishResize}
+              onDoubleClick={() => controller.resetWidth(id)}
+              onKeyDown={(event) => resizeWithKeyboard(event, id)}
+            />
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+export function OrderedCells<Id extends string>({ order, cells }: { order: readonly Id[]; cells: Record<Id, ReactNode> }): ReactNode {
+  return <>{order.map((id) => <FragmentWithKey key={id}>{cells[id]}</FragmentWithKey>)}</>;
+}
+
+function FragmentWithKey({ children }: { children: ReactNode }): ReactNode {
+  return <>{children}</>;
+}
