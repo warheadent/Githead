@@ -1,6 +1,7 @@
 import type { GeneratePrDescriptionRequest, GeneratePrTitleRequest, GitOperationResult } from "../shared/types";
 import { getProviderLabel, type AiSettingsService } from "./aiSettingsService";
 import { normalizeGeneratedMessage } from "./commitMessagePromptBuilder";
+import { generateCompleteText } from "./commitMessageProviders";
 import { resolveAiProvider, resolveReasoningEffort, type AiReasoningCapabilityResolver } from "./commitMessageService";
 import {
   createPrDescriptionSystemPrompt,
@@ -64,7 +65,7 @@ export class PrDescriptionService {
         providerSettings.reasoningEffort
       );
       throwIfAborted(signal);
-      const title = normalizeGeneratedPrTitle(await resolution.provider.generate({
+      const generation = await generateCompleteText(resolution.provider, {
         repoPath: request.repoPath,
         model,
         ...(signal ? { signal } : {}),
@@ -72,7 +73,8 @@ export class PrDescriptionService {
         systemPrompt: createPrTitleSystemPrompt(),
         userPrompt: createPrTitleUserPrompt(range.commitLog, range.diff),
         maxTokens: PR_TITLE_MAX_TOKENS
-      }));
+      });
+      const title = normalizeGeneratedPrTitle(generation.text);
       throwIfAborted(signal);
       if (!title) {
         return createFailure(request.repoPath, `${providerLabel} returned an empty pull request title.`);
@@ -82,7 +84,9 @@ export class PrDescriptionService {
         repoPath: request.repoPath,
         exitCode: 0,
         stdout: title,
-        stderr: ""
+        stderr: generation.retriedAfterLength
+          ? "The first generation reached its output limit. Githead retried with a larger limit."
+          : ""
       };
     } catch (error) {
       if (signal?.aborted) {
@@ -132,7 +136,7 @@ export class PrDescriptionService {
         configuredReasoningEffort
       );
       throwIfAborted(signal);
-      const description = normalizeGeneratedMessage(await resolution.provider.generate({
+      const generation = await generateCompleteText(resolution.provider, {
         repoPath: request.repoPath,
         model,
         ...(signal ? { signal } : {}),
@@ -145,7 +149,8 @@ export class PrDescriptionService {
           request.title
         ),
         maxTokens: PR_DESCRIPTION_MAX_TOKENS
-      }));
+      });
+      const description = normalizeGeneratedMessage(generation.text);
       throwIfAborted(signal);
       if (!description) {
         return createFailure(request.repoPath, `${providerLabel} returned an empty pull request description.`);
@@ -155,7 +160,9 @@ export class PrDescriptionService {
         repoPath: request.repoPath,
         exitCode: 0,
         stdout: description,
-        stderr: ""
+        stderr: generation.retriedAfterLength
+          ? "The first generation reached its output limit. Githead retried with a larger limit."
+          : ""
       };
     } catch (error) {
       if (signal?.aborted) {

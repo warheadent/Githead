@@ -6,6 +6,7 @@ import {
   CodexCliCommitMessageProvider,
   OpenAiCommitMessageProvider,
   OpenRouterCommitMessageProvider,
+  generateCompleteText,
   type CommitMessageProvider
 } from "./commitMessageProviders";
 import {
@@ -77,7 +78,7 @@ export class CommitMessageService {
         providerSettings.reasoningEffort
       );
       throwIfAborted(signal);
-      const message = normalizeGeneratedMessage(await resolution.provider.generate({
+      const generation = await generateCompleteText(resolution.provider, {
         repoPath: request.repoPath,
         model: providerSettings.model,
         ...(signal ? { signal } : {}),
@@ -88,7 +89,8 @@ export class CommitMessageService {
           diff,
           request.additionalContext
         )
-      }));
+      });
+      const message = normalizeGeneratedMessage(generation.text);
       throwIfAborted(signal);
       if (!message) {
         return createFailure(request.repoPath, `${providerLabel} returned an empty commit message.`);
@@ -98,7 +100,9 @@ export class CommitMessageService {
         repoPath: request.repoPath,
         exitCode: 0,
         stdout: message,
-        stderr: ""
+        stderr: generation.retriedAfterLength
+          ? "The first generation reached its output limit. Githead retried with a larger limit."
+          : ""
       };
     } catch (error) {
       if (signal?.aborted) {

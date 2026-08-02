@@ -126,7 +126,7 @@ function createSettings(provider: AiCommitMessageProvider, patch: Partial<AiSett
 
 function createFetch(
   payload: unknown,
-  options: { ok?: boolean; status?: number } = {}
+  options: { ok?: boolean; status?: number; payloads?: unknown[] } = {}
 ): { fetch: typeof fetch; calls: FetchCall[] } {
   const calls: FetchCall[] = [];
   const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
@@ -135,7 +135,8 @@ function createFetch(
       init
     });
 
-    return new Response(JSON.stringify(payload), {
+    const responsePayload = options.payloads?.[calls.length - 1] ?? payload;
+    return new Response(JSON.stringify(responsePayload), {
       status: options.status ?? (options.ok === false ? 400 : 200)
     });
   };
@@ -152,6 +153,7 @@ function createService(params: {
   diff?: string;
   apiKeys?: Partial<Record<AiApiKeyProvider, string>>;
   response?: unknown;
+  responses?: unknown[];
   responseOk?: boolean;
   runner?: ProcessRunner;
   reasoningCapabilities?: AiReasoningCapabilityResolver;
@@ -165,8 +167,9 @@ function createService(params: {
         }
       }
     ]
-  }, params.responseOk === undefined ? {} : {
-    ok: params.responseOk
+  }, {
+    ...(params.responseOk === undefined ? {} : { ok: params.responseOk }),
+    ...(params.responses ? { payloads: params.responses } : {})
   });
   const runner = params.runner ?? new FakeProcessRunner();
 
@@ -240,6 +243,79 @@ describe("CommitMessageService", () => {
     expect(body.messages.at(-1)?.content).toContain("Write a project-specific Git commit message.");
   });
 
+  it("retries an empty OpenRouter length response once with a larger limit", async () => {
+    const { service, calls } = createService({
+      responses: [
+        {
+          choices: [{
+            finish_reason: "length",
+            message: { content: "" }
+          }]
+        },
+        {
+          choices: [{
+            finish_reason: "stop",
+            message: { content: "fix: complete generation after retry" }
+          }]
+        }
+      ]
+    });
+
+    await expect(service.generateCommitMessage({ repoPath: "D:\\Repo" })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "fix: complete generation after retry",
+      stderr: "The first generation reached its output limit. Githead retried with a larger limit."
+    });
+    expect(calls).toHaveLength(2);
+    expect(JSON.parse(String(calls[0]?.init?.body))).toMatchObject({ max_tokens: 1_024 });
+    expect(JSON.parse(String(calls[1]?.init?.body))).toMatchObject({ max_tokens: 2_048 });
+  });
+
+  it("rejects partial text when OpenRouter reports a length stop", async () => {
+    const { service, calls } = createService({
+      response: {
+        choices: [{
+          finish_reason: "length",
+          message: { content: "fix: incomplete" }
+        }]
+      }
+    });
+
+    await expect(service.generateCommitMessage({ repoPath: "D:\\Repo" })).resolves.toMatchObject({
+      exitCode: -1,
+      stdout: "",
+      stderr: "The model reached its output limit before it returned a complete result."
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("recognizes OpenAI and Anthropic output-limit responses", async () => {
+    const openAi = createService({
+      provider: "openai",
+      response: {
+        status: "incomplete",
+        incomplete_details: { reason: "max_output_tokens" },
+        output_text: "fix: incomplete"
+      }
+    });
+    const anthropic = createService({
+      provider: "anthropic",
+      response: {
+        stop_reason: "max_tokens",
+        content: [{ type: "text", text: "fix: incomplete" }]
+      }
+    });
+
+    await expect(openAi.service.generateCommitMessage({ repoPath: "D:\\Repo" })).resolves.toMatchObject({
+      exitCode: -1,
+      stderr: "The model reached its output limit before it returned a complete result."
+    });
+    await expect(anthropic.service.generateCommitMessage({ repoPath: "D:\\Repo" })).resolves.toMatchObject({
+      exitCode: -1,
+      stderr: "The model reached its output limit before it returned a complete result."
+    });
+  });
+
   it("builds an OpenAI Responses request and parses output_text", async () => {
     const { service, calls } = createService({
       provider: "openai",
@@ -269,7 +345,7 @@ describe("CommitMessageService", () => {
     expect(body.model).toBe(DEFAULT_AI_PROVIDER_MODELS.openai);
     expect(body.instructions).toContain("Follow Conventional Commits format");
     expect(body.input).toContain("Staged diff:");
-    expect(body.max_output_tokens).toBe(220);
+    expect(body.max_output_tokens).toBe(1_024);
     expect(body.reasoning).toEqual({ effort: "low" });
   });
 
@@ -323,7 +399,7 @@ describe("CommitMessageService", () => {
     expect(body.model).toBe(DEFAULT_AI_PROVIDER_MODELS.anthropic);
     expect(body.system).toContain("Return exactly the commit message text");
     expect(body.messages[0]?.content).toContain("+added");
-    expect(body.max_tokens).toBe(220);
+    expect(body.max_tokens).toBe(1_024);
     expect(body.output_config).toEqual({ effort: "low" });
   });
 

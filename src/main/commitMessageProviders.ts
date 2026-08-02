@@ -15,7 +15,8 @@ const ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
 const API_TIMEOUT_MS = 60_000;
 const CLI_TIMEOUT_MS = 60_000;
-const DEFAULT_MAX_TOKENS = 220;
+export const DEFAULT_MAX_TOKENS = 1_024;
+const MIN_LENGTH_RETRY_TOKENS = 2_048;
 
 type Fetch = typeof fetch;
 
@@ -31,11 +32,22 @@ export interface CommitMessageProviderInput {
 }
 
 export interface CommitMessageProvider {
-  generate(input: CommitMessageProviderInput): Promise<string>;
+  generate(input: CommitMessageProviderInput): Promise<CommitMessageProviderResult>;
+}
+
+export interface CommitMessageProviderResult {
+  text: string;
+  finishReason: "complete" | "length" | "unknown";
+}
+
+export interface CompleteGenerationResult {
+  text: string;
+  retriedAfterLength: boolean;
 }
 
 interface OpenRouterResponse {
   choices?: Array<{
+    finish_reason?: string | null;
     message?: {
       content?: string;
     };
@@ -46,6 +58,10 @@ interface OpenRouterResponse {
 }
 
 interface OpenAiResponse {
+  status?: string;
+  incomplete_details?: {
+    reason?: string;
+  } | null;
   output_text?: string;
   output?: Array<{
     content?: Array<{
@@ -59,6 +75,7 @@ interface OpenAiResponse {
 }
 
 interface AnthropicResponse {
+  stop_reason?: string | null;
   content?: Array<{
     type?: string;
     text?: string;
@@ -74,11 +91,11 @@ export class OpenRouterCommitMessageProvider implements CommitMessageProvider {
     private readonly fetchImpl: Fetch = fetch
   ) {}
 
-  async generate(input: CommitMessageProviderInput): Promise<string> {
+  async generate(input: CommitMessageProviderInput): Promise<CommitMessageProviderResult> {
     for (let attempt = 0; attempt < OPENROUTER_MAX_FLEX_ATTEMPTS; attempt += 1) {
       const result = await this.sendRequest(input, OPENROUTER_PREFERRED_SERVICE_TIER);
       if (result.response.ok) {
-        return extractOpenRouterContent(result.payload);
+        return extractOpenRouterResult(result.payload);
       }
       if (!isTemporaryFlexFailure(result.response.status)) {
         throw createOpenRouterError(result.response, result.payload);
@@ -90,7 +107,7 @@ export class OpenRouterCommitMessageProvider implements CommitMessageProvider {
       throw createOpenRouterError(fallback.response, fallback.payload);
     }
 
-    return extractOpenRouterContent(fallback.payload);
+    return extractOpenRouterResult(fallback.payload);
   }
 
   private sendRequest(
@@ -137,7 +154,7 @@ export class OpenAiCommitMessageProvider implements CommitMessageProvider {
     private readonly fetchImpl: Fetch = fetch
   ) {}
 
-  async generate(input: CommitMessageProviderInput): Promise<string> {
+  async generate(input: CommitMessageProviderInput): Promise<CommitMessageProviderResult> {
     const { response, payload } = await fetchJsonWithTimeout<OpenAiResponse>(this.fetchImpl, OPENAI_RESPONSES_URL, {
       method: "POST",
       headers: {
@@ -162,7 +179,12 @@ export class OpenAiCommitMessageProvider implements CommitMessageProvider {
       throw new Error(payload.error?.message || `OpenAI request failed with status ${response.status}.`);
     }
 
-    return payload.output_text ?? extractOpenAiOutputText(payload);
+    return {
+      text: payload.output_text ?? extractOpenAiOutputText(payload),
+      finishReason: payload.status === "incomplete" && payload.incomplete_details?.reason === "max_output_tokens"
+        ? "length"
+        : payload.status === "completed" ? "complete" : "unknown"
+    };
   }
 }
 
@@ -172,7 +194,7 @@ export class AnthropicCommitMessageProvider implements CommitMessageProvider {
     private readonly fetchImpl: Fetch = fetch
   ) {}
 
-  async generate(input: CommitMessageProviderInput): Promise<string> {
+  async generate(input: CommitMessageProviderInput): Promise<CommitMessageProviderResult> {
     const { response, payload } = await fetchJsonWithTimeout<AnthropicResponse>(this.fetchImpl, ANTHROPIC_MESSAGES_URL, {
       method: "POST",
       headers: {
@@ -203,17 +225,22 @@ export class AnthropicCommitMessageProvider implements CommitMessageProvider {
       throw new Error(payload.error?.message || `Anthropic request failed with status ${response.status}.`);
     }
 
-    return payload.content
-      ?.filter((block) => block.type === "text" && block.text)
-      .map((block) => block.text)
-      .join("\n") ?? "";
+    return {
+      text: payload.content
+        ?.filter((block) => block.type === "text" && block.text)
+        .map((block) => block.text)
+        .join("\n") ?? "",
+      finishReason: payload.stop_reason === "max_tokens"
+        ? "length"
+        : payload.stop_reason === "end_turn" || payload.stop_reason === "stop_sequence" ? "complete" : "unknown"
+    };
   }
 }
 
 export class CodexCliCommitMessageProvider implements CommitMessageProvider {
   constructor(private readonly runner: ProcessRunner) {}
 
-  async generate(input: CommitMessageProviderInput): Promise<string> {
+  async generate(input: CommitMessageProviderInput): Promise<CommitMessageProviderResult> {
     const invocation = createCliInvocation("codex", [
       "exec",
       "--model",
@@ -239,14 +266,14 @@ export class CodexCliCommitMessageProvider implements CommitMessageProvider {
       throw new Error(result.stderr.trim() || result.error || "Codex CLI failed to generate a commit message.");
     }
 
-    return result.stdout;
+    return { text: result.stdout, finishReason: "complete" };
   }
 }
 
 export class ClaudeCodeCommitMessageProvider implements CommitMessageProvider {
   constructor(private readonly runner: ProcessRunner) {}
 
-  async generate(input: CommitMessageProviderInput): Promise<string> {
+  async generate(input: CommitMessageProviderInput): Promise<CommitMessageProviderResult> {
     const invocation = createCliInvocation("claude", [
       "-p",
       "--model",
@@ -276,7 +303,7 @@ export class ClaudeCodeCommitMessageProvider implements CommitMessageProvider {
       throw new Error(result.stderr.trim() || result.error || "Claude Code failed to generate a commit message.");
     }
 
-    return result.stdout;
+    return { text: result.stdout, finishReason: "complete" };
   }
 }
 
@@ -295,8 +322,14 @@ function createOpenRouterError(response: Response, payload: OpenRouterResponse):
   return new Error(payload.error?.message || `OpenRouter request failed with status ${response.status}.`);
 }
 
-function extractOpenRouterContent(payload: OpenRouterResponse): string {
-  return payload.choices?.[0]?.message?.content ?? "";
+function extractOpenRouterResult(payload: OpenRouterResponse): CommitMessageProviderResult {
+  const choice = payload.choices?.[0];
+  return {
+    text: choice?.message?.content ?? "",
+    finishReason: choice?.finish_reason === "length"
+      ? "length"
+      : choice?.finish_reason === "stop" ? "complete" : "unknown"
+  };
 }
 
 function extractOpenAiOutputText(payload: OpenAiResponse): string {
@@ -305,6 +338,31 @@ function extractOpenAiOutputText(payload: OpenAiResponse): string {
     .filter((block) => block.type === "output_text" && block.text)
     .map((block) => block.text)
     .join("\n") ?? "";
+}
+
+export async function generateCompleteText(
+  provider: CommitMessageProvider,
+  input: CommitMessageProviderInput
+): Promise<CompleteGenerationResult> {
+  const first = await provider.generate(input);
+  if (first.finishReason !== "length") {
+    return { text: first.text, retriedAfterLength: false };
+  }
+
+  if (first.text.trim()) {
+    throw new Error("The model reached its output limit before it returned a complete result.");
+  }
+
+  const initialMaxTokens = input.maxTokens ?? DEFAULT_MAX_TOKENS;
+  const retry = await provider.generate({
+    ...input,
+    maxTokens: Math.max(initialMaxTokens * 2, MIN_LENGTH_RETRY_TOKENS)
+  });
+  if (retry.finishReason === "length") {
+    throw new Error("The model reached its output limit before it returned a complete result.");
+  }
+
+  return { text: retry.text, retriedAfterLength: true };
 }
 
 function createCliPrompt(input: CommitMessageProviderInput): string {
