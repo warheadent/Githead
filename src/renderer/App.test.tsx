@@ -7,13 +7,15 @@ import type { Mock } from "vite-plus/test";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 vi.mock("@/components/ui/resizable", () => ({
-  ResizablePanelGroup: ({ children, className }: { children: ReactNode; className?: string }) => (
-    <div className={className}>{children}</div>
+  ResizablePanelGroup: ({ children, className, orientation }: { children: ReactNode; className?: string; orientation?: string }) => (
+    <div className={className} data-resizable-panel-group data-orientation={orientation}>{children}</div>
   ),
-  ResizablePanel: ({ children, className }: { children: ReactNode; className?: string }) => (
-    <div className={className}>{children}</div>
+  ResizablePanel: ({ children, className, defaultSize, minSize }: { children: ReactNode; className?: string; defaultSize?: string; minSize?: string }) => (
+    <div className={className} data-resizable-panel data-default-size={defaultSize} data-min-size={minSize}>{children}</div>
   ),
-  ResizableHandle: () => <div data-testid="resizable-handle" />
+  ResizableHandle: ({ "aria-label": ariaLabel, withHandle }: { "aria-label"?: string; withHandle?: boolean }) => (
+    <div role="separator" aria-label={ariaLabel} data-testid="resizable-handle" data-with-handle={withHandle || undefined} />
+  )
 }));
 
 import { App } from "./App";
@@ -1210,6 +1212,30 @@ describe("App", () => {
     await user.click(srcFolder);
     expect(srcFolder.getAttribute("aria-expanded")).toBe("false");
     expect(screen.getByRole("tree", { name: "Staged files" })).toBeTruthy();
+  });
+
+  it("renders resizable staged and unstaged file groups", async () => {
+    render(<App />);
+
+    const separator = await screen.findByRole("separator", {
+      name: "Resize staged and unstaged file lists"
+    });
+    const group = separator.parentElement;
+    expect(group?.getAttribute("data-orientation")).toBe("vertical");
+    expect(separator.getAttribute("data-with-handle")).toBe("true");
+
+    const panels = group?.querySelectorAll("[data-resizable-panel]");
+    expect(panels?.length).toBe(2);
+    expect(panels?.[0]?.getAttribute("data-default-size")).toBe("50%");
+    expect(panels?.[0]?.getAttribute("data-min-size")).toBe("96px");
+    expect(panels?.[1]?.getAttribute("data-default-size")).toBe("50%");
+    expect(panels?.[1]?.getAttribute("data-min-size")).toBe("96px");
+
+    const regions = within(group!).getAllByRole("region");
+    expect(regions.map((region) => region.getAttribute("aria-label"))).toEqual([
+      "Staged files",
+      "Unstaged files"
+    ]);
   });
 
   it("keeps repository-wide submodule actions out of the staged file header", async () => {

@@ -8347,89 +8347,93 @@ function StatusView({
               <TooltipButton type="button" variant={viewMode === "tree" ? "secondary" : "ghost"} size="icon-xs" aria-pressed={viewMode === "tree"} aria-label="Tree view" tooltip="Show files as a tree" onClick={() => onViewModeChange("tree")}><ListTree /></TooltipButton>
             </div>
           </div>
-          <div className="grid min-h-0 grid-rows-2">
-          <FileGroup
-            title="Staged files"
-            side="staged"
-            files={stagedFiles}
-            summary={summary}
-            selection={selection}
-            disabled={disabled}
-            viewMode={viewMode}
-            actions={
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={disabled || stagedFiles.length === 0}
-                  onClick={() => onUnstageFiles(stagedFiles.map((file) => file.path))}
-                >
-                  Unstage All
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={disabled || stagedSelectionPaths.length === 0}
-                  onClick={() => {
-                    if (selection?.side === "staged" && stagedSelectionPaths.length > 0) {
-                      onUnstageFiles(
-                        stagedSelectionPaths,
-                        createFileSelection("unstaged", stagedSelectionPaths, selection.path, selection.anchorPath)
-                      );
-                    }
-                  }}
-                >
-                  Unstage
-                </Button>
-              </>
-            }
-            onSelectFile={onSelectFile}
-            onContextAction={onContextAction}
-          />
-          <FileGroup
-            title="Unstaged files"
-            side="unstaged"
-            files={unstagedFiles}
-            summary={summary}
-            selection={selection}
-            disabled={disabled}
-            viewMode={viewMode}
-            className="border-t"
-            actions={
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={disabled || !unstagedFiles.some(canStageStatusFile)}
-                  onClick={() => onStageFiles(unstagedFiles.filter(canStageStatusFile).map((file) => file.path))}
-                >
-                  Stage All
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={disabled || unstagedSelectionPaths.length === 0 || !unstagedSelectionPaths.some((path) => unstagedFiles.find((file) => file.path === path && canStageStatusFile(file)))}
-                  onClick={() => {
-                    if (selection?.side === "unstaged" && unstagedSelectionPaths.length > 0) {
-                      onStageFiles(
-                        unstagedSelectionPaths.filter((path) => unstagedFiles.find((file) => file.path === path && canStageStatusFile(file))),
-                        createFileSelection("staged", unstagedSelectionPaths, selection.path, selection.anchorPath)
-                      );
-                    }
-                  }}
-                >
-                  Stage
-                </Button>
-              </>
-            }
-            onSelectFile={onSelectFile}
-            onContextAction={onContextAction}
-          />
-          </div>
+          <ResizablePanelGroup id="status-file-groups" orientation="vertical" className="min-h-0">
+            <ResizablePanel id="staged-file-group" defaultSize="50%" minSize="96px">
+              <FileGroup
+                title="Staged files"
+                side="staged"
+                files={stagedFiles}
+                summary={summary}
+                selection={selection}
+                disabled={disabled}
+                viewMode={viewMode}
+                actions={
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={disabled || stagedFiles.length === 0}
+                      onClick={() => onUnstageFiles(stagedFiles.map((file) => file.path))}
+                    >
+                      Unstage All
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={disabled || stagedSelectionPaths.length === 0}
+                      onClick={() => {
+                        if (selection?.side === "staged" && stagedSelectionPaths.length > 0) {
+                          onUnstageFiles(
+                            stagedSelectionPaths,
+                            createFileSelection("unstaged", stagedSelectionPaths, selection.path, selection.anchorPath)
+                          );
+                        }
+                      }}
+                    >
+                      Unstage
+                    </Button>
+                  </>
+                }
+                onSelectFile={onSelectFile}
+                onContextAction={onContextAction}
+              />
+            </ResizablePanel>
+            <ResizableHandle withHandle aria-label="Resize staged and unstaged file lists" />
+            <ResizablePanel id="unstaged-file-group" defaultSize="50%" minSize="96px">
+              <FileGroup
+                title="Unstaged files"
+                side="unstaged"
+                files={unstagedFiles}
+                summary={summary}
+                selection={selection}
+                disabled={disabled}
+                viewMode={viewMode}
+                actions={
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={disabled || !unstagedFiles.some(canStageStatusFile)}
+                      onClick={() => onStageFiles(unstagedFiles.filter(canStageStatusFile).map((file) => file.path))}
+                    >
+                      Stage All
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={disabled || unstagedSelectionPaths.length === 0 || !unstagedSelectionPaths.some((path) => unstagedFiles.find((file) => file.path === path && canStageStatusFile(file)))}
+                      onClick={() => {
+                        if (selection?.side === "unstaged" && unstagedSelectionPaths.length > 0) {
+                          onStageFiles(
+                            unstagedSelectionPaths.filter((path) => unstagedFiles.find((file) => file.path === path && canStageStatusFile(file))),
+                            createFileSelection("staged", unstagedSelectionPaths, selection.path, selection.anchorPath)
+                          );
+                        }
+                      }}
+                    >
+                      Stage
+                    </Button>
+                  </>
+                }
+                onSelectFile={onSelectFile}
+                onContextAction={onContextAction}
+              />
+            </ResizablePanel>
+          </ResizablePanelGroup>
         </div>
       </ResizablePanel>
       <ResizableHandle />
@@ -8475,7 +8479,6 @@ function FileGroup({
   disabled,
   viewMode,
   actions,
-  className = "",
   onSelectFile,
   onContextAction
 }: {
@@ -8487,7 +8490,6 @@ function FileGroup({
   disabled: boolean;
   viewMode: StatusFileViewMode;
   actions: ReactNode;
-  className?: string;
   onSelectFile: (file: GitStatusFile, side: GitDiffSide, modifiers: FileSelectionModifiers) => void;
   onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind, paths?: string[]) => void;
 }): ReactNode {
@@ -8501,7 +8503,7 @@ function FileGroup({
   useEffect(() => setCollapsedFolders(new Set()), [summary?.repoPath]);
 
   return (
-    <section className={`grid min-h-0 grid-rows-[auto_minmax(0,1fr)] ${className}`} aria-label={title}>
+    <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]" aria-label={title}>
       <div className="flex min-h-11 items-center justify-between gap-3 border-b px-4 py-2.5">
         <h2 className="text-sm font-semibold">{title} ({files.length})</h2>
         <div className="flex flex-wrap justify-end gap-2">{actions}</div>
