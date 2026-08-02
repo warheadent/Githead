@@ -242,7 +242,7 @@ describe("PrDescriptionService", () => {
         choices: [
           {
             message: {
-              content: "\"Add pull request creation\""
+              content: "\"feat(pr): add pull request creation\""
             }
           }
         ]
@@ -255,7 +255,7 @@ describe("PrDescriptionService", () => {
       headRef: "feature/pr-dialog"
     })).resolves.toMatchObject({
       exitCode: 0,
-      stdout: "Add pull request creation"
+      stdout: "feat(pr): add pull request creation"
     });
 
     const body = JSON.parse(String(calls[0]?.init?.body)) as {
@@ -267,6 +267,8 @@ describe("PrDescriptionService", () => {
     expect(body.model).toBe("openrouter/commit-model");
     expect(body.max_tokens).toBe(120);
     expect(body.reasoning).toEqual({ effort: "medium" });
+    expect(body.messages[0]?.content).toContain("Follow Conventional Commits format: type(scope): subject.");
+    expect(body.messages[0]?.content).toContain("aim for under 72 characters");
     expect(body.messages.at(-1)?.content).toContain("Write a clear GitHub pull request title");
     expect(body.messages.at(-1)?.content).toContain("- Add generated pull request descriptions");
     expect(body.messages.at(-1)?.content).toContain("+added");

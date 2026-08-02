@@ -2,17 +2,24 @@ import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 
 export const MAX_DIFF_CHARS = 60_000;
 
-export function createCommitMessageSystemPrompt(): string {
+export function createConventionalCommitSubjectInstructions(maxCharacters: number): string[] {
   return [
-    "You write concise Git commit messages for git commit --file=-.",
     "Follow Conventional Commits format: type(scope): subject.",
     "Use only these lowercase types: feat, fix, refactor, perf, docs, test, build, ci, chore, revert.",
     "Set scope to the primary module only when one clearly dominates; otherwise omit scope and parentheses.",
-    "Write the subject in imperative mood, aim for under 50 characters, and use no trailing period.",
+    `Write the subject in imperative mood, aim for under ${maxCharacters} characters, and use no trailing period.`,
+    "For breaking changes, append '!' after the type/scope."
+  ];
+}
+
+export function createCommitMessageSystemPrompt(): string {
+  return [
+    "You write concise Git commit messages for git commit --file=-.",
+    ...createConventionalCommitSubjectInstructions(50),
     "Include a body only when it clarifies important behavior or explains why the change was made.",
     "Separate the subject and body with exactly one blank line.",
     "Use '-' bullets for body details, and keep each bullet on one line.",
-    "For breaking changes, append '!' after the type/scope and add a BREAKING CHANGE: footer.",
+    "For breaking changes, add a BREAKING CHANGE: footer.",
     "Return exactly the commit message text that should be saved.",
     "Do not include commentary, labels, markdown fences, or alternatives.",
     "Do not insert manual line breaks within the subject or within any bullet."

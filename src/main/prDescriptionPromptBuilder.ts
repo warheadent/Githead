@@ -1,5 +1,8 @@
 import { DEFAULT_PR_DESCRIPTION_PROMPT } from "../shared/prDescriptionPrompt";
-import { MAX_DIFF_CHARS } from "./commitMessagePromptBuilder";
+import {
+  createConventionalCommitSubjectInstructions,
+  MAX_DIFF_CHARS
+} from "./commitMessagePromptBuilder";
 
 export function createPrDescriptionSystemPrompt(): string {
   return [
@@ -14,9 +17,9 @@ export function createPrTitleSystemPrompt(): string {
   return [
     "You write concise GitHub pull request titles.",
     "Summarize the branch changes using the provided commits and diff.",
+    ...createConventionalCommitSubjectInstructions(72),
     "Return exactly one title, without labels, markdown, quotes, commentary, or alternatives.",
-    "Use imperative or descriptive product language, not Conventional Commit prefixes.",
-    "Aim for 72 characters or fewer."
+    "Do not include a commit body or BREAKING CHANGE footer."
   ].join(" ");
 }
 
