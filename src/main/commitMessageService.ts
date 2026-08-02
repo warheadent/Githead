@@ -41,7 +41,7 @@ export class CommitMessageService {
   async generateCommitMessage(request: GenerateCommitMessageRequest, signal?: AbortSignal): Promise<GitOperationResult> {
     try {
       throwIfAborted(signal);
-      const settings = await this.settingsService.getSettings();
+      const settings = await this.settingsService.getSettings(request.repoPath);
       throwIfAborted(signal);
       const selectedProvider = settings.selectedProvider;
       const providerSettings = settings.providers[selectedProvider];

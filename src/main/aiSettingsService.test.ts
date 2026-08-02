@@ -313,4 +313,92 @@ describe("AiSettingsService", () => {
       })).rejects.toThrow("Enter a commit message prompt.");
     });
   });
+
+  it("stores repository overrides in the repository and applies them to generation settings", async () => {
+    await withTempDir(async (dir) => {
+      const repoPath = path.join(dir, "repo");
+      await fs.mkdir(repoPath);
+      const service = createService(dir);
+      await service.saveSettings({
+        selectedProvider: "openai",
+        providerModels: DEFAULT_AI_PROVIDER_MODELS,
+        apiKeys: { openai: "sk-openai" },
+        commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT
+      });
+
+      const saved = await service.saveRepositorySettings({
+        repoPath,
+        enabled: true,
+        selectedProvider: "codex-cli",
+        providerModels: { ...DEFAULT_AI_PROVIDER_MODELS, "codex-cli": "gpt-repo" },
+        prDescriptionModels: { "codex-cli": "gpt-repo-pr" },
+        reasoningEfforts: { "codex-cli": "high" },
+        prDescriptionReasoningEfforts: { "codex-cli": "medium" },
+        commitMessagePrompt: "Write a repository commit message.",
+        prDescriptionPrompt: "Write a repository pull request description."
+      });
+
+      expect(saved.enabled).toBe(true);
+      expect(saved.settings.selectedProvider).toBe("codex-cli");
+      expect(saved.settings.providers["codex-cli"]).toMatchObject({
+        model: "gpt-repo",
+        prDescriptionModel: "gpt-repo-pr",
+        reasoningEffort: "high",
+        prDescriptionReasoningEffort: "medium"
+      });
+      expect(saved.settings.providers.openai.hasApiKey).toBe(true);
+
+      const updated = await service.saveRepositorySettings({
+        repoPath,
+        enabled: true,
+        selectedProvider: "codex-cli",
+        providerModels: { ...DEFAULT_AI_PROVIDER_MODELS, "codex-cli": "gpt-repo-updated" },
+        prDescriptionModels: { "codex-cli": "gpt-repo-pr" },
+        reasoningEfforts: { "codex-cli": "high" },
+        prDescriptionReasoningEfforts: { "codex-cli": "medium" },
+        commitMessagePrompt: "Write a repository commit message.",
+        prDescriptionPrompt: "Write a repository pull request description."
+      });
+      expect(updated.settings.providers["codex-cli"].model).toBe("gpt-repo-updated");
+      await expect(service.getSettings(repoPath)).resolves.toEqual(updated.settings);
+
+      const storedText = await fs.readFile(path.join(repoPath, ".githead", "ai-settings.json"), "utf8");
+      expect(storedText).toContain("Write a repository commit message.");
+      expect(storedText).not.toContain("sk-openai");
+    });
+  });
+
+  it("removes a repository override when the repository uses global settings", async () => {
+    await withTempDir(async (dir) => {
+      const repoPath = path.join(dir, "repo");
+      await fs.mkdir(repoPath);
+      const service = createService(dir);
+      const request = {
+        repoPath,
+        enabled: true,
+        selectedProvider: "codex-cli" as const,
+        providerModels: DEFAULT_AI_PROVIDER_MODELS,
+        commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT,
+        prDescriptionPrompt: DEFAULT_PR_DESCRIPTION_PROMPT
+      };
+      await service.saveRepositorySettings(request);
+
+      const cleared = await service.saveRepositorySettings({ ...request, enabled: false });
+
+      expect(cleared.enabled).toBe(false);
+      await expect(fs.stat(path.join(repoPath, ".githead", "ai-settings.json"))).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(service.getSettings(repoPath)).resolves.toEqual(cleared.settings);
+    });
+  });
+
+  it("reports invalid repository settings JSON", async () => {
+    await withTempDir(async (dir) => {
+      const repoPath = path.join(dir, "repo");
+      await fs.mkdir(path.join(repoPath, ".githead"), { recursive: true });
+      await fs.writeFile(path.join(repoPath, ".githead", "ai-settings.json"), "{ invalid", "utf8");
+      const service = createService(dir);
+
+      await expect(service.getSettings(repoPath)).rejects.toThrow("Repository AI settings contain invalid JSON");
+    });
+  });
 });

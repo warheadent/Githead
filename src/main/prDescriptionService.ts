@@ -34,7 +34,7 @@ export class PrDescriptionService {
   async generatePrTitle(request: GeneratePrTitleRequest, signal?: AbortSignal): Promise<GitOperationResult> {
     try {
       throwIfAborted(signal);
-      const settings = await this.settingsService.getSettings();
+      const settings = await this.settingsService.getSettings(request.repoPath);
       throwIfAborted(signal);
       const selectedProvider = settings.selectedProvider;
       const providerSettings = settings.providers[selectedProvider];
@@ -102,7 +102,7 @@ export class PrDescriptionService {
   async generatePrDescription(request: GeneratePrDescriptionRequest, signal?: AbortSignal): Promise<GitOperationResult> {
     try {
       throwIfAborted(signal);
-      const settings = await this.settingsService.getSettings();
+      const settings = await this.settingsService.getSettings(request.repoPath);
       throwIfAborted(signal);
       const selectedProvider = settings.selectedProvider;
       const providerSettings = settings.providers[selectedProvider];

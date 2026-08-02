@@ -5990,6 +5990,29 @@ describe("App", () => {
     expect(githead.getRepoSummary).not.toHaveBeenCalledWith(otherRepo);
   });
 
+  it("opens and saves AI settings for a recent repository from the context menu", async () => {
+    const user = userEvent.setup();
+    const otherRepo = "D:\\Work\\Other";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+
+    render(<App />);
+
+    await waitForRepositoryWorkspace();
+    fireEvent.contextMenu(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
+    await user.click(await screen.findByRole("menuitem", { name: "AI Settings…" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Repository AI Settings" });
+    await waitFor(() => expect(githead.getRepositoryAiSettings).toHaveBeenCalledWith({ repoPath: otherRepo }));
+    await user.click(within(dialog).getByRole("checkbox"));
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(githead.saveRepositoryAiSettings).toHaveBeenCalledWith(expect.objectContaining({
+      repoPath: otherRepo,
+      enabled: true
+    })));
+  });
+
   it("adds a ninth browsed repository to the bottom and reveals its active row", async () => {
     const user = userEvent.setup();
     const browsedRepo = "D:\\Work\\Browsed";
@@ -7569,6 +7592,8 @@ function createGitheadMock(): GitheadApi {
     }),
     getAiSettings: vi.fn().mockResolvedValue(aiSettings),
     saveAiSettings: vi.fn().mockResolvedValue(aiSettings),
+    getRepositoryAiSettings: vi.fn().mockResolvedValue({ repoPath, enabled: false, settings: aiSettings }),
+    saveRepositoryAiSettings: vi.fn().mockImplementation(async (request) => ({ repoPath: request.repoPath, enabled: request.enabled, settings: aiSettings })),
     getAiReasoningCapabilities: vi.fn().mockResolvedValue({
       status: "supported",
       supportedEfforts: ["low", "medium", "high"]

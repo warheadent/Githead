@@ -8,7 +8,6 @@ import {
   Moon,
   Palette,
   RefreshCw,
-  RotateCcw,
   Save,
   Sun
 } from "lucide-react";
@@ -26,11 +25,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
 import type {
   AiApiKeyProvider,
   AiCommitMessageProvider,
-  AiReasoningCapabilities,
   AiReasoningEffort,
   AiSettings,
   AppAppearanceMode,
@@ -39,13 +36,12 @@ import type {
   AppUiFont,
   GitIdentityScope
 } from "../shared/types";
-import { AI_COMMIT_MESSAGE_PROVIDERS, AI_REASONING_EFFORTS, APP_ZOOM_FACTORS } from "../shared/types";
-import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
-import { DEFAULT_PR_DESCRIPTION_PROMPT } from "../shared/prDescriptionPrompt";
+import { AI_COMMIT_MESSAGE_PROVIDERS, APP_ZOOM_FACTORS } from "../shared/types";
 import { COLOR_THEME_OPTIONS } from "./themes";
 import { CODE_FONT_OPTIONS, UI_FONT_OPTIONS, type FontOption } from "./fonts";
 import { getAiProviderLabel, getCliStatusMessage, isCliProvider } from "./aiProvider";
 import { GitIdentityFields } from "./GitIdentityFields";
+import { AiGenerationSettingsFields } from "./AiGenerationSettingsFields";
 export { GitIdentityFields } from "./GitIdentityFields";
 
 export interface SettingsDraft {
@@ -105,9 +101,6 @@ export function SettingsDialog({
   const dirty = open && baselineRef.current !== "" && serializedDraft !== baselineRef.current;
   const dirtyCategories = getDirtyCategories(baselineRef.current, draft);
   const provider = draft.selectedProvider;
-  const primaryReasoning = useAiReasoningCapabilities(open, provider, draft.providerModels[provider]);
-  const prDescriptionModel = draft.prDescriptionModels[provider].trim();
-  const prDescriptionReasoning = useAiReasoningCapabilities(open && Boolean(prDescriptionModel), provider, prDescriptionModel);
 
   useEffect(() => {
     if (open && !wasOpenRef.current) {
@@ -242,31 +235,7 @@ export function SettingsDialog({
                       )}
                     </SettingsCard>
 
-                    <SettingsCard title="Commit generation" description="Model, reasoning, and instructions for commit messages.">
-                      <div className="grid gap-2"><Label htmlFor="ai-model">Model</Label><Input id="ai-model" type="text" autoComplete="off" value={draft.providerModels[provider]} disabled={saving} onChange={(event) => onDraftChange({ ...draft, providerModels: { ...draft.providerModels, [provider]: event.target.value } })} /></div>
-                      <ReasoningEffortField id="ai-reasoning-effort" label="Reasoning" value={draft.reasoningEfforts[provider]} capabilities={primaryReasoning.capabilities} loading={primaryReasoning.loading} disabled={saving} onChange={(reasoningEffort) => onDraftChange({ ...draft, reasoningEfforts: { ...draft.reasoningEfforts, [provider]: reasoningEffort } })} />
-                      <PromptField
-                        id="ai-commit-message-prompt"
-                        label="Commit Message Prompt"
-                        value={draft.commitMessagePrompt}
-                        defaultValue={DEFAULT_COMMIT_MESSAGE_PROMPT}
-                        disabled={saving}
-                        onChange={(commitMessagePrompt) => onDraftChange({ ...draft, commitMessagePrompt })}
-                      />
-                    </SettingsCard>
-
-                    <SettingsCard title="Pull request generation" description="Optional model override and instructions for pull request descriptions.">
-                      <div className="grid gap-2"><Label htmlFor="ai-pr-description-model">PR Description Model</Label><Input id="ai-pr-description-model" type="text" autoComplete="off" placeholder="Leave blank to use the commit message model" value={draft.prDescriptionModels[provider]} disabled={saving} onChange={(event) => onDraftChange({ ...draft, prDescriptionModels: { ...draft.prDescriptionModels, [provider]: event.target.value } })} /></div>
-                      {prDescriptionModel ? <ReasoningEffortField id="ai-pr-description-reasoning-effort" label="PR Description Reasoning" value={draft.prDescriptionReasoningEfforts[provider]} capabilities={prDescriptionReasoning.capabilities} loading={prDescriptionReasoning.loading} disabled={saving} onChange={(reasoningEffort) => onDraftChange({ ...draft, prDescriptionReasoningEfforts: { ...draft.prDescriptionReasoningEfforts, [provider]: reasoningEffort } })} /> : <p className="text-sm text-muted-foreground">PR descriptions inherit the primary model and reasoning setting.</p>}
-                      <PromptField
-                        id="ai-pr-description-prompt"
-                        label="PR Description Prompt"
-                        value={draft.prDescriptionPrompt}
-                        defaultValue={DEFAULT_PR_DESCRIPTION_PROMPT}
-                        disabled={saving}
-                        onChange={(prDescriptionPrompt) => onDraftChange({ ...draft, prDescriptionPrompt })}
-                      />
-                    </SettingsCard>
+                    <AiGenerationSettingsFields draft={draft} disabled={saving} enabled={open} idPrefix="ai" onDraftChange={onDraftChange} />
                   </div>
                 </SettingsPanel>
               </div>
@@ -306,9 +275,6 @@ function SettingsCard({ title, description, children }: { title: string; descrip
   return <section className="grid gap-4 rounded-lg border bg-card p-4"><div><h3 className="text-sm font-semibold">{title}</h3><p className="text-sm text-muted-foreground">{description}</p></div>{children}</section>;
 }
 
-function PromptField({ id, label, value, defaultValue, disabled, onChange }: { id: string; label: string; value: string; defaultValue: string; disabled: boolean; onChange: (value: string) => void }): ReactNode {
-  return <div className="grid gap-2"><div className="flex items-center justify-between gap-3"><Label htmlFor={id}>{label}</Label><Button type="button" variant="ghost" size="sm" disabled={disabled || value === defaultValue} aria-label={`Reset ${label.toLowerCase()} to default`} onClick={() => onChange(defaultValue)}><RotateCcw />Reset to default</Button></div><Textarea id={id} className="min-h-44 resize-y field-sizing-fixed" rows={7} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} /></div>;
-}
 
 function AppearanceSettings({ draft, saving, onDraftChange }: { draft: SettingsDraft; saving: boolean; onDraftChange: (draft: SettingsDraft) => void }): ReactNode {
   return <div className="grid max-w-2xl gap-5">
@@ -330,16 +296,6 @@ function FontSetting<T extends string>({ id, label, value, options, sample, disa
   return <div className="font-setting"><Label htmlFor={id}>{label}</Label><select id={id} className="h-10 rounded-md border border-input bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50" value={value} disabled={disabled} aria-describedby={helpId} onChange={(event) => onChange(event.currentTarget.value as T)}>{options.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}</select><p id={helpId} className="text-xs text-muted-foreground">{selected?.description}</p><div className="font-preview" style={{ fontFamily: selected?.previewFamily }} aria-hidden="true">{sample}</div></div>;
 }
 
-function useAiReasoningCapabilities(enabled: boolean, provider: AiCommitMessageProvider, model: string): { capabilities: AiReasoningCapabilities; loading: boolean } {
-  const [state, setState] = useState<{ capabilities: AiReasoningCapabilities; loading: boolean }>({ capabilities: { status: "unknown", supportedEfforts: [] }, loading: false });
-  useEffect(() => { const normalizedModel = model.trim(); if (!enabled || !normalizedModel) { setState({ capabilities: { status: "unknown", supportedEfforts: [] }, loading: false }); return; } let cancelled = false; setState((current) => ({ ...current, loading: true })); const timeout = window.setTimeout(() => { void window.githead.getAiReasoningCapabilities({ provider, model: normalizedModel }).then((capabilities) => { if (!cancelled) setState({ capabilities, loading: false }); }).catch(() => { if (!cancelled) setState({ capabilities: { status: "unknown", supportedEfforts: [] }, loading: false }); }); }, 300); return () => { cancelled = true; window.clearTimeout(timeout); }; }, [enabled, model, provider]);
-  return state;
-}
-
-function ReasoningEffortField({ id, label, value, capabilities, loading, disabled, onChange }: { id: string; label: string; value: AiReasoningEffort; capabilities: AiReasoningCapabilities; loading: boolean; disabled: boolean; onChange: (effort: AiReasoningEffort) => void }): ReactNode {
-  const supportedEfforts = AI_REASONING_EFFORTS.filter((effort) => capabilities.supportedEfforts.includes(effort)); const available = capabilities.status === "supported" && supportedEfforts.length > 0; const selectedValue = supportedEfforts.includes(value) ? value : supportedEfforts[0] ?? value; const helpId = `${id}-help`; const helpText = loading ? "Checking whether this model supports configurable reasoning…" : capabilities.status === "unsupported" ? "This model does not support configurable reasoning." : capabilities.status === "unknown" ? "Reasoning support could not be verified for this model." : "Lower effort favors speed and cost; higher effort favors deeper reasoning.";
-  return <div className="grid gap-2"><Label htmlFor={id}>{label}</Label><select id={id} className="h-10 rounded-md border border-input bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50" value={selectedValue} disabled={disabled || loading || !available} aria-describedby={helpId} onChange={(event) => onChange(event.target.value as AiReasoningEffort)}>{(available ? supportedEfforts : [value]).map((effort) => <option key={effort} value={effort}>{effort.charAt(0).toUpperCase() + effort.slice(1)}</option>)}</select><p id={helpId} className="text-sm text-muted-foreground" aria-live="polite">{helpText}</p></div>;
-}
 
 function serializeSettingsDraft(draft: SettingsDraft): string { return JSON.stringify(draft); }
 function formatZoomFactor(zoomFactor: number): string { return `${Math.round(zoomFactor * 100)}%`; }

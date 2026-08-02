@@ -99,6 +99,7 @@ import {
   type RepositoryActionManagerDraft
 } from "./RepositoryActionsDialog";
 import { SettingsDialog as RedesignedSettingsDialog, type SettingsDraft as SettingsDialogDraft } from "./SettingsDialog";
+import { RepositoryAiSettingsDialog } from "./RepositoryAiSettingsDialog";
 import { GitIdentityFields } from "./GitIdentityFields";
 import { getAiProviderLabel, isApiKeyProvider, isCliProvider } from "./aiProvider";
 import {
@@ -793,6 +794,7 @@ const initialWindowState: AppWindowState = {
 
 export function App(): ReactNode {
   const [state, setState] = useState<AppState>(initialState);
+  const [repositoryAiSettingsPath, setRepositoryAiSettingsPath] = useState("");
   const [workflowQuery, setWorkflowQuery] = useState<GitHubWorkflowRunQuery>({ ...DEFAULT_WORKFLOW_QUERY });
   const [workflowSearch, setWorkflowSearch] = useState("");
   const [workflowPreset, setWorkflowPreset] = useState("all");
@@ -5713,6 +5715,7 @@ export function App(): ReactNode {
           onShowInExplorer={(repoPath) => {
             void showRecentRepositoryInExplorer(repoPath);
           }}
+          onOpenAiSettings={setRepositoryAiSettingsPath}
           onCloneDraftChange={updateCloneDraft}
           onCloneSourceChange={(draft) => {
             updateCloneDraft(draft);
@@ -5741,6 +5744,7 @@ export function App(): ReactNode {
             void allowSafeDirectory();
           }}
         />
+        <RepositoryAiSettingsDialog open={Boolean(repositoryAiSettingsPath)} repoPath={repositoryAiSettingsPath} onOpenChange={(open) => { if (!open) setRepositoryAiSettingsPath(""); }} />
       </AppChrome>
     );
   }
@@ -5790,6 +5794,7 @@ export function App(): ReactNode {
             onShowInExplorer={(repoPath) => {
               void showRecentRepositoryInExplorer(repoPath);
             }}
+            onOpenAiSettings={setRepositoryAiSettingsPath}
             onAddWorktree={openWorktreeDialog}
             onRemoveWorktree={(worktree) => { void openWorktreeRemoval(worktree); }}
             onSwitchBranch={(branchName) => {
@@ -6244,6 +6249,7 @@ export function App(): ReactNode {
           void saveSettings();
         }}
       />
+      <RepositoryAiSettingsDialog open={Boolean(repositoryAiSettingsPath)} repoPath={repositoryAiSettingsPath} onOpenChange={(open) => { if (!open) setRepositoryAiSettingsPath(""); }} />
 
       {state.remoteManager.open ? (
       <OptionalFeatureBoundary name="remote management">
@@ -6709,6 +6715,7 @@ function RepositorySetupScreen({
   onRemoveRecent,
   onReorderRepositories,
   onShowInExplorer,
+  onOpenAiSettings,
   onCloneDraftChange,
   onCloneSourceChange,
   onChooseCloneParent,
@@ -6738,6 +6745,7 @@ function RepositorySetupScreen({
   onRemoveRecent: (repoPath: string) => void;
   onReorderRepositories: (repoPaths: string[]) => void;
   onShowInExplorer: (repoPath: string) => void;
+  onOpenAiSettings: (repoPath: string) => void;
   onCloneDraftChange: (draft: CloneDraft) => void;
   onCloneSourceChange: (draft: CloneDraft) => void;
   onChooseCloneParent: () => void;
@@ -6829,6 +6837,7 @@ function RepositorySetupScreen({
           onRemove={onRemoveRecent}
           onReorder={onReorderRepositories}
           onShowInExplorer={onShowInExplorer}
+          onOpenAiSettings={onOpenAiSettings}
         />
       ) : null}
     </section>
@@ -6847,6 +6856,7 @@ interface RepositoryListProps {
   onRemove: (repoPath: string) => void;
   onReorder: (repoPaths: string[]) => void;
   onShowInExplorer: (repoPath: string) => void;
+  onOpenAiSettings: (repoPath: string) => void;
   onAddWorktree?: () => void;
   onRemoveWorktree?: (worktree: GitWorktree) => void;
 }
@@ -6866,6 +6876,7 @@ interface RecentRepositoryRowProps {
   onSelect: (repoPath: string) => void;
   onRemove: (repoPath: string) => void;
   onShowInExplorer: (repoPath: string) => void;
+  onOpenAiSettings: (repoPath: string) => void;
 }
 
 type RepositoryDropPosition = "before" | "after";
@@ -6883,6 +6894,7 @@ function RepositoryList({
   onRemove,
   onReorder,
   onShowInExplorer,
+  onOpenAiSettings,
   onAddWorktree,
   onRemoveWorktree
 }: RepositoryListProps): ReactNode {
@@ -7059,6 +7071,7 @@ function RepositoryList({
             onSelect={onSelect}
             onRemove={() => onRemove(group.anchorPath)}
             onShowInExplorer={onShowInExplorer}
+            onOpenAiSettings={onOpenAiSettings}
             {...(onAddWorktree ? { onAddWorktree } : {})}
             {...(onRemoveWorktree ? { onRemoveWorktree } : {})}
           />;
@@ -7096,6 +7109,7 @@ function RepositoryList({
               onSelect={onSelect}
               onRemove={onRemove}
               onShowInExplorer={onShowInExplorer}
+              onOpenAiSettings={onOpenAiSettings}
             />
           );
         })}
@@ -7104,7 +7118,7 @@ function RepositoryList({
   );
 }
 
-function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled, dragging, dropPosition, syncStatuses, rowRef, onToggle, onDragStart, onPointerDragStart, onDragEnd, onKeyboardMove, onSelect, onRemove, onShowInExplorer, onAddWorktree, onRemoveWorktree }: {
+function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled, dragging, dropPosition, syncStatuses, rowRef, onToggle, onDragStart, onPointerDragStart, onDragEnd, onKeyboardMove, onSelect, onRemove, onShowInExplorer, onOpenAiSettings, onAddWorktree, onRemoveWorktree }: {
   group: RepositoryGroup;
   activeRepoPath: string;
   active: boolean;
@@ -7122,6 +7136,7 @@ function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled,
   onSelect: (repoPath: string) => void;
   onRemove: () => void;
   onShowInExplorer: (repoPath: string) => void;
+  onOpenAiSettings: (repoPath: string) => void;
   onAddWorktree?: () => void;
   onRemoveWorktree?: (worktree: GitWorktree) => void;
 }): ReactNode {
@@ -7139,18 +7154,18 @@ function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled,
     }
   };
   return <div ref={rowRef} className={rowClassName} data-repo-path={group.anchorPath}>
-    <div className="repo-group-heading">
+    <ContextMenu><ContextMenuTrigger asChild><div className="repo-group-heading">
       <button type="button" className="repo-recent-drag-handle" draggable={!disabled} disabled={disabled} onDragStart={(event) => onDragStart(event, group.anchorPath)} onMouseDown={() => onPointerDragStart(group.anchorPath)} onDragEnd={onDragEnd} onKeyDown={handleKeyDown} aria-label={`Reorder ${group.anchorPath}`}><GripVertical /></button>
       <button type="button" className="repo-group-toggle" disabled={disabled} onClick={onToggle} aria-expanded={expanded} aria-controls={worktreeListId} aria-label={`${expanded ? "Collapse" : "Expand"} worktrees for ${displayName}`}><ChevronRight className="repo-group-chevron" /></button>
       <button type="button" className="repo-group-main" disabled={disabled || navigationActive || navigationUnavailable} onClick={() => onSelect(group.lastUsedPath)} aria-current={navigationActive ? "true" : undefined} aria-label={`Switch to ${group.anchorPath}`}><RecentRepositoryVcsIcon kind={group.kind} /><span className="repo-recent-title">{displayName}</span></button>
       {active && group.kind === "git" && onAddWorktree ? <TooltipButton type="button" variant="ghost" size="icon-xs" disabled={disabled} onClick={onAddWorktree} aria-label="Add worktree" tooltip="Add worktree"><GitFork /></TooltipButton> : null}
       <TooltipButton type="button" variant="ghost" size="icon-xs" disabled={disabled} onClick={onRemove} aria-label={`Remove ${group.anchorPath} from recent repositories`} tooltip="Remove from recents"><X /></TooltipButton>
-    </div>
+    </div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{group.anchorPath}</ContextMenuLabel><ContextMenuSeparator /><ContextMenuItem disabled={disabled || navigationUnavailable} onSelect={() => onOpenAiSettings(group.lastUsedPath)}><Settings />AI Settings…</ContextMenuItem><ContextMenuItem disabled={navigationUnavailable} onSelect={() => onShowInExplorer(group.anchorPath)}><MapPinned />Show in Explorer</ContextMenuItem></ContextMenuContent></ContextMenu>
     <MotionPresence present={expanded} id={worktreeListId} className="repo-worktree-list">{worktrees.map((worktree) => {
       const workspaceActive = isSameRepoPath(worktree.path, activeRepoPath);
       const unavailable = worktree.isBare || worktree.prunable;
       const status = syncStatuses[getRepoPathKey(worktree.path)] ?? null;
-      return <ContextMenu key={getRepoPathKey(worktree.path)}><ContextMenuTrigger asChild><div className={`repo-worktree-row ${workspaceActive ? "is-active" : ""}`}><button type="button" className="repo-worktree-main" disabled={disabled || workspaceActive || unavailable} onClick={() => onSelect(worktree.path)} aria-current={workspaceActive ? "true" : undefined}><GitBranchIcon /><span className="min-w-0 flex-1"><span className="repo-worktree-branch">{worktree.branch ?? (worktree.isDetached ? "Detached HEAD" : getRepoDisplayName(worktree.path))}</span><span className="repo-worktree-path">{getRepoDisplayName(worktree.path)}</span></span>{worktree.isMain ? <Badge variant="outline">Main</Badge> : null}{worktree.locked ? <Badge variant="outline">Locked</Badge> : null}{worktree.prunable ? <Badge variant="destructive">Missing</Badge> : null}<RepoSyncStatusChips status={status} /></button></div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{worktree.path}</ContextMenuLabel><ContextMenuSeparator /><ContextMenuItem disabled={unavailable} onSelect={() => onShowInExplorer(worktree.path)}><MapPinned />Show in Explorer</ContextMenuItem>{!worktree.isMain && !workspaceActive && onRemoveWorktree ? <ContextMenuItem disabled={disabled || unavailable || worktree.locked} onSelect={() => onRemoveWorktree(worktree)}><Trash2 />Remove Worktree…</ContextMenuItem> : null}</ContextMenuContent></ContextMenu>;
+      return <ContextMenu key={getRepoPathKey(worktree.path)}><ContextMenuTrigger asChild><div className={`repo-worktree-row ${workspaceActive ? "is-active" : ""}`}><button type="button" className="repo-worktree-main" disabled={disabled || workspaceActive || unavailable} onClick={() => onSelect(worktree.path)} aria-current={workspaceActive ? "true" : undefined}><GitBranchIcon /><span className="min-w-0 flex-1"><span className="repo-worktree-branch">{worktree.branch ?? (worktree.isDetached ? "Detached HEAD" : getRepoDisplayName(worktree.path))}</span><span className="repo-worktree-path">{getRepoDisplayName(worktree.path)}</span></span>{worktree.isMain ? <Badge variant="outline">Main</Badge> : null}{worktree.locked ? <Badge variant="outline">Locked</Badge> : null}{worktree.prunable ? <Badge variant="destructive">Missing</Badge> : null}<RepoSyncStatusChips status={status} /></button></div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{worktree.path}</ContextMenuLabel><ContextMenuSeparator /><ContextMenuItem disabled={disabled || unavailable} onSelect={() => onOpenAiSettings(worktree.path)}><Settings />AI Settings…</ContextMenuItem><ContextMenuItem disabled={unavailable} onSelect={() => onShowInExplorer(worktree.path)}><MapPinned />Show in Explorer</ContextMenuItem>{!worktree.isMain && !workspaceActive && onRemoveWorktree ? <ContextMenuItem disabled={disabled || unavailable || worktree.locked} onSelect={() => onRemoveWorktree(worktree)}><Trash2 />Remove Worktree…</ContextMenuItem> : null}</ContextMenuContent></ContextMenu>;
     })}{group.error ? <p className="px-3 py-2 text-xs text-destructive">{group.error}</p> : null}</MotionPresence>
   </div>;
 }
@@ -7169,7 +7184,8 @@ function RecentRepositoryRow({
   onKeyboardMove,
   onSelect,
   onRemove,
-  onShowInExplorer
+  onShowInExplorer,
+  onOpenAiSettings
 }: RecentRepositoryRowProps): ReactNode {
   const displayName = getRepoDisplayName(repoPath);
   const syncDescription = formatRepoSyncStatusDescription(syncStatus);
@@ -7253,6 +7269,10 @@ function RecentRepositoryRow({
           <ContextMenuLabel className="repo-recent-menu-path">{repoPath}</ContextMenuLabel>
         </TooltipTarget>
         <ContextMenuSeparator />
+        <ContextMenuItem disabled={disabled} onSelect={() => onOpenAiSettings(repoPath)}>
+          <Settings />
+          AI Settings…
+        </ContextMenuItem>
         <ContextMenuItem disabled={disabled} onSelect={() => onShowInExplorer(repoPath)}>
           <MapPinned />
           Show in Explorer
@@ -7598,6 +7618,7 @@ function RepositoryPanel({
   onRemoveRecent,
   onReorderRepositories,
   onShowInExplorer,
+  onOpenAiSettings,
   onAddWorktree,
   onRemoveWorktree,
   onSwitchBranch,
@@ -7640,6 +7661,7 @@ function RepositoryPanel({
   onRemoveRecent: (repoPath: string) => void;
   onReorderRepositories: (repoPaths: string[]) => void;
   onShowInExplorer: (repoPath: string) => void;
+  onOpenAiSettings: (repoPath: string) => void;
   onAddWorktree: () => void;
   onRemoveWorktree: (worktree: GitWorktree) => void;
   onSwitchBranch: (branchName: string) => void;
@@ -7696,6 +7718,7 @@ function RepositoryPanel({
         onRemove={onRemoveRecent}
         onReorder={onReorderRepositories}
         onShowInExplorer={onShowInExplorer}
+        onOpenAiSettings={onOpenAiSettings}
         onAddWorktree={onAddWorktree}
         onRemoveWorktree={onRemoveWorktree}
         headingAction={(

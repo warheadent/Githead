@@ -4,6 +4,8 @@ import path from "node:path";
 import { IPC_CHANNELS } from "../shared/ipc";
 import type {
   AiSettingsSaveRequest,
+  RepositoryAiSettingsRequest,
+  RepositoryAiSettingsSaveRequest,
   GetAiReasoningCapabilitiesRequest,
   AppSettingsSaveRequest,
   ClipboardTextRequest,
@@ -677,6 +679,14 @@ ipcMain.handle(IPC_CHANNELS.getAiSettings, async () => {
 
 ipcMain.handle(IPC_CHANNELS.saveAiSettings, async (_event, request: AiSettingsSaveRequest) => {
   return getAiSettingsService().saveSettings(request);
+});
+
+ipcMain.handle(IPC_CHANNELS.getRepositoryAiSettings, async (_event, request: RepositoryAiSettingsRequest) => {
+  return getAiSettingsService().getRepositorySettings(request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.saveRepositoryAiSettings, async (_event, request: RepositoryAiSettingsSaveRequest) => {
+  return getAiSettingsService().saveRepositorySettings(request);
 });
 
 ipcMain.handle(IPC_CHANNELS.checkoutRemoteBranch, async (event, request: CoordinatedRequest<GitRemoteBranchCheckoutRequest>) => {

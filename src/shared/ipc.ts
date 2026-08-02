@@ -69,6 +69,8 @@ export const IPC_CHANNELS = {
   saveGitIdentity: "git:identity:save",
   getAiSettings: "ai:settings:get",
   saveAiSettings: "ai:settings:save",
+  getRepositoryAiSettings: "ai:repository-settings:get",
+  saveRepositoryAiSettings: "ai:repository-settings:save",
   getAiReasoningCapabilities: "ai:reasoning-capabilities:get",
   getAppSettings: "app:settings:get",
   saveAppSettings: "app:settings:save",

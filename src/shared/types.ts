@@ -996,6 +996,28 @@ export interface AiSettingsSaveRequest {
   prDescriptionPrompt?: string;
 }
 
+export interface RepositoryAiSettings {
+  repoPath: string;
+  /** True when `.githead/ai-settings.json` overrides the global AI settings. */
+  enabled: boolean;
+  settings: AiSettings;
+}
+
+export interface RepositoryAiSettingsRequest {
+  repoPath: string;
+}
+
+export interface RepositoryAiSettingsSaveRequest extends RepositoryAiSettingsRequest {
+  enabled: boolean;
+  selectedProvider: AiCommitMessageProvider;
+  providerModels: Record<AiCommitMessageProvider, string>;
+  prDescriptionModels?: Partial<Record<AiCommitMessageProvider, string>>;
+  reasoningEfforts?: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>>;
+  prDescriptionReasoningEfforts?: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>>;
+  commitMessagePrompt: string;
+  prDescriptionPrompt: string;
+}
+
 export const APP_COLOR_THEMES = [
   "githead",
   "tidepool",
@@ -1312,6 +1334,8 @@ export interface GitheadApi {
   saveGitIdentity(request: CoordinatedRequest<GitIdentitySaveRequest>): Promise<GitIdentitySettings>;
   getAiSettings(): Promise<AiSettings>;
   saveAiSettings(request: AiSettingsSaveRequest): Promise<AiSettings>;
+  getRepositoryAiSettings(request: RepositoryAiSettingsRequest): Promise<RepositoryAiSettings>;
+  saveRepositoryAiSettings(request: RepositoryAiSettingsSaveRequest): Promise<RepositoryAiSettings>;
   getAiReasoningCapabilities(request: GetAiReasoningCapabilitiesRequest): Promise<AiReasoningCapabilities>;
   getAppSettings(): Promise<AppSettings>;
   saveAppSettings(request: AppSettingsSaveRequest): Promise<AppSettings>;

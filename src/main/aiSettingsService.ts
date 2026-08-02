@@ -14,7 +14,9 @@ import {
   type AiProviderSettings,
   type AiReasoningEffort,
   type AiSettings,
-  type AiSettingsSaveRequest
+  type AiSettingsSaveRequest,
+  type RepositoryAiSettings,
+  type RepositoryAiSettingsSaveRequest
 } from "../shared/types";
 
 const LEGACY_DEFAULT_OPENROUTER_MODEL = "openai/gpt-5.4-nano";
@@ -49,6 +51,19 @@ interface StoredAiSettings {
   encryptedApiKey?: string;
 }
 
+interface StoredRepositoryAiSettings {
+  version: 1;
+  selectedProvider?: AiCommitMessageProvider;
+  providerModels?: Partial<Record<AiCommitMessageProvider, string>>;
+  prDescriptionModels?: Partial<Record<AiCommitMessageProvider, string>>;
+  reasoningEfforts?: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>>;
+  prDescriptionReasoningEfforts?: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>>;
+  commitMessagePrompt?: string;
+  prDescriptionPrompt?: string;
+}
+
+const REPOSITORY_SETTINGS_PATH = path.join(".githead", "ai-settings.json");
+
 export interface SecretStorage {
   isEncryptionAvailable(): boolean;
   encryptString(value: string): Buffer;
@@ -81,7 +96,73 @@ export class AiSettingsService {
     this.settingsPath = path.join(userDataPath, "ai-settings.json");
   }
 
-  async getSettings(): Promise<AiSettings> {
+  async getSettings(repoPath?: string): Promise<AiSettings> {
+    const globalSettings = await this.getGlobalSettings();
+    if (!repoPath) {
+      return globalSettings;
+    }
+
+    const stored = await this.readRepositorySettings(repoPath);
+    return stored ? mergeRepositorySettings(globalSettings, stored) : globalSettings;
+  }
+
+  async getRepositorySettings(repoPath: string): Promise<RepositoryAiSettings> {
+    const globalSettings = await this.getGlobalSettings();
+    const stored = await this.readRepositorySettings(repoPath);
+    return {
+      repoPath,
+      enabled: Boolean(stored),
+      settings: stored ? mergeRepositorySettings(globalSettings, stored) : globalSettings
+    };
+  }
+
+  async saveRepositorySettings(request: RepositoryAiSettingsSaveRequest): Promise<RepositoryAiSettings> {
+    const repoPath = request.repoPath.trim();
+    if (!repoPath) {
+      throw new Error("Repository path is required.");
+    }
+
+    const settingsPath = getRepositorySettingsPath(repoPath);
+    if (!request.enabled) {
+      await fs.rm(settingsPath, { force: true });
+      return this.getRepositorySettings(repoPath);
+    }
+
+    const repoStat = await fs.stat(repoPath).catch(() => null);
+    if (!repoStat?.isDirectory()) {
+      throw new Error("Repository folder does not exist.");
+    }
+
+    const selectedProvider = sanitizeProvider(request.selectedProvider);
+    if (!selectedProvider) {
+      throw new Error("Choose an AI provider.");
+    }
+    const commitMessagePrompt = sanitizePrompt(request.commitMessagePrompt);
+    if (!commitMessagePrompt) {
+      throw new Error("Enter a commit message prompt.");
+    }
+    const prDescriptionPrompt = sanitizePrompt(request.prDescriptionPrompt);
+    if (!prDescriptionPrompt) {
+      throw new Error("Enter a pull request description prompt.");
+    }
+
+    const stored: StoredRepositoryAiSettings = {
+      version: 1,
+      selectedProvider,
+      providerModels: createSavedProviderModels(request.providerModels),
+      prDescriptionModels: createSavedPrDescriptionModels(request.prDescriptionModels),
+      reasoningEfforts: createSavedReasoningEfforts(request.reasoningEfforts),
+      prDescriptionReasoningEfforts: createSavedReasoningEfforts(request.prDescriptionReasoningEfforts),
+      commitMessagePrompt,
+      prDescriptionPrompt
+    };
+
+    await fs.mkdir(path.dirname(settingsPath), { recursive: true });
+    await writeJsonFile(settingsPath, stored);
+    return this.getRepositorySettings(repoPath);
+  }
+
+  private async getGlobalSettings(): Promise<AiSettings> {
     const [
       stored,
       cliStatus
@@ -199,6 +280,68 @@ export class AiSettingsService {
 
       throw error;
     }
+  }
+
+  private async readRepositorySettings(repoPath: string): Promise<StoredRepositoryAiSettings | null> {
+    try {
+      const text = await fs.readFile(getRepositorySettingsPath(repoPath), "utf8");
+      const parsed = JSON.parse(text) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("Repository AI settings must contain a JSON object.");
+      }
+      return parsed as StoredRepositoryAiSettings;
+    } catch (error) {
+      if (isNodeError(error) && error.code === "ENOENT") {
+        return null;
+      }
+      if (error instanceof SyntaxError) {
+        throw new Error(`Repository AI settings contain invalid JSON: ${error.message}`);
+      }
+      throw error;
+    }
+  }
+}
+
+function mergeRepositorySettings(global: AiSettings, stored: StoredRepositoryAiSettings): AiSettings {
+  const providers = AI_COMMIT_MESSAGE_PROVIDERS.reduce((result, provider) => {
+    const base = global.providers[provider];
+    result[provider] = {
+      ...base,
+      model: sanitizeSetting(stored.providerModels?.[provider]) || base.model,
+      prDescriptionModel: stored.prDescriptionModels?.[provider] === undefined
+        ? base.prDescriptionModel
+        : sanitizeSetting(stored.prDescriptionModels[provider]),
+      reasoningEffort: stored.reasoningEfforts?.[provider] === undefined
+        ? base.reasoningEffort
+        : sanitizeReasoningEffort(stored.reasoningEfforts[provider]),
+      prDescriptionReasoningEffort: stored.prDescriptionReasoningEfforts?.[provider] === undefined
+        ? base.prDescriptionReasoningEffort
+        : sanitizeReasoningEffort(stored.prDescriptionReasoningEfforts[provider])
+    };
+    return result;
+  }, {} as Record<AiCommitMessageProvider, AiProviderSettings>);
+
+  return {
+    ...global,
+    selectedProvider: sanitizeProvider(stored.selectedProvider) ?? global.selectedProvider,
+    providers,
+    commitMessagePrompt: sanitizePrompt(stored.commitMessagePrompt) || global.commitMessagePrompt,
+    prDescriptionPrompt: sanitizePrompt(stored.prDescriptionPrompt) || global.prDescriptionPrompt
+  };
+}
+
+function getRepositorySettingsPath(repoPath: string): string {
+  return path.join(path.resolve(repoPath), REPOSITORY_SETTINGS_PATH);
+}
+
+async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
+  const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    await fs.writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+    await fs.rename(temporaryPath, filePath);
+  } catch (error) {
+    await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
+    throw error;
   }
 }
 
