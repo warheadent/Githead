@@ -82,12 +82,12 @@ describe("commit message provider cancellation", () => {
     const removeListener = vi.spyOn(controller.signal, "removeEventListener");
     const clearTimeout = vi.spyOn(globalThis, "clearTimeout");
     const fetchImpl = async () => new Response(JSON.stringify({
-      choices: [{ message: { content: "feat: generated" } }]
+      choices: [{ finish_reason: "stop", message: { content: "feat: generated" } }]
     }));
     const provider = new OpenRouterCommitMessageProvider("test-key", fetchImpl as typeof fetch);
 
     await expect(provider.generate({ ...providerInput, signal: controller.signal }))
-      .resolves.toBe("feat: generated");
+      .resolves.toEqual({ text: "feat: generated", finishReason: "complete" });
 
     const abortRegistration = addListener.mock.calls.find(([event]) => event === "abort");
     expect(abortRegistration).toBeDefined();
@@ -181,7 +181,10 @@ describe("OpenRouter Flex fallback", () => {
       .mockResolvedValueOnce(createResponse(200, undefined, "feat: use the default tier"));
     const provider = new OpenRouterCommitMessageProvider("test-key", fetchImpl);
 
-    await expect(provider.generate(providerInput)).resolves.toBe("feat: use the default tier");
+    await expect(provider.generate(providerInput)).resolves.toEqual({
+      text: "feat: use the default tier",
+      finishReason: "complete"
+    });
     expect(fetchImpl).toHaveBeenCalledTimes(3);
     expect(getServiceTiers(fetchImpl)).toEqual(["flex", "flex", "default"]);
   });
@@ -192,7 +195,10 @@ describe("OpenRouter Flex fallback", () => {
       .mockResolvedValueOnce(createResponse(200, undefined, "fix: retry Flex generation"));
     const provider = new OpenRouterCommitMessageProvider("test-key", fetchImpl);
 
-    await expect(provider.generate(providerInput)).resolves.toBe("fix: retry Flex generation");
+    await expect(provider.generate(providerInput)).resolves.toEqual({
+      text: "fix: retry Flex generation",
+      finishReason: "complete"
+    });
     expect(getServiceTiers(fetchImpl)).toEqual(["flex", "flex"]);
   });
 
@@ -209,7 +215,7 @@ describe("OpenRouter Flex fallback", () => {
 function createResponse(status: number, error?: string, content?: string): Response {
   return new Response(JSON.stringify({
     ...(error ? { error: { message: error } } : {}),
-    ...(content ? { choices: [{ message: { content } }] } : {})
+    ...(content ? { choices: [{ finish_reason: "stop", message: { content } }] } : {})
   }), { status });
 }
 
