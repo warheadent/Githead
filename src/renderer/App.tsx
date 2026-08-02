@@ -4759,8 +4759,8 @@ export function App(): ReactNode {
     if (view === "status") {
       void refreshDirtyFileStatus();
     }
-    if (view === "history" && !latest.historyLoaded && !latest.historyLoading) {
-      void loadCommitHistory(false);
+    if (view === "history" && !latest.historyLoading) {
+      void loadCommitHistory(true);
     }
     if (view === "workflows") void github.ensure("workflowRuns");
     if (view === "pullRequests") void github.ensure("pullRequests");

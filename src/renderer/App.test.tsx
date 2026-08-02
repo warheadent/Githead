@@ -541,6 +541,39 @@ describe("App", () => {
     expect(githead.getCommitFileDiff).toHaveBeenCalledTimes(diffCallsBeforeRefreshCompletes);
   });
 
+  it("refreshes cached commit history when the Commit History tab opens again", async () => {
+    const user = userEvent.setup();
+    const previousHead = createCommit({
+      hash: "a".repeat(40),
+      shortHash: "aaaaaaa",
+      subject: "feat: previous head"
+    });
+    const pushedHead = createCommit({
+      hash: "b".repeat(40),
+      shortHash: "bbbbbbb",
+      subject: "fix: pushed head"
+    });
+    const pendingRefresh = defer<GitCommitGraphRow[]>();
+    vi.mocked(githead.getCommitHistory)
+      .mockResolvedValueOnce([previousHead])
+      .mockReturnValueOnce(pendingRefresh.promise);
+    vi.mocked(githead.getCommitDetails).mockImplementation(async ({ hash }) => createCommitDetails(hash));
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await screen.findByRole("option", { name: /previous head/ });
+
+    await user.click(screen.getByRole("tab", { name: /File Status/ }));
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+
+    expect(screen.getByRole("option", { name: /previous head/ })).toBeTruthy();
+    expect(screen.getByText("Refreshing commit history")).toBeTruthy();
+    pendingRefresh.resolve([pushedHead, previousHead]);
+    expect(await screen.findByRole("option", { name: /pushed head/ })).toBeTruthy();
+    expect(githead.getCommitHistory).toHaveBeenCalledTimes(2);
+  });
+
   it("selects and loads the refreshed head when the previous commit disappears", async () => {
     const user = userEvent.setup();
     const removedCommit = createCommit({
