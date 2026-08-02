@@ -12,26 +12,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { GitRemoteBranch } from "../shared/types";
-
-export interface PushToBranchDialogState {
-  open: boolean;
-  sourceBranch: string;
-  remoteName: string;
-  destinationMode: "existing" | "new";
-  destinationBranch: string;
-  newBranchName: string;
-  error: string;
-}
-
-export const emptyPushToBranchDialog: PushToBranchDialogState = {
-  open: false,
-  sourceBranch: "",
-  remoteName: "",
-  destinationMode: "existing",
-  destinationBranch: "",
-  newBranchName: "",
-  error: ""
-};
+import type { PushToBranchDialogState } from "./pushToBranchState";
+export { emptyPushToBranchDialog, type PushToBranchDialogState } from "./pushToBranchState";
 
 const PUSH_NEW_BRANCH_VALUE = ":githead:new";
 

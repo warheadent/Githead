@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import {
   Fragment,
+  lazy,
   useCallback,
   useEffect,
   useId,
@@ -51,7 +52,6 @@ import {
   type MouseEvent,
   type ReactNode
 } from "react";
-import ReactMarkdown from "react-markdown";
 import { Badge } from "@/components/ui/badge";
 import { Button, TooltipButton } from "@/components/ui/button";
 import {
@@ -92,14 +92,14 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { TagDialog, type TagDialogState } from "./TagDialog";
-import { MarkdownPreview } from "./MarkdownPreview";
 import { MotionPresence, MotionSwap, useFlipList } from "./motion";
 import {
   RepositoryActionsDialog,
   type RepositoryActionDraft,
   type RepositoryActionManagerDraft
 } from "./RepositoryActionsDialog";
-import { GitIdentityFields, SettingsDialog as RedesignedSettingsDialog } from "./SettingsDialog";
+import { SettingsDialog as RedesignedSettingsDialog, type SettingsDraft as SettingsDialogDraft } from "./SettingsDialog";
+import { GitIdentityFields } from "./GitIdentityFields";
 import { getAiProviderLabel, isApiKeyProvider, isCliProvider } from "./aiProvider";
 import {
   Tooltip,
@@ -111,12 +111,10 @@ import {
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import { DEFAULT_PR_DESCRIPTION_PROMPT } from "../shared/prDescriptionPrompt";
 import type {
-  AiApiKeyProvider,
   AiCommitMessageProvider,
   AiReasoningEffort,
   AiSettings,
   AppAppearanceMode,
-  AppColorTheme,
   AppSettings,
   AppUpdateState,
   CommitHistoryScope,
@@ -174,8 +172,7 @@ import { parseGitHubReferences } from "../shared/githubReference";
 import { ActivityLogView } from "./ActivityLogView";
 import { BranchManagementDialog } from "./BranchManagementDialog";
 import { WorktreeCreateDialog, WorktreeRemoveDialog } from "./WorktreeDialogs";
-import { PushToBranchDialog, emptyPushToBranchDialog, type PushToBranchDialogState } from "./PushToBranchDialog";
-import { RemoteManagementDialog } from "./RemoteManagementDialog";
+import { emptyPushToBranchDialog, type PushToBranchDialogState } from "./pushToBranchState";
 import { useGitHubQueries } from "./useGitHubQueries";
 import { GitHubQueryToolbar } from "./GitHubQueryToolbar";
 import { DEFAULT_ISSUE_QUERY, DEFAULT_PULL_REQUEST_QUERY, DEFAULT_WORKFLOW_QUERY, filterLoadedWorkflowRuns, sortLoadedWorkflowRuns } from "./githubViewQuery";
@@ -195,14 +192,20 @@ import { buildCommitGraphLayout, type CommitGraphLayout } from "./commitGraph";
 import { groupDiffRowsByHunk, isTechnicalFileHeader, parseUnifiedDiff, type DiffRow } from "./diffParser";
 import { getCommitFileStatusVisuals, getFileStatusVisuals, type FileStatusVisuals } from "./fileStatusVisuals";
 import { FixedSizeVirtualList, type VirtualRowProps } from "./FixedSizeVirtualList";
-import { highlightDiffRows, type HighlightedCode } from "./syntaxHighlighter";
+import type { HighlightedCode } from "./syntaxHighlighter";
 import { buildStatusFileTree, fileName, type StatusFileTreeFolder } from "./statusFileTree";
 import { applyColorTheme } from "./themes";
-import { FileHistoryView } from "./FileHistoryView";
-import { BlameView } from "./BlameView";
+import { OptionalFeatureBoundary } from "./OptionalFeatureBoundary";
 import { repositoryHistoryRoute, targetFromCommitFile, targetFromHistoryEntry, type HistoricalFileTarget, type HistoryRoute } from "./historyNavigation";
 import gitIconUrl from "./assets/git-icon-white.svg";
 import loreIconUrl from "./assets/lore-icon-white.svg";
+
+const BasicMarkdown = lazy(() => import("./BasicMarkdown.js").then((module) => ({ default: module.BasicMarkdown })));
+const BlameView = lazy(() => import("./BlameView.js").then((module) => ({ default: module.BlameView })));
+const FileHistoryView = lazy(() => import("./FileHistoryView.js").then((module) => ({ default: module.FileHistoryView })));
+const MarkdownPreview = lazy(() => import("./MarkdownPreview.js").then((module) => ({ default: module.MarkdownPreview })));
+const PushToBranchDialog = lazy(() => import("./PushToBranchDialog.js").then((module) => ({ default: module.PushToBranchDialog })));
+const RemoteManagementDialog = lazy(() => import("./RemoteManagementDialog.js").then((module) => ({ default: module.RemoteManagementDialog })));
 
 const HISTORY_LIMIT = 200;
 
@@ -221,24 +224,7 @@ interface FileSelectionModifiers {
   toggle: boolean;
 }
 
-interface SettingsDraft {
-  selectedProvider: AiCommitMessageProvider;
-  providerModels: Record<AiCommitMessageProvider, string>;
-  prDescriptionModels: Record<AiCommitMessageProvider, string>;
-  reasoningEfforts: Record<AiCommitMessageProvider, AiReasoningEffort>;
-  prDescriptionReasoningEfforts: Record<AiCommitMessageProvider, AiReasoningEffort>;
-  apiKeys: Partial<Record<AiApiKeyProvider, string>>;
-  clearApiKeys: Partial<Record<AiApiKeyProvider, boolean>>;
-  commitMessagePrompt: string;
-  prDescriptionPrompt: string;
-  autoFetchIntervalMinutes: string;
-  colorTheme: AppColorTheme;
-  appearanceMode: AppAppearanceMode;
-  zoomFactor: number;
-  gitIdentityName: string;
-  gitIdentityEmail: string;
-  gitIdentityScope: GitIdentityScope;
-}
+type SettingsDraft = SettingsDialogDraft;
 
 interface GitIdentityPromptState {
   open: boolean;
@@ -5905,6 +5891,7 @@ export function App(): ReactNode {
 
               <TabsContent forceMount value="history" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
                 {state.historyRoute.kind === "file" ? (
+                  <OptionalFeatureBoundary name="file history">
                   <FileHistoryView
                     path={state.historyRoute.origin.path}
                     entries={state.fileHistoryEntries}
@@ -5936,7 +5923,9 @@ export function App(): ReactNode {
                       />
                     }
                   />
+                  </OptionalFeatureBoundary>
                 ) : state.historyRoute.kind === "blame" ? (
+                  <OptionalFeatureBoundary name="blame view">
                   <BlameView
                     path={state.historyRoute.target.path}
                     result={state.fileBlame}
@@ -5956,6 +5945,7 @@ export function App(): ReactNode {
                       selectCommit(hash);
                     }}
                   />
+                  </OptionalFeatureBoundary>
                 ) : <HistoryView
                   summary={state.summary}
                   historyScope={state.historyScope}
@@ -6185,6 +6175,8 @@ export function App(): ReactNode {
         }}
       />
 
+      {state.remoteManager.open ? (
+      <OptionalFeatureBoundary name="remote management">
       <RemoteManagementDialog
         open={state.remoteManager.open}
         repoPath={state.repoPath}
@@ -6222,6 +6214,8 @@ export function App(): ReactNode {
           (repoPath, operationId) => window.githead.removeRemote({ repoPath, name, operationId })
         )}
       />
+      </OptionalFeatureBoundary>
+      ) : null}
 
       <BranchManagementDialog
         open={state.branchManagerOpen}
@@ -6367,6 +6361,8 @@ export function App(): ReactNode {
         }}
       />
 
+      {state.pushToBranchDialog.open ? (
+      <OptionalFeatureBoundary name="push to branch">
       <PushToBranchDialog
         state={state.pushToBranchDialog}
         remotes={getPushRemotes(state.summary)}
@@ -6386,6 +6382,8 @@ export function App(): ReactNode {
           void pushToBranch();
         }}
       />
+      </OptionalFeatureBoundary>
+      ) : null}
 
       <CreatePullRequestDialog
         state={state.createPrDialog}
@@ -8023,9 +8021,9 @@ function AppUpdateReleaseNotesPopover({ state }: { state: AppUpdateState }): Rea
           <p className="app-update-release-notes-error" role="status" aria-live="polite">{releaseNotes.error}</p>
         ) : releaseNotes.body ? (
           <div className="app-update-release-notes-body selectable-text">
-            <ReactMarkdown skipHtml>
-              {releaseNotes.body}
-            </ReactMarkdown>
+            <OptionalFeatureBoundary name="release notes">
+              <BasicMarkdown>{releaseNotes.body}</BasicMarkdown>
+            </OptionalFeatureBoundary>
           </div>
         ) : (
           <p className="app-update-release-notes-status">No release notes published for this version.</p>
@@ -8862,7 +8860,11 @@ function DiffPanel({
       ? <p className="markdown-preview-status" role="status" aria-live="polite">Loading Markdown preview...</p>
       : preview.error
         ? <p className="markdown-preview-status bad selectable-text" role="alert">{preview.error}</p>
-        : <MarkdownPreview text={preview.text ?? ""} />;
+        : (
+          <OptionalFeatureBoundary name="Markdown preview">
+            <MarkdownPreview text={preview.text ?? ""} />
+          </OptionalFeatureBoundary>
+        );
   } else if (loading) {
     content = "Loading diff...";
   } else if (diff) {
@@ -8944,11 +8946,30 @@ function DiffRows({
 }): ReactNode {
   const groups = useMemo(() => {
     const rows = parseUnifiedDiff(text, truncated ? ["Diff truncated."] : []);
-    return groupDiffRowsByHunk(rows).map((group) => ({
-      ...group,
-      highlightedRows: highlightDiffRows(filePath, group.rows)
-    }));
-  }, [filePath, text, truncated]);
+    return groupDiffRowsByHunk(rows);
+  }, [text, truncated]);
+  const [highlightedGroups, setHighlightedGroups] = useState<Map<number, HighlightedCode[]>>(() => new Map());
+
+  useEffect(() => {
+    let cancelled = false;
+    setHighlightedGroups(new Map());
+
+    void import("./syntaxHighlighter.js")
+      .then(({ highlightDiffRows }) => {
+        if (cancelled) return;
+        setHighlightedGroups(new Map(groups.map((group, groupIndex) => [
+          groupIndex,
+          highlightDiffRows(filePath, group.rows)
+        ])));
+      })
+      .catch(() => {
+        // Plain diff text stays available if optional syntax highlighting cannot load.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filePath, groups]);
 
   let hunkNumber = 0;
 
@@ -8960,7 +8981,7 @@ function DiffRows({
         <DiffRowView
           key={`${rowIndex}:${row.kind}:${row.oldLine ?? ""}:${row.newLine ?? ""}`}
           row={row}
-          highlighted={group.highlightedRows[rowIndex] ?? { kind: "plain", value: row.text }}
+          highlighted={highlightedGroups.get(groupIndex)?.[rowIndex] ?? { kind: "plain", value: row.text }}
         />
       ] : [];
     });
@@ -9958,18 +9979,9 @@ function CommitDetailsPanel({
         </dl>
         {details.body ? (
           <div className="commit-body">
-            <ReactMarkdown
-              skipHtml
-              components={{
-                a: ({ children, ...props }) => (
-                  <a {...props} target="_blank" rel="noreferrer">
-                    {children}
-                  </a>
-                )
-              }}
-            >
-              {details.body}
-            </ReactMarkdown>
+            <OptionalFeatureBoundary name="commit message">
+              <BasicMarkdown externalLinks>{details.body}</BasicMarkdown>
+            </OptionalFeatureBoundary>
           </div>
         ) : null}
       </div>
