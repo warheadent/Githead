@@ -32,6 +32,7 @@ import {
   Tag,
   Trash2,
   Upload,
+  WrapText,
   Workflow,
   X
 } from "lucide-react";
@@ -781,7 +782,7 @@ export function App(): ReactNode {
   useAppearanceModeClass(appearanceMode);
   const stateRef = useRef(state);
   const appSettingsSaveQueue = useRef<Promise<void>>(Promise.resolve());
-  const statusViewSaveId = useRef(0);
+  const appSettingsPreferenceSaveId = useRef(0);
   const requestIds = useRef<RequestIds>({
     repo: 0,
     repoSyncStatuses: 0,
@@ -817,6 +818,42 @@ export function App(): ReactNode {
     stateRef.current = next;
     setState(next);
   }, []);
+
+  const saveAppSettingsPreference = useCallback((
+    patch: Partial<Pick<AppSettings, "statusFileViewMode" | "wrapDiffLines">>,
+    failureMessage: string
+  ): void => {
+    const previous = stateRef.current.appSettings;
+    if (!previous) return;
+    const desired = { ...previous, ...patch };
+    if (
+      desired.statusFileViewMode === previous.statusFileViewMode
+      && desired.wrapDiffLines === previous.wrapDiffLines
+    ) return;
+
+    const saveId = ++appSettingsPreferenceSaveId.current;
+    updateState({ appSettings: desired });
+    appSettingsSaveQueue.current = appSettingsSaveQueue.current.then(async () => {
+      try {
+        const appSettings = await window.githead.saveAppSettings(desired);
+        if (saveId === appSettingsPreferenceSaveId.current) updateState({ appSettings });
+      } catch (error) {
+        if (saveId === appSettingsPreferenceSaveId.current) updateState({
+          appSettings: previous,
+          lastOperationResult: {
+            repoPath: stateRef.current.repoPath,
+            exitCode: -1,
+            stdout: "",
+            stderr: error instanceof Error ? error.message : failureMessage
+          }
+        });
+      }
+    });
+  }, [updateState]);
+
+  const setWrapDiffLines = useCallback((wrapDiffLines: boolean): void => {
+    saveAppSettingsPreference({ wrapDiffLines }, "Unable to save the diff line wrap preference.");
+  }, [saveAppSettingsPreference]);
 
   const closeTrustDialog = useCallback((trusted: boolean): void => {
     const pending = pendingTrustConfirmationRef.current;
@@ -1719,7 +1756,8 @@ export function App(): ReactNode {
           colorTheme: "githead",
           appearanceMode: "system",
           zoomFactor: 1,
-          statusFileViewMode: "list"
+          statusFileViewMode: "list",
+          wrapDiffLines: false
         },
         lastOperationResult: {
           repoPath: current.repoPath,
@@ -4513,7 +4551,8 @@ export function App(): ReactNode {
           colorTheme: draft.colorTheme,
           appearanceMode: draft.appearanceMode,
           zoomFactor: draft.zoomFactor,
-          statusFileViewMode: initial.appSettings?.statusFileViewMode ?? "list"
+          statusFileViewMode: initial.appSettings?.statusFileViewMode ?? "list",
+          wrapDiffLines: initial.appSettings?.wrapDiffLines ?? false
         });
         if (!isSaveCurrent()) return;
       }
@@ -5836,28 +5875,12 @@ export function App(): ReactNode {
                   diffLoading={state.diffLoading}
                   disabled={disableActions}
                   viewMode={state.appSettings?.statusFileViewMode ?? "list"}
-                  onViewModeChange={(statusFileViewMode) => {
-                    const current = stateRef.current.appSettings;
-                    if (!current || current.statusFileViewMode === statusFileViewMode) return;
-                    const saveId = ++statusViewSaveId.current;
-                    updateState({ appSettings: { ...current, statusFileViewMode } });
-                    appSettingsSaveQueue.current = appSettingsSaveQueue.current.then(async () => {
-                      try {
-                        const appSettings = await window.githead.saveAppSettings({ ...current, statusFileViewMode });
-                        if (saveId === statusViewSaveId.current) updateState({ appSettings });
-                      } catch (error) {
-                        if (saveId === statusViewSaveId.current) updateState({
-                          appSettings: current,
-                          lastOperationResult: {
-                            repoPath: stateRef.current.repoPath,
-                            exitCode: -1,
-                            stdout: "",
-                            stderr: error instanceof Error ? error.message : "Unable to save file view preference."
-                          }
-                        });
-                      }
-                    });
-                  }}
+                  onViewModeChange={(statusFileViewMode) => saveAppSettingsPreference(
+                    { statusFileViewMode },
+                    "Unable to save the file view preference."
+                  )}
+                  wrapLines={state.appSettings?.wrapDiffLines ?? false}
+                  onWrapLinesChange={setWrapDiffLines}
                   onSelectFile={selectFile}
                   onStageFiles={(paths, selection) => {
                     void stageFiles(paths, selection);
@@ -5908,6 +5931,8 @@ export function App(): ReactNode {
                         loading={state.fileHistoryDiffLoading}
                         emptyMessage={state.fileHistoryDiffError || (state.selectedFileHistoryHash ? "Loading diff..." : "Select a change to view its diff")}
                         repoPath={state.repoPath}
+                        wrapLines={state.appSettings?.wrapDiffLines ?? false}
+                        onWrapLinesChange={setWrapDiffLines}
                       />
                     }
                   />
@@ -5945,6 +5970,7 @@ export function App(): ReactNode {
                   commitFileDiff={state.commitFileDiff}
                   commitFileDiffLoading={state.commitFileDiffLoading}
                   commitFileDiffError={state.commitFileDiffError}
+                  wrapLines={state.appSettings?.wrapDiffLines ?? false}
                   disabled={disableActions}
                   insights={historyInsights.data}
                   insightsLoading={historyInsights.loading}
@@ -5957,6 +5983,7 @@ export function App(): ReactNode {
                   onCommitContextAction={runCommitContextAction}
                   onCommitFileContextAction={runCommitFileContextAction}
                   onDownloadImage={() => { void downloadCommitLfsPreview(); }}
+                  onWrapLinesChange={setWrapDiffLines}
                 />}
               </TabsContent>
 
@@ -8243,6 +8270,8 @@ function StatusView({
   disabled,
   viewMode,
   onViewModeChange,
+  wrapLines,
+  onWrapLinesChange,
   onSelectFile,
   onStageFiles,
   onUnstageFiles,
@@ -8262,6 +8291,8 @@ function StatusView({
   disabled: boolean;
   viewMode: StatusFileViewMode;
   onViewModeChange: (mode: StatusFileViewMode) => void;
+  wrapLines: boolean;
+  onWrapLinesChange: (wrap: boolean) => void;
   onSelectFile: (file: GitStatusFile, side: GitDiffSide, modifiers: FileSelectionModifiers) => void;
   onStageFiles: (paths: string[], selection?: FileSelection) => void;
   onUnstageFiles: (paths: string[], selection?: FileSelection) => void;
@@ -8423,6 +8454,8 @@ function StatusView({
           } : undefined}
           onRefresh={selection ? onRefreshDiff : undefined}
           refreshDisabled={disabled}
+          wrapLines={wrapLines}
+          onWrapLinesChange={onWrapLinesChange}
         />
       </ResizablePanel>
     </ResizablePanelGroup>
@@ -8735,7 +8768,9 @@ function DiffPanel({
   onRefresh,
   refreshDisabled = false,
   onDownloadImage,
-  imageDownloadLoading = false
+  imageDownloadLoading = false,
+  wrapLines,
+  onWrapLinesChange
 }: {
   title: string;
   eyebrow: string;
@@ -8750,6 +8785,8 @@ function DiffPanel({
   refreshDisabled?: boolean;
   onDownloadImage?: () => void;
   imageDownloadLoading?: boolean;
+  wrapLines: boolean;
+  onWrapLinesChange: (wrap: boolean) => void;
 }): ReactNode {
   const previewInstanceId = useId();
   const previewGeneration = useRef(0);
@@ -8827,7 +8864,7 @@ function DiffPanel({
   } else if (loading) {
     content = "Loading diff...";
   } else if (diff) {
-    outputClass = `diff-output ${diff.kind}`;
+    outputClass = `diff-output ${diff.kind}${diff.kind === "text" && wrapLines ? " is-wrapped" : ""}`;
     content = diff.kind === "text"
       ? <DiffRows filePath={filePath} text={diff.text} truncated={Boolean(diff.truncated)} hunkAction={hunkAction} />
       : diff.kind === "image"
@@ -8843,6 +8880,19 @@ function DiffPanel({
           <TooltipTarget content={title}><h2 className="truncate text-sm font-semibold">{title}</h2></TooltipTarget>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {diff?.kind === "text" && !showPreview ? (
+            <TooltipButton
+              type="button"
+              variant={wrapLines ? "secondary" : "outline"}
+              size="icon-sm"
+              aria-label="Wrap diff lines"
+              aria-pressed={wrapLines}
+              tooltip={wrapLines ? "Use horizontal scrolling" : "Wrap long diff lines"}
+              onClick={() => onWrapLinesChange(!wrapLines)}
+            >
+              <WrapText />
+            </TooltipButton>
+          ) : null}
           {previewSource ? (
             <Button
               type="button"
@@ -9003,6 +9053,7 @@ function HistoryView({
   commitFileDiff,
   commitFileDiffLoading,
   commitFileDiffError,
+  wrapLines,
   disabled,
   insights,
   insightsLoading,
@@ -9014,7 +9065,8 @@ function HistoryView({
   onSelectCommitFile,
   onCommitContextAction,
   onCommitFileContextAction,
-  onDownloadImage
+  onDownloadImage,
+  onWrapLinesChange
 }: {
   summary: RepoSummary | null;
   historyScope: CommitHistoryScope;
@@ -9029,6 +9081,7 @@ function HistoryView({
   commitFileDiff: GitFileDiff | null;
   commitFileDiffLoading: boolean;
   commitFileDiffError: string;
+  wrapLines: boolean;
   disabled: boolean;
   insights: import("../shared/types").GitHubHistoryInsights;
   insightsLoading: boolean;
@@ -9041,6 +9094,7 @@ function HistoryView({
   onCommitContextAction: (commit: GitCommitGraphRow, action: CommitContextActionKind) => void;
   onCommitFileContextAction: (file: GitCommitChangedFile, action: CommitFileContextActionKind) => void;
   onDownloadImage: () => void;
+  onWrapLinesChange: (wrap: boolean) => void;
 }): ReactNode {
   const graphLayout = useMemo(() => buildCommitGraphLayout(history), [history]);
   const associations = useMemo(() => createCommitAssociationMap(insights), [insights]);
@@ -9159,6 +9213,8 @@ function HistoryView({
               previewSource={selectedCommitHash && selectedCommitFile && selectedCommitFile.status !== "D" && isMarkdownPath(selectedCommitFile.path)
                 ? { kind: "commit", hash: selectedCommitHash }
                 : undefined}
+              wrapLines={wrapLines}
+              onWrapLinesChange={onWrapLinesChange}
             />
           </ResizablePanel>
         </ResizablePanelGroup>

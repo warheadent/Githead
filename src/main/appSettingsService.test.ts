@@ -8,6 +8,7 @@ import {
   DEFAULT_AUTO_FETCH_INTERVAL_MINUTES,
   DEFAULT_COLOR_THEME,
   DEFAULT_STATUS_FILE_VIEW_MODE,
+  DEFAULT_WRAP_DIFF_LINES,
   DEFAULT_ZOOM_FACTOR
 } from "./appSettingsService";
 
@@ -34,7 +35,8 @@ describe("AppSettingsService", () => {
         colorTheme: DEFAULT_COLOR_THEME,
         appearanceMode: DEFAULT_APPEARANCE_MODE,
         zoomFactor: DEFAULT_ZOOM_FACTOR,
-        statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE
+        statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE,
+        wrapDiffLines: DEFAULT_WRAP_DIFF_LINES
       });
     });
   });
@@ -48,13 +50,15 @@ describe("AppSettingsService", () => {
         colorTheme: "tidepool",
         appearanceMode: "dark",
         zoomFactor: 1.25,
-        statusFileViewMode: "list"
+        statusFileViewMode: "list",
+        wrapDiffLines: true
       })).resolves.toEqual({
         autoFetchIntervalMinutes: 15,
         colorTheme: "tidepool",
         appearanceMode: "dark",
         zoomFactor: 1.25,
-        statusFileViewMode: "list"
+        statusFileViewMode: "list",
+        wrapDiffLines: true
       });
 
       await expect(new AppSettingsService(dir).getSettings()).resolves.toEqual({
@@ -62,7 +66,8 @@ describe("AppSettingsService", () => {
         colorTheme: "tidepool",
         appearanceMode: "dark",
         zoomFactor: 1.25,
-        statusFileViewMode: "list"
+        statusFileViewMode: "list",
+        wrapDiffLines: true
       });
     });
   });
@@ -76,13 +81,15 @@ describe("AppSettingsService", () => {
         colorTheme: "githead",
         appearanceMode: "system",
         zoomFactor: 1,
-        statusFileViewMode: "list"
+        statusFileViewMode: "list",
+        wrapDiffLines: false
       })).resolves.toEqual({
         autoFetchIntervalMinutes: 0,
         colorTheme: "githead",
         appearanceMode: "system",
         zoomFactor: 1,
-        statusFileViewMode: "list"
+        statusFileViewMode: "list",
+        wrapDiffLines: false
       });
     });
   });
@@ -124,18 +131,21 @@ describe("AppSettingsService", () => {
         colorTheme: DEFAULT_COLOR_THEME,
         appearanceMode: DEFAULT_APPEARANCE_MODE,
         zoomFactor: DEFAULT_ZOOM_FACTOR,
-        statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE
+        statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE,
+        wrapDiffLines: DEFAULT_WRAP_DIFF_LINES
       });
 
       await fs.writeFile(settingsPath, JSON.stringify({
-        autoFetchIntervalMinutes: "10"
+        autoFetchIntervalMinutes: "10",
+        wrapDiffLines: "yes"
       }), "utf8");
       await expect(service.getSettings()).resolves.toEqual({
         autoFetchIntervalMinutes: DEFAULT_AUTO_FETCH_INTERVAL_MINUTES,
         colorTheme: DEFAULT_COLOR_THEME,
         appearanceMode: DEFAULT_APPEARANCE_MODE,
         zoomFactor: DEFAULT_ZOOM_FACTOR,
-        statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE
+        statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE,
+        wrapDiffLines: DEFAULT_WRAP_DIFF_LINES
       });
 
       await fs.writeFile(settingsPath, JSON.stringify({
@@ -146,7 +156,8 @@ describe("AppSettingsService", () => {
         colorTheme: DEFAULT_COLOR_THEME,
         appearanceMode: DEFAULT_APPEARANCE_MODE,
         zoomFactor: DEFAULT_ZOOM_FACTOR,
-        statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE
+        statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE,
+        wrapDiffLines: DEFAULT_WRAP_DIFF_LINES
       });
     });
   });
@@ -163,7 +174,8 @@ describe("AppSettingsService", () => {
         colorTheme: DEFAULT_COLOR_THEME,
         appearanceMode: DEFAULT_APPEARANCE_MODE,
         zoomFactor: DEFAULT_ZOOM_FACTOR,
-        statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE
+        statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE,
+        wrapDiffLines: DEFAULT_WRAP_DIFF_LINES
       });
     });
   });
@@ -195,7 +207,8 @@ describe("AppSettingsService", () => {
         colorTheme: "orchid",
         appearanceMode: DEFAULT_APPEARANCE_MODE,
         zoomFactor: DEFAULT_ZOOM_FACTOR,
-        statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE
+        statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE,
+        wrapDiffLines: DEFAULT_WRAP_DIFF_LINES
       });
       await expect(service.saveSettings({
         autoFetchIntervalMinutes: 10,

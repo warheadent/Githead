@@ -8,6 +8,7 @@ interface StoredAppSettings {
   appearanceMode?: unknown;
   zoomFactor?: unknown;
   statusFileViewMode?: unknown;
+  wrapDiffLines?: unknown;
 }
 
 export const DEFAULT_AUTO_FETCH_INTERVAL_MINUTES = 10;
@@ -15,6 +16,7 @@ export const DEFAULT_COLOR_THEME: AppColorTheme = "githead";
 export const DEFAULT_APPEARANCE_MODE: AppAppearanceMode = "system";
 export const DEFAULT_ZOOM_FACTOR = 1;
 export const DEFAULT_STATUS_FILE_VIEW_MODE: StatusFileViewMode = "list";
+export const DEFAULT_WRAP_DIFF_LINES = false;
 export const MIN_AUTO_FETCH_INTERVAL_MINUTES = 0;
 export const MAX_AUTO_FETCH_INTERVAL_MINUTES = 1440;
 
@@ -32,7 +34,8 @@ export class AppSettingsService {
       colorTheme: parseStoredColorTheme(stored.colorTheme),
       appearanceMode: parseStoredAppearanceMode(stored.appearanceMode),
       zoomFactor: parseStoredZoomFactor(stored.zoomFactor),
-      statusFileViewMode: parseStoredStatusFileViewMode(stored.statusFileViewMode)
+      statusFileViewMode: parseStoredStatusFileViewMode(stored.statusFileViewMode),
+      wrapDiffLines: parseStoredWrapDiffLines(stored.wrapDiffLines)
     };
   }
 
@@ -42,6 +45,7 @@ export class AppSettingsService {
     const appearanceMode = normalizeAppearanceModeForSave(request.appearanceMode);
     const zoomFactor = normalizeZoomFactorForSave(request.zoomFactor);
     const statusFileViewMode = normalizeStatusFileViewModeForSave(request.statusFileViewMode);
+    const wrapDiffLines = normalizeWrapDiffLinesForSave(request.wrapDiffLines);
 
     await fs.mkdir(path.dirname(this.settingsPath), {
       recursive: true
@@ -51,7 +55,8 @@ export class AppSettingsService {
       colorTheme,
       appearanceMode,
       zoomFactor,
-      statusFileViewMode
+      statusFileViewMode,
+      wrapDiffLines
     } satisfies AppSettings, null, 2)}\n`, "utf8");
 
     return this.getSettings();
@@ -75,6 +80,16 @@ function parseStoredStatusFileViewMode(value: unknown): StatusFileViewMode {
 function normalizeStatusFileViewModeForSave(value: StatusFileViewMode | undefined): StatusFileViewMode {
   if (value === undefined) return DEFAULT_STATUS_FILE_VIEW_MODE;
   if (!STATUS_FILE_VIEW_MODES.includes(value)) throw new Error("Unknown status file view mode.");
+  return value;
+}
+
+function parseStoredWrapDiffLines(value: unknown): boolean {
+  return typeof value === "boolean" ? value : DEFAULT_WRAP_DIFF_LINES;
+}
+
+function normalizeWrapDiffLinesForSave(value: boolean | undefined): boolean {
+  if (value === undefined) return DEFAULT_WRAP_DIFF_LINES;
+  if (typeof value !== "boolean") throw new Error("Diff line wrap must be a Boolean value.");
   return value;
 }
 

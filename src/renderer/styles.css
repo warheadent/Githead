@@ -1678,9 +1678,15 @@ textarea,
 
 .diff-output.text {
   display: block;
-  padding: 0;
+  padding: 0 6px 0 0;
   background: var(--card);
   white-space: normal;
+  container-type: inline-size;
+  scrollbar-gutter: stable;
+}
+
+.diff-output.text.is-wrapped {
+  overflow-x: hidden;
 }
 
 .diff-output.binary,
@@ -1854,17 +1860,20 @@ textarea,
   width: max-content;
   min-width: 100%;
   margin: 10px 0;
-  overflow: hidden;
+  overflow: clip;
   border: 1px solid var(--diff-hunk-group-border);
   border-radius: 6px;
   background: var(--diff-hunk-group-bg);
 }
 
 .diff-hunk-toolbar {
+  position: sticky;
+  z-index: 1;
+  left: 0;
   display: grid;
-  grid-template-columns: 56px 56px minmax(220px, 1fr) auto;
+  grid-template-columns: 56px 56px minmax(0, 1fr) auto;
   align-items: center;
-  min-width: 100%;
+  width: 100cqw;
   min-height: 32px;
   border-left: 4px solid var(--diff-hunk-border);
   border-bottom: 1px solid var(--diff-hunk-group-border);
@@ -1902,6 +1911,21 @@ textarea,
   background: var(--diff-meta-bg);
   color: var(--diff-hunk-text);
   font-size: 12px;
+}
+
+.diff-output.text.is-wrapped .diff-row {
+  grid-template-columns: 56px 56px 28px minmax(0, 1fr);
+  width: 100%;
+}
+
+.diff-output.text.is-wrapped .diff-hunk-block {
+  width: 100%;
+}
+
+.diff-output.text.is-wrapped .diff-code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .diff-hunk-block .diff-row.hunk {

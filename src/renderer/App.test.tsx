@@ -887,6 +887,14 @@ describe("App", () => {
     const user = userEvent.setup();
     const commit = createCommit();
     const file = { path: "src/App.tsx", status: "M", additions: 3, deletions: 1 };
+    vi.mocked(githead.getAppSettings).mockResolvedValue({
+      autoFetchIntervalMinutes: 10,
+      colorTheme: "githead",
+      appearanceMode: "system",
+      zoomFactor: 1,
+      statusFileViewMode: "list",
+      wrapDiffLines: true
+    });
     vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
     vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash, { files: [file] }));
     vi.mocked(githead.getCommitFileDiff).mockResolvedValue(createTextDiff(file.path, "history-diff"));
@@ -904,6 +912,8 @@ describe("App", () => {
     fireEvent.contextMenu(commitFile);
     await user.click(await screen.findByRole("menuitem", { name: "Log Selected" }));
     expect(await screen.findByRole("region", { name: `File History for ${file.path}` })).toBeTruthy();
+    expect((await screen.findByRole("button", { name: "Wrap diff lines" })).getAttribute("aria-pressed")).toBe("true");
+    expect(document.querySelector(".diff-output.text")?.classList.contains("is-wrapped")).toBe(true);
     expect(screen.getByText("Showing the newest 200 changes for this file.")).toBeTruthy();
     expect(githead.getFileHistory).toHaveBeenCalledWith({ repoPath, startHash: commit.hash, path: file.path, limit: 200, requestId: expect.any(String) });
     await user.click(screen.getByRole("button", { name: "Back" }));
@@ -1180,7 +1190,7 @@ describe("App", () => {
   it("renders a shared tree view and stages all eligible files in a folder", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getAppSettings).mockResolvedValue({
-      autoFetchIntervalMinutes: 10, colorTheme: "githead", appearanceMode: "system", zoomFactor: 1, statusFileViewMode: "tree"
+      autoFetchIntervalMinutes: 10, colorTheme: "githead", appearanceMode: "system", zoomFactor: 1, statusFileViewMode: "tree", wrapDiffLines: false
     });
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [
       createStatusFile("src/App.tsx", { isUnstaged: true, worktreeStatus: "M" }),
@@ -1310,6 +1320,75 @@ describe("App", () => {
         operationId: expect.any(String)
       });
     });
+  });
+
+  it("wraps text diffs with one saved app preference", async () => {
+    const user = userEvent.setup();
+    const file = createStatusFile("src/long-line.ts", { isUnstaged: true, worktreeStatus: "M" });
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [file] }));
+    vi.mocked(githead.getFileDiff).mockResolvedValue(createTextDiff(file.path, "x".repeat(500)));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("option", { name: /src\/long-line\.ts/ }));
+    const wrapButton = await screen.findByRole("button", { name: "Wrap diff lines" });
+    const output = document.querySelector<HTMLElement>(".diff-output.text");
+    expect(output).toBeTruthy();
+    expect(wrapButton.getAttribute("aria-pressed")).toBe("false");
+    expect(output?.classList.contains("is-wrapped")).toBe(false);
+
+    await user.click(wrapButton);
+    expect(wrapButton.getAttribute("aria-pressed")).toBe("true");
+    expect(output?.classList.contains("is-wrapped")).toBe(true);
+    await waitFor(() => expect(githead.saveAppSettings).toHaveBeenLastCalledWith({
+      autoFetchIntervalMinutes: 10,
+      colorTheme: "githead",
+      appearanceMode: "system",
+      zoomFactor: 1,
+      statusFileViewMode: "list",
+      wrapDiffLines: true
+    }));
+
+    await user.click(wrapButton);
+    expect(wrapButton.getAttribute("aria-pressed")).toBe("false");
+    expect(output?.classList.contains("is-wrapped")).toBe(false);
+    await waitFor(() => expect(githead.saveAppSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      wrapDiffLines: false
+    })));
+  });
+
+  it("restores diff line wrap when its preference save fails", async () => {
+    const user = userEvent.setup();
+    const file = createStatusFile("src/failure.ts", { isUnstaged: true, worktreeStatus: "M" });
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [file] }));
+    vi.mocked(githead.getFileDiff).mockResolvedValue(createTextDiff(file.path, "long-value"));
+    vi.mocked(githead.saveAppSettings).mockRejectedValue(new Error("Unable to write app settings."));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("option", { name: /src\/failure\.ts/ }));
+    const wrapButton = await screen.findByRole("button", { name: "Wrap diff lines" });
+    await user.click(wrapButton);
+    await waitFor(() => expect(wrapButton.getAttribute("aria-pressed")).toBe("false"));
+    expect(document.querySelector(".diff-output.text")?.classList.contains("is-wrapped")).toBe(false);
+  });
+
+  it("does not show diff line wrap for non-text diffs", async () => {
+    const user = userEvent.setup();
+    const file = createStatusFile("assets/archive.bin", { isUnstaged: true, worktreeStatus: "M" });
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [file] }));
+    vi.mocked(githead.getFileDiff).mockResolvedValue({
+      path: file.path,
+      side: "unstaged",
+      kind: "binary",
+      text: "Binary files differ."
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("option", { name: /assets\/archive\.bin/ }));
+    expect(await screen.findByText("Binary files differ.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Wrap diff lines" })).toBeNull();
   });
 
   it("keeps an unstaged file selected and reloads its remaining diff after staging a hunk", async () => {
@@ -3550,10 +3629,12 @@ describe("App", () => {
 
     await user.click(await screen.findByRole("option", { name: /README\.md/ }));
     const previewButton = await screen.findByRole("button", { name: "Preview" });
+    expect(screen.getByRole("button", { name: "Wrap diff lines" })).toBeTruthy();
     expect(githead.getFilePreview).not.toHaveBeenCalled();
     await user.click(previewButton);
 
     expect(await screen.findByRole("heading", { name: "Rendered heading" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Wrap diff lines" })).toBeNull();
     expect(screen.getByText("bold text").tagName).toBe("STRONG");
     expect(screen.queryByText("unsafe")).toBeNull();
     expect(githead.getFilePreview).toHaveBeenCalledWith({
@@ -3564,6 +3645,7 @@ describe("App", () => {
     });
 
     await user.click(screen.getByRole("button", { name: "Show Diff" }));
+    expect(screen.getByRole("button", { name: "Wrap diff lines" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Preview" }));
     expect(githead.getFilePreview).toHaveBeenCalledTimes(1);
   });
@@ -3624,6 +3706,14 @@ describe("App", () => {
   it("renders the selected commit version of a Markdown file", async () => {
     const user = userEvent.setup();
     const commit = createCommit();
+    vi.mocked(githead.getAppSettings).mockResolvedValue({
+      autoFetchIntervalMinutes: 10,
+      colorTheme: "githead",
+      appearanceMode: "system",
+      zoomFactor: 1,
+      statusFileViewMode: "list",
+      wrapDiffLines: true
+    });
     vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
     vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash, {
       files: [{ path: "README.md", status: "M", additions: 2, deletions: 1 }]
@@ -3636,6 +3726,8 @@ describe("App", () => {
     await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
     await screen.findByRole("option", { name: /README\.md/ });
+    expect((await screen.findByRole("button", { name: "Wrap diff lines" })).getAttribute("aria-pressed")).toBe("true");
+    expect(document.querySelector(".diff-output.text")?.classList.contains("is-wrapped")).toBe(true);
     await user.click(await screen.findByRole("button", { name: "Preview" }));
 
     expect(await screen.findByRole("heading", { name: "Commit preview" })).toBeTruthy();
@@ -5029,7 +5121,8 @@ describe("App", () => {
       colorTheme: "githead",
       appearanceMode: "system",
       zoomFactor: 1,
-      statusFileViewMode: "list"
+      statusFileViewMode: "list",
+      wrapDiffLines: false
     });
 
     render(<App />);
@@ -6935,7 +7028,8 @@ describe("App", () => {
         colorTheme: "githead",
         appearanceMode: "system",
         zoomFactor: 1,
-        statusFileViewMode: "list"
+        statusFileViewMode: "list",
+        wrapDiffLines: false
       });
     });
   });
@@ -7091,7 +7185,8 @@ describe("App", () => {
       colorTheme: "ember",
       appearanceMode: "light",
       zoomFactor: 1,
-      statusFileViewMode: "list"
+      statusFileViewMode: "list",
+      wrapDiffLines: false
     }));
   });
 
@@ -7243,7 +7338,8 @@ function createGitheadMock(): GitheadApi {
     colorTheme: "githead",
     appearanceMode: "system",
     zoomFactor: 1,
-    statusFileViewMode: "list"
+    statusFileViewMode: "list",
+    wrapDiffLines: false
   };
   const gitIdentity: GitIdentitySettings = {
     scope: "repository",
@@ -7376,7 +7472,12 @@ function createGitheadMock(): GitheadApi {
     }),
     cancelGitHubRequest: vi.fn().mockResolvedValue(undefined),
     getAppSettings: vi.fn().mockResolvedValue(appSettings),
-    saveAppSettings: vi.fn().mockResolvedValue(appSettings),
+    saveAppSettings: vi.fn().mockImplementation(async (request) => ({
+      ...appSettings,
+      ...request,
+      statusFileViewMode: request.statusFileViewMode ?? appSettings.statusFileViewMode,
+      wrapDiffLines: request.wrapDiffLines ?? appSettings.wrapDiffLines
+    })),
     setWindowZoomFactor: vi.fn().mockResolvedValue(undefined),
     generateCommitMessage: vi.fn().mockResolvedValue(okOperation),
     generatePrTitle: vi.fn().mockResolvedValue(okOperation),

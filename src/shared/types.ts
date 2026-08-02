@@ -1030,6 +1030,7 @@ export interface AppSettings {
   appearanceMode: AppAppearanceMode;
   zoomFactor: number;
   statusFileViewMode: StatusFileViewMode;
+  wrapDiffLines: boolean;
 }
 
 export interface AppSettingsSaveRequest {
@@ -1038,6 +1039,7 @@ export interface AppSettingsSaveRequest {
   appearanceMode: AppAppearanceMode;
   zoomFactor: number;
   statusFileViewMode?: StatusFileViewMode;
+  wrapDiffLines?: boolean;
 }
 
 export interface GenerateCommitMessageRequest {
