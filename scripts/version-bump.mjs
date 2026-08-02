@@ -20,6 +20,7 @@ run("git", ["diff", "--cached", "--quiet", "--", "package.json", "package-lock.j
 
 run("npm", ["version", bumpType, "--no-git-tag-version"]);
 run("vp", ["run", "typecheck"]);
+run("npm", ["test"]);
 run("git", ["add", "package.json", "package-lock.json"]);
 
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
