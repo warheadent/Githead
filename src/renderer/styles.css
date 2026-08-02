@@ -1,10 +1,21 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "@fontsource-variable/inter/wght.css";
+@import "@fontsource-variable/roboto/wght.css";
+@import "@fontsource-variable/ibm-plex-sans/wght.css";
+@import "@fontsource-variable/jetbrains-mono/wght.css";
+@import "@fontsource-variable/fira-code/wght.css";
+@import "@fontsource-variable/source-code-pro/wght.css";
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-600.css";
+@import "@fontsource/ibm-plex-mono/latin-700.css";
 
 @custom-variant dark (&:is(.dark *));
 
 :root {
   color-scheme: light;
+  --font-ui: "Inter Variable", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-code: "Cascadia Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   --radius: 0.5rem;
   --background: oklch(0.975 0.005 255);
   --foreground: oklch(0.21 0.018 255);
@@ -75,6 +86,16 @@
   --ansi-bright-cyan: #0e97a8;
   --ansi-bright-white: #ffffff;
 }
+
+:root[data-ui-font="system"] { --font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+:root[data-ui-font="inter"] { --font-ui: "Inter Variable", "Segoe UI", system-ui, sans-serif; }
+:root[data-ui-font="ibm-plex-sans"] { --font-ui: "IBM Plex Sans Variable", "Segoe UI", system-ui, sans-serif; }
+:root[data-ui-font="roboto"] { --font-ui: "Roboto Variable", "Segoe UI", system-ui, sans-serif; }
+:root[data-code-font="system-mono"] { --font-code: ui-monospace, "Cascadia Mono", "SFMono-Regular", Consolas, monospace; }
+:root[data-code-font="jetbrains-mono"] { --font-code: "JetBrains Mono Variable", ui-monospace, monospace; }
+:root[data-code-font="fira-code"] { --font-code: "Fira Code Variable", ui-monospace, monospace; }
+:root[data-code-font="source-code-pro"] { --font-code: "Source Code Pro Variable", ui-monospace, monospace; }
+:root[data-code-font="ibm-plex-mono"] { --font-code: "IBM Plex Mono", ui-monospace, monospace; }
 
 .dark {
   color-scheme: dark;
@@ -270,7 +291,7 @@
     overflow: hidden;
     background: var(--background);
     color: var(--foreground);
-    font-family: Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: var(--font-ui);
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-tap-highlight-color: transparent;
@@ -319,6 +340,36 @@
   margin: 0;
   padding: 0;
   border: 0;
+}
+
+.font-setting-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.font-setting {
+  display: grid;
+  min-width: 0;
+  gap: 0.5rem;
+}
+
+.font-preview {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  padding: 0.65rem 0.75rem;
+  color: var(--foreground);
+  background: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+  .font-setting-grid { grid-template-columns: 1fr; }
 }
 
 .appearance-mode-picker {
@@ -1576,7 +1627,7 @@ textarea,
   border-radius: 4px;
   color: var(--status-chip-fg);
   background: var(--status-chip-bg);
-  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-family: var(--font-code);
   font-size: 0.76rem;
   font-weight: 700;
 }
@@ -1665,7 +1716,7 @@ textarea,
   border: 0;
   color: var(--foreground);
   background: var(--diff-code);
-  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-family: var(--font-code);
   font-size: 0.84rem;
   line-height: 1.55;
 }
@@ -1693,7 +1744,7 @@ textarea,
 .diff-output.empty,
 .diff-output.error {
   color: var(--muted-foreground);
-  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-family: var(--font-ui);
 }
 
 .diff-output.error {
@@ -1772,7 +1823,7 @@ textarea,
   border-radius: 4px;
   padding: 0.15em 0.35em;
   background: var(--muted);
-  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-family: var(--font-code);
   font-size: 0.9em;
 }
 
@@ -2380,7 +2431,7 @@ textarea,
 
 .history-hash,
 .commit-file-stats {
-  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-family: var(--font-code);
 }
 
 .commit-details-panel {
@@ -2487,7 +2538,7 @@ textarea,
   border-radius: 4px;
   padding: 1px 4px;
   background: var(--muted);
-  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-family: var(--font-code);
   font-size: 0.9em;
 }
 
@@ -2712,7 +2763,7 @@ textarea,
 
 .github-issue-number {
   color: var(--muted-foreground);
-  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-family: var(--font-code);
   font-size: 0.82rem;
   font-weight: 700;
 }
@@ -2721,7 +2772,7 @@ textarea,
   display: block;
   margin-top: 2px;
   color: var(--muted-foreground);
-  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-family: var(--font-ui);
   font-size: 0.72rem;
 }
 
@@ -2948,7 +2999,7 @@ textarea,
   border-radius: 4px;
   color: var(--terminal-muted);
   background: var(--terminal-label-bg);
-  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-family: var(--font-ui);
   font-size: 0.68rem;
   font-weight: 700;
   line-height: 1;
@@ -2987,7 +3038,7 @@ textarea,
   padding: 6px 10px;
   color: var(--terminal-notice);
   background: color-mix(in oklch, var(--terminal-notice) 10%, transparent);
-  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-family: var(--font-ui);
   font-size: 0.78rem;
   font-weight: 700;
   white-space: normal;
@@ -2996,7 +3047,7 @@ textarea,
 .activity-log-empty {
   padding: 16px;
   color: var(--terminal-muted);
-  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-family: var(--font-ui);
   font-size: 0.84rem;
 }
 
@@ -3067,7 +3118,7 @@ textarea,
 .file-history-rename { color: var(--muted-foreground); font-size: .72rem; }
 .file-history-limit { padding: 12px; color: var(--muted-foreground); font-size: .75rem; text-align: center; }
 
-.blame-list { position: relative; font-family: "Cascadia Mono", Consolas, "Courier New", monospace; }
+.blame-list { position: relative; font-family: var(--font-code); }
 .blame-row {
   display: grid;
   width: 100%;

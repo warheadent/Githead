@@ -893,6 +893,8 @@ describe("App", () => {
       autoFetchIntervalMinutes: 10,
       colorTheme: "githead",
       appearanceMode: "system",
+      uiFont: "inter",
+      codeFont: "system-mono",
       zoomFactor: 1,
       statusFileViewMode: "list",
       wrapDiffLines: true
@@ -1192,7 +1194,7 @@ describe("App", () => {
   it("renders a shared tree view and stages all eligible files in a folder", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getAppSettings).mockResolvedValue({
-      autoFetchIntervalMinutes: 10, colorTheme: "githead", appearanceMode: "system", zoomFactor: 1, statusFileViewMode: "tree", wrapDiffLines: false
+      autoFetchIntervalMinutes: 10, colorTheme: "githead", appearanceMode: "system", uiFont: "inter", codeFont: "system-mono", zoomFactor: 1, statusFileViewMode: "tree", wrapDiffLines: false
     });
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [
       createStatusFile("src/App.tsx", { isUnstaged: true, worktreeStatus: "M" }),
@@ -1370,6 +1372,8 @@ describe("App", () => {
       autoFetchIntervalMinutes: 10,
       colorTheme: "githead",
       appearanceMode: "system",
+      uiFont: "inter",
+      codeFont: "system-mono",
       zoomFactor: 1,
       statusFileViewMode: "list",
       wrapDiffLines: true
@@ -3736,6 +3740,8 @@ describe("App", () => {
       autoFetchIntervalMinutes: 10,
       colorTheme: "githead",
       appearanceMode: "system",
+      uiFont: "inter",
+      codeFont: "system-mono",
       zoomFactor: 1,
       statusFileViewMode: "list",
       wrapDiffLines: true
@@ -5146,6 +5152,8 @@ describe("App", () => {
       autoFetchIntervalMinutes: 0,
       colorTheme: "githead",
       appearanceMode: "system",
+      uiFont: "inter",
+      codeFont: "system-mono",
       zoomFactor: 1,
       statusFileViewMode: "list",
       wrapDiffLines: false
@@ -7053,6 +7061,8 @@ describe("App", () => {
         autoFetchIntervalMinutes: 15,
         colorTheme: "githead",
         appearanceMode: "system",
+        uiFont: "inter",
+        codeFont: "system-mono",
         zoomFactor: 1,
         statusFileViewMode: "list",
         wrapDiffLines: false
@@ -7210,10 +7220,46 @@ describe("App", () => {
       autoFetchIntervalMinutes: 10,
       colorTheme: "ember",
       appearanceMode: "light",
+      uiFont: "inter",
+      codeFont: "system-mono",
       zoomFactor: 1,
       statusFileViewMode: "list",
       wrapDiffLines: false
     }));
+  });
+
+  it("previews, restores, and saves interface and code fonts", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("tab", { name: "Appearance" }));
+
+    const uiFont = screen.getByLabelText("Interface font") as HTMLSelectElement;
+    const codeFont = screen.getByLabelText("Code font") as HTMLSelectElement;
+    expect(uiFont.options).toHaveLength(4);
+    expect(codeFont.options).toHaveLength(5);
+
+    await user.selectOptions(uiFont, "ibm-plex-sans");
+    await user.selectOptions(codeFont, "jetbrains-mono");
+    expect(document.documentElement.dataset.uiFont).toBe("ibm-plex-sans");
+    expect(document.documentElement.dataset.codeFont).toBe("jetbrains-mono");
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    expect(document.documentElement.dataset.uiFont).toBe("inter");
+    expect(document.documentElement.dataset.codeFont).toBe("system-mono");
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("tab", { name: "Appearance" }));
+    await user.selectOptions(screen.getByLabelText("Interface font"), "roboto");
+    await user.selectOptions(screen.getByLabelText("Code font"), "source-code-pro");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(githead.saveAppSettings).toHaveBeenCalledWith(expect.objectContaining({
+      uiFont: "roboto",
+      codeFont: "source-code-pro"
+    })));
   });
 
   it("previews, restores, and saves every notched interface scale", async () => {
@@ -7363,6 +7409,8 @@ function createGitheadMock(): GitheadApi {
     autoFetchIntervalMinutes: 10,
     colorTheme: "githead",
     appearanceMode: "system",
+    uiFont: "inter",
+    codeFont: "system-mono",
     zoomFactor: 1,
     statusFileViewMode: "list",
     wrapDiffLines: false

@@ -115,7 +115,9 @@ import type {
   AiReasoningEffort,
   AiSettings,
   AppAppearanceMode,
+  AppCodeFont,
   AppSettings,
+  AppUiFont,
   AppUpdateState,
   CommitHistoryScope,
   GitBranch,
@@ -544,6 +546,8 @@ const emptySettingsDraft: SettingsDraft = {
   autoFetchIntervalMinutes: "10",
   colorTheme: "githead",
   appearanceMode: "system",
+  uiFont: "inter",
+  codeFont: "system-mono",
   zoomFactor: 1,
   gitIdentityName: "",
   gitIdentityEmail: "",
@@ -766,6 +770,9 @@ export function App(): ReactNode {
     ? state.settingsDraft.appearanceMode
     : state.appSettings?.appearanceMode ?? "system";
   useAppearanceModeClass(appearanceMode);
+  const uiFont = state.settingsOpen ? state.settingsDraft.uiFont : state.appSettings?.uiFont ?? "inter";
+  const codeFont = state.settingsOpen ? state.settingsDraft.codeFont : state.appSettings?.codeFont ?? "system-mono";
+  useFontPreferences(uiFont, codeFont);
   const stateRef = useRef(state);
   const appSettingsSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const appSettingsPreferenceSaveId = useRef(0);
@@ -1741,6 +1748,8 @@ export function App(): ReactNode {
           autoFetchIntervalMinutes: 10,
           colorTheme: "githead",
           appearanceMode: "system",
+          uiFont: "inter",
+          codeFont: "system-mono",
           zoomFactor: 1,
           statusFileViewMode: "list",
           wrapDiffLines: false
@@ -4439,6 +4448,8 @@ export function App(): ReactNode {
         autoFetchIntervalMinutes: String(appSettings?.autoFetchIntervalMinutes ?? 10),
         colorTheme: appSettings?.colorTheme ?? "githead",
         appearanceMode: appSettings?.appearanceMode ?? "system",
+        uiFont: appSettings?.uiFont ?? "inter",
+        codeFont: appSettings?.codeFont ?? "system-mono",
         zoomFactor: appSettings?.zoomFactor ?? 1,
         gitIdentityName: gitIdentity?.name ?? "",
         gitIdentityEmail: gitIdentity?.email ?? "",
@@ -4536,6 +4547,8 @@ export function App(): ReactNode {
           autoFetchIntervalMinutes: parseAutoFetchIntervalDraft(draft.autoFetchIntervalMinutes),
           colorTheme: draft.colorTheme,
           appearanceMode: draft.appearanceMode,
+          uiFont: draft.uiFont,
+          codeFont: draft.codeFont,
           zoomFactor: draft.zoomFactor,
           statusFileViewMode: initial.appSettings?.statusFileViewMode ?? "list",
           wrapDiffLines: initial.appSettings?.wrapDiffLines ?? false
@@ -11055,6 +11068,13 @@ function useAppearanceModeClass(appearanceMode: AppAppearanceMode): void {
   }, [appearanceMode]);
 }
 
+function useFontPreferences(uiFont: AppUiFont, codeFont: AppCodeFont): void {
+  useEffect(() => {
+    document.documentElement.dataset.uiFont = uiFont;
+    document.documentElement.dataset.codeFont = codeFont;
+  }, [codeFont, uiFont]);
+}
+
 let repositoryActionDraftId = 0;
 
 function createRepositoryActionManagerDraft(summary: RepoSummary): RepositoryActionManagerDraft {
@@ -11743,6 +11763,8 @@ function hasAppSettingsChanges(draft: SettingsDraft, settings: AppSettings | nul
   return draft.autoFetchIntervalMinutes.trim() !== String(settings.autoFetchIntervalMinutes)
     || draft.colorTheme !== settings.colorTheme
     || draft.appearanceMode !== settings.appearanceMode
+    || draft.uiFont !== settings.uiFont
+    || draft.codeFont !== settings.codeFont
     || draft.zoomFactor !== settings.zoomFactor;
 }
 

@@ -34,13 +34,16 @@ import type {
   AiReasoningEffort,
   AiSettings,
   AppAppearanceMode,
+  AppCodeFont,
   AppColorTheme,
+  AppUiFont,
   GitIdentityScope
 } from "../shared/types";
 import { AI_COMMIT_MESSAGE_PROVIDERS, AI_REASONING_EFFORTS, APP_ZOOM_FACTORS } from "../shared/types";
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import { DEFAULT_PR_DESCRIPTION_PROMPT } from "../shared/prDescriptionPrompt";
 import { COLOR_THEME_OPTIONS } from "./themes";
+import { CODE_FONT_OPTIONS, UI_FONT_OPTIONS, type FontOption } from "./fonts";
 import { getAiProviderLabel, getCliStatusMessage, isCliProvider } from "./aiProvider";
 import { GitIdentityFields } from "./GitIdentityFields";
 export { GitIdentityFields } from "./GitIdentityFields";
@@ -58,6 +61,8 @@ export interface SettingsDraft {
   autoFetchIntervalMinutes: string;
   colorTheme: AppColorTheme;
   appearanceMode: AppAppearanceMode;
+  uiFont: AppUiFont;
+  codeFont: AppCodeFont;
   zoomFactor: number;
   gitIdentityName: string;
   gitIdentityEmail: string;
@@ -309,9 +314,20 @@ function AppearanceSettings({ draft, saving, onDraftChange }: { draft: SettingsD
   return <div className="grid max-w-2xl gap-5">
     <fieldset className="appearance-mode-picker" disabled={saving}><legend>Appearance</legend><div className="appearance-mode-options">{([{ id: "system", label: "System", icon: Monitor }, { id: "light", label: "Light", icon: Sun }, { id: "dark", label: "Dark", icon: Moon }] as const).map(({ id, label, icon: Icon }) => <label key={id}><input className="sr-only" type="radio" name="appearance-mode" value={id} checked={draft.appearanceMode === id} onChange={() => onDraftChange({ ...draft, appearanceMode: id })} /><Icon aria-hidden="true" /><span>{label}</span></label>)}</div></fieldset>
     <div className="interface-scale-setting"><div className="interface-scale-heading"><div><label className="text-sm font-semibold" htmlFor="interface-scale">Interface scale</label><p className="text-sm text-muted-foreground">Resize text and controls throughout Githead.</p></div><output className="interface-scale-value" htmlFor="interface-scale">{formatZoomFactor(draft.zoomFactor)}</output></div><div className="interface-scale-slider-wrap"><div className="interface-scale-notches" aria-hidden="true">{APP_ZOOM_FACTORS.map((factor) => <span key={factor} className={factor === 1 ? "is-default" : undefined} />)}</div><input id="interface-scale" className="interface-scale-slider" type="range" min={0} max={APP_ZOOM_FACTORS.length - 1} step={1} value={Math.max(0, APP_ZOOM_FACTORS.indexOf(draft.zoomFactor as typeof APP_ZOOM_FACTORS[number]))} aria-valuetext={formatZoomFactor(draft.zoomFactor)} disabled={saving} onChange={(event) => { const zoomFactor = APP_ZOOM_FACTORS[Number(event.currentTarget.value)]; if (zoomFactor !== undefined) onDraftChange({ ...draft, zoomFactor }); }} /></div><div className="interface-scale-bounds" aria-hidden="true"><span>75%</span><span className="interface-scale-default">100% Default</span><span>200%</span></div></div>
+    <div><h3 className="text-sm font-semibold">Fonts</h3><p className="text-sm text-muted-foreground">Choose separate typefaces for the interface and code-focused content.</p></div>
+    <div className="font-setting-grid">
+      <FontSetting id="ui-font" label="Interface font" value={draft.uiFont} options={UI_FONT_OPTIONS} sample="Githead Aa 123 — Repository status" disabled={saving} onChange={(uiFont) => onDraftChange({ ...draft, uiFont })} />
+      <FontSetting id="code-font" label="Code font" value={draft.codeFont} options={CODE_FONT_OPTIONS} sample="const branch = 'main';  =>  !=" disabled={saving} onChange={(codeFont) => onDraftChange({ ...draft, codeFont })} />
+    </div>
     <div><h3 className="text-sm font-semibold">Color theme</h3><p className="text-sm text-muted-foreground">Choose a palette for your selected appearance.</p></div>
     <fieldset className="theme-picker-grid" disabled={saving}><legend className="sr-only">Color theme</legend>{COLOR_THEME_OPTIONS.map((theme) => <label key={theme.id} className="theme-option"><input className="sr-only" type="radio" name="color-theme" value={theme.id} checked={draft.colorTheme === theme.id} onChange={() => onDraftChange({ ...draft, colorTheme: theme.id })} /><span className="theme-option-header"><span className="font-semibold">{theme.name}</span><CheckCircle2 className="theme-option-check" aria-hidden="true" /></span><span className="text-xs text-muted-foreground">{theme.description}</span><span className="theme-swatches" aria-hidden="true">{theme.swatches.map((swatch) => <span key={swatch} style={{ backgroundColor: swatch }} />)}</span></label>)}</fieldset>
   </div>;
+}
+
+function FontSetting<T extends string>({ id, label, value, options, sample, disabled, onChange }: { id: string; label: string; value: T; options: readonly FontOption<T>[]; sample: string; disabled: boolean; onChange: (value: T) => void }): ReactNode {
+  const selected = options.find((option) => option.id === value) ?? options[0];
+  const helpId = `${id}-help`;
+  return <div className="font-setting"><Label htmlFor={id}>{label}</Label><select id={id} className="h-10 rounded-md border border-input bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50" value={value} disabled={disabled} aria-describedby={helpId} onChange={(event) => onChange(event.currentTarget.value as T)}>{options.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}</select><p id={helpId} className="text-xs text-muted-foreground">{selected?.description}</p><div className="font-preview" style={{ fontFamily: selected?.previewFamily }} aria-hidden="true">{sample}</div></div>;
 }
 
 function useAiReasoningCapabilities(enabled: boolean, provider: AiCommitMessageProvider, model: string): { capabilities: AiReasoningCapabilities; loading: boolean } {
@@ -332,7 +348,7 @@ function getDirtyCategories(baseline: string, draft: SettingsDraft): Record<Sett
   if (!baseline) return { appearance: false, "git-identity": false, sync: false, ai: false };
   const saved = JSON.parse(baseline) as SettingsDraft;
   return {
-    appearance: saved.colorTheme !== draft.colorTheme || saved.appearanceMode !== draft.appearanceMode || saved.zoomFactor !== draft.zoomFactor,
+    appearance: saved.colorTheme !== draft.colorTheme || saved.appearanceMode !== draft.appearanceMode || saved.uiFont !== draft.uiFont || saved.codeFont !== draft.codeFont || saved.zoomFactor !== draft.zoomFactor,
     "git-identity": saved.gitIdentityName !== draft.gitIdentityName || saved.gitIdentityEmail !== draft.gitIdentityEmail || saved.gitIdentityScope !== draft.gitIdentityScope,
     sync: saved.autoFetchIntervalMinutes !== draft.autoFetchIntervalMinutes,
     ai: JSON.stringify({ selectedProvider: saved.selectedProvider, providerModels: saved.providerModels, prDescriptionModels: saved.prDescriptionModels, reasoningEfforts: saved.reasoningEfforts, prDescriptionReasoningEfforts: saved.prDescriptionReasoningEfforts, apiKeys: saved.apiKeys, clearApiKeys: saved.clearApiKeys, commitMessagePrompt: saved.commitMessagePrompt, prDescriptionPrompt: saved.prDescriptionPrompt }) !== JSON.stringify({ selectedProvider: draft.selectedProvider, providerModels: draft.providerModels, prDescriptionModels: draft.prDescriptionModels, reasoningEfforts: draft.reasoningEfforts, prDescriptionReasoningEfforts: draft.prDescriptionReasoningEfforts, apiKeys: draft.apiKeys, clearApiKeys: draft.clearApiKeys, commitMessagePrompt: draft.commitMessagePrompt, prDescriptionPrompt: draft.prDescriptionPrompt })

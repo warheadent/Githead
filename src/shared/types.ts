@@ -1015,6 +1015,10 @@ export type AppColorTheme = (typeof APP_COLOR_THEMES)[number];
 
 export const APP_APPEARANCE_MODES = ["system", "light", "dark"] as const;
 export type AppAppearanceMode = (typeof APP_APPEARANCE_MODES)[number];
+export const APP_UI_FONTS = ["system", "inter", "ibm-plex-sans", "roboto"] as const;
+export type AppUiFont = (typeof APP_UI_FONTS)[number];
+export const APP_CODE_FONTS = ["system-mono", "jetbrains-mono", "fira-code", "source-code-pro", "ibm-plex-mono"] as const;
+export type AppCodeFont = (typeof APP_CODE_FONTS)[number];
 export const STATUS_FILE_VIEW_MODES = ["list", "tree"] as const;
 export type StatusFileViewMode = (typeof STATUS_FILE_VIEW_MODES)[number];
 
@@ -1028,6 +1032,8 @@ export interface AppSettings {
   autoFetchIntervalMinutes: number;
   colorTheme: AppColorTheme;
   appearanceMode: AppAppearanceMode;
+  uiFont: AppUiFont;
+  codeFont: AppCodeFont;
   zoomFactor: number;
   statusFileViewMode: StatusFileViewMode;
   wrapDiffLines: boolean;
@@ -1037,6 +1043,8 @@ export interface AppSettingsSaveRequest {
   autoFetchIntervalMinutes: number;
   colorTheme: AppColorTheme;
   appearanceMode: AppAppearanceMode;
+  uiFont?: AppUiFont;
+  codeFont?: AppCodeFont;
   zoomFactor: number;
   statusFileViewMode?: StatusFileViewMode;
   wrapDiffLines?: boolean;

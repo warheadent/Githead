@@ -25,6 +25,8 @@ const settingsDraft: SettingsDraft = {
   autoFetchIntervalMinutes: "10",
   colorTheme: "githead",
   appearanceMode: "system",
+  uiFont: "inter",
+  codeFont: "system-mono",
   zoomFactor: 1,
   gitIdentityName: "Test User",
   gitIdentityEmail: "test@example.com",

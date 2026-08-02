@@ -1,11 +1,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { APP_APPEARANCE_MODES, APP_COLOR_THEMES, STATUS_FILE_VIEW_MODES, isAppZoomFactor, type AppAppearanceMode, type AppColorTheme, type AppSettings, type AppSettingsSaveRequest, type StatusFileViewMode } from "../shared/types";
+import { APP_APPEARANCE_MODES, APP_CODE_FONTS, APP_COLOR_THEMES, APP_UI_FONTS, STATUS_FILE_VIEW_MODES, isAppZoomFactor, type AppAppearanceMode, type AppCodeFont, type AppColorTheme, type AppSettings, type AppSettingsSaveRequest, type AppUiFont, type StatusFileViewMode } from "../shared/types";
 
 interface StoredAppSettings {
   autoFetchIntervalMinutes?: unknown;
   colorTheme?: unknown;
   appearanceMode?: unknown;
+  uiFont?: unknown;
+  codeFont?: unknown;
   zoomFactor?: unknown;
   statusFileViewMode?: unknown;
   wrapDiffLines?: unknown;
@@ -14,6 +16,8 @@ interface StoredAppSettings {
 export const DEFAULT_AUTO_FETCH_INTERVAL_MINUTES = 10;
 export const DEFAULT_COLOR_THEME: AppColorTheme = "githead";
 export const DEFAULT_APPEARANCE_MODE: AppAppearanceMode = "system";
+export const DEFAULT_UI_FONT: AppUiFont = "inter";
+export const DEFAULT_CODE_FONT: AppCodeFont = "system-mono";
 export const DEFAULT_ZOOM_FACTOR = 1;
 export const DEFAULT_STATUS_FILE_VIEW_MODE: StatusFileViewMode = "list";
 export const DEFAULT_WRAP_DIFF_LINES = false;
@@ -33,6 +37,8 @@ export class AppSettingsService {
       autoFetchIntervalMinutes: parseStoredInterval(stored.autoFetchIntervalMinutes),
       colorTheme: parseStoredColorTheme(stored.colorTheme),
       appearanceMode: parseStoredAppearanceMode(stored.appearanceMode),
+      uiFont: parseStoredUiFont(stored.uiFont),
+      codeFont: parseStoredCodeFont(stored.codeFont),
       zoomFactor: parseStoredZoomFactor(stored.zoomFactor),
       statusFileViewMode: parseStoredStatusFileViewMode(stored.statusFileViewMode),
       wrapDiffLines: parseStoredWrapDiffLines(stored.wrapDiffLines)
@@ -43,6 +49,8 @@ export class AppSettingsService {
     const autoFetchIntervalMinutes = normalizeIntervalForSave(request.autoFetchIntervalMinutes);
     const colorTheme = normalizeColorThemeForSave(request.colorTheme);
     const appearanceMode = normalizeAppearanceModeForSave(request.appearanceMode);
+    const uiFont = normalizeUiFontForSave(request.uiFont);
+    const codeFont = normalizeCodeFontForSave(request.codeFont);
     const zoomFactor = normalizeZoomFactorForSave(request.zoomFactor);
     const statusFileViewMode = normalizeStatusFileViewModeForSave(request.statusFileViewMode);
     const wrapDiffLines = normalizeWrapDiffLinesForSave(request.wrapDiffLines);
@@ -54,6 +62,8 @@ export class AppSettingsService {
       autoFetchIntervalMinutes,
       colorTheme,
       appearanceMode,
+      uiFont,
+      codeFont,
       zoomFactor,
       statusFileViewMode,
       wrapDiffLines
@@ -114,6 +124,26 @@ function normalizeAppearanceModeForSave(value: AppAppearanceMode): AppAppearance
     throw new Error("Unknown appearance mode.");
   }
 
+  return value;
+}
+
+function parseStoredUiFont(value: unknown): AppUiFont {
+  return APP_UI_FONTS.includes(value as AppUiFont) ? value as AppUiFont : DEFAULT_UI_FONT;
+}
+
+function normalizeUiFontForSave(value: AppUiFont | undefined): AppUiFont {
+  if (value === undefined) return DEFAULT_UI_FONT;
+  if (!APP_UI_FONTS.includes(value)) throw new Error("Unknown interface font.");
+  return value;
+}
+
+function parseStoredCodeFont(value: unknown): AppCodeFont {
+  return APP_CODE_FONTS.includes(value as AppCodeFont) ? value as AppCodeFont : DEFAULT_CODE_FONT;
+}
+
+function normalizeCodeFontForSave(value: AppCodeFont | undefined): AppCodeFont {
+  if (value === undefined) return DEFAULT_CODE_FONT;
+  if (!APP_CODE_FONTS.includes(value)) throw new Error("Unknown code font.");
   return value;
 }
 
