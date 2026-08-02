@@ -3,14 +3,29 @@ import { normalizeColumnLayout, reorderColumn, type ColumnDefinition } from "./c
 
 const columns = [
   { id: "name", label: "Name", defaultWidth: 200, minWidth: 100 },
-  { id: "date", label: "Date", defaultWidth: 120, minWidth: 80 }
+  { id: "date", label: "Date", defaultWidth: 120, minWidth: 80 },
+  { id: "author", label: "Author", defaultWidth: 140, minWidth: 90, defaultVisible: false }
 ] as const satisfies readonly ColumnDefinition<string>[];
 
 describe("column layout", () => {
   it("keeps valid saved values and restores missing columns", () => {
     expect(normalizeColumnLayout({ version: 1, order: ["date", "removed"], widths: { date: 140, name: 20 } }, columns)).toEqual({
-      order: ["date", "name"],
-      widths: { name: 100, date: 140 }
+      order: ["date", "name", "author"],
+      widths: { name: 100, date: 140, author: 140 },
+      visibility: { name: true, date: true, author: false }
+    });
+  });
+
+  it("restores saved visibility and uses defaults for new columns", () => {
+    expect(normalizeColumnLayout({
+      version: 2,
+      order: ["name", "date"],
+      widths: { name: 220, date: 120 },
+      visibility: { name: true, date: false }
+    }, columns)).toEqual({
+      order: ["name", "date", "author"],
+      widths: { name: 220, date: 120, author: 140 },
+      visibility: { name: true, date: false, author: false }
     });
   });
 

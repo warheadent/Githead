@@ -11,9 +11,17 @@ import {
   type ReactNode,
   type RefObject
 } from "react";
-import { GripVertical } from "lucide-react";
+import { Columns3, GripVertical } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuTrigger
+} from "@/components/ui/dropdown-menu";
 
-const STORAGE_VERSION = 1;
+const STORAGE_VERSION = 2;
 const WIDTH_STEP = 10;
 
 export interface ColumnDefinition<Id extends string> {
@@ -22,17 +30,20 @@ export interface ColumnDefinition<Id extends string> {
   defaultWidth: number;
   minWidth: number;
   maxWidth?: number;
+  defaultVisible?: boolean;
 }
 
 export interface ColumnLayout<Id extends string> {
   order: Id[];
   widths: Record<Id, number>;
+  visibility: Record<Id, boolean>;
 }
 
 interface StoredColumnLayout {
   version: number;
   order: string[];
   widths: Record<string, number>;
+  visibility?: Record<string, boolean>;
 }
 
 export function normalizeColumnLayout<Id extends string>(
@@ -46,14 +57,17 @@ export function normalizeColumnLayout<Id extends string>(
     : [];
   const order = [...new Set(savedOrder), ...ids.filter((id) => !savedOrder.includes(id))];
   const widths = {} as Record<Id, number>;
+  const visibility = {} as Record<Id, boolean>;
   for (const column of columns) {
     const savedWidth = value?.widths?.[column.id];
     const width = typeof savedWidth === "number" && Number.isFinite(savedWidth)
       ? savedWidth
       : column.defaultWidth;
     widths[column.id] = clampWidth(width, column);
+    const savedVisibility = value?.visibility?.[column.id];
+    visibility[column.id] = typeof savedVisibility === "boolean" ? savedVisibility : column.defaultVisible !== false;
   }
-  return { order, widths };
+  return { order, widths, visibility };
 }
 
 export function reorderColumn<Id extends string>(order: readonly Id[], source: Id, target: Id): Id[] {
@@ -73,7 +87,7 @@ function loadLayout<Id extends string>(storageKey: string, columns: readonly Col
     const raw = window.localStorage.getItem(storageKey);
     if (!raw) return normalizeColumnLayout(null, columns);
     const stored = JSON.parse(raw) as Partial<StoredColumnLayout>;
-    return normalizeColumnLayout(stored.version === STORAGE_VERSION ? stored : null, columns);
+    return normalizeColumnLayout(stored.version === 1 || stored.version === STORAGE_VERSION ? stored : null, columns);
   } catch {
     return normalizeColumnLayout(null, columns);
   }
@@ -88,11 +102,12 @@ function saveLayout<Id extends string>(storageKey: string, layout: ColumnLayout<
 }
 
 function getTemplate<Id extends string>(layout: ColumnLayout<Id>): string {
-  return layout.order.map((id) => `${layout.widths[id]}px`).join(" ");
+  return layout.order.filter((id) => layout.visibility[id]).map((id) => `${layout.widths[id]}px`).join(" ");
 }
 
 export interface PersistentColumnLayout<Id extends string> {
   layout: ColumnLayout<Id>;
+  visibleOrder: Id[];
   containerRef: RefObject<HTMLElement | null>;
   style: CSSProperties;
   previewWidth: (id: Id, width: number) => number;
@@ -100,6 +115,8 @@ export interface PersistentColumnLayout<Id extends string> {
   resetWidth: (id: Id) => void;
   move: (id: Id, direction: -1 | 1) => void;
   reorder: (source: Id, target: Id) => void;
+  setVisibility: (id: Id, visible: boolean) => void;
+  canHide: (id: Id) => boolean;
 }
 
 export function usePersistentColumnLayout<Id extends string>(
@@ -143,8 +160,9 @@ export function usePersistentColumnLayout<Id extends string>(
 
   const move = useCallback((id: Id, direction: -1 | 1) => {
     setLayout((current) => {
-      const index = current.order.indexOf(id);
-      const target = current.order[index + direction];
+      const visibleOrder = current.order.filter((columnId) => current.visibility[columnId]);
+      const index = visibleOrder.indexOf(id);
+      const target = visibleOrder[index + direction];
       return target ? { ...current, order: reorderColumn(current.order, id, target) } : current;
     });
   }, []);
@@ -153,15 +171,31 @@ export function usePersistentColumnLayout<Id extends string>(
     setLayout((current) => ({ ...current, order: reorderColumn(current.order, source, target) }));
   }, []);
 
+  const setVisibility = useCallback((id: Id, visible: boolean) => {
+    setLayout((current) => {
+      if (!visible && current.visibility[id] && Object.values(current.visibility).filter(Boolean).length === 1) return current;
+      return { ...current, visibility: { ...current.visibility, [id]: visible } };
+    });
+  }, []);
+
+  const canHide = useCallback((id: Id): boolean => {
+    return !layout.visibility[id] || Object.values(layout.visibility).filter(Boolean).length > 1;
+  }, [layout.visibility]);
+
+  const visibleOrder = layout.order.filter((id) => layout.visibility[id]);
+
   return {
     layout,
+    visibleOrder,
     containerRef,
     style: { "--data-grid-columns": getTemplate(layout) } as CSSProperties,
     previewWidth,
     commitWidth,
     resetWidth,
     move,
-    reorder
+    reorder,
+    setVisibility,
+    canHide
   };
 }
 
@@ -207,7 +241,7 @@ export function AdjustableColumnHeader<Id extends string>({
 
   return (
     <div className={className} role="row">
-      {controller.layout.order.map((id) => {
+      {controller.visibleOrder.map((id) => {
         const column = columnsById.get(id);
         if (!column) return null;
         return (
@@ -265,6 +299,41 @@ export function AdjustableColumnHeader<Id extends string>({
         );
       })}
     </div>
+  );
+}
+
+export function ColumnVisibilityMenu<Id extends string>({
+  columns,
+  controller,
+  buttonSize = "xs"
+}: {
+  columns: readonly ColumnDefinition<Id>[];
+  controller: PersistentColumnLayout<Id>;
+  buttonSize?: "xs" | "sm";
+}): ReactNode {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" variant="outline" size={buttonSize} aria-label="Choose table columns">
+          <Columns3 aria-hidden="true" />
+          Columns
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-44">
+        <DropdownMenuLabel>Show columns</DropdownMenuLabel>
+        {columns.map((column) => (
+          <DropdownMenuCheckboxItem
+            key={column.id}
+            checked={controller.layout.visibility[column.id]}
+            disabled={!controller.canHide(column.id)}
+            onCheckedChange={(checked) => controller.setVisibility(column.id, checked === true)}
+            onSelect={(event) => event.preventDefault()}
+          >
+            {column.label}
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

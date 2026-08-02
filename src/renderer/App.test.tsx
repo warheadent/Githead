@@ -2404,6 +2404,7 @@ describe("App", () => {
     });
     expect(await screen.findByRole("dialog", { name: "Generate with Context" })).toBeTruthy();
     expect(contextInput.value).toBe("Important product context");
+    expect(within(dialog).getByRole("alert").textContent).toBe("OpenRouter request failed.");
   });
 
   it("keeps Generate with Context disabled until context is provided", async () => {
@@ -3286,6 +3287,34 @@ describe("App", () => {
         url: "https://github.com/openai/githead/actions/runs/1"
       });
     });
+  });
+
+  it("keeps new workflow columns hidden until the user selects them", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
+    vi.mocked(githead.getGitHubWorkflowRuns).mockResolvedValue({
+      ok: true,
+      data: { items: [createWorkflowRun({ runNumber: 42 })], page: 1, nextPage: null, totalCount: 1 },
+      rateLimit: null
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("tab", { name: /Workflow Runs/ }));
+    await screen.findByText("CI");
+    const workflowList = screen.getByRole("list", { name: "Workflow runs" });
+    const workflowView = screen.getByRole("heading", { name: "Workflow Runs" }).closest("section");
+    expect(workflowView).toBeTruthy();
+    expect(within(workflowList).queryByRole("columnheader", { name: /^Run/ })).toBeNull();
+
+    await user.click(within(workflowView!).getByRole("button", { name: "Choose table columns" }));
+    const runOption = screen.getByRole("menuitemcheckbox", { name: "Run" });
+    expect(runOption.getAttribute("aria-checked")).toBe("false");
+    await user.click(runOption);
+    await user.keyboard("{Escape}");
+
+    expect(within(workflowList).getByRole("columnheader", { name: /^Run/ })).toBeTruthy();
+    expect(screen.getByText("#42")).toBeTruthy();
   });
 
   it("loads open pull requests from GitHub when the Pull Requests tab opens", async () => {

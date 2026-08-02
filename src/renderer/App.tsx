@@ -181,6 +181,7 @@ import { DEFAULT_ISSUE_QUERY, DEFAULT_PULL_REQUEST_QUERY, DEFAULT_WORKFLOW_QUERY
 import { useGitHubHistoryInsights } from "./useGitHubHistoryInsights";
 import {
   AdjustableColumnHeader,
+  ColumnVisibilityMenu,
   OrderedCells,
   usePersistentColumnLayout,
   type ColumnDefinition
@@ -217,17 +218,21 @@ const RemoteManagementDialog = lazy(() => import("./RemoteManagementDialog.js").
 
 const HISTORY_LIMIT = 200;
 
-type HistoryColumnId = "graph" | "description" | "date" | "author" | "commit";
-type WorkflowColumnId = "status" | "workflow" | "branch" | "event" | "updated";
-type PullRequestColumnId = "number" | "title" | "branch" | "labels" | "updated";
-type IssueColumnId = "number" | "title" | "labels" | "comments" | "updated";
+type HistoryColumnId = "graph" | "description" | "date" | "author" | "commit" | "references" | "pullRequest" | "checks";
+type WorkflowColumnId = "status" | "workflow" | "branch" | "event" | "updated" | "run" | "commit" | "started" | "duration";
+type PullRequestColumnId = "number" | "title" | "branch" | "labels" | "updated" | "author" | "comments" | "draft" | "target";
+type IssueColumnId = "number" | "title" | "labels" | "comments" | "updated" | "author";
 
 const WORKFLOW_COLUMNS = [
   { id: "status", label: "Status", defaultWidth: 132, minWidth: 90 },
   { id: "workflow", label: "Workflow", defaultWidth: 300, minWidth: 180 },
   { id: "branch", label: "Branch", defaultWidth: 170, minWidth: 100 },
   { id: "event", label: "Event", defaultWidth: 150, minWidth: 90 },
-  { id: "updated", label: "Updated", defaultWidth: 210, minWidth: 110 }
+  { id: "updated", label: "Updated", defaultWidth: 210, minWidth: 110 },
+  { id: "run", label: "Run", defaultWidth: 90, minWidth: 72, defaultVisible: false },
+  { id: "commit", label: "Commit", defaultWidth: 260, minWidth: 140, defaultVisible: false },
+  { id: "started", label: "Started", defaultWidth: 210, minWidth: 110, defaultVisible: false },
+  { id: "duration", label: "Duration", defaultWidth: 110, minWidth: 80, defaultVisible: false }
 ] as const satisfies readonly ColumnDefinition<WorkflowColumnId>[];
 
 const PULL_REQUEST_COLUMNS = [
@@ -235,7 +240,11 @@ const PULL_REQUEST_COLUMNS = [
   { id: "title", label: "Title", defaultWidth: 300, minWidth: 180 },
   { id: "branch", label: "Branch", defaultWidth: 220, minWidth: 120 },
   { id: "labels", label: "Labels", defaultWidth: 180, minWidth: 100 },
-  { id: "updated", label: "Updated", defaultWidth: 210, minWidth: 110 }
+  { id: "updated", label: "Updated", defaultWidth: 210, minWidth: 110 },
+  { id: "author", label: "Author", defaultWidth: 140, minWidth: 90, defaultVisible: false },
+  { id: "comments", label: "Comments", defaultWidth: 96, minWidth: 80, defaultVisible: false },
+  { id: "draft", label: "Draft", defaultWidth: 88, minWidth: 72, defaultVisible: false },
+  { id: "target", label: "Target branch", defaultWidth: 160, minWidth: 100, defaultVisible: false }
 ] as const satisfies readonly ColumnDefinition<PullRequestColumnId>[];
 
 const ISSUE_COLUMNS = [
@@ -243,7 +252,8 @@ const ISSUE_COLUMNS = [
   { id: "title", label: "Title", defaultWidth: 300, minWidth: 180 },
   { id: "labels", label: "Labels", defaultWidth: 220, minWidth: 100 },
   { id: "comments", label: "Comments", defaultWidth: 96, minWidth: 80 },
-  { id: "updated", label: "Updated", defaultWidth: 210, minWidth: 110 }
+  { id: "updated", label: "Updated", defaultWidth: 210, minWidth: 110 },
+  { id: "author", label: "Author", defaultWidth: 140, minWidth: 90, defaultVisible: false }
 ] as const satisfies readonly ColumnDefinition<IssueColumnId>[];
 
 type WorkspaceView = "status" | "history" | "workflows" | "pullRequests" | "issues" | "activity";
@@ -373,6 +383,7 @@ interface AppState {
   diff: GitFileDiff | null;
   diffLoading: boolean;
   commitMessage: string;
+  commitMessageGenerationError: string;
   generateContextDialog: GenerateContextDialogState;
   aiSettings: AiSettings | null;
   appSettings: AppSettings | null;
@@ -728,6 +739,7 @@ const initialState: AppState = {
   diff: null,
   diffLoading: false,
   commitMessage: "",
+  commitMessageGenerationError: "",
   generateContextDialog: emptyGenerateContextDialog,
   aiSettings: null,
   appSettings: null,
@@ -1692,6 +1704,7 @@ export function App(): ReactNode {
       pushToBranchDialog: emptyPushToBranchDialog,
       lastResult: null,
       lastOperationResult: null,
+      commitMessageGenerationError: "",
       gitIdentity: null,
       gitIdentityPrompt: emptyGitIdentityPrompt,
       gitIdentitySaving: false,
@@ -4417,7 +4430,8 @@ export function App(): ReactNode {
     updateState({
       activeOperation,
       runningOperation: "Generating commit message",
-      lastOperationResult: null
+      lastOperationResult: null,
+      commitMessageGenerationError: ""
     });
 
     try {
@@ -4438,7 +4452,10 @@ export function App(): ReactNode {
               stdout: "Commit message generated."
             }
           : result,
-        commitMessage: generatedMessage
+        commitMessage: generatedMessage,
+        commitMessageGenerationError: result.exitCode === 0
+          ? ""
+          : result.stderr.trim() || "Unable to generate a commit message."
       });
       appendOperationLog("Generating commit message", result);
       return result.exitCode === 0;
@@ -4454,7 +4471,8 @@ export function App(): ReactNode {
         return false;
       }
       updateState({
-        lastOperationResult
+        lastOperationResult,
+        commitMessageGenerationError: lastOperationResult.stderr
       });
       appendOperationLog("Generating commit message", lastOperationResult);
       return false;
@@ -6124,6 +6142,7 @@ export function App(): ReactNode {
             {state.activeView === "status" ? (
               <CommitPanel
                 commitMessage={state.commitMessage}
+                generationError={state.commitMessageGenerationError}
                 disabled={disableActions}
                 primaryCommitAction={primaryCommitAction}
                 pushableCommitCount={getPushableCommitCount(state.summary)}
@@ -6153,7 +6172,8 @@ export function App(): ReactNode {
                 }}
                 onCommitMessageChange={(commitMessage) => {
                   updateState({
-                    commitMessage
+                    commitMessage,
+                    commitMessageGenerationError: ""
                   });
                 }}
               />
@@ -6166,6 +6186,7 @@ export function App(): ReactNode {
         open={state.generateContextDialog.open}
         context={state.generateContextDialog.context}
         generating={state.runningOperation === "Generating commit message"}
+        error={state.commitMessageGenerationError}
         onOpenChange={(open) => {
           if (!open) {
             requestModalClose(["repo-operation"], () => updateState({
@@ -6173,9 +6194,10 @@ export function App(): ReactNode {
             }));
           }
         }}
-        onContextChange={(context) => {
-          updateState({
-            generateContextDialog: {
+          onContextChange={(context) => {
+            updateState({
+              commitMessageGenerationError: "",
+              generateContextDialog: {
               ...stateRef.current.generateContextDialog,
               context
             }
@@ -9174,7 +9196,10 @@ function HistoryView({
     { id: "description", label: "Description", defaultWidth: 360, minWidth: 180 },
     { id: "date", label: "Date", defaultWidth: 150, minWidth: 90 },
     { id: "author", label: "Author", defaultWidth: 150, minWidth: 90 },
-    { id: "commit", label: "Commit", defaultWidth: 92, minWidth: 72 }
+    { id: "commit", label: "Commit", defaultWidth: 92, minWidth: 72 },
+    { id: "references", label: "References", defaultWidth: 220, minWidth: 120, defaultVisible: false },
+    { id: "pullRequest", label: "Pull request", defaultWidth: 120, minWidth: 92, defaultVisible: false },
+    { id: "checks", label: "Checks", defaultWidth: 110, minWidth: 82, defaultVisible: false }
   ] as const satisfies readonly ColumnDefinition<HistoryColumnId>[], [graphLayout.width]);
   const columnLayout = usePersistentColumnLayout("githead.column-layout.history", historyColumns);
   const selectedCommitFile = selectedCommitFilePath
@@ -9193,9 +9218,10 @@ function HistoryView({
   return (
     <ResizablePanelGroup orientation="vertical" className="h-full min-h-0 bg-background">
       <ResizablePanel defaultSize="44%" minSize="180px">
-        <section ref={columnLayout.containerRef} style={historyStyle} className={`grid h-full min-h-0 ${showHistoryScope ? "grid-rows-[auto_minmax(0,1fr)]" : "grid-rows-[minmax(0,1fr)]"} border-b bg-card`} aria-label="Commit list">
-          {showHistoryScope ? (
-            <div className="history-scope-toolbar">
+        <section ref={columnLayout.containerRef} style={historyStyle} className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] border-b bg-card" aria-label="Commit list">
+          <div className="history-scope-toolbar">
+            {showHistoryScope ? (
+              <>
               <span className="history-scope-label">Show</span>
               <div className="history-scope-control" role="group" aria-label="Commit history scope">
                 {(["current", "all"] as const).map((scope) => (
@@ -9211,8 +9237,10 @@ function HistoryView({
                   </Button>
                 ))}
               </div>
-            </div>
-          ) : null}
+              </>
+            ) : null}
+            <ColumnVisibilityMenu columns={historyColumns} controller={columnLayout} />
+          </div>
           <div className="history-list" role="listbox" aria-label="Commit history">
             <AdjustableColumnHeader columns={historyColumns} controller={columnLayout} className="history-table-header" />
             {insightsError ? (
@@ -9249,7 +9277,7 @@ function HistoryView({
                       onOpenExternalUrl={onOpenExternalUrl}
                       onSelectCommit={onSelectCommit}
                       onCommitContextAction={onCommitContextAction}
-                      columnOrder={columnLayout.layout.order}
+                      columnOrder={columnLayout.visibleOrder}
                     />
                   ))}
                 </div>
@@ -9362,6 +9390,7 @@ function WorkflowRunsView({
         countLabel={countLabel}
         loading={loading || busy}
         disabled={!repository}
+        actions={<ColumnVisibilityMenu columns={WORKFLOW_COLUMNS} controller={columnLayout} buttonSize="sm" />}
         onRefresh={onRefresh}
       />
       <GitHubQueryToolbar view="workflows" search={search} preset={preset} presets={[{ value: "all", label: "All runs" }, { value: "branch", label: "Current Branch", disabled: !summary?.branch }, { value: "failed", label: "Failed" }, { value: "progress", label: "In progress" }, { value: "custom", label: "Custom" }]} sort={query.sortDirection} sortOptions={[{ value: "desc", label: "Newest" }, { value: "asc", label: "Oldest loaded" }]} viewerAvailable status={loading || busy ? "Loading workflow runs" : countLabel} onSearchChange={onSearchChange} onPresetChange={applyPreset} onSortChange={(value) => { onPresetChange("custom"); onQueryChange({ ...query, sortDirection: value as "asc" | "desc" }); }} onClear={() => { onSearchChange(""); applyPreset("all"); }}>
@@ -9380,7 +9409,7 @@ function WorkflowRunsView({
           <p className="empty-state">{search ? "No loaded workflow runs match this search." : "No workflow runs match these filters."}</p>
         ) : (
           displayedRuns.map((run) => (
-            <WorkflowRunRow key={run.id} run={run} columnOrder={columnLayout.layout.order} onOpenExternalUrl={onOpenExternalUrl} />
+            <WorkflowRunRow key={run.id} run={run} columnOrder={columnLayout.visibleOrder} onOpenExternalUrl={onOpenExternalUrl} />
           ))
         )}
         <GitHubListFooter label="workflow runs" nextPage={nextPage} loading={loadingMore} error={workflowRuns.length ? error : ""} disabled={busy} onLoadMore={onLoadMore} />
@@ -9420,13 +9449,24 @@ function WorkflowRunRow({
         </span>,
         workflow: <span className="min-w-0">
           <TooltipTarget content={run.name}><span className="github-primary-text">{run.name}</span></TooltipTarget>
-          <TooltipTarget content={run.commitMessage || run.commitSha}>
-            <span className="github-secondary-text">{run.commitMessage || formatShortHash(run.commitSha)}</span>
-          </TooltipTarget>
+          {!columnOrder.includes("commit") ? (
+            <TooltipTarget content={run.commitMessage || run.commitSha}>
+              <span className="github-secondary-text">{run.commitMessage || formatShortHash(run.commitSha)}</span>
+            </TooltipTarget>
+          ) : null}
         </span>,
         branch: <TooltipTarget content={run.branch}><span className="truncate">{run.branch}</span></TooltipTarget>,
         event: <TooltipTarget content={run.event}><span className="truncate">{run.event}</span></TooltipTarget>,
-        updated: <TooltipTarget content={formatDate(run.updatedAt)}><span className="github-updated-cell truncate">{formatDate(run.updatedAt)}</span></TooltipTarget>
+        updated: <TooltipTarget content={formatDate(run.updatedAt)}><span className="github-updated-cell truncate">{formatDate(run.updatedAt)}</span></TooltipTarget>,
+        run: <span className="github-secondary-text">{run.runNumber === null ? "-" : `#${run.runNumber}`}</span>,
+        commit: <TooltipTarget content={run.commitMessage || run.commitSha}>
+          <span className="min-w-0">
+            <span className="github-primary-text">{run.commitMessage || "-"}</span>
+            {run.commitSha ? <span className="github-secondary-text">{formatShortHash(run.commitSha)}</span> : null}
+          </span>
+        </TooltipTarget>,
+        started: <TooltipTarget content={formatDate(run.startedAt)}><span className="truncate">{formatDate(run.startedAt)}</span></TooltipTarget>,
+        duration: <span className="github-secondary-text">{formatRunDuration(run.startedAt, run.updatedAt)}</span>
       }} />
     </a>
   );
@@ -9496,6 +9536,7 @@ function PullRequestsView({
         countLabel={countLabel}
         loading={loading || busy}
         disabled={!repository}
+        actions={<ColumnVisibilityMenu columns={PULL_REQUEST_COLUMNS} controller={columnLayout} buttonSize="sm" />}
         onRefresh={onRefresh}
       />
       <GitHubQueryToolbar view="pullRequests" search={query.search ?? ""} preset={preset} presets={[{ value: "all", label: "All open" }, { value: "branch", label: "Current Branch", disabled: !summary?.branch }, { value: "authored", label: "Authored by me", disabled: !viewerLogin }, { value: "assigned", label: "Assigned to me", disabled: !viewerLogin }, { value: "review", label: "Review requested", disabled: !viewerLogin }, { value: "drafts", label: "Drafts" }, { value: "custom", label: "Custom" }]} sort={`${query.sort}-${query.direction}`} sortOptions={[{ value: "updated-desc", label: "Recently updated" }, { value: "created-desc", label: "Newest" }, { value: "created-asc", label: "Oldest" }]} viewerAvailable={Boolean(viewerLogin)} status={loading || busy ? "Loading pull requests" : countLabel} onSearchChange={(value) => { onPresetChange("custom"); onQueryChange({ ...query, search: value || undefined }); }} onPresetChange={applyPreset} onSortChange={(value) => { const [sort, direction] = value.split("-") as ["updated" | "created", "asc" | "desc"]; onPresetChange("custom"); onQueryChange({ ...query, sort, direction }); }} onClear={() => applyPreset("all")}>
@@ -9514,7 +9555,7 @@ function PullRequestsView({
           <p className="empty-state">{filtered ? "No open pull requests match these filters." : "No open pull requests found."}</p>
         ) : (
           pullRequests.map((pullRequest) => (
-            <PullRequestRow key={pullRequest.number} pullRequest={pullRequest} columnOrder={columnLayout.layout.order} busy={busy} onOpenExternalUrl={onOpenExternalUrl} onCheckout={onCheckout} />
+            <PullRequestRow key={pullRequest.number} pullRequest={pullRequest} columnOrder={columnLayout.visibleOrder} busy={busy} onOpenExternalUrl={onOpenExternalUrl} onCheckout={onCheckout} />
           ))
         )}
         <GitHubListFooter label="pull requests" nextPage={nextPage} loading={loadingMore} error={pullRequests.length ? error : ""} disabled={busy} onLoadMore={onLoadMore} />
@@ -9536,6 +9577,7 @@ function PullRequestRow({
   onOpenExternalUrl: (url: string) => void;
   onCheckout: (pullRequest: GitHubPullRequest) => void;
 }): ReactNode {
+  const secondaryText = formatPullRequestSummary(pullRequest, columnOrder);
   return (
     <div
       className="github-row pull-request-row"
@@ -9544,7 +9586,7 @@ function PullRequestRow({
       <OrderedCells order={columnOrder} cells={{
         number: <span className="github-issue-number">
           #{pullRequest.number}
-          {pullRequest.draft ? <span className="github-draft-text">Draft</span> : null}
+          {pullRequest.draft && !columnOrder.includes("draft") ? <span className="github-draft-text">Draft</span> : null}
           <TooltipButton type="button" variant="ghost" size="icon-xs" disabled={busy || !pullRequest.sourceBranch} aria-label={`Check out pull request #${pullRequest.number}`} tooltip="Check out pull request" disabledTooltip={!pullRequest.sourceBranch ? "The pull request source branch is unavailable" : undefined} onClick={() => onCheckout(pullRequest)}>
             <Download />
           </TooltipButton>
@@ -9553,19 +9595,25 @@ function PullRequestRow({
           <TooltipTarget content={pullRequest.title}>
             <button type="button" className="github-primary-text text-left" onClick={() => onOpenExternalUrl(pullRequest.url)}>{pullRequest.title}</button>
           </TooltipTarget>
-          <TooltipTarget content={pullRequest.authorLogin}>
-            <span className="github-secondary-text">
-              {pullRequest.authorLogin} · {pullRequest.comments} {pullRequest.comments === 1 ? "comment" : "comments"}
-            </span>
-          </TooltipTarget>
+          {secondaryText ? (
+            <TooltipTarget content={pullRequest.authorLogin}>
+              <span className="github-secondary-text">{secondaryText}</span>
+            </TooltipTarget>
+          ) : null}
         </span>,
         branch: <TooltipTarget content={pullRequest.sourceBranch && pullRequest.targetBranch ? `${pullRequest.sourceBranch} -> ${pullRequest.targetBranch}` : "Branch details unavailable in search results"}>
           <span className="github-secondary-text">
-            {pullRequest.sourceBranch && pullRequest.targetBranch ? <>{pullRequest.sourceBranch} -&gt; {pullRequest.targetBranch}</> : "Branch details unavailable"}
+            {pullRequest.sourceBranch
+              ? columnOrder.includes("target") ? pullRequest.sourceBranch : pullRequest.targetBranch ? <>{pullRequest.sourceBranch} -&gt; {pullRequest.targetBranch}</> : pullRequest.sourceBranch
+              : "Branch details unavailable"}
           </span>
         </TooltipTarget>,
         labels: <GitHubLabels labels={pullRequest.labels} />,
-        updated: <TooltipTarget content={formatDate(pullRequest.updatedAt)}><span className="github-updated-cell truncate">{formatDate(pullRequest.updatedAt)}</span></TooltipTarget>
+        updated: <TooltipTarget content={formatDate(pullRequest.updatedAt)}><span className="github-updated-cell truncate">{formatDate(pullRequest.updatedAt)}</span></TooltipTarget>,
+        author: <TooltipTarget content={pullRequest.authorLogin}><span className="truncate">{pullRequest.authorLogin}</span></TooltipTarget>,
+        comments: <span className="github-comments-cell github-secondary-text">{pullRequest.comments}</span>,
+        draft: <span className="github-secondary-text">{pullRequest.draft ? "Draft" : "Ready"}</span>,
+        target: <TooltipTarget content={pullRequest.targetBranch || "Target branch unavailable"}><span className="truncate">{pullRequest.targetBranch || "-"}</span></TooltipTarget>
       }} />
     </div>
   );
@@ -9631,6 +9679,7 @@ function IssuesView({
         countLabel={countLabel}
         loading={loading || busy}
         disabled={!repository}
+        actions={<ColumnVisibilityMenu columns={ISSUE_COLUMNS} controller={columnLayout} buttonSize="sm" />}
         onRefresh={onRefresh}
       />
       <GitHubQueryToolbar view="issues" search={query.search ?? ""} preset={preset} presets={[{ value: "all", label: "All open" }, { value: "authored", label: "Authored by me", disabled: !viewerLogin }, { value: "assigned", label: "Assigned to me", disabled: !viewerLogin }, { value: "unassigned", label: "Unassigned" }, { value: "custom", label: "Custom" }]} sort={`${query.sort}-${query.direction}`} sortOptions={[{ value: "updated-desc", label: "Recently updated" }, { value: "created-desc", label: "Newest" }, { value: "created-asc", label: "Oldest" }]} viewerAvailable={Boolean(viewerLogin)} status={loading || busy ? "Loading issues" : countLabel} onSearchChange={(value) => { onPresetChange("custom"); onQueryChange({ ...query, search: value || undefined }); }} onPresetChange={applyPreset} onSortChange={(value) => { const [sort, direction] = value.split("-") as ["updated" | "created", "asc" | "desc"]; onPresetChange("custom"); onQueryChange({ ...query, sort, direction }); }} onClear={() => applyPreset("all")}>
@@ -9648,7 +9697,7 @@ function IssuesView({
           <p className="empty-state">{filtered ? "No open issues match these filters." : "No open issues found."}</p>
         ) : (
           issues.map((issue) => (
-            <IssueRow key={issue.number} issue={issue} columnOrder={columnLayout.layout.order} onOpenExternalUrl={onOpenExternalUrl} />
+            <IssueRow key={issue.number} issue={issue} columnOrder={columnLayout.visibleOrder} onOpenExternalUrl={onOpenExternalUrl} />
           ))
         )}
         <GitHubListFooter label="issues" nextPage={nextPage} loading={loadingMore} error={issues.length ? error : ""} disabled={busy} onLoadMore={onLoadMore} />
@@ -9683,7 +9732,8 @@ function IssueRow({
         title: <TooltipTarget content={issue.title}><span className="github-primary-text">{issue.title}</span></TooltipTarget>,
         labels: <GitHubLabels labels={issue.labels} />,
         comments: <span className="github-comments-cell github-secondary-text">{issue.comments}</span>,
-        updated: <TooltipTarget content={formatDate(issue.updatedAt)}><span className="github-updated-cell truncate">{formatDate(issue.updatedAt)}</span></TooltipTarget>
+        updated: <TooltipTarget content={formatDate(issue.updatedAt)}><span className="github-updated-cell truncate">{formatDate(issue.updatedAt)}</span></TooltipTarget>,
+        author: <TooltipTarget content={issue.authorLogin}><span className="truncate">{issue.authorLogin}</span></TooltipTarget>
       }} />
     </a>
   );
@@ -9738,6 +9788,7 @@ function GitHubViewHeader({
   countLabel,
   loading,
   disabled,
+  actions,
   onRefresh
 }: {
   eyebrow: string;
@@ -9746,6 +9797,7 @@ function GitHubViewHeader({
   countLabel: string;
   loading: boolean;
   disabled: boolean;
+  actions?: ReactNode;
   onRefresh: () => void;
 }): ReactNode {
   return (
@@ -9757,6 +9809,7 @@ function GitHubViewHeader({
       </div>
       <div className="github-view-actions">
         <span className="github-count">{countLabel}</span>
+        {actions}
         <Button type="button" variant="outline" size="sm" disabled={disabled || loading} onClick={onRefresh}>
           {loading ? <Loader2 className="animate-spin" /> : <RefreshCw />}
           Refresh
@@ -9857,45 +9910,17 @@ function HistoryRow({
             graph: <span className="history-graph-cell" aria-hidden="true" />,
             description: <TooltipTarget content={commit.subject || undefined}>
               <span className="history-description">
-                <span className="history-refs">
-                  {commit.refs.map((ref) => (
-                    <span key={`${commit.hash}:${ref.kind}:${ref.name}`} className={`ref-badge ${ref.kind}`}>
-                      {ref.kind === "tag" ? <Tag aria-hidden="true" /> : null}
-                      {ref.name}
-                    </span>
-                  ))}
-                </span>
+                {!columnOrder.includes("references") ? <HistoryReferences commit={commit} /> : null}
                 <CommitSubject
                   subject={commit.subject}
                   className="history-subject"
                   scopeClassName="history-scope"
                   descriptionClassName="history-description-text"
                 />
-                {association ? (
+                {association && (!columnOrder.includes("pullRequest") || !columnOrder.includes("checks")) ? (
                   <span className="history-github-badges">
-                    {association.pullRequests.length > 0 ? (
-                      association.pullRequests.length === 1 ? (
-                        <button type="button" className="history-github-badge" aria-label={`Open pull request ${association.pullRequests[0]!.number}`} onClick={(event) => {
-                          event.stopPropagation(); onOpenExternalUrl(association.pullRequests[0]!.url);
-                        }}>PR #{association.pullRequests[0]!.number}</button>
-                      ) : (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <button type="button" className="history-github-badge" aria-label={`${association.pullRequests.length} associated pull requests`} onClick={(event) => event.stopPropagation()}>
-                              PR #{association.pullRequests[0]!.number} +{association.pullRequests.length - 1}
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent onClick={(event) => event.stopPropagation()}>
-                            {association.pullRequests.map((pullRequest) => (
-                              <DropdownMenuItem key={`${pullRequest.headRepositoryFullName}:${pullRequest.number}`} onSelect={() => onOpenExternalUrl(pullRequest.url)}>
-                                {pullRequest.headRepositoryFullName ?? pullRequest.baseRepositoryFullName} #{pullRequest.number}
-                              </DropdownMenuItem>
-                            ))}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      )
-                    ) : null}
-                    <span className={`history-check-state is-${association.checkState}`} aria-label={formatCheckStateLabel(association.checkState)} role="img" />
+                    {!columnOrder.includes("pullRequest") ? <HistoryPullRequests association={association} onOpenExternalUrl={onOpenExternalUrl} /> : null}
+                    {!columnOrder.includes("checks") ? <HistoryCheckState association={association} compact /> : null}
                   </span>
                 ) : null}
               </span>
@@ -9904,7 +9929,10 @@ function HistoryRow({
               <span className="history-date">{commit.relativeDate || formatDate(commit.authorDate)}</span>
             </TooltipTarget>,
             author: <TooltipTarget content={commit.authorEmail}><span className="history-author">{commit.authorName}</span></TooltipTarget>,
-            commit: <TooltipTarget content={commit.hash}><span className="history-hash">{commit.shortHash}</span></TooltipTarget>
+            commit: <TooltipTarget content={commit.hash}><span className="history-hash">{commit.shortHash}</span></TooltipTarget>,
+            references: <HistoryReferences commit={commit} showEmpty />,
+            pullRequest: association ? <HistoryPullRequests association={association} onOpenExternalUrl={onOpenExternalUrl} showEmpty /> : <span className="github-secondary-text">-</span>,
+            checks: association ? <HistoryCheckState association={association} /> : <span className="github-secondary-text">-</span>
           }} />
         </div>
       </ContextMenuTrigger>
@@ -9930,6 +9958,69 @@ function HistoryRow({
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
+  );
+}
+
+function HistoryReferences({ commit, showEmpty = false }: { commit: GitCommitGraphRow; showEmpty?: boolean }): ReactNode {
+  if (commit.refs.length === 0) return showEmpty ? <span className="github-secondary-text">-</span> : null;
+  return (
+    <span className="history-refs">
+      {commit.refs.map((ref) => (
+        <span key={`${commit.hash}:${ref.kind}:${ref.name}`} className={`ref-badge ${ref.kind}`}>
+          {ref.kind === "tag" ? <Tag aria-hidden="true" /> : null}
+          {ref.name}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function HistoryPullRequests({
+  association,
+  onOpenExternalUrl,
+  showEmpty = false
+}: {
+  association: GitHubCommitAssociation;
+  onOpenExternalUrl: (url: string) => void;
+  showEmpty?: boolean;
+}): ReactNode {
+  if (association.pullRequests.length === 0) return showEmpty ? <span className="github-secondary-text">-</span> : null;
+  if (association.pullRequests.length === 1) {
+    const pullRequest = association.pullRequests[0]!;
+    return (
+      <button type="button" className="history-github-badge" aria-label={`Open pull request ${pullRequest.number}`} onClick={(event) => {
+        event.stopPropagation();
+        onOpenExternalUrl(pullRequest.url);
+      }}>
+        PR #{pullRequest.number}
+      </button>
+    );
+  }
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button type="button" className="history-github-badge" aria-label={`${association.pullRequests.length} associated pull requests`} onClick={(event) => event.stopPropagation()}>
+          PR #{association.pullRequests[0]!.number} +{association.pullRequests.length - 1}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent onClick={(event) => event.stopPropagation()}>
+        {association.pullRequests.map((pullRequest) => (
+          <DropdownMenuItem key={`${pullRequest.headRepositoryFullName}:${pullRequest.number}`} onSelect={() => onOpenExternalUrl(pullRequest.url)}>
+            {pullRequest.headRepositoryFullName ?? pullRequest.baseRepositoryFullName} #{pullRequest.number}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function HistoryCheckState({ association, compact = false }: { association: GitHubCommitAssociation; compact?: boolean }): ReactNode {
+  const label = formatCheckStateLabel(association.checkState);
+  return (
+    <span className={compact ? undefined : "history-check-column"}>
+      <span className={`history-check-state is-${association.checkState}`} aria-label={label} role="img" />
+      {!compact ? <span className="truncate">{label}</span> : null}
+    </span>
   );
 }
 
@@ -10183,6 +10274,7 @@ function CommitFileRow({
 
 function CommitPanel({
   commitMessage,
+  generationError,
   disabled,
   primaryCommitAction,
   pushableCommitCount,
@@ -10196,6 +10288,7 @@ function CommitPanel({
   onCommitMessageChange
 }: {
   commitMessage: string;
+  generationError: string;
   disabled: boolean;
   primaryCommitAction: "commit" | "push" | null;
   pushableCommitCount: number;
@@ -10227,6 +10320,9 @@ function CommitPanel({
         placeholder="Summarize staged changes..."
         onChange={(event) => onCommitMessageChange(event.target.value)}
       />
+      {generationError ? (
+        <p className="text-sm text-destructive" role="alert">{generationError}</p>
+      ) : null}
       <div className="flex flex-wrap justify-end gap-2">
         <div className="flex items-stretch">
           <TooltipButton
@@ -10309,6 +10405,7 @@ function GenerateWithContextDialog({
   open,
   context,
   generating,
+  error,
   onOpenChange,
   onContextChange,
   onGenerate
@@ -10316,6 +10413,7 @@ function GenerateWithContextDialog({
   open: boolean;
   context: string;
   generating: boolean;
+  error: string;
   onOpenChange: (open: boolean) => void;
   onContextChange: (context: string) => void;
   onGenerate: (event: FormEvent<HTMLFormElement>) => void;
@@ -10343,6 +10441,8 @@ function GenerateWithContextDialog({
               onChange={(event) => onContextChange(event.currentTarget.value)}
             />
           </div>
+
+          {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
 
           <DialogFooter>
             <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
@@ -12197,6 +12297,24 @@ function formatCompactCount(value: number): string {
 function formatCompactUnit(value: number, unit: string): string {
   const rounded = value < 10 ? Math.round(value * 10) / 10 : Math.round(value);
   return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}${unit}`;
+}
+
+function formatPullRequestSummary(pullRequest: GitHubPullRequest, columnOrder: readonly PullRequestColumnId[]): string {
+  const parts: string[] = [];
+  if (!columnOrder.includes("author")) parts.push(pullRequest.authorLogin);
+  if (!columnOrder.includes("comments")) parts.push(`${pullRequest.comments} ${pullRequest.comments === 1 ? "comment" : "comments"}`);
+  return parts.join(" · ");
+}
+
+function formatRunDuration(startedAt: string, updatedAt: string): string {
+  const started = Date.parse(startedAt);
+  const updated = Date.parse(updatedAt);
+  if (!Number.isFinite(started) || !Number.isFinite(updated) || updated < started) return "-";
+  const seconds = Math.floor((updated - started) / 1_000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
 function formatDate(value: string): string {
