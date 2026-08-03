@@ -1,110 +1,140 @@
 # Githead
 
-A lightweight desktop GUI, built with Electron and React.
+Githead is a desktop interface for Git and [Lore](https://github.com/EpicGames/lore). It uses Electron, React, and TypeScript.
 
-## Why it was built
+Githead focuses on the version-control tasks that game development teams use each day. It keeps these tasks in one fast, focused application.
 
-Our team needed a faster GUI for working with Git on game development projects. Our preferred tooling at the time was [SourceTree](https://www.sourcetreeapp.com/) but it's featureset and performance has fallen behind in recent years. This project is our attempt to make a Git GUI client that focuses in on what we actually need an interface for, and adds in some other tools to reduce constant context switching.
-
-This is early development and has only been tested on a handful of repositories. Worktrees and Git hooks still need broader testing. This is purpose-built software that will expand over time, but it does not guarantee data integrity for every workload.
+Githead is in early development. Use standard backups and repository safeguards for important work.
 
 ## Features
 
-- **Repository workspace** — pick a local Git repository and switch quickly between recently opened ones. The active repository's branch, upstream, and remotes are always in view.
-- **Sync commands** — run `fetch`, `pull`, and `push` with live streamed output and an activity log.
-- **File status & staging** — see staged and unstaged changes, stage/unstage files, and view per-file diffs with syntax highlighting.
-- **Committing** — write a commit message and commit staged changes. Optionally **generate a commit message** from the staged diff using an LLM (via [OpenRouter](https://openrouter.ai/)).
-- **Commit history** — browse the commit graph, inspect commit details, and view file-level diffs for any commit.
-- **File history & blame** — follow a selected file backward through renames and inspect bounded, virtualized line attribution at any commit.
-- **Branches** — view, switch, create, and manage local branches. Git supports renaming and safe local deletion; Lore supports archiving. Remote branches are never deleted by branch management.
-- **Git worktrees** — discover linked worktrees as one repository group, open branches already checked out elsewhere, create new linked worktrees, and safely remove clean inactive worktrees.
-- **Remote management** — add, rename, edit, inspect, and remove Git remotes from the repository sidebar.
-- **GitHub insight** — when `origin` is a GitHub remote, view recent **Workflow Runs**, open **Pull Requests**, and open **Issues**.
-- **Live updates** — the repository is watched on disk, so the UI refreshes automatically when files change.
-- **Git submodules** — inspect gitlink and dirty states, open submodules as independent repositories, recursively initialize/update them, synchronize URLs, and clone recursively.
-- **Lore support** - Early support for new VCS (https://github.com/EpicGames/lore) - requires Lore CLI installed.
+- **Repository workspace:** Open a local repository or clone one from a remote source. Switch between recent repositories from the sidebar.
+- **Sync commands:** Run fetch, pull, and push operations. View live command output in the activity log.
+- **Status and staging:** View staged, unstaged, and conflicted files. Stage complete files or individual diff hunks.
+- **Diffs and previews:** View text and image diffs. Preview GitHub-flavored Markdown, tables, and Mermaid diagrams.
+- **Commits:** Create commits, revert commits, reset branches, and manage tags.
+- **History:** View the commit graph and commit details. Follow file history through renames and view line attribution.
+- **Branches:** Create, switch, rename, publish, and remove local Git branches. Push a branch to a selected remote branch.
+- **Worktrees:** Group linked Git worktrees. Create worktrees and remove clean worktrees that are not active.
+- **Remotes:** Add, rename, edit, inspect, and remove Git remotes.
+- **Submodules:** Inspect submodule states. Open, initialize, update, synchronize, and clone submodules.
+- **GitHub:** View and filter workflow runs, pull requests, and issues. Create or check out pull requests.
+- **AI text generation:** Generate commit messages and pull request text from repository changes. Global and repository-specific settings are available.
+- **Custom actions:** Add repository commands to the Actions menu. Githead runs them from the repository root.
+- **Live updates:** Githead monitors the active repository and updates the interface after file changes.
+- **Appearance:** Select the color theme, interface font, code font, zoom level, file layout, and table columns.
+- **Lore:** Open or clone Lore repositories. Use supported status, staging, revision, branch, and synchronization operations.
 
-## Current Gaps
+## Known limitations
 
-- Doesn't handle local being ahead of remote at all
-- ~~Console log sucks (doesn't support colors, for one)~~ (addressed in 0.13)
-- Some cursed layout sizing issues on smaller screens or extreme circumstances (huge commit messages)
-- Some UI/UX oddities that are "good enough functionally" but not great
-- Need to support a lot of different settings and configurations
-- Github integration is extremely basic (needs filtering, more intelligent linking with PRs/Issues in commits)
-- AI Commit Message defaults could be better tuned to reduce on noise
-- Can't stage/unstage individual lines, yet
-- Lore support is experimental. Working on feature parity with Git. Expect broken features.
+- Githead has received tests on a limited set of repositories and workflows.
+- Line-level staging is not available. Githead supports file-level and hunk-level staging for Git repositories.
+- Some layouts can have problems on small windows or with unusually large content.
+- Lore support is experimental and does not have full Git feature parity.
+- Githead currently tests Lore support with Lore CLI 0.8.x.
+- Linux `.deb` packages do not use the in-app updater.
 
-## Tech stack
+## Download
 
-- [Electron](https://www.electronjs.org/) — desktop shell (main + preload + renderer)
-- [React 19](https://react.dev/) + [Vite+](https://viteplus.dev/) — renderer UI and frontend toolchain
-- [TypeScript](https://www.typescriptlang.org/)
-- [Tailwind CSS](https://tailwindcss.com/) + [Radix UI](https://www.radix-ui.com/) + [lucide-react](https://lucide.dev/) — styling and components
-- [Vite+ test](https://viteplus.dev/guide/test) + Testing Library — tests
-- [electron-builder](https://www.electron.build/) — Windows (NSIS) packaging
+Download packaged builds from the [Githead releases page](https://github.com/warheadent/Githead/releases).
 
-Linux packaging is configured for AppImage and `.deb` outputs.
+The Windows package uses an NSIS installer. Linux packages are available as AppImage and `.deb` files for x64 systems.
 
-## Getting started
+## Build from source
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) (with npm)
-- [Vite+](https://viteplus.dev/) `vp` CLI
-- [Git](https://git-scm.com/) available on your `PATH`
+Install these tools:
 
-### Install
+- [Node.js](https://nodejs.org/) with npm
+- The [Vite+](https://viteplus.dev/) `vp` command-line interface
+- [Git](https://git-scm.com/) on your `PATH`
+
+The project requires Node.js `^22.18.0` or `>=24.11.0`.
+
+If you use Lore repositories, install the [Lore CLI](https://epicgames.github.io/lore/how-to/install-lore-cli/) on your `PATH`.
+
+### Install dependencies
+
+Run this command:
 
 ```sh
 vp install
 ```
 
-If you are bootstrapping from a machine without a global `vp` yet, run `npm install` once, then use the local Vite+ commands below.
+If `vp` is not available globally, run this command once:
 
-When `vp` is only installed locally, prefix commands with `npm exec --`, for example:
+```sh
+npm install
+```
+
+Then add `npm exec --` before each Vite+ command:
 
 ```sh
 npm exec -- vp run build
 npm exec -- vp run package:win:dir
 ```
 
-### Run in development
+### Run the development application
+
+Run this command:
 
 ```sh
 vp run dev
 ```
 
-This builds the Electron main process, starts the Vite dev server, and launches the Electron shell pointed at it.
+This command builds the Electron main process. It also starts the development server and opens the Electron application.
 
-### Build
+To inspect the Electron renderer on CDP port 9222, run this command:
+
+```sh
+vp run dev:inspect
+```
+
+### Build the application
+
+Run this command:
 
 ```sh
 vp run build
 ```
 
-### Package desktop builds
+### Run the project checks
+
+Run these commands before you submit a change:
 
 ```sh
-vp run package:win        # full NSIS installer
-vp run package:win:dir    # unpacked directory (faster, for testing)
-vp run package:linux      # AppImage and .deb for x64 Linux
-vp run package:linux:dir  # unpacked Linux directory (faster, for testing)
+vp check
+vp run typecheck
+vp test
+vp run build
 ```
 
-Output is written to the `release/` directory.
+### Create desktop packages
 
-Linux AppImage builds can be made executable and run directly:
+Use one of these commands:
+
+```sh
+vp run package:win        # Create the Windows NSIS installer.
+vp run package:win:dir    # Create an unpacked Windows directory.
+vp run package:linux      # Create x64 AppImage and .deb packages.
+vp run package:linux:dir  # Create an unpacked Linux directory.
+```
+
+Githead writes package output to the `release/` directory.
+
+To run an AppImage, make the file executable first:
 
 ```sh
 chmod +x release/Githead-<version>-x86_64.AppImage
 ./release/Githead-<version>-x86_64.AppImage
 ```
 
-In-app updates are available for packaged Windows builds and Linux AppImage builds when release metadata is published. Linux `.deb` installs do not use the in-app updater; install newer `.deb` releases manually unless a package repository is added later.
+If release metadata is available, packaged Windows and AppImage builds can use in-app updates. Install new `.deb` packages manually.
 
-### Bump the release version
+### Change the release version
+
+Use one of these commands:
 
 ```sh
 vp run version:bump -- patch
@@ -113,72 +143,113 @@ vp run version:minor
 vp run version:major
 ```
 
-The version helper runs `npm version` without npm's automatic git tag behavior, type-checks the project, commits only `package.json` and `package-lock.json`, and creates a matching `v<version>` tag. It does not push automatically.
+The version script updates `package.json` and `package-lock.json`. Then it runs the type checks and tests.
+
+If the checks pass, the script commits the two package files and creates a matching `v<version>` tag. It does not push them.
 
 ## Configuration
 
 ### Repository actions
 
-Repositories can expose custom commands in the Sync bar by adding a `.githead` folder at the repository root. Define shared actions in `.githead/actions.toml`:
+A repository can add custom commands to the Githead Actions menu. Add a `.githead/actions.toml` file at the repository root.
 
 ```toml
 [[actions]]
 name = "Build"
-description = "Compile the application and verify production output."
+description = "Compile the application and check the production output."
 command = "vp run build"
 shell = "powershell" # powershell | cmd | bash
 ```
 
-The optional `description` is shown as a tooltip when selecting an action.
+The `description` field is optional. Githead shows the description in a tooltip.
 
-Use **Manage Repository Actions** in the Actions menu to create, edit, delete, and reorder shared or local actions from Githead. Optional `.githead/actions.local.toml` entries are loaded after `actions.toml`. Local entries with the same action name replace the shared action; new local entries are appended. Configured actions run from the repository root and use the same workspace trust prompt and Activity Log as built-in Git commands.
+Use **Manage Repository Actions** to create, edit, remove, and reorder actions. You can manage shared actions and local actions.
 
-### AI commit messages
+Githead reads local actions from `.githead/actions.local.toml` after it reads shared actions. A local action replaces a shared action with the same name.
 
-Commit message generation supports multiple providers. Open **Settings** in the app, choose a provider, and configure the model and credentials required by that provider.
+Githead adds new local actions after the shared actions. All configured actions use the repository root as their working directory.
 
-Supported providers and defaults:
+Githead uses the same trust prompt and activity log for custom actions and built-in Git commands.
 
-- **OpenRouter**: `openai/gpt-5.6-luna`
-- **OpenAI API**: `gpt-5.4-nano`
-- **Codex CLI**: `gpt-5.4-mini` when `codex` is installed and `codex login status` succeeds
-- **Anthropic API**: `claude-haiku-4-5-20251001`
-- **Claude Code**: `haiku` when `claude` is installed and `claude auth status` succeeds
+### AI text generation
 
-Direct API providers require an API key stored by the app. CLI providers use the local CLI credentials already configured on the machine. The configured prompt and staged diff are sent to the selected provider to produce a suggested message.
+Open **Settings**, and then select an AI provider. Enter the model and credentials that the provider requires.
+
+Githead supports these providers and default models:
+
+- **OpenRouter:** `openai/gpt-5.6-luna`
+- **OpenAI API:** `gpt-5.4-nano`
+- **Codex CLI:** `gpt-5.4-mini`
+- **Anthropic API:** `claude-haiku-4-5-20251001`
+- **Claude Code:** `haiku`
+
+API providers require an API key. CLI providers use the credentials from the installed command-line tool.
+
+Codex CLI requires a successful `codex login status` command. Claude Code requires a successful `claude auth status` command.
+
+You can save different AI settings for a repository. Githead stores these settings in `.githead/ai-settings.json` in that repository.
+
+Repository settings contain models, prompts, and reasoning levels. They do not contain API keys.
+
+Githead sends the configured prompt and repository changes to the selected provider. The provider returns the suggested text.
 
 ### GitHub access
 
-The Workflow Runs, Pull Requests, and Issues tabs query the public GitHub REST API for the repository behind the GitHub Origin. These lists load incrementally: repository-wide pull request and issue totals may be larger than the subset currently rendered, and **Refresh** restarts pagination from the newest first page. The History view also uses a bounded GitHub GraphQL query to associate the Current Branch and visible commits with pull requests and aggregate checks. Public repositories work without any setup where GitHub permits anonymous access. For private repositories and GraphQL enrichment, authenticate with the GitHub CLI (`gh auth login`) or set a `GITHUB_TOKEN` / `GH_TOKEN` environment variable, then refresh. Githead discovers an available GitHub CLI credential once per app session and uses it for direct API requests. If GraphQL is unavailable, local commit history remains usable and its GitHub annotations can be retried independently.
+If `origin` points to a GitHub repository, Githead enables GitHub features. Public repositories usually work without authentication.
+
+For private repositories, authenticate with `gh auth login`. You can also set the `GITHUB_TOKEN` or `GH_TOKEN` environment variable.
+
+Githead reads an available GitHub CLI credential once during each application session. It keeps this credential only in main-process memory.
+
+The GitHub lists load one page at a time. The total number can be larger than the items that Githead currently shows.
+
+The History view uses a limited GraphQL request for pull request and check data. If this request fails, local history remains available.
 
 ### Remote management
 
-Open **Manage Remotes** from the Remotes row in the repository sidebar. Githead creates and edits conventional remotes with one URL shared by fetch and push. Existing remotes with multiple fetch URLs or explicit push URLs are shown as advanced configurations: they can be renamed or removed, but their URLs must be edited with the Git CLI so Githead never discards endpoints. Adding or editing a remote only changes local Git configuration and does not fetch automatically.
+Open **Manage Remotes** from the Remotes row in the repository sidebar.
+
+Githead can edit a standard remote that uses one URL for fetch and push. It identifies remotes with multiple URLs as advanced configurations.
+
+Githead can rename or remove an advanced remote. Use the Git command-line interface to edit its URLs.
+
+This restriction prevents the loss of endpoints. Adding or editing a remote does not start a fetch operation.
 
 ## Privacy and data flow
 
-- Githead runs Git commands locally against repositories selected by the user.
-- Repository paths, branch names, remotes, diffs, commit messages, and command output can contain sensitive information. Review logs before sharing them publicly.
-- GitHub insight calls the GitHub REST API for the repository behind `origin`. If the GitHub CLI is authenticated or `GITHUB_TOKEN` / `GH_TOKEN` is set, Githead may use that authentication for private repositories or higher rate limits. A discovered GitHub CLI credential is held only in main-process memory for the app session; Githead does not persist it or expose it to the renderer.
-- AI commit message generation is optional. When used, Githead sends the staged diff to the selected provider or selected CLI-backed provider and receives a suggested commit message.
-- OpenRouter, OpenAI, and Anthropic API keys are stored locally by the app and encrypted when the operating system provides encryption support. Codex CLI and Claude Code use their own local authentication.
+- Githead runs version-control commands on the local computer.
+- Repository paths, branches, remotes, diffs, messages, and command output can contain sensitive information.
+- Githead sends GitHub requests for the repository that `origin` identifies.
+- If you use an AI text-generation command, Githead sends repository changes to the selected provider.
+- Githead stores API keys on the local computer. If the operating system supports encryption, Githead encrypts the keys.
+- Codex CLI and Claude Code manage their own local authentication.
+
+Review the activity log before you share it.
+
+## Technology
+
+- [Electron](https://www.electronjs.org/) provides the desktop shell, preload bridge, and main process.
+- [React 19](https://react.dev/) provides the user interface.
+- [Vite+](https://viteplus.dev/) provides the frontend tools and test runner.
+- [TypeScript](https://www.typescriptlang.org/) provides static types.
+- [Tailwind CSS](https://tailwindcss.com/) and [Radix UI](https://www.radix-ui.com/) provide styles and interface components.
+- [electron-builder](https://www.electron.build/) creates the desktop packages.
 
 ## Project layout
 
-```
+```text
 src/
-  main/        Electron main + preload: Git, GitHub, AI, repo-watch, update services,
-               IPC handlers, and the preload bridge exposing the typed `window.githead` API
-  renderer/    React UI (App, commit graph, diff parser, syntax highlighting)
-  shared/      IPC channel names and shared TypeScript types
-  components/  Reusable UI components (Radix + Tailwind)
-scripts/      dev and packaging scripts
+  main/        Electron main process, preload bridge, and local services
+  renderer/    React application and interface logic
+  shared/      Shared TypeScript types and IPC channel names
+  components/  Reusable interface components
+scripts/       Development, release, and packaging scripts
 ```
 
-## Development
+## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, verification, and pull request guidance.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks, and pull request instructions.
 
 ## License
 
-[MIT](LICENSE)
+Githead uses the [MIT License](LICENSE).
