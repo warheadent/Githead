@@ -43,6 +43,9 @@ import type {
   GitOutputEvent,
   GitPathRequest,
   GitPublishBranchRequest,
+  GitPullRecovery,
+  GitPullRecoveryRequest,
+  GitPullRecoveryResult,
   GitRemoveRemoteRequest,
   GitRemoteConfig,
   GitRenameRemoteRequest,
@@ -102,6 +105,10 @@ export const GIT_ACTION_COMMANDS: Record<GitAction, string[]> = {
   ]
 };
 
+const PULL_BASE_REF_PREFIX = "refs/githead/pull-base";
+const PULL_HEAD_REF_PREFIX = "refs/githead/pull-head";
+const PULL_RECOVERY_REF_PREFIX = "refs/githead/recovery";
+
 export type GitOutputHandler = (event: GitOutputEvent) => void;
 
 export interface GitBranchRangeRequest {
@@ -113,6 +120,12 @@ export interface GitBranchRangeRequest {
 export interface GitBranchRangeContext {
   diff: GitOperationResult;
   log: GitOperationResult;
+}
+
+interface PullRecoverySnapshot {
+  branchName: string;
+  oldUpstreamOid: string;
+  originalHeadOid: string;
 }
 
 const emptySummary = (
@@ -1524,9 +1537,15 @@ export class GitService {
       });
     }
 
+    const pullSnapshot = request.action === "pull"
+      ? await this.preparePullRecovery(request.repoPath)
+      : null;
     const result = request.action === "push"
       ? await this.runPushWithTags(request, runId, onOutput)
       : await this.runActionCommand(request, runId, GIT_ACTION_COMMANDS[request.action], onOutput);
+    const pullRecovery = pullSnapshot
+      ? await this.finishPullRecoveryAttempt(request.repoPath, pullSnapshot, result.exitCode)
+      : null;
 
     const endedAt = new Date().toISOString();
     onOutput?.(
@@ -1546,7 +1565,112 @@ export class GitService {
       stdout: result.stdout,
       stderr: result.error ? `${result.stderr}${result.error}` : result.stderr,
       startedAt,
-      endedAt
+      endedAt,
+      ...(pullRecovery ? { pullRecovery } : {})
+    };
+  }
+
+  async getPullRecovery(repoPath: string): Promise<GitPullRecovery | null> {
+    const validation = await this.validateRepo(repoPath);
+    if (!validation.isValid) return null;
+    return this.readPullRecovery(repoPath);
+  }
+
+  async resolvePullRecovery(request: GitPullRecoveryRequest): Promise<GitPullRecoveryResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      return this.createPullRecoveryFailure(request.repoPath, validation.validationErrors.join(" "));
+    }
+
+    const branchResult = await this.validateBranchName(request.repoPath, request.branchName);
+    if ("error" in branchResult) return this.createPullRecoveryFailure(request.repoPath, branchResult.error);
+    const recovery = await this.readPullRecovery(request.repoPath, branchResult.branchName);
+    if (!recovery) {
+      return this.createPullRecoveryFailure(request.repoPath, "The pull recovery is no longer available. Refresh and try again.");
+    }
+
+    if (request.action === "continue" || request.action === "abort") {
+      if (recovery.phase !== "rebase-conflicts") {
+        return this.createPullRecoveryFailure(request.repoPath, "No pull recovery rebase is in progress.", recovery);
+      }
+      const operation = await this.runGitOperation(
+        request.repoPath,
+        request.action === "continue"
+          ? ["-c", "core.editor=true", "rebase", "--continue"]
+          : ["rebase", "--abort"]
+      );
+      const nextRecovery = await this.readPullRecovery(request.repoPath, recovery.branchName);
+      if (request.action === "abort") {
+        return {
+          ...operation,
+          outcome: operation.exitCode === 0 ? "ready" : "failed",
+          recovery: nextRecovery,
+          recoveryRef: null
+        };
+      }
+      if (operation.exitCode === 0) {
+        return this.completePullRecovery(request.repoPath, recovery, operation);
+      }
+      return {
+        ...operation,
+        outcome: nextRecovery?.phase === "rebase-conflicts" ? "conflicts" : "failed",
+        recovery: nextRecovery,
+        recoveryRef: null
+      };
+    }
+
+    if (recovery.phase !== "ready") {
+      return this.createPullRecoveryFailure(request.repoPath, "Resolve or abort the current rebase before starting another recovery action.", recovery);
+    }
+    if (recovery.hasWorkingChanges) {
+      return this.createPullRecoveryFailure(
+        request.repoPath,
+        "Commit or stash working-file changes before resolving the remote history change.",
+        recovery
+      );
+    }
+
+    const currentBranch = await this.runGit(request.repoPath, ["branch", "--show-current"]);
+    const currentHead = await this.runGit(request.repoPath, ["rev-parse", "--verify", "HEAD"]);
+    if (
+      currentBranch.exitCode !== 0 || currentBranch.stdout.trim() !== recovery.branchName ||
+      currentHead.exitCode !== 0 || currentHead.stdout.trim() !== recovery.originalHeadOid
+    ) {
+      return this.createPullRecoveryFailure(request.repoPath, "The local branch changed after Pull failed. Review the branch before retrying.", recovery);
+    }
+    if (request.action === "reapply" && (!recovery.canReapply || recovery.localCommitCount === 0)) {
+      return this.createPullRecoveryFailure(request.repoPath, "These commits cannot be reapplied automatically. Match the remote or review the branch manually.", recovery);
+    }
+
+    const recoveryRef = pullRecoveryRef(recovery.branchName);
+    const checkpoint = await this.runGitOperation(request.repoPath, [
+      "update-ref",
+      recoveryRef,
+      recovery.originalHeadOid
+    ]);
+    if (checkpoint.exitCode !== 0) {
+      return this.createPullRecoveryFailure(request.repoPath, checkpoint.stderr || "Unable to create the recovery point.", recovery);
+    }
+
+    const operation = request.action === "reapply"
+      ? await this.runGitOperation(request.repoPath, [
+        "rebase",
+        "--onto",
+        recovery.newUpstreamOid,
+        recovery.oldUpstreamOid,
+        recovery.branchName
+      ])
+      : await this.runGitOperation(request.repoPath, ["reset", "--hard", recovery.newUpstreamOid]);
+    if (operation.exitCode === 0) {
+      return this.completePullRecovery(request.repoPath, recovery, operation);
+    }
+
+    const nextRecovery = await this.readPullRecovery(request.repoPath, recovery.branchName);
+    return {
+      ...operation,
+      outcome: nextRecovery?.phase === "rebase-conflicts" ? "conflicts" : "failed",
+      recovery: nextRecovery,
+      recoveryRef
     };
   }
 
@@ -1668,6 +1792,161 @@ export class GitService {
     }
 
     return saveActionsConfigFile(rootResult.stdout.trim(), request);
+  }
+
+  private async preparePullRecovery(repoPath: string): Promise<PullRecoverySnapshot | null> {
+    const branchResult = await this.runGit(repoPath, ["branch", "--show-current"]);
+    const branchName = branchResult.stdout.trim();
+    if (branchResult.exitCode !== 0 || !branchName) return null;
+
+    const [headResult, upstreamResult] = await Promise.all([
+      this.runGit(repoPath, ["rev-parse", "--verify", "HEAD"]),
+      this.runGit(repoPath, ["rev-parse", "--verify", "@{upstream}"])
+    ]);
+    const originalHeadOid = headResult.stdout.trim();
+    const oldUpstreamOid = upstreamResult.stdout.trim();
+    if (headResult.exitCode !== 0 || upstreamResult.exitCode !== 0 || !originalHeadOid || !oldUpstreamOid) return null;
+
+    const baseRef = pullBaseRef(branchName);
+    const headRef = pullHeadRef(branchName);
+    const baseUpdate = await this.runGit(repoPath, ["update-ref", baseRef, oldUpstreamOid]);
+    if (baseUpdate.exitCode !== 0) return null;
+    const headUpdate = await this.runGit(repoPath, ["update-ref", headRef, originalHeadOid]);
+    if (headUpdate.exitCode !== 0) {
+      await this.runGit(repoPath, ["update-ref", "-d", baseRef]);
+      return null;
+    }
+
+    return { branchName, oldUpstreamOid, originalHeadOid };
+  }
+
+  private async finishPullRecoveryAttempt(
+    repoPath: string,
+    snapshot: PullRecoverySnapshot,
+    exitCode: number
+  ): Promise<GitPullRecovery | null> {
+    if (exitCode !== 0) {
+      const recovery = await this.readPullRecovery(repoPath, snapshot.branchName);
+      if (recovery) return recovery;
+    }
+    await this.clearPendingPullRecovery(repoPath, snapshot.branchName);
+    return null;
+  }
+
+  private async readPullRecovery(repoPath: string, requestedBranch?: string): Promise<GitPullRecovery | null> {
+    let branchName = requestedBranch?.trim() ?? "";
+    let oldUpstreamOid = "";
+    if (branchName) {
+      const baseResult = await this.runGit(repoPath, ["show-ref", "--hash", "--verify", pullBaseRef(branchName)]);
+      if (baseResult.exitCode !== 0) return null;
+      oldUpstreamOid = baseResult.stdout.trim();
+    } else {
+      const currentBranch = await this.runGit(repoPath, ["branch", "--show-current"]);
+      branchName = currentBranch.stdout.trim();
+      if (currentBranch.exitCode === 0 && branchName) {
+        const baseResult = await this.runGit(repoPath, ["show-ref", "--hash", "--verify", pullBaseRef(branchName)]);
+        if (baseResult.exitCode === 0) oldUpstreamOid = baseResult.stdout.trim();
+      }
+      if (!oldUpstreamOid) {
+        const pendingResult = await this.runGit(repoPath, [
+          "for-each-ref",
+          PULL_BASE_REF_PREFIX,
+          "--format=%(refname:strip=3)%00%(objectname)"
+        ]);
+        const pending = pendingResult.stdout.split(/\r?\n/).map((line) => line.split("\0")).filter((fields) => fields.length === 2);
+        if (pending.length !== 1) return null;
+        [branchName = "", oldUpstreamOid = ""] = pending[0] ?? [];
+      }
+    }
+    if (!branchName || !oldUpstreamOid) return null;
+
+    const upstreamResult = await this.runGit(repoPath, [
+      "for-each-ref",
+      `refs/heads/${branchName}`,
+      "--format=%(upstream:short)%00%(upstream)"
+    ]);
+    const [upstreamName = "", newUpstreamOid = ""] = upstreamResult.stdout.trim().split("\0");
+    if (upstreamResult.exitCode !== 0 || !upstreamName || !newUpstreamOid || oldUpstreamOid === newUpstreamOid) return null;
+
+    const oldIsAncestorOfNew = await this.runGit(repoPath, ["merge-base", "--is-ancestor", oldUpstreamOid, newUpstreamOid]);
+    if (oldIsAncestorOfNew.exitCode === 0) return null;
+    if (oldIsAncestorOfNew.exitCode !== 1) return null;
+
+    const [originalHeadResult, localAncestorResult, localCountResult, rebaseBranch, statusResult, currentBranchResult, currentHeadResult] = await Promise.all([
+      this.runGit(repoPath, ["show-ref", "--hash", "--verify", pullHeadRef(branchName)]),
+      this.runGit(repoPath, ["merge-base", "--is-ancestor", oldUpstreamOid, pullHeadRef(branchName)]),
+      this.runGit(repoPath, ["rev-list", "--count", `${oldUpstreamOid}..${pullHeadRef(branchName)}`]),
+      this.readRebaseBranch(repoPath),
+      this.runGit(repoPath, ["status", "--porcelain", "--untracked-files=all"]),
+      this.runGit(repoPath, ["branch", "--show-current"]),
+      this.runGit(repoPath, ["rev-parse", "--verify", "HEAD"])
+    ]);
+    const originalHeadOid = originalHeadResult.stdout.trim();
+    if (originalHeadResult.exitCode !== 0 || !originalHeadOid) return null;
+    const phase = rebaseBranch === branchName ? "rebase-conflicts" : "ready";
+    const branchUnchanged = currentBranchResult.exitCode === 0 && currentBranchResult.stdout.trim() === branchName
+      && currentHeadResult.exitCode === 0 && currentHeadResult.stdout.trim() === originalHeadOid;
+
+    return {
+      branchName,
+      upstreamName,
+      oldUpstreamOid,
+      newUpstreamOid,
+      originalHeadOid,
+      localCommitCount: parseNonNegativeInteger(localCountResult.stdout),
+      hasWorkingChanges: statusResult.exitCode === 0 && statusResult.stdout.length > 0,
+      canReapply: phase === "rebase-conflicts" || (localAncestorResult.exitCode === 0 && branchUnchanged),
+      phase
+    };
+  }
+
+  private async readRebaseBranch(repoPath: string): Promise<string | null> {
+    const pathsResult = await this.runGit(repoPath, [
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-path",
+      "rebase-merge/head-name",
+      "--git-path",
+      "rebase-apply/head-name"
+    ]);
+    if (pathsResult.exitCode !== 0) return null;
+    const paths = splitLines(pathsResult.stdout);
+    const headNames = await Promise.all(paths.map((filePath) => readTextIfExists(filePath)));
+    const headName = headNames.map((value) => value.trim()).find((value) => value.startsWith("refs/heads/"));
+    return headName?.slice("refs/heads/".length) ?? null;
+  }
+
+  private async completePullRecovery(
+    repoPath: string,
+    recovery: GitPullRecovery,
+    operation: GitOperationResult
+  ): Promise<GitPullRecoveryResult> {
+    await this.clearPendingPullRecovery(repoPath, recovery.branchName);
+    return {
+      ...operation,
+      stdout: `${operation.stdout}${operation.stdout.endsWith("\n") || !operation.stdout ? "" : "\n"}Recovery point: ${pullRecoveryRef(recovery.branchName)}\n`,
+      outcome: "complete",
+      recovery: null,
+      recoveryRef: pullRecoveryRef(recovery.branchName)
+    };
+  }
+
+  private async clearPendingPullRecovery(repoPath: string, branchName: string): Promise<void> {
+    await this.runGit(repoPath, ["update-ref", "-d", pullBaseRef(branchName)]);
+    await this.runGit(repoPath, ["update-ref", "-d", pullHeadRef(branchName)]);
+  }
+
+  private createPullRecoveryFailure(
+    repoPath: string,
+    message: string,
+    recovery: GitPullRecovery | null = null
+  ): GitPullRecoveryResult {
+    return {
+      ...this.createOperationFailure(repoPath, message),
+      outcome: "failed",
+      recovery,
+      recoveryRef: null
+    };
   }
 
   private async validateRepo(repoPath: string): Promise<Pick<RepoSummary, "isValid" | "validationErrors" | "safeDirectory">> {
@@ -2666,6 +2945,23 @@ function isMissingAuthorIdentityError(result: GitOperationResult): boolean {
 
 function isResetMode(mode: string): mode is GitResetCommitRequest["mode"] {
   return mode === "soft" || mode === "mixed" || mode === "hard";
+}
+
+function pullBaseRef(branchName: string): string {
+  return `${PULL_BASE_REF_PREFIX}/${branchName}`;
+}
+
+function pullHeadRef(branchName: string): string {
+  return `${PULL_HEAD_REF_PREFIX}/${branchName}`;
+}
+
+function pullRecoveryRef(branchName: string): string {
+  return `${PULL_RECOVERY_REF_PREFIX}/${branchName}`;
+}
+
+function parseNonNegativeInteger(value: string): number {
+  const parsed = Number.parseInt(value.trim(), 10);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
 }
 
 function createPathspecInput(paths: string[]): Buffer {

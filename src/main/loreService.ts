@@ -40,6 +40,9 @@ import type {
   GitOperationResult,
   GitPathRequest,
   GitPublishBranchRequest,
+  GitPullRecovery,
+  GitPullRecoveryRequest,
+  GitPullRecoveryResult,
   GitRemoveRemoteRequest,
   GitRemote,
   GitRemoteConfig,
@@ -823,6 +826,19 @@ export class LoreService implements VcsService {
 
   async publishBranch(request: GitPublishBranchRequest): Promise<GitRunResult> {
     return this.runFailure(request.repoPath, "publish", "Publishing branches is not supported for Lore repositories.");
+  }
+
+  async getPullRecovery(_repoPath: string): Promise<GitPullRecovery | null> {
+    return null;
+  }
+
+  async resolvePullRecovery(request: GitPullRecoveryRequest): Promise<GitPullRecoveryResult> {
+    return {
+      ...this.failure(request.repoPath, "Pull recovery is not supported for Lore repositories."),
+      outcome: "failed",
+      recovery: null,
+      recoveryRef: null
+    };
   }
 
   async checkoutRemoteBranch(request: GitRemoteBranchCheckoutRequest): Promise<GitOperationResult> {

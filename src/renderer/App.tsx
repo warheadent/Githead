@@ -148,6 +148,9 @@ import type {
   GitIdentityScope,
   GitIdentitySettings,
   GitOperationResult,
+  GitPullRecovery,
+  GitPullRecoveryAction,
+  GitPullRecoveryResult,
   GitWorktree,
   GitWorktreeCreateDraft,
   GitWorktreeCreateRequest,
@@ -175,6 +178,7 @@ import { parseGitHubReferences } from "../shared/githubReference";
 import { ActivityLogView } from "./ActivityLogView";
 import { BranchManagementDialog } from "./BranchManagementDialog";
 import { WorktreeCreateDialog, WorktreeRemoveDialog } from "./WorktreeDialogs";
+import { PullRecoveryDialog } from "./PullRecoveryDialog";
 import { emptyPushToBranchDialog, type PushToBranchDialogState } from "./pushToBranchState";
 import { useGitHubQueries } from "./useGitHubQueries";
 import { GitHubQueryToolbar } from "./GitHubQueryToolbar";
@@ -381,6 +385,9 @@ interface AppState {
   activeOperation: ActiveRendererOperation | null;
   lastResult: GitRunResult | null;
   lastOperationResult: GitOperationResult | null;
+  pullRecovery: GitPullRecovery | null;
+  pullRecoveryOpen: boolean;
+  pullRecoveryError: string;
   selection: FileSelection | null;
   diff: GitFileDiff | null;
   diffLoading: boolean;
@@ -737,6 +744,9 @@ const initialState: AppState = {
   activeOperation: null,
   lastResult: null,
   lastOperationResult: null,
+  pullRecovery: null,
+  pullRecoveryOpen: false,
+  pullRecoveryError: "",
   selection: null,
   diff: null,
   diffLoading: false,
@@ -861,6 +871,21 @@ export function App(): ReactNode {
     stateRef.current = next;
     setState(next);
   }, []);
+
+  useEffect(() => {
+    if (!state.summary?.isValid || state.summary.kind !== "git") return;
+    const repoPath = state.repoPath;
+    let cancelled = false;
+    void window.githead.getPullRecovery(repoPath).then((recovery) => {
+      if (cancelled || !recovery || !isSameRepoPath(repoPath, stateRef.current.repoPath)) return;
+      updateState({
+        pullRecovery: recovery,
+        pullRecoveryOpen: true,
+        pullRecoveryError: ""
+      });
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [state.repoPath, state.summary?.isValid, state.summary?.kind, updateState]);
 
   const saveAppSettingsPreference = useCallback((
     patch: Partial<Pick<AppSettings, "statusFileViewMode" | "wrapDiffLines">>,
@@ -1707,6 +1732,9 @@ export function App(): ReactNode {
       pushToBranchDialog: emptyPushToBranchDialog,
       lastResult: null,
       lastOperationResult: null,
+      pullRecovery: null,
+      pullRecoveryOpen: false,
+      pullRecoveryError: "",
       commitMessageGenerationError: "",
       gitIdentity: null,
       gitIdentityPrompt: emptyGitIdentityPrompt,
@@ -2497,7 +2525,12 @@ export function App(): ReactNode {
         return completedResult;
       }
       updateState({
-        lastResult
+        lastResult,
+        ...(lastResult.pullRecovery ? {
+          pullRecovery: lastResult.pullRecovery,
+          pullRecoveryOpen: true,
+          pullRecoveryError: ""
+        } : {})
       });
       completedResult = lastResult;
     } catch (error) {
@@ -3044,6 +3077,35 @@ export function App(): ReactNode {
     }
     return operationResult;
   }, [appendOperationLog, createActiveOperation, finishActiveOperation, isActiveOperationCurrent, refreshRepo, updateState]);
+
+  const resolvePullRecovery = useCallback(async (action: GitPullRecoveryAction): Promise<void> => {
+    const current = stateRef.current;
+    const recovery = current.pullRecovery;
+    if (!recovery || isOperationRunning(current)) return;
+    const repoPath = current.repoPath;
+    if (!(await ensureTrustedRepo(repoPath))) return;
+    if (!isSameRepoPath(repoPath, stateRef.current.repoPath) || stateRef.current.pullRecovery?.branchName !== recovery.branchName) return;
+
+    updateState({ pullRecoveryError: "" });
+    const result = await runRepoOperation(
+      action === "continue" ? "Continuing pull recovery" : action === "abort" ? "Aborting pull recovery" : "Resolving remote history",
+      undefined,
+      (operationId) => window.githead.resolvePullRecovery({
+        repoPath,
+        branchName: recovery.branchName,
+        action,
+        operationId
+      })
+    ) as GitPullRecoveryResult | null;
+    if (!result || !isSameRepoPath(repoPath, stateRef.current.repoPath)) return;
+
+    updateState((latest) => ({
+      ...latest,
+      pullRecovery: result.recovery,
+      pullRecoveryOpen: result.outcome !== "complete",
+      pullRecoveryError: result.exitCode === 0 ? "" : result.stderr.trim() || "Unable to resolve the remote history change."
+    }));
+  }, [ensureTrustedRepo, runRepoOperation, updateState]);
 
   const openWorktreeDialog = useCallback((): void => {
     const current = stateRef.current;
@@ -5850,9 +5912,14 @@ export function App(): ReactNode {
               cancelError={cancellationTarget?.cancelError ?? ""}
               showCreatePullRequest={shouldShowCreatePullRequest(state.summary, historyInsights.data.currentBranchPullRequests, historyInsights.loaded)}
               branchPullRequests={historyInsights.data.currentBranchPullRequests}
+              pullRecovery={state.pullRecovery}
               onOpenExternalUrl={openExternalUrl}
               onRunAction={(action) => {
-                void runAction(action);
+                if (action === "pull" && stateRef.current.pullRecovery) {
+                  updateState({ pullRecoveryOpen: true, pullRecoveryError: "" });
+                } else {
+                  void runAction(action);
+                }
               }}
               onOpenPushToBranch={openPushToBranchDialog}
               onRunConfiguredAction={(action) => {
@@ -6304,6 +6371,31 @@ export function App(): ReactNode {
         onOpenChange={(open) => { if (!open) requestModalClose(["repo-operation"], closeBranchManager); }}
         onRename={(branchName, newBranchName) => runBranchOperation("rename", `Renaming branch ${branchName}`, branchName, (repoPath, operationId) => window.githead.renameBranch({ repoPath, branchName, newBranchName, operationId }))}
         onRemove={(branchName, force) => runBranchOperation("remove", `${force ? "Force deleting" : "Removing"} branch ${branchName}`, branchName, (repoPath, operationId) => window.githead.deleteBranch({ repoPath, branchName, force, operationId }))}
+      />
+
+      <PullRecoveryDialog
+        recovery={state.pullRecovery}
+        open={state.pullRecoveryOpen}
+        busy={running}
+        error={state.pullRecoveryError}
+        onOpenChange={(open) => updateState({ pullRecoveryOpen: open, ...(open ? {} : { pullRecoveryError: "" }) })}
+        onAction={(action) => { void resolvePullRecovery(action); }}
+        onReview={() => {
+          updateState({ pullRecoveryOpen: false });
+          setWorkspaceView("history");
+          void changeHistoryScope("all");
+        }}
+        onOpenFileStatus={() => {
+          updateState({ pullRecoveryOpen: false });
+          setWorkspaceView("status");
+        }}
+        onOpenActivityLog={() => {
+          updateState({ pullRecoveryOpen: false });
+          setWorkspaceView("activity");
+        }}
+        onCancel={() => {
+          if (cancellationRequestTarget) void cancelRunningOperation(cancellationRequestTarget);
+        }}
       />
 
       <WorktreeCreateDialog
@@ -8138,6 +8230,7 @@ function ActionBar({
   cancelError,
   showCreatePullRequest,
   branchPullRequests,
+  pullRecovery,
   onRunAction,
   onOpenPushToBranch,
   onRunConfiguredAction,
@@ -8156,6 +8249,7 @@ function ActionBar({
   cancelError: string;
   showCreatePullRequest: boolean;
   branchPullRequests: GitHubPullRequestAssociation[];
+  pullRecovery: GitPullRecovery | null;
   onRunAction: (action: GitAction) => void;
   onOpenPushToBranch: () => void;
   onRunConfiguredAction: (action: GitConfiguredAction) => void;
@@ -8169,8 +8263,10 @@ function ActionBar({
   const showFetch = capabilities?.fetch ?? true;
   const usesSync = capabilities?.sync ?? false;
   const pullableCommitCount = getPullableCommitCount(summary);
-  const pullLabel = usesSync ? "Sync" : "Pull";
-  const pullAriaLabel = !usesSync && pullableCommitCount > 0
+  const pullLabel = pullRecovery ? "Resolve" : usesSync ? "Sync" : "Pull";
+  const pullAriaLabel = pullRecovery
+    ? "Resolve remote history change"
+    : !usesSync && pullableCommitCount > 0
     ? formatActionCountLabel("Pull", pullableCommitCount)
     : undefined;
   const publishInsteadOfPush = shouldPublishInsteadOfPush(summary);
@@ -8270,9 +8366,9 @@ function ActionBar({
           aria-label={pullAriaLabel}
           className="min-w-24"
         >
-          {runningAction === "pull" ? <Loader2 className="animate-spin" /> : <Download />}
+          {runningAction === "pull" ? <Loader2 className="animate-spin" /> : pullRecovery ? <ShieldAlert /> : <Download />}
           {pullLabel}
-          {!usesSync && pullableCommitCount > 0 ? (
+          {!pullRecovery && !usesSync && pullableCommitCount > 0 ? (
             <SyncCountChip title={formatCommitCountLabel(pullableCommitCount, "behind")}>
               {pullableCommitCount}
             </SyncCountChip>

@@ -765,6 +765,34 @@ export interface GitPublishBranchRequest {
   remoteName: string;
 }
 
+export type GitPullRecoveryPhase = "ready" | "rebase-conflicts";
+
+export interface GitPullRecovery {
+  branchName: string;
+  upstreamName: string;
+  oldUpstreamOid: string;
+  newUpstreamOid: string;
+  originalHeadOid: string;
+  localCommitCount: number;
+  hasWorkingChanges: boolean;
+  canReapply: boolean;
+  phase: GitPullRecoveryPhase;
+}
+
+export type GitPullRecoveryAction = "reapply" | "match" | "continue" | "abort";
+
+export interface GitPullRecoveryRequest {
+  repoPath: string;
+  branchName: string;
+  action: GitPullRecoveryAction;
+}
+
+export interface GitPullRecoveryResult extends GitOperationResult {
+  outcome: "complete" | "conflicts" | "ready" | "failed";
+  recovery: GitPullRecovery | null;
+  recoveryRef: string | null;
+}
+
 export interface GitRemoteBranchCheckoutRequest extends GitBranchRequest {
   remoteBranch: string;
 }
@@ -1196,6 +1224,7 @@ export interface GitRunResult {
   stderr: string;
   startedAt: string;
   endedAt: string;
+  pullRecovery?: GitPullRecovery;
 }
 
 export interface GitOutputEvent {
@@ -1325,6 +1354,8 @@ export interface GitheadApi {
   removeWorktree(request: CoordinatedRequest<GitWorktreeRemoveRequest>): Promise<GitOperationResult>;
   setBranchUpstream(request: CoordinatedRequest<GitUpstreamRequest>): Promise<GitOperationResult>;
   publishBranch(request: CoordinatedRequest<GitPublishBranchRequest>): Promise<GitRunResult>;
+  getPullRecovery(repoPath: string): Promise<GitPullRecovery | null>;
+  resolvePullRecovery(request: CoordinatedRequest<GitPullRecoveryRequest>): Promise<GitPullRecoveryResult>;
   getRemoteConfigs(repoPath: string): Promise<GitRemoteConfig[]>;
   addRemote(request: CoordinatedRequest<GitAddRemoteRequest>): Promise<GitOperationResult>;
   renameRemote(request: CoordinatedRequest<GitRenameRemoteRequest>): Promise<GitOperationResult>;

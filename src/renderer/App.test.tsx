@@ -39,6 +39,7 @@ import type {
   GitRunResult,
   GitheadApi,
   GitOperationResult,
+  GitPullRecovery,
   RepoChangedEvent,
   RepoSyncStatus,
   RepoSummary
@@ -3614,6 +3615,91 @@ describe("App", () => {
 
     expect(await screen.findByRole("button", { name: /^Pull$/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Pull \(0\)$/ })).toBeNull();
+  });
+
+  it("opens guided recovery after a forced-update pull failure", async () => {
+    const user = userEvent.setup();
+    const recovery = createPullRecovery();
+    vi.mocked(githead.runGitAction).mockResolvedValue(createRunResult("pull", {
+      exitCode: 1,
+      stderr: "fatal: Not possible to fast-forward, aborting.",
+      pullRecovery: recovery
+    }));
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /^Pull$/ }));
+
+    expect(await screen.findByRole("dialog", { name: "Remote branch history changed" })).toBeTruthy();
+    expect(screen.getByText("origin/feature/recovery was rewritten. Githead did not change your local branch or working files.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reapply my 2 local commits" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Keep current branch" }));
+    expect(screen.getByRole("button", { name: "Resolve remote history change" })).toBeTruthy();
+  });
+
+  it("reapplies local commits from the recovery dialog", async () => {
+    const user = userEvent.setup();
+    const recovery = createPullRecovery();
+    vi.mocked(githead.getPullRecovery).mockResolvedValue(recovery);
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Reapply my 2 local commits" }));
+    await waitFor(() => {
+      expect(githead.resolvePullRecovery).toHaveBeenCalledWith({
+        repoPath,
+        branchName: "feature/recovery",
+        action: "reapply",
+        operationId: expect.any(String)
+      });
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Remote branch history changed" })).toBeNull());
+  });
+
+  it("shows conflict recovery actions when reapply pauses", async () => {
+    const user = userEvent.setup();
+    const recovery = createPullRecovery();
+    vi.mocked(githead.getPullRecovery).mockResolvedValue(recovery);
+    vi.mocked(githead.resolvePullRecovery).mockResolvedValue({
+      repoPath,
+      exitCode: 1,
+      stdout: "",
+      stderr: "Resolve all conflicts manually.",
+      outcome: "conflicts",
+      recovery: { ...recovery, phase: "rebase-conflicts", hasWorkingChanges: true },
+      recoveryRef: "refs/githead/recovery/feature/recovery"
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Reapply my 2 local commits" }));
+
+    expect(await screen.findByRole("dialog", { name: "Reapply paused because of conflicts" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open File Status" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Abort and restore" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Continue after resolution" })).toBeTruthy();
+  });
+
+  it("cancels an active pull recovery from the modal", async () => {
+    const user = userEvent.setup();
+    const recovery = createPullRecovery();
+    const pending = defer<Awaited<ReturnType<GitheadApi["resolvePullRecovery"]>>>();
+    vi.mocked(githead.getPullRecovery).mockResolvedValue(recovery);
+    vi.mocked(githead.resolvePullRecovery).mockReturnValue(pending.promise);
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Reapply my 2 local commits" }));
+    await user.click(await screen.findByRole("button", { name: "Cancel operation" }));
+
+    const operationId = vi.mocked(githead.resolvePullRecovery).mock.calls[0]?.[0].operationId;
+    await waitFor(() => expect(githead.cancelGitOperation).toHaveBeenCalledWith({ operationId }));
+    pending.resolve({
+      repoPath,
+      exitCode: -1,
+      stdout: "",
+      stderr: "Operation was cancelled.",
+      outcome: "failed",
+      recovery,
+      recoveryRef: null
+    });
   });
 
   it("orders repository actions before Fetch, Pull, and Push", async () => {
@@ -7608,6 +7694,13 @@ function createGitheadMock(): GitheadApi {
     removeWorktree: vi.fn().mockResolvedValue(okOperation),
     setBranchUpstream: vi.fn().mockResolvedValue(okOperation),
     publishBranch: vi.fn().mockResolvedValue(createRunResult("publish")),
+    getPullRecovery: vi.fn().mockResolvedValue(null),
+    resolvePullRecovery: vi.fn().mockResolvedValue({
+      ...okOperation,
+      outcome: "complete",
+      recovery: null,
+      recoveryRef: "refs/githead/recovery/main"
+    }),
     getRemoteConfigs: vi.fn().mockResolvedValue([]),
     addRemote: vi.fn().mockResolvedValue(okOperation),
     renameRemote: vi.fn().mockResolvedValue(okOperation),
@@ -8013,6 +8106,21 @@ function createRunResult(action: string, overrides: Partial<GitRunResult> = {}):
     stderr: "",
     startedAt: "2026-05-31T10:00:00.000Z",
     endedAt: "2026-05-31T10:00:01.000Z",
+    ...overrides
+  };
+}
+
+function createPullRecovery(overrides: Partial<GitPullRecovery> = {}): GitPullRecovery {
+  return {
+    branchName: "feature/recovery",
+    upstreamName: "origin/feature/recovery",
+    oldUpstreamOid: "1".repeat(40),
+    newUpstreamOid: "3".repeat(40),
+    originalHeadOid: "2".repeat(40),
+    localCommitCount: 2,
+    hasWorkingChanges: false,
+    canReapply: true,
+    phase: "ready",
     ...overrides
   };
 }

@@ -59,6 +59,7 @@ import type {
   GitOutputEvent,
   GitPathRequest,
   GitPublishBranchRequest,
+  GitPullRecoveryRequest,
   GitRemoveRemoteRequest,
   GitRenameRemoteRequest,
   GitRepositoryAccessCheckRequest,
@@ -940,6 +941,27 @@ ipcMain.handle(IPC_CHANNELS.runGitAction, async (event, request: CoordinatedRequ
       request.repoPath,
       "Another git command is already running for this repository."
     )
+  );
+});
+
+ipcMain.handle(IPC_CHANNELS.getPullRecovery, async (_event, repoPath: string) => {
+  return (await vcsRouter.serviceForRepo(repoPath)).getPullRecovery(repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.resolvePullRecovery, async (event, request: CoordinatedRequest<GitPullRecoveryRequest>) => {
+  return runTrustedExclusiveRepositoryOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).resolvePullRecovery(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath),
+    (failure) => ({ ...failure, outcome: "failed" as const, recovery: null, recoveryRef: null }),
+    () => ({
+      repoPath: request.repoPath,
+      exitCode: -1,
+      stdout: "",
+      stderr: "Another git command is already running for this repository.",
+      outcome: "failed" as const,
+      recovery: null,
+      recoveryRef: null
+    })
   );
 });
 

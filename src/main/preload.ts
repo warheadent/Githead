@@ -53,6 +53,7 @@ import type {
   GitOutputEvent,
   GitPathRequest,
   GitPublishBranchRequest,
+  GitPullRecoveryRequest,
   GitRemoveRemoteRequest,
   GitRenameRemoteRequest,
   GitRepositoryAccessCheckRequest,
@@ -201,6 +202,10 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.setBranchUpstream, request) as ReturnType<GitheadApi["setBranchUpstream"]>,
   publishBranch: (request: CoordinatedRequest<GitPublishBranchRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.publishBranch, request) as ReturnType<GitheadApi["publishBranch"]>,
+  getPullRecovery: (repoPath: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getPullRecovery, repoPath) as ReturnType<GitheadApi["getPullRecovery"]>,
+  resolvePullRecovery: (request: CoordinatedRequest<GitPullRecoveryRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.resolvePullRecovery, request) as ReturnType<GitheadApi["resolvePullRecovery"]>,
   getRemoteConfigs: (repoPath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.getRemoteConfigs, repoPath) as ReturnType<GitheadApi["getRemoteConfigs"]>,
   addRemote: (request: CoordinatedRequest<GitAddRemoteRequest>) =>

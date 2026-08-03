@@ -60,6 +60,8 @@ export const IPC_CHANNELS = {
   removeWorktree: "git:worktree-remove",
   setBranchUpstream: "git:branch-upstream-set",
   publishBranch: "git:branch-publish",
+  getPullRecovery: "git:pull-recovery-get",
+  resolvePullRecovery: "git:pull-recovery-resolve",
   getRemoteConfigs: "git:remotes:get",
   addRemote: "git:remote-add",
   renameRemote: "git:remote-rename",

@@ -53,6 +53,8 @@ export type VcsService = Pick<
   | "removeWorktree"
   | "setBranchUpstream"
   | "publishBranch"
+  | "getPullRecovery"
+  | "resolvePullRecovery"
   | "getRemoteConfigs"
   | "addRemote"
   | "renameRemote"
