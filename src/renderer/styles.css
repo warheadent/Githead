@@ -1761,6 +1761,10 @@ textarea,
 
 .diff-output.image { padding: 0; background: var(--card); white-space: normal; }
 
+.diff-rows {
+  display: contents;
+}
+
 .markdown-preview-output {
   min-height: 0;
   overflow: auto;

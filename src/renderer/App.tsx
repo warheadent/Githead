@@ -206,6 +206,7 @@ import type { HighlightedCode } from "./syntaxHighlighter";
 import { buildStatusFileTree, fileName, type StatusFileTreeFolder } from "./statusFileTree";
 import { applyColorTheme } from "./themes";
 import { OptionalFeatureBoundary } from "./OptionalFeatureBoundary";
+import { useSelectionSafeValue } from "./useSelectionSafeValue";
 import { repositoryHistoryRoute, targetFromCommitFile, targetFromHistoryEntry, type HistoricalFileTarget, type HistoryRoute } from "./historyNavigation";
 import gitIconUrl from "./assets/git-icon-white.svg";
 import loreIconUrl from "./assets/lore-icon-white.svg";
@@ -9041,19 +9042,26 @@ function DiffRows({
     const rows = parseUnifiedDiff(text, truncated ? ["Diff truncated."] : []);
     return groupDiffRowsByHunk(rows);
   }, [text, truncated]);
-  const [highlightedGroups, setHighlightedGroups] = useState<Map<number, HighlightedCode[]>>(() => new Map());
+  const {
+    value: highlightedResult,
+    requestValue: requestHighlightedResult,
+    rootRef,
+    onPointerDownCapture
+  } = useSelectionSafeValue<{ groups: typeof groups; values: Map<number, HighlightedCode[]> } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setHighlightedGroups(new Map());
 
     void import("./syntaxHighlighter.js")
       .then(({ highlightDiffRows }) => {
         if (cancelled) return;
-        setHighlightedGroups(new Map(groups.map((group, groupIndex) => [
-          groupIndex,
-          highlightDiffRows(filePath, group.rows)
-        ])));
+        requestHighlightedResult({
+          groups,
+          values: new Map(groups.map((group, groupIndex) => [
+            groupIndex,
+            highlightDiffRows(filePath, group.rows)
+          ]))
+        });
       })
       .catch(() => {
         // Plain diff text stays available if optional syntax highlighting cannot load.
@@ -9062,62 +9070,70 @@ function DiffRows({
     return () => {
       cancelled = true;
     };
-  }, [filePath, groups]);
+  }, [filePath, groups, requestHighlightedResult]);
+
+  const highlightedGroups = highlightedResult?.groups === groups
+    ? highlightedResult.values
+    : null;
 
   let hunkNumber = 0;
 
-  return groups.map((group, groupIndex) => {
-    const groupKey = `${groupIndex}:${group.kind}:${group.rows[0]?.text ?? ""}`;
-    const rowViews = group.rows.flatMap((row, rowIndex) => {
-      const visible = group.kind === "hunk" ? row.kind !== "hunk" : !isTechnicalFileHeader(row);
-      return visible ? [
-        <DiffRowView
-          key={`${rowIndex}:${row.kind}:${row.oldLine ?? ""}:${row.newLine ?? ""}`}
-          row={row}
-          highlighted={highlightedGroups.get(groupIndex)?.[rowIndex] ?? { kind: "plain", value: row.text }}
-        />
-      ] : [];
-    });
-    const hunkActionLabel = hunkAction?.side === "unstaged" ? "Stage Hunk" : "Unstage Hunk";
+  return (
+    <div className="diff-rows" ref={rootRef} onPointerDownCapture={onPointerDownCapture}>
+      {groups.map((group, groupIndex) => {
+        const groupKey = `${groupIndex}:${group.kind}:${group.rows[0]?.text ?? ""}`;
+        const rowViews = group.rows.flatMap((row, rowIndex) => {
+          const visible = group.kind === "hunk" ? row.kind !== "hunk" : !isTechnicalFileHeader(row);
+          return visible ? [
+            <DiffRowView
+              key={`${rowIndex}:${row.kind}:${row.oldLine ?? ""}:${row.newLine ?? ""}`}
+              row={row}
+              highlighted={highlightedGroups?.get(groupIndex)?.[rowIndex] ?? { kind: "plain", value: row.text }}
+            />
+          ] : [];
+        });
+        const hunkActionLabel = hunkAction?.side === "unstaged" ? "Stage Hunk" : "Unstage Hunk";
 
-    if (group.kind === "hunk") {
-      hunkNumber += 1;
+        if (group.kind === "hunk") {
+          hunkNumber += 1;
 
-      return (
-        <div className="diff-hunk-block" key={groupKey}>
-          <div className="diff-hunk-toolbar">
-            <span aria-hidden="true" />
-            <span aria-hidden="true" />
-            <span className="diff-hunk-title">{formatHunkTitle(group.rows, hunkNumber)}</span>
-            <span className="diff-hunk-actions">
-              {hunkAction && group.patch ? (
-                <TooltipTarget content={hunkActionLabel}>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="xs"
-                    className="diff-hunk-action"
-                    aria-label={hunkActionLabel}
-                    disabled={hunkAction.disabled}
-                    onClick={() => hunkAction.onApply(group.patch!)}
-                  >
-                    {hunkActionLabel}
-                  </Button>
-                </TooltipTarget>
-              ) : null}
-            </span>
-          </div>
-          {rowViews}
-        </div>
-      );
-    }
+          return (
+            <div className="diff-hunk-block" key={groupKey}>
+              <div className="diff-hunk-toolbar">
+                <span aria-hidden="true" />
+                <span aria-hidden="true" />
+                <span className="diff-hunk-title">{formatHunkTitle(group.rows, hunkNumber)}</span>
+                <span className="diff-hunk-actions">
+                  {hunkAction && group.patch ? (
+                    <TooltipTarget content={hunkActionLabel}>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="xs"
+                        className="diff-hunk-action"
+                        aria-label={hunkActionLabel}
+                        disabled={hunkAction.disabled}
+                        onClick={() => hunkAction.onApply(group.patch!)}
+                      >
+                        {hunkActionLabel}
+                      </Button>
+                    </TooltipTarget>
+                  ) : null}
+                </span>
+              </div>
+              {rowViews}
+            </div>
+          );
+        }
 
-    return (
-      <Fragment key={groupKey}>
-        {rowViews}
-      </Fragment>
-    );
-  });
+        return (
+          <Fragment key={groupKey}>
+            {rowViews}
+          </Fragment>
+        );
+      })}
+    </div>
+  );
 }
 
 function formatHunkTitle(rows: DiffRow[], hunkNumber: number): string {
