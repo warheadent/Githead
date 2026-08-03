@@ -1237,6 +1237,13 @@ textarea,
   min-height: 38px;
 }
 
+.repo-group-heading > .repo-recent-drag-handle,
+.repo-group-heading > .repo-group-toggle,
+.repo-group-heading > .repo-group-main {
+  align-self: stretch;
+  height: auto;
+}
+
 .repo-group-toggle {
   display: grid;
   width: 28px;
@@ -1268,6 +1275,7 @@ textarea,
   min-width: 0;
   align-items: center;
   gap: 5px;
+  padding: 0 4px;
   border: 0;
   background: transparent;
   color: inherit;
