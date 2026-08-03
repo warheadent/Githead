@@ -1,7 +1,10 @@
+import { Effect } from "effect";
 import type { AiCliProvider, AiCliProviderStatus } from "../shared/types";
 import { createCliProcessEnv } from "./cliEnvironment";
 import { createCliInvocation } from "./cliInvocation";
 import type { ProcessRunner } from "./processRunner";
+import { runEffect } from "../shared/effectRuntime";
+import { runProcessEffect } from "./processEffect";
 
 const CLI_STATUS_TIMEOUT_MS = 2_000;
 const CLI_STATUS_CACHE_MS = 30_000;
@@ -25,13 +28,10 @@ export class AiCliStatusService {
       return this.cached.status;
     }
 
-    const [
-      codex,
-      claude
-    ] = await Promise.all([
+    const [codex, claude] = await runEffect(Effect.all([
       this.checkCodex(),
       this.checkClaude()
-    ]);
+    ], { concurrency: "unbounded" }));
     const status = {
       "codex-cli": codex,
       "claude-code": claude
@@ -44,7 +44,7 @@ export class AiCliStatusService {
     return status;
   }
 
-  private async checkCodex(): Promise<AiCliProviderStatus> {
+  private checkCodex(): Effect.Effect<AiCliProviderStatus, unknown> {
     return this.checkCli({
       command: "codex",
       name: "Codex CLI",
@@ -55,7 +55,7 @@ export class AiCliStatusService {
     });
   }
 
-  private async checkClaude(): Promise<AiCliProviderStatus> {
+  private checkClaude(): Effect.Effect<AiCliProviderStatus, unknown> {
     return this.checkCli({
       command: "claude",
       name: "Claude Code",
@@ -66,7 +66,7 @@ export class AiCliStatusService {
     });
   }
 
-  private async checkCli({
+  private checkCli({
     command,
     name,
     authArgs
@@ -74,41 +74,44 @@ export class AiCliStatusService {
     command: "codex" | "claude";
     name: string;
     authArgs: string[];
-  }): Promise<AiCliProviderStatus> {
+  }): Effect.Effect<AiCliProviderStatus, unknown> {
     const env = createCliProcessEnv();
     const versionInvocation = createCliInvocation(command, [
       "--version"
     ]);
-    const version = await this.runner.run(versionInvocation.command, versionInvocation.args, {
-      env,
-      timeoutMs: CLI_STATUS_TIMEOUT_MS
-    });
+    const runner = this.runner;
+    return Effect.gen(function*() {
+      const version = yield* runProcessEffect(runner, versionInvocation.command, versionInvocation.args, {
+        env,
+        timeoutMs: CLI_STATUS_TIMEOUT_MS
+      });
 
-    if (version.exitCode !== 0) {
-      return {
-        detected: false,
-        authenticated: false,
-        message: `${name} was not detected.`
-      };
-    }
+      if (version.exitCode !== 0) {
+        return {
+          detected: false,
+          authenticated: false,
+          message: `${name} was not detected.`
+        };
+      }
 
-    const authInvocation = createCliInvocation(command, authArgs);
-    const auth = await this.runner.run(authInvocation.command, authInvocation.args, {
-      env,
-      timeoutMs: CLI_STATUS_TIMEOUT_MS
-    });
-    if (auth.exitCode === 0) {
+      const authInvocation = createCliInvocation(command, authArgs);
+      const auth = yield* runProcessEffect(runner, authInvocation.command, authInvocation.args, {
+        env,
+        timeoutMs: CLI_STATUS_TIMEOUT_MS
+      });
+      if (auth.exitCode === 0) {
+        return {
+          detected: true,
+          authenticated: true,
+          message: `${name} is authenticated.`
+        };
+      }
+
       return {
         detected: true,
-        authenticated: true,
-        message: `${name} is authenticated.`
+        authenticated: false,
+        message: `${name} is installed but not authenticated.`
       };
-    }
-
-    return {
-      detected: true,
-      authenticated: false,
-      message: `${name} is installed but not authenticated.`
-    };
+    });
   }
 }

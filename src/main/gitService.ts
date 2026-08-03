@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { Effect } from "effect";
 import type {
   CommitRef,
   GitAction,
@@ -89,6 +90,8 @@ import { readMarkdownPreviewFile, validateMarkdownPreviewPath, validateMarkdownP
 import { sanitizeCommitHash, sanitizeHistoryLimit, sanitizeSingleRepoPath } from "./gitReadValidation";
 import { readGitFileHistory } from "./gitFileHistory";
 import { readGitFileBlame } from "./gitBlame";
+import { runEffect, tryPromise } from "../shared/effectRuntime";
+import { runProcessEffect } from "./processEffect";
 
 export const GIT_ACTION_COMMANDS: Record<GitAction, string[]> = {
   fetch: [
@@ -171,7 +174,10 @@ export class GitService {
   async getRepoIdentity(request: RepoSectionRequest): Promise<RepoIdentitySection> {
     const validation = await this.validateRepo(request.repoPath);
     if (!validation.isValid) return { repoPath: request.repoPath, generation: request.generation, kind: "git", capabilities: gitCapabilities(), isValid: false, branch: null, hasHead: false, safeDirectory: validation.safeDirectory, validationErrors: validation.validationErrors };
-    const [branch, head] = await Promise.all([this.runGit(request.repoPath, ["branch", "--show-current"]), this.runGit(request.repoPath, ["rev-parse", "--verify", "HEAD"])]);
+    const [branch, head] = await runEffect(Effect.all([
+      this.runGitEffect(request.repoPath, ["branch", "--show-current"]),
+      this.runGitEffect(request.repoPath, ["rev-parse", "--verify", "HEAD"])
+    ], { concurrency: "unbounded" }));
     return { repoPath: request.repoPath, generation: request.generation, kind: "git", capabilities: gitCapabilities(), isValid: true, branch: branch.stdout.trim() || null, hasHead: head.exitCode === 0, safeDirectory: null, validationErrors: [] };
   }
 
@@ -182,9 +188,13 @@ export class GitService {
   }
 
   async getRepoMetadata(request: RepoSectionRequest): Promise<RepoMetadataSection> {
-    const [upstream, remotesResult, branchesResult, remoteBranchesResult, root] = await Promise.all([
-      this.runGit(request.repoPath, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]), this.runGit(request.repoPath, ["remote", "-v"]), this.runGit(request.repoPath, ["branch", "--format=%(refname:short)%09%(upstream:short)%09%(HEAD)%09%(worktreepath)"]), this.runGit(request.repoPath, ["for-each-ref", "--format=%(refname)%09%(refname:short)%09%(symref)", "refs/remotes"]), this.runGit(request.repoPath, ["rev-parse", "--show-toplevel"])
-    ]);
+    const [upstream, remotesResult, branchesResult, remoteBranchesResult, root] = await runEffect(Effect.all([
+      this.runGitEffect(request.repoPath, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]),
+      this.runGitEffect(request.repoPath, ["remote", "-v"]),
+      this.runGitEffect(request.repoPath, ["branch", "--format=%(refname:short)%09%(upstream:short)%09%(HEAD)%09%(worktreepath)"]),
+      this.runGitEffect(request.repoPath, ["for-each-ref", "--format=%(refname)%09%(refname:short)%09%(symref)", "refs/remotes"]),
+      this.runGitEffect(request.repoPath, ["rev-parse", "--show-toplevel"])
+    ], { concurrency: "unbounded" }));
     const remotes = parseRemotes(remotesResult.stdout);
     const remoteBranches = remoteBranchesResult.exitCode === 0 ? parseRemoteBranches(remoteBranchesResult.stdout, remotes) : [];
     const defaultRemoteBranch = remoteBranchesResult.exitCode === 0 ? parseRemoteDefaultBranch(remoteBranchesResult.stdout, remotes) : null;
@@ -532,8 +542,8 @@ export class GitService {
       metadataResult,
       nameStatusResult,
       numstatResult
-    ] = await Promise.all([
-      this.runGit(request.repoPath, [
+    ] = await runEffect(Effect.all([
+      this.runGitEffect(request.repoPath, [
         "show",
         "-s",
         "--date=iso-strict",
@@ -541,7 +551,7 @@ export class GitService {
         "--pretty=format:%H%x1f%h%x1f%D%x1f%s%x1f%an%x1f%ae%x1f%aI%x1f%cn%x1f%ce%x1f%cI%x1f%P%x1e%b",
         hashResult.hash
       ]),
-      this.runGit(request.repoPath, [
+      this.runGitEffect(request.repoPath, [
         "diff-tree",
         "--root",
         "--no-commit-id",
@@ -552,7 +562,7 @@ export class GitService {
         "--find-copies",
         hashResult.hash
       ]),
-      this.runGit(request.repoPath, [
+      this.runGitEffect(request.repoPath, [
         "diff-tree",
         "--root",
         "--no-commit-id",
@@ -563,7 +573,7 @@ export class GitService {
         "--find-copies",
         hashResult.hash
       ])
-    ]);
+    ], { concurrency: "unbounded" }));
 
     if (metadataResult.exitCode !== 0) {
       throw new Error(metadataResult.stderr.trim() || metadataResult.error || "Unable to read commit details.");
@@ -1043,10 +1053,10 @@ export class GitService {
     } catch {
       return [];
     }
-    const [statusResult, gitlinksResult] = await Promise.all([
-      this.runGit(repoPath, ["submodule", "status", "--recursive"]),
-      this.runGit(repoPath, ["ls-files", "--stage", "-z"])
-    ]);
+    const [statusResult, gitlinksResult] = await runEffect(Effect.all([
+      this.runGitEffect(repoPath, ["submodule", "status", "--recursive"]),
+      this.runGitEffect(repoPath, ["ls-files", "--stage", "-z"])
+    ], { concurrency: "unbounded" }));
     const configured = parseSubmoduleConfig(configText);
     const statuses = parseSubmoduleStatuses(statusResult.stdout);
     const recordedCommits = parseGitlinkCommits(gitlinksResult.stdout);
@@ -1799,10 +1809,10 @@ export class GitService {
     const branchName = branchResult.stdout.trim();
     if (branchResult.exitCode !== 0 || !branchName) return null;
 
-    const [headResult, upstreamResult] = await Promise.all([
-      this.runGit(repoPath, ["rev-parse", "--verify", "HEAD"]),
-      this.runGit(repoPath, ["rev-parse", "--verify", "@{upstream}"])
-    ]);
+    const [headResult, upstreamResult] = await runEffect(Effect.all([
+      this.runGitEffect(repoPath, ["rev-parse", "--verify", "HEAD"]),
+      this.runGitEffect(repoPath, ["rev-parse", "--verify", "@{upstream}"])
+    ], { concurrency: "unbounded" }));
     const originalHeadOid = headResult.stdout.trim();
     const oldUpstreamOid = upstreamResult.stdout.trim();
     if (headResult.exitCode !== 0 || upstreamResult.exitCode !== 0 || !originalHeadOid || !oldUpstreamOid) return null;
@@ -1872,15 +1882,15 @@ export class GitService {
     if (oldIsAncestorOfNew.exitCode === 0) return null;
     if (oldIsAncestorOfNew.exitCode !== 1) return null;
 
-    const [originalHeadResult, localAncestorResult, localCountResult, rebaseBranch, statusResult, currentBranchResult, currentHeadResult] = await Promise.all([
-      this.runGit(repoPath, ["show-ref", "--hash", "--verify", pullHeadRef(branchName)]),
-      this.runGit(repoPath, ["merge-base", "--is-ancestor", oldUpstreamOid, pullHeadRef(branchName)]),
-      this.runGit(repoPath, ["rev-list", "--count", `${oldUpstreamOid}..${pullHeadRef(branchName)}`]),
-      this.readRebaseBranch(repoPath),
-      this.runGit(repoPath, ["status", "--porcelain", "--untracked-files=all"]),
-      this.runGit(repoPath, ["branch", "--show-current"]),
-      this.runGit(repoPath, ["rev-parse", "--verify", "HEAD"])
-    ]);
+    const [originalHeadResult, localAncestorResult, localCountResult, rebaseBranch, statusResult, currentBranchResult, currentHeadResult] = await runEffect(Effect.all([
+      this.runGitEffect(repoPath, ["show-ref", "--hash", "--verify", pullHeadRef(branchName)]),
+      this.runGitEffect(repoPath, ["merge-base", "--is-ancestor", oldUpstreamOid, pullHeadRef(branchName)]),
+      this.runGitEffect(repoPath, ["rev-list", "--count", `${oldUpstreamOid}..${pullHeadRef(branchName)}`]),
+      tryPromise(() => this.readRebaseBranch(repoPath)),
+      this.runGitEffect(repoPath, ["status", "--porcelain", "--untracked-files=all"]),
+      this.runGitEffect(repoPath, ["branch", "--show-current"]),
+      this.runGitEffect(repoPath, ["rev-parse", "--verify", "HEAD"])
+    ], { concurrency: "unbounded" }));
     const originalHeadOid = originalHeadResult.stdout.trim();
     if (originalHeadResult.exitCode !== 0 || !originalHeadOid) return null;
     const phase = rebaseBranch === branchName ? "rebase-conflicts" : "ready";
@@ -2127,14 +2137,14 @@ export class GitService {
   }
 
   private async readRemoteConfigs(repoPath: string): Promise<GitRemoteConfig[]> {
-    const [remoteResult, branchResult] = await Promise.all([
-      this.runGit(repoPath, ["remote"]),
-      this.runGit(repoPath, [
+    const [remoteResult, branchResult] = await runEffect(Effect.all([
+      this.runGitEffect(repoPath, ["remote"]),
+      this.runGitEffect(repoPath, [
         "for-each-ref",
         "--format=%(refname:short)%09%(upstream:remotename)",
         "refs/heads"
       ])
-    ]);
+    ], { concurrency: "unbounded" }));
     if (remoteResult.exitCode !== 0) {
       throw new Error(remoteResult.stderr.trim() || "Unable to read remotes.");
     }
@@ -2155,18 +2165,15 @@ export class GitService {
       }
     }
 
-    return Promise.all(remoteNames.map(async (name) => {
-      const [fetchResult, pushResult] = await Promise.all([
-        this.runGit(repoPath, ["config", "--get-all", `remote.${name}.url`]),
-        this.runGit(repoPath, ["config", "--get-all", `remote.${name}.pushurl`])
-      ]);
-      return {
+    return runEffect(Effect.forEach(remoteNames, (name) => Effect.all([
+      this.runGitEffect(repoPath, ["config", "--get-all", `remote.${name}.url`]),
+      this.runGitEffect(repoPath, ["config", "--get-all", `remote.${name}.pushurl`])
+    ], { concurrency: "unbounded" }).pipe(Effect.map(([fetchResult, pushResult]) => ({
         name,
         fetchUrls: fetchResult.exitCode === 0 ? splitLines(fetchResult.stdout) : [],
         pushUrls: pushResult.exitCode === 0 ? splitLines(pushResult.stdout) : [],
         trackedBranches: (trackedBranches.get(name) ?? []).sort((left, right) => left.localeCompare(right))
-      };
-    }));
+      }))), { concurrency: "unbounded" }));
   }
 
   private runGit(
@@ -2185,16 +2192,30 @@ export class GitService {
     ], options);
   }
 
+  private runGitEffect(
+    repoPath: string,
+    args: string[],
+    onOutput?: (output: ProcessOutput) => void,
+    stdin?: string | Buffer,
+    env?: NodeJS.ProcessEnv
+  ): Effect.Effect<ProcessResult, unknown> {
+    return runProcessEffect(this.runner, "git", [
+      "-C",
+      repoPath,
+      ...args
+    ], createRunOptions(onOutput, stdin, env));
+  }
+
   async getWorktrees(repoPath: string): Promise<GitWorktreeList> {
     const validation = await this.validateRepo(repoPath);
     if (!validation.isValid) {
       throw new Error(validation.validationErrors.join(" "));
     }
 
-    const [commonDirResult, listResult] = await Promise.all([
-      this.runGit(repoPath, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
-      this.runGit(repoPath, ["worktree", "list", "--porcelain", "-z"])
-    ]);
+    const [commonDirResult, listResult] = await runEffect(Effect.all([
+      this.runGitEffect(repoPath, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+      this.runGitEffect(repoPath, ["worktree", "list", "--porcelain", "-z"])
+    ], { concurrency: "unbounded" }));
     if (commonDirResult.exitCode !== 0) {
       throw new Error(commonDirResult.stderr.trim() || "Unable to locate shared Git metadata.");
     }
@@ -2209,10 +2230,10 @@ export class GitService {
   }
 
   async getWorktreeAdminPaths(repoPath: string): Promise<{ gitDir: string; commonDir: string }> {
-    const [gitDir, commonDir] = await Promise.all([
-      this.runGit(repoPath, ["rev-parse", "--path-format=absolute", "--git-dir"]),
-      this.runGit(repoPath, ["rev-parse", "--path-format=absolute", "--git-common-dir"])
-    ]);
+    const [gitDir, commonDir] = await runEffect(Effect.all([
+      this.runGitEffect(repoPath, ["rev-parse", "--path-format=absolute", "--git-dir"]),
+      this.runGitEffect(repoPath, ["rev-parse", "--path-format=absolute", "--git-common-dir"])
+    ], { concurrency: "unbounded" }));
     if (gitDir.exitCode !== 0 || commonDir.exitCode !== 0) throw new Error(gitDir.stderr.trim() || commonDir.stderr.trim() || "Unable to locate Git metadata.");
     return {
       gitDir: path.resolve(repoPath, gitDir.stdout.trim()),
@@ -2498,17 +2519,17 @@ export class GitService {
     const [
       remotesResult,
       remoteBranchesResult
-    ] = await Promise.all([
-      this.runGit(repoPath, [
+    ] = await runEffect(Effect.all([
+      this.runGitEffect(repoPath, [
         "remote",
         "-v"
       ]),
-      this.runGit(repoPath, [
+      this.runGitEffect(repoPath, [
         "for-each-ref",
         "--format=%(refname)%09%(refname:short)%09%(symref)",
         "refs/remotes"
       ])
-    ]);
+    ], { concurrency: "unbounded" }));
 
     if (remoteBranchesResult.exitCode !== 0) {
       return [];

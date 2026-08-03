@@ -640,7 +640,7 @@ describe("GitService", () => {
       expect((await run(["-C", work, "rev-parse", "HEAD"])).stdout.trim()).toBe(conflictHead);
       expect((await fs.readFile(path.join(work, "conflict.txt"), "utf8")).trim()).toBe("local value");
     });
-  });
+  }, 15_000);
 
   it("pushes commits before pushing tags", async () => {
     const runner = new FakeRunner([

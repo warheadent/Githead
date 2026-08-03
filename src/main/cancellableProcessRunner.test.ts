@@ -22,7 +22,7 @@ describe("CancellableProcessRunner", () => {
     expect(delegate.runBinary).toHaveBeenCalledWith("git", ["show"], { maxBytes: 10, signal: controller.signal });
   });
 
-  it("preserves an explicitly supplied subprocess signal", async () => {
+  it("combines explicitly supplied and contextual subprocess signals", async () => {
     const delegate: ProcessRunner = {
       run: vi.fn().mockResolvedValue({ exitCode: 0, stdout: "", stderr: "" })
     };
@@ -32,6 +32,31 @@ describe("CancellableProcessRunner", () => {
 
     await runner.runWithSignal(context.signal, () => runner.run("git", ["status"], { signal: explicit.signal }));
 
-    expect(delegate.run).toHaveBeenCalledWith("git", ["status"], { signal: explicit.signal });
+    const signal = vi.mocked(delegate.run).mock.calls[0]?.[2]?.signal;
+    expect(signal).toBeDefined();
+    expect(signal).not.toBe(explicit.signal);
+    expect(signal).not.toBe(context.signal);
+
+    const reason = new DOMException("Owner released.", "AbortError");
+    context.abort(reason);
+    expect(signal?.aborted).toBe(true);
+    expect(signal?.reason).toBe(reason);
+  });
+
+  it("keeps the first reason when the explicit signal aborts first", async () => {
+    const delegate: ProcessRunner = {
+      run: vi.fn().mockResolvedValue({ exitCode: 0, stdout: "", stderr: "" })
+    };
+    const runner = new CancellableProcessRunner(delegate);
+    const context = new AbortController();
+    const explicit = new AbortController();
+
+    await runner.runWithSignal(context.signal, () => runner.run("git", ["status"], { signal: explicit.signal }));
+    const signal = vi.mocked(delegate.run).mock.calls[0]?.[2]?.signal;
+    const reason = new DOMException("Request cancelled.", "AbortError");
+    explicit.abort(reason);
+    context.abort(new DOMException("Owner released.", "AbortError"));
+
+    expect(signal?.reason).toBe(reason);
   });
 });

@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { Effect } from "effect";
 import type {
   GitIdentitySaveRequest,
   GitIdentityScope,
@@ -7,6 +8,8 @@ import type {
   GitIdentityValue
 } from "../shared/types";
 import type { ProcessRunner } from "./processRunner";
+import { runEffect, tryPromise } from "../shared/effectRuntime";
+import { runProcessEffect } from "./processEffect";
 
 interface StoredGitIdentitySettings extends Partial<GitIdentityValue> {
   scope?: GitIdentityScope;
@@ -28,11 +31,13 @@ export class GitIdentityService {
   }
 
   async getIdentity(repoPath: string): Promise<GitIdentitySettings> {
-    const [stored, repository, global] = await Promise.all([
-      this.readStoredSettings(),
-      repoPath.trim() ? this.readGitIdentity(repoPath, "repository") : Promise.resolve(emptyIdentity),
-      this.readGitIdentity("", "global")
-    ]);
+    const [stored, repository, global] = await runEffect(Effect.all([
+      tryPromise(() => this.readStoredSettings()),
+      repoPath.trim()
+        ? this.readGitIdentityEffect(repoPath, "repository")
+        : Effect.succeed(emptyIdentity),
+      this.readGitIdentityEffect("", "global")
+    ], { concurrency: "unbounded" }));
     const scope = stored.scope === "global" ? "global" : "repository";
     const scopedIdentity = scope === "global" ? global : repository;
     const fallbackIdentity = scope === "global" ? repository : global;
@@ -81,32 +86,36 @@ export class GitIdentityService {
     return this.getIdentity(request.repoPath);
   }
 
-  private async readGitIdentity(repoPath: string, scope: GitIdentityScope): Promise<GitIdentityValue> {
-    const [name, email] = await Promise.all([
-      this.readGitConfig(repoPath, scope, "user.name"),
-      this.readGitConfig(repoPath, scope, "user.email")
-    ]);
-
-    return {
-      name,
-      email
-    };
+  private readGitIdentityEffect(
+    repoPath: string,
+    scope: GitIdentityScope
+  ): Effect.Effect<GitIdentityValue, unknown> {
+    return Effect.all([
+      this.readGitConfigEffect(repoPath, scope, "user.name"),
+      this.readGitConfigEffect(repoPath, scope, "user.email")
+    ], { concurrency: "unbounded" }).pipe(
+      Effect.map(([name, email]) => ({ name, email }))
+    );
   }
 
-  private async readGitConfig(repoPath: string, scope: GitIdentityScope, key: string): Promise<string> {
-    const result = await this.runner.run("git", createGitConfigArgs(repoPath, scope, [
+  private readGitConfigEffect(
+    repoPath: string,
+    scope: GitIdentityScope,
+    key: string
+  ): Effect.Effect<string, unknown> {
+    return runProcessEffect(this.runner, "git", createGitConfigArgs(repoPath, scope, [
       "--get",
       key
-    ]));
-
-    return result.exitCode === 0 ? sanitizeText(result.stdout) : "";
+    ])).pipe(
+      Effect.map((result) => result.exitCode === 0 ? sanitizeText(result.stdout) : "")
+    );
   }
 
   private async writeGitConfig(repoPath: string, scope: GitIdentityScope, key: string, value: string): Promise<void> {
-    const result = await this.runner.run("git", createGitConfigArgs(repoPath, scope, [
+    const result = await runEffect(runProcessEffect(this.runner, "git", createGitConfigArgs(repoPath, scope, [
       key,
       value
-    ]));
+    ])));
 
     if (result.exitCode !== 0) {
       throw new Error(result.stderr.trim() || result.error || `Unable to save ${key}.`);

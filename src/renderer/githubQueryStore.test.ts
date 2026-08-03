@@ -32,9 +32,24 @@ describe("githubQueryStore", () => {
     const old = deferred<string[]>(); const fresh = deferred<string[]>();
     const loader = vi.fn().mockReturnValueOnce(old.promise).mockReturnValueOnce(fresh.promise);
     const store = createGitHubQueryStore({ loaders: { issues: loader, workflowRuns: loader, openCounts: loader, pullRequests: loader } });
-    const first = store.ensure(query()); const second = store.refresh(query());
-    fresh.resolve(["new"]); await second; await Promise.resolve(); old.resolve(["old"]); await first; await Promise.resolve();
+    const first = store.ensure(query());
+    const firstResult = expect(first).rejects.toMatchObject({ name: "AbortError" });
+    const second = store.refresh(query());
+    fresh.resolve(["new"]); await second; await firstResult; old.resolve(["old"]); await Promise.resolve();
     expect(store.getSnapshot<string[]>(query()).data).toEqual(["new"]);
+  });
+
+  it("cancels an in-flight request when its repository is cleared", async () => {
+    const pending = deferred<string[]>();
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const store = createGitHubQueryStore({ loaders: { issues: () => pending.promise }, cancel });
+    const request = store.ensure<string[]>(query());
+    const result = expect(request).rejects.toMatchObject({ name: "AbortError" });
+
+    store.clearRepository(repo);
+
+    await result;
+    expect(cancel).toHaveBeenCalledWith("issues-1");
   });
 
   it("keys repository, resource, and canonical params independently", () => {

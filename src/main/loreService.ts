@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
+import { Effect } from "effect";
 import type {
   GitAction,
   GitBranch,
@@ -74,6 +75,8 @@ import type { GitOutputHandler } from "./gitService";
 import type { ProcessResult, ProcessRunOptions, ProcessRunner } from "./processRunner";
 import { mapRepoSyncStatuses } from "./repoSyncStatus";
 import { imageFallbackText, isPreviewableImagePath, readImageFile, type ImageReadResult } from "./imageDiff";
+import { runEffect, tryPromise } from "../shared/effectRuntime";
+import { runProcessEffect } from "./processEffect";
 import { readMarkdownPreviewFile, validateMarkdownPreviewPath } from "./filePreview";
 import type { VcsService } from "./vcsService";
 import {
@@ -133,18 +136,20 @@ export class LoreService implements VcsService {
     }
     const rootPath = validation.rootPath;
 
-    const [statusResult, branchResult, actionsConfig, remoteUrl] = await Promise.all([
-      this.runLore(rootPath, [
+    const [statusResult, branchResult, actionsConfig, remoteUrl] = await runEffect(Effect.all([
+      this.runLoreEffect(rootPath, [
         "status",
         "--scan"
       ]),
-      this.runLore(rootPath, [
+      this.runLoreEffect(rootPath, [
         "branch",
         "list"
       ]),
-      readActionsConfig(rootPath).catch(() => createEmptyActionsConfig()),
-      this.readRemoteUrl(rootPath)
-    ]);
+      tryPromise(() => readActionsConfig(rootPath)).pipe(
+        Effect.catch(() => Effect.succeed(createEmptyActionsConfig()))
+      ),
+      tryPromise(() => this.readRemoteUrl(rootPath))
+    ], { concurrency: "unbounded" }));
 
     const status = parseLoreStatus(statusResult.stdout);
     const branches: GitBranch[] = parseLoreBranchList(branchResult.stdout).map((branch) => ({
@@ -203,7 +208,13 @@ export class LoreService implements VcsService {
   async getRepoMetadata(request: RepoSectionRequest): Promise<RepoMetadataSection> {
     const validation = await this.validateRepo(request.repoPath);
     if (!validation.isValid) throw new Error(validation.error);
-    const [branchesResult, actionsConfig, remoteUrl] = await Promise.all([this.runLore(validation.rootPath, ["branch", "list"]), readActionsConfig(validation.rootPath).catch(() => createEmptyActionsConfig()), this.readRemoteUrl(validation.rootPath)]);
+    const [branchesResult, actionsConfig, remoteUrl] = await runEffect(Effect.all([
+      this.runLoreEffect(validation.rootPath, ["branch", "list"]),
+      tryPromise(() => readActionsConfig(validation.rootPath)).pipe(
+        Effect.catch(() => Effect.succeed(createEmptyActionsConfig()))
+      ),
+      tryPromise(() => this.readRemoteUrl(validation.rootPath))
+    ], { concurrency: "unbounded" }));
     const branches = parseLoreBranchList(branchesResult.stdout).map((branch) => ({ name: branch.name, current: branch.current, upstream: null }));
     const remotes: GitRemote[] = remoteUrl ? [{ name: "origin", url: remoteUrl, direction: "fetch" }] : [];
     return { repoPath: validation.rootPath, generation: request.generation, upstream: null, branches, remotes, remoteBranches: [], defaultRemoteBranch: null, commitsAheadOfDefaultBranch: null, githubRepository: null, actionsConfig };
@@ -291,15 +302,15 @@ export class LoreService implements VcsService {
       throw new Error(validation.error);
     }
 
-    const [infoResult, parent] = await Promise.all([
-      this.runLore(validation.rootPath, [
+    const [infoResult, parent] = await runEffect(Effect.all([
+      this.runLoreEffect(validation.rootPath, [
         "revision",
         "info",
         hash,
         "--delta"
       ]),
-      this.getParentSignature(validation.rootPath, hash)
-    ]);
+      tryPromise(() => this.getParentSignature(validation.rootPath, hash))
+    ], { concurrency: "unbounded" }));
 
     const revision = parseLoreRevision(infoResult.stdout);
     if (!revision) {
@@ -913,6 +924,22 @@ export class LoreService implements VcsService {
     // break whenever Githead's CWD differs from the repo (e.g. the packaged app
     // runs from its install directory).
     return this.runner.run("lore", [
+      "--repository",
+      repoPath,
+      "-P",
+      ...args
+    ], {
+      ...options,
+      cwd: repoPath
+    });
+  }
+
+  private runLoreEffect(
+    repoPath: string,
+    args: string[],
+    options?: ProcessRunOptions
+  ): Effect.Effect<ProcessResult, unknown> {
+    return runProcessEffect(this.runner, "lore", [
       "--repository",
       repoPath,
       "-P",

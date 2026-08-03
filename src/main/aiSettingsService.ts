@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { Effect } from "effect";
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import { DEFAULT_PR_DESCRIPTION_PROMPT } from "../shared/prDescriptionPrompt";
 import {
@@ -18,6 +19,7 @@ import {
   type RepositoryAiSettings,
   type RepositoryAiSettingsSaveRequest
 } from "../shared/types";
+import { runEffect, tryPromise } from "../shared/effectRuntime";
 
 const LEGACY_DEFAULT_OPENROUTER_MODEL = "openai/gpt-5.4-nano";
 export const DEFAULT_OPENROUTER_MODEL = "openai/gpt-5.6-luna";
@@ -166,10 +168,10 @@ export class AiSettingsService {
     const [
       stored,
       cliStatus
-    ] = await Promise.all([
-      this.readStoredSettings(),
-      this.getCliStatus()
-    ]);
+    ] = await runEffect(Effect.all([
+      tryPromise(() => this.readStoredSettings()),
+      tryPromise(() => this.getCliStatus())
+    ], { concurrency: "unbounded" }));
 
     const encryptedApiKeys = getStoredEncryptedApiKeys(stored);
 

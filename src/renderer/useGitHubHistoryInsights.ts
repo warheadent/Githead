@@ -1,5 +1,7 @@
+import { Effect } from "effect";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GitHubHistoryInsights } from "../shared/types";
+import { forkEffect, tryPromise } from "../shared/effectRuntime";
 
 interface GitHubHistoryScope {
   repoPath: string;
@@ -31,10 +33,16 @@ export function useGitHubHistoryInsights(scope: GitHubHistoryScope) {
       loading: true, loaded: current.key === key && current.loaded, error: "", key
     }));
     if (typeof window.githead.getGitHubHistoryInsights !== "function") return;
-    void window.githead.getGitHubHistoryInsights({
+    const program = tryPromise(() => window.githead.getGitHubHistoryInsights({
       repoPath: scope.repoPath, requestId, currentBranch: scope.currentBranch,
       headSha: scope.headSha, commitShas: shasKey.split(",")
-    }).then((result) => {
+    })).pipe(Effect.onInterrupt(() =>
+      typeof window.githead.cancelGitHubRequest === "function"
+        ? Effect.promise(() => window.githead.cancelGitHubRequest({ requestId }).catch(() => undefined))
+        : Effect.succeed(undefined)
+    ));
+    const running = forkEffect(program);
+    void running.promise.then((result) => {
       if (requestGeneration.current !== currentGeneration) return;
       if (result.ok) setState({ data: result.data, loading: false, loaded: true, error: "", key });
       else if (result.error.kind !== "cancelled") setState({ data: EMPTY_INSIGHTS, loading: false, loaded: false, error: result.error.message, key });
@@ -45,9 +53,7 @@ export function useGitHubHistoryInsights(scope: GitHubHistoryScope) {
     });
     return () => {
       requestGeneration.current += 1;
-      if (typeof window.githead.cancelGitHubRequest === "function") {
-        void window.githead.cancelGitHubRequest({ requestId }).catch(() => undefined);
-      }
+      running.interrupt();
     };
   }, [generation, scope.currentBranch, scope.enabled, scope.githubFullName, scope.headSha, scope.repoPath, shasKey]);
 
