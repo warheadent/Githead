@@ -6482,7 +6482,7 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Check" }));
 
     expect(await screen.findByText("fatal: authentication failed")).toBeTruthy();
-    await user.type(sourceInput, "-copy");
+    fireEvent.change(sourceInput, { target: { value: "https://github.com/openai/private.git-copy" } });
 
     const exitingMessage = screen.getByText("fatal: authentication failed").closest(".motion-presence");
     expect(exitingMessage?.getAttribute("data-motion-state")).toBe("exiting");
