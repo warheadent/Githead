@@ -7954,6 +7954,7 @@ function BranchFact({
   onManageBranches: () => void;
 }): ReactNode {
   const switchableBranches = branches.filter((branch) => !branch.current && branch.name !== currentBranch);
+  const activeBranch = branches.find((branch) => branch.current || branch.name === currentBranch) ?? null;
   const localUpstreams = new Set(branches.flatMap((branch) => branch.upstream ? [branch.upstream] : []));
   const checkoutableRemoteBranches = remoteBranches.filter((remoteBranch) => !localUpstreams.has(remoteBranch.name));
 
@@ -7961,52 +7962,61 @@ function BranchFact({
     <div className="repo-branch-fact">
       <dt>Branch</dt>
       <dd>
-        <TooltipTarget content={currentBranch}><span className="repo-branch-name selectable-text">{currentBranch ?? "-"}</span></TooltipTarget>
-        <span className="repo-branch-actions">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <TooltipButton
-                type="button"
-                variant="outline"
-                size="icon-xs"
-                disabled={disabled}
-                aria-label="Switch branch"
-                tooltip="Switch branch"
-              >
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="repo-branch-trigger"
+              disabled={disabled}
+              aria-label="Switch branch"
+            >
+              <GitBranchIcon />
+              <span className="repo-branch-name selectable-text">{currentBranch ?? "-"}</span>
+              <ChevronDown className="repo-branch-trigger-chevron" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="branch-menu-content">
+            {activeBranch ? (
+              <DropdownMenuItem disabled className="branch-menu-current">
                 <GitBranchIcon />
-              </TooltipButton>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="branch-menu-content">
-              {switchableBranches.map((branch) => {
-                const occupiedElsewhere = Boolean(branch.worktreePath && !isSameRepoPath(branch.worktreePath, repoPath));
-                return (
+                <span className="branch-menu-name">{activeBranch.name}</span>
+                <span className="branch-menu-upstream">current</span>
+              </DropdownMenuItem>
+            ) : null}
+            {activeBranch && switchableBranches.length ? <DropdownMenuSeparator /> : null}
+            {switchableBranches.map((branch) => {
+              const occupiedElsewhere = Boolean(branch.worktreePath && !isSameRepoPath(branch.worktreePath, repoPath));
+              return (
                 <DropdownMenuItem key={branch.name} onSelect={() => occupiedElsewhere && branch.worktreePath ? onOpenWorktree(branch.worktreePath) : onSwitchBranch(branch.name)}>
                   {occupiedElsewhere ? <FolderOpen /> : <GitBranchIcon />}
                   <span className="branch-menu-name">{branch.name}</span>
                   <span className="branch-menu-upstream">{occupiedElsewhere ? getRepoDisplayName(branch.worktreePath ?? "") : branch.upstream}</span>
                 </DropdownMenuItem>
-                );
-              })}
-              {checkoutableRemoteBranches.length ? <DropdownMenuSeparator /> : null}
-              {checkoutableRemoteBranches.length ? <DropdownMenuItem disabled>Remote branches</DropdownMenuItem> : null}
-              {checkoutableRemoteBranches.map((remoteBranch) => (
-                <DropdownMenuItem key={remoteBranch.name} onSelect={() => onCheckoutRemoteBranch(remoteBranch)}>
-                  <Download />
-                  <span className="branch-menu-name">{remoteBranch.branch}</span>
-                  <span className="branch-menu-upstream">{remoteBranch.remote}</span>
-                </DropdownMenuItem>
-              ))}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={onCreateBranch}>
-                <Plus />
-                New Branch
+              );
+            })}
+            {checkoutableRemoteBranches.length ? <DropdownMenuSeparator /> : null}
+            {checkoutableRemoteBranches.length ? <DropdownMenuItem disabled>Remote branches</DropdownMenuItem> : null}
+            {checkoutableRemoteBranches.map((remoteBranch) => (
+              <DropdownMenuItem key={remoteBranch.name} onSelect={() => onCheckoutRemoteBranch(remoteBranch)}>
+                <Download />
+                <span className="branch-menu-name">{remoteBranch.branch}</span>
+                <span className="branch-menu-upstream">{remoteBranch.remote}</span>
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={onManageBranches}>
-                <Settings />
-                Manage Branches…
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+            ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onCreateBranch}>
+              <Plus />
+              New Branch
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onManageBranches}>
+              <Settings />
+              Manage Branches…
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <span className="repo-branch-actions">
           <TooltipButton
             type="button"
             variant="outline"

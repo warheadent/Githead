@@ -6731,7 +6731,10 @@ describe("App", () => {
     render(<App />);
 
     await screen.findByText("main");
-    await user.click(screen.getByRole("button", { name: "Switch branch" }));
+    const branchTrigger = screen.getByRole("button", { name: "Switch branch" });
+    expect(branchTrigger.textContent).toContain("main");
+    await user.click(branchTrigger);
+    expect((await screen.findByRole("menuitem", { name: /main.*current/ })).hasAttribute("data-disabled")).toBe(true);
     await user.click(await screen.findByRole("menuitem", { name: /feature\/nav/ }));
 
     await waitFor(() => {
