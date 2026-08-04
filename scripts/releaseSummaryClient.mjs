@@ -27,6 +27,7 @@ export async function generateReleaseSummary({
   log = console.log
 }) {
   let waitedMs = 0;
+  let fallbackMessage = "::warning::Flex release-summary capacity remained unavailable. Falling back to the default service tier.";
 
   for (let retry = 0; retry <= MAX_FLEX_RETRIES; retry += 1) {
     const result = await sendRequest({
@@ -40,6 +41,11 @@ export async function generateReleaseSummary({
 
     if (result.ok) {
       return result.summary;
+    }
+
+    if (isUnavailableFlexRoute(result)) {
+      fallbackMessage = "::warning::No compatible Flex endpoint was available. Falling back to the default service tier.";
+      break;
     }
 
     if (!isTemporaryFlexFailure(result.status)) {
@@ -57,7 +63,7 @@ export async function generateReleaseSummary({
     });
 
     if (delayMs === null) {
-      log("::warning::Flex capacity retry would exceed the five-minute wait limit. Falling back to the default service tier.");
+      fallbackMessage = "::warning::Flex capacity retry would exceed the five-minute wait limit. Falling back to the default service tier.";
       break;
     }
 
@@ -66,7 +72,7 @@ export async function generateReleaseSummary({
     waitedMs += delayMs;
   }
 
-  log("::warning::Flex release-summary capacity remained unavailable. Falling back to the default service tier.");
+  log(fallbackMessage);
   const fallbackResult = await sendRequest({
     apiKey,
     payload,
@@ -160,6 +166,10 @@ function parseRetryAfter(value) {
 
 function isTemporaryFlexFailure(status) {
   return status === 429 || status === 503;
+}
+
+function isUnavailableFlexRoute({ status, responseText }) {
+  return status === 404 && responseText.includes("No endpoints found that can handle the requested parameters");
 }
 
 function createRequestError({ status, responseText }) {

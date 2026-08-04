@@ -90,6 +90,32 @@ describe("generateReleaseSummary", () => {
     expect(requestTier(fetchImpl, 4)).toBe(DEFAULT_SERVICE_TIER);
   });
 
+  it("falls back immediately when no endpoint accepts the Flex parameters", async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(errorResponse(404, {}, JSON.stringify({
+        error: { message: "No endpoints found that can handle the requested parameters." }
+      })))
+      .mockResolvedValueOnce(successResponse("# Release notes", DEFAULT_SERVICE_TIER));
+    const sleep = vi.fn().mockResolvedValue(undefined);
+
+    await expect(generateReleaseSummary(createOptions({ fetchImpl, sleep }))).resolves.toEqual({
+      body: "# Release notes",
+      serviceTier: DEFAULT_SERVICE_TIER
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(requestTier(fetchImpl, 1)).toBe(DEFAULT_SERVICE_TIER);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("does not hide an unrelated 404 response", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(errorResponse(404, {}, "Unknown model"));
+
+    await expect(generateReleaseSummary(createOptions({ fetchImpl }))).rejects.toThrow("OpenRouter request failed with 404: Unknown model");
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it("does not retry non-temporary failures", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(errorResponse(401, {}, "Invalid key"));
 

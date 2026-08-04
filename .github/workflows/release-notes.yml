@@ -1,0 +1,71 @@
+name: Release notes
+
+on:
+  repository_dispatch:
+    types:
+      - release_completed
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing GitHub release tag"
+        required: true
+        type: string
+      post_to_discord:
+        description: "Post the generated notes to Discord"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.client_payload.tag }}
+
+concurrency:
+  group: release-notes-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.client_payload.tag }}
+  cancel-in-progress: false
+
+jobs:
+  release_notes:
+    name: Generate release notes
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Check GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}"
+
+      - name: Generate release notes
+        id: release_notes
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: node scripts/summarize-release.mjs --tag "${RELEASE_TAG}"
+
+      - name: Update GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          body: ${{ steps.release_notes.outputs.body }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Post release notes to Discord
+        if: ${{ github.event_name == 'repository_dispatch' || inputs.post_to_discord }}
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          RELEASE_NOTES: ${{ steps.release_notes.outputs.body }}
+          RELEASE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ env.RELEASE_TAG }}
+        run: node scripts/post-discord-release.mjs
