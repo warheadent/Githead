@@ -1,3 +1,6 @@
+import { Effect } from "effect";
+import { forkEffect, tryPromise } from "../shared/effectRuntime";
+
 export type GitHubResource = "workflowRuns" | "openCounts" | "pullRequests" | "issues" | "viewer";
 
 export interface GitHubRepositoryScope { repoPath: string; githubFullName: string }
@@ -22,6 +25,7 @@ interface Entry {
   listeners: Set<() => void>;
   generation: number;
   inFlight: Promise<unknown> | undefined;
+  interrupt: (() => void) | undefined;
   lastAccess: number;
 }
 export interface GitHubQueryStoreOptions {
@@ -29,6 +33,7 @@ export interface GitHubQueryStoreOptions {
   now?: () => number;
   staleTimes?: Partial<Record<GitHubResource, number>>;
   maxEntries?: number;
+  cancel?: (requestId: string) => Promise<void>;
 }
 
 const IDLE: GitHubQuerySnapshot<never> = Object.freeze({ status: "idle", data: undefined, error: "", updatedAt: null, isStale: true });
@@ -69,7 +74,7 @@ export function createGitHubQueryStore(options: GitHubQueryStoreOptions) {
     const key = getGitHubQueryKey(descriptor);
     let entry = entries.get(key);
     if (!entry) {
-      entry = { descriptor, snapshot: IDLE, listeners: new Set(), generation: 0, inFlight: undefined, lastAccess: now() };
+      entry = { descriptor, snapshot: IDLE, listeners: new Set(), generation: 0, inFlight: undefined, interrupt: undefined, lastAccess: now() };
       entries.set(key, entry);
       cleanup();
     }
@@ -87,22 +92,36 @@ export function createGitHubQueryStore(options: GitHubQueryStoreOptions) {
     if (!force && entry.inFlight) return entry.inFlight as Promise<T>;
     const staleTime = options.staleTimes?.[descriptor.resource] ?? Infinity;
     if (!force && entry.snapshot.data !== undefined && !entry.snapshot.isStale && now() - (entry.snapshot.updatedAt ?? 0) <= staleTime) return Promise.resolve(entry.snapshot.data as T);
+    if (force && entry.inFlight) {
+      entry.generation += 1;
+      entry.interrupt?.();
+      entry.inFlight = undefined;
+      entry.interrupt = undefined;
+    }
     const generation = ++entry.generation;
     entry.snapshot = { ...entry.snapshot, status: entry.snapshot.data === undefined ? "loading" : "refreshing", error: "" };
     notify(entry);
     const loader = options.loaders[descriptor.resource];
     if (!loader) return Promise.reject(new Error(`No GitHub loader is registered for ${descriptor.resource}.`));
-    const promise = loader(descriptor, `${descriptor.resource}-${++requestSequence}`) as Promise<T>;
+    const requestId = `${descriptor.resource}-${++requestSequence}`;
+    const program = tryPromise(() => loader(descriptor, requestId) as Promise<T>).pipe(
+      Effect.onInterrupt(() => options.cancel
+        ? tryPromise(() => options.cancel!(requestId).catch(() => undefined)).pipe(Effect.asVoid)
+        : Effect.succeed(undefined))
+    );
+    const running = forkEffect(program);
+    const promise = running.promise;
     entry.inFlight = promise;
+    entry.interrupt = running.interrupt;
     void promise.then((data) => {
       if (!disposed && entries.get(getGitHubQueryKey(descriptor)) === entry && entry.generation === generation && entry.inFlight === promise) {
         entry.snapshot = { status: "success", data, error: "", updatedAt: now(), isStale: false };
-        entry.inFlight = undefined; touch(entry); notify(entry); cleanup();
+        entry.inFlight = undefined; entry.interrupt = undefined; touch(entry); notify(entry); cleanup();
       }
     }, (error) => {
       if (!disposed && entries.get(getGitHubQueryKey(descriptor)) === entry && entry.generation === generation && entry.inFlight === promise) {
         entry.snapshot = { ...entry.snapshot, status: "error", error: error instanceof Error ? error.message : String(error), isStale: true };
-        entry.inFlight = undefined; touch(entry); notify(entry); cleanup();
+        entry.inFlight = undefined; entry.interrupt = undefined; touch(entry); notify(entry); cleanup();
       }
     });
     return promise;
@@ -114,9 +133,9 @@ export function createGitHubQueryStore(options: GitHubQueryStoreOptions) {
     ensure<T>(descriptor: GitHubQueryDescriptor): Promise<T> { return run<T>(descriptor, false); },
     refresh<T>(descriptor: GitHubQueryDescriptor): Promise<T> { return run<T>(descriptor, true); },
     invalidate(matcher: GitHubQueryMatcher): void { for (const entry of entries.values()) if (matches(entry, matcher) && !entry.snapshot.isStale) { entry.snapshot = { ...entry.snapshot, isStale: true }; notify(entry); } },
-    clearRepository(repository: GitHubRepositoryScope): void { for (const [key, entry] of entries) if (matches(entry, { repository })) { entry.generation++; entries.delete(key); } },
-    clear(): void { for (const entry of entries.values()) entry.generation++; entries.clear(); },
-    dispose(): void { disposed = true; for (const entry of entries.values()) { entry.generation++; entry.listeners.clear(); } entries.clear(); }
+    clearRepository(repository: GitHubRepositoryScope): void { for (const [key, entry] of entries) if (matches(entry, { repository })) { entry.generation++; entry.interrupt?.(); entries.delete(key); } },
+    clear(): void { for (const entry of entries.values()) { entry.generation++; entry.interrupt?.(); } entries.clear(); },
+    dispose(): void { disposed = true; for (const entry of entries.values()) { entry.generation++; entry.interrupt?.(); entry.listeners.clear(); } entries.clear(); }
   };
 }
 

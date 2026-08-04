@@ -20,6 +20,7 @@ async function unwrap<T>(promise: Promise<{ ok: true; data: T } | { ok: false; e
 }
 
 export const gitHubQueryStore = createGitHubQueryStore({
+  cancel: (requestId) => window.githead.cancelGitHubRequest({ requestId }),
   loaders: {
     workflowRuns: (descriptor, requestId) => unwrap(window.githead.getGitHubWorkflowRuns({ repoPath: descriptor.repository.repoPath, requestId, page: Number(descriptor.params.page ?? 1), query: descriptor.params.query as GitHubWorkflowRunQuery | undefined }), fallbackErrors.workflowRuns),
     openCounts: (descriptor, requestId) => unwrap(window.githead.getGitHubOpenCounts({ repoPath: descriptor.repository.repoPath, requestId }), fallbackErrors.openCounts),

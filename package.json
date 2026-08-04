@@ -23,7 +23,7 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:inspect": "node scripts/dev.mjs --remote-debugging-port=9222",
-    "build:main": "tsc -p tsconfig.electron.json",
+    "build:main": "tsc --noEmit -p tsconfig.electron.json && vp build --config vite.main.config.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json && tsc --noEmit -p tsconfig.tests.json",
     "test": "vp test",
     "build": "vp run build:main && vp build",
@@ -53,6 +53,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.0.5",
+    "effect": "4.0.0-beta.102",
     "electron": "43.2.0",
     "electron-builder": "26.15.3",
     "jsdom": "^29.1.1",

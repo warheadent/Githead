@@ -22,7 +22,16 @@ export class CancellableProcessRunner implements ProcessRunner {
   }
 
   private withContextSignal<T extends ProcessRunOptions>(options: T): T {
-    const signal = options.signal ?? this.signals.getStore();
+    const signal = combineAbortSignals(options.signal, this.signals.getStore());
     return signal ? { ...options, signal } : options;
   }
+}
+
+function combineAbortSignals(
+  explicit: AbortSignal | undefined,
+  contextual: AbortSignal | undefined
+): AbortSignal | undefined {
+  if (!explicit) return contextual;
+  if (!contextual || explicit === contextual) return explicit;
+  return AbortSignal.any([explicit, contextual]);
 }

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type {
   CreatePullRequestRequest,
   CreatePullRequestResult,
@@ -22,6 +23,7 @@ import type {
 } from "../shared/types";
 import { GitHubResponseBodyError, type GitHubClient } from "./githubClient";
 import { buildIssueSearchPath, buildPullRequestSearchPath, buildWorkflowRunsPath, hasPullRequestSearchFilters } from "./githubQuery";
+import { runEffect, tryPromise } from "../shared/effectRuntime";
 
 const WORKFLOW_RUN_LIMIT = 30;
 const ISSUE_LIMIT = 50;
@@ -152,13 +154,23 @@ export class GitHubService {
     return this.read(() => this.getHistoryInsightsData(request, signal));
   }
   async createPullRequest(request: CreatePullRequestRequest, signal?: AbortSignal): Promise<GitHubOperationResult<CreatePullRequestResult>> {
-    try { return { ok: true, data: await this.createPullRequestData(request, signal), rateLimit: null }; }
-    catch (error) { return { ok: false, error: classifyError(error, "combined", true) }; }
+    return runEffect(tryPromise(() => this.createPullRequestData(request, signal)).pipe(
+      Effect.map((data): GitHubOperationResult<CreatePullRequestResult> => ({ ok: true, data, rateLimit: null })),
+      Effect.catch((error) => Effect.succeed<GitHubOperationResult<CreatePullRequestResult>>({
+        ok: false,
+        error: classifyError(error, "combined", true)
+      }))
+    ));
   }
 
-  private async read<T>(operation: () => Promise<T>): Promise<GitHubOperationResult<T>> {
-    try { return { ok: true, data: await operation(), rateLimit: null }; }
-    catch (error) { return { ok: false, error: classifyError(error, "combined", false) }; }
+  private read<T>(operation: () => Promise<T>): Promise<GitHubOperationResult<T>> {
+    return runEffect(tryPromise(operation).pipe(
+      Effect.map((data): GitHubOperationResult<T> => ({ ok: true, data, rateLimit: null })),
+      Effect.catch((error) => Effect.succeed<GitHubOperationResult<T>>({
+        ok: false,
+        error: classifyError(error, "combined", false)
+      }))
+    ));
   }
 
   private async getWorkflowRunsData(request: GitHubWorkflowRunsRequest, signal?: AbortSignal): Promise<GitHubPage<GitHubWorkflowRun>> {
@@ -201,17 +213,32 @@ export class GitHubService {
     const repository = await this.getRepository(request.repoPath);
     const observed = this.observedOpenCounts.get(normalizeRepository(repository));
     const issues = this.isFresh(observed?.issues)
-      ? observed.issues.value
-      : this.getSearchCount(repository, `repo:${repository.fullName} is:open is:issue`, signal);
+      ? Effect.succeed(observed.issues.value)
+      : this.getSearchCountEffect(repository, `repo:${repository.fullName} is:open is:issue`, signal);
     const pullRequests = this.isFresh(observed?.pullRequests)
-      ? observed.pullRequests.value
-      : this.getSearchCount(repository, `repo:${repository.fullName} is:open is:pr`, signal);
-    const [resolvedIssues, resolvedPullRequests] = await Promise.all([issues, pullRequests]);
+      ? Effect.succeed(observed.pullRequests.value)
+      : this.getSearchCountEffect(repository, `repo:${repository.fullName} is:open is:pr`, signal);
+    const [resolvedIssues, resolvedPullRequests] = await runEffect(Effect.all([
+      issues,
+      pullRequests
+    ], { concurrency: "unbounded" }));
 
     return {
       issues: resolvedIssues,
       pullRequests: resolvedPullRequests
     };
+  }
+
+  private getSearchCountEffect(
+    repository: GitHubRepository,
+    query: string,
+    signal?: AbortSignal
+  ): Effect.Effect<number, unknown> {
+    return tryPromise((effectSignal) => this.getSearchCount(
+      repository,
+      query,
+      signal ? AbortSignal.any([signal, effectSignal]) : effectSignal
+    ));
   }
 
   private async getViewerData(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubViewer> {
