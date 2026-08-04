@@ -38,7 +38,6 @@ export const RELEASE_NOTES_RESPONSE_FORMAT = {
 export function buildReleaseSummaryPayload({ model, currentTag, previousTag, evidence }) {
   return {
     model,
-    temperature: 0.2,
     max_tokens: 1_600,
     provider: {
       require_parameters: true

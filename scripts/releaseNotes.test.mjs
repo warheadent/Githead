@@ -34,6 +34,7 @@ describe("release-note generation contract", () => {
     });
 
     expect(payload.model).toBe("openai/gpt-5.6-luna");
+    expect(payload).not.toHaveProperty("temperature");
     expect(payload.provider.require_parameters).toBe(true);
     expect(payload.response_format.type).toBe("json_schema");
     expect(payload.messages[0].content).toContain("Write for Git users");
