@@ -38,6 +38,9 @@ describe("release-note generation contract", () => {
     expect(payload.provider.require_parameters).toBe(true);
     expect(payload.response_format.type).toBe("json_schema");
     expect(payload.messages[0].content).toContain("Write for Git users");
+    expect(payload.messages[0].content).toContain("Represent the complete release range");
+    expect(payload.messages[0].content).toContain("internalChanges");
+    expect(payload.response_format.json_schema.schema.required).toContain("internalChanges");
     expect(payload.messages[1].content).toContain("--- commit abc1234 ---");
     expect(payload.messages[1].content).toContain("--- commit def5678 ---");
   });
@@ -51,7 +54,8 @@ describe("release-note generation contract", () => {
           text: "Githead keeps selected diff text active while syntax colors load.",
           evidence: ["abc1234"]
         }],
-        fixes: []
+        fixes: [],
+        internalChanges: []
       }),
       "```"
     ].join("\n");
@@ -73,7 +77,8 @@ describe("release-note generation contract", () => {
         { text: "Githead adds a visible feature.", evidence: ["abc1234"] },
         { text: "Githead adds a visible feature.", evidence: ["missing"] }
       ],
-      fixes: [{ text: "Githead corrects a visible error.", evidence: ["abc1234"] }]
+      fixes: [{ text: "Githead corrects a visible error.", evidence: ["abc1234"] }],
+      internalChanges: []
     };
 
     const errors = validateReleaseNotes(document, ["abc1234"]);
@@ -92,7 +97,8 @@ describe("release-note generation contract", () => {
         text: "Githead's powerful renderer now provides a very long description that contains far too many words for one clear release note sentence about a simple visible change in the application.",
         evidence: ["abc1234"]
       }],
-      fixes: []
+      fixes: [],
+      internalChanges: []
     };
 
     const errors = validateReleaseNotes(document, ["abc1234"]);
@@ -108,6 +114,7 @@ describe("release-note generation contract", () => {
     const body = createFallbackReleaseNotes([
       { shortHash: "abc1234", subject: "feat(diff): add line wrapping" },
       { shortHash: "def5678", subject: "fix(history): refresh commits on tab open" },
+      { shortHash: "jkl3456", subject: "refactor(main): unify background task cancellation" },
       { shortHash: "ghi9012", subject: "test(history): add refresh coverage" }
     ]);
 
@@ -115,6 +122,8 @@ describe("release-note generation contract", () => {
     expect(body).toContain("- Githead now includes line wrapping.");
     expect(body).toContain("## Fixes");
     expect(body).toContain("- This release contains this change: refresh commits on tab open.");
+    expect(body).toContain("## Internal changes");
+    expect(body).toContain("- This release contains this change: unify background task cancellation.");
     expect(body).not.toContain("coverage");
   });
 });
