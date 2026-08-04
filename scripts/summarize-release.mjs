@@ -2,12 +2,16 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { FLEX_SERVICE_TIER, generateReleaseSummary } from "./releaseSummaryClient.mjs";
+import { collectReleaseEvidence, getEvidenceStats } from "./releaseEvidence.mjs";
+import {
+  buildReleaseSummaryPayload,
+  buildRepairPayload,
+  createFallbackReleaseNotes,
+  parseAndValidateReleaseNotes,
+  renderReleaseNotes
+} from "./releaseNotes.mjs";
 
-const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const DEFAULT_MODEL = "openai/gpt-5.6-luna";
-const MAX_COMMITS_CHARS = 40_000;
-const MAX_STAT_CHARS = 20_000;
-const MAX_DIFF_CHARS = 120_000;
 
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run") || process.env.RELEASE_SUMMARY_DRY_RUN === "1";
@@ -32,60 +36,15 @@ if (currentTagIndex === -1) {
 }
 
 const previousTag = tags[currentTagIndex + 1] ?? null;
-const diffBase = previousTag ?? EMPTY_TREE;
 const rangeLabel = previousTag ? `${previousTag}..${currentTag}` : `repository start..${currentTag}`;
-const comparisonNote = previousTag
-  ? `Compared against previous release tag ${previousTag}.`
-  : "No previous semver release tag was found, so this summary compares the release against the repository start.";
-
-const commits = trimOutput(
-  runGit(["log", "--no-merges", "--pretty=format:%h %s", currentTag, ...(previousTag ? [`^${previousTag}`] : [])]),
-  MAX_COMMITS_CHARS
-);
-const changedFiles = trimOutput(runGit(["diff", "--name-status", "--find-renames", diffBase, currentTag]), MAX_STAT_CHARS);
-const diffStat = trimOutput(runGit(["diff", "--stat", "--find-renames", diffBase, currentTag]), MAX_STAT_CHARS);
-const diff = trimOutput(runGit(["diff", "--find-renames", "--unified=3", diffBase, currentTag]), MAX_DIFF_CHARS);
-
-const payload = {
+const evidence = collectReleaseEvidence({ currentTag, previousTag, runGit });
+const evidenceStats = getEvidenceStats(evidence);
+const payload = buildReleaseSummaryPayload({
   model: process.env.OPENROUTER_MODEL ?? DEFAULT_MODEL,
-  temperature: 0.2,
-  max_tokens: 900,
-  messages: [
-    {
-      role: "system",
-      content:
-        "You write concise, user-facing GitHub release notes for a Windows desktop app. Focus on meaningful behavior changes, reliability, fixes, and user impact. Do not invent changes. Avoid raw commit hashes unless needed."
-    },
-    {
-      role: "user",
-      content: [
-        `Release: ${currentTag}`,
-        comparisonNote,
-        "",
-        "Write markdown release notes with these sections when supported by the evidence:",
-        "- Highlights",
-        "- Fixes",
-        "- Internal changes",
-        "",
-        "Keep the notes concise. If a section has no clear evidence, omit it.",
-        "",
-        `Commit range: ${rangeLabel}`,
-        "",
-        "Commits:",
-        fenced(commits || "(no commits found)"),
-        "",
-        "Changed files:",
-        fenced(changedFiles || "(no changed files found)"),
-        "",
-        "Diff stat:",
-        fenced(diffStat || "(no diff stat found)"),
-        "",
-        "Bounded diff:",
-        fenced(diff || "(no diff found)")
-      ].join("\n")
-    }
-  ]
-};
+  currentTag,
+  previousTag,
+  evidence
+});
 
 if (dryRun) {
   console.log(
@@ -96,10 +55,7 @@ if (dryRun) {
         rangeLabel,
         model: payload.model,
         promptChars: payload.messages.reduce((total, message) => total + message.content.length, 0),
-        commitsChars: commits.length,
-        changedFilesChars: changedFiles.length,
-        diffStatChars: diffStat.length,
-        diffChars: diff.length,
+        ...evidenceStats,
         payload: {
           ...payload,
           service_tier: FLEX_SERVICE_TIER
@@ -117,6 +73,7 @@ if (!process.env.OPENROUTER_API_KEY) {
 }
 
 let summary;
+let body;
 
 try {
   summary = await generateReleaseSummary({
@@ -127,11 +84,35 @@ try {
       : "https://github.com",
     title: "Githead Release Summary"
   });
+
+  let result = parseAndValidateReleaseNotes(summary.body, evidence.map((commit) => commit.shortHash));
+
+  if (result.errors.length > 0) {
+    console.log(`::warning::The first release-note response failed content validation: ${result.errors.join(" ")}`);
+    const repairPayload = buildRepairPayload(payload, summary.body, result.errors);
+    summary = await generateReleaseSummary({
+      apiKey: process.env.OPENROUTER_API_KEY,
+      payload: repairPayload,
+      referer: process.env.GITHUB_SERVER_URL
+        ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY ?? ""}`
+        : "https://github.com",
+      title: "Githead Release Summary Repair"
+    });
+    result = parseAndValidateReleaseNotes(summary.body, evidence.map((commit) => commit.shortHash));
+  }
+
+  if (result.errors.length > 0) {
+    console.log(`::warning::The repaired release-note response failed content validation: ${result.errors.join(" ")}`);
+    console.log("::warning::Using the conventional-commit fallback for release notes.");
+    body = createFallbackReleaseNotes(evidence);
+  } else {
+    body = renderReleaseNotes(result.document) || createFallbackReleaseNotes(evidence);
+  }
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error));
 }
 
-writeGithubOutput("body", summary.body);
+writeGithubOutput("body", body);
 console.log(`Generated release summary for ${rangeLabel} with ${payload.model} on ${summary.serviceTier ?? "an unreported"} service tier.`);
 
 function getExactHeadTag() {
@@ -164,18 +145,6 @@ function runGit(args, options = {}) {
     const stderr = error.stderr?.toString()?.trim();
     fail(`git ${args.join(" ")} failed${stderr ? `: ${stderr}` : "."}`);
   }
-}
-
-function trimOutput(value, maxChars) {
-  if (value.length <= maxChars) {
-    return value;
-  }
-
-  return `${value.slice(0, maxChars)}\n\n[truncated to ${maxChars} characters]`;
-}
-
-function fenced(value) {
-  return ["```", value, "```"].join("\n");
 }
 
 function writeGithubOutput(name, value) {
