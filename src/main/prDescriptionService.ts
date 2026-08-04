@@ -71,7 +71,12 @@ export class PrDescriptionService {
         ...(signal ? { signal } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
         systemPrompt: createPrTitleSystemPrompt(),
-        userPrompt: createPrTitleUserPrompt(range.commitLog, range.diff),
+        userPrompt: createPrTitleUserPrompt(
+          request.baseRef.trim(),
+          request.headRef.trim(),
+          range.commitLog,
+          range.diff
+        ),
         maxTokens: PR_TITLE_MAX_TOKENS
       });
       const title = normalizeGeneratedPrTitle(generation.text);
@@ -144,6 +149,8 @@ export class PrDescriptionService {
         systemPrompt: createPrDescriptionSystemPrompt(),
         userPrompt: createPrDescriptionUserPrompt(
           settings.prDescriptionPrompt,
+          request.baseRef.trim(),
+          request.headRef.trim(),
           range.commitLog,
           range.diff,
           request.title

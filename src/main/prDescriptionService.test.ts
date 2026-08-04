@@ -267,9 +267,10 @@ describe("PrDescriptionService", () => {
     expect(body.model).toBe("openrouter/commit-model");
     expect(body.max_tokens).toBe(120);
     expect(body.reasoning).toEqual({ effort: "medium" });
-    expect(body.messages[0]?.content).toContain("Follow Conventional Commits format: type(scope): subject.");
-    expect(body.messages[0]?.content).toContain("aim for under 72 characters");
-    expect(body.messages.at(-1)?.content).toContain("Write a clear GitHub pull request title");
+    expect(body.messages[0]?.content).toContain("specific title with 72 characters or fewer");
+    expect(body.messages.at(-1)?.content).toContain("Write a concise and specific GitHub pull request title");
+    expect(body.messages.at(-1)?.content).toContain("Base branch: origin/main");
+    expect(body.messages.at(-1)?.content).toContain("Head branch: feature/pr-dialog");
     expect(body.messages.at(-1)?.content).toContain("- Add generated pull request descriptions");
     expect(body.messages.at(-1)?.content).toContain("+added");
   });

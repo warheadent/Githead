@@ -2,27 +2,20 @@ import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 
 export const MAX_DIFF_CHARS = 60_000;
 
-export function createConventionalCommitSubjectInstructions(maxCharacters: number): string[] {
-  return [
-    "Follow Conventional Commits format: type(scope): subject.",
-    "Use only these lowercase types: feat, fix, refactor, perf, docs, test, build, ci, chore, revert.",
-    "Set scope to the primary module only when one clearly dominates; otherwise omit scope and parentheses.",
-    `Write the subject in imperative mood, aim for under ${maxCharacters} characters, and use no trailing period.`,
-    "For breaking changes, append '!' after the type/scope."
-  ];
-}
-
 export function createCommitMessageSystemPrompt(): string {
   return [
     "You write concise Git commit messages for git commit --file=-.",
-    ...createConventionalCommitSubjectInstructions(50),
-    "Include a body only when it clarifies important behavior or explains why the change was made.",
+    "Use Conventional Commits format: type(scope): subject.",
+    "Use only these lowercase types: feat, fix, refactor, perf, docs, test, build, ci, chore, revert.",
+    "Use the narrowest accurate type and include a scope only when the staged patch makes it obvious.",
+    "Capture the primary user-visible or developer-visible change.",
+    "Write an imperative subject with 72 characters or fewer and no trailing period.",
+    "Include a body only when it adds important context.",
     "Separate the subject and body with exactly one blank line.",
-    "Use '-' bullets for body details, and keep each bullet on one line.",
-    "For breaking changes, add a BREAKING CHANGE: footer.",
+    "Use short '-' bullet points in the body.",
     "Return exactly the commit message text that should be saved.",
     "Do not include commentary, labels, markdown fences, or alternatives.",
-    "Do not insert manual line breaks within the subject or within any bullet."
+    "Do not insert a manual line break in the subject."
   ].join(" ");
 }
 

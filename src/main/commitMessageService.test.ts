@@ -343,7 +343,9 @@ describe("CommitMessageService", () => {
       reasoning: { effort: string };
     };
     expect(body.model).toBe(DEFAULT_AI_PROVIDER_MODELS.openai);
-    expect(body.instructions).toContain("Follow Conventional Commits format");
+    expect(body.instructions).toContain("Use Conventional Commits format");
+    expect(body.instructions).toContain("primary user-visible or developer-visible change");
+    expect(body.instructions).toContain("72 characters or fewer");
     expect(body.input).toContain("Staged diff:");
     expect(body.max_output_tokens).toBe(1_024);
     expect(body.reasoning).toEqual({ effort: "low" });

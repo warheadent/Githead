@@ -1,0 +1,60 @@
+import { describe, expect, it } from "vite-plus/test";
+import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
+import { DEFAULT_PR_DESCRIPTION_PROMPT } from "../shared/prDescriptionPrompt";
+import {
+  createCommitMessageSystemPrompt,
+  createCommitMessageUserPrompt
+} from "./commitMessagePromptBuilder";
+import {
+  createPrDescriptionSystemPrompt,
+  createPrDescriptionUserPrompt,
+  createPrTitleSystemPrompt,
+  createPrTitleUserPrompt
+} from "./prDescriptionPromptBuilder";
+
+describe("text generation prompts", () => {
+  it("uses the staged patch and concise commit rules", () => {
+    const systemPrompt = createCommitMessageSystemPrompt();
+    const userPrompt = createCommitMessageUserPrompt("", "diff --git a/a.ts b/a.ts");
+
+    expect(systemPrompt).toContain("72 characters or fewer");
+    expect(systemPrompt).toContain("primary user-visible or developer-visible change");
+    expect(systemPrompt).toContain("Use Conventional Commits format");
+    expect(userPrompt).toContain(DEFAULT_COMMIT_MESSAGE_PROMPT);
+    expect(userPrompt).toContain("Staged diff:\ndiff --git a/a.ts b/a.ts");
+  });
+
+  it("gives branch context to pull request title generation", () => {
+    const systemPrompt = createPrTitleSystemPrompt();
+    const userPrompt = createPrTitleUserPrompt(
+      "main",
+      "feature/prompts",
+      "- Improve prompts",
+      "diff --git a/a.ts b/a.ts"
+    );
+
+    expect(systemPrompt).toContain("specific title with 72 characters or fewer");
+    expect(systemPrompt).not.toContain("Conventional Commits");
+    expect(userPrompt).toContain("Base branch: main");
+    expect(userPrompt).toContain("Head branch: feature/prompts");
+  });
+
+  it("uses summary and testing sections for pull request descriptions", () => {
+    const systemPrompt = createPrDescriptionSystemPrompt();
+    const userPrompt = createPrDescriptionUserPrompt(
+      "",
+      "main",
+      "feature/prompts",
+      "- Improve prompts",
+      "diff --git a/a.ts b/a.ts",
+      "Improve generated text"
+    );
+
+    expect(systemPrompt).toContain("'## Summary' and '## Testing'");
+    expect(systemPrompt).toContain("'- Not run'");
+    expect(userPrompt).toContain(DEFAULT_PR_DESCRIPTION_PROMPT);
+    expect(userPrompt).toContain("Pull request title: Improve generated text");
+    expect(userPrompt).toContain("Base branch: main");
+    expect(userPrompt).toContain("Head branch: feature/prompts");
+  });
+});
