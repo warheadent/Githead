@@ -2078,6 +2078,99 @@ describe("App", () => {
     });
   });
 
+  it("opens the stash composer from the selected-file context menu", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      branch: "feature/cache",
+      files: [
+        createStatusFile("src/first.ts", { isUnstaged: true, worktreeStatus: "M" }),
+        createStatusFile("src/second.ts", { isUnstaged: true, worktreeStatus: "M" })
+      ]
+    }));
+
+    render(<App />);
+
+    const firstFile = await screen.findByRole("option", { name: /src\/first\.ts/ });
+    const secondFile = screen.getByRole("option", { name: /src\/second\.ts/ });
+    await user.click(firstFile);
+    fireEvent.click(secondFile, { ctrlKey: true });
+    fireEvent.contextMenu(firstFile);
+    await user.click(await screen.findByRole("menuitem", { name: "Stash selected files..." }));
+
+    const stashDialog = await screen.findByRole("dialog", { name: "New stash" });
+    expect(stashDialog).toBeTruthy();
+    expect(screen.getByText("Source branch: feature/cache")).toBeTruthy();
+    expect(screen.getByText("Selected files (2)")).toBeTruthy();
+    await user.type(screen.getByLabelText("Message"), "cache cleanup");
+    await user.click(screen.getByRole("button", { name: "Create stash" }));
+
+    await waitFor(() => {
+      expect(githead.createStash).toHaveBeenCalledWith({
+        repoPath,
+        message: "cache cleanup",
+        scope: "selected",
+        paths: ["src/first.ts", "src/second.ts"],
+        includeUntracked: false,
+        keepIndex: false,
+        operationId: expect.any(String)
+      });
+    });
+  });
+
+  it("generates a message for the selected stash files", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [createStatusFile("src/cache.ts", { isUnstaged: true, worktreeStatus: "M" })]
+    }));
+    vi.mocked(githead.generateCommitMessage).mockResolvedValue({
+      repoPath,
+      exitCode: 0,
+      stdout: "Refactor cache cleanup",
+      stderr: ""
+    });
+
+    render(<App />);
+    const file = await screen.findByRole("option", { name: /src\/cache\.ts/ });
+    fireEvent.contextMenu(file);
+    await user.click(await screen.findByRole("menuitem", { name: "Stash selected files..." }));
+    const dialog = await screen.findByRole("dialog", { name: "New stash" });
+    await user.click(within(dialog).getByRole("button", { name: "Generate stash message" }));
+
+    await waitFor(() => expect(githead.generateCommitMessage).toHaveBeenCalledWith({
+      repoPath,
+      stashSelection: {
+        scope: "selected",
+        paths: ["src/cache.ts"],
+        includeUntracked: false,
+        keepIndex: false
+      },
+      operationId: expect.any(String)
+    }));
+    expect((within(dialog).getByLabelText("Message") as HTMLInputElement).value).toBe("Refactor cache cleanup");
+  });
+
+  it("shows saved stashes in the Stashes workspace", async () => {
+    const user = userEvent.setup();
+    const stash = {
+      ref: "stash@{0}",
+      hash: "a".repeat(40),
+      message: "cache cleanup",
+      sourceBranch: "feature/cache",
+      createdAt: "2026-08-04T20:00:00-07:00"
+    };
+    vi.mocked(githead.getStashes).mockResolvedValue([stash]);
+    vi.mocked(githead.getStashDetails).mockResolvedValue({ stash, files: [{ path: "src/cache.ts", status: "M" }] });
+    vi.mocked(githead.getStashFileDiff).mockResolvedValue(createTextDiff("src/cache.ts", "cached-change"));
+
+    render(<App />);
+    await user.click(await screen.findByRole("tab", { name: "Stashes 1" }));
+
+    expect(await screen.findByRole("option", { name: /cache cleanup/ })).toBeTruthy();
+    expect(await screen.findByText("cached-change")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+    await waitFor(() => expect(githead.applyStash).toHaveBeenCalledWith({ repoPath, stashRef: "stash@{0}", operationId: expect.any(String) }));
+  });
+
   it("uses only an unselected context-menu row instead of the previous multi-selection", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
@@ -7704,6 +7797,9 @@ function createGitheadMock(): GitheadApi {
     getFileHistory: vi.fn().mockResolvedValue({ repoPath, startHash: "a".repeat(40), requestedPath: "", entries: [], hasMore: false }),
     getFileBlame: vi.fn(),
     getFileDiff: vi.fn(),
+    getStashes: vi.fn().mockResolvedValue([]),
+    getStashDetails: vi.fn(),
+    getStashFileDiff: vi.fn(),
     getFilePreview: vi.fn(),
     fetchLfsImageVersions: vi.fn(),
     resetFilesToCommit: vi.fn().mockResolvedValue(okOperation),
@@ -7713,6 +7809,11 @@ function createGitheadMock(): GitheadApi {
     stageHunk: vi.fn().mockResolvedValue(okOperation),
     unstageHunk: vi.fn().mockResolvedValue(okOperation),
     commitChanges: vi.fn().mockResolvedValue(okOperation),
+    createStash: vi.fn().mockResolvedValue(okOperation),
+    applyStash: vi.fn().mockResolvedValue(okOperation),
+    popStash: vi.fn().mockResolvedValue(okOperation),
+    dropStash: vi.fn().mockResolvedValue(okOperation),
+    createBranchFromStash: vi.fn().mockResolvedValue(okOperation),
     copyCommitShaToClipboard: vi.fn().mockResolvedValue(okOperation),
     resetBranchToCommit: vi.fn().mockResolvedValue(okOperation),
     revertCommit: vi.fn().mockResolvedValue(okOperation),

@@ -17,8 +17,8 @@ import {
 import type { ProcessRunner } from "./processRunner";
 import type { VcsService } from "./vcsService";
 
-/** Whichever VCS backend owns the repo supplies the staged diff for the model. */
-type StagedDiffProvider = Pick<VcsService, "getStagedDiff"> & Partial<Pick<VcsService, "getCommitHistory">>;
+/** The VCS backend supplies the selected change diff for the model. */
+type ChangeDiffProvider = Pick<VcsService, "getStagedDiff"> & Partial<Pick<VcsService, "getStashDiff" | "getCommitHistory">>;
 
 type Fetch = typeof fetch;
 
@@ -31,7 +31,7 @@ export interface AiReasoningCapabilityResolver {
 
 export class CommitMessageService {
   constructor(
-    private readonly resolveService: (repoPath: string) => StagedDiffProvider | Promise<StagedDiffProvider>,
+    private readonly resolveService: (repoPath: string) => ChangeDiffProvider | Promise<ChangeDiffProvider>,
     private readonly settingsService: AiSettingsService,
     private readonly fetchImpl: Fetch = fetch,
     private readonly runner?: ProcessRunner,
@@ -60,9 +60,13 @@ export class CommitMessageService {
       }
 
       const service = await this.resolveService(request.repoPath);
+      const target = request.stashSelection ? "stash" : "commit";
       const [diffResult, recentCommits] = await Promise.all([
-        service.getStagedDiff(request.repoPath),
-        settings.sourceControlWritingStyle.mode === "repo_conventions"
+        request.stashSelection
+          ? service.getStashDiff?.(request.repoPath, request.stashSelection)
+            ?? Promise.resolve(createFailure(request.repoPath, "Stash message generation is not available for this repository."))
+          : service.getStagedDiff(request.repoPath),
+        target === "commit" && settings.sourceControlWritingStyle.mode === "repo_conventions"
           ? service.getCommitHistory?.({ repoPath: request.repoPath, limit: 12, scope: "all" }).catch(() => [])
             ?? Promise.resolve([])
           : Promise.resolve([])
@@ -74,7 +78,9 @@ export class CommitMessageService {
 
       const diff = diffResult.stdout.trim();
       if (!diff) {
-        return createFailure(request.repoPath, "Stage changes before generating a commit message.");
+        return createFailure(request.repoPath, target === "stash"
+          ? "The selected stash scope has no changes."
+          : "Stage changes before generating a commit message.");
       }
 
       const reasoningEffort = await resolveReasoningEffort(
@@ -89,19 +95,21 @@ export class CommitMessageService {
         model: providerSettings.model,
         ...(signal ? { signal } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
-        systemPrompt: createCommitMessageSystemPrompt(settings.sourceControlWritingStyle),
+        systemPrompt: createCommitMessageSystemPrompt(settings.sourceControlWritingStyle, target),
         userPrompt: createCommitMessageUserPrompt(
           settings.commitMessagePrompt,
           diff,
           request.additionalContext,
           settings.sourceControlWritingStyle,
-          recentCommits.map((commit) => commit.subject)
+          recentCommits.map((commit) => commit.subject),
+          target
         )
       });
-      const message = normalizeGeneratedMessage(generation.text);
+      const normalizedMessage = normalizeGeneratedMessage(generation.text);
+      const message = target === "stash" ? normalizedMessage.split(/\r?\n/, 1)[0]?.trim() ?? "" : normalizedMessage;
       throwIfAborted(signal);
       if (!message) {
-        return createFailure(request.repoPath, `${providerLabel} returned an empty commit message.`);
+        return createFailure(request.repoPath, `${providerLabel} returned an empty ${target} message.`);
       }
 
       return {

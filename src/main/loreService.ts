@@ -54,6 +54,15 @@ import type {
   GitRunRequest,
   GitRunResult,
   GitSafeDirectoryRequest,
+  GitStashBranchRequest,
+  GitStashCreateRequest,
+  GitStashDetails,
+  GitStashDetailsRequest,
+  GitStashEntry,
+  GitStashFileDiffRequest,
+  GitStashListRequest,
+  GitStashRefRequest,
+  GitStashSelection,
   GitSetRemoteUrlRequest,
   GitUpstreamRequest,
   GitWorktreeCreateRequest,
@@ -468,6 +477,18 @@ export class LoreService implements VcsService {
     }
   }
 
+  async getStashes(_request: GitStashListRequest): Promise<GitStashEntry[]> {
+    return [];
+  }
+
+  async getStashDetails(_request: GitStashDetailsRequest): Promise<GitStashDetails> {
+    throw new Error(NOT_IMPLEMENTED);
+  }
+
+  async getStashFileDiff(request: GitStashFileDiffRequest): Promise<GitFileDiff> {
+    return { path: request.path, side: "staged", kind: "error", text: NOT_IMPLEMENTED };
+  }
+
   async getStagedDiff(repoPath: string): Promise<GitOperationResult> {
     const validation = await this.validateRepo(repoPath);
     if (!validation.isValid) {
@@ -613,6 +634,30 @@ export class LoreService implements VcsService {
       request.message
     ]);
     return this.toOperationResult(request.repoPath, result);
+  }
+
+  async getStashDiff(repoPath: string, _request: GitStashSelection): Promise<GitOperationResult> {
+    return this.failure(repoPath, NOT_IMPLEMENTED);
+  }
+
+  async createStash(request: GitStashCreateRequest): Promise<GitOperationResult> {
+    return this.failure(request.repoPath, NOT_IMPLEMENTED);
+  }
+
+  async applyStash(request: GitStashRefRequest): Promise<GitOperationResult> {
+    return this.failure(request.repoPath, NOT_IMPLEMENTED);
+  }
+
+  async popStash(request: GitStashRefRequest): Promise<GitOperationResult> {
+    return this.failure(request.repoPath, NOT_IMPLEMENTED);
+  }
+
+  async dropStash(request: GitStashRefRequest): Promise<GitOperationResult> {
+    return this.failure(request.repoPath, NOT_IMPLEMENTED);
+  }
+
+  async createBranchFromStash(request: GitStashBranchRequest): Promise<GitOperationResult> {
+    return this.failure(request.repoPath, NOT_IMPLEMENTED);
   }
 
   async resetFilesToCommit(request: GitCommitFileResetRequest): Promise<GitOperationResult> {

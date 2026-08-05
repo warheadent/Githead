@@ -322,6 +322,7 @@ export interface RepoCapabilities {
   worktrees: boolean;
   fileHistory: boolean;
   blame: boolean;
+  stashes: boolean;
 }
 
 export function gitCapabilities(): RepoCapabilities {
@@ -342,7 +343,8 @@ export function gitCapabilities(): RepoCapabilities {
     ignoreFile: true,
     worktrees: true,
     fileHistory: true,
-    blame: true
+    blame: true,
+    stashes: true
   };
 }
 
@@ -364,7 +366,8 @@ export function loreCapabilities(): RepoCapabilities {
     ignoreFile: false,
     worktrees: false,
     fileHistory: false,
-    blame: false
+    blame: false,
+    stashes: false
   };
 }
 
@@ -657,6 +660,63 @@ export interface ClipboardTextRequest {
 export interface GitPathRequest {
   repoPath: string;
   paths: string[];
+}
+
+export type GitStashScope = "all" | "selected" | "staged";
+
+export interface GitStashSelection {
+  scope: GitStashScope;
+  paths: string[];
+  includeUntracked: boolean;
+  keepIndex: boolean;
+}
+
+export interface GitStashEntry {
+  ref: string;
+  hash: string;
+  message: string;
+  sourceBranch: string | null;
+  createdAt: string;
+}
+
+export interface GitStashFile {
+  path: string;
+  originalPath?: string;
+  status: string;
+}
+
+export interface GitStashDetails {
+  stash: GitStashEntry;
+  files: GitStashFile[];
+}
+
+export interface GitStashListRequest extends RepositoryReadRequest {
+  repoPath: string;
+}
+
+export interface GitStashDetailsRequest extends RepositoryReadRequest {
+  repoPath: string;
+  stashRef: string;
+}
+
+export interface GitStashFileDiffRequest extends RepositoryReadRequest {
+  repoPath: string;
+  stashRef: string;
+  path: string;
+}
+
+export interface GitStashCreateRequest extends GitStashSelection {
+  repoPath: string;
+  message: string;
+}
+
+export interface GitStashRefRequest {
+  repoPath: string;
+  stashRef: string;
+}
+
+export interface GitStashBranchRequest extends GitStashRefRequest {
+  branchName: string;
 }
 
 export interface GitSinglePathRequest {
@@ -1119,6 +1179,7 @@ export interface AppSettingsSaveRequest {
 export interface GenerateCommitMessageRequest {
   repoPath: string;
   additionalContext?: string;
+  stashSelection?: GitStashSelection;
 }
 
 export interface GeneratePrDescriptionRequest {
@@ -1345,6 +1406,9 @@ export interface GitheadApi {
   getFileHistory(request: GitFileHistoryRequest): Promise<GitFileHistoryResult>;
   getFileBlame(request: GitFileBlameRequest): Promise<GitFileBlameResult>;
   getFileDiff(request: GitFileDiffRequest): Promise<GitFileDiff>;
+  getStashes(request: GitStashListRequest): Promise<GitStashEntry[]>;
+  getStashDetails(request: GitStashDetailsRequest): Promise<GitStashDetails>;
+  getStashFileDiff(request: GitStashFileDiffRequest): Promise<GitFileDiff>;
   getFilePreview(request: GitFilePreviewRequest): Promise<GitFilePreview>;
   fetchLfsImageVersions(request: CoordinatedRequest<GitLfsImageFetchRequest>): Promise<GitOperationResult>;
   resetFilesToCommit(request: CoordinatedRequest<GitCommitFileResetRequest>): Promise<GitOperationResult>;
@@ -1354,6 +1418,11 @@ export interface GitheadApi {
   stageHunk(request: CoordinatedRequest<GitHunkRequest>): Promise<GitOperationResult>;
   unstageHunk(request: CoordinatedRequest<GitHunkRequest>): Promise<GitOperationResult>;
   commitChanges(request: CoordinatedRequest<GitCommitRequest>): Promise<GitOperationResult>;
+  createStash(request: CoordinatedRequest<GitStashCreateRequest>): Promise<GitOperationResult>;
+  applyStash(request: CoordinatedRequest<GitStashRefRequest>): Promise<GitOperationResult>;
+  popStash(request: CoordinatedRequest<GitStashRefRequest>): Promise<GitOperationResult>;
+  dropStash(request: CoordinatedRequest<GitStashRefRequest>): Promise<GitOperationResult>;
+  createBranchFromStash(request: CoordinatedRequest<GitStashBranchRequest>): Promise<GitOperationResult>;
   copyCommitShaToClipboard(request: GitCommitHashRequest): Promise<GitOperationResult>;
   resetBranchToCommit(request: CoordinatedRequest<GitResetCommitRequest>): Promise<GitOperationResult>;
   revertCommit(request: CoordinatedRequest<GitCommitHashRequest>): Promise<GitOperationResult>;

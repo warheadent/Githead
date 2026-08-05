@@ -1,4 +1,5 @@
 import {
+  Archive,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -166,6 +167,7 @@ import type {
   GitRunResult,
   GitSafeDirectoryInfo,
   GitStatusFile,
+  GitStashSelection,
   RepoSyncStatus,
   RepoIdentitySection,
   RepoTrustResult,
@@ -212,6 +214,9 @@ import type { HighlightedCode } from "./syntaxHighlighter";
 import { buildStatusFileTree, fileName, flattenStatusFileTree, type StatusFileTreeFolder } from "./statusFileTree";
 import { applyColorTheme } from "./themes";
 import { OptionalFeatureBoundary } from "./OptionalFeatureBoundary";
+import { StashComposerDialog, type StashCreateDraft } from "./StashComposerDialog";
+import { StashesView } from "./StashesView";
+import { useGitStashes } from "./useGitStashes";
 import { useSelectionSafeValue } from "./useSelectionSafeValue";
 import { repositoryHistoryRoute, targetFromCommitFile, targetFromHistoryEntry, type HistoricalFileTarget, type HistoryRoute } from "./historyNavigation";
 import gitIconUrl from "./assets/git-icon-white.svg";
@@ -264,7 +269,7 @@ const ISSUE_COLUMNS = [
   { id: "author", label: "Author", defaultWidth: 140, minWidth: 90, defaultVisible: false }
 ] as const satisfies readonly ColumnDefinition<IssueColumnId>[];
 
-type WorkspaceView = "status" | "history" | "workflows" | "pullRequests" | "issues" | "activity";
+type WorkspaceView = "status" | "stashes" | "history" | "workflows" | "pullRequests" | "issues" | "activity";
 
 interface FileSelection {
   path: string;
@@ -698,6 +703,11 @@ const emptyRemoteManager: RemoteManagerState = {
   error: ""
 };
 
+const emptyStashComposer: StashComposerState = {
+  open: false,
+  paths: []
+};
+
 const TRUST_WORKSPACE_TITLE = "Do you trust this workspace?";
 const TRUST_WORKSPACE_DESCRIPTION = "This is the first time Githead will run Git operations here that may execute configured hooks or local Git configuration.";
 const OPERATION_RECONCILE_INITIAL_DELAY_MS = 3_000;
@@ -804,6 +814,7 @@ const initialWindowState: AppWindowState = {
 
 export function App(): ReactNode {
   const [state, setState] = useState<AppState>(initialState);
+  const [stashComposer, setStashComposer] = useState<StashComposerState>(emptyStashComposer);
   const [repositoryAiSettingsPath, setRepositoryAiSettingsPath] = useState("");
   const [workflowQuery, setWorkflowQuery] = useState<GitHubWorkflowRunQuery>({ ...DEFAULT_WORKFLOW_QUERY });
   const [workflowSearch, setWorkflowSearch] = useState("");
@@ -816,6 +827,11 @@ export function App(): ReactNode {
     ? { repoPath: state.repoPath, githubFullName: state.summary.githubRepository.fullName }
     : null;
   const github = useGitHubQueries(githubRepository, { workflows: workflowQuery, pullRequests: pullRequestQuery, issues: issueQuery });
+  const stashWorkspace = useGitStashes(
+    state.repoPath,
+    Boolean(state.summary?.isValid && state.summary.capabilities.stashes),
+    state.activeView === "stashes"
+  );
   const historyInsights = useGitHubHistoryInsights({
     repoPath: githubRepository?.repoPath ?? "",
     githubFullName: githubRepository?.githubFullName ?? "",
@@ -1650,6 +1666,7 @@ export function App(): ReactNode {
     }
     const cached = repositorySnapshots.current.get(nextRepoPath);
     const changingRepositories = !isSameRepoPath(leaving.repoPath, nextRepoPath);
+    if (changingRepositories) setStashComposer(emptyStashComposer);
 
     if (changingRepositories && leaving.settingsOpen) {
       applyColorTheme(leaving.appSettings?.colorTheme ?? "githead");
@@ -1742,7 +1759,7 @@ export function App(): ReactNode {
       settingsSaving: changingRepositories ? false : base.settingsSaving,
       actionManager: changingRepositories ? emptyActionManager : base.actionManager,
       remoteManager: emptyRemoteManager,
-      activeView: cached?.activeView ?? (isGitHubView(current.activeView) ? "status" : current.activeView),
+      activeView: cached?.activeView ?? (isGitHubView(current.activeView) || current.activeView === "stashes" ? "status" : current.activeView),
       selection: cached?.selection ?? null,
       diff: null,
       diffLoading: false
@@ -3074,6 +3091,55 @@ export function App(): ReactNode {
     }
     return operationResult;
   }, [appendOperationLog, createActiveOperation, finishActiveOperation, isActiveOperationCurrent, refreshRepo, updateState]);
+
+  const createStash = useCallback(async (draft: StashCreateDraft): Promise<string | null> => {
+    const current = stateRef.current;
+    const repoPath = current.repoPath;
+    if (!current.summary?.isValid || !current.summary.capabilities.stashes) return "Select a Git repository first.";
+    if (isOperationRunning(current)) return "Wait for the current repository operation to finish.";
+    if (!(await ensureTrustedRepo(repoPath))) return "Repository trust is required before creating a stash.";
+    if (!isSameRepoPath(repoPath, stateRef.current.repoPath)) return "The active repository changed.";
+
+    const result = await runRepoOperation("Creating stash", null, (operationId) => window.githead.createStash({
+      repoPath,
+      ...draft,
+      operationId
+    }));
+    if (result?.exitCode !== 0) return getOperationFailureMessage(result, "Unable to create the stash.");
+    setStashComposer(emptyStashComposer);
+    await stashWorkspace.refresh();
+    return null;
+  }, [ensureTrustedRepo, runRepoOperation, stashWorkspace.refresh]);
+
+  const runStashMutation = useCallback(async (
+    label: string,
+    operation: (repoPath: string, operationId: string) => Promise<GitOperationResult>
+  ): Promise<string | null> => {
+    const current = stateRef.current;
+    const repoPath = current.repoPath;
+    if (!current.summary?.isValid || !current.summary.capabilities.stashes) return "Select a Git repository first.";
+    if (isOperationRunning(current)) return "Wait for the current repository operation to finish.";
+    if (!(await ensureTrustedRepo(repoPath))) return `Repository trust is required before ${label.toLowerCase()}.`;
+    if (!isSameRepoPath(repoPath, stateRef.current.repoPath)) return "The active repository changed.";
+    const result = await runRepoOperation(label, undefined, (operationId) => operation(repoPath, operationId));
+    if (result?.exitCode !== 0) return getOperationFailureMessage(result, `${label} failed.`);
+    await stashWorkspace.refresh();
+    return null;
+  }, [ensureTrustedRepo, runRepoOperation, stashWorkspace.refresh]);
+
+  const applyStash = useCallback((stashRef: string): void => {
+    void runStashMutation("Applying stash", (repoPath, operationId) => window.githead.applyStash({ repoPath, stashRef, operationId }));
+  }, [runStashMutation]);
+
+  const popStash = useCallback((stashRef: string): void => {
+    void runStashMutation("Popping stash", (repoPath, operationId) => window.githead.popStash({ repoPath, stashRef, operationId }));
+  }, [runStashMutation]);
+
+  const dropStash = useCallback((stashRef: string): Promise<string | null> =>
+    runStashMutation("Deleting stash", (repoPath, operationId) => window.githead.dropStash({ repoPath, stashRef, operationId })), [runStashMutation]);
+
+  const createBranchFromStash = useCallback((stashRef: string, branchName: string): Promise<string | null> =>
+    runStashMutation("Creating branch from stash", (repoPath, operationId) => window.githead.createBranchFromStash({ repoPath, stashRef, branchName, operationId })), [runStashMutation]);
 
   const resolvePullRecovery = useCallback(async (action: GitPullRecoveryAction): Promise<void> => {
     const current = stateRef.current;
@@ -4480,6 +4546,44 @@ export function App(): ReactNode {
     }
   }, [appendOperationLog, createActiveOperation, finishActiveOperation, isActiveOperationCurrent, updateState]);
 
+  const generateStashMessage = useCallback(async (stashSelection: GitStashSelection): Promise<GitOperationResult> => {
+    const current = stateRef.current;
+    const failure = (message: string): GitOperationResult => ({
+      repoPath: current.repoPath,
+      exitCode: -1,
+      stdout: "",
+      stderr: message
+    });
+    if (!current.summary?.isValid || isOperationRunning(current)) return failure("Another repository operation is in progress.");
+    if (!canUseSelectedAiProvider(current.aiSettings)) return failure(getStashGenerateMessageTitle(current));
+
+    const activeOperation = createActiveOperation("Generating stash message", current.repoPath, "repo-operation");
+    updateState({ activeOperation, runningOperation: "Generating stash message", lastOperationResult: null });
+
+    try {
+      const result = await window.githead.generateCommitMessage({
+        repoPath: current.repoPath,
+        stashSelection,
+        operationId: activeOperation.operationId
+      });
+      if (!isActiveOperationCurrent(activeOperation.token)) return failure("Stash message generation was cancelled.");
+      updateState({
+        lastOperationResult: result.exitCode === 0 ? { ...result, stdout: "Stash message generated." } : result
+      });
+      appendOperationLog("Generating stash message", result);
+      return result;
+    } catch (error) {
+      const result = failure(error instanceof Error ? error.message : "Unable to generate a stash message.");
+      if (isActiveOperationCurrent(activeOperation.token)) {
+        updateState({ lastOperationResult: result });
+        appendOperationLog("Generating stash message", result);
+      }
+      return result;
+    } finally {
+      finishActiveOperation(activeOperation.token);
+    }
+  }, [appendOperationLog, createActiveOperation, finishActiveOperation, isActiveOperationCurrent, updateState]);
+
   const openSettingsDialog = useCallback((): void => {
     const settings = stateRef.current.aiSettings;
     const appSettings = stateRef.current.appSettings;
@@ -4749,10 +4853,14 @@ export function App(): ReactNode {
     if (isGitHubView(view) && !stateRef.current.summary?.githubRepository) {
       return;
     }
+    if (view === "stashes" && !stateRef.current.summary?.capabilities.stashes) {
+      return;
+    }
 
     updateState({
       activeView: view
     });
+    if (view !== "status") setStashComposer(emptyStashComposer);
 
     const latest = stateRef.current;
     if (view === "status") {
@@ -4761,10 +4869,11 @@ export function App(): ReactNode {
     if (view === "history" && !latest.historyLoading) {
       void loadCommitHistory(true);
     }
+    if (view === "stashes") void stashWorkspace.refresh();
     if (view === "workflows") void github.ensure("workflowRuns");
     if (view === "pullRequests") void github.ensure("pullRequests");
     if (view === "issues") void github.ensure("issues");
-  }, [github.ensure, loadCommitHistory, refreshDirtyFileStatus, updateState]);
+  }, [github.ensure, loadCommitHistory, refreshDirtyFileStatus, stashWorkspace.refresh, updateState]);
 
   const selectFile = useCallback((file: GitStatusFile, side: GitDiffSide, modifiers: FileSelectionModifiers): void => {
     const selection = buildFileSelection(
@@ -5380,6 +5489,11 @@ export function App(): ReactNode {
   ): Promise<void> => {
     const paths = explicitPaths ?? getContextActionPaths(stateRef.current.selection, file, side);
 
+    if (kind === "stash") {
+      setStashComposer({ open: true, paths });
+      return;
+    }
+
     if (kind === "toggle-stage") {
       if (side === "unstaged") {
         await stageFiles(paths, {
@@ -5884,6 +5998,17 @@ export function App(): ReactNode {
                     <ListTree />
                     File Status
                   </TabsTrigger>
+                  {state.summary?.capabilities.stashes ? (
+                    <TabsTrigger
+                      value="stashes"
+                      aria-label={stashWorkspace.state.entries.length ? `Stashes ${stashWorkspace.state.entries.length}` : "Stashes"}
+                      className="workspace-tab-trigger h-9 rounded-none"
+                    >
+                      <Archive />
+                      Stashes
+                      {stashWorkspace.state.entries.length ? <span className="workspace-tab-count">{stashWorkspace.state.entries.length}</span> : null}
+                    </TabsTrigger>
+                  ) : null}
                   <TabsTrigger value="history" className="workspace-tab-trigger h-9 rounded-none">
                     <History />
                     Commit History
@@ -5964,8 +6089,59 @@ export function App(): ReactNode {
                   }}
                   onUpdateSubmodules={(path) => { void updateSubmodules(path); }}
                   onSyncSubmodules={() => { void syncSubmodules(); }}
+                  composer={stashComposer.open ? (
+                    <StashComposerDialog
+                      open
+                      branch={state.summary?.branch ?? null}
+                      files={state.summary?.files ?? []}
+                      selectedPaths={stashComposer.paths}
+                      disabled={disableActions}
+                      canGenerateMessage={canUseSelectedAiProvider(state.aiSettings)}
+                      generateTitle={getStashGenerateMessageTitle(state)}
+                      onClose={() => setStashComposer(emptyStashComposer)}
+                      onManage={() => setWorkspaceView("stashes")}
+                      onCreate={createStash}
+                      onGenerateMessage={generateStashMessage}
+                    />
+                  ) : null}
                 />
               </TabsContent>
+
+              {state.summary?.capabilities.stashes ? (
+                <TabsContent forceMount value="stashes" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
+                  <StashesView
+                    entries={stashWorkspace.state.entries}
+                    loading={stashWorkspace.state.loading}
+                    error={stashWorkspace.state.error}
+                    selectedRef={stashWorkspace.state.selectedRef}
+                    details={stashWorkspace.state.details}
+                    detailsLoading={stashWorkspace.state.detailsLoading}
+                    detailsError={stashWorkspace.state.detailsError}
+                    selectedFilePath={stashWorkspace.state.selectedFilePath}
+                    disabled={disableActions}
+                    diffContent={
+                      <DiffPanel
+                        title={stashWorkspace.state.selectedFilePath ?? "Select a file"}
+                        eyebrow="Stash diff"
+                        diff={stashWorkspace.state.diff}
+                        filePath={stashWorkspace.state.selectedFilePath ?? ""}
+                        loading={stashWorkspace.state.diffLoading}
+                        emptyMessage={stashWorkspace.state.diffError || (stashWorkspace.state.selectedFilePath ? "Loading diff..." : "Select a file to view its diff")}
+                        repoPath={state.repoPath}
+                        wrapLines={state.appSettings?.wrapDiffLines ?? false}
+                        onWrapLinesChange={setWrapDiffLines}
+                      />
+                    }
+                    onRefresh={() => { void stashWorkspace.refresh(); }}
+                    onSelect={(stashRef) => { void stashWorkspace.select(stashRef); }}
+                    onSelectFile={stashWorkspace.selectFile}
+                    onApply={applyStash}
+                    onPop={popStash}
+                    onDrop={dropStash}
+                    onCreateBranch={createBranchFromStash}
+                  />
+                </TabsContent>
+              ) : null}
 
               <TabsContent forceMount value="history" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
                 {state.historyRoute.kind === "file" ? (
@@ -8396,7 +8572,8 @@ function StatusView({
   onApplyHunk,
   onContextAction,
   onUpdateSubmodules,
-  onSyncSubmodules
+  onSyncSubmodules,
+  composer
 }: {
   stagedFiles: GitStatusFile[];
   unstagedFiles: GitStatusFile[];
@@ -8418,6 +8595,7 @@ function StatusView({
   onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind, paths?: string[]) => void;
   onUpdateSubmodules: (path?: string) => void;
   onSyncSubmodules: () => void;
+  composer?: ReactNode;
 }): ReactNode {
   const stagedSelectionPaths = selection?.side === "staged" ? getSelectionPaths(selection) : [];
   const unstagedSelectionPaths = selection?.side === "unstaged" ? getSelectionPaths(selection) : [];
@@ -8578,11 +8756,12 @@ function StatusView({
           onWrapLinesChange={onWrapLinesChange}
         />
       </ResizablePanel>
+      {composer}
     </ResizablePanelGroup>
   );
 }
 
-type ContextActionKind = "open" | "show" | "copy" | "toggle-stage" | "delete" | "revert" | "ignore" | "update-submodule";
+type ContextActionKind = "open" | "show" | "copy" | "toggle-stage" | "stash" | "delete" | "revert" | "ignore" | "update-submodule";
 type CommitContextActionKind = "tag" | "reset" | "revert" | "copy";
 type CommitFileContextActionKind = "log" | "blame" | "reset" | "open-current" | "open-selected" | "copy";
 
@@ -8740,6 +8919,13 @@ function StatusFileTreeFolderRow({ folder, side, level, collapsed, disabled, vir
           <Save />
           {side === "unstaged" ? "Stage folder" : "Unstage folder"}
         </ContextMenuItem>
+        <ContextMenuItem disabled={disabled || folder.descendantFiles.length === 0} onSelect={() => {
+          const first = folder.descendantFiles[0];
+          if (first) onContextAction(first, side, "stash", folder.descendantFiles.map((file) => file.path));
+        }}>
+          <Archive />
+          Stash folder files...
+        </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem disabled={disabled} onSelect={() => {
           const first = folder.descendantFiles[0];
@@ -8758,6 +8944,11 @@ function StatusFileTreeFolderRow({ folder, side, level, collapsed, disabled, vir
       </ContextMenuContent>
     </ContextMenu>
   );
+}
+
+interface StashComposerState {
+  open: boolean;
+  paths: string[];
 }
 
 function handleStatusTreeKeyDown(event: KeyboardEvent<HTMLButtonElement>): void {
@@ -8871,6 +9062,10 @@ function FileRow({
         <ContextMenuItem disabled={disabled} onSelect={() => onContextAction(file, side, "toggle-stage")}>
           <Save />
           {actionLabel}
+        </ContextMenuItem>
+        <ContextMenuItem disabled={disabled} onSelect={() => onContextAction(file, side, "stash")}>
+          <Archive />
+          Stash selected files...
         </ContextMenuItem>
         {!file.submodule ? <ContextMenuItem variant="destructive" disabled={disabled} onSelect={() => onContextAction(file, side, "delete")}>
           <Trash2 />
@@ -11985,6 +12180,17 @@ function getGenerateMessageTitle(state: AppState): string {
   }
 
   return "Generate a commit message from staged changes.";
+}
+
+function getStashGenerateMessageTitle(state: AppState): string {
+  if (!canUseSelectedAiProvider(state.aiSettings)) {
+    const provider = state.aiSettings?.selectedProvider ?? "openrouter";
+    if (isCliProvider(provider)) {
+      return `Install and authenticate ${getAiProviderLabel(provider)} before generating a stash message.`;
+    }
+    return `Configure ${getAiProviderLabel(provider)} settings before generating a stash message.`;
+  }
+  return "Generate a stash message from the selected changes.";
 }
 
 function isOperationRunning(state: AppState): boolean {

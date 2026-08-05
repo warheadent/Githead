@@ -2755,6 +2755,88 @@ describe("GitService", () => {
     expect(stdinText(runner.calls.at(-1)!)).toBe("subject\n\nbody\n");
   });
 
+  it("reads structured stash entries", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok(`stash@{0}\x1f${oid}\x1fOn feature/cache: traversal cleanup\x1f2026-08-04T20:00:00-07:00\x1e`)
+    ]);
+    const service = new GitService(runner);
+
+    await expect(service.getStashes({ repoPath: "D:\\Repo" })).resolves.toEqual([{
+      ref: "stash@{0}",
+      hash: oid,
+      message: "traversal cleanup",
+      sourceBranch: "feature/cache",
+      createdAt: "2026-08-04T20:00:00-07:00"
+    }]);
+    expect(runner.calls.at(-1)?.args).toEqual([
+      "-C", "D:\\Repo", "stash", "list", "--format=%gd%x1f%H%x1f%gs%x1f%cI%x1e"
+    ]);
+  });
+
+  it("creates a selected-file stash with NUL-delimited pathspec input", async () => {
+    const runner = new FakeRunner([ok("true\n"), ok("Saved working directory\n")]);
+    const service = new GitService(runner);
+
+    const result = await service.createStash({
+      repoPath: "D:\\Repo",
+      message: "cache cleanup",
+      scope: "selected",
+      paths: ["src/a file.ts", "src/cache.ts"],
+      includeUntracked: true,
+      keepIndex: false
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(runner.calls.at(-1)?.args).toEqual([
+      "-C", "D:\\Repo", "stash", "push", "--include-untracked", "--message", "cache cleanup", "--pathspec-from-file=-", "--pathspec-file-nul"
+    ]);
+    expect(stdinText(runner.calls.at(-1)!)).toBe("src/a file.ts\0src/cache.ts\0");
+  });
+
+  it("rejects incompatible staged-only stash options", async () => {
+    const runner = new FakeRunner([ok("true\n")]);
+    const service = new GitService(runner);
+
+    const result = await service.createStash({
+      repoPath: "D:\\Repo",
+      message: "staged",
+      scope: "staged",
+      paths: [],
+      includeUntracked: true,
+      keepIndex: false
+    });
+
+    expect(result.exitCode).toBe(-1);
+    expect(result.stderr).toContain("Staged-only stashes cannot include untracked files");
+    expect(runner.calls).toHaveLength(1);
+  });
+
+  it("falls back to the untracked stash parent for an added file diff", async () => {
+    const diff = "diff --git a/new.ts b/new.ts\nnew file mode 100644\n";
+    const runner = new FakeRunner([ok("true\n"), ok(""), ok(oid), ok(diff)]);
+    const service = new GitService(runner);
+
+    await expect(service.getStashFileDiff({ repoPath: "D:\\Repo", stashRef: "stash@{0}", path: "new.ts" })).resolves.toMatchObject({
+      kind: "text",
+      text: diff
+    });
+    expect(runner.calls.at(-1)?.args).toEqual([
+      "-C", "D:\\Repo", "diff", "--no-color", "--no-ext-diff", "--no-textconv", "stash@{0}^1", "stash@{0}^3", "--", "new.ts"
+    ]);
+  });
+
+  it("validates stash references before an apply operation", async () => {
+    const runner = new FakeRunner([ok("true\n")]);
+    const service = new GitService(runner);
+
+    const result = await service.applyStash({ repoPath: "D:\\Repo", stashRef: "stash@{0}; reset --hard" });
+
+    expect(result.exitCode).toBe(-1);
+    expect(result.stderr).toBe("Stash reference is invalid.");
+    expect(runner.calls).toHaveLength(1);
+  });
+
   it("marks missing author identity commit failures", async () => {
     const runner = new FakeRunner([
       ok("true\n"),
@@ -3180,6 +3262,33 @@ describe("GitService", () => {
       "--no-color",
       "--no-ext-diff",
       "--no-textconv"
+    ]);
+  });
+
+  it("returns the selected stash diff with untracked file names", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("diff --git a/a.ts b/a.ts\n+added\n"),
+      ok("new.ts\0")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.getStashDiff("D:\\Repo", {
+      scope: "selected",
+      paths: ["a.ts", "new.ts"],
+      includeUntracked: true,
+      keepIndex: false
+    });
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stdout: "diff --git a/a.ts b/a.ts\n+added\n\nUntracked files:\n- new.ts"
+    });
+    expect(runner.calls[1]?.args).toEqual([
+      "-C", "D:\\Repo", "diff", "--no-color", "--no-ext-diff", "--no-textconv", "HEAD", "--", "a.ts", "new.ts"
+    ]);
+    expect(runner.calls[2]?.args).toEqual([
+      "-C", "D:\\Repo", "ls-files", "--others", "--exclude-standard", "-z", "--", "a.ts", "new.ts"
     ]);
   });
 

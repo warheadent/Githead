@@ -8,8 +8,18 @@ import type { SourceControlWritingStyle } from "../shared/types";
 export const MAX_DIFF_CHARS = 60_000;
 
 export function createCommitMessageSystemPrompt(
-  style: SourceControlWritingStyle = DEFAULT_SOURCE_CONTROL_WRITING_STYLE
+  style: SourceControlWritingStyle = DEFAULT_SOURCE_CONTROL_WRITING_STYLE,
+  target: "commit" | "stash" = "commit"
 ): string {
+  if (target === "stash") {
+    return [
+      "You write concise Git stash messages.",
+      "Capture the primary user-visible or developer-visible change.",
+      "Write one imperative line with 72 characters or fewer and no trailing period.",
+      "Return exactly the stash message text that should be saved.",
+      "Do not include commentary, labels, markdown fences, or alternatives."
+    ].join(" ");
+  }
   return [
     "You write concise Git commit messages for git commit --file=-.",
     ...createCommitWritingStyleInstructions(style),
@@ -29,11 +39,14 @@ export function createCommitMessageUserPrompt(
   diff: string,
   additionalContext?: string,
   style?: SourceControlWritingStyle,
-  recentCommitSubjects: string[] = []
+  recentCommitSubjects: string[] = [],
+  target: "commit" | "stash" = "commit"
 ): string {
   const truncated = diff.length > MAX_DIFF_CHARS;
   const promptDiff = truncated ? diff.slice(0, MAX_DIFF_CHARS) : diff;
-  const instructions = style
+  const instructions = target === "stash"
+    ? "Write a concise Git stash message for these changes."
+    : style
     ? "Write a concise Git commit message for the staged changes."
     : commitMessagePrompt.trim() || DEFAULT_COMMIT_MESSAGE_PROMPT;
   const trimmedContext = additionalContext?.trim() ?? "";
@@ -50,7 +63,7 @@ export function createCommitMessageUserPrompt(
     conventionExamples.length > 0 ? "Recent commit subjects from this repository:" : "",
     ...conventionExamples.map((subject) => `- ${subject}`),
     conventionExamples.length > 0 ? "" : "",
-    "Staged diff:",
+    target === "stash" ? "Stash diff:" : "Staged diff:",
     promptDiff
   ].filter((line) => line.length > 0).join("\n");
 }

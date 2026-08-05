@@ -62,6 +62,12 @@ import type {
   GitResetCommitRequest,
   GitRunRequest,
   GitSafeDirectoryRequest,
+  GitStashBranchRequest,
+  GitStashCreateRequest,
+  GitStashDetailsRequest,
+  GitStashFileDiffRequest,
+  GitStashListRequest,
+  GitStashRefRequest,
   GitSetRemoteUrlRequest,
   GitSubmoduleRequest,
   GitUpstreamRequest,
@@ -152,6 +158,12 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getFileBlame, request) as ReturnType<GitheadApi["getFileBlame"]>,
   getFileDiff: (request: GitFileDiffRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getFileDiff, request) as ReturnType<GitheadApi["getFileDiff"]>,
+  getStashes: (request: GitStashListRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getStashes, request) as ReturnType<GitheadApi["getStashes"]>,
+  getStashDetails: (request: GitStashDetailsRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getStashDetails, request) as ReturnType<GitheadApi["getStashDetails"]>,
+  getStashFileDiff: (request: GitStashFileDiffRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getStashFileDiff, request) as ReturnType<GitheadApi["getStashFileDiff"]>,
   getFilePreview: (request: GitFilePreviewRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getFilePreview, request) as ReturnType<GitheadApi["getFilePreview"]>,
   fetchLfsImageVersions: (request: CoordinatedRequest<GitLfsImageFetchRequest>) =>
@@ -170,6 +182,16 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.unstageHunk, request) as ReturnType<GitheadApi["unstageHunk"]>,
   commitChanges: (request: CoordinatedRequest<GitCommitRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.commitChanges, request) as ReturnType<GitheadApi["commitChanges"]>,
+  createStash: (request: CoordinatedRequest<GitStashCreateRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.createStash, request) as ReturnType<GitheadApi["createStash"]>,
+  applyStash: (request: CoordinatedRequest<GitStashRefRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.applyStash, request) as ReturnType<GitheadApi["applyStash"]>,
+  popStash: (request: CoordinatedRequest<GitStashRefRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.popStash, request) as ReturnType<GitheadApi["popStash"]>,
+  dropStash: (request: CoordinatedRequest<GitStashRefRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.dropStash, request) as ReturnType<GitheadApi["dropStash"]>,
+  createBranchFromStash: (request: CoordinatedRequest<GitStashBranchRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.createBranchFromStash, request) as ReturnType<GitheadApi["createBranchFromStash"]>,
   copyCommitShaToClipboard: (request: GitCommitHashRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.copyCommitShaToClipboard, request) as ReturnType<GitheadApi["copyCommitShaToClipboard"]>,
   resetBranchToCommit: (request: CoordinatedRequest<GitResetCommitRequest>) =>

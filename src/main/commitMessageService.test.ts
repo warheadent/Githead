@@ -30,6 +30,10 @@ class FakeGitService {
       stderr: this.exitCode === 0 ? "" : "fatal: failed"
     };
   }
+
+  async getStashDiff(repoPath: string) {
+    return this.getStagedDiff(repoPath);
+  }
 }
 
 class FakeProcessRunner implements ProcessRunner {
@@ -241,6 +245,28 @@ describe("CommitMessageService", () => {
     expect(body.messages.at(-1)?.content).toContain("+added");
     expect(body.messages[0]?.content).toContain("Return exactly the commit message text");
     expect(body.messages.at(-1)?.content).toContain("Write a concise Git commit message for the staged changes.");
+  });
+
+  it("builds a one-line stash message request from the selected stash scope", async () => {
+    const { service, calls } = createService({
+      response: { choices: [{ message: { content: "refactor cache cleanup\n\nextra text" } }] }
+    });
+
+    const result = await service.generateCommitMessage({
+      repoPath: "D:\\Repo",
+      stashSelection: {
+        scope: "selected",
+        paths: ["src/cache.ts"],
+        includeUntracked: false,
+        keepIndex: false
+      }
+    });
+
+    expect(result.stdout).toBe("refactor cache cleanup");
+    const body = JSON.parse(String(calls[0]?.init?.body)) as { messages: Array<{ content: string }> };
+    expect(body.messages[0]?.content).toContain("Return exactly the stash message text");
+    expect(body.messages.at(-1)?.content).toContain("Write a concise Git stash message for these changes.");
+    expect(body.messages.at(-1)?.content).toContain("Stash diff:");
   });
 
   it("retries an empty OpenRouter length response once with a larger limit", async () => {

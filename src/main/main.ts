@@ -72,6 +72,12 @@ import type {
   GitRunRequest,
   GitRunResult,
   GitSafeDirectoryRequest,
+  GitStashBranchRequest,
+  GitStashCreateRequest,
+  GitStashDetailsRequest,
+  GitStashFileDiffRequest,
+  GitStashListRequest,
+  GitStashRefRequest,
   GitSetRemoteUrlRequest,
   GitSubmoduleRequest,
   GitUpstreamRequest,
@@ -516,6 +522,21 @@ ipcMain.handle(IPC_CHANNELS.getFileDiff, (event, request: GitFileDiffRequest) =>
     processRunner.runWithSignal(signal, async () =>
       (await vcsRouter.serviceForRepo(request.repoPath)).getFileDiff(request))));
 
+ipcMain.handle(IPC_CHANNELS.getStashes, (event, request: GitStashListRequest) =>
+  handleRead(event, request, async (signal) =>
+    processRunner.runWithSignal(signal, async () =>
+      (await vcsRouter.serviceForRepo(request.repoPath)).getStashes(request))));
+
+ipcMain.handle(IPC_CHANNELS.getStashDetails, (event, request: GitStashDetailsRequest) =>
+  handleRead(event, request, async (signal) =>
+    processRunner.runWithSignal(signal, async () =>
+      (await vcsRouter.serviceForRepo(request.repoPath)).getStashDetails(request))));
+
+ipcMain.handle(IPC_CHANNELS.getStashFileDiff, (event, request: GitStashFileDiffRequest) =>
+  handleRead(event, request, async (signal) =>
+    processRunner.runWithSignal(signal, async () =>
+      (await vcsRouter.serviceForRepo(request.repoPath)).getStashFileDiff(request))));
+
 ipcMain.handle(IPC_CHANNELS.getFilePreview, (event, request: GitFilePreviewRequest) =>
   handleRead(event, request, async (signal) =>
     processRunner.runWithSignal(signal, async () =>
@@ -680,6 +701,33 @@ ipcMain.handle(IPC_CHANNELS.getAiSettings, async () => {
 
 ipcMain.handle(IPC_CHANNELS.saveAiSettings, async (_event, request: AiSettingsSaveRequest) => {
   return getAiSettingsService().saveSettings(request);
+});
+
+ipcMain.handle(IPC_CHANNELS.createStash, async (event, request: CoordinatedRequest<GitStashCreateRequest>) => {
+  return runTrustedExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).createStash(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
+});
+
+for (const [channel, operation] of [
+  [IPC_CHANNELS.applyStash, "applyStash"],
+  [IPC_CHANNELS.popStash, "popStash"],
+  [IPC_CHANNELS.dropStash, "dropStash"]
+] as const) {
+  ipcMain.handle(channel, async (event, request: CoordinatedRequest<GitStashRefRequest>) => {
+    return runTrustedExclusiveGitOperation(
+      async () => (await vcsRouter.serviceForRepo(request.repoPath))[operation](request),
+      repositoryOperationOptions(event, request.operationId, request.repoPath)
+    );
+  });
+}
+
+ipcMain.handle(IPC_CHANNELS.createBranchFromStash, async (event, request: CoordinatedRequest<GitStashBranchRequest>) => {
+  return runTrustedExclusiveGitOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).createBranchFromStash(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
 });
 
 ipcMain.handle(IPC_CHANNELS.getRepositoryAiSettings, async (_event, request: RepositoryAiSettingsRequest) => {

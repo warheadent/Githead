@@ -66,6 +66,15 @@ import type {
   RepoSectionRequest,
   RepoStatusSection,
   GitStatusFile,
+  GitStashBranchRequest,
+  GitStashCreateRequest,
+  GitStashDetails,
+  GitStashDetailsRequest,
+  GitStashEntry,
+  GitStashFileDiffRequest,
+  GitStashListRequest,
+  GitStashRefRequest,
+  GitStashSelection,
   GitSubmodule,
   GitSubmoduleRequest,
   GitUpstreamRequest,
@@ -92,6 +101,7 @@ import { readGitFileHistory } from "./gitFileHistory";
 import { readGitFileBlame } from "./gitBlame";
 import { runEffect, tryPromise } from "../shared/effectRuntime";
 import { runProcessEffect } from "./processEffect";
+import { GIT_STASH_LIST_FORMAT, isGitStashRef, parseGitStashFiles, parseGitStashList } from "./gitStash";
 
 export const GIT_ACTION_COMMANDS: Record<GitAction, string[]> = {
   fetch: [
@@ -442,6 +452,64 @@ export class GitService {
       : normalized;
   }
 
+  async getStashes(request: GitStashListRequest): Promise<GitStashEntry[]> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) throw new Error(validation.validationErrors.join(" "));
+    return this.readStashes(request.repoPath);
+  }
+
+  async getStashDetails(request: GitStashDetailsRequest): Promise<GitStashDetails> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) throw new Error(validation.validationErrors.join(" "));
+    const stashRef = request.stashRef.trim();
+    if (!isGitStashRef(stashRef)) throw new Error("Stash reference is invalid.");
+
+    const [stashes, filesResult] = await Promise.all([
+      this.readStashes(request.repoPath),
+      this.runGit(request.repoPath, [
+        "stash",
+        "show",
+        "--name-status",
+        "-z",
+        "--no-renames",
+        "--include-untracked",
+        stashRef
+      ])
+    ]);
+    if (filesResult.exitCode !== 0) {
+      throw new Error(filesResult.stderr.trim() || filesResult.error || "Unable to read stash files.");
+    }
+    const stash = stashes.find((entry) => entry.ref === stashRef);
+    if (!stash) throw new Error("The selected stash no longer exists.");
+    return { stash, files: parseGitStashFiles(filesResult.stdout) };
+  }
+
+  async getStashFileDiff(request: GitStashFileDiffRequest): Promise<GitFileDiff> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) return { path: request.path, side: "staged", kind: "error", text: validation.validationErrors.join(" ") };
+    const stashRef = request.stashRef.trim();
+    if (!isGitStashRef(stashRef)) return { path: request.path, side: "staged", kind: "error", text: "Stash reference is invalid." };
+    const pathResult = sanitizeSingleRepoPath(request.path);
+    if ("error" in pathResult) return { path: request.path, side: "staged", kind: "error", text: pathResult.error };
+
+    const diffArgs = (rightRevision: string) => [
+      "diff",
+      "--no-color",
+      "--no-ext-diff",
+      "--no-textconv",
+      `${stashRef}^1`,
+      rightRevision,
+      "--",
+      pathResult.path
+    ];
+    let result = await this.runGit(request.repoPath, diffArgs(stashRef));
+    if (result.exitCode === 0 && !result.stdout) {
+      const untrackedParent = await this.runGit(request.repoPath, ["rev-parse", "--verify", `${stashRef}^3`]);
+      if (untrackedParent.exitCode === 0) result = await this.runGit(request.repoPath, diffArgs(`${stashRef}^3`));
+    }
+    return normalizeDiffResult({ repoPath: request.repoPath, path: pathResult.path, side: "staged" }, result);
+  }
+
   async getFilePreview(request: GitFilePreviewRequest): Promise<GitFilePreview> {
     const validation = await this.validateRepo(request.repoPath);
     if (!validation.isValid) throw new Error(validation.validationErrors.join(" "));
@@ -782,6 +850,88 @@ export class GitService {
     }
 
     return result;
+  }
+
+  async createStash(request: GitStashCreateRequest): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+    const selection = this.validateStashSelection(request);
+    if ("error" in selection) return this.createOperationFailure(request.repoPath, selection.error);
+
+    const args = ["stash", "push"];
+    if (request.scope === "staged") args.push("--staged");
+    else if (request.includeUntracked) args.push("--include-untracked");
+    if (request.scope !== "staged" && request.keepIndex) args.push("--keep-index");
+    if (request.message.trim()) args.push("--message", request.message.trim());
+    if (request.scope === "selected") args.push("--pathspec-from-file=-", "--pathspec-file-nul");
+
+    return this.runGitOperation(
+      request.repoPath,
+      args,
+      request.scope === "selected" ? selection.paths : undefined
+    );
+  }
+
+  async getStashDiff(repoPath: string, request: GitStashSelection): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(repoPath);
+    if (!validation.isValid) return this.createOperationFailure(repoPath, validation.validationErrors.join(" "));
+    const selection = this.validateStashSelection(request);
+    if ("error" in selection) return this.createOperationFailure(repoPath, selection.error);
+
+    const commonArgs = ["--no-color", "--no-ext-diff", "--no-textconv"];
+    const diffArgs = request.scope === "staged"
+      ? ["diff", "--cached", ...commonArgs]
+      : ["diff", ...commonArgs, "HEAD"];
+    if (request.scope === "selected") diffArgs.push("--", ...selection.paths);
+    let diff = await this.runGitOperation(repoPath, diffArgs);
+
+    if (diff.exitCode !== 0 && request.scope !== "staged") {
+      const pathArgs = request.scope === "selected" ? ["--", ...selection.paths] : [];
+      const [staged, unstaged] = await Promise.all([
+        this.runGitOperation(repoPath, ["diff", "--cached", ...commonArgs, ...pathArgs]),
+        this.runGitOperation(repoPath, ["diff", ...commonArgs, ...pathArgs])
+      ]);
+      if (staged.exitCode !== 0) return staged;
+      if (unstaged.exitCode !== 0) return unstaged;
+      diff = { ...staged, stdout: [staged.stdout.trim(), unstaged.stdout.trim()].filter(Boolean).join("\n") };
+    }
+
+    if (!request.includeUntracked || request.scope === "staged") return diff;
+    const untracked = await this.runGit(repoPath, [
+      "ls-files",
+      "--others",
+      "--exclude-standard",
+      "-z",
+      ...(request.scope === "selected" ? ["--", ...selection.paths] : [])
+    ]);
+    if (untracked.exitCode !== 0) {
+      return this.createOperationFailure(repoPath, untracked.stderr.trim() || untracked.error || "Unable to read untracked files.");
+    }
+    const names = untracked.stdout.split("\0").filter(Boolean);
+    const untrackedSummary = names.length > 0 ? `Untracked files:\n${names.map((name) => `- ${name}`).join("\n")}` : "";
+    return { ...diff, stdout: [diff.stdout.trim(), untrackedSummary].filter(Boolean).join("\n\n") };
+  }
+
+  async applyStash(request: GitStashRefRequest): Promise<GitOperationResult> {
+    return this.runStashRefOperation(request, "apply");
+  }
+
+  async popStash(request: GitStashRefRequest): Promise<GitOperationResult> {
+    return this.runStashRefOperation(request, "pop");
+  }
+
+  async dropStash(request: GitStashRefRequest): Promise<GitOperationResult> {
+    return this.runStashRefOperation(request, "drop");
+  }
+
+  async createBranchFromStash(request: GitStashBranchRequest): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+    const stashRef = request.stashRef.trim();
+    if (!isGitStashRef(stashRef)) return this.createOperationFailure(request.repoPath, "Stash reference is invalid.");
+    const branch = await this.validateBranchName(request.repoPath, request.branchName);
+    if ("error" in branch) return this.createOperationFailure(request.repoPath, branch.error);
+    return this.runGitOperation(request.repoPath, ["stash", "branch", branch.branchName, stashRef]);
   }
 
   async resetBranchToCommit(request: GitResetCommitRequest): Promise<GitOperationResult> {
@@ -2694,6 +2844,39 @@ export class GitService {
       stderr: `${pushResult.stderr}${tagResult.stderr}`,
       ...(tagResult.error ? { error: tagResult.error } : {})
     };
+  }
+
+  private async readStashes(repoPath: string): Promise<GitStashEntry[]> {
+    const result = await this.runGit(repoPath, [
+      "stash",
+      "list",
+      `--format=${GIT_STASH_LIST_FORMAT}`
+    ]);
+    if (result.exitCode !== 0) {
+      throw new Error(result.stderr.trim() || result.error || "Unable to read stashes.");
+    }
+    return parseGitStashList(result.stdout);
+  }
+
+  private async runStashRefOperation(
+    request: GitStashRefRequest,
+    action: "apply" | "pop" | "drop"
+  ): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+    const stashRef = request.stashRef.trim();
+    if (!isGitStashRef(stashRef)) return this.createOperationFailure(request.repoPath, "Stash reference is invalid.");
+    return this.runGitOperation(request.repoPath, ["stash", action, stashRef]);
+  }
+
+  private validateStashSelection(request: GitStashSelection): { paths: string[] } | { error: string } {
+    if (request.scope !== "all" && request.scope !== "selected" && request.scope !== "staged") {
+      return { error: "Stash scope is invalid." };
+    }
+    if (request.scope === "staged" && (request.includeUntracked || request.keepIndex)) {
+      return { error: "Staged-only stashes cannot include untracked files or keep staged changes." };
+    }
+    return request.scope === "selected" ? sanitizeRepoPaths(request.paths) : { paths: [] };
   }
 
   private async runGitOperation(
