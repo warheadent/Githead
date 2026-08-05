@@ -34,7 +34,8 @@ describe("text generation prompts", () => {
     );
 
     expect(systemPrompt).toContain("specific title with 72 characters or fewer");
-    expect(systemPrompt).not.toContain("Conventional Commits");
+    expect(systemPrompt).toContain("Use Conventional Commits format: type(scope): subject");
+    expect(systemPrompt).toContain("Use only these lowercase types");
     expect(userPrompt).toContain("Base branch: main");
     expect(userPrompt).toContain("Head branch: feature/prompts");
   });
@@ -52,6 +53,7 @@ describe("text generation prompts", () => {
 
     expect(systemPrompt).toContain("'## Summary' and '## Testing'");
     expect(systemPrompt).toContain("'- Not run'");
+    expect(systemPrompt).not.toContain("Use Conventional Commits format");
     expect(userPrompt).toContain(DEFAULT_PR_DESCRIPTION_PROMPT);
     expect(userPrompt).toContain("Pull request title: Improve generated text");
     expect(userPrompt).toContain("Base branch: main");

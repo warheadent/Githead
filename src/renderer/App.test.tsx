@@ -7328,7 +7328,7 @@ describe("App", () => {
     await user.click(screen.getByRole("tab", { name: "AI" }));
     expect(await screen.findByText("Configure providers and instructions for generated Git content.")).toBeTruthy();
     expect((screen.getByLabelText("Writing style") as HTMLSelectElement).value).toBe("conventional_commits");
-    expect(screen.getByText("Uses Conventional Commit prefixes for commit messages; pull request titles and descriptions stay concise.")).toBeTruthy();
+    expect(screen.getByText("Uses Conventional Commit prefixes for commit messages and pull request titles. Pull request descriptions stay concise.")).toBeTruthy();
     await user.click(screen.getByRole("tab", { name: "Git Identity" }));
     await user.clear(screen.getByLabelText("Name"));
     await user.type(screen.getByLabelText("Name"), "Taylor");

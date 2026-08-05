@@ -11,7 +11,7 @@ export function createPrDescriptionSystemPrompt(
 ): string {
   return [
     "You write GitHub pull request descriptions in Markdown.",
-    ...createPullRequestWritingStyleInstructions(style),
+    ...createPullRequestWritingStyleInstructions(style, "description"),
     "Use the provided branch names, commits, and patch as evidence.",
     "Include the headings '## Summary' and '## Testing'.",
     "Use short '-' bullet points under each heading.",
@@ -26,7 +26,7 @@ export function createPrTitleSystemPrompt(
 ): string {
   return [
     "You write concise GitHub pull request titles.",
-    ...createPullRequestWritingStyleInstructions(style),
+    ...createPullRequestWritingStyleInstructions(style, "title"),
     "Capture the primary user-visible or developer-visible branch change.",
     "Write a specific title with 72 characters or fewer and no trailing period.",
     "Return exactly one title, without labels, markdown, quotes, commentary, or alternatives.",

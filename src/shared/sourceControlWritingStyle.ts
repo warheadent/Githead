@@ -5,6 +5,12 @@ export const DEFAULT_SOURCE_CONTROL_WRITING_STYLE: SourceControlWritingStyle = {
   customInstructions: ""
 };
 
+const CONVENTIONAL_COMMIT_INSTRUCTIONS = [
+  "Use Conventional Commits format: type(scope): subject.",
+  "Use only these lowercase types: feat, fix, refactor, perf, docs, test, build, ci, chore, revert.",
+  "Use the narrowest accurate type and include a scope only when the changes make it obvious."
+];
+
 export const SOURCE_CONTROL_WRITING_STYLE_OPTIONS: Record<
   SourceControlWritingStyleMode,
   { label: string; description: string }
@@ -15,7 +21,7 @@ export const SOURCE_CONTROL_WRITING_STYLE_OPTIONS: Record<
   },
   conventional_commits: {
     label: "Conventional Commits",
-    description: "Uses Conventional Commit prefixes for commit messages; pull request titles and descriptions stay concise."
+    description: "Uses Conventional Commit prefixes for commit messages and pull request titles. Pull request descriptions stay concise."
   },
   custom: {
     label: "Custom instructions",
@@ -28,22 +34,23 @@ export function createCommitWritingStyleInstructions(style: SourceControlWriting
     case "repo_conventions":
       return ["Follow the repository's established commit message style when recent examples are available."];
     case "conventional_commits":
-      return [
-        "Use Conventional Commits format: type(scope): subject.",
-        "Use only these lowercase types: feat, fix, refactor, perf, docs, test, build, ci, chore, revert.",
-        "Use the narrowest accurate type and include a scope only when the staged patch makes it obvious."
-      ];
+      return [...CONVENTIONAL_COMMIT_INSTRUCTIONS];
     case "custom":
       return style.customInstructions.trim() ? [style.customInstructions.trim()] : [];
   }
 }
 
-export function createPullRequestWritingStyleInstructions(style: SourceControlWritingStyle): string[] {
+export function createPullRequestWritingStyleInstructions(
+  style: SourceControlWritingStyle,
+  target: "title" | "description"
+): string[] {
   switch (style.mode) {
     case "repo_conventions":
       return ["Follow the repository's established writing style when recent commit examples are available."];
     case "conventional_commits":
-      return ["Keep the pull request title and description concise. Do not force Conventional Commit syntax into the title."];
+      return target === "title"
+        ? [...CONVENTIONAL_COMMIT_INSTRUCTIONS]
+        : ["Keep the pull request description concise."];
     case "custom":
       return style.customInstructions.trim() ? [style.customInstructions.trim()] : [];
   }
