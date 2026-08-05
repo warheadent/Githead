@@ -752,6 +752,10 @@ export interface GitCommitRequest {
   message: string;
 }
 
+export interface GitQuickCommitRequest extends GitCommitRequest {
+  paths: string[];
+}
+
 export interface GitCommitHashRequest {
   repoPath: string;
   hash: string;
@@ -1182,6 +1186,31 @@ export interface GenerateCommitMessageRequest {
   stashSelection?: GitStashSelection;
 }
 
+export interface CommitPlanGroup {
+  id: string;
+  message: string;
+  rationale: string;
+  paths: string[];
+}
+
+export interface CommitPlan {
+  groups: CommitPlanGroup[];
+  unassignedPaths: string[];
+}
+
+export interface GenerateCommitPlanRequest {
+  repoPath: string;
+  paths: string[];
+}
+
+export interface GenerateCommitPlanResult {
+  repoPath: string;
+  exitCode: number;
+  plan: CommitPlan | null;
+  stderr: string;
+  retriedAfterLength?: boolean;
+}
+
 export interface GeneratePrDescriptionRequest {
   repoPath: string;
   /** Remote-qualified base ref, e.g. "origin/main". */
@@ -1418,6 +1447,7 @@ export interface GitheadApi {
   stageHunk(request: CoordinatedRequest<GitHunkRequest>): Promise<GitOperationResult>;
   unstageHunk(request: CoordinatedRequest<GitHunkRequest>): Promise<GitOperationResult>;
   commitChanges(request: CoordinatedRequest<GitCommitRequest>): Promise<GitOperationResult>;
+  quickCommitFiles(request: CoordinatedRequest<GitQuickCommitRequest>): Promise<GitOperationResult>;
   createStash(request: CoordinatedRequest<GitStashCreateRequest>): Promise<GitOperationResult>;
   applyStash(request: CoordinatedRequest<GitStashRefRequest>): Promise<GitOperationResult>;
   popStash(request: CoordinatedRequest<GitStashRefRequest>): Promise<GitOperationResult>;
@@ -1457,6 +1487,7 @@ export interface GitheadApi {
   saveAppSettings(request: AppSettingsSaveRequest): Promise<AppSettings>;
   setWindowZoomFactor(zoomFactor: number): Promise<void>;
   generateCommitMessage(request: CoordinatedRequest<GenerateCommitMessageRequest>): Promise<GitOperationResult>;
+  generateCommitPlan(request: CoordinatedRequest<GenerateCommitPlanRequest>): Promise<GenerateCommitPlanResult>;
   generatePrTitle(request: CoordinatedRequest<GeneratePrTitleRequest>): Promise<GitOperationResult>;
   generatePrDescription(request: CoordinatedRequest<GeneratePrDescriptionRequest>): Promise<GitOperationResult>;
   openExternalUrl(request: ExternalUrlRequest): Promise<void>;

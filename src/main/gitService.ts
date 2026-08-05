@@ -24,6 +24,7 @@ import type {
   GitCommitGraphRow,
   GitCommitHashRequest,
   GitCommitHistoryRequest,
+  GitQuickCommitRequest,
   GitCommitRequest,
   GitCreateTagRequest,
   GitDeleteTagRequest,
@@ -850,6 +851,56 @@ export class GitService {
     }
 
     return result;
+  }
+
+  async quickCommitFiles(request: GitQuickCommitRequest): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+    }
+
+    const paths = sanitizePaths(request.paths);
+    if (paths.length === 0) {
+      return this.createOperationFailure(request.repoPath, "Select at least one file to commit.");
+    }
+    if (!request.message.trim()) {
+      return this.createOperationFailure(request.repoPath, "Enter a commit message.");
+    }
+
+    const indexCheck = await this.runGit(request.repoPath, [
+      "diff",
+      "--cached",
+      "--quiet",
+      "--no-ext-diff"
+    ]);
+    if (indexCheck.exitCode === 1) {
+      return this.createOperationFailure(request.repoPath, "Unstage existing files before using Quick Commit.");
+    }
+    if (indexCheck.exitCode !== 0) {
+      return this.createOperationFailure(
+        request.repoPath,
+        indexCheck.stderr.trim() || "Unable to check the staged files."
+      );
+    }
+
+    const stageResult = await this.stageFiles({ repoPath: request.repoPath, paths });
+    if (stageResult.exitCode !== 0) return stageResult;
+
+    const commitResult = await this.commitChanges({ repoPath: request.repoPath, message: request.message });
+    if (commitResult.exitCode === 0 || commitResult.errorKind === "missing-author-identity") {
+      return commitResult;
+    }
+
+    const rollbackResult = await this.unstageFiles({ repoPath: request.repoPath, paths });
+    if (rollbackResult.exitCode === 0) return commitResult;
+    return {
+      ...commitResult,
+      stderr: [
+        commitResult.stderr,
+        "Githead could not restore the staged state.",
+        rollbackResult.stderr
+      ].filter(Boolean).join("\n")
+    };
   }
 
   async createStash(request: GitStashCreateRequest): Promise<GitOperationResult> {

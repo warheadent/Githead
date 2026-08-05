@@ -2755,6 +2755,77 @@ describe("GitService", () => {
     expect(stdinText(runner.calls.at(-1)!)).toBe("subject\n\nbody\n");
   });
 
+  it("stages and commits only the Quick Commit paths", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok(),
+      ok("true\n"),
+      ok(),
+      ok(),
+      ok("true\n"),
+      ok("[main abc123] focused change\n")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.quickCommitFiles({
+      repoPath: "D:\\Repo",
+      paths: ["src/a.ts", "src/a.test.ts"],
+      message: "feat: focused change"
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(runner.calls[1]?.args).toEqual([
+      "-C", "D:\\Repo", "diff", "--cached", "--quiet", "--no-ext-diff"
+    ]);
+    expect(stdinText(runner.calls[4]!)).toBe("src/a.ts\0src/a.test.ts\0");
+    expect(runner.calls.at(-1)?.args).toEqual(["-C", "D:\\Repo", "commit", "--file=-"]);
+  });
+
+  it("blocks Quick Commit when the index contains staged files", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      failure("")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.quickCommitFiles({
+      repoPath: "D:\\Repo",
+      paths: ["src/a.ts"],
+      message: "feat: focused change"
+    });
+
+    expect(result.exitCode).toBe(-1);
+    expect(result.stderr).toBe("Unstage existing files before using Quick Commit.");
+    expect(runner.calls).toHaveLength(2);
+  });
+
+  it("restores the staged state after a normal Quick Commit failure", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok(),
+      ok("true\n"),
+      ok(),
+      ok(),
+      ok("true\n"),
+      failure("fatal: cannot lock ref"),
+      ok("true\n"),
+      ok(`${oid}\n`),
+      ok()
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.quickCommitFiles({
+      repoPath: "D:\\Repo",
+      paths: ["src/a.ts"],
+      message: "feat: focused change"
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(runner.calls.at(-1)?.args).toEqual([
+      "-C", "D:\\Repo", "restore", "--staged", "--pathspec-from-file=-", "--pathspec-file-nul"
+    ]);
+  });
+
   it("reads structured stash entries", async () => {
     const runner = new FakeRunner([
       ok("true\n"),

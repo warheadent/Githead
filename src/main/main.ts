@@ -37,7 +37,10 @@ import type {
   GitCommitHashRequest,
   GitCommitHistoryRequest,
   GenerateCommitMessageRequest,
+  GenerateCommitPlanRequest,
+  GenerateCommitPlanResult,
   GitCommitRequest,
+  GitQuickCommitRequest,
   GitCreateTagRequest,
   GitDeleteTagRequest,
   GitFileChangesRequest,
@@ -90,6 +93,7 @@ import { AiSettingsService } from "./aiSettingsService";
 import { AiReasoningCapabilityService } from "./aiReasoningCapabilityService";
 import { AppSettingsService, normalizeZoomFactorForSave } from "./appSettingsService";
 import { CommitMessageService } from "./commitMessageService";
+import { CommitPlanService } from "./commitPlanService";
 import { CancellableProcessRunner } from "./cancellableProcessRunner";
 import {
   runCoordinatedRepositoryOperation,
@@ -138,6 +142,7 @@ let aiReasoningCapabilityService: AiReasoningCapabilityService | null = null;
 let appSettingsService: AppSettingsService | null = null;
 let gitIdentityService: GitIdentityService | null = null;
 let commitMessageService: CommitMessageService | null = null;
+let commitPlanService: CommitPlanService | null = null;
 let prDescriptionService: PrDescriptionService | null = null;
 let githubService: GitHubService | null = null;
 let githubClient: GitHubClient | null = null;
@@ -703,6 +708,15 @@ ipcMain.handle(IPC_CHANNELS.saveAiSettings, async (_event, request: AiSettingsSa
   return getAiSettingsService().saveSettings(request);
 });
 
+ipcMain.handle(IPC_CHANNELS.quickCommitFiles, async (event, request: CoordinatedRequest<GitQuickCommitRequest>) => {
+  return runTrustedExclusiveGitOperation(
+    async () => (await vcsRouter.resolveKind(request.repoPath)) === "git"
+      ? gitService.quickCommitFiles(request)
+      : createOperationFailure(request.repoPath, "Quick Commit is available only for Git repositories."),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
+});
+
 ipcMain.handle(IPC_CHANNELS.createStash, async (event, request: CoordinatedRequest<GitStashCreateRequest>) => {
   return runTrustedExclusiveGitOperation(
     async () => (await vcsRouter.serviceForRepo(request.repoPath)).createStash(request),
@@ -989,6 +1003,16 @@ ipcMain.handle(IPC_CHANNELS.runGitAction, async (event, request: CoordinatedRequ
       request.repoPath,
       "Another git command is already running for this repository."
     )
+  );
+});
+
+ipcMain.handle(IPC_CHANNELS.generateCommitPlan, async (event, request: CoordinatedRequest<GenerateCommitPlanRequest>) => {
+  return runExclusiveRepositoryOperation<GenerateCommitPlanResult>(
+    repositoryOperationOptions(event, request.operationId, request.repoPath),
+    async (signal) => (await vcsRouter.resolveKind(request.repoPath)) === "git"
+      ? getCommitPlanService().generateCommitPlan(request, signal)
+      : createCommitPlanFailure(request.repoPath, "Commit plans are available only for Git repositories."),
+    () => createCommitPlanFailure(request.repoPath, "Another operation is already running for this repository.")
   );
 });
 
@@ -1394,6 +1418,26 @@ function getCommitMessageService(): CommitMessageService {
     getAiReasoningCapabilityService()
   );
   return commitMessageService;
+}
+
+function getCommitPlanService(): CommitPlanService {
+  commitPlanService ??= new CommitPlanService(
+    (repoPath) => vcsRouter.serviceForRepo(repoPath),
+    getAiSettingsService(),
+    fetch,
+    processRunner,
+    getAiReasoningCapabilityService()
+  );
+  return commitPlanService;
+}
+
+function createCommitPlanFailure(repoPath: string, stderr: string): GenerateCommitPlanResult {
+  return {
+    repoPath,
+    exitCode: -1,
+    plan: null,
+    stderr
+  };
 }
 
 function getPrDescriptionService(): PrDescriptionService {

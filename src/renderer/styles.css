@@ -939,6 +939,205 @@ textarea,
   white-space: nowrap;
 }
 
+.commit-plan-view {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  background: var(--card);
+}
+
+.commit-plan-toolbar {
+  display: flex;
+  min-height: 64px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--border);
+  padding: 10px 16px;
+}
+
+.commit-plan-toolbar h2 {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.commit-plan-toolbar p,
+.commit-plan-group-copy p {
+  margin-top: 2px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.commit-plan-notice,
+.commit-plan-error {
+  margin: 12px 12px 0;
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warning) 9%, var(--card));
+  padding: 9px 11px;
+  color: var(--foreground);
+  font-size: 12px;
+}
+
+.commit-plan-error {
+  border-color: color-mix(in srgb, var(--destructive) 45%, var(--border));
+  background: color-mix(in srgb, var(--destructive) 8%, var(--card));
+}
+
+.commit-plan-scroll {
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+}
+
+.commit-plan-empty {
+  display: flex;
+  min-height: 220px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--muted-foreground);
+  text-align: center;
+}
+
+.commit-plan-empty svg {
+  width: 24px;
+  height: 24px;
+  color: var(--primary);
+}
+
+.commit-plan-empty strong {
+  color: var(--foreground);
+  font-size: 14px;
+}
+
+.commit-plan-empty span {
+  max-width: 340px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.commit-plan-group {
+  overflow: hidden;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--foreground) 5%, transparent);
+}
+
+.commit-plan-group-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: start;
+  gap: 9px;
+  border-bottom: 1px solid var(--border);
+  padding: 10px;
+}
+
+.commit-plan-group-copy {
+  min-width: 0;
+}
+
+.commit-plan-group-copy input {
+  height: 30px;
+  font-weight: 600;
+}
+
+.commit-plan-marker {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--primary);
+}
+
+.commit-plan-group-header > .commit-plan-marker {
+  margin-top: 11px;
+}
+
+.commit-plan-marker-1 { background: #a855f7; }
+.commit-plan-marker-2 { background: #f59e0b; }
+.commit-plan-marker-3 { background: #10b981; }
+.commit-plan-marker-4 { background: #f43f5e; }
+.commit-plan-marker-5 { background: #06b6d4; }
+
+.commit-plan-files {
+  display: grid;
+}
+
+.commit-plan-file {
+  display: grid;
+  min-height: 38px;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  padding: 4px 8px 4px 12px;
+}
+
+.commit-plan-file:last-child {
+  border-bottom: 0;
+}
+
+.commit-plan-file:hover,
+.commit-plan-file.is-selected {
+  background: var(--accent);
+}
+
+.commit-plan-file input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--primary);
+}
+
+.commit-plan-file-name {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 7px;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  text-align: left;
+}
+
+.commit-plan-file-name span,
+.commit-plan-file-name small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commit-plan-file-name span {
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.commit-plan-file-name small {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.commit-plan-unassigned {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.commit-plan-unassigned h3 {
+  margin-bottom: 6px;
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .repo-upstream-error {
   grid-column: 1 / -1;
   margin: 0;

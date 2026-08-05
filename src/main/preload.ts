@@ -33,7 +33,9 @@ import type {
   GitCommitHashRequest,
   GitCommitHistoryRequest,
   GenerateCommitMessageRequest,
+  GenerateCommitPlanRequest,
   GitCommitRequest,
+  GitQuickCommitRequest,
   GitCreateTagRequest,
   GitDeleteTagRequest,
   GitFileChangesRequest,
@@ -182,6 +184,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.unstageHunk, request) as ReturnType<GitheadApi["unstageHunk"]>,
   commitChanges: (request: CoordinatedRequest<GitCommitRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.commitChanges, request) as ReturnType<GitheadApi["commitChanges"]>,
+  quickCommitFiles: (request: CoordinatedRequest<GitQuickCommitRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.quickCommitFiles, request) as ReturnType<GitheadApi["quickCommitFiles"]>,
   createStash: (request: CoordinatedRequest<GitStashCreateRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.createStash, request) as ReturnType<GitheadApi["createStash"]>,
   applyStash: (request: CoordinatedRequest<GitStashRefRequest>) =>
@@ -260,6 +264,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.setWindowZoomFactor, zoomFactor) as ReturnType<GitheadApi["setWindowZoomFactor"]>,
   generateCommitMessage: (request: CoordinatedRequest<GenerateCommitMessageRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.generateCommitMessage, request) as ReturnType<GitheadApi["generateCommitMessage"]>,
+  generateCommitPlan: (request: CoordinatedRequest<GenerateCommitPlanRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.generateCommitPlan, request) as ReturnType<GitheadApi["generateCommitPlan"]>,
   generatePrTitle: (request: CoordinatedRequest<GeneratePrTitleRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.generatePrTitle, request) as ReturnType<GitheadApi["generatePrTitle"]>,
   generatePrDescription: (request: CoordinatedRequest<GeneratePrDescriptionRequest>) =>

@@ -125,6 +125,7 @@ import type {
   AppUiFont,
   AppUpdateState,
   CommitHistoryScope,
+  GenerateCommitPlanResult,
   GitBranch,
   GitAction,
   GitConfiguredActionFile,
@@ -181,6 +182,7 @@ import { isMarkdownPath } from "../shared/filePreview";
 import { parseCommitSubject } from "../shared/commitSubject";
 import { parseGitHubReferences } from "../shared/githubReference";
 import { ActivityLogView } from "./ActivityLogView";
+import { CommitPlanView } from "./CommitPlanView";
 import { BranchManagementDialog } from "./BranchManagementDialog";
 import { WorktreeCreateDialog, WorktreeRemoveDialog } from "./WorktreeDialogs";
 import { PullRecoveryDialog } from "./PullRecoveryDialog";
@@ -815,6 +817,7 @@ const initialWindowState: AppWindowState = {
 
 export function App(): ReactNode {
   const [state, setState] = useState<AppState>(initialState);
+  const [statusWorkspaceMode, setStatusWorkspaceMode] = useState<"files" | "plan">("files");
   const [stashComposer, setStashComposer] = useState<StashComposerState>(emptyStashComposer);
   const [repositoryAiSettingsPath, setRepositoryAiSettingsPath] = useState("");
   const [workflowQuery, setWorkflowQuery] = useState<GitHubWorkflowRunQuery>({ ...DEFAULT_WORKFLOW_QUERY });
@@ -4470,6 +4473,58 @@ export function App(): ReactNode {
     return result;
   }, [ensureTrustedRepo, isInvocationCurrent, openGitIdentityPrompt, runRepoOperation, updateState]);
 
+  const generateCommitPlan = useCallback(async (paths: string[]): Promise<GenerateCommitPlanResult | null> => {
+    const current = stateRef.current;
+    if (!current.summary?.isValid || current.summary.kind !== "git" || isOperationRunning(current)) return null;
+    const repoPath = current.repoPath;
+    let generated: GenerateCommitPlanResult | null = null;
+    const operationResult = await runRepoOperation("Generating commit plan", undefined, async (operationId) => {
+      generated = await window.githead.generateCommitPlan({ repoPath, paths, operationId });
+      return {
+        repoPath,
+        exitCode: generated.exitCode,
+        stdout: "",
+        stderr: generated.stderr
+      };
+    });
+    return operationResult ? generated : null;
+  }, [runRepoOperation]);
+
+  const quickCommitPlannedFiles = useCallback(async (paths: string[], message: string): Promise<GitOperationResult | null> => {
+    const current = stateRef.current;
+    if (!current.summary?.isValid || current.summary.kind !== "git" || isOperationRunning(current)) return null;
+    if (getStagedFiles(current.summary).length > 0) {
+      return {
+        repoPath: current.repoPath,
+        exitCode: -1,
+        stdout: "",
+        stderr: "Unstage existing files before using Quick Commit."
+      };
+    }
+    const availablePaths = new Set(getUnstagedFiles(current.summary).filter(canStageStatusFile).map((file) => file.path));
+    if (paths.length === 0 || paths.some((path) => !availablePaths.has(path))) {
+      return {
+        repoPath: current.repoPath,
+        exitCode: -1,
+        stdout: "",
+        stderr: "The working-tree files changed. Generate the commit plan again."
+      };
+    }
+
+    const repoPath = current.repoPath;
+    if (!(await ensureTrustedRepo(repoPath)) || !isSameRepoPath(repoPath, stateRef.current.repoPath)) return null;
+    const result = await runRepoOperation("Creating quick commit", null, (operationId) => window.githead.quickCommitFiles({
+      repoPath,
+      paths,
+      message,
+      operationId
+    }));
+    if (result?.errorKind === "missing-author-identity") {
+      await openGitIdentityPrompt(repoPath, message);
+    }
+    return result;
+  }, [ensureTrustedRepo, openGitIdentityPrompt, runRepoOperation]);
+
   const commitAndPush = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
     if (!current.summary?.isValid || isOperationRunning(current) || !canCommit(current)) {
@@ -6084,6 +6139,8 @@ export function App(): ReactNode {
                   diff={state.diff}
                   diffLoading={state.diffLoading}
                   disabled={disableActions}
+                  workspaceMode={statusWorkspaceMode}
+                  onWorkspaceModeChange={setStatusWorkspaceMode}
                   viewMode={state.appSettings?.statusFileViewMode ?? "list"}
                   onViewModeChange={(statusFileViewMode) => saveAppSettingsPreference(
                     { statusFileViewMode },
@@ -6110,6 +6167,10 @@ export function App(): ReactNode {
                   }}
                   onUpdateSubmodules={(path) => { void updateSubmodules(path); }}
                   onSyncSubmodules={() => { void syncSubmodules(); }}
+                  canGeneratePlan={canUseSelectedAiProvider(state.aiSettings)}
+                  generatePlanTitle={getCommitPlanGenerateTitle(state)}
+                  onGeneratePlan={generateCommitPlan}
+                  onQuickCommit={quickCommitPlannedFiles}
                   composer={stashComposer.open ? (
                     <StashComposerDialog
                       open
@@ -6348,7 +6409,7 @@ export function App(): ReactNode {
               </TabsContent>
             </Tabs>
 
-            {state.activeView === "status" ? (
+            {state.activeView === "status" && statusWorkspaceMode === "files" ? (
               <CommitPanel
                 commitMessage={state.commitMessage}
                 generationError={state.commitMessageGenerationError}
@@ -8581,6 +8642,8 @@ function StatusView({
   diff,
   diffLoading,
   disabled,
+  workspaceMode,
+  onWorkspaceModeChange,
   viewMode,
   onViewModeChange,
   wrapLines,
@@ -8594,6 +8657,10 @@ function StatusView({
   onContextAction,
   onUpdateSubmodules,
   onSyncSubmodules,
+  canGeneratePlan,
+  generatePlanTitle,
+  onGeneratePlan,
+  onQuickCommit,
   composer
 }: {
   stagedFiles: GitStatusFile[];
@@ -8603,6 +8670,8 @@ function StatusView({
   diff: GitFileDiff | null;
   diffLoading: boolean;
   disabled: boolean;
+  workspaceMode: "files" | "plan";
+  onWorkspaceModeChange: (mode: "files" | "plan") => void;
   viewMode: StatusFileViewMode;
   onViewModeChange: (mode: StatusFileViewMode) => void;
   wrapLines: boolean;
@@ -8616,6 +8685,10 @@ function StatusView({
   onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind, paths?: string[]) => void;
   onUpdateSubmodules: (path?: string) => void;
   onSyncSubmodules: () => void;
+  canGeneratePlan: boolean;
+  generatePlanTitle: string;
+  onGeneratePlan: (paths: string[]) => Promise<GenerateCommitPlanResult | null>;
+  onQuickCommit: (paths: string[], message: string) => Promise<GitOperationResult | null>;
   composer?: ReactNode;
 }): ReactNode {
   const stagedSelectionPaths = selection?.side === "staged" ? getSelectionPaths(selection) : [];
@@ -8658,10 +8731,26 @@ function StatusView({
               </DropdownMenu>
             ) : null}
             <div className="ml-auto inline-flex rounded-md border p-0.5" role="group" aria-label="Changed file view mode">
-              <TooltipButton type="button" variant={viewMode === "list" ? "secondary" : "ghost"} size="icon-xs" aria-pressed={viewMode === "list"} aria-label="List view" tooltip="Show files as a list" onClick={() => onViewModeChange("list")}><List /></TooltipButton>
-              <TooltipButton type="button" variant={viewMode === "tree" ? "secondary" : "ghost"} size="icon-xs" aria-pressed={viewMode === "tree"} aria-label="Tree view" tooltip="Show files as a tree" onClick={() => onViewModeChange("tree")}><ListTree /></TooltipButton>
+              <TooltipButton type="button" variant={workspaceMode === "files" && viewMode === "list" ? "secondary" : "ghost"} size="icon-xs" aria-pressed={workspaceMode === "files" && viewMode === "list"} aria-label="List view" tooltip="Show files as a list" onClick={() => { onWorkspaceModeChange("files"); onViewModeChange("list"); }}><List /></TooltipButton>
+              <TooltipButton type="button" variant={workspaceMode === "files" && viewMode === "tree" ? "secondary" : "ghost"} size="icon-xs" aria-pressed={workspaceMode === "files" && viewMode === "tree"} aria-label="Tree view" tooltip="Show files as a tree" onClick={() => { onWorkspaceModeChange("files"); onViewModeChange("tree"); }}><ListTree /></TooltipButton>
+              <TooltipButton type="button" variant={workspaceMode === "plan" ? "secondary" : "ghost"} size="icon-xs" aria-pressed={workspaceMode === "plan"} aria-label="Commit plan view" tooltip="Group files into planned commits" onClick={() => onWorkspaceModeChange("plan")}><Sparkles /></TooltipButton>
             </div>
           </div>
+          {workspaceMode === "plan" ? (
+            <CommitPlanView
+              repoPath={summary?.repoPath ?? ""}
+              files={unstagedFiles}
+              stagedCount={stagedFiles.length}
+              selectedPath={selection?.side === "unstaged" ? selection.path : null}
+              disabled={disabled}
+              supported={summary?.kind === "git"}
+              canGenerate={canGeneratePlan}
+              generateTitle={generatePlanTitle}
+              onSelectFile={(file) => onSelectFile(file, "unstaged", { extendRange: false, selectAll: false, toggle: false })}
+              onGenerate={onGeneratePlan}
+              onQuickCommit={onQuickCommit}
+            />
+          ) : (
           <ResizablePanelGroup id="status-file-groups" orientation="vertical" className="min-h-0">
             <ResizablePanel id="staged-file-group" defaultSize="50%" minSize="96px">
               <FileGroup
@@ -8749,6 +8838,7 @@ function StatusView({
               />
             </ResizablePanel>
           </ResizablePanelGroup>
+          )}
         </div>
       </ResizablePanel>
       <ResizableHandle />
@@ -12199,6 +12289,20 @@ function getGenerateMessageTitle(state: AppState): string {
   }
 
   return "Generate a commit message from staged changes.";
+}
+
+function getCommitPlanGenerateTitle(state: AppState): string {
+  if (state.summary?.kind !== "git") {
+    return "Commit plan is available only for Git repositories.";
+  }
+  if (!canUseSelectedAiProvider(state.aiSettings)) {
+    const provider = state.aiSettings?.selectedProvider ?? "openrouter";
+    if (isCliProvider(provider)) {
+      return `Install and authenticate ${getAiProviderLabel(provider)} before generating a commit plan.`;
+    }
+    return `Configure ${getAiProviderLabel(provider)} settings before generating a commit plan.`;
+  }
+  return "Generate a commit plan from unstaged changes.";
 }
 
 function getStashGenerateMessageTitle(state: AppState): string {
