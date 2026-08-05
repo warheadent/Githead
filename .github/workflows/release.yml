@@ -132,9 +132,7 @@ jobs:
   release_notes:
     name: Queue release notes
     runs-on: ubuntu-latest
-    needs:
-      - windows
-      - linux
+    needs: windows
 
     steps:
       - name: Queue release-note generation
