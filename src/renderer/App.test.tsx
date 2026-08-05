@@ -2171,6 +2171,13 @@ describe("App", () => {
     await waitFor(() => expect(githead.applyStash).toHaveBeenCalledWith({ repoPath, stashRef: "stash@{0}", operationId: expect.any(String) }));
   });
 
+  it("hides the Stashes tab when the repository has no stashes", async () => {
+    render(<App />);
+
+    await waitFor(() => expect(githead.getStashes).toHaveBeenCalled());
+    expect(screen.queryByRole("tab", { name: "Stashes" })).toBeNull();
+  });
+
   it("uses only an unselected context-menu row instead of the previous multi-selection", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({

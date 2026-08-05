@@ -4876,6 +4876,23 @@ export function App(): ReactNode {
     if (view === "issues") void github.ensure("issues");
   }, [github.ensure, loadCommitHistory, refreshDirtyFileStatus, stashWorkspace.refresh, updateState]);
 
+  useEffect(() => {
+    if (
+      state.activeView !== "stashes" ||
+      stashWorkspace.state.loading ||
+      stashWorkspace.state.entries.length > 0
+    ) {
+      return;
+    }
+
+    setWorkspaceView("status");
+  }, [
+    setWorkspaceView,
+    stashWorkspace.state.entries.length,
+    stashWorkspace.state.loading,
+    state.activeView
+  ]);
+
   const selectFile = useCallback((file: GitStatusFile, side: GitDiffSide, modifiers: FileSelectionModifiers): void => {
     const selection = buildFileSelection(
       stateRef.current.selection,
@@ -5785,6 +5802,9 @@ export function App(): ReactNode {
     ? { kind: "active", token: cloneCancellation.token, operationId: cloneCancellation.operationId }
     : null;
   const showGitHubTabs = Boolean(state.summary?.githubRepository);
+  const showStashesTab = Boolean(
+    state.summary?.capabilities.stashes && stashWorkspace.state.entries.length > 0
+  );
   const pullRequestTabCount = github.counts.data ? formatCompactCount(github.counts.data.pullRequests) : null;
   const issueTabCount = github.counts.data ? formatCompactCount(github.counts.data.issues) : null;
 
@@ -5999,7 +6019,7 @@ export function App(): ReactNode {
                     <ListTree />
                     File Status
                   </TabsTrigger>
-                  {state.summary?.capabilities.stashes ? (
+                  {showStashesTab ? (
                     <TabsTrigger
                       value="stashes"
                       aria-label={stashWorkspace.state.entries.length ? `Stashes ${stashWorkspace.state.entries.length}` : "Stashes"}
@@ -6108,7 +6128,7 @@ export function App(): ReactNode {
                 />
               </TabsContent>
 
-              {state.summary?.capabilities.stashes ? (
+              {showStashesTab ? (
                 <TabsContent forceMount value="stashes" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
                   <StashesView
                     entries={stashWorkspace.state.entries}
