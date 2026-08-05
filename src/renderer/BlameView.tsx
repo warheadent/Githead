@@ -4,6 +4,7 @@ import type { GitFileBlameResult } from "../shared/types";
 import { Button } from "@/components/ui/button";
 import { TooltipTarget } from "@/components/ui/tooltip";
 import { FixedSizeVirtualList } from "./FixedSizeVirtualList";
+import { LoadingState } from "./LoadingState";
 
 export interface BlameViewProps {
   path: string;
@@ -26,7 +27,7 @@ export function BlameView({ path, result, loading, error, backLabel, onBack, onR
         <div className="min-w-0 flex-1"><p className="eyebrow">Blame</p><TooltipTarget content={path}><h2 className="truncate text-sm font-semibold">{path}</h2></TooltipTarget></div>
         {result?.kind === "text" ? <span className="text-xs text-muted-foreground">{result.lines.length.toLocaleString()} lines</span> : null}
       </header>
-      {loading ? <p className="empty-state" role="status">Loading blame...</p> : error ? (
+      {loading ? <LoadingState label="Loading blame" className="h-full" /> : error ? (
         <div className="empty-state bad" role="alert"><p>{error}</p><Button type="button" variant="outline" size="sm" onClick={onRetry}>Retry</Button></div>
       ) : result?.kind === "unavailable" ? (
         <div className="empty-state"><p>{result.message}</p></div>

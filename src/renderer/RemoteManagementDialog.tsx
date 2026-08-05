@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TooltipTarget } from "@/components/ui/tooltip";
 import type { GitRemoteConfig } from "../shared/types";
+import { LoadingState } from "./LoadingState";
 
 type RemoteDialogMode =
   | { kind: "list" }
@@ -281,7 +282,7 @@ function RemoteList({
         </Button>
       </div>
       <div className="max-h-[55vh] space-y-3 overflow-auto pr-1" aria-live="polite" aria-busy={loading}>
-        {loading ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="animate-spin" /> Loading remotes…</p> : null}
+        {loading ? <LoadingState label="Loading remotes" /> : null}
         {!loading && error ? (
           <div className="grid gap-3 rounded-md border border-destructive/40 p-4" role="alert">
             <p className="error-text selectable-text">{error}</p>

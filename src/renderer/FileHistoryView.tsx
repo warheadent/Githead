@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import type { GitFileHistoryEntry } from "../shared/types";
 import { Button } from "@/components/ui/button";
 import { TooltipTarget } from "@/components/ui/tooltip";
+import { LoadingState } from "./LoadingState";
 
 export interface FileHistoryViewProps {
   path: string;
@@ -33,7 +34,7 @@ export function FileHistoryView({ path, entries, selectedHash, loading, error, h
       </header>
       <div className="historical-file-body">
         <div className="file-history-list" role="listbox" aria-label={`History for ${path}`}>
-          {loading && entries.length === 0 ? <p className="empty-state" role="status">Loading file history...</p> : null}
+          {loading && entries.length === 0 ? <LoadingState label="Loading file history" /> : null}
           {error && entries.length === 0 ? <div className="empty-state bad" role="alert"><p>{error}</p><Button type="button" variant="outline" size="sm" onClick={onRetry}>Retry</Button></div> : null}
           {!loading && !error && entries.length === 0 ? <p className="empty-state">No history is available for this file.</p> : null}
           {entries.map((entry) => (

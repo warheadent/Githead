@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import type { GitStashDetails, GitStashEntry } from "../shared/types";
+import { LoadingState } from "./LoadingState";
 
 export function StashesView({
   entries,
@@ -103,7 +104,7 @@ export function StashesView({
             ) : null}
             <div className="min-h-0 overflow-y-auto">
               {error ? <div className="stash-empty"><p role="alert">{error}</p><Button type="button" variant="outline" size="sm" onClick={onRefresh}>Try again</Button></div>
-                : loading && entries.length === 0 ? <p className="empty-state">Loading stashes...</p>
+                : loading && entries.length === 0 ? <LoadingState label="Loading stashes" />
                   : entries.length === 0 ? <div className="stash-empty"><Archive /><h3>No stashes</h3><p>Right-click changed files in File Status to create a stash.</p></div>
                     : visibleEntries.length === 0 ? <div className="stash-empty stash-filter-empty"><Search /><h3>No matching stashes</h3><p>Change the search text to see other stashes.</p></div>
                       : <div role="listbox" aria-label="Saved stashes" className="stash-list">{visibleEntries.map((entry) => (
@@ -143,7 +144,7 @@ export function StashesView({
                 </div>
               </header>
               {detailsError ? <div className="stash-empty"><p role="alert">{detailsError}</p><Button type="button" variant="outline" size="sm" onClick={() => onSelect(selected.ref)}>Try again</Button></div>
-                : detailsLoading || !details ? <p className="empty-state">Loading stash details...</p>
+                : detailsLoading || !details ? <LoadingState label="Loading stash details" className="h-full" />
                   : <div className={`stash-review-workspace ${filesCollapsed ? "files-collapsed" : ""}`}>
                       <aside className="stash-file-panel" aria-label="Changed files">
                         <div className="stash-file-panel-header">

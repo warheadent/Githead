@@ -427,7 +427,7 @@ describe("App", () => {
     await screen.findByRole("option", { name: /stable current history/ });
 
     await user.click(screen.getByRole("button", { name: "All" }));
-    expect(await screen.findByText("Loading commit history...")).toBeTruthy();
+    expect(await screen.findByText("Loading commit history")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Current" }));
     await screen.findByRole("option", { name: /stable current history/ });
     pendingAllHistory.resolve([staleRemoteCommit, currentCommit]);
@@ -531,7 +531,7 @@ describe("App", () => {
     const diffCallsBeforeRefreshCompletes = vi.mocked(githead.getCommitFileDiff).mock.calls.length;
 
     expect(secondRow.getAttribute("aria-selected")).toBe("true");
-    expect(screen.queryByText("Loading commit history...")).toBeNull();
+    expect(screen.queryByText("Loading commit history")).toBeNull();
     expect(screen.getByText("Refreshing commit history")).toBeTruthy();
 
     pendingHistory.resolve([newHead, firstCommit, secondCommit]);
@@ -633,7 +633,7 @@ describe("App", () => {
 
     expect(await screen.findByText("Commit history refresh failed: history unavailable")).toBeTruthy();
     expect(commitRow.getAttribute("aria-selected")).toBe("true");
-    expect(screen.queryByText("Loading commit history...")).toBeNull();
+    expect(screen.queryByText("Loading commit history")).toBeNull();
   });
 
   it("shows a blocking error when the initial history load fails", async () => {
@@ -1002,7 +1002,7 @@ describe("App", () => {
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
     await user.click(await screen.findByRole("menuitem", { name: "Blame Selected" }));
-    await screen.findByText("Loading blame...");
+    await screen.findByText("Loading blame");
     await user.click(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
     pendingBlame.resolve({
       kind: "text", repoPath, hash: commit.hash, path: file.path, byteLength: 4,
@@ -3149,7 +3149,7 @@ describe("App", () => {
 
     await user.click(await screen.findByRole("button", { name: "Release Notes" }));
 
-    expect((await screen.findByRole("status")).textContent).toBe("Loading…");
+    expect((await screen.findByRole("status")).textContent).toBe("Loading release notes");
   });
 
   it("shows app release notes errors without hiding update actions", async () => {

@@ -55,6 +55,7 @@ import {
 } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button, TooltipButton } from "@/components/ui/button";
+import { LoadingState } from "./LoadingState";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -6126,7 +6127,7 @@ export function App(): ReactNode {
                         diff={stashWorkspace.state.diff}
                         filePath={stashWorkspace.state.selectedFilePath ?? ""}
                         loading={stashWorkspace.state.diffLoading}
-                        emptyMessage={stashWorkspace.state.diffError || (stashWorkspace.state.selectedFilePath ? "Loading diff..." : "Select a file to view its diff")}
+                        emptyMessage={stashWorkspace.state.diffError || "Select a file to view its diff"}
                         repoPath={state.repoPath}
                         wrapLines={state.appSettings?.wrapDiffLines ?? false}
                         onWrapLinesChange={setWrapDiffLines}
@@ -6170,7 +6171,7 @@ export function App(): ReactNode {
                         diff={state.fileHistoryDiff}
                         filePath={selectedFileHistoryEntry?.path ?? state.historyRoute.origin.path}
                         loading={state.fileHistoryDiffLoading}
-                        emptyMessage={state.fileHistoryDiffError || (state.selectedFileHistoryHash ? "Loading diff..." : "Select a change to view its diff")}
+                        emptyMessage={state.fileHistoryDiffError || "Select a change to view its diff"}
                         repoPath={state.repoPath}
                         wrapLines={state.appSettings?.wrapDiffLines ?? false}
                         onWrapLinesChange={setWrapDiffLines}
@@ -8306,7 +8307,7 @@ function AppUpdateReleaseNotesPopover({ state }: { state: AppUpdateState }): Rea
           ) : null}
         </div>
         {releaseNotes.loading ? (
-          <p className="app-update-release-notes-status" role="status" aria-live="polite">Loading…</p>
+          <LoadingState label="Loading release notes" className="min-h-10 p-2" />
         ) : releaseNotes.error ? (
           <p className="app-update-release-notes-error" role="status" aria-live="polite">{releaseNotes.error}</p>
         ) : releaseNotes.body ? (
@@ -8808,9 +8809,7 @@ function FileGroup({
         <div className="flex flex-wrap justify-end gap-2">{actions}</div>
       </div>
       {!summary?.isValid ? (
-        <div className="file-list" role={viewMode === "tree" ? "tree" : "listbox"} aria-label={title} aria-multiselectable="true">
-          <p className="empty-state">Select a valid repository.</p>
-        </div>
+        <div className="file-list" role={viewMode === "tree" ? "tree" : "listbox"} aria-label={title} aria-multiselectable="true" />
       ) : viewMode === "tree" ? (
         <FixedSizeVirtualList
           items={treeRows}
@@ -9209,7 +9208,7 @@ function DiffPanel({
   if (showPreview && previewSource) {
     outputClass = "markdown-preview-output";
     content = preview.loading
-      ? <p className="markdown-preview-status" role="status" aria-live="polite">Loading Markdown preview...</p>
+      ? <LoadingState label="Loading Markdown preview" className="h-full" />
       : preview.error
         ? <p className="markdown-preview-status bad selectable-text" role="alert">{preview.error}</p>
         : (
@@ -9218,7 +9217,7 @@ function DiffPanel({
           </OptionalFeatureBoundary>
         );
   } else if (loading) {
-    content = "Loading diff...";
+    content = <LoadingState label="Loading diff" className="h-full" />;
   } else if (diff) {
     outputClass = `diff-output ${diff.kind}${diff.kind === "text" && wrapLines ? " is-wrapped" : ""}`;
     content = diff.kind === "text"
@@ -9547,11 +9546,11 @@ function HistoryView({
               </div>
             ) : insightsLoading ? <span className="sr-only" role="status">Loading GitHub annotations</span> : null}
             {historyLoading && history.length === 0 ? (
-              <p className="empty-state">Loading commit history...</p>
+              <LoadingState label="Loading commit history" className="h-full" />
             ) : historyError && history.length === 0 ? (
               <p className="empty-state bad selectable-text">{historyError}</p>
             ) : !summary?.isValid ? (
-              <p className="empty-state">Select a valid repository.</p>
+              null
             ) : history.length === 0 ? (
               <p className="empty-state">No commits in this repository.</p>
             ) : (
@@ -9610,7 +9609,7 @@ function HistoryView({
               diff={commitFileDiff}
               filePath={selectedCommitFilePath ?? ""}
               loading={commitFileDiffLoading}
-              emptyMessage={commitFileDiffError || (selectedCommitFilePath ? "Loading diff..." : "Select a file to view the diff")}
+              emptyMessage={commitFileDiffError || "Select a file to view the diff"}
               onDownloadImage={onDownloadImage}
               imageDownloadLoading={disabled}
               repoPath={summary?.repoPath ?? ""}
@@ -9699,7 +9698,7 @@ function WorkflowRunsView({
         {!repository ? (
           <p className="empty-state">Select a repository with a supported GitHub origin.</p>
         ) : loading ? (
-          <p className="empty-state">Loading workflow runs...</p>
+          <LoadingState label="Loading workflow runs" className="h-full" />
         ) : error && workflowRuns.length === 0 ? (
           <p className="empty-state bad selectable-text">{error}</p>
         ) : displayedRuns.length === 0 ? (
@@ -9845,7 +9844,7 @@ function PullRequestsView({
         {!repository ? (
           <p className="empty-state">Select a repository with a supported GitHub origin.</p>
         ) : loading ? (
-          <p className="empty-state">Loading pull requests...</p>
+          <LoadingState label="Loading pull requests" className="h-full" />
         ) : error && pullRequests.length === 0 ? (
           <p className="empty-state bad selectable-text">{error}</p>
         ) : pullRequests.length === 0 ? (
@@ -9987,7 +9986,7 @@ function IssuesView({
         {!repository ? (
           <p className="empty-state">Select a repository with a supported GitHub origin.</p>
         ) : loading ? (
-          <p className="empty-state">Loading issues...</p>
+          <LoadingState label="Loading issues" className="h-full" />
         ) : error && issues.length === 0 ? (
           <p className="empty-state bad selectable-text">{error}</p>
         ) : issues.length === 0 ? (
@@ -10069,7 +10068,7 @@ function GitHubListFooter({ label, nextPage, loading, error, disabled, onLoadMor
   return (
     <div className="github-list-footer" role="status" aria-live="polite" aria-busy={loading}>
       {error ? <span className="github-list-footer-error selectable-text">{error}</span> : null}
-      {loading ? <span>Loading more…</span> : nextPage !== null ? (
+      {loading ? <LoadingState label={`Loading more ${label}`} className="min-h-0 p-0" /> : nextPage !== null ? (
         <Button type="button" variant="outline" size="sm" disabled={disabled} aria-label={`Load more ${label}`} onClick={onLoadMore}>
           {error ? "Retry" : "Load more"}
         </Button>
@@ -10379,7 +10378,7 @@ function CommitDetailsPanel({
   let fileCount = "No files";
 
   if (loading) {
-    meta = <p className="empty-state">Loading commit details...</p>;
+    meta = <LoadingState label="Loading commit details" />;
     files = null;
   } else if (error) {
     meta = <p className="empty-state bad selectable-text">{error}</p>;

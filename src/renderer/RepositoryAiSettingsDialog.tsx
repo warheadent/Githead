@@ -14,6 +14,7 @@ import { AI_COMMIT_MESSAGE_PROVIDERS, type RepositoryAiSettings } from "../share
 import { DEFAULT_SOURCE_CONTROL_WRITING_STYLE } from "../shared/sourceControlWritingStyle";
 import { AiGenerationSettingsFields, type AiGenerationSettingsDraft } from "./AiGenerationSettingsFields";
 import { getAiProviderLabel } from "./aiProvider";
+import { LoadingState } from "./LoadingState";
 
 interface RepositoryAiSettingsDraft extends AiGenerationSettingsDraft {
   enabled: boolean;
@@ -98,7 +99,7 @@ export function RepositoryAiSettingsDialog({ open, repoPath, onOpenChange }: Rep
       </DialogHeader>
       <form className="flex min-h-0 flex-1 flex-col" onSubmit={(event) => { void save(event); }}>
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-          {loading ? <div className="flex min-h-40 items-center justify-center gap-2 text-sm text-muted-foreground" role="status"><Loader2 className="animate-spin" />Loading repository settings…</div> : <div className="grid gap-4">
+          {loading ? <LoadingState label="Loading repository settings" className="min-h-40" /> : <div className="grid gap-4">
             <label className="flex items-start gap-3 rounded-lg border bg-card p-4">
               <input className="mt-1 size-4" type="checkbox" checked={draft.enabled} disabled={disabled} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} />
               <span><span className="block text-sm font-semibold">Use repository settings</span><span className="block text-sm text-muted-foreground">When off, this repository uses the global AI settings.</span></span>

@@ -1,4 +1,5 @@
 import { Component, Suspense, type ErrorInfo, type ReactNode } from "react";
+import { LoadingState } from "./LoadingState";
 
 interface OptionalFeatureBoundaryProps {
   children: ReactNode;
@@ -32,7 +33,7 @@ class OptionalFeatureErrorBoundary extends Component<OptionalFeatureBoundaryProp
 export function OptionalFeatureBoundary({ children, name }: OptionalFeatureBoundaryProps): ReactNode {
   return (
     <OptionalFeatureErrorBoundary key={name} name={name}>
-      <Suspense fallback={<p className="empty-state" role="status">Loading {name}...</p>}>
+      <Suspense fallback={<LoadingState label={`Loading ${name}`} className="h-full" />}>
         {children}
       </Suspense>
     </OptionalFeatureErrorBoundary>
