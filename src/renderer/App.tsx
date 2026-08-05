@@ -100,6 +100,7 @@ import {
 } from "./RepositoryActionsDialog";
 import { SettingsDialog as RedesignedSettingsDialog, type SettingsDraft as SettingsDialogDraft } from "./SettingsDialog";
 import { RepositoryAiSettingsDialog } from "./RepositoryAiSettingsDialog";
+import { ReferencePicker, type ReferencePickerOption } from "./ReferencePicker";
 import { GitIdentityFields } from "./GitIdentityFields";
 import { getAiProviderLabel, isApiKeyProvider, isCliProvider } from "./aiProvider";
 import {
@@ -7571,52 +7572,23 @@ function CloneRepositoryForm({
         </div>
         <div className="grid gap-2">
           <Label htmlFor={branchId}>Branch</Label>
-          <div className="clone-branch-control">
-            <Input
-              id={branchId}
-              className="clone-branch-input"
-              value={cloneDraft.branchName}
-              disabled={cloneRunning}
-              placeholder="Optional"
-              onChange={(event) => {
-                onCloneDraftChange({
-                  ...cloneDraft,
-                  branchName: event.target.value
-                });
-              }}
-            />
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <TooltipButton
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  className="clone-branch-trigger"
-                  disabled={cloneRunning || cloneBranches.length === 0}
-                  aria-label="Choose branch"
-                  tooltip="Choose branch"
-                  disabledTooltip={cloneBranches.length === 0 ? "No branches are available to choose" : undefined}
-                >
-                  <ChevronDown />
-                </TooltipButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="clone-branch-menu">
-                {cloneBranches.map((branch) => (
-                  <DropdownMenuItem
-                    key={branch}
-                    onSelect={() => {
-                      onCloneDraftChange({
-                        ...cloneDraft,
-                        branchName: branch
-                      });
-                    }}
-                  >
-                    {branch}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+          <ReferencePicker
+            id={branchId}
+            value={cloneDraft.branchName}
+            {...(cloneDraft.branchName ? { displayValue: cloneDraft.branchName } : {})}
+            options={[
+              { value: "", label: "Default branch", icon: <GitBranchIcon /> },
+              ...cloneBranches.map((branch) => ({ value: branch, label: branch, icon: <GitBranchIcon /> }))
+            ]}
+            disabled={cloneRunning}
+            ariaLabel="Choose branch"
+            placeholder="Optional"
+            searchPlaceholder="Search or enter a branch..."
+            emptyMessage="No branches found."
+            triggerIcon={<GitBranchIcon />}
+            customValueLabel={(query) => `Use branch “${query}”`}
+            onValueChange={(branchName) => onCloneDraftChange({ ...cloneDraft, branchName })}
+          />
         </div>
         <div className="grid gap-2">
           <Label htmlFor={depthId}>Depth</Label>
@@ -7961,65 +7933,68 @@ function BranchFact({
   const activeBranch = branches.find((branch) => branch.current || branch.name === currentBranch) ?? null;
   const localUpstreams = new Set(branches.flatMap((branch) => branch.upstream ? [branch.upstream] : []));
   const checkoutableRemoteBranches = remoteBranches.filter((remoteBranch) => !localUpstreams.has(remoteBranch.name));
+  const activeBranchValue = currentBranch ? `local:${currentBranch}` : "";
+  const branchOptions: ReferencePickerOption[] = [
+    ...(activeBranch ? [{
+      value: `local:${activeBranch.name}`,
+      label: activeBranch.name,
+      detail: "current",
+      group: "Local branches",
+      icon: <GitBranchIcon />
+    }] : []),
+    ...switchableBranches.map((branch) => {
+      const occupiedElsewhere = Boolean(branch.worktreePath && !isSameRepoPath(branch.worktreePath, repoPath));
+      return {
+        value: `local:${branch.name}`,
+        label: branch.name,
+        ...(occupiedElsewhere
+          ? { detail: getRepoDisplayName(branch.worktreePath ?? "") }
+          : branch.upstream ? { detail: branch.upstream } : {}),
+        group: "Local branches",
+        icon: occupiedElsewhere ? <FolderOpen /> : <GitBranchIcon />
+      };
+    }),
+    ...checkoutableRemoteBranches.map((remoteBranch) => ({
+      value: `remote:${remoteBranch.name}`,
+      label: remoteBranch.branch,
+      detail: remoteBranch.remote,
+      group: "Remote branches",
+      icon: <Download />
+    }))
+  ];
 
   return (
     <div className="repo-branch-fact">
       <dt>Branch</dt>
       <dd>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="repo-branch-trigger"
-              disabled={disabled}
-              aria-label="Switch branch"
-            >
-              <GitBranchIcon />
-              <span className="repo-branch-name selectable-text">{currentBranch ?? "-"}</span>
-              <ChevronDown className="repo-branch-trigger-chevron" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="branch-menu-content">
-            {activeBranch ? (
-              <DropdownMenuItem disabled className="branch-menu-current">
-                <GitBranchIcon />
-                <span className="branch-menu-name">{activeBranch.name}</span>
-                <span className="branch-menu-upstream">current</span>
-              </DropdownMenuItem>
-            ) : null}
-            {activeBranch && switchableBranches.length ? <DropdownMenuSeparator /> : null}
-            {switchableBranches.map((branch) => {
+        <ReferencePicker
+          value={activeBranchValue}
+          options={branchOptions}
+          disabled={disabled}
+          ariaLabel="Switch branch"
+          placeholder={currentBranch ?? "-"}
+          searchPlaceholder="Search branches..."
+          emptyMessage="No branches found."
+          triggerIcon={<GitBranchIcon />}
+          compact
+          onValueChange={(value) => {
+            if (value.startsWith("local:")) {
+              const name = value.slice("local:".length);
+              const branch = branches.find((candidate) => candidate.name === name);
+              if (!branch || branch.name === currentBranch) return;
               const occupiedElsewhere = Boolean(branch.worktreePath && !isSameRepoPath(branch.worktreePath, repoPath));
-              return (
-                <DropdownMenuItem key={branch.name} onSelect={() => occupiedElsewhere && branch.worktreePath ? onOpenWorktree(branch.worktreePath) : onSwitchBranch(branch.name)}>
-                  {occupiedElsewhere ? <FolderOpen /> : <GitBranchIcon />}
-                  <span className="branch-menu-name">{branch.name}</span>
-                  <span className="branch-menu-upstream">{occupiedElsewhere ? getRepoDisplayName(branch.worktreePath ?? "") : branch.upstream}</span>
-                </DropdownMenuItem>
-              );
-            })}
-            {checkoutableRemoteBranches.length ? <DropdownMenuSeparator /> : null}
-            {checkoutableRemoteBranches.length ? <DropdownMenuItem disabled>Remote branches</DropdownMenuItem> : null}
-            {checkoutableRemoteBranches.map((remoteBranch) => (
-              <DropdownMenuItem key={remoteBranch.name} onSelect={() => onCheckoutRemoteBranch(remoteBranch)}>
-                <Download />
-                <span className="branch-menu-name">{remoteBranch.branch}</span>
-                <span className="branch-menu-upstream">{remoteBranch.remote}</span>
-              </DropdownMenuItem>
-            ))}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={onCreateBranch}>
-              <Plus />
-              New Branch
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={onManageBranches}>
-              <Settings />
-              Manage Branches…
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+              if (occupiedElsewhere && branch.worktreePath) onOpenWorktree(branch.worktreePath);
+              else onSwitchBranch(branch.name);
+              return;
+            }
+            const remoteBranch = remoteBranches.find((candidate) => `remote:${candidate.name}` === value);
+            if (remoteBranch) onCheckoutRemoteBranch(remoteBranch);
+          }}
+          actions={[
+            { label: "New Branch", icon: <Plus />, onSelect: onCreateBranch },
+            { label: "Manage Branches…", icon: <Settings />, onSelect: onManageBranches }
+          ]}
+        />
         <span className="repo-branch-actions">
           <TooltipButton
             type="button"
@@ -8057,19 +8032,28 @@ function UpstreamFact({
     <div className="repo-upstream-fact">
       <dt>Upstream</dt>
       <dd>
-        <TooltipTarget content={upstream}><span className="repo-upstream-name selectable-text">{upstream ?? "-"}</span></TooltipTarget>
-        <TooltipButton
-          type="button"
-          variant="outline"
-          size="icon-xs"
-          disabled={!canChange}
-          onClick={onChangeUpstream}
-          aria-label="Change upstream"
-          tooltip="Change upstream"
-          disabledTooltip={!currentBranch ? "Select a branch before changing its upstream" : remoteBranches.length === 0 && !upstream ? "Add a remote before setting an upstream" : undefined}
-        >
-          <GitBranchIcon />
-        </TooltipButton>
+        <TooltipTarget content={!canChange
+          ? !currentBranch
+            ? "Select a branch before changing its upstream"
+            : "Add a remote before setting an upstream"
+          : upstream}>
+          <span className="min-w-0">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="reference-picker-trigger is-compact"
+              disabled={!canChange}
+              onClick={onChangeUpstream}
+              aria-label="Change upstream"
+              aria-haspopup="dialog"
+            >
+              <GitBranchIcon />
+              <span className="reference-picker-trigger-label selectable-text">{upstream ?? "-"}</span>
+              <ChevronDown className="reference-picker-chevron" />
+            </Button>
+          </span>
+        </TooltipTarget>
       </dd>
     </div>
   );
@@ -10965,19 +10949,18 @@ function PublishBranchDialog({
 
           <div className="grid gap-2">
             <Label htmlFor="publish-branch-remote">Remote</Label>
-            <select
+            <ReferencePicker
               id="publish-branch-remote"
-              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
               value={remote}
+              options={remotes.map((remoteName) => ({ value: remoteName, label: remoteName, icon: <Upload /> }))}
               disabled={saving || remotes.length <= 1}
-              onChange={(event) => onRemoteChange(event.currentTarget.value)}
-            >
-              {hasRemote ? remotes.map((remoteName) => (
-                <option key={remoteName} value={remoteName}>{remoteName}</option>
-              )) : (
-                <option value="">No push remote configured</option>
-              )}
-            </select>
+              ariaLabel="Select publish remote"
+              placeholder="No push remote configured"
+              searchPlaceholder="Search remotes..."
+              emptyMessage="No push remotes found."
+              triggerIcon={<Upload />}
+              onValueChange={onRemoteChange}
+            />
           </div>
 
           <p className="min-h-5 text-sm text-destructive" role="alert">{error}</p>
@@ -11044,23 +11027,22 @@ function CreatePullRequestDialog({
 
           <div className="grid gap-2">
             <Label htmlFor="create-pr-base">Base branch</Label>
-            <select
+            <ReferencePicker
               id="create-pr-base"
-              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
               value={state.baseBranch}
+              options={baseBranches.map((branch) => ({ value: branch, label: branch, icon: <GitBranchIcon /> }))}
               disabled={busy || generating || baseBranches.length === 0}
-              onChange={(event) => onStateChange({
+              ariaLabel="Select pull request base branch"
+              placeholder="No remote branches found"
+              searchPlaceholder="Search base branches..."
+              emptyMessage="No remote branches found."
+              triggerIcon={<GitBranchIcon />}
+              onValueChange={(baseBranch) => onStateChange({
                 ...state,
-                baseBranch: event.currentTarget.value,
+                baseBranch,
                 error: ""
               })}
-            >
-              {baseBranches.length > 0 ? baseBranches.map((branch) => (
-                <option key={branch} value={branch}>{branch}</option>
-              )) : (
-                <option value="">No remote branches found</option>
-              )}
-            </select>
+            />
           </div>
 
           <div className="grid gap-2">

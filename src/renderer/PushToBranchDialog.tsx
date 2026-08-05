@@ -1,5 +1,5 @@
 import type { FormEvent, ReactNode } from "react";
-import { Loader2, Upload } from "lucide-react";
+import { GitBranch, Loader2, Plus, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { GitRemoteBranch } from "../shared/types";
 import type { PushToBranchDialogState } from "./pushToBranchState";
+import { ReferencePicker } from "./ReferencePicker";
 export { emptyPushToBranchDialog, type PushToBranchDialogState } from "./pushToBranchState";
 
 const PUSH_NEW_BRANCH_VALUE = ":githead:new";
@@ -70,39 +71,45 @@ export function PushToBranchDialog({
 
           <div className="grid gap-2">
             <Label htmlFor="push-target-remote">Remote</Label>
-            <select
+            <ReferencePicker
               id="push-target-remote"
-              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
               value={state.remoteName}
+              options={remotes.map((remoteName) => ({ value: remoteName, label: remoteName, icon: <Upload /> }))}
               disabled={saving || remotes.length <= 1}
-              onChange={(event) => {
+              ariaLabel="Select push remote"
+              placeholder="No push remote configured"
+              searchPlaceholder="Search remotes..."
+              emptyMessage="No push remotes found."
+              triggerIcon={<Upload />}
+              onValueChange={(remoteName) => {
                 onStateChange({
                   ...state,
-                  remoteName: event.currentTarget.value,
+                  remoteName,
                   destinationMode: "existing",
                   destinationBranch: "",
                   newBranchName: "",
                   error: ""
                 });
               }}
-            >
-              {remotes.length > 0 ? remotes.map((remoteName) => (
-                <option key={remoteName} value={remoteName}>{remoteName}</option>
-              )) : (
-                <option value="">No push remote configured</option>
-              )}
-            </select>
+            />
           </div>
 
           <div className="grid gap-2">
             <Label htmlFor="push-target-branch">Destination branch</Label>
-            <select
+            <ReferencePicker
               id="push-target-branch"
-              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
               value={destinationValue}
+              options={[
+                ...destinations.map((remoteBranch) => ({ value: remoteBranch.branch, label: remoteBranch.branch, detail: remoteBranch.remote, icon: <GitBranch /> })),
+                { value: PUSH_NEW_BRANCH_VALUE, label: "New branch…", icon: <Plus /> }
+              ]}
               disabled={saving || !state.remoteName}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
+              ariaLabel="Select destination branch"
+              placeholder="Select a branch"
+              searchPlaceholder="Search destination branches..."
+              emptyMessage="No destination branches found."
+              triggerIcon={<GitBranch />}
+              onValueChange={(value) => {
                 onStateChange({
                   ...state,
                   destinationMode: value === PUSH_NEW_BRANCH_VALUE ? "new" : "existing",
@@ -111,13 +118,7 @@ export function PushToBranchDialog({
                   error: ""
                 });
               }}
-            >
-              <option value="">Select a branch</option>
-              {destinations.map((remoteBranch) => (
-                <option key={remoteBranch.name} value={remoteBranch.branch}>{remoteBranch.branch}</option>
-              ))}
-              <option value={PUSH_NEW_BRANCH_VALUE}>New branch…</option>
-            </select>
+            />
           </div>
 
           {state.destinationMode === "new" ? (

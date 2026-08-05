@@ -3972,9 +3972,10 @@ describe("App", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Push to another branch…" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Push to Another Branch" });
-    expect((within(dialog).getByLabelText("Remote") as HTMLSelectElement).value).toBe("upstream");
+    expect(within(dialog).getByRole("button", { name: "Select push remote" }).textContent).toContain("upstream");
     expect(within(dialog).queryByRole("option", { name: "main" })).toBeNull();
-    await user.selectOptions(within(dialog).getByLabelText("Destination branch"), "release");
+    await user.click(within(dialog).getByRole("button", { name: "Select destination branch" }));
+    await user.click(await screen.findByRole("option", { name: /release.*upstream/ }));
     await user.click(within(dialog).getByRole("button", { name: "Push" }));
 
     await waitFor(() => {
@@ -4015,10 +4016,8 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "More push actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Push to another branch…" }));
     const dialog = await screen.findByRole("dialog", { name: "Push to Another Branch" });
-    await user.selectOptions(
-      within(dialog).getByLabelText("Destination branch"),
-      within(dialog).getByRole("option", { name: "New branch…" })
-    );
+    await user.click(within(dialog).getByRole("button", { name: "Select destination branch" }));
+    await user.click(await screen.findByRole("option", { name: "New branch…" }));
     await user.type(within(dialog).getByLabelText("New branch name"), "release/candidate");
     await user.click(within(dialog).getByRole("button", { name: "Push" }));
 
@@ -4059,7 +4058,8 @@ describe("App", () => {
     await user.click(await screen.findByRole("button", { name: "More push actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Push to another branch…" }));
     const dialog = await screen.findByRole("dialog", { name: "Push to Another Branch" });
-    await user.selectOptions(within(dialog).getByLabelText("Destination branch"), "release");
+    await user.click(within(dialog).getByRole("button", { name: "Select destination branch" }));
+    await user.click(await screen.findByRole("option", { name: /release.*origin/ }));
     await user.click(within(dialog).getByRole("button", { name: "Push" }));
 
     expect(await within(dialog).findByText("rejected non-fast-forward")).toBeTruthy();
@@ -4179,7 +4179,8 @@ describe("App", () => {
     render(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Publish branch" }));
-    await user.selectOptions(await screen.findByLabelText("Remote"), "upstream");
+    await user.click(await screen.findByRole("button", { name: "Select publish remote" }));
+    await user.click(await screen.findByRole("option", { name: "upstream" }));
     await user.click(screen.getByRole("button", { name: "Publish" }));
 
     await waitFor(() => {
@@ -5541,7 +5542,7 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Add worktree" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Switch branch" }));
-    await user.click(await screen.findByRole("menuitem", { name: /feature\/worktrees/ }));
+    await user.click(await screen.findByRole("option", { name: /feature\/worktrees/ }));
     await waitFor(() => expect(githead.getRepoSummary).toHaveBeenCalledWith(linked));
     expect(githead.switchBranch).not.toHaveBeenCalled();
   });
@@ -6386,7 +6387,9 @@ describe("App", () => {
     await screen.findByText("Select a repository to continue.");
     await user.type(screen.getByLabelText("Repository URL or path"), "git@github.com:openai/repo.git");
     await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
-    await user.type(screen.getByLabelText("Branch"), "main");
+    await user.click(screen.getByRole("button", { name: "Choose branch" }));
+    await user.type(screen.getByRole("combobox", { name: "Search or enter a branch..." }), "main");
+    await user.click(screen.getByRole("button", { name: "Use branch “main”" }));
     await user.type(screen.getByLabelText("Depth"), "1");
     await user.click(screen.getByRole("button", { name: "Clone Repository" }));
 
@@ -6431,12 +6434,12 @@ describe("App", () => {
       });
     });
     expect(await screen.findByText("Repository is accessible.")).toBeTruthy();
-    expect((screen.getByLabelText("Branch") as HTMLInputElement).value).toBe("main");
+    expect(screen.getByRole("button", { name: "Choose branch" }).textContent).toContain("main");
 
     await user.click(screen.getByRole("button", { name: "Choose branch" }));
-    await user.click(screen.getByText("develop"));
+    await user.click(screen.getByRole("option", { name: "develop" }));
 
-    expect((screen.getByLabelText("Branch") as HTMLInputElement).value).toBe("develop");
+    expect(screen.getByRole("button", { name: "Choose branch" }).textContent).toContain("develop");
   });
 
   it("preserves a manually typed branch after a successful repository check", async () => {
@@ -6457,11 +6460,13 @@ describe("App", () => {
 
     await screen.findByText("Select a repository to continue.");
     await user.type(screen.getByLabelText("Repository URL or path"), "git@github.com:openai/repo.git");
-    await user.type(screen.getByLabelText("Branch"), "release");
+    await user.click(screen.getByRole("button", { name: "Choose branch" }));
+    await user.type(screen.getByRole("combobox", { name: "Search or enter a branch..." }), "release");
+    await user.click(screen.getByRole("button", { name: "Use branch “release”" }));
     await user.click(screen.getByRole("button", { name: "Check" }));
 
     expect(await screen.findByText("Repository is accessible.")).toBeTruthy();
-    expect((screen.getByLabelText("Branch") as HTMLInputElement).value).toBe("release");
+    expect(screen.getByRole("button", { name: "Choose branch" }).textContent).toContain("release");
   });
 
   it("shows repository check failures and clears them when the source changes", async () => {
@@ -6736,8 +6741,8 @@ describe("App", () => {
     const branchTrigger = screen.getByRole("button", { name: "Switch branch" });
     expect(branchTrigger.textContent).toContain("main");
     await user.click(branchTrigger);
-    expect((await screen.findByRole("menuitem", { name: /main.*current/ })).hasAttribute("data-disabled")).toBe(true);
-    await user.click(await screen.findByRole("menuitem", { name: /feature\/nav/ }));
+    expect((await screen.findByRole("option", { name: /main.*current/ })).getAttribute("aria-selected")).toBe("true");
+    await user.click(await screen.findByRole("option", { name: /feature\/nav/ }));
 
     await waitFor(() => {
       expect(githead.switchBranch).toHaveBeenCalledWith({
@@ -7022,7 +7027,7 @@ describe("App", () => {
     render(<App />);
     await screen.findByText("main");
     await user.click(screen.getByRole("button", { name: "Switch branch" }));
-    await user.click(await screen.findByRole("menuitem", { name: /feature\/review.*origin/ }));
+    await user.click(await screen.findByRole("option", { name: /feature\/review.*origin/ }));
     await waitFor(() => expect(githead.checkoutRemoteBranch).toHaveBeenCalledWith({
       repoPath, branchName: "feature/review", remoteBranch: "origin/feature/review", operationId: expect.any(String)
     }));
@@ -7043,8 +7048,8 @@ describe("App", () => {
     render(<App />);
     await screen.findByText("main");
     await user.click(screen.getByRole("button", { name: "Switch branch" }));
-    expect(screen.queryByRole("menuitem", { name: /main.*origin/ })).toBeNull();
-    expect(await screen.findByRole("menuitem", { name: /release.*origin/ })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: /main.*origin/ })).toBeNull();
+    expect(await screen.findByRole("option", { name: /release.*origin/ })).toBeTruthy();
   });
 
   it("manages branches and explains safe-delete refusals", async () => {
@@ -7056,7 +7061,7 @@ describe("App", () => {
     render(<App />);
     await screen.findByText("main");
     await user.click(screen.getByRole("button", { name: "Switch branch" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Manage Branches…" }));
+    await user.click(await screen.findByRole("button", { name: "Manage Branches…" }));
     expect(screen.getByRole("button", { name: "Delete main" }).hasAttribute("disabled")).toBe(true);
     await user.click(screen.getByRole("button", { name: "Rename feature/old" }));
     const input = screen.getByLabelText("New name");

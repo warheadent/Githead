@@ -886,37 +886,6 @@ textarea,
   font-size: 0.82rem;
 }
 
-.clone-branch-menu {
-  max-width: 280px;
-}
-
-.clone-branch-control {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: stretch;
-}
-
-.clone-branch-input {
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
-}
-
-.clone-branch-trigger {
-  margin-left: -1px;
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
-}
-
-.clone-branch-input:focus-visible {
-  position: relative;
-  z-index: 1;
-}
-
-.clone-branch-trigger:focus-visible {
-  position: relative;
-  z-index: 2;
-}
-
 .setup-recents {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -963,33 +932,7 @@ textarea,
   gap: 8px;
 }
 
-.repo-branch-trigger {
-  width: 100%;
-  min-width: 0;
-  justify-content: flex-start;
-  padding-inline: 8px;
-  color: var(--muted-foreground);
-}
-
-.repo-branch-trigger:hover,
-.repo-branch-trigger[data-state="open"] {
-  color: var(--foreground);
-}
-
-.repo-branch-trigger .repo-branch-name {
-  flex: 1;
-  text-align: left;
-}
-
-.repo-branch-trigger-chevron {
-  margin-left: auto;
-  opacity: 0.55;
-}
-
-.repo-branch-name,
-.repo-upstream-name,
-.branch-menu-name,
-.branch-menu-upstream {
+.repo-upstream-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1124,13 +1067,141 @@ textarea,
   overflow-wrap: anywhere;
 }
 
-.branch-menu-content {
-  width: min(320px, var(--radix-dropdown-menu-content-available-width));
-  max-width: 360px;
+.reference-picker-trigger {
+  width: 100%;
+  min-width: 0;
+  justify-content: flex-start;
 }
 
-.branch-menu-current[data-disabled] {
-  opacity: 1;
+.reference-picker-trigger.is-compact {
+  padding-inline: 8px;
+  color: var(--muted-foreground);
+}
+
+.reference-picker-trigger.is-compact:hover,
+.reference-picker-trigger.is-compact[data-state="open"] {
+  color: var(--foreground);
+}
+
+.reference-picker-trigger-label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reference-picker-chevron {
+  margin-left: auto;
+  opacity: 0.55;
+}
+
+.reference-picker-content {
+  width: min(320px, var(--radix-popover-content-available-width));
+  padding: 0;
+  overflow: hidden;
+}
+
+.reference-picker-search {
+  position: relative;
+  padding: 10px 12px 8px;
+}
+
+.reference-picker-search > svg {
+  position: absolute;
+  top: 20px;
+  left: 22px;
+  z-index: 1;
+  width: 14px;
+  height: 14px;
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+
+.reference-picker-search input {
+  height: 34px;
+  padding-left: 30px;
+}
+
+.reference-picker-list {
+  max-height: 240px;
+  padding: 0 6px 6px;
+  overflow-y: auto;
+}
+
+.reference-picker-group {
+  margin: 0;
+  padding: 7px 8px 4px;
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.reference-picker-option,
+.reference-picker-actions button {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  padding: 7px 8px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.reference-picker-option:hover,
+.reference-picker-option.is-active,
+.reference-picker-actions button:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.reference-picker-option-icon,
+.reference-picker-option-check,
+.reference-picker-actions svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+}
+
+.reference-picker-option-icon:empty {
+  display: none;
+}
+
+.reference-picker-option-label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reference-picker-option-detail {
+  max-width: 110px;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reference-picker-empty {
+  margin: 0;
+  padding: 14px 8px;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.reference-picker-actions {
+  border-top: 1px solid var(--border);
+  padding: 6px;
 }
 
 .branch-menu-name {

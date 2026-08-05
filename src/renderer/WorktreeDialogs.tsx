@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { FolderOpen, GitFork, Loader2, Trash2 } from "lucide-react";
+import { Download, FolderOpen, GitBranch as GitBranchIcon, GitFork, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ReferencePicker } from "./ReferencePicker";
 import type { GitBranch, GitRemoteBranch, GitWorktree, GitWorktreeCreateDraft, GitWorktreeRemovalCheck, RepositoryGroup } from "../shared/types";
 
 export function WorktreeCreateDialog({ open, group, branches, remoteBranches, busy, onOpenChange, onChooseParent, onCreate }: {
@@ -85,13 +86,39 @@ export function WorktreeCreateDialog({ open, group, branches, remoteBranches, bu
           <div className="grid gap-2">
             <Label htmlFor="worktree-branch">Branch</Label>
             {mode === "existing-branch" ? (
-              <select id="worktree-branch" className="h-9 rounded-md border bg-background px-3 text-sm" value={branchName} onChange={(event) => { setBranchName(event.target.value); setDestinationEdited(false); }} disabled={saving || busy}>
-                <option value="">Select a branch</option>
-                {existingBranches.map((branch) => <option key={branch.name} value={branch.name}>{branch.name}</option>)}
-              </select>
+              <ReferencePicker
+                id="worktree-branch"
+                value={branchName}
+                options={existingBranches.map((branch) => ({ value: branch.name, label: branch.name, icon: <GitBranchIcon /> }))}
+                disabled={saving || busy}
+                ariaLabel="Select worktree branch"
+                placeholder="Select a branch"
+                searchPlaceholder="Search branches..."
+                emptyMessage="No available branches."
+                triggerIcon={<GitBranchIcon />}
+                onValueChange={(value) => { setBranchName(value); setDestinationEdited(false); }}
+              />
             ) : <Input id="worktree-branch" value={branchName} onChange={(event) => { setBranchName(event.target.value); if (!destinationEdited) setDestinationEdited(false); }} placeholder="feature/worktrees" disabled={saving || busy} autoFocus />}
           </div>
-          {mode === "new-branch" ? <div className="grid gap-2"><Label htmlFor="worktree-start">Start from</Label><select id="worktree-start" className="h-9 rounded-md border bg-background px-3 text-sm" value={startPoint} onChange={(event) => setStartPoint(event.target.value)} disabled={saving || busy}>{startPoints.map((point) => <option key={point} value={point}>{point}</option>)}</select></div> : null}
+          {mode === "new-branch" ? (
+            <div className="grid gap-2">
+              <Label htmlFor="worktree-start">Start from</Label>
+              <ReferencePicker
+                id="worktree-start"
+                value={startPoint}
+                options={startPoints.map((point) => ({
+                  value: point,
+                  label: point,
+                  icon: remoteBranches.some((branch) => branch.name === point) ? <Download /> : <GitBranchIcon />
+                }))}
+                disabled={saving || busy}
+                ariaLabel="Select worktree start point"
+                searchPlaceholder="Search references..."
+                triggerIcon={<GitBranchIcon />}
+                onValueChange={setStartPoint}
+              />
+            </div>
+          ) : null}
           <div className="grid gap-2">
             <Label htmlFor="worktree-destination">Destination</Label>
             <div className="flex gap-2"><Input id="worktree-destination" value={destinationPath} onChange={(event) => { setDestinationPath(event.target.value); setDestinationEdited(true); }} disabled={saving || busy} /><Button type="button" variant="outline" size="icon" onClick={() => { void chooseParent(); }} disabled={saving || busy} aria-label="Choose worktree parent"><FolderOpen /></Button></div>
