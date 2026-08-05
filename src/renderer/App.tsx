@@ -373,8 +373,6 @@ interface AppState {
   worktreeRemoveTarget: GitWorktree | null;
   worktreeRemovalCheck: GitWorktreeRemovalCheck | null;
   worktreeRemovalChecking: boolean;
-  upstreamDialogOpen: boolean;
-  upstreamDraft: string | null;
   upstreamError: string;
   publishDialogOpen: boolean;
   publishRemoteDraft: string;
@@ -733,8 +731,6 @@ const initialState: AppState = {
   worktreeRemoveTarget: null,
   worktreeRemovalCheck: null,
   worktreeRemovalChecking: false,
-  upstreamDialogOpen: false,
-  upstreamDraft: null,
   upstreamError: "",
   publishDialogOpen: false,
   publishRemoteDraft: "",
@@ -1726,8 +1722,6 @@ export function App(): ReactNode {
       worktreeRemoveTarget: null,
       worktreeRemovalCheck: null,
       worktreeRemovalChecking: false,
-      upstreamDialogOpen: false,
-      upstreamDraft: null,
       upstreamError: "",
       publishDialogOpen: false,
       publishRemoteDraft: "",
@@ -3357,41 +3351,6 @@ export function App(): ReactNode {
     return result.stderr.trim() || `${label} failed.`;
   }, [ensureTrustedRepo, runRepoOperation]);
 
-  const openUpstreamDialog = useCallback((): void => {
-    const current = stateRef.current;
-    const summary = current.summary;
-    if (!summary?.isValid || isOperationRunning(current) || !summary.branch) {
-      return;
-    }
-
-    if (summary.remoteBranches.length === 0 && !summary.upstream) {
-      return;
-    }
-
-    const currentUpstreamAvailable = summary.upstream
-      ? summary.remoteBranches.some((remoteBranch) => remoteBranch.name === summary.upstream)
-      : false;
-
-    updateState({
-      upstreamDialogOpen: true,
-      upstreamDraft: currentUpstreamAvailable
-        ? summary.upstream
-        : summary.remoteBranches[0]?.name ?? null,
-      upstreamError: ""
-    });
-  }, [updateState]);
-
-  const closeUpstreamDialog = useCallback((): void => {
-    if (isOperationRunning(stateRef.current)) {
-      return;
-    }
-
-    updateState({
-      upstreamDialogOpen: false,
-      upstreamError: ""
-    });
-  }, [updateState]);
-
   const closePublishDialog = useCallback((): void => {
     if (isOperationRunning(stateRef.current)) {
       return;
@@ -3549,7 +3508,7 @@ export function App(): ReactNode {
     );
   }, [ensureTrustedRepo, isInvocationCurrent, runRepoOperation]);
 
-  const setBranchUpstream = useCallback(async (): Promise<void> => {
+  const setBranchUpstream = useCallback(async (upstream: string | null): Promise<void> => {
     const current = stateRef.current;
     const summary = current.summary;
 
@@ -3558,40 +3517,22 @@ export function App(): ReactNode {
     }
 
     const branchName = summary.branch;
-    if (current.upstreamDraft === summary.upstream) {
-      updateState({
-        upstreamDialogOpen: false,
-        upstreamError: ""
-      });
+    if (upstream === summary.upstream) {
       return;
     }
 
-    const upstream = current.upstreamDraft;
     if (upstream !== null && !summary.remoteBranches.some((remoteBranch) => remoteBranch.name === upstream)) {
-      updateState({
-        upstreamError: "Select a fetched remote branch."
-      });
       return;
     }
 
-    updateState({
-      upstreamError: ""
-    });
-
+    updateState({ upstreamError: "" });
     const repoPath = current.repoPath;
     if (!(await ensureTrustedRepo(repoPath))) {
-      if (isSameRepoPath(repoPath, stateRef.current.repoPath) && stateRef.current.upstreamDialogOpen) {
-        updateState({
-          upstreamError: "Repository trust is required before changing branch upstreams."
-        });
-      }
       return;
     }
 
     if (!isInvocationCurrent(repoPath, (latest) => (
-      latest.upstreamDialogOpen &&
-      latest.summary?.branch === branchName &&
-      latest.upstreamDraft === upstream
+      latest.summary?.branch === branchName
     ))) return;
 
     const label = upstream ? `Changing upstream to ${upstream}` : "Clearing upstream";
@@ -3603,19 +3544,9 @@ export function App(): ReactNode {
         operationId
       })
     );
-
-    if (result?.exitCode === 0) {
-      updateState({
-        upstreamDialogOpen: false,
-        upstreamDraft: null,
-        upstreamError: ""
-      });
-      return;
+    if (result?.exitCode !== 0 && isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+      updateState({ upstreamError: getOperationFailureMessage(result, "Unable to change upstream.") });
     }
-
-    updateState({
-      upstreamError: getOperationFailureMessage(result, "Unable to change upstream.")
-    });
   }, [ensureTrustedRepo, isInvocationCurrent, runRepoOperation, updateState]);
 
   const publishBranch = useCallback(async (): Promise<void> => {
@@ -5834,6 +5765,7 @@ export function App(): ReactNode {
             repositoryGroups={state.repositoryGroups}
             repoSyncStatuses={state.repoSyncStatuses}
             summary={state.summary}
+            upstreamError={state.upstreamError}
             running={running}
             appUpdate={state.appUpdate}
             clonePanelOpen={state.clonePanelOpen}
@@ -5871,7 +5803,9 @@ export function App(): ReactNode {
             onCheckoutRemoteBranch={checkoutRemoteBranch}
             onOpenBranchDialog={openBranchDialog}
             onOpenBranchManager={openBranchManager}
-            onOpenUpstreamDialog={openUpstreamDialog}
+            onChangeUpstream={(upstream) => {
+              void setBranchUpstream(upstream);
+            }}
             onOpenRemoteManager={openRemoteManager}
             onOpenSettings={openSettingsDialog}
             onCloneDraftChange={updateCloneDraft}
@@ -6484,30 +6418,6 @@ export function App(): ReactNode {
         onCreate={(event) => {
           event.preventDefault();
           void createBranch();
-        }}
-      />
-
-      <UpstreamDialog
-        open={state.upstreamDialogOpen}
-        currentUpstream={state.summary?.upstream ?? null}
-        remoteBranches={state.summary?.remoteBranches ?? []}
-        upstream={state.upstreamDraft}
-        saving={state.runningOperation?.startsWith("Changing upstream") || state.runningOperation === "Clearing upstream"}
-        error={state.upstreamError}
-        onOpenChange={(open) => {
-          if (!open) {
-            requestModalClose(["repo-operation"], closeUpstreamDialog);
-          }
-        }}
-        onUpstreamChange={(upstreamDraft) => {
-          updateState({
-            upstreamDraft,
-            upstreamError: ""
-          });
-        }}
-        onSave={(event) => {
-          event.preventDefault();
-          void setBranchUpstream();
         }}
       />
 
@@ -7669,6 +7579,7 @@ function RepositoryPanel({
   repositoryGroups,
   repoSyncStatuses,
   summary,
+  upstreamError,
   running,
   appUpdate,
   clonePanelOpen,
@@ -7694,7 +7605,7 @@ function RepositoryPanel({
   onCheckoutRemoteBranch,
   onOpenBranchDialog,
   onOpenBranchManager,
-  onOpenUpstreamDialog,
+  onChangeUpstream,
   onOpenRemoteManager,
   onOpenSettings,
   onCloneDraftChange,
@@ -7712,6 +7623,7 @@ function RepositoryPanel({
   repositoryGroups: RepositoryGroup[];
   repoSyncStatuses: Record<string, RepoSyncStatus>;
   summary: RepoSummary | null;
+  upstreamError: string;
   running: boolean;
   appUpdate: AppUpdateState;
   clonePanelOpen: boolean;
@@ -7737,7 +7649,7 @@ function RepositoryPanel({
   onCheckoutRemoteBranch: (remoteBranch: GitRemoteBranch) => void;
   onOpenBranchDialog: () => void;
   onOpenBranchManager: () => void;
-  onOpenUpstreamDialog: () => void;
+  onChangeUpstream: (upstream: string | null) => void;
   onOpenRemoteManager: () => void;
   onOpenSettings: () => void;
   onCloneDraftChange: (draft: CloneDraft) => void;
@@ -7877,10 +7789,11 @@ function RepositoryPanel({
         {(summary?.capabilities.setUpstream ?? true) ? (
           <UpstreamFact
             upstream={summary?.upstream ?? null}
+            error={upstreamError}
             currentBranch={summary?.branch ?? null}
             remoteBranches={summary?.remoteBranches ?? []}
             disabled={running || !summary?.isValid}
-            onChangeUpstream={onOpenUpstreamDialog}
+            onChangeUpstream={onChangeUpstream}
           />
         ) : null}
         {(summary?.capabilities.manageRemotes ?? false) ? (
@@ -8015,18 +7928,36 @@ function BranchFact({
 
 function UpstreamFact({
   upstream,
+  error,
   currentBranch,
   remoteBranches,
   disabled,
   onChangeUpstream
 }: {
   upstream: string | null;
+  error: string;
   currentBranch: string | null;
   remoteBranches: GitRemoteBranch[];
   disabled: boolean;
-  onChangeUpstream: () => void;
+  onChangeUpstream: (upstream: string | null) => void;
 }): ReactNode {
   const canChange = !disabled && Boolean(currentBranch) && (remoteBranches.length > 0 || Boolean(upstream));
+  const options: ReferencePickerOption[] = [
+    ...remoteBranches.map((remoteBranch) => ({
+      value: remoteBranch.name,
+      label: remoteBranch.name,
+      detail: remoteBranch.branch,
+      group: remoteBranch.remote,
+      icon: <GitBranchIcon />
+    })),
+    {
+      value: "",
+      label: "No upstream",
+      detail: upstream ? `Stop tracking ${upstream}` : "Do not track a remote branch",
+      group: "Tracking",
+      icon: <Minus />
+    }
+  ];
 
   return (
     <div className="repo-upstream-fact">
@@ -8038,22 +7969,21 @@ function UpstreamFact({
             : "Add a remote before setting an upstream"
           : upstream}>
           <span className="min-w-0">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="reference-picker-trigger is-compact"
+            <ReferencePicker
+              value={upstream ?? ""}
+              options={options}
               disabled={!canChange}
-              onClick={onChangeUpstream}
-              aria-label="Change upstream"
-              aria-haspopup="dialog"
-            >
-              <GitBranchIcon />
-              <span className="reference-picker-trigger-label selectable-text">{upstream ?? "-"}</span>
-              <ChevronDown className="reference-picker-chevron" />
-            </Button>
+              ariaLabel="Change upstream"
+              placeholder="-"
+              searchPlaceholder="Search remote branches..."
+              emptyMessage="No remote branches found."
+              triggerIcon={<GitBranchIcon />}
+              compact
+              onValueChange={(value) => onChangeUpstream(value || null)}
+            />
           </span>
         </TooltipTarget>
+        {error ? <p className="repo-upstream-error" role="alert">{error}</p> : null}
       </dd>
     </div>
   );
@@ -10856,97 +10786,6 @@ function RevertCommitDialog({
   );
 }
 
-function UpstreamDialog({
-  open,
-  currentUpstream,
-  remoteBranches,
-  upstream,
-  saving,
-  error,
-  onOpenChange,
-  onUpstreamChange,
-  onSave
-}: {
-  open: boolean;
-  currentUpstream: string | null;
-  remoteBranches: GitRemoteBranch[];
-  upstream: string | null;
-  saving: boolean;
-  error: string;
-  onOpenChange: (open: boolean) => void;
-  onUpstreamChange: (upstream: string | null) => void;
-  onSave: (event: FormEvent<HTMLFormElement>) => void;
-}): ReactNode {
-  const remoteGroups = groupRemoteBranchesByRemote(remoteBranches);
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[460px]">
-        <form className="grid gap-4" onSubmit={onSave}>
-          <DialogHeader>
-            <DialogTitle>Change Upstream</DialogTitle>
-            <DialogDescription className="sr-only">
-              Change the remote-tracking branch configured for the current branch.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="upstream-dialog-list" role="radiogroup" aria-label="Upstream">
-            {remoteGroups.map((group) => (
-              <fieldset key={group.remote} className="upstream-remote-group">
-                <legend>{group.remote}</legend>
-                {group.branches.map((remoteBranch) => (
-                  <label key={remoteBranch.name} className="upstream-option">
-                    <input
-                      type="radio"
-                      name="upstream"
-                      value={remoteBranch.name}
-                      checked={upstream === remoteBranch.name}
-                      disabled={saving}
-                      onChange={() => onUpstreamChange(remoteBranch.name)}
-                    />
-                    <span className="upstream-option-main">
-                      <span className="upstream-option-name">{remoteBranch.name}</span>
-                      <span className="upstream-option-branch">{remoteBranch.branch}</span>
-                    </span>
-                  </label>
-                ))}
-              </fieldset>
-            ))}
-
-            {currentUpstream ? (
-              <label className="upstream-option">
-                <input
-                  type="radio"
-                  name="upstream"
-                  value=""
-                  checked={upstream === null}
-                  disabled={saving}
-                  onChange={() => onUpstreamChange(null)}
-                />
-                <span className="upstream-option-main">
-                  <span className="upstream-option-name">No upstream</span>
-                  <span className="upstream-option-branch">Stop tracking {currentUpstream}</span>
-                </span>
-              </label>
-            ) : null}
-          </div>
-
-          <p className="min-h-5 text-sm text-destructive" role="alert">{error}</p>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={saving}>
-              {saving ? <Loader2 className="animate-spin" /> : <Save />}
-              {saving ? "Saving" : "Save"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 function PublishBranchDialog({
   open,
   branchName,
@@ -11695,26 +11534,6 @@ function getCurrentHistoryHeadSha(
 
 function isGitHubView(view: WorkspaceView): boolean {
   return view === "workflows" || view === "pullRequests" || view === "issues";
-}
-
-function groupRemoteBranchesByRemote(remoteBranches: GitRemoteBranch[]): Array<{
-  remote: string;
-  branches: GitRemoteBranch[];
-}> {
-  const branchesByRemote = new Map<string, GitRemoteBranch[]>();
-
-  for (const remoteBranch of remoteBranches) {
-    const branches = branchesByRemote.get(remoteBranch.remote) ?? [];
-    branches.push(remoteBranch);
-    branchesByRemote.set(remoteBranch.remote, branches);
-  }
-
-  return [...branchesByRemote.entries()]
-    .map(([remote, branches]) => ({
-      remote,
-      branches
-    }))
-    .sort((left, right) => left.remote.localeCompare(right.remote));
 }
 
 function getCommitByHash(history: GitCommitGraphRow[], hash: string): GitCommitGraphRow | null {

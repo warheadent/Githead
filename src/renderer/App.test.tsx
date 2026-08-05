@@ -6840,8 +6840,7 @@ describe("App", () => {
 
     await screen.findByText("origin/main");
     await user.click(screen.getByRole("button", { name: "Change upstream" }));
-    await user.click(await screen.findByRole("radio", { name: /origin\/feature/ }));
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(await screen.findByRole("option", { name: /origin\/feature/ }));
 
     await waitFor(() => {
       expect(githead.setBranchUpstream).toHaveBeenCalledWith({
@@ -6861,8 +6860,7 @@ describe("App", () => {
 
     await screen.findByText("origin/main");
     await user.click(screen.getByRole("button", { name: "Change upstream" }));
-    await user.click(await screen.findByRole("radio", { name: /No upstream/ }));
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(await screen.findByRole("option", { name: /No upstream/ }));
 
     await waitFor(() => {
       expect(githead.setBranchUpstream).toHaveBeenCalledWith({
@@ -6874,7 +6872,7 @@ describe("App", () => {
     });
   });
 
-  it("keeps the upstream dialog open when changing upstream fails", async () => {
+  it("keeps the upstream picker available when changing upstream fails", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       remoteBranches: [
@@ -6901,11 +6899,11 @@ describe("App", () => {
 
     await screen.findByText("origin/main");
     await user.click(screen.getByRole("button", { name: "Change upstream" }));
-    await user.click(await screen.findByRole("radio", { name: /origin\/feature/ }));
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(await screen.findByRole("option", { name: /origin\/feature/ }));
 
     expect(await screen.findByText("Unable to set upstream.")).toBeTruthy();
-    expect(screen.getByRole("radio", { name: /origin\/feature/ })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Change upstream" }));
+    expect(await screen.findByRole("option", { name: /origin\/feature/ })).toBeTruthy();
   });
 
   it("saves OpenRouter settings with custom source control writing instructions", async () => {
