@@ -2,13 +2,22 @@ import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, lazyPlugins } from "vite-plus";
+import {
+  createSentryVitePlugin,
+  sentryBuildConfig,
+  sentrySourceMapUploadEnabled
+} from "./sentry.vite";
 
 export default defineConfig({
   root: ".",
   base: "./",
+  define: {
+    __SENTRY_ENABLED__: JSON.stringify(Boolean(sentryBuildConfig.dsn))
+  },
   plugins: lazyPlugins(() => [
     react({}),
-    tailwindcss()
+    tailwindcss(),
+    createSentryVitePlugin("dist/renderer/**/*.map")
   ]) ?? [],
   resolve: {
     alias: {
@@ -18,6 +27,7 @@ export default defineConfig({
   build: {
     outDir: "dist/renderer",
     emptyOutDir: true,
+    sourcemap: sentrySourceMapUploadEnabled ? "hidden" : false,
     rollupOptions: {
       input: "index.html"
     }

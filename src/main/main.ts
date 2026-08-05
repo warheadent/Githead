@@ -120,6 +120,9 @@ import {
 import { AppUpdateService } from "./updateService";
 import { VcsRouter } from "./vcsRouter";
 import { MIN_WINDOW_BOUNDS, WindowStateService } from "./windowStateService";
+import { initializeSentry } from "./sentry";
+
+initializeSentry();
 
 const DEFAULT_REPO_PATH = "D:\\Githead";
 const processRunner = new CancellableProcessRunner(new NodeProcessRunner());
