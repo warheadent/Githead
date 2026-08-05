@@ -58,6 +58,7 @@ export function ReferencePicker({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const [actionsHovered, setActionsHovered] = useState(false);
   const selected = options.find((option) => option.value === value) ?? null;
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const filteredOptions = useMemo(() => options.filter((option) => {
@@ -76,6 +77,7 @@ export function ReferencePicker({
     setOpen(false);
     setQuery("");
     setActiveIndex(0);
+    setActionsHovered(false);
   };
 
   const choose = (option: ReferencePickerOption): void => {
@@ -112,6 +114,7 @@ export function ReferencePicker({
       if (!nextOpen) {
         setQuery("");
         setActiveIndex(0);
+        setActionsHovered(false);
       }
     }}>
       <PopoverTrigger asChild>
@@ -171,8 +174,11 @@ export function ReferencePicker({
                   type="button"
                   role="option"
                   aria-selected={isSelected}
-                  className={cn("reference-picker-option", index === resolvedActiveIndex && "is-active")}
-                  onMouseMove={() => setActiveIndex(index)}
+                  className={cn("reference-picker-option", !actionsHovered && index === resolvedActiveIndex && "is-active")}
+                  onMouseMove={() => {
+                    setActionsHovered(false);
+                    setActiveIndex(index);
+                  }}
                   onClick={() => choose(option)}
                 >
                   <span className="reference-picker-option-icon">{option.icon}</span>
@@ -190,7 +196,11 @@ export function ReferencePicker({
           ) : null}
         </div>
         {actions.length ? (
-          <div className="reference-picker-actions">
+          <div
+            className="reference-picker-actions"
+            onMouseEnter={() => setActionsHovered(true)}
+            onMouseLeave={() => setActionsHovered(false)}
+          >
             {actions.map((action) => (
               <button key={action.label} type="button" onClick={() => { close(); action.onSelect(); }}>
                 {action.icon}

@@ -65,4 +65,28 @@ describe("ReferencePicker", () => {
 
     expect(onValueChange).toHaveBeenCalledWith("release");
   });
+
+  it("clears the option highlight while an action is hovered", async () => {
+    const user = userEvent.setup();
+    render(
+      <ReferencePicker
+        value="main"
+        options={[
+          { value: "main", label: "main" },
+          { value: "feature/search", label: "feature/search" }
+        ]}
+        actions={[{ label: "Manage Branches…", onSelect: vi.fn() }]}
+        ariaLabel="Select branch"
+        onValueChange={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Select branch" }));
+    const featureOption = screen.getByRole("option", { name: "feature/search" });
+    await user.hover(featureOption);
+    expect(featureOption.classList.contains("is-active")).toBe(true);
+
+    await user.hover(screen.getByRole("button", { name: "Manage Branches…" }));
+    expect(featureOption.classList.contains("is-active")).toBe(false);
+  });
 });
