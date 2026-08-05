@@ -34,7 +34,8 @@ import type {
   AppCodeFont,
   AppColorTheme,
   AppUiFont,
-  GitIdentityScope
+  GitIdentityScope,
+  SourceControlWritingStyle
 } from "../shared/types";
 import { AI_COMMIT_MESSAGE_PROVIDERS, APP_ZOOM_FACTORS } from "../shared/types";
 import { COLOR_THEME_OPTIONS } from "./themes";
@@ -54,6 +55,7 @@ export interface SettingsDraft {
   clearApiKeys: Partial<Record<AiApiKeyProvider, boolean>>;
   commitMessagePrompt: string;
   prDescriptionPrompt: string;
+  sourceControlWritingStyle: SourceControlWritingStyle;
   autoFetchIntervalMinutes: string;
   colorTheme: AppColorTheme;
   appearanceMode: AppAppearanceMode;
@@ -307,6 +309,6 @@ function getDirtyCategories(baseline: string, draft: SettingsDraft): Record<Sett
     appearance: saved.colorTheme !== draft.colorTheme || saved.appearanceMode !== draft.appearanceMode || saved.uiFont !== draft.uiFont || saved.codeFont !== draft.codeFont || saved.zoomFactor !== draft.zoomFactor,
     "git-identity": saved.gitIdentityName !== draft.gitIdentityName || saved.gitIdentityEmail !== draft.gitIdentityEmail || saved.gitIdentityScope !== draft.gitIdentityScope,
     sync: saved.autoFetchIntervalMinutes !== draft.autoFetchIntervalMinutes,
-    ai: JSON.stringify({ selectedProvider: saved.selectedProvider, providerModels: saved.providerModels, prDescriptionModels: saved.prDescriptionModels, reasoningEfforts: saved.reasoningEfforts, prDescriptionReasoningEfforts: saved.prDescriptionReasoningEfforts, apiKeys: saved.apiKeys, clearApiKeys: saved.clearApiKeys, commitMessagePrompt: saved.commitMessagePrompt, prDescriptionPrompt: saved.prDescriptionPrompt }) !== JSON.stringify({ selectedProvider: draft.selectedProvider, providerModels: draft.providerModels, prDescriptionModels: draft.prDescriptionModels, reasoningEfforts: draft.reasoningEfforts, prDescriptionReasoningEfforts: draft.prDescriptionReasoningEfforts, apiKeys: draft.apiKeys, clearApiKeys: draft.clearApiKeys, commitMessagePrompt: draft.commitMessagePrompt, prDescriptionPrompt: draft.prDescriptionPrompt })
+    ai: JSON.stringify({ selectedProvider: saved.selectedProvider, providerModels: saved.providerModels, prDescriptionModels: saved.prDescriptionModels, reasoningEfforts: saved.reasoningEfforts, prDescriptionReasoningEfforts: saved.prDescriptionReasoningEfforts, apiKeys: saved.apiKeys, clearApiKeys: saved.clearApiKeys, commitMessagePrompt: saved.commitMessagePrompt, prDescriptionPrompt: saved.prDescriptionPrompt, sourceControlWritingStyle: saved.sourceControlWritingStyle }) !== JSON.stringify({ selectedProvider: draft.selectedProvider, providerModels: draft.providerModels, prDescriptionModels: draft.prDescriptionModels, reasoningEfforts: draft.reasoningEfforts, prDescriptionReasoningEfforts: draft.prDescriptionReasoningEfforts, apiKeys: draft.apiKeys, clearApiKeys: draft.clearApiKeys, commitMessagePrompt: draft.commitMessagePrompt, prDescriptionPrompt: draft.prDescriptionPrompt, sourceControlWritingStyle: draft.sourceControlWritingStyle })
   };
 }

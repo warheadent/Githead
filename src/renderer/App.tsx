@@ -111,6 +111,7 @@ import {
 } from "@/components/ui/tooltip";
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import { DEFAULT_PR_DESCRIPTION_PROMPT } from "../shared/prDescriptionPrompt";
+import { DEFAULT_SOURCE_CONTROL_WRITING_STYLE } from "../shared/sourceControlWritingStyle";
 import type {
   AiCommitMessageProvider,
   AiReasoningEffort,
@@ -598,6 +599,7 @@ const emptySettingsDraft: SettingsDraft = {
   clearApiKeys: {},
   commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT,
   prDescriptionPrompt: DEFAULT_PR_DESCRIPTION_PROMPT,
+  sourceControlWritingStyle: { ...DEFAULT_SOURCE_CONTROL_WRITING_STYLE },
   autoFetchIntervalMinutes: "10",
   colorTheme: "githead",
   appearanceMode: "system",
@@ -4563,6 +4565,7 @@ export function App(): ReactNode {
         clearApiKeys: {},
         commitMessagePrompt: settings?.commitMessagePrompt ?? DEFAULT_COMMIT_MESSAGE_PROMPT,
         prDescriptionPrompt: settings?.prDescriptionPrompt ?? DEFAULT_PR_DESCRIPTION_PROMPT,
+        sourceControlWritingStyle: settings?.sourceControlWritingStyle ?? { ...DEFAULT_SOURCE_CONTROL_WRITING_STYLE },
         autoFetchIntervalMinutes: String(appSettings?.autoFetchIntervalMinutes ?? 10),
         colorTheme: appSettings?.colorTheme ?? "githead",
         appearanceMode: appSettings?.appearanceMode ?? "system",
@@ -4655,7 +4658,8 @@ export function App(): ReactNode {
           apiKeys: draft.apiKeys,
           clearApiKeys: draft.clearApiKeys,
           commitMessagePrompt: draft.commitMessagePrompt,
-          prDescriptionPrompt: draft.prDescriptionPrompt
+          prDescriptionPrompt: draft.prDescriptionPrompt,
+          sourceControlWritingStyle: draft.sourceControlWritingStyle
         });
         if (!isSaveCurrent()) return;
       }
@@ -12012,6 +12016,7 @@ function hasAiSettingsChanges(draft: SettingsDraft, settings: AiSettings | null)
     return draft.selectedProvider !== "openrouter"
       || draft.commitMessagePrompt !== DEFAULT_COMMIT_MESSAGE_PROMPT
       || draft.prDescriptionPrompt !== DEFAULT_PR_DESCRIPTION_PROMPT
+      || JSON.stringify(draft.sourceControlWritingStyle) !== JSON.stringify(DEFAULT_SOURCE_CONTROL_WRITING_STYLE)
       || Object.values(draft.providerModels).some((model) => Boolean(model.trim()))
       || Object.values(draft.prDescriptionModels).some((model) => Boolean(model.trim()))
       || Object.values(draft.reasoningEfforts).some((effort) => effort !== "low")
@@ -12024,6 +12029,7 @@ function hasAiSettingsChanges(draft: SettingsDraft, settings: AiSettings | null)
     draft.selectedProvider !== settings.selectedProvider
     || draft.commitMessagePrompt !== settings.commitMessagePrompt
     || draft.prDescriptionPrompt !== settings.prDescriptionPrompt
+    || JSON.stringify(draft.sourceControlWritingStyle) !== JSON.stringify(settings.sourceControlWritingStyle)
   ) {
     return true;
   }

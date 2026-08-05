@@ -103,7 +103,8 @@ describe("AiSettingsService", () => {
         },
         cliStatus,
         commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT,
-        prDescriptionPrompt: DEFAULT_PR_DESCRIPTION_PROMPT
+        prDescriptionPrompt: DEFAULT_PR_DESCRIPTION_PROMPT,
+        sourceControlWritingStyle: { mode: "conventional_commits", customInstructions: "" }
       });
     });
   });
@@ -192,6 +193,33 @@ describe("AiSettingsService", () => {
       expect(saved.providers.openrouter.prDescriptionReasoningEffort).toBe("high");
       expect(saved.providers["codex-cli"].reasoningEffort).toBe("high");
       expect(saved.providers["codex-cli"].prDescriptionReasoningEffort).toBe("medium");
+    });
+  });
+
+  it("persists source control writing style settings", async () => {
+    await withTempDir(async (dir) => {
+      const service = createService(dir);
+
+      const saved = await service.saveSettings({
+        selectedProvider: "codex-cli",
+        providerModels: DEFAULT_AI_PROVIDER_MODELS,
+        commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT,
+        sourceControlWritingStyle: {
+          mode: "custom",
+          customInstructions: "  Use sentence case.  "
+        }
+      });
+
+      expect(saved.sourceControlWritingStyle).toEqual({
+        mode: "custom",
+        customInstructions: "Use sentence case."
+      });
+      await expect(createService(dir).getSettings()).resolves.toMatchObject({
+        sourceControlWritingStyle: {
+          mode: "custom",
+          customInstructions: "Use sentence case."
+        }
+      });
     });
   });
 

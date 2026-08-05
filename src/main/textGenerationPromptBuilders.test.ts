@@ -57,4 +57,32 @@ describe("text generation prompts", () => {
     expect(userPrompt).toContain("Base branch: main");
     expect(userPrompt).toContain("Head branch: feature/prompts");
   });
+
+  it("uses recent commit subjects for repository conventions", () => {
+    const style = { mode: "repo_conventions" as const, customInstructions: "" };
+    const systemPrompt = createCommitMessageSystemPrompt(style);
+    const userPrompt = createCommitMessageUserPrompt(
+      DEFAULT_COMMIT_MESSAGE_PROMPT,
+      "diff --git a/a.ts b/a.ts",
+      undefined,
+      style,
+      ["Add source control settings", "Fix settings migration"]
+    );
+
+    expect(systemPrompt).toContain("repository's established commit message style");
+    expect(systemPrompt).not.toContain("Use Conventional Commits format");
+    expect(userPrompt).toContain("Recent commit subjects from this repository:");
+    expect(userPrompt).toContain("- Fix settings migration");
+  });
+
+  it("applies custom instructions to commit and pull request generation", () => {
+    const style = {
+      mode: "custom" as const,
+      customInstructions: "Use sentence case and lead with user impact."
+    };
+
+    expect(createCommitMessageSystemPrompt(style)).toContain(style.customInstructions);
+    expect(createPrTitleSystemPrompt(style)).toContain(style.customInstructions);
+    expect(createPrDescriptionSystemPrompt(style)).toContain(style.customInstructions);
+  });
 });

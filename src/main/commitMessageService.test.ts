@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vite-plus/test";
-import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import type { AiApiKeyProvider, AiCommitMessageProvider, AiSettings } from "../shared/types";
 import { CommitMessageService, type AiReasoningCapabilityResolver } from "./commitMessageService";
 import { DEFAULT_AI_PROVIDER_MODELS, type AiSettingsService } from "./aiSettingsService";
@@ -113,7 +112,8 @@ const baseSettings: AiSettings = {
     "Write a project-specific Git commit message.",
     "Prefer Conventional Commits."
   ].join("\n"),
-  prDescriptionPrompt: "Write a pull request description."
+  prDescriptionPrompt: "Write a pull request description.",
+  sourceControlWritingStyle: { mode: "conventional_commits", customInstructions: "" }
 };
 
 function createSettings(provider: AiCommitMessageProvider, patch: Partial<AiSettings> = {}): AiSettings {
@@ -240,7 +240,7 @@ describe("CommitMessageService", () => {
     expect(body.reasoning).toEqual({ effort: "low" });
     expect(body.messages.at(-1)?.content).toContain("+added");
     expect(body.messages[0]?.content).toContain("Return exactly the commit message text");
-    expect(body.messages.at(-1)?.content).toContain("Write a project-specific Git commit message.");
+    expect(body.messages.at(-1)?.content).toContain("Write a concise Git commit message for the staged changes.");
   });
 
   it("retries an empty OpenRouter length response once with a larger limit", async () => {
@@ -489,7 +489,8 @@ describe("CommitMessageService", () => {
     const body = JSON.parse(String(calls[0]?.init?.body)) as {
       messages: Array<{ content: string }>;
     };
-    expect(body.messages.at(-1)?.content).toContain(DEFAULT_COMMIT_MESSAGE_PROMPT);
+    expect(body.messages.at(-1)?.content).toContain("Write a concise Git commit message for the staged changes.");
+    expect(body.messages[0]?.content).toContain("Use Conventional Commits format");
   });
 
   it("includes additional user context in the prompt when provided", async () => {

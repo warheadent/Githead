@@ -18,7 +18,7 @@ import type { ProcessRunner } from "./processRunner";
 import type { VcsService } from "./vcsService";
 
 /** Whichever VCS backend owns the repo supplies the staged diff for the model. */
-type StagedDiffProvider = Pick<VcsService, "getStagedDiff">;
+type StagedDiffProvider = Pick<VcsService, "getStagedDiff"> & Partial<Pick<VcsService, "getCommitHistory">>;
 
 type Fetch = typeof fetch;
 
@@ -60,7 +60,13 @@ export class CommitMessageService {
       }
 
       const service = await this.resolveService(request.repoPath);
-      const diffResult = await service.getStagedDiff(request.repoPath);
+      const [diffResult, recentCommits] = await Promise.all([
+        service.getStagedDiff(request.repoPath),
+        settings.sourceControlWritingStyle.mode === "repo_conventions"
+          ? service.getCommitHistory?.({ repoPath: request.repoPath, limit: 12, scope: "all" }).catch(() => [])
+            ?? Promise.resolve([])
+          : Promise.resolve([])
+      ]);
       throwIfAborted(signal);
       if (diffResult.exitCode !== 0) {
         return diffResult;
@@ -83,11 +89,13 @@ export class CommitMessageService {
         model: providerSettings.model,
         ...(signal ? { signal } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
-        systemPrompt: createCommitMessageSystemPrompt(),
+        systemPrompt: createCommitMessageSystemPrompt(settings.sourceControlWritingStyle),
         userPrompt: createCommitMessageUserPrompt(
           settings.commitMessagePrompt,
           diff,
-          request.additionalContext
+          request.additionalContext,
+          settings.sourceControlWritingStyle,
+          recentCommits.map((commit) => commit.subject)
         )
       });
       const message = normalizeGeneratedMessage(generation.text);

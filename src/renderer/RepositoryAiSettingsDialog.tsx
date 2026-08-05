@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { AI_COMMIT_MESSAGE_PROVIDERS, type RepositoryAiSettings } from "../shared/types";
+import { DEFAULT_SOURCE_CONTROL_WRITING_STYLE } from "../shared/sourceControlWritingStyle";
 import { AiGenerationSettingsFields, type AiGenerationSettingsDraft } from "./AiGenerationSettingsFields";
 import { getAiProviderLabel } from "./aiProvider";
 
@@ -26,7 +27,8 @@ const emptyDraft: RepositoryAiSettingsDraft = {
   reasoningEfforts: createReasoningRecord(),
   prDescriptionReasoningEfforts: createReasoningRecord(),
   commitMessagePrompt: "",
-  prDescriptionPrompt: ""
+  prDescriptionPrompt: "",
+  sourceControlWritingStyle: { ...DEFAULT_SOURCE_CONTROL_WRITING_STYLE }
 };
 
 export interface RepositoryAiSettingsDialogProps {
@@ -73,7 +75,8 @@ export function RepositoryAiSettingsDialog({ open, repoPath, onOpenChange }: Rep
         reasoningEfforts: draft.reasoningEfforts,
         prDescriptionReasoningEfforts: draft.prDescriptionReasoningEfforts,
         commitMessagePrompt: draft.commitMessagePrompt,
-        prDescriptionPrompt: draft.prDescriptionPrompt
+        prDescriptionPrompt: draft.prDescriptionPrompt,
+        sourceControlWritingStyle: draft.sourceControlWritingStyle
       });
       onOpenChange(false);
     } catch (saveError) {
@@ -134,7 +137,8 @@ function createDraft(result: RepositoryAiSettings): RepositoryAiSettingsDraft {
     reasoningEfforts: mapProviders((provider) => result.settings.providers[provider].reasoningEffort),
     prDescriptionReasoningEfforts: mapProviders((provider) => result.settings.providers[provider].prDescriptionReasoningEffort),
     commitMessagePrompt: result.settings.commitMessagePrompt,
-    prDescriptionPrompt: result.settings.prDescriptionPrompt
+    prDescriptionPrompt: result.settings.prDescriptionPrompt,
+    sourceControlWritingStyle: result.settings.sourceControlWritingStyle
   };
 }
 

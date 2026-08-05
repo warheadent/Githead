@@ -22,6 +22,7 @@ import { App } from "./App";
 import { gitHubQueryStore } from "./useGitHubQueries";
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import { DEFAULT_PR_DESCRIPTION_PROMPT } from "../shared/prDescriptionPrompt";
+import { DEFAULT_SOURCE_CONTROL_WRITING_STYLE } from "../shared/sourceControlWritingStyle";
 import type {
   AiReasoningCapabilities,
   AiSettings,
@@ -135,6 +136,7 @@ function createAiSettings(
     },
     commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT,
     prDescriptionPrompt: DEFAULT_PR_DESCRIPTION_PROMPT,
+    sourceControlWritingStyle: { ...DEFAULT_SOURCE_CONTROL_WRITING_STYLE },
     ...patch
   };
 }
@@ -6875,7 +6877,7 @@ describe("App", () => {
     expect(screen.getByRole("radio", { name: /origin\/feature/ })).toBeTruthy();
   });
 
-  it("saves OpenRouter settings with a commit message prompt instead of site attribution fields", async () => {
+  it("saves OpenRouter settings with custom source control writing instructions", async () => {
     const user = userEvent.setup();
     const savedSettings = createAiSettings("openrouter", {
       providers: {
@@ -6903,15 +6905,13 @@ describe("App", () => {
 
     await user.click(screen.getByRole("tab", { name: "AI" }));
 
-    const prompt = await screen.findByLabelText("Commit Message Prompt");
-    expect(prompt).toBeTruthy();
+    const writingStyle = await screen.findByLabelText("Writing style");
+    fireEvent.change(writingStyle, { target: { value: "custom" } });
+    const instructions = await screen.findByLabelText("Custom instructions");
 
-    await user.clear(screen.getByLabelText("OpenRouter API Key"));
-    await user.type(screen.getByLabelText("OpenRouter API Key"), "sk-or-key");
-    await user.clear(screen.getByLabelText("Model"));
-    await user.type(screen.getByLabelText("Model"), "openrouter/auto");
-    await user.clear(prompt);
-    await user.type(prompt, "Write a single-line commit message.");
+    fireEvent.change(screen.getByLabelText("OpenRouter API Key"), { target: { value: "sk-or-key" } });
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "openrouter/auto" } });
+    fireEvent.change(instructions, { target: { value: "Write a single-line commit message." } });
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
@@ -6951,24 +6951,29 @@ describe("App", () => {
         clearApiKeys: {
           openrouter: false
         },
-        commitMessagePrompt: "Write a single-line commit message.",
-        prDescriptionPrompt: DEFAULT_PR_DESCRIPTION_PROMPT
+        commitMessagePrompt: "Write concise commit messages.",
+        prDescriptionPrompt: DEFAULT_PR_DESCRIPTION_PROMPT,
+        sourceControlWritingStyle: {
+          mode: "custom",
+          customInstructions: "Write a single-line commit message."
+        }
       });
     });
     expect(githead.saveAppSettings).not.toHaveBeenCalled();
   });
 
-  it("resets commit and pull request prompts to their defaults", async () => {
+  it("resets the source control writing style to its default", async () => {
     const user = userEvent.setup();
     const savedSettings = createAiSettings("openrouter", {
-      commitMessagePrompt: "Use a custom commit message prompt.",
-      prDescriptionPrompt: "Use a custom pull request prompt."
+      sourceControlWritingStyle: {
+        mode: "custom",
+        customInstructions: "Use sentence case."
+      }
     });
     vi.mocked(githead.getAiSettings).mockResolvedValue(savedSettings);
     vi.mocked(githead.saveAiSettings).mockResolvedValue({
       ...savedSettings,
-      commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT,
-      prDescriptionPrompt: DEFAULT_PR_DESCRIPTION_PROMPT
+      sourceControlWritingStyle: { ...DEFAULT_SOURCE_CONTROL_WRITING_STYLE }
     });
 
     render(<App />);
@@ -6977,18 +6982,17 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Settings" }));
     await user.click(screen.getByRole("tab", { name: "AI" }));
 
-    await user.click(screen.getByRole("button", { name: "Reset commit message prompt to default" }));
-    await user.click(screen.getByRole("button", { name: "Reset pr description prompt to default" }));
-
-    expect((screen.getByLabelText("Commit Message Prompt") as HTMLTextAreaElement).value).toBe(DEFAULT_COMMIT_MESSAGE_PROMPT);
-    expect((screen.getByLabelText("PR Description Prompt") as HTMLTextAreaElement).value).toBe(DEFAULT_PR_DESCRIPTION_PROMPT);
+    expect((screen.getByLabelText("Writing style") as HTMLSelectElement).value).toBe("custom");
+    expect((screen.getByLabelText("Custom instructions") as HTMLTextAreaElement).value).toBe("Use sentence case.");
+    await user.click(screen.getByRole("button", { name: "Reset source control writing style to default" }));
+    expect((screen.getByLabelText("Writing style") as HTMLSelectElement).value).toBe("conventional_commits");
+    expect(screen.queryByLabelText("Custom instructions")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(githead.saveAiSettings).toHaveBeenCalledWith(expect.objectContaining({
-        commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT,
-        prDescriptionPrompt: DEFAULT_PR_DESCRIPTION_PROMPT
+        sourceControlWritingStyle: DEFAULT_SOURCE_CONTROL_WRITING_STYLE
       }));
     });
   });
@@ -7194,9 +7198,8 @@ describe("App", () => {
     expect((screen.getByLabelText("Auto-fetch interval") as HTMLInputElement).value).toBe("10");
     await user.click(screen.getByRole("tab", { name: "AI" }));
     expect(await screen.findByText("Configure providers and instructions for generated Git content.")).toBeTruthy();
-    const prompt = screen.getByLabelText("Commit Message Prompt");
-    expect(prompt.className).toContain("field-sizing-fixed");
-    expect(prompt.className).toContain("min-h-44");
+    expect((screen.getByLabelText("Writing style") as HTMLSelectElement).value).toBe("conventional_commits");
+    expect(screen.getByText("Uses Conventional Commit prefixes for commit messages; pull request titles and descriptions stay concise.")).toBeTruthy();
     await user.click(screen.getByRole("tab", { name: "Git Identity" }));
     await user.clear(screen.getByLabelText("Name"));
     await user.type(screen.getByLabelText("Name"), "Taylor");

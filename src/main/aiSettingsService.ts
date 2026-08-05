@@ -3,6 +3,7 @@ import path from "node:path";
 import { Effect } from "effect";
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import { DEFAULT_PR_DESCRIPTION_PROMPT } from "../shared/prDescriptionPrompt";
+import { DEFAULT_SOURCE_CONTROL_WRITING_STYLE } from "../shared/sourceControlWritingStyle";
 import {
   AI_API_KEY_PROVIDERS,
   AI_CLI_PROVIDERS,
@@ -17,7 +18,9 @@ import {
   type AiSettings,
   type AiSettingsSaveRequest,
   type RepositoryAiSettings,
-  type RepositoryAiSettingsSaveRequest
+  type RepositoryAiSettingsSaveRequest,
+  type SourceControlWritingStyle,
+  type SourceControlWritingStyleMode
 } from "../shared/types";
 import { runEffect, tryPromise } from "../shared/effectRuntime";
 
@@ -46,6 +49,7 @@ interface StoredAiSettings {
   encryptedApiKeys?: Partial<Record<AiApiKeyProvider, string>>;
   commitMessagePrompt?: string;
   prDescriptionPrompt?: string;
+  sourceControlWritingStyle?: Partial<SourceControlWritingStyle>;
 
   model?: string;
   siteUrl?: string;
@@ -62,6 +66,7 @@ interface StoredRepositoryAiSettings {
   prDescriptionReasoningEfforts?: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>>;
   commitMessagePrompt?: string;
   prDescriptionPrompt?: string;
+  sourceControlWritingStyle?: Partial<SourceControlWritingStyle>;
 }
 
 const REPOSITORY_SETTINGS_PATH = path.join(".githead", "ai-settings.json");
@@ -156,7 +161,17 @@ export class AiSettingsService {
       reasoningEfforts: createSavedReasoningEfforts(request.reasoningEfforts),
       prDescriptionReasoningEfforts: createSavedReasoningEfforts(request.prDescriptionReasoningEfforts),
       commitMessagePrompt,
-      prDescriptionPrompt
+      prDescriptionPrompt,
+      sourceControlWritingStyle: request.sourceControlWritingStyle === undefined
+        ? resolveStoredWritingStyle(
+            undefined,
+            DEFAULT_SOURCE_CONTROL_WRITING_STYLE,
+            commitMessagePrompt,
+            prDescriptionPrompt,
+            DEFAULT_COMMIT_MESSAGE_PROMPT,
+            DEFAULT_PR_DESCRIPTION_PROMPT
+          )
+        : sanitizeWritingStyle(request.sourceControlWritingStyle)
     };
 
     await fs.mkdir(path.dirname(settingsPath), { recursive: true });
@@ -180,7 +195,15 @@ export class AiSettingsService {
       providers: createProviderSettings(stored, encryptedApiKeys),
       cliStatus,
       commitMessagePrompt: sanitizePrompt(stored.commitMessagePrompt) || DEFAULT_COMMIT_MESSAGE_PROMPT,
-      prDescriptionPrompt: sanitizePrompt(stored.prDescriptionPrompt) || DEFAULT_PR_DESCRIPTION_PROMPT
+      prDescriptionPrompt: sanitizePrompt(stored.prDescriptionPrompt) || DEFAULT_PR_DESCRIPTION_PROMPT,
+      sourceControlWritingStyle: resolveStoredWritingStyle(
+        stored.sourceControlWritingStyle,
+        DEFAULT_SOURCE_CONTROL_WRITING_STYLE,
+        stored.commitMessagePrompt,
+        stored.prDescriptionPrompt,
+        DEFAULT_COMMIT_MESSAGE_PROMPT,
+        DEFAULT_PR_DESCRIPTION_PROMPT
+      )
     };
   }
 
@@ -242,6 +265,16 @@ export class AiSettingsService {
       reasoningEfforts,
       prDescriptionReasoningEfforts,
       commitMessagePrompt,
+      sourceControlWritingStyle: request.sourceControlWritingStyle === undefined
+        ? resolveStoredWritingStyle(
+            existing.sourceControlWritingStyle,
+            DEFAULT_SOURCE_CONTROL_WRITING_STYLE,
+            commitMessagePrompt,
+            prDescriptionPrompt,
+            DEFAULT_COMMIT_MESSAGE_PROMPT,
+            DEFAULT_PR_DESCRIPTION_PROMPT
+          )
+        : sanitizeWritingStyle(request.sourceControlWritingStyle),
       ...(Object.keys(prDescriptionModels).length > 0 ? { prDescriptionModels } : {}),
       ...(prDescriptionPrompt ? { prDescriptionPrompt } : {}),
       ...(Object.keys(encryptedApiKeys).length > 0 ? { encryptedApiKeys } : {})
@@ -328,8 +361,57 @@ function mergeRepositorySettings(global: AiSettings, stored: StoredRepositoryAiS
     selectedProvider: sanitizeProvider(stored.selectedProvider) ?? global.selectedProvider,
     providers,
     commitMessagePrompt: sanitizePrompt(stored.commitMessagePrompt) || global.commitMessagePrompt,
-    prDescriptionPrompt: sanitizePrompt(stored.prDescriptionPrompt) || global.prDescriptionPrompt
+    prDescriptionPrompt: sanitizePrompt(stored.prDescriptionPrompt) || global.prDescriptionPrompt,
+    sourceControlWritingStyle: resolveStoredWritingStyle(
+      stored.sourceControlWritingStyle,
+      global.sourceControlWritingStyle,
+      stored.commitMessagePrompt,
+      stored.prDescriptionPrompt,
+      global.commitMessagePrompt,
+      global.prDescriptionPrompt
+    )
   };
+}
+
+function sanitizeWritingStyle(style: Partial<SourceControlWritingStyle> | undefined): SourceControlWritingStyle {
+  return {
+    mode: sanitizeWritingStyleMode(style?.mode) ?? DEFAULT_SOURCE_CONTROL_WRITING_STYLE.mode,
+    customInstructions: sanitizePrompt(style?.customInstructions)
+  };
+}
+
+function sanitizeWritingStyleMode(value: unknown): SourceControlWritingStyleMode | null {
+  return value === "repo_conventions" || value === "conventional_commits" || value === "custom"
+    ? value
+    : null;
+}
+
+function resolveStoredWritingStyle(
+  stored: Partial<SourceControlWritingStyle> | undefined,
+  fallback: SourceControlWritingStyle,
+  legacyCommitPrompt: string | undefined,
+  legacyPrPrompt: string | undefined,
+  baseCommitPrompt: string,
+  basePrPrompt: string
+): SourceControlWritingStyle {
+  const mode = sanitizeWritingStyleMode(stored?.mode);
+  if (mode) {
+    return {
+      mode,
+      customInstructions: sanitizePrompt(stored?.customInstructions)
+    };
+  }
+
+  const commitPrompt = sanitizePrompt(legacyCommitPrompt);
+  const prPrompt = sanitizePrompt(legacyPrPrompt);
+  const legacyInstructions = [
+    commitPrompt && commitPrompt !== baseCommitPrompt.trim() ? `Commit messages:\n${commitPrompt}` : "",
+    prPrompt && prPrompt !== basePrPrompt.trim() ? `Pull request descriptions:\n${prPrompt}` : ""
+  ].filter(Boolean).join("\n\n");
+
+  return legacyInstructions
+    ? { mode: "custom", customInstructions: legacyInstructions }
+    : { ...fallback };
 }
 
 function getRepositorySettingsPath(repoPath: string): string {

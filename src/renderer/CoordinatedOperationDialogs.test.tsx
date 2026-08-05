@@ -22,6 +22,7 @@ const settingsDraft: SettingsDraft = {
   clearApiKeys: {},
   commitMessagePrompt: "Write a commit message.",
   prDescriptionPrompt: "Write a pull request description.",
+  sourceControlWritingStyle: { mode: "conventional_commits", customInstructions: "" },
   autoFetchIntervalMinutes: "10",
   colorTheme: "githead",
   appearanceMode: "system",

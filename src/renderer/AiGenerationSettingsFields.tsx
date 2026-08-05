@@ -4,13 +4,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
-import { DEFAULT_PR_DESCRIPTION_PROMPT } from "../shared/prDescriptionPrompt";
+import {
+  DEFAULT_SOURCE_CONTROL_WRITING_STYLE,
+  SOURCE_CONTROL_WRITING_STYLE_OPTIONS
+} from "../shared/sourceControlWritingStyle";
 import {
   AI_REASONING_EFFORTS,
+  SOURCE_CONTROL_WRITING_STYLE_MODES,
   type AiCommitMessageProvider,
   type AiReasoningCapabilities,
-  type AiReasoningEffort
+  type AiReasoningEffort,
+  type SourceControlWritingStyleMode
 } from "../shared/types";
 
 export interface AiGenerationSettingsDraft {
@@ -21,6 +25,10 @@ export interface AiGenerationSettingsDraft {
   prDescriptionReasoningEfforts: Record<AiCommitMessageProvider, AiReasoningEffort>;
   commitMessagePrompt: string;
   prDescriptionPrompt: string;
+  sourceControlWritingStyle: {
+    mode: SourceControlWritingStyleMode;
+    customInstructions: string;
+  };
 }
 
 export interface AiGenerationSettingsFieldsProps<T extends AiGenerationSettingsDraft> {
@@ -44,16 +52,17 @@ export function AiGenerationSettingsFields<T extends AiGenerationSettingsDraft>(
   const prDescriptionReasoning = useAiReasoningCapabilities(enabled && Boolean(prDescriptionModel), provider, prDescriptionModel);
 
   return <>
-    <SettingsCard title="Commit generation" description="Model, reasoning, and instructions for commit messages.">
+    <SourceControlWritingStyleField draft={draft} disabled={disabled} idPrefix={idPrefix} onDraftChange={onDraftChange} />
+
+    <SettingsCard title="Commit generation" description="Model and reasoning for commit messages.">
       <div className="grid gap-2">
         <Label htmlFor={`${idPrefix}-model`}>Model</Label>
         <Input id={`${idPrefix}-model`} type="text" autoComplete="off" value={draft.providerModels[provider]} disabled={disabled} onChange={(event) => onDraftChange({ ...draft, providerModels: { ...draft.providerModels, [provider]: event.target.value } })} />
       </div>
       <ReasoningEffortField id={`${idPrefix}-reasoning-effort`} label="Reasoning" value={draft.reasoningEfforts[provider]} capabilities={primaryReasoning.capabilities} loading={primaryReasoning.loading} disabled={disabled} onChange={(reasoningEffort) => onDraftChange({ ...draft, reasoningEfforts: { ...draft.reasoningEfforts, [provider]: reasoningEffort } })} />
-      <PromptField id={`${idPrefix}-commit-message-prompt`} label="Commit Message Prompt" value={draft.commitMessagePrompt} defaultValue={DEFAULT_COMMIT_MESSAGE_PROMPT} disabled={disabled} onChange={(commitMessagePrompt) => onDraftChange({ ...draft, commitMessagePrompt })} />
     </SettingsCard>
 
-    <SettingsCard title="Pull request generation" description="Optional model override and instructions for pull request descriptions.">
+    <SettingsCard title="Pull request generation" description="Optional model and reasoning override for pull request descriptions.">
       <div className="grid gap-2">
         <Label htmlFor={`${idPrefix}-pr-description-model`}>PR Description Model</Label>
         <Input id={`${idPrefix}-pr-description-model`} type="text" autoComplete="off" placeholder="Leave blank to use the commit message model" value={draft.prDescriptionModels[provider]} disabled={disabled} onChange={(event) => onDraftChange({ ...draft, prDescriptionModels: { ...draft.prDescriptionModels, [provider]: event.target.value } })} />
@@ -61,7 +70,6 @@ export function AiGenerationSettingsFields<T extends AiGenerationSettingsDraft>(
       {prDescriptionModel
         ? <ReasoningEffortField id={`${idPrefix}-pr-description-reasoning-effort`} label="PR Description Reasoning" value={draft.prDescriptionReasoningEfforts[provider]} capabilities={prDescriptionReasoning.capabilities} loading={prDescriptionReasoning.loading} disabled={disabled} onChange={(reasoningEffort) => onDraftChange({ ...draft, prDescriptionReasoningEfforts: { ...draft.prDescriptionReasoningEfforts, [provider]: reasoningEffort } })} />
         : <p className="text-sm text-muted-foreground">PR descriptions inherit the primary model and reasoning setting.</p>}
-      <PromptField id={`${idPrefix}-pr-description-prompt`} label="PR Description Prompt" value={draft.prDescriptionPrompt} defaultValue={DEFAULT_PR_DESCRIPTION_PROMPT} disabled={disabled} onChange={(prDescriptionPrompt) => onDraftChange({ ...draft, prDescriptionPrompt })} />
     </SettingsCard>
   </>;
 }
@@ -70,8 +78,29 @@ function SettingsCard({ title, description, children }: { title: string; descrip
   return <section className="grid gap-4 rounded-lg border bg-card p-4"><div><h3 className="text-sm font-semibold">{title}</h3><p className="text-sm text-muted-foreground">{description}</p></div>{children}</section>;
 }
 
-function PromptField({ id, label, value, defaultValue, disabled, onChange }: { id: string; label: string; value: string; defaultValue: string; disabled: boolean; onChange: (value: string) => void }): ReactNode {
-  return <div className="grid gap-2"><div className="flex items-center justify-between gap-3"><Label htmlFor={id}>{label}</Label><Button type="button" variant="ghost" size="sm" disabled={disabled || value === defaultValue} aria-label={`Reset ${label.toLowerCase()} to default`} onClick={() => onChange(defaultValue)}><RotateCcw />Reset to default</Button></div><Textarea id={id} className="min-h-44 resize-y field-sizing-fixed" rows={7} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} /></div>;
+function SourceControlWritingStyleField<T extends AiGenerationSettingsDraft>({ draft, disabled, idPrefix, onDraftChange }: { draft: T; disabled: boolean; idPrefix: string; onDraftChange: (draft: T) => void }): ReactNode {
+  const style = draft.sourceControlWritingStyle;
+  const option = SOURCE_CONTROL_WRITING_STYLE_OPTIONS[style.mode];
+  const selectId = `${idPrefix}-source-control-writing-style`;
+  const instructionsId = `${idPrefix}-source-control-writing-instructions`;
+  const isDefault = style.mode === DEFAULT_SOURCE_CONTROL_WRITING_STYLE.mode
+    && style.customInstructions === DEFAULT_SOURCE_CONTROL_WRITING_STYLE.customInstructions;
+
+  return <SettingsCard title="Source control writing style" description={option.description}>
+    <div className="grid gap-2">
+      <div className="flex items-center justify-between gap-3">
+        <Label htmlFor={selectId}>Writing style</Label>
+        <Button type="button" variant="ghost" size="sm" disabled={disabled || isDefault} aria-label="Reset source control writing style to default" onClick={() => onDraftChange({ ...draft, sourceControlWritingStyle: { ...DEFAULT_SOURCE_CONTROL_WRITING_STYLE } })}><RotateCcw />Reset to default</Button>
+      </div>
+      <select id={selectId} className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={style.mode} disabled={disabled} onChange={(event) => onDraftChange({ ...draft, sourceControlWritingStyle: { ...style, mode: event.target.value as SourceControlWritingStyleMode } })}>
+        {SOURCE_CONTROL_WRITING_STYLE_MODES.map((mode) => <option key={mode} value={mode}>{SOURCE_CONTROL_WRITING_STYLE_OPTIONS[mode].label}</option>)}
+      </select>
+      {style.mode === "custom" ? <div className="grid gap-2 pt-2">
+        <Label htmlFor={instructionsId}>Custom instructions</Label>
+        <Textarea id={instructionsId} className="min-h-28 resize-y field-sizing-fixed" rows={4} placeholder="Keep titles concise. Use short bullet points in descriptions." value={style.customInstructions} disabled={disabled} onChange={(event) => onDraftChange({ ...draft, sourceControlWritingStyle: { ...style, customInstructions: event.target.value } })} />
+      </div> : null}
+    </div>
+  </SettingsCard>;
 }
 
 function useAiReasoningCapabilities(enabled: boolean, provider: AiCommitMessageProvider, model: string): { capabilities: AiReasoningCapabilities; loading: boolean } {

@@ -988,6 +988,19 @@ export const AI_CLI_PROVIDERS = [
 
 export type AiCliProvider = (typeof AI_CLI_PROVIDERS)[number];
 
+export const SOURCE_CONTROL_WRITING_STYLE_MODES = [
+  "repo_conventions",
+  "conventional_commits",
+  "custom"
+] as const;
+
+export type SourceControlWritingStyleMode = (typeof SOURCE_CONTROL_WRITING_STYLE_MODES)[number];
+
+export interface SourceControlWritingStyle {
+  mode: SourceControlWritingStyleMode;
+  customInstructions: string;
+}
+
 export interface AiProviderSettings {
   model: string;
   /** Model used for PR descriptions; empty string falls back to `model`. */
@@ -1010,6 +1023,7 @@ export interface AiSettings {
   cliStatus: Record<AiCliProvider, AiCliProviderStatus>;
   commitMessagePrompt: string;
   prDescriptionPrompt: string;
+  sourceControlWritingStyle: SourceControlWritingStyle;
 }
 
 export interface AiSettingsSaveRequest {
@@ -1022,6 +1036,7 @@ export interface AiSettingsSaveRequest {
   clearApiKeys?: Partial<Record<AiApiKeyProvider, boolean>>;
   commitMessagePrompt: string;
   prDescriptionPrompt?: string;
+  sourceControlWritingStyle?: SourceControlWritingStyle;
 }
 
 export interface RepositoryAiSettings {
@@ -1044,6 +1059,7 @@ export interface RepositoryAiSettingsSaveRequest extends RepositoryAiSettingsReq
   prDescriptionReasoningEfforts?: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>>;
   commitMessagePrompt: string;
   prDescriptionPrompt: string;
+  sourceControlWritingStyle?: SourceControlWritingStyle;
 }
 
 export const APP_COLOR_THEMES = [

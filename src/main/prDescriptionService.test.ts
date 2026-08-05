@@ -104,7 +104,8 @@ const baseSettings: AiSettings = {
     }
   },
   commitMessagePrompt: "Write a commit message.",
-  prDescriptionPrompt: "Write a pull request description."
+  prDescriptionPrompt: "Write a pull request description.",
+  sourceControlWritingStyle: { mode: "conventional_commits", customInstructions: "" }
 };
 
 function createSettings(provider: AiCommitMessageProvider, patch: Partial<AiSettings> = {}): AiSettings {

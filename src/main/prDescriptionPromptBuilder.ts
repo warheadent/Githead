@@ -1,9 +1,17 @@
 import { DEFAULT_PR_DESCRIPTION_PROMPT } from "../shared/prDescriptionPrompt";
+import {
+  createPullRequestWritingStyleInstructions,
+  DEFAULT_SOURCE_CONTROL_WRITING_STYLE
+} from "../shared/sourceControlWritingStyle";
+import type { SourceControlWritingStyle } from "../shared/types";
 import { MAX_DIFF_CHARS } from "./commitMessagePromptBuilder";
 
-export function createPrDescriptionSystemPrompt(): string {
+export function createPrDescriptionSystemPrompt(
+  style: SourceControlWritingStyle = DEFAULT_SOURCE_CONTROL_WRITING_STYLE
+): string {
   return [
     "You write GitHub pull request descriptions in Markdown.",
+    ...createPullRequestWritingStyleInstructions(style),
     "Use the provided branch names, commits, and patch as evidence.",
     "Include the headings '## Summary' and '## Testing'.",
     "Use short '-' bullet points under each heading.",
@@ -13,9 +21,12 @@ export function createPrDescriptionSystemPrompt(): string {
   ].join(" ");
 }
 
-export function createPrTitleSystemPrompt(): string {
+export function createPrTitleSystemPrompt(
+  style: SourceControlWritingStyle = DEFAULT_SOURCE_CONTROL_WRITING_STYLE
+): string {
   return [
     "You write concise GitHub pull request titles.",
+    ...createPullRequestWritingStyleInstructions(style),
     "Capture the primary user-visible or developer-visible branch change.",
     "Write a specific title with 72 characters or fewer and no trailing period.",
     "Return exactly one title, without labels, markdown, quotes, commentary, or alternatives.",
@@ -27,7 +38,8 @@ export function createPrTitleUserPrompt(
   baseRef: string,
   headRef: string,
   commitLog: string,
-  diff: string
+  diff: string,
+  recentCommitSubjects: string[] = []
 ): string {
   const truncated = diff.length > MAX_DIFF_CHARS;
   const promptDiff = truncated ? diff.slice(0, MAX_DIFF_CHARS) : diff;
@@ -42,6 +54,9 @@ export function createPrTitleUserPrompt(
     trimmedLog ? "Commits on the branch:" : "",
     trimmedLog,
     "",
+    recentCommitSubjects.length > 0 ? "Recent commit subjects from this repository:" : "",
+    ...recentCommitSubjects.slice(0, 12).map((subject) => `- ${subject}`),
+    recentCommitSubjects.length > 0 ? "" : "",
     "Diff against the base branch:",
     promptDiff
   ].filter((line) => line.length > 0).join("\n");
@@ -53,11 +68,15 @@ export function createPrDescriptionUserPrompt(
   headRef: string,
   commitLog: string,
   diff: string,
-  title?: string
+  title?: string,
+  style?: SourceControlWritingStyle,
+  recentCommitSubjects: string[] = []
 ): string {
   const truncated = diff.length > MAX_DIFF_CHARS;
   const promptDiff = truncated ? diff.slice(0, MAX_DIFF_CHARS) : diff;
-  const instructions = prDescriptionPrompt.trim() || DEFAULT_PR_DESCRIPTION_PROMPT;
+  const instructions = style
+    ? "Write a concise GitHub pull request description for the branch changes."
+    : prDescriptionPrompt.trim() || DEFAULT_PR_DESCRIPTION_PROMPT;
   const trimmedTitle = title?.trim() ?? "";
   const trimmedLog = commitLog.trim();
 
@@ -71,6 +90,9 @@ export function createPrDescriptionUserPrompt(
     trimmedLog ? "Commits on the branch:" : "",
     trimmedLog,
     "",
+    recentCommitSubjects.length > 0 ? "Recent commit subjects from this repository:" : "",
+    ...recentCommitSubjects.slice(0, 12).map((subject) => `- ${subject}`),
+    recentCommitSubjects.length > 0 ? "" : "",
     "Diff against the base branch:",
     promptDiff
   ].filter((line) => line.length > 0).join("\n");

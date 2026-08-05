@@ -53,7 +53,11 @@ export class PrDescriptionService {
         return createFailure(request.repoPath, resolution.message);
       }
 
-      const range = await this.getRangeContext(request, signal);
+      const range = await this.getRangeContext(
+        request,
+        signal,
+        settings.sourceControlWritingStyle.mode === "repo_conventions"
+      );
       if ("failure" in range) {
         return range.failure;
       }
@@ -70,12 +74,13 @@ export class PrDescriptionService {
         model,
         ...(signal ? { signal } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
-        systemPrompt: createPrTitleSystemPrompt(),
+        systemPrompt: createPrTitleSystemPrompt(settings.sourceControlWritingStyle),
         userPrompt: createPrTitleUserPrompt(
           request.baseRef.trim(),
           request.headRef.trim(),
           range.commitLog,
-          range.diff
+          range.diff,
+          range.recentCommitSubjects
         ),
         maxTokens: PR_TITLE_MAX_TOKENS
       });
@@ -126,7 +131,11 @@ export class PrDescriptionService {
         return createFailure(request.repoPath, resolution.message);
       }
 
-      const range = await this.getRangeContext(request, signal);
+      const range = await this.getRangeContext(
+        request,
+        signal,
+        settings.sourceControlWritingStyle.mode === "repo_conventions"
+      );
       if ("failure" in range) {
         return range.failure;
       }
@@ -146,14 +155,16 @@ export class PrDescriptionService {
         model,
         ...(signal ? { signal } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
-        systemPrompt: createPrDescriptionSystemPrompt(),
+        systemPrompt: createPrDescriptionSystemPrompt(settings.sourceControlWritingStyle),
         userPrompt: createPrDescriptionUserPrompt(
           settings.prDescriptionPrompt,
           request.baseRef.trim(),
           request.headRef.trim(),
           range.commitLog,
           range.diff,
-          request.title
+          request.title,
+          settings.sourceControlWritingStyle,
+          range.recentCommitSubjects
         ),
         maxTokens: PR_DESCRIPTION_MAX_TOKENS
       });
@@ -184,12 +195,20 @@ export class PrDescriptionService {
 
   private async getRangeContext(
     request: GeneratePrDescriptionRequest | GeneratePrTitleRequest,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    includeRecentCommitSubjects = false
   ): Promise<
-    | { diff: string; commitLog: string }
+    | { diff: string; commitLog: string; recentCommitSubjects: string[] }
     | { failure: GitOperationResult }
   > {
     throwIfAborted(signal);
+    const recentCommitSubjectsPromise = includeRecentCommitSubjects
+      ? this.gitService.getCommitHistory({
+          repoPath: request.repoPath,
+          limit: 12,
+          scope: "all"
+        }).then((commits) => commits.map((commit) => commit.subject)).catch(() => [])
+      : Promise.resolve([] as string[]);
     const range = await this.gitService.getBranchRangeContext({
       repoPath: request.repoPath,
       baseRef: request.baseRef,
@@ -214,7 +233,9 @@ export class PrDescriptionService {
       };
     }
 
-    return { diff, commitLog };
+    const recentCommitSubjects = await recentCommitSubjectsPromise;
+
+    return { diff, commitLog, recentCommitSubjects };
   }
 }
 
