@@ -162,6 +162,31 @@ describe("AiSettingsService", () => {
     });
   });
 
+  it("migrates the former Codex CLI default without replacing custom models", async () => {
+    await withTempDir(async (dir) => {
+      await fs.writeFile(path.join(dir, "ai-settings.json"), JSON.stringify({
+        providerModels: {
+          "codex-cli": "gpt-5.4-mini"
+        }
+      }), "utf8");
+      const service = createService(dir);
+
+      const migrated = await service.getSettings();
+
+      expect(migrated.providers["codex-cli"].model).toBe(DEFAULT_AI_PROVIDER_MODELS["codex-cli"]);
+
+      await fs.writeFile(path.join(dir, "ai-settings.json"), JSON.stringify({
+        providerModels: {
+          "codex-cli": "gpt-5.3-codex"
+        }
+      }), "utf8");
+
+      const custom = await service.getSettings();
+
+      expect(custom.providers["codex-cli"].model).toBe("gpt-5.3-codex");
+    });
+  });
+
   it("defaults invalid reasoning values and persists efforts per provider", async () => {
     await withTempDir(async (dir) => {
       await fs.writeFile(path.join(dir, "ai-settings.json"), JSON.stringify({

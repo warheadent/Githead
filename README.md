@@ -179,7 +179,7 @@ Githead supports these providers and default models:
 
 - **OpenRouter:** `openai/gpt-5.6-luna`
 - **OpenAI API:** `gpt-5.4-nano`
-- **Codex CLI:** `gpt-5.4-mini`
+- **Codex CLI:** `gpt-5.6-luna`
 - **Anthropic API:** `claude-haiku-4-5-20251001`
 - **Claude Code:** `haiku`
 

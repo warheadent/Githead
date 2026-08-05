@@ -66,6 +66,7 @@ const STATIC_CAPABILITIES: Partial<Record<AiCommitMessageProvider, Record<string
     "gpt-5.4": supported()
   },
   "codex-cli": {
+    "gpt-5.6-luna": supported(),
     "gpt-5.4-mini": supported(),
     "gpt-5.4": supported(),
     "gpt-5.3-codex": supported()

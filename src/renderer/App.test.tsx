@@ -74,7 +74,7 @@ const nativeScrollIntoView = HTMLElement.prototype.scrollIntoView;
 const defaultProviderModels: Record<AiCommitMessageProvider, string> = {
   openrouter: "openai/gpt-5.6-luna",
   openai: "gpt-5.4-nano",
-  "codex-cli": "gpt-5.4-mini",
+  "codex-cli": "gpt-5.6-luna",
   anthropic: "claude-haiku-4-5-20251001",
   "claude-code": "haiku"
 };
@@ -269,6 +269,51 @@ describe("App", () => {
     expect(getStatusTone(within(unstagedFiles).getByRole("option", { name: /src\/deleted\.ts/ }))).toBe("deleted");
     expect(getStatusTone(within(unstagedFiles).getByRole("option", { name: /src\/untracked\.ts/ }))).toBe("untracked");
     expect(getStatusTone(within(stagedFiles).getByRole("option", { name: /src\/conflicted\.ts/ }))).toBe("conflict");
+  });
+
+  it("generates a commit plan and creates a Quick Commit for one group", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/plan.ts", { worktreeStatus: "M", isUnstaged: true }),
+        createStatusFile("src/plan.test.ts", { worktreeStatus: "M", isUnstaged: true })
+      ]
+    }));
+    vi.mocked(githead.generateCommitPlan).mockResolvedValue({
+      repoPath,
+      exitCode: 0,
+      plan: {
+        groups: [{
+          id: "group-1",
+          message: "feat(status): add commit plans",
+          rationale: "Adds the plan workflow and its test.",
+          paths: ["src/plan.ts", "src/plan.test.ts"]
+        }],
+        unassignedPaths: []
+      },
+      stderr: ""
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Commit plan view" }));
+    expect(screen.queryByText("Commit message")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Generate" }));
+
+    await waitFor(() => expect(githead.generateCommitPlan).toHaveBeenCalledWith({
+      repoPath,
+      paths: ["src/plan.test.ts", "src/plan.ts"],
+      operationId: expect.any(String)
+    }));
+    expect(await screen.findByDisplayValue("feat(status): add commit plans")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Quick Commit" }));
+    await waitFor(() => expect(githead.quickCommitFiles).toHaveBeenCalledWith({
+      repoPath,
+      paths: ["src/plan.ts", "src/plan.test.ts"],
+      message: "feat(status): add commit plans",
+      operationId: expect.any(String)
+    }));
   });
 
   it("switches the maximize control to restore when the window is maximized", async () => {
@@ -7816,6 +7861,7 @@ function createGitheadMock(): GitheadApi {
     stageHunk: vi.fn().mockResolvedValue(okOperation),
     unstageHunk: vi.fn().mockResolvedValue(okOperation),
     commitChanges: vi.fn().mockResolvedValue(okOperation),
+    quickCommitFiles: vi.fn().mockResolvedValue(okOperation),
     createStash: vi.fn().mockResolvedValue(okOperation),
     applyStash: vi.fn().mockResolvedValue(okOperation),
     popStash: vi.fn().mockResolvedValue(okOperation),
@@ -7877,6 +7923,12 @@ function createGitheadMock(): GitheadApi {
     })),
     setWindowZoomFactor: vi.fn().mockResolvedValue(undefined),
     generateCommitMessage: vi.fn().mockResolvedValue(okOperation),
+    generateCommitPlan: vi.fn().mockResolvedValue({
+      repoPath,
+      exitCode: 0,
+      plan: { groups: [], unassignedPaths: [] },
+      stderr: ""
+    }),
     generatePrTitle: vi.fn().mockResolvedValue(okOperation),
     generatePrDescription: vi.fn().mockResolvedValue(okOperation),
     openExternalUrl: vi.fn().mockResolvedValue(undefined),

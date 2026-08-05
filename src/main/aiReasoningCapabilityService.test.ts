@@ -76,6 +76,20 @@ describe("AiReasoningCapabilityService", () => {
     });
   });
 
+  it("uses static capabilities for the default Codex CLI model", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const service = new AiReasoningCapabilityService(createSettingsService(), fetchImpl);
+
+    await expect(service.getCapabilities({
+      provider: "codex-cli",
+      model: "gpt-5.6-luna"
+    })).resolves.toEqual({
+      status: "supported",
+      supportedEfforts: ["low", "medium", "high"]
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("reports OpenRouter models without reasoning metadata as unsupported", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
       data: [{ id: "vendor/plain-model" }]
