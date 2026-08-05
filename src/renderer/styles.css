@@ -1760,6 +1760,10 @@ textarea,
   min-height: 0;
 }
 
+.virtual-list-spacer .file-tree-folder-row {
+  min-height: 0;
+}
+
 .file-tree-folder-row:hover {
   background: var(--accent);
 }

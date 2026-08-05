@@ -87,6 +87,15 @@ describe("FixedSizeVirtualList", () => {
     expect(screen.getByRole("listbox", { name: "Blame" }).getAttribute("aria-multiselectable")).toBe("false");
   });
 
+  it("supports a virtual tree contract", () => {
+    render(
+      <FixedSizeVirtualList items={["folder"]} itemKey={(item) => item} rowHeight={20} ariaLabel="Folders" role="tree"
+        renderItem={(item, index, props) => <button role="treeitem" data-virtual-index={index} {...props}>{item}</button>} />
+    );
+    expect(screen.getByRole("tree", { name: "Folders" }).getAttribute("aria-multiselectable")).toBe("true");
+    expect(screen.getByRole("treeitem", { name: "folder" })).toBeTruthy();
+  });
+
   it("uses and cleans up the window resize fallback", () => {
     vi.unstubAllGlobals();
     const add = vi.spyOn(window, "addEventListener");

@@ -9,6 +9,10 @@ export interface StatusFileTreeFolder {
   descendantFiles: GitStatusFile[];
 }
 
+export type StatusFileTreeRow =
+  | { kind: "folder"; folder: StatusFileTreeFolder; level: number; position: number; setSize: number }
+  | { kind: "file"; file: GitStatusFile; level: number; position: number; setSize: number };
+
 export function buildStatusFileTree(files: GitStatusFile[]): StatusFileTreeFolder {
   const root: StatusFileTreeFolder = { kind: "folder", id: "", name: "", folders: [], files: [], descendantFiles: [] };
   const folders = new Map<string, StatusFileTreeFolder>([["", root]]);
@@ -31,6 +35,34 @@ export function buildStatusFileTree(files: GitStatusFile[]): StatusFileTreeFolde
 
   populateAndSort(root);
   return root;
+}
+
+export function flattenStatusFileTree(
+  root: StatusFileTreeFolder,
+  collapsedFolders: ReadonlySet<string>
+): StatusFileTreeRow[] {
+  const rows: StatusFileTreeRow[] = [];
+  appendVisibleRows(root, 1, collapsedFolders, rows);
+  return rows;
+}
+
+function appendVisibleRows(
+  folder: StatusFileTreeFolder,
+  level: number,
+  collapsedFolders: ReadonlySet<string>,
+  rows: StatusFileTreeRow[]
+): void {
+  const setSize = folder.folders.length + folder.files.length;
+  for (const [index, child] of folder.folders.entries()) {
+    rows.push({ kind: "folder", folder: child, level, position: index + 1, setSize });
+    if (!collapsedFolders.has(child.id)) {
+      appendVisibleRows(child, level + 1, collapsedFolders, rows);
+    }
+  }
+
+  for (const [index, file] of folder.files.entries()) {
+    rows.push({ kind: "file", file, level, position: folder.folders.length + index + 1, setSize });
+  }
 }
 
 function populateAndSort(folder: StatusFileTreeFolder): GitStatusFile[] {

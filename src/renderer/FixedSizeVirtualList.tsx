@@ -26,6 +26,7 @@ interface FixedSizeVirtualListProps<T> {
   selectedKey?: string | null | undefined;
   className?: string;
   multiSelectable?: boolean;
+  role?: "listbox" | "tree";
   renderItem: (item: T, index: number, rowProps: VirtualRowProps) => ReactNode;
 }
 
@@ -60,6 +61,7 @@ export function FixedSizeVirtualList<T>({
   selectedKey,
   className,
   multiSelectable = true,
+  role = "listbox",
   renderItem
 }: FixedSizeVirtualListProps<T>): ReactNode {
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -131,7 +133,7 @@ export function FixedSizeVirtualList<T>({
     const nextScrollTop = scroller.scrollTop;
     const nextRange = getVisibleRange(items.length, nextScrollTop, scroller.clientHeight, rowHeight, Math.max(0, overscan));
     const activeElement = document.activeElement;
-    if (activeElement instanceof HTMLElement && scroller.contains(activeElement) && activeElement.matches('[role="option"]')) {
+    if (activeElement instanceof HTMLElement && scroller.contains(activeElement) && activeElement.matches('[role="option"], [role="treeitem"]')) {
       const activeIndex = Number(activeElement.dataset.virtualIndex);
       if (Number.isFinite(activeIndex) && (activeIndex < nextRange.start || activeIndex >= nextRange.end)) {
         scroller.focus({ preventScroll: true });
@@ -144,7 +146,7 @@ export function FixedSizeVirtualList<T>({
     <div
       ref={scrollerRef}
       className={className}
-      role="listbox"
+      role={role}
       aria-label={ariaLabel}
       aria-multiselectable={multiSelectable}
       tabIndex={0}

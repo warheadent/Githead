@@ -209,7 +209,7 @@ import { groupDiffRowsByHunk, isTechnicalFileHeader, parseUnifiedDiff, type Diff
 import { getCommitFileStatusVisuals, getFileStatusVisuals, type FileStatusVisuals } from "./fileStatusVisuals";
 import { FixedSizeVirtualList, type VirtualRowProps } from "./FixedSizeVirtualList";
 import type { HighlightedCode } from "./syntaxHighlighter";
-import { buildStatusFileTree, fileName, type StatusFileTreeFolder } from "./statusFileTree";
+import { buildStatusFileTree, fileName, flattenStatusFileTree, type StatusFileTreeFolder } from "./statusFileTree";
 import { applyColorTheme } from "./themes";
 import { OptionalFeatureBoundary } from "./OptionalFeatureBoundary";
 import { useSelectionSafeValue } from "./useSelectionSafeValue";
@@ -8685,6 +8685,10 @@ function FileGroup({
   );
   const tree = useMemo(() => buildStatusFileTree(files), [files]);
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
+  const treeRows = useMemo(
+    () => flattenStatusFileTree(tree, collapsedFolders),
+    [collapsedFolders, tree]
+  );
 
   useEffect(() => setCollapsedFolders(new Set()), [summary?.repoPath]);
 
@@ -8699,11 +8703,54 @@ function FileGroup({
           <p className="empty-state">Select a valid repository.</p>
         </div>
       ) : viewMode === "tree" ? (
-        <div className="file-list" role="tree" aria-label={title} aria-multiselectable="true">
-          <StatusFileTree folder={tree} side={side} level={1} collapsedFolders={collapsedFolders} selectedPathSet={selectedPathSet} disabled={disabled}
-            onToggleFolder={(id) => setCollapsedFolders((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })}
-            onSelectFile={onSelectFile} onContextAction={onContextAction} />
-        </div>
+        <FixedSizeVirtualList
+          items={treeRows}
+          itemKey={(row) => row.kind === "folder" ? `${side}:folder:${row.folder.id}` : `${side}:${row.file.path}`}
+          rowHeight={34}
+          ariaLabel={title}
+          role="tree"
+          selectedKey={selection?.side === side ? `${side}:${selection.path}` : null}
+          className="file-list"
+          renderItem={(row, index, rowProps) => {
+            const treeRowProps = {
+              ...rowProps,
+              "aria-posinset": row.position,
+              "aria-setsize": row.setSize
+            };
+            return row.kind === "folder" ? (
+            <StatusFileTreeFolderRow
+              key={`${side}:folder:${row.folder.id}`}
+              folder={row.folder}
+              side={side}
+              level={row.level}
+              collapsed={collapsedFolders.has(row.folder.id)}
+              disabled={disabled}
+              virtualIndex={index}
+              virtualRowProps={treeRowProps}
+              onToggle={() => setCollapsedFolders((current) => {
+                const next = new Set(current);
+                if (next.has(row.folder.id)) next.delete(row.folder.id);
+                else next.add(row.folder.id);
+                return next;
+              })}
+              onContextAction={onContextAction}
+            />
+          ) : (
+            <FileRow
+              key={`${side}:${row.file.path}`}
+              file={row.file}
+              side={side}
+              selected={selectedPathSet.has(row.file.path)}
+              disabled={disabled}
+              onSelectFile={onSelectFile}
+              onContextAction={onContextAction}
+              treeLevel={row.level}
+              virtualIndex={index}
+              virtualRowProps={treeRowProps}
+            />
+            );
+          }}
+        />
       ) : (
         <FixedSizeVirtualList
           items={files}
@@ -8731,66 +8778,56 @@ function FileGroup({
   );
 }
 
-function StatusFileTree({ folder, side, level, collapsedFolders, selectedPathSet, disabled, onToggleFolder, onSelectFile, onContextAction }: {
+function StatusFileTreeFolderRow({ folder, side, level, collapsed, disabled, virtualIndex, virtualRowProps, onToggle, onContextAction }: {
   folder: StatusFileTreeFolder;
   side: GitDiffSide;
   level: number;
-  collapsedFolders: Set<string>;
-  selectedPathSet: Set<string>;
+  collapsed: boolean;
   disabled: boolean;
-  onToggleFolder: (id: string) => void;
-  onSelectFile: (file: GitStatusFile, side: GitDiffSide, modifiers: FileSelectionModifiers) => void;
+  virtualIndex: number;
+  virtualRowProps: VirtualRowProps;
+  onToggle: () => void;
   onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind, paths?: string[]) => void;
 }): ReactNode {
-  return <>
-    {folder.folders.map((child) => {
-      const collapsed = collapsedFolders.has(child.id);
-      const actionableFiles = side === "unstaged" ? child.descendantFiles.filter(canStageStatusFile) : child.descendantFiles;
-      return <Fragment key={`${side}:folder:${child.id}`}>
-        <ContextMenu>
-          <ContextMenuTrigger asChild>
-            <div className="file-tree-folder-row" style={{ paddingLeft: `${(level - 1) * 18 + 4}px` }}>
-              <button type="button" className="file-tree-folder-trigger" role="treeitem" aria-level={level} aria-expanded={!collapsed} data-folder-id={child.id}
-                onClick={() => onToggleFolder(child.id)} onKeyDown={handleStatusTreeKeyDown}>
-                {collapsed ? <ChevronRight /> : <ChevronDown />}<Folder /><span className="file-path">{child.name}</span>
-              </button>
-            </div>
-          </ContextMenuTrigger>
-          <ContextMenuContent className="w-56">
-            <ContextMenuLabel>{child.id}</ContextMenuLabel>
-            <ContextMenuItem disabled={disabled || actionableFiles.length === 0} onSelect={() => {
-              const first = actionableFiles[0];
-              if (first) onContextAction(first, side, "toggle-stage", actionableFiles.map((file) => file.path));
-            }}>
-              <Save />
-              {side === "unstaged" ? "Stage folder" : "Unstage folder"}
-            </ContextMenuItem>
-            <ContextMenuSeparator />
-            <ContextMenuItem disabled={disabled} onSelect={() => {
-              const first = child.descendantFiles[0];
-              if (first) onContextAction(first, side, "revert", child.descendantFiles.map((file) => file.path));
-            }}>
-              <RotateCcw />
-              Revert folder changes
-            </ContextMenuItem>
-            <ContextMenuItem variant="destructive" disabled={disabled} onSelect={() => {
-              const first = child.descendantFiles[0];
-              if (first) onContextAction(first, side, "delete", child.descendantFiles.map((file) => file.path));
-            }}>
-              <Trash2 />
-              Delete folder files
-            </ContextMenuItem>
-          </ContextMenuContent>
-        </ContextMenu>
-        {!collapsed ? <div role="group">
-          <StatusFileTree folder={child} side={side} level={level + 1} collapsedFolders={collapsedFolders} selectedPathSet={selectedPathSet} disabled={disabled}
-            onToggleFolder={onToggleFolder} onSelectFile={onSelectFile} onContextAction={onContextAction} />
-        </div> : null}
-      </Fragment>;
-    })}
-    {folder.files.map((file) => <FileRow key={`${side}:${file.path}`} file={file} side={side} selected={selectedPathSet.has(file.path)} disabled={disabled}
-      treeLevel={level} onSelectFile={onSelectFile} onContextAction={onContextAction} />)}
-  </>;
+  const actionableFiles = side === "unstaged" ? folder.descendantFiles.filter(canStageStatusFile) : folder.descendantFiles;
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div className="file-tree-folder-row" style={{ ...virtualRowProps.style, paddingLeft: `${(level - 1) * 18 + 4}px` }}>
+          <button type="button" className="file-tree-folder-trigger" role="treeitem" aria-level={level} aria-expanded={!collapsed}
+            aria-posinset={virtualRowProps["aria-posinset"]} aria-setsize={virtualRowProps["aria-setsize"]}
+            data-folder-id={folder.id} data-virtual-index={virtualIndex} onClick={onToggle} onKeyDown={handleStatusTreeKeyDown}>
+            {collapsed ? <ChevronRight /> : <ChevronDown />}<Folder /><span className="file-path">{folder.name}</span>
+          </button>
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-56">
+        <ContextMenuLabel>{folder.id}</ContextMenuLabel>
+        <ContextMenuItem disabled={disabled || actionableFiles.length === 0} onSelect={() => {
+          const first = actionableFiles[0];
+          if (first) onContextAction(first, side, "toggle-stage", actionableFiles.map((file) => file.path));
+        }}>
+          <Save />
+          {side === "unstaged" ? "Stage folder" : "Unstage folder"}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem disabled={disabled} onSelect={() => {
+          const first = folder.descendantFiles[0];
+          if (first) onContextAction(first, side, "revert", folder.descendantFiles.map((file) => file.path));
+        }}>
+          <RotateCcw />
+          Revert folder changes
+        </ContextMenuItem>
+        <ContextMenuItem variant="destructive" disabled={disabled} onSelect={() => {
+          const first = folder.descendantFiles[0];
+          if (first) onContextAction(first, side, "delete", folder.descendantFiles.map((file) => file.path));
+        }}>
+          <Trash2 />
+          Delete folder files
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
 }
 
 function handleStatusTreeKeyDown(event: KeyboardEvent<HTMLButtonElement>): void {
@@ -8853,7 +8890,9 @@ function FileRow({
           aria-posinset={virtualRowProps?.["aria-posinset"]}
           aria-setsize={virtualRowProps?.["aria-setsize"]}
           data-virtual-index={virtualIndex}
-          style={treeLevel ? { paddingLeft: `${(treeLevel - 1) * 18 + 8}px` } : virtualRowProps?.style}
+          style={treeLevel
+            ? { ...virtualRowProps?.style, paddingLeft: `${(treeLevel - 1) * 18 + 8}px` }
+            : virtualRowProps?.style}
           onClick={(event: MouseEvent<HTMLButtonElement>) => onSelectFile(file, side, {
             extendRange: event.shiftKey,
             selectAll: false,

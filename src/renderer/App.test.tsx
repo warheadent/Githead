@@ -1881,6 +1881,32 @@ describe("App", () => {
     });
   });
 
+  it("keeps a 10,000-file status tree viewport-proportional during file selection", async () => {
+    vi.mocked(githead.getAppSettings).mockResolvedValue({
+      autoFetchIntervalMinutes: 10, colorTheme: "githead", appearanceMode: "system", uiFont: "inter", codeFont: "system-mono", zoomFactor: 1, statusFileViewMode: "tree", wrapDiffLines: false
+    });
+    const files = Array.from({ length: 10_000 }, (_, index) => createStatusFile(
+      `generated/file-${index.toString().padStart(5, "0")}.ts`,
+      { isUnstaged: true, worktreeStatus: "M" }
+    ));
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files }));
+
+    render(<App />);
+
+    const tree = await screen.findByRole("tree", { name: "Unstaged files" });
+    expect(within(tree).getAllByRole("treeitem").length).toBeLessThan(100);
+    expect(within(tree).queryByText("file-00500.ts")).toBeNull();
+
+    const firstFile = within(tree).getByRole("treeitem", { name: /file-00000\.ts/ });
+    expect(firstFile.style.position).toBe("absolute");
+    expect(firstFile.style.top).toBe("34px");
+    fireEvent.click(firstFile);
+
+    expect(firstFile.getAttribute("aria-selected")).toBe("true");
+    expect(within(tree).getAllByRole("treeitem").length).toBeLessThan(100);
+    await waitFor(() => expect(githead.getFileDiff).toHaveBeenCalledWith(expect.objectContaining({ path: "generated/file-00000.ts" })));
+  });
+
   it("reconciles a windowed multi-selection when a watcher refresh removes selected paths", async () => {
     const first = createStatusFile("src/first.ts", { isUnstaged: true, worktreeStatus: "M" });
     const second = createStatusFile("src/second.ts", { isUnstaged: true, worktreeStatus: "M" });
