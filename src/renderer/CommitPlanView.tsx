@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ChevronDown, Loader2, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import type {
   GitStatusFile
 } from "../shared/types";
 import { getFileStatusVisuals } from "./fileStatusVisuals";
+import { MotionList, MotionSwap } from "./motion";
 
 interface CommitPlanViewProps {
   repoPath: string;
@@ -51,6 +52,7 @@ export function CommitPlanView({
   const [error, setError] = useState("");
   const [generating, setGenerating] = useState(false);
   const [committingGroupId, setCommittingGroupId] = useState<string | null>(null);
+  const [exitingGroupIds, setExitingGroupIds] = useState<Set<string>>(new Set());
   const fileByPath = useMemo(() => new Map(files.map((file) => [file.path, file])), [files]);
   const availablePaths = useMemo(
     () => files.filter(canUseInCommitPlan).map((file) => file.path),
@@ -64,6 +66,7 @@ export function CommitPlanView({
     setError("");
     setGenerating(false);
     setCommittingGroupId(null);
+    setExitingGroupIds(new Set());
   }, [repoPath]);
 
   useEffect(() => {
@@ -91,6 +94,7 @@ export function CommitPlanView({
       return;
     }
     setPlan(result.plan);
+    setExitingGroupIds(new Set());
     setIncludedPaths(new Set(result.plan.groups.flatMap((group) => group.paths)));
   };
 
@@ -130,6 +134,7 @@ export function CommitPlanView({
       setError(result.stderr || "Unable to create the commit.");
       return;
     }
+    setExitingGroupIds((current) => new Set(current).add(group.id));
     setPlan((current) => current ? {
       ...current,
       groups: current.groups.filter((item) => item.id !== group.id)
@@ -140,6 +145,23 @@ export function CommitPlanView({
       return next;
     });
   };
+
+  const finishGroupExit = useCallback((groupId: string): void => {
+    setExitingGroupIds((current) => {
+      if (!current.has(groupId)) return current;
+      const next = new Set(current);
+      next.delete(groupId);
+      return next;
+    });
+  }, []);
+
+  const hasRenderedGroups = Boolean(plan && (plan.groups.length > 0 || exitingGroupIds.size > 0));
+  const unassignedSection = plan?.unassignedPaths.length ? (
+    <section className="commit-plan-unassigned" aria-label="Unassigned files">
+      <h3>Unassigned files ({plan.unassignedPaths.length})</h3>
+      {plan.unassignedPaths.map((path) => <div key={path}>{path}</div>)}
+    </section>
+  ) : null;
 
   return (
     <section className="commit-plan-view" aria-label="AI commit plan">
@@ -170,94 +192,114 @@ export function CommitPlanView({
       {error ? <div className="commit-plan-error" role="alert">{error}</div> : null}
 
       <div className="commit-plan-scroll">
-        {!plan ? (
-          <div className="commit-plan-empty">
-            <Sparkles aria-hidden="true" />
-            <strong>Create a focused commit plan</strong>
-            <span>Githead will inspect the unstaged diffs and suggest groups and commit messages.</span>
-          </div>
-        ) : plan.groups.length === 0 ? (
-          <div className="commit-plan-empty"><strong>All planned groups are committed.</strong></div>
-        ) : (
-          plan.groups.map((group, index) => (
-            <article className="commit-plan-group" key={group.id}>
-              <div className="commit-plan-group-header">
-                <span className={`commit-plan-marker commit-plan-marker-${index % 6}`} aria-hidden="true" />
-                <div className="commit-plan-group-copy">
-                  <label className="sr-only" htmlFor={`commit-plan-message-${group.id}`}>Commit message</label>
-                  <Input
-                    id={`commit-plan-message-${group.id}`}
-                    value={group.message}
-                    disabled={disabled}
-                    onChange={(event) => updateGroup(group.id, (current) => ({ ...current, message: event.target.value }))}
-                  />
-                  {group.rationale ? <p>{group.rationale}</p> : null}
-                </div>
-                <Badge variant="secondary">{group.paths.length}</Badge>
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={disabled || blockedByStagedFiles || committingGroupId !== null || !group.message.trim() || !group.paths.some((path) => includedPaths.has(path) && fileByPath.has(path))}
-                  onClick={() => { void quickCommit(group); }}
-                >
-                  {committingGroupId === group.id ? <Loader2 className="animate-spin" /> : null}
-                  Quick Commit
-                </Button>
+        <MotionSwap
+          className="commit-plan-state-swap"
+          presenceClassName="commit-plan-state-presence"
+          item={!plan ? {
+            key: "empty",
+            content: (
+              <div className="commit-plan-empty">
+                <Sparkles aria-hidden="true" />
+                <strong>Create a focused commit plan</strong>
+                <span>Githead will inspect the unstaged diffs and suggest groups and commit messages.</span>
               </div>
-              <div className="commit-plan-files" role="list">
-                {group.paths.map((path) => {
-                  const file = fileByPath.get(path);
-                  if (!file) return null;
-                  const visuals = getFileStatusVisuals(file, "unstaged");
-                  return (
-                    <div className={`commit-plan-file ${selectedPath === path ? "is-selected" : ""}`} role="listitem" key={path}>
-                      <input
-                        type="checkbox"
-                        aria-label={`Include ${path} in this commit`}
-                        checked={includedPaths.has(path)}
-                        disabled={disabled}
-                        onChange={(event) => setIncludedPaths((current) => {
-                          const next = new Set(current);
-                          if (event.target.checked) next.add(path); else next.delete(path);
-                          return next;
-                        })}
-                      />
-                      <button type="button" className="commit-plan-file-name" onClick={() => onSelectFile(file)}>
-                        <span>{baseName(path)}</span>
-                        <small>{directoryName(path)}</small>
-                      </button>
-                      <Badge variant="outline" className={`status-chip status-chip-${visuals.tone}`} title={visuals.label}>{visuals.code}</Badge>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button type="button" variant="ghost" size="icon-xs" aria-label={`Move ${path} to another group`} disabled={disabled}>
-                            <span className={`commit-plan-marker commit-plan-marker-${index % 6}`} aria-hidden="true" />
-                            <ChevronDown />
+            )
+          } : !hasRenderedGroups ? {
+            key: "complete",
+            content: (
+              <>
+                <div className="commit-plan-empty"><strong>All planned groups are committed.</strong></div>
+                {unassignedSection}
+              </>
+            )
+          } : {
+            key: "groups",
+            content: (
+              <>
+                <MotionList
+                  element="article"
+                  itemClassName="commit-plan-group"
+                  items={plan.groups.map((group, index) => ({
+                    key: group.id,
+                    content: (
+                      <>
+                        <div className="commit-plan-group-header">
+                          <span className={`commit-plan-marker commit-plan-marker-${index % 6}`} aria-hidden="true" />
+                          <div className="commit-plan-group-copy">
+                            <label className="sr-only" htmlFor={`commit-plan-message-${group.id}`}>Commit message</label>
+                            <Input
+                              id={`commit-plan-message-${group.id}`}
+                              value={group.message}
+                              disabled={disabled}
+                              onChange={(event) => updateGroup(group.id, (current) => ({ ...current, message: event.target.value }))}
+                            />
+                            {group.rationale ? <p>{group.rationale}</p> : null}
+                          </div>
+                          <Badge variant="secondary">{group.paths.length}</Badge>
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={disabled || blockedByStagedFiles || committingGroupId !== null || !group.message.trim() || !group.paths.some((path) => includedPaths.has(path) && fileByPath.has(path))}
+                            onClick={() => { void quickCommit(group); }}
+                          >
+                            {committingGroupId === group.id ? <Loader2 className="animate-spin" /> : null}
+                            Quick Commit
                           </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {plan.groups.filter((target) => target.id !== group.id).map((target) => (
-                            <DropdownMenuItem key={target.id} onSelect={() => movePath(path, group.id, target.id)}>
-                              {target.message}
-                            </DropdownMenuItem>
-                          ))}
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onSelect={() => movePath(path, group.id, null)}>Move to unassigned</DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  );
-                })}
-              </div>
-            </article>
-          ))
-        )}
-
-        {plan?.unassignedPaths.length ? (
-          <section className="commit-plan-unassigned" aria-label="Unassigned files">
-            <h3>Unassigned files ({plan.unassignedPaths.length})</h3>
-            {plan.unassignedPaths.map((path) => <div key={path}>{path}</div>)}
-          </section>
-        ) : null}
+                        </div>
+                        <div className="commit-plan-files" role="list">
+                          {group.paths.map((path) => {
+                            const file = fileByPath.get(path);
+                            if (!file) return null;
+                            const visuals = getFileStatusVisuals(file, "unstaged");
+                            return (
+                              <div className={`commit-plan-file ${selectedPath === path ? "is-selected" : ""}`} role="listitem" key={path}>
+                                <input
+                                  type="checkbox"
+                                  aria-label={`Include ${path} in this commit`}
+                                  checked={includedPaths.has(path)}
+                                  disabled={disabled}
+                                  onChange={(event) => setIncludedPaths((current) => {
+                                    const next = new Set(current);
+                                    if (event.target.checked) next.add(path); else next.delete(path);
+                                    return next;
+                                  })}
+                                />
+                                <button type="button" className="commit-plan-file-name" onClick={() => onSelectFile(file)}>
+                                  <span>{baseName(path)}</span>
+                                  <small>{directoryName(path)}</small>
+                                </button>
+                                <Badge variant="outline" className={`status-chip status-chip-${visuals.tone}`} title={visuals.label}>{visuals.code}</Badge>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button type="button" variant="ghost" size="icon-xs" aria-label={`Move ${path} to another group`} disabled={disabled}>
+                                      <span className={`commit-plan-marker commit-plan-marker-${index % 6}`} aria-hidden="true" />
+                                      <ChevronDown />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    {plan.groups.filter((target) => target.id !== group.id).map((target) => (
+                                      <DropdownMenuItem key={target.id} onSelect={() => movePath(path, group.id, target.id)}>
+                                        {target.message}
+                                      </DropdownMenuItem>
+                                    ))}
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem onSelect={() => movePath(path, group.id, null)}>Move to unassigned</DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )
+                  }))}
+                  onItemExitComplete={finishGroupExit}
+                />
+                {unassignedSection}
+              </>
+            )
+          }}
+        />
       </div>
     </section>
   );
