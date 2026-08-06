@@ -17,12 +17,15 @@ interface MotionPresenceProps {
   present: boolean;
   children: ReactNode;
   className: string;
-  element?: "div" | "section";
+  element?: "article" | "div" | "section";
   id?: string;
   ariaLabel?: string;
   presenceKey?: Key;
   enterDuration?: number;
   exitDuration?: number;
+  initial?: boolean;
+  onExitComplete?: () => void;
+  elementRef?: (element: HTMLElement | null) => void;
 }
 
 interface MotionStyle extends CSSProperties {
@@ -67,11 +70,18 @@ export function MotionPresence({
   ariaLabel,
   presenceKey,
   enterDuration = 120,
-  exitDuration = 120
+  exitDuration = 120,
+  initial = true,
+  onExitComplete,
+  elementRef
 }: MotionPresenceProps): ReactNode {
-  const [state, setState] = useState<PresenceState>(() => present ? "entering" : "unmounted");
+  const [state, setState] = useState<PresenceState>(() => present ? (initial ? "entering" : "entered") : "unmounted");
   const stateRef = useRef(state);
   const lastChildrenRef = useRef(children);
+  const initialRenderRef = useRef(true);
+  const onExitCompleteRef = useRef(onExitComplete);
+
+  onExitCompleteRef.current = onExitComplete;
 
   if (present) {
     lastChildrenRef.current = children;
@@ -81,6 +91,12 @@ export function MotionPresence({
     let cancelScheduledWork = (): void => {};
 
     if (present) {
+      if (initialRenderRef.current && !initial) {
+        stateRef.current = "entered";
+        setState("entered");
+        initialRenderRef.current = false;
+        return cancelScheduledWork;
+      }
       stateRef.current = "entering";
       setState("entering");
       cancelScheduledWork = scheduleFrame(() => {
@@ -93,12 +109,15 @@ export function MotionPresence({
       const timer = window.setTimeout(() => {
         stateRef.current = "unmounted";
         setState("unmounted");
+        onExitCompleteRef.current?.();
       }, exitDuration);
       cancelScheduledWork = () => window.clearTimeout(timer);
     }
 
+    initialRenderRef.current = false;
+
     return cancelScheduledWork;
-  }, [exitDuration, presenceKey, present]);
+  }, [exitDuration, initial, presenceKey, present]);
 
   if (state === "unmounted") {
     return null;
@@ -117,6 +136,7 @@ export function MotionPresence({
     "data-motion-state": state,
     "aria-hidden": exiting ? true : undefined,
     inert: exiting ? true : undefined,
+    ref: elementRef,
     style
   }, present ? children : lastChildrenRef.current);
 }
@@ -142,6 +162,10 @@ export function MotionSwap({
 }: MotionSwapProps): ReactNode {
   const previousItemRef = useRef<MotionSwapItem | null>(item);
   const [outgoingItem, setOutgoingItem] = useState<MotionSwapItem | null>(null);
+
+  if (item && previousItemRef.current?.key === item.key) {
+    previousItemRef.current = item;
+  }
 
   useLayoutEffect(() => {
     const previousItem = previousItemRef.current;
@@ -178,6 +202,122 @@ export function MotionSwap({
       </MotionPresence>
     </div>
   );
+}
+
+export interface MotionListItem {
+  key: string;
+  content: ReactNode;
+}
+
+interface RenderedMotionListItem {
+  key: string;
+  present: boolean;
+}
+
+interface MotionListProps {
+  items: readonly MotionListItem[];
+  itemClassName: string;
+  element?: "article" | "div" | "section";
+  exitDuration?: number;
+  onItemExitComplete?: (key: string) => void;
+}
+
+function reconcileMotionListItems(
+  current: readonly RenderedMotionListItem[],
+  nextKeys: readonly string[]
+): RenderedMotionListItem[] {
+  const nextKeySet = new Set(nextKeys);
+  const next = nextKeys.map((key) => ({ key, present: true }));
+
+  current.forEach((item, index) => {
+    if (nextKeySet.has(item.key)) {
+      return;
+    }
+    next.splice(Math.min(index, next.length), 0, { key: item.key, present: false });
+  });
+
+  if (
+    next.length === current.length
+    && next.every((item, index) => item.key === current[index]?.key && item.present === current[index]?.present)
+  ) {
+    return current as RenderedMotionListItem[];
+  }
+  return next;
+}
+
+/** Keeps removed list items mounted for their exit, then moves the remaining items with FLIP. */
+export function MotionList({
+  items,
+  itemClassName,
+  element = "div",
+  exitDuration = 120,
+  onItemExitComplete
+}: MotionListProps): ReactNode {
+  const contentsRef = useRef(new Map<string, ReactNode>());
+  const currentKeysRef = useRef<string[]>([]);
+  const elementsRef = useRef(new Map<string, HTMLElement>());
+  const elementRefsRef = useRef(new Map<string, (element: HTMLElement | null) => void>());
+  const onItemExitCompleteRef = useRef(onItemExitComplete);
+  const [renderedItems, setRenderedItems] = useState<RenderedMotionListItem[]>(() => (
+    items.map((item) => ({ key: item.key, present: true }))
+  ));
+  const itemKeySignature = JSON.stringify(items.map((item) => item.key));
+  const renderedOrder = renderedItems.map((item) => item.key);
+  const capturePositions = useFlipList(renderedOrder, elementsRef);
+
+  currentKeysRef.current = items.map((item) => item.key);
+  onItemExitCompleteRef.current = onItemExitComplete;
+  for (const item of items) {
+    contentsRef.current.set(item.key, item.content);
+  }
+
+  useLayoutEffect(() => {
+    capturePositions();
+    setRenderedItems((current) => reconcileMotionListItems(current, currentKeysRef.current));
+  }, [capturePositions, itemKeySignature]);
+
+  const getElementRef = useCallback((key: string): ((element: HTMLElement | null) => void) => {
+    const existing = elementRefsRef.current.get(key);
+    if (existing) {
+      return existing;
+    }
+    const ref = (element: HTMLElement | null): void => {
+      if (element) {
+        elementsRef.current.set(key, element);
+      } else {
+        elementsRef.current.delete(key);
+      }
+    };
+    elementRefsRef.current.set(key, ref);
+    return ref;
+  }, []);
+
+  const finishExit = useCallback((key: string): void => {
+    if (currentKeysRef.current.includes(key)) {
+      return;
+    }
+    capturePositions();
+    contentsRef.current.delete(key);
+    elementRefsRef.current.delete(key);
+    setRenderedItems((current) => current.filter((item) => item.key !== key));
+    onItemExitCompleteRef.current?.(key);
+  }, [capturePositions]);
+
+  return renderedItems.map((item) => (
+    <MotionPresence
+      key={item.key}
+      present={item.present}
+      presenceKey={item.key}
+      className={itemClassName}
+      element={element}
+      exitDuration={exitDuration}
+      initial={false}
+      onExitComplete={() => finishExit(item.key)}
+      elementRef={getElementRef(item.key)}
+    >
+      {contentsRef.current.get(item.key)}
+    </MotionPresence>
+  ));
 }
 
 interface FlipAnimationEntry {

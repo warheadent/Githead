@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useRef, useState, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import { MotionPresence, MotionSwap, useFlipList } from "./motion";
+import { MotionList, MotionPresence, MotionSwap, useFlipList, type MotionListItem } from "./motion";
 
 const nativeAnimateDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "animate");
 
@@ -94,6 +94,66 @@ describe("MotionSwap", () => {
     expect(container.querySelector(".motion-swap-outgoing")?.textContent).toBe("Second");
     act(() => vi.runOnlyPendingTimers());
     expect(container.querySelector(".motion-swap-outgoing")).toBeNull();
+  });
+});
+
+describe("MotionList", () => {
+  function makeItems(keys: readonly string[]): MotionListItem[] {
+    return keys.map((key) => ({ key, content: <button type="button">{key}</button> }));
+  }
+
+  it("exits a removed item before moving the remaining items", () => {
+    const animate = vi.fn(() => ({
+      cancel: vi.fn(),
+      finished: new Promise<void>(() => undefined)
+    } as unknown as Animation));
+    Object.defineProperty(HTMLElement.prototype, "animate", { configurable: true, value: animate });
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const index = this.parentElement ? [...this.parentElement.children].indexOf(this) : 0;
+      const top = index * 40;
+      return { x: 0, y: top, top, left: 0, right: 200, bottom: top + 32, width: 200, height: 32, toJSON: () => ({}) };
+    });
+    const onItemExitComplete = vi.fn();
+    const { container, rerender } = render(
+      <MotionList items={makeItems(["a", "b"])} itemClassName="row" element="article" onItemExitComplete={onItemExitComplete} />
+    );
+
+    expect(container.querySelector("article")?.getAttribute("data-motion-state")).toBe("entered");
+    rerender(
+      <MotionList items={makeItems(["b"])} itemClassName="row" element="article" onItemExitComplete={onItemExitComplete} />
+    );
+
+    const exiting = screen.getByText("a").closest("article");
+    expect(exiting?.getAttribute("data-motion-state")).toBe("exiting");
+    expect(exiting?.hasAttribute("inert")).toBe(true);
+    expect(screen.queryByRole("button", { name: "a" })).toBeNull();
+    expect(animate).not.toHaveBeenCalled();
+
+    act(() => vi.advanceTimersByTime(120));
+    expect(screen.queryByText("a")).toBeNull();
+    expect(onItemExitComplete).toHaveBeenCalledWith("a");
+    expect(animate).toHaveBeenCalledWith(
+      [{ transform: "translateY(40px)" }, { transform: "translateY(0)" }],
+      { duration: 120, easing: "ease" }
+    );
+  });
+
+  it("cancels an exit when an item returns and cleans work on unmount", () => {
+    const onItemExitComplete = vi.fn();
+    const { container, rerender, unmount } = render(
+      <MotionList items={makeItems(["a", "b"])} itemClassName="row" onItemExitComplete={onItemExitComplete} />
+    );
+    rerender(<MotionList items={makeItems(["b"])} itemClassName="row" onItemExitComplete={onItemExitComplete} />);
+    expect(screen.queryByRole("button", { name: "a" })).toBeNull();
+
+    rerender(<MotionList items={makeItems(["a", "b"])} itemClassName="row" onItemExitComplete={onItemExitComplete} />);
+    act(() => vi.runOnlyPendingTimers());
+
+    expect(screen.getByRole("button", { name: "a" })).toBeTruthy();
+    expect(container.querySelector(".row")?.getAttribute("data-motion-state")).toBe("entered");
+    expect(onItemExitComplete).not.toHaveBeenCalled();
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 

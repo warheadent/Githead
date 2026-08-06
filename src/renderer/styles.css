@@ -1291,6 +1291,17 @@ textarea,
   padding: 12px;
 }
 
+.commit-plan-state-swap {
+  position: relative;
+}
+
+.commit-plan-state-presence {
+  --motion-opacity: 0.85;
+  --motion-translate-y: -2px;
+  --motion-scale: 1;
+  --motion-reduced-opacity: 0.85;
+}
+
 .commit-plan-empty {
   display: flex;
   min-height: 220px;
@@ -1321,6 +1332,9 @@ textarea,
 }
 
 .commit-plan-group {
+  --motion-translate-y: -2px;
+  --motion-scale: 1;
+  --motion-reduced-opacity: 0.92;
   overflow: hidden;
   margin-bottom: 12px;
   border: 1px solid var(--border);
@@ -4228,7 +4242,7 @@ textarea,
 
 .motion-presence[data-motion-state="entering"],
 .motion-presence[data-motion-state="exiting"] {
-  opacity: 0;
+  opacity: var(--motion-opacity, 0);
   transform: translateY(var(--motion-translate-y, 0)) scale(var(--motion-scale, 1));
 }
 
