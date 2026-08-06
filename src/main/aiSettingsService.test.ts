@@ -67,6 +67,8 @@ describe("AiSettingsService", () => {
         providers: {
           openrouter: {
             model: DEFAULT_AI_PROVIDER_MODELS.openrouter,
+            commitPlanModel: "",
+            commitPlanReasoningEffort: "low",
             prDescriptionModel: "",
             reasoningEffort: "low",
             prDescriptionReasoningEffort: "low",
@@ -74,6 +76,8 @@ describe("AiSettingsService", () => {
           },
           openai: {
             model: DEFAULT_AI_PROVIDER_MODELS.openai,
+            commitPlanModel: "",
+            commitPlanReasoningEffort: "low",
             prDescriptionModel: "",
             reasoningEffort: "low",
             prDescriptionReasoningEffort: "low",
@@ -81,6 +85,8 @@ describe("AiSettingsService", () => {
           },
           "codex-cli": {
             model: DEFAULT_AI_PROVIDER_MODELS["codex-cli"],
+            commitPlanModel: "",
+            commitPlanReasoningEffort: "low",
             prDescriptionModel: "",
             reasoningEffort: "low",
             prDescriptionReasoningEffort: "low",
@@ -88,6 +94,8 @@ describe("AiSettingsService", () => {
           },
           anthropic: {
             model: DEFAULT_AI_PROVIDER_MODELS.anthropic,
+            commitPlanModel: "",
+            commitPlanReasoningEffort: "low",
             prDescriptionModel: "",
             reasoningEffort: "low",
             prDescriptionReasoningEffort: "low",
@@ -95,6 +103,8 @@ describe("AiSettingsService", () => {
           },
           "claude-code": {
             model: DEFAULT_AI_PROVIDER_MODELS["claude-code"],
+            commitPlanModel: "",
+            commitPlanReasoningEffort: "low",
             prDescriptionModel: "",
             reasoningEffort: "low",
             prDescriptionReasoningEffort: "low",
@@ -124,6 +134,8 @@ describe("AiSettingsService", () => {
       expect(settings.selectedProvider).toBe("openrouter");
       expect(settings.providers.openrouter).toEqual({
         model: "openrouter/auto",
+        commitPlanModel: "",
+        commitPlanReasoningEffort: "low",
         prDescriptionModel: "",
         reasoningEffort: "low",
         prDescriptionReasoningEffort: "low",
@@ -191,12 +203,14 @@ describe("AiSettingsService", () => {
     await withTempDir(async (dir) => {
       await fs.writeFile(path.join(dir, "ai-settings.json"), JSON.stringify({
         reasoningEfforts: { openai: "turbo", "codex-cli": "high" },
+        commitPlanReasoningEfforts: { openai: "high" },
         prDescriptionReasoningEfforts: { openai: "medium" }
       }), "utf8");
       const service = createService(dir);
 
       const migrated = await service.getSettings();
       expect(migrated.providers.openai.reasoningEffort).toBe("low");
+      expect(migrated.providers.openai.commitPlanReasoningEffort).toBe("high");
       expect(migrated.providers.openai.prDescriptionReasoningEffort).toBe("medium");
       expect(migrated.providers["codex-cli"].reasoningEffort).toBe("high");
 
@@ -207,6 +221,10 @@ describe("AiSettingsService", () => {
           openrouter: "medium",
           "codex-cli": "high"
         },
+        commitPlanReasoningEfforts: {
+          openrouter: "xhigh",
+          "codex-cli": "medium"
+        },
         prDescriptionReasoningEfforts: {
           openrouter: "high",
           "codex-cli": "medium"
@@ -215,8 +233,10 @@ describe("AiSettingsService", () => {
       });
 
       expect(saved.providers.openrouter.reasoningEffort).toBe("medium");
+      expect(saved.providers.openrouter.commitPlanReasoningEffort).toBe("xhigh");
       expect(saved.providers.openrouter.prDescriptionReasoningEffort).toBe("high");
       expect(saved.providers["codex-cli"].reasoningEffort).toBe("high");
+      expect(saved.providers["codex-cli"].commitPlanReasoningEffort).toBe("medium");
       expect(saved.providers["codex-cli"].prDescriptionReasoningEffort).toBe("medium");
     });
   });
@@ -384,6 +404,8 @@ describe("AiSettingsService", () => {
         enabled: true,
         selectedProvider: "codex-cli",
         providerModels: { ...DEFAULT_AI_PROVIDER_MODELS, "codex-cli": "gpt-repo" },
+        commitPlanModels: { "codex-cli": "gpt-repo-plan" },
+        commitPlanReasoningEfforts: { "codex-cli": "xhigh" },
         prDescriptionModels: { "codex-cli": "gpt-repo-pr" },
         reasoningEfforts: { "codex-cli": "high" },
         prDescriptionReasoningEfforts: { "codex-cli": "medium" },
@@ -395,6 +417,8 @@ describe("AiSettingsService", () => {
       expect(saved.settings.selectedProvider).toBe("codex-cli");
       expect(saved.settings.providers["codex-cli"]).toMatchObject({
         model: "gpt-repo",
+        commitPlanModel: "gpt-repo-plan",
+        commitPlanReasoningEffort: "xhigh",
         prDescriptionModel: "gpt-repo-pr",
         reasoningEffort: "high",
         prDescriptionReasoningEffort: "medium"
@@ -406,6 +430,8 @@ describe("AiSettingsService", () => {
         enabled: true,
         selectedProvider: "codex-cli",
         providerModels: { ...DEFAULT_AI_PROVIDER_MODELS, "codex-cli": "gpt-repo-updated" },
+        commitPlanModels: { "codex-cli": "gpt-repo-plan-updated" },
+        commitPlanReasoningEfforts: { "codex-cli": "medium" },
         prDescriptionModels: { "codex-cli": "gpt-repo-pr" },
         reasoningEfforts: { "codex-cli": "high" },
         prDescriptionReasoningEfforts: { "codex-cli": "medium" },
@@ -413,6 +439,8 @@ describe("AiSettingsService", () => {
         prDescriptionPrompt: "Write a repository pull request description."
       });
       expect(updated.settings.providers["codex-cli"].model).toBe("gpt-repo-updated");
+      expect(updated.settings.providers["codex-cli"].commitPlanModel).toBe("gpt-repo-plan-updated");
+      expect(updated.settings.providers["codex-cli"].commitPlanReasoningEffort).toBe("medium");
       await expect(service.getSettings(repoPath)).resolves.toEqual(updated.settings);
 
       const storedText = await fs.readFile(path.join(repoPath, ".githead", "ai-settings.json"), "utf8");

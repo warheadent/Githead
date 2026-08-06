@@ -90,6 +90,7 @@ function createAiSettings(
         model: defaultProviderModels.openrouter,
         prDescriptionModel: "",
         reasoningEffort: "low",
+        commitPlanReasoningEffort: "low",
         prDescriptionReasoningEffort: "low",
         hasApiKey: true
       },
@@ -97,6 +98,7 @@ function createAiSettings(
         model: defaultProviderModels.openai,
         prDescriptionModel: "",
         reasoningEffort: "low",
+        commitPlanReasoningEffort: "low",
         prDescriptionReasoningEffort: "low",
         hasApiKey: true
       },
@@ -104,6 +106,7 @@ function createAiSettings(
         model: defaultProviderModels["codex-cli"],
         prDescriptionModel: "",
         reasoningEffort: "low",
+        commitPlanReasoningEffort: "low",
         prDescriptionReasoningEffort: "low",
         hasApiKey: false
       },
@@ -111,6 +114,7 @@ function createAiSettings(
         model: defaultProviderModels.anthropic,
         prDescriptionModel: "",
         reasoningEffort: "low",
+        commitPlanReasoningEffort: "low",
         prDescriptionReasoningEffort: "low",
         hasApiKey: true
       },
@@ -118,6 +122,7 @@ function createAiSettings(
         model: defaultProviderModels["claude-code"],
         prDescriptionModel: "",
         reasoningEffort: "low",
+        commitPlanReasoningEffort: "low",
         prDescriptionReasoningEffort: "low",
         hasApiKey: false
       }
@@ -311,7 +316,7 @@ describe("App", () => {
     await waitFor(() => expect(githead.quickCommitFiles).toHaveBeenCalledWith({
       repoPath,
       paths: ["src/plan.ts", "src/plan.test.ts"],
-      message: "feat(status): add commit plans",
+      message: "feat(status): add commit plans\n\nAdds the plan workflow and its test.",
       operationId: expect.any(String)
     }));
   });
@@ -7060,6 +7065,7 @@ describe("App", () => {
           model: "openrouter/auto",
           prDescriptionModel: "",
           reasoningEffort: "low",
+          commitPlanReasoningEffort: "low",
           prDescriptionReasoningEffort: "low",
           hasApiKey: true
         }
@@ -7085,6 +7091,7 @@ describe("App", () => {
 
     fireEvent.change(screen.getByLabelText("OpenRouter API Key"), { target: { value: "sk-or-key" } });
     fireEvent.change(screen.getByLabelText("Model"), { target: { value: "openrouter/auto" } });
+    fireEvent.change(screen.getByLabelText("Commit Plan Model"), { target: { value: "openrouter/plan" } });
     fireEvent.change(instructions, { target: { value: "Write a single-line commit message." } });
     await user.click(screen.getByRole("button", { name: "Save" }));
 
@@ -7097,6 +7104,20 @@ describe("App", () => {
           "codex-cli": defaultProviderModels["codex-cli"],
           anthropic: defaultProviderModels.anthropic,
           "claude-code": defaultProviderModels["claude-code"]
+        },
+        commitPlanModels: {
+          openrouter: "openrouter/plan",
+          openai: "",
+          "codex-cli": "",
+          anthropic: "",
+          "claude-code": ""
+        },
+        commitPlanReasoningEfforts: {
+          openrouter: "low",
+          openai: "low",
+          "codex-cli": "low",
+          anthropic: "low",
+          "claude-code": "low"
         },
         prDescriptionModels: {
           openrouter: "",
@@ -7255,11 +7276,11 @@ describe("App", () => {
     await waitFor(() => expect(githead.deleteBranch).toHaveBeenLastCalledWith({ repoPath, branchName: "feature/old", force: true, operationId: expect.any(String) }));
   });
 
-  it("shows model-aware reasoning controls and a separate PR description effort", async () => {
+  it("shows model-aware reasoning controls for commit plans and PR descriptions", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getAiReasoningCapabilities).mockResolvedValue({
       status: "supported",
-      supportedEfforts: ["low", "medium", "high"]
+      supportedEfforts: ["low", "medium", "high", "xhigh"]
     });
 
     render(<App />);
@@ -7271,7 +7292,12 @@ describe("App", () => {
     const reasoning = await screen.findByLabelText("Reasoning") as HTMLSelectElement;
     await waitFor(() => expect(reasoning.disabled).toBe(false));
     expect(reasoning.value).toBe("low");
+    expect(within(reasoning).getByRole("option", { name: "Extra High" })).toBeTruthy();
     await user.selectOptions(reasoning, "medium");
+
+    const commitPlanReasoning = await screen.findByLabelText("Commit Plan Reasoning") as HTMLSelectElement;
+    await waitFor(() => expect(commitPlanReasoning.disabled).toBe(false));
+    await user.selectOptions(commitPlanReasoning, "xhigh");
 
     await user.type(screen.getByLabelText("PR Description Model"), "openai/gpt-5.4-nano");
     const prReasoning = await screen.findByLabelText("PR Description Reasoning") as HTMLSelectElement;
@@ -7281,6 +7307,7 @@ describe("App", () => {
 
     await waitFor(() => expect(githead.saveAiSettings).toHaveBeenCalledWith(expect.objectContaining({
       reasoningEfforts: expect.objectContaining({ openai: "medium" }),
+      commitPlanReasoningEfforts: expect.objectContaining({ openai: "xhigh" }),
       prDescriptionReasoningEfforts: expect.objectContaining({ openai: "high" })
     })));
   });
@@ -7299,7 +7326,7 @@ describe("App", () => {
     await user.click(screen.getByRole("tab", { name: "AI" }));
 
     const reasoning = await screen.findByLabelText("Reasoning") as HTMLSelectElement;
-    await waitFor(() => expect(screen.getByText("This model does not support configurable reasoning.")).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText("This model does not support configurable reasoning.")).toHaveLength(3));
     expect(reasoning.disabled).toBe(true);
   });
 
@@ -7751,6 +7778,7 @@ function createGitheadMock(): GitheadApi {
         model: "openai/gpt-5-mini",
         prDescriptionModel: "",
         reasoningEffort: "low",
+        commitPlanReasoningEffort: "low",
         prDescriptionReasoningEffort: "low",
         hasApiKey: true
       }

@@ -44,6 +44,8 @@ export const DEFAULT_AI_PROVIDER_MODELS: Record<AiCommitMessageProvider, string>
 interface StoredAiSettings {
   selectedProvider?: AiCommitMessageProvider;
   providerModels?: Partial<Record<AiCommitMessageProvider, string>>;
+  commitPlanModels?: Partial<Record<AiCommitMessageProvider, string>>;
+  commitPlanReasoningEfforts?: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>>;
   prDescriptionModels?: Partial<Record<AiCommitMessageProvider, string>>;
   reasoningEfforts?: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>>;
   prDescriptionReasoningEfforts?: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>>;
@@ -62,6 +64,8 @@ interface StoredRepositoryAiSettings {
   version: 1;
   selectedProvider?: AiCommitMessageProvider;
   providerModels?: Partial<Record<AiCommitMessageProvider, string>>;
+  commitPlanModels?: Partial<Record<AiCommitMessageProvider, string>>;
+  commitPlanReasoningEfforts?: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>>;
   prDescriptionModels?: Partial<Record<AiCommitMessageProvider, string>>;
   reasoningEfforts?: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>>;
   prDescriptionReasoningEfforts?: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>>;
@@ -154,10 +158,15 @@ export class AiSettingsService {
       throw new Error("Enter a pull request description prompt.");
     }
 
+    const commitPlanReasoningEfforts = request.commitPlanReasoningEfforts === undefined
+      ? undefined
+      : createSavedReasoningEfforts(request.commitPlanReasoningEfforts);
     const stored: StoredRepositoryAiSettings = {
       version: 1,
       selectedProvider,
       providerModels: createSavedProviderModels(request.providerModels),
+      commitPlanModels: createSavedOptionalModels(request.commitPlanModels),
+      ...(commitPlanReasoningEfforts ? { commitPlanReasoningEfforts } : {}),
       prDescriptionModels: createSavedPrDescriptionModels(request.prDescriptionModels),
       reasoningEfforts: createSavedReasoningEfforts(request.reasoningEfforts),
       prDescriptionReasoningEfforts: createSavedReasoningEfforts(request.prDescriptionReasoningEfforts),
@@ -252,7 +261,14 @@ export class AiSettingsService {
     const prDescriptionModels = createSavedPrDescriptionModels(
       request.prDescriptionModels ?? existing.prDescriptionModels
     );
+    const commitPlanModels = createSavedOptionalModels(
+      request.commitPlanModels ?? existing.commitPlanModels
+    );
     const reasoningEfforts = createSavedReasoningEfforts(request.reasoningEfforts ?? existing.reasoningEfforts);
+    const savedCommitPlanReasoningEfforts = request.commitPlanReasoningEfforts ?? existing.commitPlanReasoningEfforts;
+    const commitPlanReasoningEfforts = savedCommitPlanReasoningEfforts === undefined
+      ? undefined
+      : createSavedReasoningEfforts(savedCommitPlanReasoningEfforts);
     const prDescriptionReasoningEfforts = createSavedReasoningEfforts(
       request.prDescriptionReasoningEfforts ?? existing.prDescriptionReasoningEfforts
     );
@@ -264,6 +280,7 @@ export class AiSettingsService {
       selectedProvider,
       providerModels,
       reasoningEfforts,
+      ...(commitPlanReasoningEfforts ? { commitPlanReasoningEfforts } : {}),
       prDescriptionReasoningEfforts,
       commitMessagePrompt,
       sourceControlWritingStyle: request.sourceControlWritingStyle === undefined
@@ -276,6 +293,7 @@ export class AiSettingsService {
             DEFAULT_PR_DESCRIPTION_PROMPT
           )
         : sanitizeWritingStyle(request.sourceControlWritingStyle),
+      ...(Object.keys(commitPlanModels).length > 0 ? { commitPlanModels } : {}),
       ...(Object.keys(prDescriptionModels).length > 0 ? { prDescriptionModels } : {}),
       ...(prDescriptionPrompt ? { prDescriptionPrompt } : {}),
       ...(Object.keys(encryptedApiKeys).length > 0 ? { encryptedApiKeys } : {})
@@ -344,6 +362,12 @@ function mergeRepositorySettings(global: AiSettings, stored: StoredRepositoryAiS
     result[provider] = {
       ...base,
       model: sanitizeSetting(stored.providerModels?.[provider]) || base.model,
+      commitPlanModel: stored.commitPlanModels?.[provider] === undefined
+        ? base.commitPlanModel ?? ""
+        : sanitizeSetting(stored.commitPlanModels[provider]),
+      commitPlanReasoningEffort: stored.commitPlanReasoningEfforts?.[provider] === undefined
+        ? base.commitPlanReasoningEffort
+        : sanitizeReasoningEffort(stored.commitPlanReasoningEfforts[provider]),
       prDescriptionModel: stored.prDescriptionModels?.[provider] === undefined
         ? base.prDescriptionModel
         : sanitizeSetting(stored.prDescriptionModels[provider]),
@@ -439,6 +463,10 @@ function createProviderSettings(
   return AI_COMMIT_MESSAGE_PROVIDERS.reduce((providers, provider) => {
     providers[provider] = {
       model: models[provider],
+      commitPlanModel: sanitizeSetting(stored.commitPlanModels?.[provider]),
+      commitPlanReasoningEffort: stored.commitPlanReasoningEfforts?.[provider] === undefined
+        ? sanitizeReasoningEffort(stored.reasoningEfforts?.[provider])
+        : sanitizeReasoningEffort(stored.commitPlanReasoningEfforts[provider]),
       prDescriptionModel: sanitizeSetting(stored.prDescriptionModels?.[provider]),
       reasoningEffort: sanitizeReasoningEffort(stored.reasoningEfforts?.[provider]),
       prDescriptionReasoningEffort: sanitizeReasoningEffort(stored.prDescriptionReasoningEfforts?.[provider]),
@@ -467,6 +495,12 @@ function createSavedPrDescriptionModels(
     }
     return saved;
   }, {} as Partial<Record<AiCommitMessageProvider, string>>);
+}
+
+function createSavedOptionalModels(
+  models: Partial<Record<AiCommitMessageProvider, string>> | undefined
+): Partial<Record<AiCommitMessageProvider, string>> {
+  return createSavedPrDescriptionModels(models);
 }
 
 function createSavedProviderModels(

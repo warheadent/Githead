@@ -68,6 +68,7 @@ const baseSettings: AiSettings = {
       model: "openrouter/auto",
       prDescriptionModel: "",
       reasoningEffort: "low",
+      commitPlanReasoningEffort: "low",
       prDescriptionReasoningEffort: "low",
       hasApiKey: true
     },
@@ -75,6 +76,7 @@ const baseSettings: AiSettings = {
       model: DEFAULT_AI_PROVIDER_MODELS.openai,
       prDescriptionModel: "",
       reasoningEffort: "low",
+      commitPlanReasoningEffort: "low",
       prDescriptionReasoningEffort: "low",
       hasApiKey: true
     },
@@ -82,6 +84,7 @@ const baseSettings: AiSettings = {
       model: DEFAULT_AI_PROVIDER_MODELS["codex-cli"],
       prDescriptionModel: "",
       reasoningEffort: "low",
+      commitPlanReasoningEffort: "low",
       prDescriptionReasoningEffort: "low",
       hasApiKey: false
     },
@@ -89,6 +92,7 @@ const baseSettings: AiSettings = {
       model: DEFAULT_AI_PROVIDER_MODELS.anthropic,
       prDescriptionModel: "",
       reasoningEffort: "low",
+      commitPlanReasoningEffort: "low",
       prDescriptionReasoningEffort: "low",
       hasApiKey: true
     },
@@ -96,6 +100,7 @@ const baseSettings: AiSettings = {
       model: DEFAULT_AI_PROVIDER_MODELS["claude-code"],
       prDescriptionModel: "",
       reasoningEffort: "low",
+      commitPlanReasoningEffort: "low",
       prDescriptionReasoningEffort: "low",
       hasApiKey: false
     }

@@ -59,6 +59,7 @@ const baseSettings: AiSettings = {
       model: "openrouter/auto",
       prDescriptionModel: "",
       reasoningEffort: "low",
+      commitPlanReasoningEffort: "low",
       prDescriptionReasoningEffort: "low",
       hasApiKey: true
     },
@@ -66,6 +67,7 @@ const baseSettings: AiSettings = {
       model: DEFAULT_AI_PROVIDER_MODELS.openai,
       prDescriptionModel: "",
       reasoningEffort: "low",
+      commitPlanReasoningEffort: "low",
       prDescriptionReasoningEffort: "low",
       hasApiKey: true
     },
@@ -73,6 +75,7 @@ const baseSettings: AiSettings = {
       model: DEFAULT_AI_PROVIDER_MODELS.anthropic,
       prDescriptionModel: "",
       reasoningEffort: "low",
+      commitPlanReasoningEffort: "low",
       prDescriptionReasoningEffort: "low",
       hasApiKey: true
     },
@@ -80,6 +83,7 @@ const baseSettings: AiSettings = {
       model: DEFAULT_AI_PROVIDER_MODELS["codex-cli"],
       prDescriptionModel: "",
       reasoningEffort: "low",
+      commitPlanReasoningEffort: "low",
       prDescriptionReasoningEffort: "low",
       hasApiKey: false
     },
@@ -87,6 +91,7 @@ const baseSettings: AiSettings = {
       model: DEFAULT_AI_PROVIDER_MODELS["claude-code"],
       prDescriptionModel: "",
       reasoningEffort: "low",
+      commitPlanReasoningEffort: "low",
       prDescriptionReasoningEffort: "low",
       hasApiKey: false
     }
@@ -320,7 +325,18 @@ describe("PrDescriptionService", () => {
   });
 
   it("falls back to the commit message model when the PR model is blank", async () => {
-    const { service, calls } = createService({});
+    const { service, calls } = createService({
+      settings: createSettings("openrouter", {
+        providers: {
+          ...baseSettings.providers,
+          openrouter: {
+            ...baseSettings.providers.openrouter,
+            reasoningEffort: "low",
+            prDescriptionReasoningEffort: "high"
+          }
+        }
+      })
+    });
 
     await service.generatePrDescription({
       repoPath: "D:\\Repo",
@@ -328,8 +344,9 @@ describe("PrDescriptionService", () => {
       headRef: "feature/pr-dialog"
     });
 
-    const body = JSON.parse(String(calls[0]?.init?.body)) as { model: string };
+    const body = JSON.parse(String(calls[0]?.init?.body)) as { model: string; reasoning: { effort: string } };
     expect(body.model).toBe("openrouter/auto");
+    expect(body.reasoning).toEqual({ effort: "high" });
   });
 
   it("fails before calling providers when the branch range is empty", async () => {

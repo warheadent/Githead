@@ -140,14 +140,11 @@ export class PrDescriptionService {
         return range.failure;
       }
 
-      const configuredReasoningEffort = providerSettings.prDescriptionModel.trim()
-        ? providerSettings.prDescriptionReasoningEffort
-        : providerSettings.reasoningEffort;
       const reasoningEffort = await resolveReasoningEffort(
         this.reasoningCapabilities,
         selectedProvider,
         model,
-        configuredReasoningEffort
+        providerSettings.prDescriptionReasoningEffort
       );
       throwIfAborted(signal);
       const generation = await generateCompleteText(resolution.provider, {

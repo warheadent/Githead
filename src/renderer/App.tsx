@@ -593,6 +593,14 @@ const emptySettingsDraft: SettingsDraft = {
     anthropic: "",
     "claude-code": ""
   },
+  commitPlanModels: {
+    openrouter: "",
+    openai: "",
+    "codex-cli": "",
+    anthropic: "",
+    "claude-code": ""
+  },
+  commitPlanReasoningEfforts: createDefaultReasoningEfforts(),
   prDescriptionModels: {
     openrouter: "",
     openai: "",
@@ -4650,9 +4658,11 @@ export function App(): ReactNode {
       settingsDraft: {
         selectedProvider: settings?.selectedProvider ?? "openrouter",
         providerModels: createSettingsDraftProviderModels(settings),
+        commitPlanModels: createSettingsDraftCommitPlanModels(settings),
+        commitPlanReasoningEfforts: createSettingsDraftReasoningEfforts(settings, "commitPlan"),
         prDescriptionModels: createSettingsDraftPrDescriptionModels(settings),
-        reasoningEfforts: createSettingsDraftReasoningEfforts(settings, false),
-        prDescriptionReasoningEfforts: createSettingsDraftReasoningEfforts(settings, true),
+        reasoningEfforts: createSettingsDraftReasoningEfforts(settings, "commit"),
+        prDescriptionReasoningEfforts: createSettingsDraftReasoningEfforts(settings, "prDescription"),
         apiKeys: {},
         clearApiKeys: {},
         commitMessagePrompt: settings?.commitMessagePrompt ?? DEFAULT_COMMIT_MESSAGE_PROMPT,
@@ -4744,6 +4754,8 @@ export function App(): ReactNode {
         aiSettings = await window.githead.saveAiSettings({
           selectedProvider: draft.selectedProvider,
           providerModels: draft.providerModels,
+          commitPlanModels: draft.commitPlanModels,
+          commitPlanReasoningEfforts: draft.commitPlanReasoningEfforts,
           prDescriptionModels: draft.prDescriptionModels,
           reasoningEfforts: draft.reasoningEfforts,
           prDescriptionReasoningEfforts: draft.prDescriptionReasoningEfforts,
@@ -12136,6 +12148,13 @@ function createSettingsDraftPrDescriptionModels(settings: AiSettings | null): Re
   }, {} as Record<AiCommitMessageProvider, string>);
 }
 
+function createSettingsDraftCommitPlanModels(settings: AiSettings | null): Record<AiCommitMessageProvider, string> {
+  return AI_COMMIT_MESSAGE_PROVIDERS.reduce((models, provider) => {
+    models[provider] = settings?.providers[provider]?.commitPlanModel ?? "";
+    return models;
+  }, {} as Record<AiCommitMessageProvider, string>);
+}
+
 function createDefaultReasoningEfforts(): Record<AiCommitMessageProvider, AiReasoningEffort> {
   return AI_COMMIT_MESSAGE_PROVIDERS.reduce((efforts, provider) => {
     efforts[provider] = "low";
@@ -12145,12 +12164,15 @@ function createDefaultReasoningEfforts(): Record<AiCommitMessageProvider, AiReas
 
 function createSettingsDraftReasoningEfforts(
   settings: AiSettings | null,
-  prDescription: boolean
+  purpose: "commit" | "commitPlan" | "prDescription"
 ): Record<AiCommitMessageProvider, AiReasoningEffort> {
   return AI_COMMIT_MESSAGE_PROVIDERS.reduce((efforts, provider) => {
-    efforts[provider] = prDescription
-      ? settings?.providers[provider]?.prDescriptionReasoningEffort ?? "low"
-      : settings?.providers[provider]?.reasoningEffort ?? "low";
+    const providerSettings = settings?.providers[provider];
+    efforts[provider] = purpose === "commitPlan"
+      ? providerSettings?.commitPlanReasoningEffort ?? "low"
+      : purpose === "prDescription"
+        ? providerSettings?.prDescriptionReasoningEffort ?? "low"
+        : providerSettings?.reasoningEffort ?? "low";
     return efforts;
   }, {} as Record<AiCommitMessageProvider, AiReasoningEffort>);
 }
@@ -12162,6 +12184,8 @@ function hasAiSettingsChanges(draft: SettingsDraft, settings: AiSettings | null)
       || draft.prDescriptionPrompt !== DEFAULT_PR_DESCRIPTION_PROMPT
       || JSON.stringify(draft.sourceControlWritingStyle) !== JSON.stringify(DEFAULT_SOURCE_CONTROL_WRITING_STYLE)
       || Object.values(draft.providerModels).some((model) => Boolean(model.trim()))
+      || Object.values(draft.commitPlanModels).some((model) => Boolean(model.trim()))
+      || Object.values(draft.commitPlanReasoningEfforts).some((effort) => effort !== "low")
       || Object.values(draft.prDescriptionModels).some((model) => Boolean(model.trim()))
       || Object.values(draft.reasoningEfforts).some((effort) => effort !== "low")
       || Object.values(draft.prDescriptionReasoningEfforts).some((effort) => effort !== "low")
@@ -12188,6 +12212,8 @@ function hasAiSettingsChanges(draft: SettingsDraft, settings: AiSettings | null)
   return AI_COMMIT_MESSAGE_PROVIDERS.some((provider) => {
     const providerSettings = settings.providers[provider];
     return draft.providerModels[provider] !== providerSettings.model
+      || draft.commitPlanModels[provider] !== (providerSettings.commitPlanModel ?? "")
+      || draft.commitPlanReasoningEfforts[provider] !== providerSettings.commitPlanReasoningEffort
       || draft.prDescriptionModels[provider] !== providerSettings.prDescriptionModel
       || draft.reasoningEfforts[provider] !== providerSettings.reasoningEffort
       || draft.prDescriptionReasoningEfforts[provider] !== providerSettings.prDescriptionReasoningEffort;

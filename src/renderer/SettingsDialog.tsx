@@ -48,6 +48,8 @@ export { GitIdentityFields } from "./GitIdentityFields";
 export interface SettingsDraft {
   selectedProvider: AiCommitMessageProvider;
   providerModels: Record<AiCommitMessageProvider, string>;
+  commitPlanModels: Record<AiCommitMessageProvider, string>;
+  commitPlanReasoningEfforts: Record<AiCommitMessageProvider, AiReasoningEffort>;
   prDescriptionModels: Record<AiCommitMessageProvider, string>;
   reasoningEfforts: Record<AiCommitMessageProvider, AiReasoningEffort>;
   prDescriptionReasoningEfforts: Record<AiCommitMessageProvider, AiReasoningEffort>;
@@ -309,6 +311,6 @@ function getDirtyCategories(baseline: string, draft: SettingsDraft): Record<Sett
     appearance: saved.colorTheme !== draft.colorTheme || saved.appearanceMode !== draft.appearanceMode || saved.uiFont !== draft.uiFont || saved.codeFont !== draft.codeFont || saved.zoomFactor !== draft.zoomFactor,
     "git-identity": saved.gitIdentityName !== draft.gitIdentityName || saved.gitIdentityEmail !== draft.gitIdentityEmail || saved.gitIdentityScope !== draft.gitIdentityScope,
     sync: saved.autoFetchIntervalMinutes !== draft.autoFetchIntervalMinutes,
-    ai: JSON.stringify({ selectedProvider: saved.selectedProvider, providerModels: saved.providerModels, prDescriptionModels: saved.prDescriptionModels, reasoningEfforts: saved.reasoningEfforts, prDescriptionReasoningEfforts: saved.prDescriptionReasoningEfforts, apiKeys: saved.apiKeys, clearApiKeys: saved.clearApiKeys, commitMessagePrompt: saved.commitMessagePrompt, prDescriptionPrompt: saved.prDescriptionPrompt, sourceControlWritingStyle: saved.sourceControlWritingStyle }) !== JSON.stringify({ selectedProvider: draft.selectedProvider, providerModels: draft.providerModels, prDescriptionModels: draft.prDescriptionModels, reasoningEfforts: draft.reasoningEfforts, prDescriptionReasoningEfforts: draft.prDescriptionReasoningEfforts, apiKeys: draft.apiKeys, clearApiKeys: draft.clearApiKeys, commitMessagePrompt: draft.commitMessagePrompt, prDescriptionPrompt: draft.prDescriptionPrompt, sourceControlWritingStyle: draft.sourceControlWritingStyle })
+    ai: JSON.stringify({ selectedProvider: saved.selectedProvider, providerModels: saved.providerModels, commitPlanModels: saved.commitPlanModels, commitPlanReasoningEfforts: saved.commitPlanReasoningEfforts, prDescriptionModels: saved.prDescriptionModels, reasoningEfforts: saved.reasoningEfforts, prDescriptionReasoningEfforts: saved.prDescriptionReasoningEfforts, apiKeys: saved.apiKeys, clearApiKeys: saved.clearApiKeys, commitMessagePrompt: saved.commitMessagePrompt, prDescriptionPrompt: saved.prDescriptionPrompt, sourceControlWritingStyle: saved.sourceControlWritingStyle }) !== JSON.stringify({ selectedProvider: draft.selectedProvider, providerModels: draft.providerModels, commitPlanModels: draft.commitPlanModels, commitPlanReasoningEfforts: draft.commitPlanReasoningEfforts, prDescriptionModels: draft.prDescriptionModels, reasoningEfforts: draft.reasoningEfforts, prDescriptionReasoningEfforts: draft.prDescriptionReasoningEfforts, apiKeys: draft.apiKeys, clearApiKeys: draft.clearApiKeys, commitMessagePrompt: draft.commitMessagePrompt, prDescriptionPrompt: draft.prDescriptionPrompt, sourceControlWritingStyle: draft.sourceControlWritingStyle })
   };
 }

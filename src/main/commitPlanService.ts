@@ -45,9 +45,10 @@ export class CommitPlanService {
       throwIfAborted(signal);
       const selectedProvider = settings.selectedProvider;
       const providerSettings = settings.providers[selectedProvider];
+      const model = providerSettings.commitPlanModel?.trim() || providerSettings.model;
       const resolution = await resolveAiProvider(
         settings,
-        providerSettings.model,
+        model,
         this.settingsService,
         this.fetchImpl,
         this.runner
@@ -71,13 +72,13 @@ export class CommitPlanService {
       const reasoningEffort = await resolveReasoningEffort(
         this.reasoningCapabilities,
         selectedProvider,
-        providerSettings.model,
-        providerSettings.reasoningEffort
+        model,
+        providerSettings.commitPlanReasoningEffort
       );
       throwIfAborted(signal);
       const generation = await generateCompleteText(resolution.provider, {
         repoPath: request.repoPath,
-        model: providerSettings.model,
+        model,
         maxTokens: COMMIT_PLAN_MAX_TOKENS,
         ...(signal ? { signal } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),

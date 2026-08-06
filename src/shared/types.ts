@@ -1021,7 +1021,16 @@ export const AI_COMMIT_MESSAGE_PROVIDERS = [
 
 export type AiCommitMessageProvider = (typeof AI_COMMIT_MESSAGE_PROVIDERS)[number];
 
-export const AI_REASONING_EFFORTS = ["low", "medium", "high"] as const;
+export const AI_REASONING_EFFORTS = [
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+  "ultra"
+] as const;
 
 export type AiReasoningEffort = (typeof AI_REASONING_EFFORTS)[number];
 
@@ -1067,10 +1076,14 @@ export interface SourceControlWritingStyle {
 
 export interface AiProviderSettings {
   model: string;
+  /** Model used for commit plans; empty string falls back to `model`. */
+  commitPlanModel?: string;
+  /** Reasoning effort used for commit plans. */
+  commitPlanReasoningEffort: AiReasoningEffort;
   /** Model used for PR descriptions; empty string falls back to `model`. */
   prDescriptionModel: string;
   reasoningEffort: AiReasoningEffort;
-  /** Reasoning effort for PR descriptions; used only with `prDescriptionModel`. */
+  /** Reasoning effort for PR descriptions. */
   prDescriptionReasoningEffort: AiReasoningEffort;
   hasApiKey: boolean;
 }
@@ -1093,6 +1106,8 @@ export interface AiSettings {
 export interface AiSettingsSaveRequest {
   selectedProvider: AiCommitMessageProvider;
   providerModels: Record<AiCommitMessageProvider, string>;
+  commitPlanModels?: Partial<Record<AiCommitMessageProvider, string>>;
+  commitPlanReasoningEfforts?: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>>;
   prDescriptionModels?: Partial<Record<AiCommitMessageProvider, string>>;
   reasoningEfforts?: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>>;
   prDescriptionReasoningEfforts?: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>>;
@@ -1118,6 +1133,8 @@ export interface RepositoryAiSettingsSaveRequest extends RepositoryAiSettingsReq
   enabled: boolean;
   selectedProvider: AiCommitMessageProvider;
   providerModels: Record<AiCommitMessageProvider, string>;
+  commitPlanModels?: Partial<Record<AiCommitMessageProvider, string>>;
+  commitPlanReasoningEfforts?: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>>;
   prDescriptionModels?: Partial<Record<AiCommitMessageProvider, string>>;
   reasoningEfforts?: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>>;
   prDescriptionReasoningEfforts?: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>>;
