@@ -185,6 +185,53 @@ afterEach(() => {
 });
 
 describe("App", () => {
+  it("shows the startup screen instead of setup while recent repositories load", async () => {
+    const pendingRecents = defer<RepositoryRecent[]>();
+    vi.mocked(githead.getRepoRecents).mockReturnValue(pendingRecents.promise);
+
+    render(<App />);
+
+    const status = screen.getByRole("status");
+    expect(within(status).getByText("Opening your workspace…")).toBeTruthy();
+    expect(within(status).getByText("Loading saved repositories")).toBeTruthy();
+    expect(screen.queryByText("Select a repository to continue.")).toBeNull();
+
+    pendingRecents.resolve(repositoryRecents(repoPath));
+    await waitForRepositoryWorkspace();
+  });
+
+  it("keeps the startup screen visible until app settings load", async () => {
+    const pendingSettings = defer<AppSettings>();
+    vi.mocked(githead.getAppSettings).mockReturnValue(pendingSettings.promise);
+
+    render(<App />);
+
+    expect(await screen.findByText("Opening Githead…")).toBeTruthy();
+    expect(screen.queryByText("Select a repository to continue.")).toBeNull();
+    expect(screen.queryByRole("complementary")).toBeNull();
+
+    pendingSettings.resolve({
+      autoFetchIntervalMinutes: 10,
+      colorTheme: "githead",
+      appearanceMode: "system",
+      uiFont: "inter",
+      codeFont: "system-mono",
+      zoomFactor: 1,
+      statusFileViewMode: "list",
+      wrapDiffLines: false
+    });
+    await waitForRepositoryWorkspace();
+  });
+
+  it("shows a repository error when startup cannot load recents", async () => {
+    vi.mocked(githead.getRepoRecents).mockRejectedValue(new Error("Recent repositories are unavailable."));
+
+    render(<App />);
+
+    expect(await screen.findByText("Recent repositories are unavailable.")).toBeTruthy();
+    expect(screen.getByText("Select a repository to continue.")).toBeTruthy();
+  });
+
   it("renders custom window controls on the repository setup screen", async () => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       isValid: false,

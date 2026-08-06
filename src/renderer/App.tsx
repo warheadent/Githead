@@ -220,6 +220,7 @@ import { applyColorTheme } from "./themes";
 import { OptionalFeatureBoundary } from "./OptionalFeatureBoundary";
 import { StashComposerDialog, type StashCreateDraft } from "./StashComposerDialog";
 import { StashesView } from "./StashesView";
+import { StartupScreen } from "./StartupScreen";
 import { useGitStashes } from "./useGitStashes";
 import { useSelectionSafeValue } from "./useSelectionSafeValue";
 import { repositoryHistoryRoute, targetFromCommitFile, targetFromHistoryEntry, type HistoricalFileTarget, type HistoryRoute } from "./historyNavigation";
@@ -355,6 +356,7 @@ interface CreatePrDialogState {
 }
 
 interface AppState {
+  startupStatus: "loading" | "ready";
   repoPath: string;
   repoRecents: string[];
   repositoryGroups: RepositoryGroup[];
@@ -728,6 +730,7 @@ const OPERATION_RECONCILE_INITIAL_DELAY_MS = 3_000;
 const OPERATION_RECONCILE_INTERVAL_MS = 10_000;
 
 const initialState: AppState = {
+  startupStatus: "loading",
   repoPath: "",
   repoRecents: [],
   repositoryGroups: [],
@@ -890,6 +893,7 @@ export function App(): ReactNode {
   const configuredActionRunIdRef = useRef(0);
   const fileStatusGenerationRef = useRef(0);
   const acknowledgedFileStatusGenerationRef = useRef(0);
+  const startupStartedRef = useRef(false);
   const refreshDirtyFileStatusRef = useRef<() => Promise<void>>(async () => undefined);
   const windowFocusedRef = useRef(true);
   const [trustDialogRepoPath, setTrustDialogRepoPath] = useState<string | null>(null);
@@ -1860,6 +1864,7 @@ export function App(): ReactNode {
           stderr: error instanceof Error ? error.message : "Unable to load recent repositories."
         }
       }));
+      throw error;
     }
 
     updateState((current) => ({
@@ -1874,7 +1879,7 @@ export function App(): ReactNode {
     void loadRepoSyncStatuses(repoRecents.map((recent) => recent.anchorPath));
 
     if (repoRecents.length > 0) {
-      await refreshRepo({
+      void refreshRepo({
         addToRecents: false
       });
     }
@@ -1959,11 +1964,26 @@ export function App(): ReactNode {
     }
   }, [updateState]);
 
+  const initializeApp = useCallback(async (): Promise<void> => {
+    await Promise.all([
+      initializeRepository(),
+      loadAppSettings()
+    ]);
+    updateState({ startupStatus: "ready" });
+  }, [initializeRepository, loadAppSettings, updateState]);
+
   useEffect(() => {
-    void initializeRepository();
+    if (startupStartedRef.current) return;
+    startupStartedRef.current = true;
+    void initializeApp().catch((error: unknown) => {
+      updateState({
+        startupStatus: "ready",
+        showSetup: true,
+        setupError: error instanceof Error ? error.message : "Unable to load recent repositories."
+      });
+    });
     void loadAiSettings();
-    void loadAppSettings();
-  }, [initializeRepository, loadAiSettings, loadAppSettings]);
+  }, [initializeApp, loadAiSettings, updateState]);
 
   useEffect(() => {
     void loadRepositoryGroups();
@@ -5938,6 +5958,19 @@ export function App(): ReactNode {
   );
   const pullRequestTabCount = github.counts.data ? formatCompactCount(github.counts.data.pullRequests) : null;
   const issueTabCount = github.counts.data ? formatCompactCount(github.counts.data.issues) : null;
+
+  if (state.startupStatus === "loading") {
+    return (
+      <AppChrome
+        isMaximized={windowState.isMaximized}
+        onMinimize={minimizeWindow}
+        onToggleMaximize={toggleMaximizeWindow}
+        onClose={closeWindow}
+      >
+        <StartupScreen repositoryName={getRepoDisplayName(state.repoPath)} />
+      </AppChrome>
+    );
+  }
 
   if (state.showSetup) {
     return (
