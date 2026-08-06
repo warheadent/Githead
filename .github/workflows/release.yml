@@ -61,6 +61,12 @@ jobs:
         run: vp test
 
       - name: Build
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+          SENTRY_ENVIRONMENT: production
         run: vp run build
 
       - name: Package Windows installer
@@ -113,6 +119,12 @@ jobs:
         run: vp test
 
       - name: Build
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+          SENTRY_ENVIRONMENT: production
         run: vp run build
 
       - name: Package Linux artifacts
