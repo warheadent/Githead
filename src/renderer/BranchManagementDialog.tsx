@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TooltipTarget } from "@/components/ui/tooltip";
 import type { GitBranch, RepoCapabilities, VcsKind } from "../shared/types";
+import { MotionSwap } from "./motion";
 
 type Mode = { kind: "list" } | { kind: "rename"; branch: GitBranch } | { kind: "remove"; branch: GitBranch };
 
@@ -73,7 +74,7 @@ export function BranchManagementDialog(props: BranchManagementDialogProps): Reac
         <DialogTitle>Manage Branches</DialogTitle>
         <TooltipTarget content={repoPath}><DialogDescription className="truncate">{repoPath}</DialogDescription></TooltipTarget>
       </DialogHeader>
-      {mode.kind === "list" ? <div className="grid min-h-0 gap-4 overflow-hidden">
+      <MotionSwap item={{ key: mode.kind, content: mode.kind === "list" ? <div className="grid min-h-0 gap-4 overflow-hidden">
         {branches.length ? <div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input aria-label="Search branches" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search branches" className="pl-9" autoFocus /></div> : null}
         <div className="grid min-h-0 gap-2 overflow-auto" role="list" aria-label="Local branches">
           {!visibleBranches.length ? <p className="py-8 text-center text-sm text-muted-foreground">{branches.length ? "No branches match your search." : "No local branches found."}</p> : visibleBranches.map((branch) => <div key={branch.name} role="listitem" className="flex items-center gap-3 rounded-md border p-3">
@@ -87,7 +88,7 @@ export function BranchManagementDialog(props: BranchManagementDialogProps): Reac
         {mode.kind === "rename" ? <div className="grid gap-2"><Label htmlFor="branch-new-name">New name</Label><Input id="branch-new-name" value={name} onChange={(event) => setName(event.target.value)} disabled={busy} autoFocus aria-invalid={Boolean(error)} /><p className="text-xs text-muted-foreground">Rename {mode.branch.name}. Remote branches are not changed.</p></div> : <><div className="rounded-md border border-destructive/40 bg-destructive/5 p-4"><p className="font-medium">{archive ? "Archive" : forceDelete ? "Force delete" : "Delete"} {mode.branch.name}?</p><p className="mt-1 text-sm text-muted-foreground">{archive ? "The branch will be archived and hidden from normal Lore branch lists." : forceDelete ? "The local branch will be deleted even if it contains unmerged commits. This cannot be undone. Its remote branch will not be changed." : "Only the local branch will be deleted. Its remote branch will not be changed, and unmerged work will be preserved."}</p></div>{!archive ? <label className="flex items-start gap-3 rounded-md border p-3"><input type="checkbox" className="mt-1" checked={forceDelete} onChange={(event) => setForceDelete(event.target.checked)} disabled={busy} /><span><span className="block font-medium">Force delete</span><span className="block text-sm text-muted-foreground">Delete this branch even when it has commits that haven’t been merged.</span></span></label> : null}</>}
         {error ? <p className="error-text" role="alert">{error}</p> : null}
         <DialogFooter><Button type="button" variant="outline" onClick={busy ? () => onOpenChange(false) : back}>{busy ? "Cancel operation" : "Back"}</Button><Button type="submit" variant={mode.kind === "remove" ? "destructive" : "default"} disabled={busy}>{busy ? <Loader2 className="animate-spin" /> : null}{mode.kind === "rename" ? "Rename Branch" : `${archive ? "Archive" : forceDelete ? "Force Delete" : "Delete"} Branch`}</Button></DialogFooter>
-      </form>}
+      </form> }} className="branch-management-mode-swap relative" presenceClassName="[--motion-reduced-opacity:0.85] [--motion-scale:1] [--motion-translate-y:-2px]" />
     </DialogContent>
   </Dialog>;
 }
