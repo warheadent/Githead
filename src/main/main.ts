@@ -124,7 +124,6 @@ import { initializeSentry } from "./sentry";
 
 initializeSentry();
 
-const DEFAULT_REPO_PATH = "D:\\Githead";
 const processRunner = new CancellableProcessRunner(new NodeProcessRunner());
 const gitService = new GitService(processRunner);
 const loreService = new LoreService(processRunner);
@@ -301,9 +300,10 @@ app.on("before-quit", () => {
 });
 
 ipcMain.handle(IPC_CHANNELS.chooseRepo, async (_event, defaultPath?: string) => {
+  const normalizedDefaultPath = defaultPath?.trim();
   const options: Electron.OpenDialogOptions = {
     title: "Select Git Repository",
-    defaultPath: defaultPath?.trim() || DEFAULT_REPO_PATH,
+    ...(normalizedDefaultPath ? { defaultPath: normalizedDefaultPath } : {}),
     properties: [
       "openDirectory"
     ]
