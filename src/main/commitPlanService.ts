@@ -21,7 +21,7 @@ type CommitPlanSource = Pick<VcsService, "getFileDiff" | "getCommitHistory">;
 type Fetch = typeof fetch;
 
 const DIFF_READ_CONCURRENCY = 4;
-const COMMIT_PLAN_MAX_TOKENS = 4_096;
+const COMMIT_PLAN_MAX_TOKENS = 16_384;
 
 export class CommitPlanService {
   constructor(

@@ -50,8 +50,13 @@ describe("CommitPlanService", () => {
     await expect(service.generateCommitPlan({ repoPath: "D:\\Repo", paths: ["src/a.ts"] }))
       .resolves.toMatchObject({ exitCode: 0 });
 
-    const body = JSON.parse(String(calls[0]?.body)) as { model: string; reasoning: { effort: string } };
+    const body = JSON.parse(String(calls[0]?.body)) as {
+      model: string;
+      reasoning: { effort: string };
+      max_tokens: number;
+    };
     expect(body.model).toBe("openrouter/plan");
     expect(body.reasoning).toEqual({ effort: "high" });
+    expect(body.max_tokens).toBe(16_384);
   });
 });
