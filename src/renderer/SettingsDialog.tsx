@@ -43,6 +43,7 @@ import { CODE_FONT_OPTIONS, UI_FONT_OPTIONS, type FontOption } from "./fonts";
 import { getAiProviderLabel, getCliStatusMessage, isCliProvider } from "./aiProvider";
 import { GitIdentityFields } from "./GitIdentityFields";
 import { AiGenerationSettingsFields } from "./AiGenerationSettingsFields";
+import { MotionSwap } from "./motion";
 export { GitIdentityFields } from "./GitIdentityFields";
 
 export interface SettingsDraft {
@@ -105,6 +106,16 @@ export function SettingsDialog({
   const dirty = open && baselineRef.current !== "" && serializedDraft !== baselineRef.current;
   const dirtyCategories = getDirtyCategories(baselineRef.current, draft);
   const provider = draft.selectedProvider;
+  const footerStatus = error ? {
+    key: "error",
+    content: <p id="settings-git-identity-error" className="flex items-center gap-2 text-destructive" role="alert"><CircleAlert className="size-4 shrink-0" aria-hidden="true" /><span>{error}</span></p>
+  } : dirty ? {
+    key: "dirty",
+    content: <p className="text-muted-foreground" role="status">You have unsaved changes.</p>
+  } : {
+    key: "saved",
+    content: <p className="text-muted-foreground">All changes are saved.</p>
+  };
 
   useEffect(() => {
     if (open && !wasOpenRef.current) {
@@ -246,9 +257,11 @@ export function SettingsDialog({
             </Tabs>
 
             <div className="flex min-h-16 flex-col gap-3 border-t bg-background px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0 text-sm">
-                {error ? <p id="settings-git-identity-error" className="flex items-center gap-2 text-destructive" role="alert"><CircleAlert className="size-4 shrink-0" aria-hidden="true" /><span>{error}</span></p> : dirty ? <p className="text-muted-foreground" role="status">You have unsaved changes.</p> : <p className="text-muted-foreground">All changes are saved.</p>}
-              </div>
+              <MotionSwap
+                item={footerStatus}
+                className="relative min-h-5 min-w-0 text-sm"
+                presenceClassName="[--motion-translate-y:-2px] [--motion-reduced-opacity:0.92]"
+              />
               <DialogFooter className="shrink-0">
                 <Button type="button" variant="outline" onClick={requestClose}>{saving ? "Cancel operation" : "Cancel"}</Button>
                 <Button type="submit" disabled={saving || !dirty}>{saving ? <Loader2 className="animate-spin" /> : <Save />}{saving ? "Saving…" : "Save"}</Button>
