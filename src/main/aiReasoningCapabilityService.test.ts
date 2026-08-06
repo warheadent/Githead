@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { AiApiKeyProvider } from "../shared/types";
 import { AiReasoningCapabilityService } from "./aiReasoningCapabilityService";
 import type { AiSettingsService } from "./aiSettingsService";
+import type { ProcessRunner } from "./processRunner";
 
 function createSettingsService(keys: Partial<Record<AiApiKeyProvider, string>> = {}): AiSettingsService {
   return {
@@ -33,7 +34,7 @@ describe("AiReasoningCapabilityService", () => {
 
     await expect(service.getCapabilities({ provider: "openai", model: "gpt-5.4-nano" })).resolves.toEqual({
       status: "supported",
-      supportedEfforts: ["low", "medium", "high"]
+      supportedEfforts: ["none", "minimal", "low", "medium", "high", "xhigh"]
     });
     await expect(service.getCapabilities({ provider: "claude-code", model: "haiku" })).resolves.toEqual({
       status: "unsupported",
@@ -56,7 +57,7 @@ describe("AiReasoningCapabilityService", () => {
       model: "vendor/reasoning-model"
     })).resolves.toEqual({
       status: "supported",
-      supportedEfforts: ["low", "high"]
+      supportedEfforts: ["minimal", "low", "high", "xhigh"]
     });
     expect(fetchImpl).toHaveBeenCalledWith("https://openrouter.ai/api/v1/models", expect.objectContaining({
       headers: { "Authorization": "Bearer sk-or" }
@@ -72,7 +73,7 @@ describe("AiReasoningCapabilityService", () => {
       model: "openai/gpt-5.6-luna"
     })).resolves.toEqual({
       status: "supported",
-      supportedEfforts: ["low", "medium", "high"]
+      supportedEfforts: ["low", "medium", "high", "xhigh", "max"]
     });
   });
 
@@ -85,7 +86,7 @@ describe("AiReasoningCapabilityService", () => {
       model: "gpt-5.6-luna"
     })).resolves.toEqual({
       status: "supported",
-      supportedEfforts: ["low", "medium", "high"]
+      supportedEfforts: ["low", "medium", "high", "xhigh", "max"]
     });
     expect(fetchImpl).not.toHaveBeenCalled();
   });
@@ -107,7 +108,8 @@ describe("AiReasoningCapabilityService", () => {
           supported: true,
           low: { supported: true },
           medium: { supported: false },
-          high: { supported: true }
+          high: { supported: true },
+          max: { supported: true }
         }
       }
     })));
@@ -115,7 +117,62 @@ describe("AiReasoningCapabilityService", () => {
 
     await expect(service.getCapabilities({ provider: "anthropic", model: "claude-custom" })).resolves.toEqual({
       status: "supported",
-      supportedEfforts: ["low", "high"]
+      supportedEfforts: ["low", "high", "max"]
+    });
+  });
+
+  it("reads model-specific efforts from Codex app-server", async () => {
+    const runner: ProcessRunner = {
+      run: vi.fn(async (_command, _args, options) => {
+        const input = {
+          write: (data: string | Buffer) => {
+            const request = JSON.parse(data.toString()) as { id?: number; method?: string };
+            if (request.method === "initialize") {
+              options?.onOutput?.({ stream: "stdout", text: `${JSON.stringify({ id: 1, result: {} })}\n` });
+            } else if (request.method === "model/list") {
+              options?.onOutput?.({
+                stream: "stdout",
+                text: `${JSON.stringify({ id: 2, result: { data: [
+                  { model: "gpt-live", supportedReasoningEfforts: [{ reasoningEffort: "low" }, { reasoningEffort: "ultra" }] },
+                  { model: "gpt-other", supportedReasoningEfforts: [{ reasoningEffort: "high" }] }
+                ], nextCursor: null } })}\n`
+              });
+            }
+            return true;
+          },
+          end: () => undefined
+        };
+        options?.onInputReady?.(input);
+        await new Promise<void>((resolve) => options?.signal?.addEventListener("abort", () => resolve(), { once: true }));
+        return { exitCode: -1, stdout: "", stderr: "" };
+      })
+    };
+    const service = new AiReasoningCapabilityService(createSettingsService(), vi.fn<typeof fetch>(), runner);
+
+    await expect(service.getCapabilities({ provider: "codex-cli", model: "gpt-live" })).resolves.toEqual({
+      status: "supported",
+      supportedEfforts: ["low", "ultra"]
+    });
+    await expect(service.getCapabilities({ provider: "codex-cli", model: "gpt-other" })).resolves.toEqual({
+      status: "supported",
+      supportedEfforts: ["high"]
+    });
+    expect(runner.run).toHaveBeenCalledTimes(1);
+  });
+
+  it("filters Claude model efforts through the installed CLI", async () => {
+    const runner: ProcessRunner = {
+      run: vi.fn(async () => ({
+        exitCode: 0,
+        stdout: "--effort <level> Effort level (low, medium, high, xhigh)",
+        stderr: ""
+      }))
+    };
+    const service = new AiReasoningCapabilityService(createSettingsService(), vi.fn<typeof fetch>(), runner);
+
+    await expect(service.getCapabilities({ provider: "claude-code", model: "opus" })).resolves.toEqual({
+      status: "supported",
+      supportedEfforts: ["low", "medium", "high", "xhigh"]
     });
   });
 
@@ -124,7 +181,7 @@ describe("AiReasoningCapabilityService", () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
       data: [{ id: "vendor/cached", reasoning: { supported_efforts: ["low"] } }]
     })));
-    const service = new AiReasoningCapabilityService(createSettingsService(), fetchImpl, () => now);
+    const service = new AiReasoningCapabilityService(createSettingsService(), fetchImpl, undefined, () => now);
     const request = { provider: "openrouter" as const, model: "vendor/cached" };
 
     const [first, second] = await Promise.all([

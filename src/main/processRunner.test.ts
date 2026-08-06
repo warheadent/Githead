@@ -14,6 +14,18 @@ async function withTempDir<T>(fn: (directory: string) => Promise<T>): Promise<T>
 }
 
 describe("NodeProcessRunner.run", () => {
+  it("supports response-driven process input", async () => {
+    const result = await new NodeProcessRunner().run(
+      process.execPath,
+      ["-e", "process.stdin.once('data', data => process.stdout.write(data.toString().toUpperCase()))"],
+      {
+        onInputReady: (input) => input.end("hello")
+      }
+    );
+
+    expect(result).toMatchObject({ exitCode: 0, stdout: "HELLO" });
+  });
+
   it("returns an aborted result without spawning for an already-aborted signal", async () => {
     const controller = new AbortController();
     const onOutput = vi.fn();

@@ -2,9 +2,10 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createWriteStream, type WriteStream } from "node:fs";
 
 export interface ProcessOutput { stream: "stdout" | "stderr"; text: string }
+export interface ProcessInput { write(data: string | Buffer): boolean; end(data?: string | Buffer): void }
 export type ProcessTerminationReason = "aborted" | "timedOut" | "spawnFailed" | "exited";
 export interface ProcessResult { exitCode: number; stdout: string; stderr: string; error?: string; terminationReason?: ProcessTerminationReason }
-export interface ProcessRunOptions { cwd?: string; env?: NodeJS.ProcessEnv; stdin?: string | Buffer; timeoutMs?: number; signal?: AbortSignal; onOutput?: (output: ProcessOutput) => void; stdoutFilePath?: string }
+export interface ProcessRunOptions { cwd?: string; env?: NodeJS.ProcessEnv; stdin?: string | Buffer; onInputReady?: (input: ProcessInput) => void; timeoutMs?: number; signal?: AbortSignal; onOutput?: (output: ProcessOutput) => void; stdoutFilePath?: string }
 export interface BinaryProcessResult { exitCode: number; stdout: Uint8Array; stderr: string; error?: string; exceededLimit?: boolean; terminationReason?: ProcessTerminationReason }
 export interface ProcessRunner {
   run(command: string, args: string[], options?: ProcessRunOptions): Promise<ProcessResult>;
@@ -345,7 +346,6 @@ export class NodeProcessRunner implements ProcessRunner {
       // the event or this state check observes every cancellation request.
       if (options.signal?.aborted) onAbort();
       if (options.timeoutMs !== undefined) timer = setTimeout(() => stop("timedOut", `Command timed out after ${options.timeoutMs}ms.`), options.timeoutMs);
-      child.stdin.end(options.stdin);
       child.stdout.on("data", (chunk: Buffer) => {
         if (settled || exceededLimit) return;
         stdoutLength += chunk.length;
@@ -398,6 +398,18 @@ export class NodeProcessRunner implements ProcessRunner {
         freezeOutcome(code);
         finishProcessDrain();
       });
+      if (options.onInputReady) {
+        try {
+          options.onInputReady({
+            write: (data) => child.stdin.write(data),
+            end: (data) => child.stdin.end(data)
+          });
+        } catch (error) {
+          stop("aborted", error instanceof Error ? error.message : "Unable to write process input.");
+        }
+      } else {
+        child.stdin.end(options.stdin);
+      }
     });
   }
 }

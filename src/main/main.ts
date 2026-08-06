@@ -1398,7 +1398,7 @@ function getAiCliStatusService(): AiCliStatusService {
 }
 
 function getAiReasoningCapabilityService(): AiReasoningCapabilityService {
-  aiReasoningCapabilityService ??= new AiReasoningCapabilityService(getAiSettingsService());
+  aiReasoningCapabilityService ??= new AiReasoningCapabilityService(getAiSettingsService(), fetch, processRunner);
   return aiReasoningCapabilityService;
 }
 
