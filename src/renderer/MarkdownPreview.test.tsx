@@ -134,6 +134,54 @@ describe("MarkdownPreview", () => {
     expect(screen.getByRole("button", { name: "Copy code" })).toBeTruthy();
   });
 
+  it("swaps the copy feedback icons through motion wrappers", async () => {
+    renderPreview("```ts\nconst value = true;\n```");
+
+    const copyButton = screen.getByRole("button", { name: "Copy code" });
+    expect(copyButton.querySelector(".lucide-copy")?.parentElement?.classList).toContain("motion-presence");
+    expect(copyButton.querySelector(".lucide-check")).toBeNull();
+
+    fireEvent.click(copyButton);
+    await flushPromises();
+
+    const copiedButton = screen.getByRole("button", { name: "Copied" });
+    const exitingCopy = copiedButton.querySelector(".lucide-copy")?.parentElement;
+    const enteringCheck = copiedButton.querySelector(".lucide-check")?.parentElement;
+    expect(exitingCopy?.dataset.motionState).toBe("exiting");
+    expect(enteringCheck?.dataset.motionState).toBe("entering");
+    expect(enteringCheck?.className).toContain("[--motion-scale:0.97]");
+    expect(enteringCheck?.className).toContain("[--motion-reduced-opacity:0.85]");
+
+    act(() => vi.advanceTimersByTime(120));
+    expect(copiedButton.querySelector(".lucide-copy")).toBeNull();
+    expect(copiedButton.querySelector(".lucide-check")).toBeTruthy();
+  });
+
+  it("keeps the newest icon feedback when rapid copy requests finish out of order", async () => {
+    let resolveFirstCopy: ((value: Awaited<ReturnType<GitheadApi["copyTextToClipboard"]>>) => void) | undefined;
+    copyTextToClipboard.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveFirstCopy = resolve;
+    }));
+    renderPreview("```txt\ncopy me\n```");
+
+    const copyButton = screen.getByRole("button", { name: "Copy code" });
+    fireEvent.click(copyButton);
+    fireEvent.click(copyButton);
+    await flushPromises();
+
+    expect(screen.getByRole("button", { name: "Copied" }).querySelector(".lucide-check")).toBeTruthy();
+
+    resolveFirstCopy?.({
+      repoPath: "",
+      exitCode: 0,
+      stdout: "Text copied to clipboard.",
+      stderr: ""
+    });
+    await flushPromises();
+
+    expect(screen.getByRole("button", { name: "Copied" }).querySelector(".lucide-check")).toBeTruthy();
+  });
+
   it("reports clipboard failures and allows an immediate retry", async () => {
     copyTextToClipboard.mockRejectedValueOnce(new Error("Clipboard unavailable"));
     renderPreview("```txt\nretry me\n```");

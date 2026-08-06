@@ -11,10 +11,13 @@ import ReactMarkdown, { type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { TooltipButton } from "@/components/ui/button";
 import { MermaidDiagram } from "./MermaidDiagram";
+import { MotionPresence } from "./motion";
 
 const COPY_FEEDBACK_DURATION_MS = 2_000;
 
 type CopyStatus = "idle" | "copied" | "error";
+
+const COPY_ICON_PRESENCE_CLASS = "grid place-items-center [--motion-scale:0.97] [--motion-reduced-opacity:0.85]";
 
 function getNodeText(node: ReactNode): string {
   if (typeof node === "string" || typeof node === "number") {
@@ -100,7 +103,25 @@ function MarkdownCopyableCodeBlock({ children, ...props }: ComponentProps<"pre">
           tooltip={label}
           onClick={() => void copyCode()}
         >
-          {status === "copied" ? <Check /> : <Copy />}
+          <span
+            aria-hidden="true"
+            className="grid size-4 [&>.motion-presence]:col-start-1 [&>.motion-presence]:row-start-1"
+          >
+            <MotionPresence
+              present={status !== "copied"}
+              className={COPY_ICON_PRESENCE_CLASS}
+              presenceKey="copy"
+            >
+              <Copy />
+            </MotionPresence>
+            <MotionPresence
+              present={status === "copied"}
+              className={COPY_ICON_PRESENCE_CLASS}
+              presenceKey="check"
+            >
+              <Check />
+            </MotionPresence>
+          </span>
         </TooltipButton>
       </div>
       <pre {...props}>{children}</pre>
