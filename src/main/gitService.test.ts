@@ -182,6 +182,66 @@ function repoSummaryResults(repoRoot: string): ProcessResult[] {
   ];
 }
 
+interface RealRecoveryFixture {
+  writer: string;
+  work: string;
+  baseOid: string;
+  originalHead: string;
+  service: GitService;
+  run(args: string[]): Promise<ProcessResult>;
+}
+
+async function createRealRecoveryFixture(
+  dir: string,
+  branchName: string,
+  remoteFile: string,
+  remoteContent: string,
+  localFile: string,
+  localContent: string
+): Promise<RealRecoveryFixture> {
+  const remote = path.join(dir, "remote.git");
+  const writer = path.join(dir, "writer");
+  const work = path.join(dir, "work");
+  const runner = new NodeProcessRunner();
+  const run = async (args: string[]): Promise<ProcessResult> => {
+    const result = await runner.run("git", args);
+    expect(result.exitCode, result.stderr).toBe(0);
+    return result;
+  };
+
+  await run(["init", "--bare", remote]);
+  await run(["init", "-b", "main", writer]);
+  await run(["-C", writer, "config", "user.name", "Githead Test"]);
+  await run(["-C", writer, "config", "user.email", "githead@example.test"]);
+  await fs.writeFile(path.join(writer, "base.txt"), "base\n", "utf8");
+  await run(["-C", writer, "add", "base.txt"]);
+  await run(["-C", writer, "commit", "-m", "Base"]);
+  const baseOid = (await run(["-C", writer, "rev-parse", "HEAD"])).stdout.trim();
+  await run(["-C", writer, "switch", "-c", branchName]);
+  await fs.writeFile(path.join(writer, remoteFile), remoteContent, "utf8");
+  await run(["-C", writer, "add", remoteFile]);
+  await run(["-C", writer, "commit", "-m", "Old remote commit"]);
+  await run(["-C", writer, "remote", "add", "origin", remote]);
+  await run(["-C", writer, "push", "--set-upstream", "origin", branchName]);
+
+  await run(["clone", "--branch", branchName, remote, work]);
+  await run(["-C", work, "config", "user.name", "Githead Test"]);
+  await run(["-C", work, "config", "user.email", "githead@example.test"]);
+  await fs.writeFile(path.join(work, localFile), localContent, "utf8");
+  await run(["-C", work, "add", localFile]);
+  await run(["-C", work, "commit", "-m", "Local commit"]);
+  const originalHead = (await run(["-C", work, "rev-parse", "HEAD"])).stdout.trim();
+
+  return {
+    writer,
+    work,
+    baseOid,
+    originalHead,
+    service: new GitService(runner),
+    run
+  };
+}
+
 describe("GitService", () => {
   it("streams commit file versions through the shared runner and preserves failures", async () => {
     const runner = new FakeRunner([{
@@ -562,38 +622,14 @@ describe("GitService", () => {
 
   it("recovers a real force-updated branch without restoring removed remote commits", async () => {
     await withTempDir(async (dir) => {
-      const remote = path.join(dir, "remote.git");
-      const writer = path.join(dir, "writer");
-      const work = path.join(dir, "work");
-      const runner = new NodeProcessRunner();
-      const run = async (args: string[]): Promise<ProcessResult> => {
-        const result = await runner.run("git", args);
-        expect(result.exitCode, result.stderr).toBe(0);
-        return result;
-      };
-
-      await run(["init", "--bare", remote]);
-      await run(["init", "-b", "main", writer]);
-      await run(["-C", writer, "config", "user.name", "Githead Test"]);
-      await run(["-C", writer, "config", "user.email", "githead@example.test"]);
-      await fs.writeFile(path.join(writer, "base.txt"), "base\n", "utf8");
-      await run(["-C", writer, "add", "base.txt"]);
-      await run(["-C", writer, "commit", "-m", "Base"]);
-      const baseOid = (await run(["-C", writer, "rev-parse", "HEAD"])).stdout.trim();
-      await run(["-C", writer, "switch", "-c", "feature/recovery"]);
-      await fs.writeFile(path.join(writer, "removed-by-rewrite.txt"), "old remote history\n", "utf8");
-      await run(["-C", writer, "add", "removed-by-rewrite.txt"]);
-      await run(["-C", writer, "commit", "-m", "Old remote commit"]);
-      await run(["-C", writer, "remote", "add", "origin", remote]);
-      await run(["-C", writer, "push", "--set-upstream", "origin", "feature/recovery"]);
-
-      await run(["clone", "--branch", "feature/recovery", remote, work]);
-      await run(["-C", work, "config", "user.name", "Githead Test"]);
-      await run(["-C", work, "config", "user.email", "githead@example.test"]);
-      await fs.writeFile(path.join(work, "local.txt"), "local work\n", "utf8");
-      await run(["-C", work, "add", "local.txt"]);
-      await run(["-C", work, "commit", "-m", "Local commit"]);
-      const originalHead = (await run(["-C", work, "rev-parse", "HEAD"])).stdout.trim();
+      const { writer, work, baseOid, originalHead, service, run } = await createRealRecoveryFixture(
+        dir,
+        "feature/recovery",
+        "removed-by-rewrite.txt",
+        "old remote history\n",
+        "local.txt",
+        "local work\n"
+      );
 
       await run(["-C", writer, "reset", "--hard", baseOid]);
       await fs.writeFile(path.join(writer, "new-remote.txt"), "new remote history\n", "utf8");
@@ -601,7 +637,6 @@ describe("GitService", () => {
       await run(["-C", writer, "commit", "-m", "New remote commit"]);
       await run(["-C", writer, "push", "--force", "origin", "feature/recovery"]);
 
-      const service = new GitService(runner);
       const pull = await service.runGitAction({ repoPath: work, action: "pull" });
       expect(pull.exitCode).not.toBe(0);
       expect(pull).toMatchObject({ pullRecovery: { localCommitCount: 1, canReapply: true } });
@@ -613,18 +648,20 @@ describe("GitService", () => {
       await expect(fs.stat(path.join(work, "removed-by-rewrite.txt"))).rejects.toMatchObject({ code: "ENOENT" });
       expect((await run(["-C", work, "rev-list", "--count", "origin/feature/recovery..HEAD"])).stdout.trim()).toBe("1");
       expect((await run(["-C", work, "rev-parse", "refs/githead/recovery/feature/recovery"])).stdout.trim()).toBe(originalHead);
+    });
+  }, 15_000);
 
-      await run(["-C", writer, "switch", "-C", "feature/conflict", baseOid]);
-      await fs.writeFile(path.join(writer, "conflict.txt"), "old remote value\n", "utf8");
-      await run(["-C", writer, "add", "conflict.txt"]);
-      await run(["-C", writer, "commit", "-m", "Old conflict base"]);
-      await run(["-C", writer, "push", "--set-upstream", "origin", "feature/conflict"]);
-      await run(["-C", work, "fetch", "origin", "feature/conflict"]);
-      await run(["-C", work, "switch", "-c", "feature/conflict", "--track", "origin/feature/conflict"]);
-      await fs.writeFile(path.join(work, "conflict.txt"), "local value\n", "utf8");
-      await run(["-C", work, "add", "conflict.txt"]);
-      await run(["-C", work, "commit", "-m", "Local conflicting commit"]);
-      const conflictHead = (await run(["-C", work, "rev-parse", "HEAD"])).stdout.trim();
+  it("keeps a real force-update conflict recoverable after abort", async () => {
+    await withTempDir(async (dir) => {
+      const { writer, work, baseOid, originalHead, service, run } = await createRealRecoveryFixture(
+        dir,
+        "feature/conflict",
+        "conflict.txt",
+        "old remote value\n",
+        "conflict.txt",
+        "local value\n"
+      );
+
       await run(["-C", writer, "reset", "--hard", baseOid]);
       await fs.writeFile(path.join(writer, "conflict.txt"), "rewritten remote value\n", "utf8");
       await run(["-C", writer, "add", "conflict.txt"]);
@@ -637,7 +674,7 @@ describe("GitService", () => {
       expect(conflicted).toMatchObject({ outcome: "conflicts", recovery: { phase: "rebase-conflicts" } });
       const aborted = await service.resolvePullRecovery({ repoPath: work, branchName: "feature/conflict", action: "abort" });
       expect(aborted).toMatchObject({ exitCode: 0, outcome: "ready", recovery: { phase: "ready" } });
-      expect((await run(["-C", work, "rev-parse", "HEAD"])).stdout.trim()).toBe(conflictHead);
+      expect((await run(["-C", work, "rev-parse", "HEAD"])).stdout.trim()).toBe(originalHead);
       expect((await fs.readFile(path.join(work, "conflict.txt"), "utf8")).trim()).toBe("local value");
     });
   }, 15_000);
