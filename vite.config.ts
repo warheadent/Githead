@@ -4,8 +4,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig, lazyPlugins } from "vite-plus";
 import {
   createSentryVitePlugin,
-  sentryBuildConfig,
-  sentrySourceMapUploadEnabled
+  sentryBuildConfig
 } from "./sentry.vite";
 
 export default defineConfig({
@@ -27,7 +26,7 @@ export default defineConfig({
   build: {
     outDir: "dist/renderer",
     emptyOutDir: true,
-    sourcemap: sentrySourceMapUploadEnabled ? "hidden" : false,
+    sourcemap: true,
     rollupOptions: {
       input: "index.html"
     }
