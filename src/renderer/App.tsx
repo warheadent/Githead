@@ -211,6 +211,7 @@ import {
 import { getAheadBehindCounts, getPrimaryCommitAction, getPullableCommitCount, getPushableCommitCount, hasStagedChanges, hasUnpushedCommits } from "./commitActions";
 import { buildCommitGraphLayout, type CommitGraphLayout } from "./commitGraph";
 import { groupDiffRowsByHunk, isTechnicalFileHeader, parseUnifiedDiff, type DiffRow } from "./diffParser";
+import { areFileDiffsEqual } from "./diffFreshness";
 import { getCommitFileStatusVisuals, getFileStatusVisuals, type FileStatusVisuals } from "./fileStatusVisuals";
 import { FixedSizeVirtualList, type VirtualRowProps } from "./FixedSizeVirtualList";
 import type { HighlightedCode } from "./syntaxHighlighter";
@@ -399,6 +400,7 @@ interface AppState {
   selection: FileSelection | null;
   diff: GitFileDiff | null;
   diffLoading: boolean;
+  diffChanged: boolean;
   commitMessage: string;
   commitMessageGenerationError: string;
   generateContextDialog: GenerateContextDialogState;
@@ -449,7 +451,7 @@ interface AppState {
 }
 
 type AppStateUpdater = Partial<AppState> | ((state: AppState) => AppState);
-type RepositoryReadKind = "summary" | "identity" | "status" | "metadata" | "history" | "commit-details" | "commit-file-diff" | "file-history" | "file-history-diff" | "file-blame" | "diff" | "file-preview";
+type RepositoryReadKind = "summary" | "identity" | "status" | "metadata" | "history" | "commit-details" | "commit-file-diff" | "file-history" | "file-history-diff" | "file-blame" | "diff" | "diff-freshness" | "file-preview";
 
 function repositoryReadRequestId(kind: RepositoryReadKind, generation: number): string {
   return `${kind}:${generation}`;
@@ -466,6 +468,7 @@ interface RequestIds {
   repo: number;
   repoSyncStatuses: number;
   diff: number;
+  diffFreshness: number;
   history: number;
   commitDetails: number;
   commitFileDiff: number;
@@ -770,6 +773,7 @@ const initialState: AppState = {
   selection: null,
   diff: null,
   diffLoading: false,
+  diffChanged: false,
   commitMessage: "",
   commitMessageGenerationError: "",
   generateContextDialog: emptyGenerateContextDialog,
@@ -867,6 +871,7 @@ export function App(): ReactNode {
     repo: 0,
     repoSyncStatuses: 0,
     diff: 0,
+    diffFreshness: 0,
     history: 0,
     commitDetails: 0,
     commitFileDiff: 0,
@@ -1295,10 +1300,13 @@ export function App(): ReactNode {
 
   const loadSelectedDiff = useCallback(async (selectionOverride?: FileSelection): Promise<void> => {
     const selection = selectionOverride ?? stateRef.current.selection;
+    cancelRepositoryRead("diff-freshness", requestIds.current.diffFreshness);
+    requestIds.current.diffFreshness += 1;
     if (!selection || !stateRef.current.summary?.isValid) {
       updateState({
         diff: null,
-        diffLoading: false
+        diffLoading: false,
+        diffChanged: false
       });
       return;
     }
@@ -1320,7 +1328,8 @@ export function App(): ReactNode {
 
       if (requestId === requestIds.current.diff) {
         updateState({
-          diff
+          diff,
+          diffChanged: false
         });
       }
     } catch (error) {
@@ -1340,6 +1349,52 @@ export function App(): ReactNode {
           diffLoading: false
         });
       }
+    }
+  }, [updateState]);
+
+  const checkSelectedDiffFreshness = useCallback(async (): Promise<void> => {
+    const current = stateRef.current;
+    const selection = current.selection;
+    const loadedDiff = current.diff;
+    if (
+      current.activeView !== "status" ||
+      !current.summary?.isValid ||
+      !selection ||
+      !loadedDiff ||
+      current.diffLoading ||
+      current.diffChanged ||
+      isOperationRunning(current)
+    ) {
+      return;
+    }
+
+    cancelRepositoryRead("diff-freshness", requestIds.current.diffFreshness);
+    const requestId = requestIds.current.diffFreshness + 1;
+    requestIds.current.diffFreshness = requestId;
+    const repoPath = current.repoPath;
+
+    try {
+      const latestDiff = await window.githead.getFileDiff({
+        repoPath,
+        path: selection.path,
+        side: selection.side,
+        requestId: repositoryReadRequestId("diff-freshness", requestId)
+      });
+      const latest = stateRef.current;
+      if (
+        requestId !== requestIds.current.diffFreshness ||
+        !isSameRepoPath(repoPath, latest.repoPath) ||
+        latest.selection?.path !== selection.path ||
+        latest.selection.side !== selection.side ||
+        latest.diff !== loadedDiff
+      ) {
+        return;
+      }
+      if (!areFileDiffsEqual(loadedDiff, latestDiff)) {
+        updateState({ diffChanged: true });
+      }
+    } catch {
+      // A failed background comparison must not replace the loaded diff.
     }
   }, [updateState]);
 
@@ -1532,7 +1587,8 @@ export function App(): ReactNode {
           showSetup: true,
           setupError: error instanceof Error ? error.message : "Unable to read repository state.",
           selection: null,
-          diff: null
+          diff: null,
+          diffChanged: false
         }));
       }
     } finally {
@@ -1603,6 +1659,7 @@ export function App(): ReactNode {
 
       fileStatusGenerationRef.current += 1;
       repositorySnapshots.current.markStale(event.repoPath, event.reason === "filesystem" ? ["status"] : ["identity", "status", "metadata"]);
+      void checkSelectedDiffFreshness();
       if (event.reason === "filesystem") {
         void refreshDirtyFileStatus();
       } else {
@@ -1612,7 +1669,7 @@ export function App(): ReactNode {
     });
 
     return cleanupRepoChanged;
-  }, [loadRepositoryGroups, refreshDirtyFileStatus, refreshRepo]);
+  }, [checkSelectedDiffFreshness, loadRepositoryGroups, refreshDirtyFileStatus, refreshRepo]);
 
   useEffect(() => {
     setWorkflowQuery({ ...DEFAULT_WORKFLOW_QUERY });
@@ -1704,6 +1761,7 @@ export function App(): ReactNode {
     cancelRepositoryRead("status", requestIds.current.repo);
     cancelRepositoryRead("metadata", requestIds.current.repo);
     cancelRepositoryRead("diff", requestIds.current.diff);
+    cancelRepositoryRead("diff-freshness", requestIds.current.diffFreshness);
     cancelRepositoryRead("history", requestIds.current.history);
     cancelRepositoryRead("commit-details", requestIds.current.commitDetails);
     cancelRepositoryRead("commit-file-diff", requestIds.current.commitFileDiff);
@@ -1711,6 +1769,7 @@ export function App(): ReactNode {
     cancelRepositoryRead("file-history-diff", requestIds.current.fileHistoryDiff);
     cancelRepositoryRead("file-blame", requestIds.current.fileBlame);
     requestIds.current.diff += 1;
+    requestIds.current.diffFreshness += 1;
     requestIds.current.history += 1;
     requestIds.current.commitDetails += 1;
     requestIds.current.commitFileDiff += 1;
@@ -1774,7 +1833,8 @@ export function App(): ReactNode {
       activeView: cached?.activeView ?? (isGitHubView(current.activeView) || current.activeView === "stashes" ? "status" : current.activeView),
       selection: cached?.selection ?? null,
       diff: null,
-      diffLoading: false
+      diffLoading: false,
+      diffChanged: false
       }));
       return cached ? { ...reset, history: cached.history, historyScope: cached.historyScope, historyLoaded: cached.history.length > 0, selection: cached.selection } : reset;
     });
@@ -3087,7 +3147,8 @@ export function App(): ReactNode {
           next = {
             ...next,
             selection: nextSelection,
-            diff: null
+            diff: null,
+            diffChanged: false
           };
         }
 
@@ -4375,7 +4436,7 @@ export function App(): ReactNode {
   const applySelectedHunk = useCallback(async (patch: string): Promise<void> => {
     const current = stateRef.current;
     const selection = current.selection;
-    if (!selection) {
+    if (!selection || current.diffChanged) {
       return;
     }
     const repoPath = current.repoPath;
@@ -4411,7 +4472,8 @@ export function App(): ReactNode {
     const nextSelection = resolvePostHunkSelection(stateRef.current.summary, selection);
     updateState({
       selection: nextSelection,
-      diff: null
+      diff: null,
+      diffChanged: false
     });
 
     if (nextSelection) {
@@ -4974,14 +5036,16 @@ export function App(): ReactNode {
       updateState({
         selection: null,
         diff: null,
-        diffLoading: false
+        diffLoading: false,
+        diffChanged: false
       });
       return;
     }
 
     updateState({
       selection,
-      diff: null
+      diff: null,
+      diffChanged: false
     });
     void loadSelectedDiff(selection);
   }, [loadSelectedDiff, updateState]);
@@ -6150,6 +6214,7 @@ export function App(): ReactNode {
                   selection={state.selection}
                   diff={state.diff}
                   diffLoading={state.diffLoading}
+                  diffChanged={state.diffChanged}
                   disabled={disableActions}
                   workspaceMode={statusWorkspaceMode}
                   onWorkspaceModeChange={setStatusWorkspaceMode}
@@ -8653,6 +8718,7 @@ function StatusView({
   selection,
   diff,
   diffLoading,
+  diffChanged,
   disabled,
   workspaceMode,
   onWorkspaceModeChange,
@@ -8681,6 +8747,7 @@ function StatusView({
   selection: FileSelection | null;
   diff: GitFileDiff | null;
   diffLoading: boolean;
+  diffChanged: boolean;
   disabled: boolean;
   workspaceMode: "files" | "plan";
   onWorkspaceModeChange: (mode: "files" | "plan") => void;
@@ -8870,11 +8937,12 @@ function StatusView({
             : undefined}
           hunkAction={canApplyHunks && selection ? {
             side: selection.side,
-            disabled,
+            disabled: disabled || diffChanged,
             onApply: onApplyHunk
           } : undefined}
           onRefresh={selection ? onRefreshDiff : undefined}
           refreshDisabled={disabled}
+          changed={diffChanged}
           wrapLines={wrapLines}
           onWrapLinesChange={onWrapLinesChange}
         />
@@ -9240,6 +9308,7 @@ function DiffPanel({
   previewSource,
   onRefresh,
   refreshDisabled = false,
+  changed = false,
   onDownloadImage,
   imageDownloadLoading = false,
   wrapLines,
@@ -9256,6 +9325,7 @@ function DiffPanel({
   previewSource?: GitFilePreviewSource | undefined;
   onRefresh?: (() => void) | undefined;
   refreshDisabled?: boolean;
+  changed?: boolean;
   onDownloadImage?: () => void;
   imageDownloadLoading?: boolean;
   wrapLines: boolean;
@@ -9338,7 +9408,7 @@ function DiffPanel({
             <MarkdownPreview text={preview.text ?? ""} />
           </OptionalFeatureBoundary>
         );
-  } else if (loading) {
+  } else if (loading && !diff) {
     content = <LoadingState label="Loading diff" className="h-full" />;
   } else if (diff) {
     outputClass = `diff-output ${diff.kind}${diff.kind === "text" && wrapLines ? " is-wrapped" : ""}`;
@@ -9355,6 +9425,7 @@ function DiffPanel({
         <div className="min-w-0">
           <p className="eyebrow">{eyebrow}</p>
           <TooltipTarget content={title}><h2 className="truncate text-sm font-semibold">{title}</h2></TooltipTarget>
+          {changed ? <p className="diff-changed-description" role="status">Loaded diff is out of date</p> : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {diff?.kind === "text" && !showPreview ? (
@@ -9383,17 +9454,23 @@ function DiffPanel({
             </Button>
           ) : null}
           {onRefresh ? (
-            <Button type="button" variant="outline" size="sm" disabled={refreshDisabled} onClick={() => {
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className={changed ? "diff-changed-refresh" : undefined}
+              disabled={refreshDisabled || loading}
+              onClick={() => {
               resetPreview();
               onRefresh();
             }}>
               <RefreshCw />
-              Refresh Diff
+              {changed ? "New diff available" : loading ? "Loading diff" : "Refresh Diff"}
             </Button>
           ) : null}
         </div>
       </div>
-      <div className={outputClass}>
+      <div className={`${outputClass}${changed ? " is-changed" : ""}`}>
         {content}
       </div>
     </section>
@@ -11727,7 +11804,8 @@ function reconcileSelection(state: AppState): AppState {
     return {
       ...state,
       selection: null,
-      diff: null
+      diff: null,
+      diffChanged: false
     };
   }
 
@@ -11744,7 +11822,8 @@ function reconcileSelection(state: AppState): AppState {
   return {
     ...state,
     selection: createFileSelection(state.selection.side, selectedPaths, path, anchorPath),
-    diff: path === state.selection.path ? state.diff : null
+    diff: path === state.selection.path ? state.diff : null,
+    diffChanged: path === state.selection.path ? state.diffChanged : false
   };
 }
 

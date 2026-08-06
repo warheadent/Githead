@@ -1473,6 +1473,58 @@ describe("App", () => {
     })));
   });
 
+  it("shows a persistent Diff header status when the loaded diff changes", async () => {
+    const user = userEvent.setup();
+    const file = createStatusFile("src/live.ts", { isUnstaged: true, worktreeStatus: "M" });
+    const loadedDiff = createTextDiff(file.path, "loaded-version");
+    const latestDiff = createTextDiff(file.path, "latest-version");
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [file] }));
+    vi.mocked(githead.getFileDiff)
+      .mockResolvedValueOnce(loadedDiff)
+      .mockResolvedValue(latestDiff);
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("option", { name: /src\/live\.ts/ }));
+    expect(await screen.findByText("loaded-version")).toBeTruthy();
+    const hunkAction = screen.getByRole("button", { name: "Stage Hunk" });
+    expect(hunkAction.hasAttribute("disabled")).toBe(false);
+
+    emitRepoChanged();
+
+    const loadLatestButton = await screen.findByRole("button", { name: "New diff available" });
+    expect(screen.getByText("Loaded diff is out of date")).toBeTruthy();
+    expect(document.querySelector(".diff-output")?.classList.contains("is-changed")).toBe(true);
+    expect(hunkAction.hasAttribute("disabled")).toBe(true);
+    expect(vi.mocked(githead.getFileDiff).mock.calls.at(-1)?.[0].requestId).toMatch(/^diff-freshness:/);
+
+    await user.click(loadLatestButton);
+
+    expect(await screen.findByText("latest-version")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText("Loaded diff is out of date")).toBeNull());
+    expect(screen.getByRole("button", { name: "Refresh Diff" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Stage Hunk" }).hasAttribute("disabled")).toBe(false);
+  });
+
+  it("does not show the Diff header status for an unrelated repository change", async () => {
+    const user = userEvent.setup();
+    const file = createStatusFile("src/stable.ts", { isUnstaged: true, worktreeStatus: "M" });
+    const diff = createTextDiff(file.path, "stable-version");
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [file] }));
+    vi.mocked(githead.getFileDiff).mockResolvedValue(diff);
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("option", { name: /src\/stable\.ts/ }));
+    expect(await screen.findByText("stable-version")).toBeTruthy();
+    emitRepoChanged();
+    await waitFor(() => expect(githead.getFileDiff).toHaveBeenCalledTimes(2));
+
+    expect(screen.queryByText("Loaded diff is out of date")).toBeNull();
+    expect(screen.getByRole("button", { name: "Refresh Diff" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Stage Hunk" }).hasAttribute("disabled")).toBe(false);
+  });
+
   it("restores diff line wrap when its preference save fails", async () => {
     const user = userEvent.setup();
     const file = createStatusFile("src/failure.ts", { isUnstaged: true, worktreeStatus: "M" });
@@ -2303,7 +2355,7 @@ describe("App", () => {
     });
   });
 
-  it("does not refresh the selected diff when a watcher refresh finds unchanged status", async () => {
+  it("keeps the selected diff current when a watcher comparison finds unchanged content", async () => {
     const user = userEvent.setup();
     const summary = createSummary({
       files: [
@@ -2331,10 +2383,12 @@ describe("App", () => {
     await waitFor(() => {
       expect(githead.getRepoSummary).toHaveBeenCalledTimes(summaryCallsBeforeWatchEvent + 1);
     });
-    expect(githead.getFileDiff).not.toHaveBeenCalled();
+    expect(githead.getFileDiff).toHaveBeenCalledOnce();
+    expect(vi.mocked(githead.getFileDiff).mock.calls[0]?.[0].requestId).toMatch(/^diff-freshness:/);
+    expect(screen.queryByText("Loaded diff is out of date")).toBeNull();
   });
 
-  it("does not refresh the selected diff when a watcher refresh finds selected file status changed", async () => {
+  it("keeps stale content visible when a watcher comparison finds a changed diff", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary)
       .mockResolvedValueOnce(createSummary({
@@ -2374,7 +2428,8 @@ describe("App", () => {
     });
     expect(screen.getByText("initial-value")).toBeTruthy();
     expect(screen.queryByText("changed-value")).toBeNull();
-    expect(githead.getFileDiff).not.toHaveBeenCalled();
+    expect(githead.getFileDiff).toHaveBeenCalledOnce();
+    expect(await screen.findByText("Loaded diff is out of date")).toBeTruthy();
   });
 
   it("refreshes the selected diff when Refresh Diff is clicked after file status changes", async () => {
@@ -2410,10 +2465,10 @@ describe("App", () => {
       await flushRendererAsync();
     });
 
-    await user.click(screen.getByRole("button", { name: "Refresh Diff" }));
+    await user.click(await screen.findByRole("button", { name: "New diff available" }));
 
     expect(await screen.findByText("changed-value")).toBeTruthy();
-    expect(githead.getFileDiff).toHaveBeenCalledTimes(2);
+    expect(githead.getFileDiff).toHaveBeenCalledTimes(3);
   });
 
   it("does not refresh the selected diff when a watcher refresh only changes another file", async () => {
@@ -2460,7 +2515,8 @@ describe("App", () => {
     await waitFor(() => {
       expect(githead.getRepoSummary).toHaveBeenCalledTimes(summaryCallsBeforeWatchEvent + 1);
     });
-    expect(githead.getFileDiff).not.toHaveBeenCalled();
+    expect(githead.getFileDiff).toHaveBeenCalledOnce();
+    expect(screen.queryByText("Loaded diff is out of date")).toBeNull();
   });
 
   it("logs commit output without rendering it as inline commit feedback", async () => {

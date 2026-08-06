@@ -2398,6 +2398,30 @@ textarea,
   scrollbar-gutter: stable;
 }
 
+.diff-output.is-changed {
+  box-shadow: inset 0 2px 0 var(--diff-notice-text);
+}
+
+.diff-changed-description {
+  margin-top: 2px;
+  color: var(--diff-notice-text);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1rem;
+}
+
+.diff-changed-refresh {
+  border-color: color-mix(in srgb, var(--diff-notice-text) 60%, var(--border));
+  background: color-mix(in srgb, var(--diff-notice-bg) 55%, var(--card));
+  color: var(--diff-notice-text);
+}
+
+.diff-changed-refresh:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--diff-notice-text) 78%, var(--border));
+  background: color-mix(in srgb, var(--diff-notice-bg) 76%, var(--card));
+  color: var(--diff-notice-text);
+}
+
 .diff-output.text.is-wrapped {
   overflow-x: hidden;
 }
