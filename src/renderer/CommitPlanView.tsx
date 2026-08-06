@@ -119,7 +119,7 @@ export function CommitPlanView({
 
   const quickCommit = async (group: CommitPlanGroup): Promise<void> => {
     const paths = group.paths.filter((path) => includedPaths.has(path) && fileByPath.has(path));
-    const message = group.message.trim();
+    const message = createCommitMessage(group);
     if (disabled || blockedByStagedFiles || paths.length === 0 || !message || committingGroupId) return;
     setCommittingGroupId(group.id);
     setError("");
@@ -265,6 +265,12 @@ export function CommitPlanView({
 
 function canUseInCommitPlan(file: GitStatusFile): boolean {
   return !file.isConflicted && file.submodule?.canStage !== false;
+}
+
+export function createCommitMessage(group: Pick<CommitPlanGroup, "message" | "rationale">): string {
+  const subject = group.message.trim();
+  const description = group.rationale.trim();
+  return description ? `${subject}\n\n${description}` : subject;
 }
 
 function baseName(path: string): string {

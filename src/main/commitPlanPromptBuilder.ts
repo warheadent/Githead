@@ -25,6 +25,7 @@ export function createCommitPlanSystemPrompt(
     "Do not invent files, intent, issue numbers, behavior, or test results.",
     ...createCommitWritingStyleInstructions(style),
     "Write one imperative commit subject per group with 72 characters or fewer and no trailing period.",
+    "Write a concise rationale that describes the change and is suitable for the commit message body.",
     "Return valid JSON only. Do not use markdown fences or add commentary.",
     "Use this exact shape: {\"groups\":[{\"message\":\"...\",\"rationale\":\"...\",\"paths\":[\"...\"]}],\"unassignedPaths\":[\"...\"]}.",
     "Each supplied path must appear exactly once, either in one group or in unassignedPaths.",

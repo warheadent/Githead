@@ -63,6 +63,7 @@ describe("commitPlanPromptBuilder", () => {
 
     expect(system).toContain("Return valid JSON only");
     expect(system).toContain("Each supplied path must appear exactly once");
+    expect(system).toContain("suitable for the commit message body");
     expect(user).toContain("Recent commit subjects");
     expect(user).toContain("Keep recent style");
   });
