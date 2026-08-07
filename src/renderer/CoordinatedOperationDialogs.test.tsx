@@ -74,7 +74,7 @@ describe("coordinated operation dialog cancellation", () => {
   it("keeps Settings cancellation available while save controls remain disabled", () => {
     const onOpenChange = vi.fn();
     const onSave = vi.fn();
-    render(<SettingsDialog open draft={settingsDraft} aiSettings={null} saving error="" onOpenChange={onOpenChange} onDraftChange={vi.fn()} onSave={onSave} />, { wrapper: TooltipProvider });
+    render(<SettingsDialog open draft={settingsDraft} aiSettings={null} saving error="" onOpenChange={onOpenChange} onDraftChange={vi.fn()} onSave={onSave} onOpenPerformanceDiagnostics={vi.fn()} />, { wrapper: TooltipProvider });
 
     const cancel = screen.getByRole("button", { name: "Cancel operation" }) as HTMLButtonElement;
     const save = screen.getByRole("button", { name: "Saving…" }) as HTMLButtonElement;

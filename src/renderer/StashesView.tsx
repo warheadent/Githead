@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import type { GitStashDetails, GitStashEntry } from "../shared/types";
 import { LoadingState } from "./LoadingState";
+import { usePersistentWorkspacePanelState } from "./workspacePanelState";
 
 export function StashesView({
   entries,
@@ -52,8 +53,8 @@ export function StashesView({
   const [branchName, setBranchName] = useState("");
   const [dialogError, setDialogError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [filesCollapsed, setFilesCollapsed] = useState(false);
+  const [searchQuery, setSearchQuery] = usePersistentWorkspacePanelState("stashes-search-query", "");
+  const [filesCollapsed, setFilesCollapsed] = usePersistentWorkspacePanelState("stashes-files-collapsed", false);
   const selected = entries.find((entry) => entry.ref === selectedRef) ?? null;
   const searchEnabled = entries.length > 3;
   const normalizedQuery = searchEnabled ? searchQuery.trim().toLocaleLowerCase() : "";
@@ -102,7 +103,7 @@ export function StashesView({
                 <Input type="search" aria-label="Search stashes" placeholder="Search stashes" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} />
               </div>
             ) : null}
-            <div className="min-h-0 overflow-y-auto">
+            <div data-workspace-scroll-key="stash-list" className="min-h-0 overflow-y-auto">
               {error ? <div className="stash-empty"><p role="alert">{error}</p><Button type="button" variant="outline" size="sm" onClick={onRefresh}>Try again</Button></div>
                 : loading && entries.length === 0 ? <LoadingState label="Loading stashes" />
                   : entries.length === 0 ? <div className="stash-empty"><Archive /><h3>No stashes</h3><p>Right-click changed files in File Status to create a stash.</p></div>

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SettingsDialog, type SettingsDraft } from "./SettingsDialog";
@@ -30,7 +30,7 @@ const savedDraft: SettingsDraft = {
   gitIdentityScope: "repository"
 };
 
-function dialog(draft: SettingsDraft, error = "") {
+function dialog(draft: SettingsDraft, error = "", onOpenPerformanceDiagnostics = vi.fn()) {
   return (
     <SettingsDialog
       open
@@ -41,6 +41,7 @@ function dialog(draft: SettingsDraft, error = "") {
       onOpenChange={vi.fn()}
       onDraftChange={vi.fn()}
       onSave={vi.fn()}
+      onOpenPerformanceDiagnostics={onOpenPerformanceDiagnostics}
     />
   );
 }
@@ -71,5 +72,17 @@ describe("SettingsDialog footer status", () => {
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getByRole("status").textContent).toContain("You have unsaved changes.");
     expect(document.querySelector(".motion-swap-outgoing")?.textContent).toContain("Unable to save settings.");
+  });
+
+  it("opens performance diagnostics from the Diagnostics category", () => {
+    const onOpenPerformanceDiagnostics = vi.fn();
+    render(dialog(savedDraft, "", onOpenPerformanceDiagnostics), { wrapper: TooltipProvider });
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Settings category" }), {
+      target: { value: "diagnostics" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Open performance diagnostics" }));
+
+    expect(onOpenPerformanceDiagnostics).toHaveBeenCalledOnce();
   });
 });

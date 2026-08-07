@@ -2,6 +2,7 @@ import {
   Bot,
   CheckCircle2,
   CircleAlert,
+  Gauge,
   GitCommitHorizontal,
   Loader2,
   Monitor,
@@ -70,14 +71,27 @@ export interface SettingsDraft {
   gitIdentityScope: GitIdentityScope;
 }
 
-type SettingsCategory = "appearance" | "git-identity" | "sync" | "ai";
+type SettingsCategory = "appearance" | "git-identity" | "sync" | "ai" | "diagnostics";
 
 const categories = [
   { id: "appearance", label: "Appearance", description: "Theme and interface scale", icon: Palette },
   { id: "git-identity", label: "Git Identity", description: "Commit author details", icon: GitCommitHorizontal },
   { id: "sync", label: "Sync", description: "Automatic fetch behavior", icon: RefreshCw },
-  { id: "ai", label: "AI", description: "Generation providers and prompts", icon: Bot }
+  { id: "ai", label: "AI", description: "Generation providers and prompts", icon: Bot },
+  { id: "diagnostics", label: "Diagnostics", description: "On-demand performance metrics", icon: Gauge }
 ] as const;
+
+export interface SettingsDialogProps {
+  open: boolean;
+  draft: SettingsDraft;
+  aiSettings: AiSettings | null;
+  saving: boolean;
+  error: string;
+  onOpenChange: (open: boolean) => void;
+  onDraftChange: (draft: SettingsDraft) => void;
+  onSave: (event: FormEvent<HTMLFormElement>) => void;
+  onOpenPerformanceDiagnostics: () => void;
+}
 
 export function SettingsDialog({
   open,
@@ -87,17 +101,9 @@ export function SettingsDialog({
   error,
   onOpenChange,
   onDraftChange,
-  onSave
-}: {
-  open: boolean;
-  draft: SettingsDraft;
-  aiSettings: AiSettings | null;
-  saving: boolean;
-  error: string;
-  onOpenChange: (open: boolean) => void;
-  onDraftChange: (draft: SettingsDraft) => void;
-  onSave: (event: FormEvent<HTMLFormElement>) => void;
-}): ReactNode {
+  onSave,
+  onOpenPerformanceDiagnostics
+}: SettingsDialogProps): ReactNode {
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>("git-identity");
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const baselineRef = useRef("");
@@ -192,7 +198,7 @@ export function SettingsDialog({
                         <span className="flex items-center gap-2 font-medium">
                           {label}
                           {dirtyCategories[id] ? <span className="size-1.5 rounded-full bg-primary" aria-label="Unsaved changes" /> : null}
-                          {error && activeCategory === id ? <CircleAlert className="size-3.5 text-destructive" aria-label="Error" /> : null}
+                          {error && id === "git-identity" ? <CircleAlert className="size-3.5 text-destructive" aria-label="Error" /> : null}
                         </span>
                         <span className="block truncate text-xs font-normal text-muted-foreground">{description}</span>
                       </span>
@@ -252,6 +258,16 @@ export function SettingsDialog({
 
                     <AiGenerationSettingsFields draft={draft} disabled={saving} enabled={open} idPrefix="ai" onDraftChange={onDraftChange} />
                   </div>
+                </SettingsPanel>
+                <SettingsPanel value="diagnostics" title="Diagnostics" description="Inspect bounded performance metrics on demand.">
+                  <SettingsCard title="Performance diagnostics" description="Githead collects numeric process, command, and refresh summaries only while the diagnostics dialog is open.">
+                    <div>
+                      <Button type="button" variant="outline" disabled={saving} onClick={onOpenPerformanceDiagnostics}>
+                        <Gauge aria-hidden="true" />
+                        Open performance diagnostics
+                      </Button>
+                    </div>
+                  </SettingsCard>
                 </SettingsPanel>
               </div>
             </Tabs>
@@ -318,12 +334,13 @@ function serializeSettingsDraft(draft: SettingsDraft): string { return JSON.stri
 function formatZoomFactor(zoomFactor: number): string { return `${Math.round(zoomFactor * 100)}%`; }
 
 function getDirtyCategories(baseline: string, draft: SettingsDraft): Record<SettingsCategory, boolean> {
-  if (!baseline) return { appearance: false, "git-identity": false, sync: false, ai: false };
+  if (!baseline) return { appearance: false, "git-identity": false, sync: false, ai: false, diagnostics: false };
   const saved = JSON.parse(baseline) as SettingsDraft;
   return {
     appearance: saved.colorTheme !== draft.colorTheme || saved.appearanceMode !== draft.appearanceMode || saved.uiFont !== draft.uiFont || saved.codeFont !== draft.codeFont || saved.zoomFactor !== draft.zoomFactor,
     "git-identity": saved.gitIdentityName !== draft.gitIdentityName || saved.gitIdentityEmail !== draft.gitIdentityEmail || saved.gitIdentityScope !== draft.gitIdentityScope,
     sync: saved.autoFetchIntervalMinutes !== draft.autoFetchIntervalMinutes,
-    ai: JSON.stringify({ selectedProvider: saved.selectedProvider, providerModels: saved.providerModels, commitPlanModels: saved.commitPlanModels, commitPlanReasoningEfforts: saved.commitPlanReasoningEfforts, prDescriptionModels: saved.prDescriptionModels, reasoningEfforts: saved.reasoningEfforts, prDescriptionReasoningEfforts: saved.prDescriptionReasoningEfforts, apiKeys: saved.apiKeys, clearApiKeys: saved.clearApiKeys, commitMessagePrompt: saved.commitMessagePrompt, prDescriptionPrompt: saved.prDescriptionPrompt, sourceControlWritingStyle: saved.sourceControlWritingStyle }) !== JSON.stringify({ selectedProvider: draft.selectedProvider, providerModels: draft.providerModels, commitPlanModels: draft.commitPlanModels, commitPlanReasoningEfforts: draft.commitPlanReasoningEfforts, prDescriptionModels: draft.prDescriptionModels, reasoningEfforts: draft.reasoningEfforts, prDescriptionReasoningEfforts: draft.prDescriptionReasoningEfforts, apiKeys: draft.apiKeys, clearApiKeys: draft.clearApiKeys, commitMessagePrompt: draft.commitMessagePrompt, prDescriptionPrompt: draft.prDescriptionPrompt, sourceControlWritingStyle: draft.sourceControlWritingStyle })
+    ai: JSON.stringify({ selectedProvider: saved.selectedProvider, providerModels: saved.providerModels, commitPlanModels: saved.commitPlanModels, commitPlanReasoningEfforts: saved.commitPlanReasoningEfforts, prDescriptionModels: saved.prDescriptionModels, reasoningEfforts: saved.reasoningEfforts, prDescriptionReasoningEfforts: saved.prDescriptionReasoningEfforts, apiKeys: saved.apiKeys, clearApiKeys: saved.clearApiKeys, commitMessagePrompt: saved.commitMessagePrompt, prDescriptionPrompt: saved.prDescriptionPrompt, sourceControlWritingStyle: saved.sourceControlWritingStyle }) !== JSON.stringify({ selectedProvider: draft.selectedProvider, providerModels: draft.providerModels, commitPlanModels: draft.commitPlanModels, commitPlanReasoningEfforts: draft.commitPlanReasoningEfforts, prDescriptionModels: draft.prDescriptionModels, reasoningEfforts: draft.reasoningEfforts, prDescriptionReasoningEfforts: draft.prDescriptionReasoningEfforts, apiKeys: draft.apiKeys, clearApiKeys: draft.clearApiKeys, commitMessagePrompt: draft.commitMessagePrompt, prDescriptionPrompt: draft.prDescriptionPrompt, sourceControlWritingStyle: draft.sourceControlWritingStyle }),
+    diagnostics: false
   };
 }
