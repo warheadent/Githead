@@ -37,7 +37,7 @@ export class RepositorySnapshotCache {
       ? { ...snapshot.selection, paths: snapshot.selection.paths.filter((path) => files.some((file) => file.path === path)) }
       : null;
     const entry: StoredSnapshot = {
-      summary: { ...snapshot.summary, files, statusLines: retainStatus ? snapshot.summary.statusLines.slice() : [], ...(retainStatus && snapshot.summary.submodules ? { submodules: snapshot.summary.submodules.slice() } : { submodules: [] }) },
+      summary: { ...snapshot.summary, files, ...(retainStatus && snapshot.summary.submodules ? { submodules: snapshot.summary.submodules.slice() } : { submodules: [] }) },
       history,
       historyScope: snapshot.historyScope,
       selection,
