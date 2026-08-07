@@ -844,7 +844,7 @@ describe("App", { timeout: 10_000 }, () => {
     });
 
     await waitFor(() => {
-      expect(commitButton.querySelector(".operation-button-feedback")?.getAttribute("data-success")).toBe("true");
+      expect(commitButton.querySelector(".operation-button-feedback")?.getAttribute("data-feedback")).toBe("success");
     });
 
     expect(screen.getByLabelText("Commit staged files").querySelector(".status-text")).toBeNull();

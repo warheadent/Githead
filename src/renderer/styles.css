@@ -4354,14 +4354,62 @@ textarea,
   content: attr(data-success-label);
 }
 
-.operation-button-feedback[data-success="true"] .operation-button-feedback-idle {
+.operation-button-feedback-error {
+  color: var(--destructive);
+  opacity: 0;
+  transform: translateY(30%);
+}
+
+.operation-button-feedback-error::after {
+  content: attr(data-error-label);
+}
+
+.operation-button-feedback[data-feedback="success"] .operation-button-feedback-idle,
+.operation-button-feedback[data-feedback="error"] .operation-button-feedback-idle {
   opacity: 0;
   transform: translateY(-30%);
 }
 
-.operation-button-feedback[data-success="true"] .operation-button-feedback-success {
+.operation-button-feedback[data-feedback="success"] .operation-button-feedback-success,
+.operation-button-feedback[data-feedback="error"] .operation-button-feedback-error {
   opacity: 1;
   transform: translateY(0);
+}
+
+.activity-log-tab {
+  position: relative;
+  transition:
+    background-color 180ms var(--ease-out),
+    color 180ms var(--ease-out);
+}
+
+.activity-log-tab[data-error="true"] {
+  background: color-mix(in srgb, var(--destructive) 10%, transparent);
+  color: var(--destructive);
+}
+
+.activity-log-tab > svg {
+  transition: opacity 180ms var(--ease-out);
+}
+
+.activity-log-tab[data-error="true"] > svg {
+  opacity: 0;
+}
+
+.activity-log-error-hint {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  font-size: 0.75rem;
+  font-weight: 500;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  transition: opacity 180ms var(--ease-out);
+}
+
+.activity-log-tab[data-error="true"] .activity-log-error-hint {
+  opacity: 1;
 }
 
 @keyframes motion-swap-exit {
@@ -4436,6 +4484,15 @@ textarea,
   .operation-button-feedback-state {
     transform: none !important;
     transition-duration: 120ms !important;
+  }
+
+  .activity-log-error-hint {
+    transform: translate(-50%, -50%) !important;
+    transition-duration: 120ms !important;
+  }
+
+  .activity-log-tab > svg {
+    transition: opacity 120ms var(--ease-out) !important;
   }
 }
 

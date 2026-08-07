@@ -423,8 +423,32 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(button);
 
     await waitFor(() => {
-      expect(button.querySelector(".operation-button-feedback")?.getAttribute("data-success")).toBe("true");
+      expect(button.querySelector(".operation-button-feedback")?.getAttribute("data-feedback")).toBe("success");
     });
+  });
+
+  it("animates failed action feedback and points to the activity log until it is opened", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.runGitAction).mockResolvedValue(createRunResult("fetch", {
+      exitCode: 1,
+      stderr: "Unable to reach origin."
+    }));
+
+    render(<App />);
+
+    const button = await screen.findByRole("button", { name: /^Fetch$/ });
+    await user.click(button);
+
+    await waitFor(() => {
+      expect(button.querySelector(".operation-button-feedback")?.getAttribute("data-feedback")).toBe("error");
+    });
+
+    const activityLogTab = screen.getByRole("tab", { name: "Activity Log" });
+    expect(activityLogTab.getAttribute("data-error")).toBe("true");
+    expect(within(activityLogTab).getByText("View log")).toBeTruthy();
+
+    await user.click(activityLogTab);
+    expect(activityLogTab.getAttribute("data-error")).toBe("false");
   });
 
   it("opens guided recovery after a forced-update pull failure", async () => {
@@ -598,7 +622,7 @@ describe("App", { timeout: 10_000 }, () => {
       });
     });
     await waitFor(() => {
-      expect(pushButton.querySelector(".operation-button-feedback")?.getAttribute("data-success")).toBe("true");
+      expect(pushButton.querySelector(".operation-button-feedback")?.getAttribute("data-feedback")).toBe("success");
     });
     expect(screen.getByRole("tab", { name: "Commit History" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByRole("tab", { name: "Activity Log" }).getAttribute("aria-selected")).toBe("false");

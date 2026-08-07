@@ -58,10 +58,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button, TooltipButton } from "@/components/ui/button";
 import { LoadingState } from "./LoadingState";
 import {
-  createOperationButtonSuccessEvent,
+  createOperationButtonFeedbackEvent,
   OperationButtonFeedback,
   type OperationButtonFeedbackSurface,
-  type OperationButtonSuccessEvent
+  type OperationButtonFeedbackEvent
 } from "./OperationButtonFeedback";
 import {
   ContextMenu,
@@ -413,7 +413,7 @@ interface AppState {
   activeOperation: ActiveRendererOperation | null;
   lastResult: GitRunResult | null;
   lastOperationResult: GitOperationResult | null;
-  operationButtonSuccess: OperationButtonSuccessEvent | null;
+  operationButtonFeedback: OperationButtonFeedbackEvent | null;
   pullRecovery: GitPullRecovery | null;
   pullRecoveryOpen: boolean;
   pullRecoveryError: string;
@@ -804,7 +804,7 @@ const initialState: AppState = {
   activeOperation: null,
   lastResult: null,
   lastOperationResult: null,
-  operationButtonSuccess: null,
+  operationButtonFeedback: null,
   pullRecovery: null,
   pullRecoveryOpen: false,
   pullRecoveryError: "",
@@ -1905,7 +1905,7 @@ export function App(): ReactNode {
       pushToBranchDialog: emptyPushToBranchDialog,
       lastResult: null,
       lastOperationResult: null,
-      operationButtonSuccess: null,
+      operationButtonFeedback: null,
       pullRecovery: null,
       pullRecoveryOpen: false,
       pullRecoveryError: "",
@@ -2709,7 +2709,7 @@ export function App(): ReactNode {
       activeOperation: operation,
       runningAction: action,
       lastResult: null,
-      operationButtonSuccess: null
+      operationButtonFeedback: null
     }));
 
     try {
@@ -2724,9 +2724,13 @@ export function App(): ReactNode {
       }
       updateState({
         lastResult,
-        operationButtonSuccess: lastResult.exitCode === 0
-          ? createOperationButtonSuccessEvent(action, operation.operationId, repoPath, feedbackSurface)
-          : null,
+        operationButtonFeedback: createOperationButtonFeedbackEvent(
+          action,
+          operation.operationId,
+          repoPath,
+          feedbackSurface,
+          lastResult.exitCode === 0 ? "success" : "error"
+        ),
         ...(lastResult.pullRecovery ? {
           pullRecovery: lastResult.pullRecovery,
           pullRecoveryOpen: true,
@@ -2755,7 +2759,14 @@ export function App(): ReactNode {
         lastResult: {
           ...rendererResult,
           repoPath: latest.repoPath
-        }
+        },
+        operationButtonFeedback: createOperationButtonFeedbackEvent(
+          action,
+          operation.operationId,
+          repoPath,
+          feedbackSurface,
+          "error"
+        )
       }));
       appendSystemLine(message);
     } finally {
@@ -3224,7 +3235,7 @@ export function App(): ReactNode {
       activeOperation,
       runningOperation: label,
       lastOperationResult: null,
-      ...(options.successFeedback ? { operationButtonSuccess: null } : {})
+      ...(options.successFeedback ? { operationButtonFeedback: null } : {})
     });
 
     try {
@@ -3239,14 +3250,13 @@ export function App(): ReactNode {
       updateState({
         lastOperationResult,
         ...(options.successFeedback ? {
-          operationButtonSuccess: lastOperationResult.exitCode === 0
-            ? createOperationButtonSuccessEvent(
-                options.successFeedback.action,
-                activeOperation.operationId,
-                repoPath,
-                options.successFeedback.surface
-              )
-            : null
+          operationButtonFeedback: createOperationButtonFeedbackEvent(
+            options.successFeedback.action,
+            activeOperation.operationId,
+            repoPath,
+            options.successFeedback.surface,
+            lastOperationResult.exitCode === 0 ? "success" : "error"
+          )
         } : {})
       });
       appendOperationLog(label, lastOperationResult);
@@ -3265,7 +3275,16 @@ export function App(): ReactNode {
       };
       operationResult = lastOperationResult;
       updateState({
-        lastOperationResult
+        lastOperationResult,
+        ...(options.successFeedback ? {
+          operationButtonFeedback: createOperationButtonFeedbackEvent(
+            options.successFeedback.action,
+            activeOperation.operationId,
+            repoPath,
+            options.successFeedback.surface,
+            "error"
+          )
+        } : {})
       });
       appendOperationLog(label, lastOperationResult);
     } finally {
@@ -5118,7 +5137,8 @@ export function App(): ReactNode {
     }
 
     updateState({
-      activeView: view
+      activeView: view,
+      ...(view === "activity" ? { operationButtonFeedback: null } : {})
     });
     if (view !== "status") setStashComposer(emptyStashComposer);
 
@@ -6254,7 +6274,7 @@ export function App(): ReactNode {
               heading={actionHeading}
               summary={state.summary}
               runningAction={state.runningAction}
-              successEvent={state.operationButtonSuccess?.repoPath === state.repoPath ? state.operationButtonSuccess : null}
+              feedbackEvent={state.operationButtonFeedback?.repoPath === state.repoPath ? state.operationButtonFeedback : null}
               configuredActionRuns={state.configuredActionRuns}
               disabled={disableActions}
               cancellable={Boolean(cancellationTarget)}
@@ -6346,9 +6366,11 @@ export function App(): ReactNode {
                       <TabsTrigger
                         value="activity"
                         aria-label="Activity Log"
-                        className="workspace-tab-trigger workspace-tab-trigger-end h-9 rounded-none"
+                        className="workspace-tab-trigger workspace-tab-trigger-end activity-log-tab h-9 rounded-none"
+                        data-error={state.operationButtonFeedback?.outcome === "error" && state.operationButtonFeedback.repoPath === state.repoPath ? "true" : "false"}
                       >
                         <Clipboard />
+                        <span className="activity-log-error-hint" aria-hidden="true">View log</span>
                       </TabsTrigger>
                     </TooltipTrigger>
                     <TooltipContent>Activity Log</TooltipContent>
@@ -6637,7 +6659,7 @@ export function App(): ReactNode {
                 disabled={disableActions}
                 primaryCommitAction={primaryCommitAction}
                 pushableCommitCount={getPushableCommitCount(state.summary)}
-                successEvent={state.operationButtonSuccess?.repoPath === state.repoPath ? state.operationButtonSuccess : null}
+                feedbackEvent={state.operationButtonFeedback?.repoPath === state.repoPath ? state.operationButtonFeedback : null}
                 canCommit={canCommit(state)}
                 canGenerateCommitMessage={canGenerateCommitMessage(state)}
                 generateTitle={getGenerateMessageTitle(state)}
@@ -8649,7 +8671,7 @@ function ActionBar({
   heading,
   summary,
   runningAction,
-  successEvent,
+  feedbackEvent,
   configuredActionRuns,
   disabled,
   cancellable,
@@ -8669,7 +8691,7 @@ function ActionBar({
   heading: string;
   summary: RepoSummary | null;
   runningAction: string | null;
-  successEvent: OperationButtonSuccessEvent | null;
+  feedbackEvent: OperationButtonFeedbackEvent | null;
   configuredActionRuns: ConfiguredActionRun[];
   disabled: boolean;
   cancellable: boolean;
@@ -8784,7 +8806,7 @@ function ActionBar({
           >
             <OperationButtonFeedback
               action="fetch"
-              event={successEvent}
+              event={feedbackEvent}
               successLabel="Fetched"
               surface="action-bar"
             >
@@ -8803,7 +8825,7 @@ function ActionBar({
         >
           <OperationButtonFeedback
             action="pull"
-            event={successEvent}
+            event={feedbackEvent}
             successLabel={usesSync ? "Synced" : "Pulled"}
             surface="action-bar"
           >
@@ -8827,7 +8849,7 @@ function ActionBar({
           >
             <OperationButtonFeedback
               action="push"
-              event={successEvent}
+              event={feedbackEvent}
               successLabel="Pushed"
               surface="action-bar"
             >
@@ -10994,7 +11016,7 @@ function CommitPanel({
   disabled,
   primaryCommitAction,
   pushableCommitCount,
-  successEvent,
+  feedbackEvent,
   canCommit: commitAllowed,
   canGenerateCommitMessage: generateAllowed,
   generateTitle,
@@ -11009,7 +11031,7 @@ function CommitPanel({
   disabled: boolean;
   primaryCommitAction: "commit" | "push" | null;
   pushableCommitCount: number;
-  successEvent: OperationButtonSuccessEvent | null;
+  feedbackEvent: OperationButtonFeedbackEvent | null;
   canCommit: boolean;
   canGenerateCommitMessage: boolean;
   generateTitle: string;
@@ -11027,9 +11049,9 @@ function CommitPanel({
     ? formatActionCountLabel("Push", pushableCommitCount)
     : undefined;
   const generateDisabled = disabled || !generateAllowed;
-  const feedbackAction: "commit" | "push" = successEvent?.surface === "commit-panel"
-    && (successEvent.action === "commit" || successEvent.action === "push")
-    ? successEvent.action
+  const feedbackAction: "commit" | "push" = feedbackEvent?.surface === "commit-panel"
+    && (feedbackEvent.action === "commit" || feedbackEvent.action === "push")
+    ? feedbackEvent.action
     : primaryCommitAction === "push" ? "push" : "commit";
 
   return (
@@ -11091,7 +11113,7 @@ function CommitPanel({
           >
             <OperationButtonFeedback
               action={feedbackAction}
-              event={successEvent}
+              event={feedbackEvent}
               successLabel={feedbackAction === "push" ? "Pushed" : "Committed"}
               surface="commit-panel"
             >
