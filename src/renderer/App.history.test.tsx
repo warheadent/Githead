@@ -1546,6 +1546,84 @@ describe("App", { timeout: 10_000 }, () => {
     });
   });
 
+  it("stages one added line with a partial hunk patch", async () => {
+    const user = userEvent.setup();
+    const file = createStatusFile("src/App.tsx", { isUnstaged: true, worktreeStatus: "M" });
+    const diff = createTextDiff(file.path, "unused");
+    diff.text = [
+      `diff --git a/${file.path} b/${file.path}`,
+      `--- a/${file.path}`,
+      `+++ b/${file.path}`,
+      "@@ -1,2 +1,3 @@",
+      " shared",
+      "-old",
+      "+new",
+      "+extra"
+    ].join("\n");
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [file] }));
+    vi.mocked(githead.getFileDiff).mockResolvedValue(diff);
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
+    await user.click(await screen.findByRole("button", { name: "Stage added line 2" }));
+
+    await waitFor(() => expect(githead.stageHunk).toHaveBeenCalledWith({
+      repoPath,
+      path: file.path,
+      side: "unstaged",
+      patch: [
+        `diff --git a/${file.path} b/${file.path}`,
+        `--- a/${file.path}`,
+        `+++ b/${file.path}`,
+        "@@ -1,2 +1,3 @@",
+        " shared",
+        " old",
+        "+new",
+        ""
+      ].join("\n"),
+      operationId: expect.any(String)
+    }));
+  });
+
+  it("unstages one deleted line with a partial hunk patch", async () => {
+    const user = userEvent.setup();
+    const file = createStatusFile("src/App.tsx", { isStaged: true, indexStatus: "M" });
+    const diff = createTextDiff(file.path, "unused", "staged");
+    diff.text = [
+      `diff --git a/${file.path} b/${file.path}`,
+      `--- a/${file.path}`,
+      `+++ b/${file.path}`,
+      "@@ -1,2 +1,2 @@",
+      " shared",
+      "-old",
+      "+new"
+    ].join("\n");
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [file] }));
+    vi.mocked(githead.getFileDiff).mockResolvedValue(diff);
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
+    await user.click(await screen.findByRole("button", { name: "Unstage deleted line 2" }));
+
+    await waitFor(() => expect(githead.unstageHunk).toHaveBeenCalledWith({
+      repoPath,
+      path: file.path,
+      side: "staged",
+      patch: [
+        `diff --git a/${file.path} b/${file.path}`,
+        `--- a/${file.path}`,
+        `+++ b/${file.path}`,
+        "@@ -1,2 +1 @@",
+        " shared",
+        "-old",
+        ""
+      ].join("\n"),
+      operationId: expect.any(String)
+    }));
+  });
+
   it("moves selection to the destination side after staging the final hunk", async () => {
     const user = userEvent.setup();
     const unstagedFile = createStatusFile("src/App.tsx", { isUnstaged: true, worktreeStatus: "M" });

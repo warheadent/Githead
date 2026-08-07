@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { groupDiffRowsByHunk, isTechnicalFileHeader, parseUnifiedDiff } from "./diffParser";
+import { createLinePatch, groupDiffRowsByHunk, isTechnicalFileHeader, parseUnifiedDiff } from "./diffParser";
 
 describe("parseUnifiedDiff", () => {
   it("classifies file headers and metadata", () => {
@@ -254,6 +254,70 @@ describe("groupDiffRowsByHunk", () => {
       "\\ No newline at end of file",
       ""
     ].join("\n"));
+  });
+});
+
+describe("createLinePatch", () => {
+  const groups = groupDiffRowsByHunk(parseUnifiedDiff([
+    "diff --git a/src/app.ts b/src/app.ts",
+    "index 1234567..89abcde 100644",
+    "--- a/src/app.ts",
+    "+++ b/src/app.ts",
+    "@@ -10,2 +10,3 @@ render()",
+    " shared",
+    "-old",
+    "+new",
+    "+extra"
+  ].join("\n")));
+  const hunk = groups[1]!;
+
+  it("keeps one addition and turns an unselected deletion into context", () => {
+    expect(createLinePatch(hunk, 3)).toBe([
+      "diff --git a/src/app.ts b/src/app.ts",
+      "index 1234567..89abcde 100644",
+      "--- a/src/app.ts",
+      "+++ b/src/app.ts",
+      "@@ -10,2 +10,3 @@ render()",
+      " shared",
+      " old",
+      "+new",
+      ""
+    ].join("\n"));
+  });
+
+  it("keeps one deletion and omits unselected additions", () => {
+    expect(createLinePatch(hunk, 2)).toBe([
+      "diff --git a/src/app.ts b/src/app.ts",
+      "index 1234567..89abcde 100644",
+      "--- a/src/app.ts",
+      "+++ b/src/app.ts",
+      "@@ -10,2 +10 @@ render()",
+      " shared",
+      "-old",
+      ""
+    ].join("\n"));
+  });
+
+  it("keeps no-newline markers only when their preceding line is included", () => {
+    const noNewlineHunk = groupDiffRowsByHunk(parseUnifiedDiff([
+      "diff --git a/file.txt b/file.txt",
+      "--- a/file.txt",
+      "+++ b/file.txt",
+      "@@ -1 +1,2 @@",
+      " same",
+      "+first",
+      "\\ No newline at end of file",
+      "+second"
+    ].join("\n")))[1]!;
+
+    expect(createLinePatch(noNewlineHunk, 4)).not.toContain("No newline at end of file");
+    expect(createLinePatch(noNewlineHunk, 2)).toContain("\\ No newline at end of file");
+  });
+
+  it("rejects metadata and context rows", () => {
+    expect(createLinePatch(hunk, 0)).toBeNull();
+    expect(createLinePatch(hunk, 1)).toBeNull();
+    expect(createLinePatch(groups[0]!, 0)).toBeNull();
   });
 });
 

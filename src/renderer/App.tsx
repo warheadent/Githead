@@ -223,7 +223,7 @@ import {
 } from "./workspacePanelState";
 import { getAheadBehindCounts, getPrimaryCommitAction, getPullableCommitCount, getPushableCommitCount, hasStagedChanges, hasUnpushedCommits } from "./commitActions";
 import { buildCommitGraphLayout, COMMIT_GRAPH_ROW_HEIGHT, type CommitGraphLayout } from "./commitGraph";
-import { isTechnicalFileHeader, type DiffRow } from "./diffParser";
+import { createLinePatch, isTechnicalFileHeader, type DiffRow, type DiffRowGroup } from "./diffParser";
 import { createDiffProcessingSession, type ProcessedDiff } from "./diffProcessingClient";
 import { areFileDiffsEqual } from "./diffFreshness";
 import { getCommitFileStatusVisuals, getFileStatusVisuals, type FileStatusVisuals } from "./fileStatusVisuals";
@@ -9776,11 +9776,13 @@ function DiffRows({
         const groupKey = `${groupIndex}:${group.kind}:${group.rows[0]?.text ?? ""}`;
         const rowViews = group.rows.flatMap((row, rowIndex) => {
           const visible = group.kind === "hunk" ? row.kind !== "hunk" : !isTechnicalFileHeader(row);
+          const lineAction = visible ? createDiffLineAction(group, row, rowIndex, hunkAction) : undefined;
           return visible ? [
             <DiffRowView
               key={`${rowIndex}:${row.kind}:${row.oldLine ?? ""}:${row.newLine ?? ""}`}
               row={row}
               highlighted={processed?.highlightedRows[groupIndex]?.[rowIndex] ?? { kind: "plain", value: row.text }}
+              lineAction={lineAction}
             />
           ] : [];
         });
@@ -9828,6 +9830,37 @@ function DiffRows({
   );
 }
 
+interface DiffLineAction {
+  label: string;
+  disabled: boolean;
+  onApply: () => void;
+}
+
+function createDiffLineAction(
+  group: DiffRowGroup,
+  row: DiffRow,
+  rowIndex: number,
+  hunkAction: DiffHunkAction | undefined
+): DiffLineAction | undefined {
+  if (!hunkAction || (row.kind !== "add" && row.kind !== "delete")) return undefined;
+
+  const lineNumber = row.newLine ?? row.oldLine;
+  const verb = hunkAction.side === "unstaged" ? "Stage" : "Unstage";
+  const changeKind = row.kind === "add" ? "added" : "deleted";
+  const label = Number.isInteger(lineNumber)
+    ? `${verb} ${changeKind} line ${lineNumber}`
+    : `${verb} ${changeKind} line`;
+
+  return {
+    label,
+    disabled: hunkAction.disabled,
+    onApply: () => {
+      const patch = createLinePatch(group, rowIndex, hunkAction.side);
+      if (patch) hunkAction.onApply(patch);
+    }
+  };
+}
+
 function formatHunkTitle(rows: DiffRow[], hunkNumber: number): string {
   const lineNumbers = rows
     .flatMap((row) => row.newLine ?? row.oldLine ?? [])
@@ -9844,12 +9877,31 @@ function formatHunkTitle(rows: DiffRow[], hunkNumber: number): string {
     : `Hunk ${hunkNumber}: Lines ${minLine}-${maxLine}`;
 }
 
-function DiffRowView({ row, highlighted }: { row: DiffRow; highlighted: HighlightedCode }): ReactNode {
+function DiffRowView({
+  row,
+  highlighted,
+  lineAction
+}: {
+  row: DiffRow;
+  highlighted: HighlightedCode;
+  lineAction?: DiffLineAction | undefined;
+}): ReactNode {
   return (
     <div className={`diff-row ${row.kind}`}>
       <span className="diff-line-number old-line">{row.oldLine === null ? "" : row.oldLine}</span>
       <span className="diff-line-number new-line">{row.newLine === null ? "" : row.newLine}</span>
-      <span className="diff-marker">{row.marker}</span>
+      {lineAction ? (
+        <button
+          type="button"
+          className="diff-marker diff-line-action"
+          aria-label={lineAction.label}
+          title={lineAction.label}
+          disabled={lineAction.disabled}
+          onClick={lineAction.onApply}
+        >
+          {row.marker}
+        </button>
+      ) : <span className="diff-marker">{row.marker}</span>}
       <DiffCode highlighted={highlighted} />
     </div>
   );

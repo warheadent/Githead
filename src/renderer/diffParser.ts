@@ -29,6 +29,10 @@ interface HunkState {
   newLine: number;
 }
 
+interface HunkHeader extends HunkState {
+  suffix: string;
+}
+
 export function parseUnifiedDiff(text: string, notices: string[] = []): DiffRow[] {
   const rows: DiffRow[] = [];
   let hunkState: HunkState | null = null;
@@ -140,6 +144,106 @@ export function groupDiffRowsByHunk(rows: DiffRow[]): DiffRowGroup[] {
   return groups;
 }
 
+/**
+ * Builds a valid patch containing one changed line from a parsed hunk. It
+ * recalculates the hunk ranges and preserves enough context for Git to move
+ * only the requested line between the working tree and the index.
+ */
+export function createLinePatch(
+  group: DiffRowGroup,
+  selectedRowIndex: number,
+  side: "staged" | "unstaged" = "unstaged"
+): string | null {
+  const hunkRow = group.kind === "hunk" ? group.rows[0] : undefined;
+  const selectedRow = group.rows[selectedRowIndex];
+  const header = hunkRow?.patchLine ? parseHunkHeaderDetails(hunkRow.patchLine) : null;
+
+  if (
+    !group.patch
+    || !hunkRow?.patchLine
+    || !header
+    || !selectedRow
+    || (selectedRow.kind !== "add" && selectedRow.kind !== "delete")
+  ) {
+    return null;
+  }
+
+  const patchLines = splitDiffLines(group.patch);
+  const hunkHeaderIndex = patchLines.indexOf(hunkRow.patchLine);
+  if (hunkHeaderIndex < 0) return null;
+
+  const filePatchLines = patchLines.slice(0, hunkHeaderIndex);
+  const changedRowCount = group.rows.filter((row) => row.kind === "add" || row.kind === "delete").length;
+  const isPartialFileChange = changedRowCount > 1;
+  const isNewFile = filePatchLines.some((line) => line === "--- /dev/null" || line.startsWith("new file mode "));
+  const isDeletedFile = filePatchLines.some((line) => line === "+++ /dev/null" || line.startsWith("deleted file mode "));
+  const normalizeNewFile = isPartialFileChange && isNewFile && side === "staged";
+  const normalizeDeletedFile = isPartialFileChange && isDeletedFile && side === "unstaged";
+  const preserveOneDeletedLine = isPartialFileChange && isDeletedFile && side === "staged";
+
+  const contentLines: string[] = [];
+  let oldCount = 0;
+  let newCount = 0;
+  let previousLineIncluded = false;
+
+  for (let rowIndex = 1; rowIndex < group.rows.length; rowIndex += 1) {
+    const row = group.rows[rowIndex]!;
+
+    if (row.kind === "add") {
+      const isSelected = rowIndex === selectedRowIndex;
+      if (isSelected) {
+        if (row.patchLine) contentLines.push(row.patchLine);
+        newCount += 1;
+      } else if (normalizeNewFile) {
+        contentLines.push(` ${row.text}`);
+        oldCount += 1;
+        newCount += 1;
+      }
+      previousLineIncluded = isSelected || normalizeNewFile;
+      continue;
+    }
+
+    if (row.kind === "delete") {
+      if (rowIndex === selectedRowIndex) {
+        if (row.patchLine) contentLines.push(row.patchLine);
+        oldCount += 1;
+      } else if (!preserveOneDeletedLine) {
+        contentLines.push(` ${row.text}`);
+        oldCount += 1;
+        newCount += 1;
+      }
+      previousLineIncluded = rowIndex === selectedRowIndex || !preserveOneDeletedLine;
+      continue;
+    }
+
+    if (row.kind === "context") {
+      if (row.patchLine) contentLines.push(row.patchLine);
+      oldCount += 1;
+      newCount += 1;
+      previousLineIncluded = true;
+      continue;
+    }
+
+    if (row.kind === "notice" && row.patchLine && previousLineIncluded) {
+      contentLines.push(row.patchLine);
+    }
+  }
+
+  const oldStart = normalizeNewFile ? header.newLine : preserveOneDeletedLine ? 1 : header.oldLine;
+  const newStart = normalizeDeletedFile ? header.oldLine : preserveOneDeletedLine ? 0 : header.newLine;
+  const normalizedFilePatchLines = normalizeNewFile
+    ? normalizeWholeFileHeaders(filePatchLines, "new")
+    : normalizeDeletedFile
+      ? normalizeWholeFileHeaders(filePatchLines, "deleted")
+      : filePatchLines;
+  const partialHeader = `@@ -${formatHunkRange(oldStart, oldCount)} +${formatHunkRange(newStart, newCount)} @@${header.suffix}`;
+  return createPatch([
+    ...normalizedFilePatchLines,
+    partialHeader,
+    ...contentLines
+  ]);
+}
+
 export function isTechnicalFileHeader(row: DiffRow): boolean {
   if (row.kind === "file") {
     return true;
@@ -159,7 +263,15 @@ function splitDiffLines(text: string): string[] {
 }
 
 function parseHunkHeader(line: string): HunkState | null {
-  const match = /^@@ -(?<oldStart>\d+)(?:,\d+)? \+(?<newStart>\d+)(?:,\d+)? @@/.exec(line);
+  const header = parseHunkHeaderDetails(line);
+
+  return header
+    ? { oldLine: header.oldLine, newLine: header.newLine }
+    : null;
+}
+
+function parseHunkHeaderDetails(line: string): HunkHeader | null {
+  const match = /^@@ -(?<oldStart>\d+)(?:,\d+)? \+(?<newStart>\d+)(?:,\d+)? @@(?<suffix>.*)$/.exec(line);
   const oldStart = Number(match?.groups?.oldStart);
   const newStart = Number(match?.groups?.newStart);
 
@@ -169,8 +281,37 @@ function parseHunkHeader(line: string): HunkState | null {
 
   return {
     oldLine: oldStart,
-    newLine: newStart
+    newLine: newStart,
+    suffix: match?.groups?.suffix ?? ""
   };
+}
+
+function formatHunkRange(start: number, count: number): string {
+  return count === 1 ? String(start) : `${start},${count}`;
+}
+
+function normalizeWholeFileHeaders(lines: string[], kind: "new" | "deleted"): string[] {
+  const pathHeader = lines.find((line) => line.startsWith(kind === "new" ? "+++ " : "--- "));
+  const replacement = pathHeader
+    ? `${kind === "new" ? "---" : "+++"} ${swapPatchPathPrefix(pathHeader.slice(4), kind === "new" ? "b" : "a")}`
+    : null;
+
+  return lines.flatMap((line) => {
+    if (line.startsWith("new file mode ") || line.startsWith("deleted file mode ") || line.startsWith("index ")) {
+      return [];
+    }
+    if (replacement && line === (kind === "new" ? "--- /dev/null" : "+++ /dev/null")) {
+      return [replacement];
+    }
+    return [line];
+  });
+}
+
+function swapPatchPathPrefix(value: string, prefix: "a" | "b"): string {
+  const nextPrefix = prefix === "a" ? "b" : "a";
+  if (value.startsWith(`${prefix}/`)) return `${nextPrefix}/${value.slice(2)}`;
+  if (value.startsWith(`"${prefix}/`)) return `"${nextPrefix}/${value.slice(3)}`;
+  return value;
 }
 
 function isHunkContentRow(row: DiffRow): boolean {
