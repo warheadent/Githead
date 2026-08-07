@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
+import { formatPackageReport, verifyPackagedAppForPlatform } from "./verify-package.mjs";
 
 const require = createRequire(import.meta.url);
 
@@ -32,7 +33,19 @@ export function runElectronBuilder(platformArgs, extraArgs = process.argv.slice(
     process.exit(1);
   });
 
-  child.on("close", (code) => {
-    process.exit(code ?? 1);
+  child.on("close", async (code) => {
+    if (code !== 0) {
+      process.exitCode = code ?? 1;
+      return;
+    }
+
+    const platform = platformArgs.includes("--win") ? "win" : "linux";
+    try {
+      const report = await verifyPackagedAppForPlatform(platform);
+      console.log(formatPackageReport(report));
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : error);
+      process.exitCode = 1;
+    }
   });
 }
