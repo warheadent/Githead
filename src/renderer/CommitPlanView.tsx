@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { ChevronDown, Loader2, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import type {
 } from "../shared/types";
 import { getFileStatusVisuals } from "./fileStatusVisuals";
 import { MotionList, MotionSwap } from "./motion";
+import { usePersistentWorkspacePanelState } from "./workspacePanelState";
 
 interface CommitPlanViewProps {
   repoPath: string;
@@ -47,12 +48,19 @@ export function CommitPlanView({
   onGenerate,
   onQuickCommit
 }: CommitPlanViewProps): ReactNode {
-  const [plan, setPlan] = useState<CommitPlan | null>(null);
-  const [includedPaths, setIncludedPaths] = useState<Set<string>>(new Set());
-  const [error, setError] = useState("");
-  const [generating, setGenerating] = useState(false);
-  const [committingGroupId, setCommittingGroupId] = useState<string | null>(null);
-  const [exitingGroupIds, setExitingGroupIds] = useState<Set<string>>(new Set());
+  const [plan, setPlan] = usePersistentWorkspacePanelState<CommitPlan | null>("commit-plan-plan", null);
+  const [includedPaths, setIncludedPaths] = usePersistentWorkspacePanelState<Set<string>>(
+    "commit-plan-included-paths",
+    () => new Set()
+  );
+  const [error, setError] = usePersistentWorkspacePanelState("commit-plan-error", "");
+  const [generating, setGenerating] = usePersistentWorkspacePanelState("commit-plan-generating", false);
+  const [committingGroupId, setCommittingGroupId] = usePersistentWorkspacePanelState<string | null>("commit-plan-committing-group", null);
+  const [exitingGroupIds, setExitingGroupIds] = usePersistentWorkspacePanelState<Set<string>>(
+    "commit-plan-exiting-groups",
+    () => new Set()
+  );
+  const previousRepoPathRef = useRef(repoPath);
   const fileByPath = useMemo(() => new Map(files.map((file) => [file.path, file])), [files]);
   const availablePaths = useMemo(
     () => files.filter(canUseInCommitPlan).map((file) => file.path),
@@ -61,6 +69,8 @@ export function CommitPlanView({
   const blockedByStagedFiles = stagedCount > 0;
 
   useEffect(() => {
+    if (previousRepoPathRef.current === repoPath) return;
+    previousRepoPathRef.current = repoPath;
     setPlan(null);
     setIncludedPaths(new Set());
     setError("");
@@ -191,7 +201,7 @@ export function CommitPlanView({
       ) : null}
       {error ? <div className="commit-plan-error" role="alert">{error}</div> : null}
 
-      <div className="commit-plan-scroll">
+      <div data-workspace-scroll-key="commit-plan" className="commit-plan-scroll">
         <MotionSwap
           className="commit-plan-state-swap"
           presenceClassName="commit-plan-state-presence"

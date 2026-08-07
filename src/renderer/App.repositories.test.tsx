@@ -536,6 +536,71 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(1);
   });
 
+  it("restores parent-owned file data and retains the used Commit History panel", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: Array.from({ length: 20 }, (_, index) => createStatusFile(`persisted-${index}.ts`, {
+        isUnstaged: true,
+        worktreeStatus: "M"
+      }))
+    }));
+
+    render(<App />);
+    const statusList = await screen.findByRole("listbox", { name: "Unstaged files" });
+    statusList.scrollTop = 340;
+    fireEvent.scroll(statusList);
+    const fileOption = await screen.findByRole("option", { name: /persisted-18\.ts/ });
+    await user.click(fileOption);
+    expect(fileOption.getAttribute("aria-selected")).toBe("true");
+    statusList.scrollTop = 340;
+    fireEvent.scroll(statusList);
+    expect(screen.queryByRole("listbox", { name: "Commit history" })).toBeNull();
+
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    expect(await screen.findByRole("listbox", { name: "Commit history" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: /persisted-18\.ts/ })).toBeNull();
+
+    await user.click(screen.getByRole("tab", { name: /File Status/ }));
+    expect((await screen.findByRole("option", { name: /persisted-18\.ts/ })).getAttribute("aria-selected")).toBe("true");
+    await waitFor(() => {
+      expect(screen.getByRole("listbox", { name: "Unstaged files" }).scrollTop).toBe(340);
+    });
+    expect(screen.getByRole("listbox", { name: "Commit history" })).toBeTruthy();
+  });
+
+  it("keeps Commit History mounted after its first use", async () => {
+    const user = userEvent.setup();
+    const commit = createCommit({ subject: "feat: retained history row" });
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+
+    render(<App />);
+    await user.click(await screen.findByRole("tab", { name: /Commit History/ }));
+    const historyRow = await screen.findByRole("option", { name: /retained history row/ });
+
+    await user.click(screen.getByRole("tab", { name: /File Status/ }));
+    expect(screen.getByRole("option", { name: /retained history row/ })).toBe(historyRow);
+    expect(document.querySelectorAll(".history-row")).toHaveLength(1);
+
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    expect(await screen.findByRole("option", { name: /retained history row/ })).toBe(historyRow);
+  });
+
+  it("renders a bounded window of Commit History rows", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getCommitHistory).mockResolvedValue(Array.from({ length: 200 }, (_, index) => createCommit({
+      hash: index.toString(16).padStart(40, "0"),
+      shortHash: index.toString(16).padStart(7, "0"),
+      subject: `feat: virtual history ${index}`
+    })));
+
+    render(<App />);
+    await user.click(await screen.findByRole("tab", { name: /Commit History/ }));
+    const firstRow = await screen.findByRole("option", { name: /virtual history 0/ });
+
+    expect(document.querySelectorAll(".history-row").length).toBeLessThan(200);
+    expect(firstRow.getAttribute("aria-setsize")).toBe("200");
+  });
+
   it("defers file change refreshes until File Status is opened", async () => {
     vi.mocked(githead.getRepoSummary)
       .mockResolvedValueOnce(createSummary())
@@ -848,9 +913,8 @@ describe("App", { timeout: 10_000 }, () => {
     ]);
     vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
       repoPath: requestedRepoPath,
-      statusLines: [
-        "# branch.ab +1 -4"
-      ]
+      ahead: 1,
+      behind: 4
     }));
 
     render(<App />);
@@ -1064,9 +1128,9 @@ describe("App", { timeout: 10_000 }, () => {
       otherRepo,
       repoPath
     ]);
-    expect(githead.cancelRepositoryRead).toHaveBeenCalledWith({ requestId: "identity:1" });
-    expect(githead.cancelRepositoryRead).toHaveBeenCalledWith({ requestId: "status:1" });
-    expect(githead.cancelRepositoryRead).toHaveBeenCalledWith({ requestId: "metadata:1" });
+    expect(githead.cancelRepositoryRead).toHaveBeenCalledWith({ requestId: "identity:2" });
+    expect(githead.cancelRepositoryRead).toHaveBeenCalledWith({ requestId: "status:2" });
+    expect(githead.cancelRepositoryRead).toHaveBeenCalledWith({ requestId: "metadata:2" });
   });
 
   it("renders Repository identity before deferred File Status and metadata", async () => {
@@ -1080,7 +1144,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     expect(await screen.findByText("fast/identity")).toBeTruthy();
     expect(screen.queryByRole("option", { name: /src\/later\.ts/ })).toBeNull();
-    pendingStatus.resolve({ repoPath, generation: 1, statusLines: [], files: [createStatusFile("src/later.ts", { isUnstaged: true, worktreeStatus: "M" })] });
+    pendingStatus.resolve({ repoPath, generation: 1, ahead: null, behind: null, files: [createStatusFile("src/later.ts", { isUnstaged: true, worktreeStatus: "M" })] });
     pendingMetadata.resolve({ repoPath, generation: 1, upstream: null, branches: [], remotes: [], remoteBranches: [], defaultRemoteBranch: null, commitsAheadOfDefaultBranch: null, githubRepository: null, actionsConfig: createActionsConfig() });
     expect(await screen.findByRole("option", { name: /src\/later\.ts/ })).toBeTruthy();
   });

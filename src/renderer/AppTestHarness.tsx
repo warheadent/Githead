@@ -248,7 +248,7 @@ export function createGitheadMock(): GitheadApi {
     }),
     getRepoStatus: vi.fn(async (request) => {
       const summary = await progressiveSummary(request);
-      return { repoPath: summary.repoPath, generation: request.generation, statusLines: summary.statusLines, files: summary.files, ...(summary.submodules ? { submodules: summary.submodules } : {}) };
+      return { repoPath: summary.repoPath, generation: request.generation, ahead: summary.ahead, behind: summary.behind, files: summary.files, ...(summary.submodules ? { submodules: summary.submodules } : {}) };
     }),
     getRepoMetadata: vi.fn(async (request) => {
       const summary = await progressiveSummary(request);
@@ -427,6 +427,26 @@ export function createGitheadMock(): GitheadApi {
         downloadPercent: 100
       })
     }),
+    startPerformanceDiagnostics: vi.fn().mockResolvedValue({
+      samples: [],
+      processMetrics: [],
+      processMetricsStatus: "unavailable",
+      processMetricLimit: 64,
+      droppedProcessMetricCount: 0,
+      retainedSampleLimit: 512,
+      droppedSampleCount: 0
+    }),
+    getPerformanceDiagnosticsSnapshot: vi.fn().mockResolvedValue({
+      samples: [],
+      processMetrics: [],
+      processMetricsStatus: "unavailable",
+      processMetricLimit: 64,
+      droppedProcessMetricCount: 0,
+      retainedSampleLimit: 512,
+      droppedSampleCount: 0
+    }),
+    stopPerformanceDiagnostics: vi.fn().mockResolvedValue(undefined),
+    recordPerformanceRefresh: vi.fn(),
     minimizeWindow: vi.fn().mockResolvedValue(createWindowState()),
     toggleMaximizeWindow: vi.fn().mockResolvedValue(createWindowState({
       isMaximized: true
@@ -519,7 +539,8 @@ export function createSummary(
     },
     commitsAheadOfDefaultBranch: 0,
     githubRepository: null,
-    statusLines: [],
+    ahead: null,
+    behind: null,
     files: [],
     safeDirectory: null,
     validationErrors: [],
@@ -539,7 +560,8 @@ export function createSafeDirectorySummary(repoPath: string): RepoSummary {
     remotes: [],
     remoteBranches: [],
     githubRepository: null,
-    statusLines: [],
+    ahead: null,
+    behind: null,
     files: [],
     safeDirectory: {
       required: true,

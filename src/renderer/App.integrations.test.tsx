@@ -293,7 +293,8 @@ describe("App", { timeout: 10_000 }, () => {
         { name: "origin/feature/hung-pr", remote: "origin", branch: "feature/hung-pr" }
       ],
       commitsAheadOfDefaultBranch: 2,
-      statusLines: ["# branch.ab +0 -0"]
+      ahead: 0,
+      behind: 0
     }));
     vi.mocked(githead.createGitHubPullRequest).mockReturnValue(pendingCreate.promise);
     vi.mocked(githead.cancelGitOperation).mockResolvedValueOnce({ accepted: false, state: "not-found" });
@@ -332,7 +333,8 @@ describe("App", { timeout: 10_000 }, () => {
         { name: "origin/feature/timeout-pr", remote: "origin", branch: "feature/timeout-pr" }
       ],
       commitsAheadOfDefaultBranch: 2,
-      statusLines: ["# branch.ab +0 -0"]
+      ahead: 0,
+      behind: 0
     }));
     vi.mocked(githead.createGitHubPullRequest).mockRejectedValue(new Error("Operation timed out."));
 
@@ -385,9 +387,8 @@ describe("App", { timeout: 10_000 }, () => {
 
   it("shows upstream commits ready to pull in the Pull action", async () => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      statusLines: [
-        "# branch.ab +0 -3"
-      ]
+      ahead: 0,
+      behind: 3
     }));
 
     render(<App />);
@@ -399,9 +400,8 @@ describe("App", { timeout: 10_000 }, () => {
 
   it("does not show a zero count in the Pull action", async () => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      statusLines: [
-        "# branch.ab +0 -0"
-      ]
+      ahead: 0,
+      behind: 0
     }));
 
     render(<App />);
@@ -513,9 +513,8 @@ describe("App", { timeout: 10_000 }, () => {
 
   it("shows upstream commits ready to push in the Push action", async () => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      statusLines: [
-        "# branch.ab +2 -0"
-      ]
+      ahead: 2,
+      behind: 0
     }));
 
     render(<App />);
@@ -529,9 +528,8 @@ describe("App", { timeout: 10_000 }, () => {
 
   it("shows upstream commits ready to push in the primary commit action", async () => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      statusLines: [
-        "# branch.ab +5 -0"
-      ]
+      ahead: 5,
+      behind: 0
     }));
 
     render(<App />);
@@ -544,9 +542,8 @@ describe("App", { timeout: 10_000 }, () => {
 
   it("does not show a zero count in the Push action", async () => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      statusLines: [
-        "# branch.ab +0 -0"
-      ]
+      ahead: 0,
+      behind: 0
     }));
 
     render(<App />);

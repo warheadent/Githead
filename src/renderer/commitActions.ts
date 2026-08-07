@@ -16,15 +16,13 @@ export function getAheadBehindCounts(summary: RepoSummary | null): AheadBehindCo
     return null;
   }
 
-  const aheadBehindLine = summary.statusLines.find((line) => line.startsWith("# branch.ab "));
-  const match = /^# branch\.ab \+(?<ahead>\d+) -(?<behind>\d+)$/.exec(aheadBehindLine ?? "");
-  if (!match?.groups) {
+  if (summary.ahead === null || summary.behind === null) {
     return null;
   }
 
   return {
-    ahead: Number.parseInt(match.groups.ahead ?? "0", 10),
-    behind: Number.parseInt(match.groups.behind ?? "0", 10)
+    ahead: summary.ahead,
+    behind: summary.behind
   };
 }
 

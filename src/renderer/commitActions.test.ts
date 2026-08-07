@@ -31,7 +31,8 @@ const baseSummary: RepoSummary = {
   defaultRemoteBranch: null,
   commitsAheadOfDefaultBranch: null,
   githubRepository: null,
-  statusLines: [],
+  ahead: null,
+  behind: null,
   files: [],
   safeDirectory: null,
   actionsConfig: {
@@ -64,9 +65,8 @@ describe("commit action helpers", () => {
   it("uses commit as the primary action when staged files exist", () => {
     const summary: RepoSummary = {
       ...baseSummary,
-      statusLines: [
-        "# branch.ab +2 -0"
-      ],
+      ahead: 2,
+      behind: 0,
       files: [
         {
           path: "staged.ts",
@@ -87,9 +87,8 @@ describe("commit action helpers", () => {
   it("enables push fallback when the branch is ahead of upstream", () => {
     const summary: RepoSummary = {
       ...baseSummary,
-      statusLines: [
-        "# branch.ab +2 -0"
-      ]
+      ahead: 2,
+      behind: 0
     };
 
     expect(canPush(summary)).toBe(true);
@@ -100,9 +99,8 @@ describe("commit action helpers", () => {
   it("reads upstream commits ready to pull from the branch behind count", () => {
     const summary: RepoSummary = {
       ...baseSummary,
-      statusLines: [
-        "# branch.ab +1 -3"
-      ]
+      ahead: 1,
+      behind: 3
     };
 
     expect(getAheadBehindCounts(summary)).toEqual({
@@ -115,9 +113,8 @@ describe("commit action helpers", () => {
   it("does not enable push fallback when ahead count is zero", () => {
     const summary: RepoSummary = {
       ...baseSummary,
-      statusLines: [
-        "# branch.ab +0 -0"
-      ]
+      ahead: 0,
+      behind: 0
     };
 
     expect(hasUnpushedCommits(summary)).toBe(false);
@@ -126,20 +123,18 @@ describe("commit action helpers", () => {
     expect(getPrimaryCommitAction(summary)).toBeNull();
   });
 
-  it("returns zero pullable commits without an upstream or branch.ab status", () => {
+  it("returns zero pullable commits without an upstream or ahead-behind data", () => {
     const noUpstreamSummary: RepoSummary = {
       ...baseSummary,
       upstream: null,
-      statusLines: [
-        "# branch.ab +3 -4"
-      ]
+      ahead: 3,
+      behind: 4
     };
 
     const noAheadBehindSummary: RepoSummary = {
       ...baseSummary,
-      statusLines: [
-        "# branch.head main"
-      ]
+      ahead: null,
+      behind: null
     };
 
     expect(hasUnpushedCommits(noUpstreamSummary)).toBe(false);
@@ -150,12 +145,11 @@ describe("commit action helpers", () => {
     expect(getPullableCommitCount(noAheadBehindSummary)).toBe(0);
   });
 
-  it("returns zero pullable commits for malformed branch.ab status", () => {
+  it("returns zero pullable commits for incomplete ahead-behind data", () => {
     const summary: RepoSummary = {
       ...baseSummary,
-      statusLines: [
-        "# branch.ab +3"
-      ]
+      ahead: 3,
+      behind: null
     };
 
     expect(getAheadBehindCounts(summary)).toBeNull();

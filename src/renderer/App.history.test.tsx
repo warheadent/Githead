@@ -202,6 +202,11 @@ describe("App", { timeout: 10_000 }, () => {
     }));
     expect(await screen.findByDisplayValue("feat(status): add commit plans")).toBeTruthy();
 
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await screen.findByRole("listbox", { name: "Commit history" });
+    await user.click(screen.getByRole("tab", { name: /File Status/ }));
+    expect(await screen.findByDisplayValue("feat(status): add commit plans")).toBeTruthy();
+
     await user.click(screen.getByRole("button", { name: "Quick Commit" }));
     await waitFor(() => expect(githead.quickCommitFiles).toHaveBeenCalledWith({
       repoPath,

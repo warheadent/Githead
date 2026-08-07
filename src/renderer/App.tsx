@@ -40,6 +40,7 @@ import {
 import {
   Fragment,
   lazy,
+  memo,
   useCallback,
   useEffect,
   useId,
@@ -91,7 +92,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup
 } from "@/components/ui/resizable";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { TagDialog, type TagDialogState } from "./TagDialog";
 import { MotionPresence, MotionSwap, useFlipList } from "./motion";
@@ -181,7 +182,7 @@ import { AI_COMMIT_MESSAGE_PROVIDERS, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilit
 import { isMarkdownPath } from "../shared/filePreview";
 import { parseCommitSubject } from "../shared/commitSubject";
 import { parseGitHubReferences } from "../shared/githubReference";
-import { ActivityLogView } from "./ActivityLogView";
+import { ActivityLogPanel } from "./ActivityLogPanel";
 import { CommitPlanView } from "./CommitPlanView";
 import { BranchManagementDialog } from "./BranchManagementDialog";
 import { WorktreeCreateDialog, WorktreeRemoveDialog } from "./WorktreeDialogs";
@@ -199,18 +200,23 @@ import {
   type ColumnDefinition
 } from "./columnLayout";
 import { RepositorySnapshotCache, getRepoPathKey } from "./repositorySnapshotCache";
-import { createCommitAssociationMap } from "./githubHistorySelectors";
 import {
-  appendActivityLogEvent,
-  appendActivityOperationResult,
-  createActivityLogState,
-  getActivityLogRawText,
-  hasActivityLogOutput,
-  type ActivityLogState
-} from "./activityLog";
+  RepositoryRefreshCoordinator,
+  RepositoryRefreshDisposedError,
+  type RepositoryRefreshRequest
+} from "./repositoryRefreshCoordinator";
+import { createCommitAssociationMap } from "./githubHistorySelectors";
+import { ActivityLogStore } from "./activityLogStore";
+import {
+  PersistentWorkspaceTabsContent,
+  WorkspacePanelStateProvider,
+  WorkspacePanelStateStore,
+  usePersistentWorkspacePanelState
+} from "./workspacePanelState";
 import { getAheadBehindCounts, getPrimaryCommitAction, getPullableCommitCount, getPushableCommitCount, hasStagedChanges, hasUnpushedCommits } from "./commitActions";
-import { buildCommitGraphLayout, type CommitGraphLayout } from "./commitGraph";
-import { groupDiffRowsByHunk, isTechnicalFileHeader, parseUnifiedDiff, type DiffRow } from "./diffParser";
+import { buildCommitGraphLayout, COMMIT_GRAPH_ROW_HEIGHT, type CommitGraphLayout } from "./commitGraph";
+import { isTechnicalFileHeader, type DiffRow } from "./diffParser";
+import { createDiffProcessingSession, type ProcessedDiff } from "./diffProcessingClient";
 import { areFileDiffsEqual } from "./diffFreshness";
 import { getCommitFileStatusVisuals, getFileStatusVisuals, type FileStatusVisuals } from "./fileStatusVisuals";
 import { FixedSizeVirtualList, type VirtualRowProps } from "./FixedSizeVirtualList";
@@ -218,6 +224,10 @@ import type { HighlightedCode } from "./syntaxHighlighter";
 import { buildStatusFileTree, fileName, flattenStatusFileTree, type StatusFileTreeFolder } from "./statusFileTree";
 import { applyColorTheme } from "./themes";
 import { OptionalFeatureBoundary } from "./OptionalFeatureBoundary";
+
+const PerformanceDiagnosticsDialog = lazy(() => import("./PerformanceDiagnosticsDialog.js").then((module) => ({
+  default: module.PerformanceDiagnosticsDialog
+})));
 import { StashComposerDialog, type StashCreateDraft } from "./StashComposerDialog";
 import { StashesView } from "./StashesView";
 import { StartupScreen } from "./StartupScreen";
@@ -448,11 +458,27 @@ interface AppState {
   fileBlame: GitFileBlameResult | null;
   fileBlameLoading: boolean;
   fileBlameError: string;
-  activityLog: ActivityLogState;
   appUpdate: AppUpdateState;
 }
 
 type AppStateUpdater = Partial<AppState> | ((state: AppState) => AppState);
+type RepositoryRefreshReason = "filesystem" | "focus" | "repository-change" | "operation" | "user";
+
+interface AppRepositoryRefreshRequest extends RepositoryRefreshRequest<RepositoryRefreshReason> {
+  addToRecents?: boolean;
+  recentAnchorPath?: string;
+  silent?: boolean;
+  statusOnly?: boolean;
+}
+
+const REPOSITORY_REFRESH_PRIORITIES: Record<RepositoryRefreshReason, number> = {
+  filesystem: 0,
+  focus: 1,
+  "repository-change": 2,
+  operation: 3,
+  user: 4
+};
+
 type RepositoryReadKind = "summary" | "identity" | "status" | "metadata" | "history" | "commit-details" | "commit-file-diff" | "file-history" | "file-history-diff" | "file-blame" | "diff" | "diff-freshness" | "file-preview";
 
 function repositoryReadRequestId(kind: RepositoryReadKind, generation: number): string {
@@ -822,7 +848,6 @@ const initialState: AppState = {
   fileBlame: null,
   fileBlameLoading: false,
   fileBlameError: "",
-  activityLog: createActivityLogState(),
   appUpdate: createInitialRendererUpdateState()
 };
 
@@ -832,6 +857,9 @@ const initialWindowState: AppWindowState = {
 
 export function App(): ReactNode {
   const [state, setState] = useState<AppState>(initialState);
+  const [activityLogStore] = useState(() => new ActivityLogStore());
+  const [workspacePanelStateStore] = useState(() => new WorkspacePanelStateStore());
+  const [performanceDiagnosticsOpen, setPerformanceDiagnosticsOpen] = useState(false);
   const [statusWorkspaceMode, setStatusWorkspaceMode] = useState<"files" | "plan">("files");
   const [stashComposer, setStashComposer] = useState<StashComposerState>(emptyStashComposer);
   const [repositoryAiSettingsPath, setRepositoryAiSettingsPath] = useState("");
@@ -885,6 +913,23 @@ export function App(): ReactNode {
     remoteConfigs: 0
   });
   const repositorySnapshots = useRef(new RepositorySnapshotCache());
+  const runRepoRefreshRef = useRef<(
+    repoPath: string,
+    request: AppRepositoryRefreshRequest,
+    signal: AbortSignal
+  ) => Promise<void>>(async () => undefined);
+  const [repositoryRefreshCoordinator] = useState(() => new RepositoryRefreshCoordinator<AppRepositoryRefreshRequest>({
+    getReasonPriority: (reason) => REPOSITORY_REFRESH_PRIORITIES[reason],
+    run: (repoPath, request, signal) => runRepoRefreshRef.current(repoPath, request, signal),
+    onEnqueue: (request, measurement) => {
+      window.githead.recordPerformanceRefresh({
+        refreshKind: request.statusOnly ? "status" : "snapshot",
+        requestCount: 1,
+        coalescedCount: measurement.coalescedCount,
+        queueDepth: measurement.queueDepth
+      });
+    }
+  }));
   const pendingTrustConfirmationRef = useRef<PendingTrustConfirmation | null>(null);
   const repoRefreshInFlightRef = useRef(false);
   const autoFetchInFlightRef = useRef(false);
@@ -992,11 +1037,8 @@ export function App(): ReactNode {
   }, [state]);
 
   const appendLog = useCallback((event: GitOutputEvent): void => {
-    updateState((current) => ({
-      ...current,
-      activityLog: appendActivityLogEvent(current.activityLog, event)
-    }));
-  }, [updateState]);
+    activityLogStore.append(event);
+  }, [activityLogStore]);
 
   const appendSystemLine = useCallback((
     text: string,
@@ -1012,14 +1054,11 @@ export function App(): ReactNode {
   }, [appendLog]);
 
   const appendOperationLog = useCallback((label: string, result: GitOperationResult): void => {
-    updateState((current) => ({
-      ...current,
-      activityLog: appendActivityOperationResult(current.activityLog, label, result)
-    }));
-  }, [updateState]);
+    activityLogStore.appendOperationResult(label, result);
+  }, [activityLogStore]);
 
   const copyActivityLogRawText = useCallback(async (): Promise<void> => {
-    const text = getActivityLogRawText(stateRef.current.activityLog);
+    const text = activityLogStore.getRawText();
     if (text.trim().length === 0) {
       return;
     }
@@ -1027,7 +1066,7 @@ export function App(): ReactNode {
     await window.githead.copyTextToClipboard({
       text
     });
-  }, []);
+  }, [activityLogStore]);
 
   useEffect(() => {
     return window.githead.onGitOutput(appendLog);
@@ -1205,7 +1244,7 @@ export function App(): ReactNode {
     let commitHashToLoad: string | null = null;
 
     try {
-      const history = await window.githead.getCommitHistory({
+      const loadedHistory = await window.githead.getCommitHistory({
         repoPath,
         limit: HISTORY_LIMIT,
         scope,
@@ -1217,6 +1256,7 @@ export function App(): ReactNode {
       }
 
       const latest = stateRef.current;
+      const history = reuseCommitHistoryRows(latest.history, loadedHistory);
       const selectedCommitHash = history.some((commit) => commit.hash === latest.selectedCommitHash)
         ? latest.selectedCommitHash
         : history[0]?.hash ?? null;
@@ -1462,21 +1502,29 @@ export function App(): ReactNode {
     }
   }, [loadRepoSyncStatuses, updateState]);
 
-  const refreshRepo = useCallback(async (options: {
-    addToRecents?: boolean;
-    recentAnchorPath?: string;
-    silent?: boolean;
-    statusOnly?: boolean;
-  } = {}): Promise<void> => {
-    cancelRepositoryRead("identity", requestIds.current.repo);
-    cancelRepositoryRead("status", requestIds.current.repo);
-    cancelRepositoryRead("metadata", requestIds.current.repo);
+  const runRepoRefresh = useCallback(async (
+    repoPath: string,
+    options: AppRepositoryRefreshRequest,
+    signal: AbortSignal
+  ): Promise<void> => {
     const requestId = requestIds.current.repo + 1;
     requestIds.current.repo = requestId;
-    const repoPath = stateRef.current.repoPath;
     const fileStatusGeneration = fileStatusGenerationRef.current;
     let refreshSucceeded = false;
     repoRefreshInFlightRef.current = true;
+
+    const cancelRefreshReads = (): void => {
+      cancelRepositoryRead("identity", requestId);
+      cancelRepositoryRead("status", requestId);
+      cancelRepositoryRead("metadata", requestId);
+    };
+    signal.addEventListener("abort", cancelRefreshReads, { once: true });
+    if (signal.aborted) {
+      cancelRefreshReads();
+      signal.removeEventListener("abort", cancelRefreshReads);
+      repoRefreshInFlightRef.current = false;
+      return;
+    }
 
     if (!options.silent) {
       updateState({
@@ -1572,6 +1620,7 @@ export function App(): ReactNode {
         }
       }
     } catch (error) {
+      if (signal.aborted) return;
       if (requestId === requestIds.current.repo && isSameRepoPath(repoPath, stateRef.current.repoPath)) {
         if (options.statusOnly && stateRef.current.summary?.isValid) {
           updateState((current) => ({ ...current, lastOperationResult: { repoPath, exitCode: -1, stdout: "", stderr: error instanceof Error ? error.message : "Unable to refresh File Status." } }));
@@ -1596,6 +1645,7 @@ export function App(): ReactNode {
         }));
       }
     } finally {
+      signal.removeEventListener("abort", cancelRefreshReads);
       if (requestId === requestIds.current.repo && isSameRepoPath(repoPath, stateRef.current.repoPath)) {
         repoRefreshInFlightRef.current = false;
         if (!options.silent) {
@@ -1622,7 +1672,32 @@ export function App(): ReactNode {
     }
   }, [loadCommitHistory, loadRepoSyncStatuses, updateState]);
 
-  const refreshDirtyFileStatus = useCallback(async (options: { force?: boolean } = {}): Promise<void> => {
+  runRepoRefreshRef.current = runRepoRefresh;
+
+  const refreshRepo = useCallback(async (
+    options: Omit<AppRepositoryRefreshRequest, "reason"> & { reason?: RepositoryRefreshReason } = {}
+  ): Promise<void> => {
+    const repoPath = stateRef.current.repoPath;
+    if (!repoPath) return;
+    const request: AppRepositoryRefreshRequest = {
+      ...options,
+      reason: options.reason ?? "user"
+    };
+    while (isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+      try {
+        await repositoryRefreshCoordinator.enqueue(repoPath, request);
+        return;
+      } catch (error) {
+        if (!(error instanceof RepositoryRefreshDisposedError)) return;
+        await repositoryRefreshCoordinator.whenIdle(repoPath);
+      }
+    }
+  }, [repositoryRefreshCoordinator]);
+
+  const refreshDirtyFileStatus = useCallback(async (options: {
+    force?: boolean;
+    reason?: "filesystem" | "focus" | "user";
+  } = {}): Promise<void> => {
     if (
       options.force &&
       acknowledgedFileStatusGenerationRef.current === fileStatusGenerationRef.current
@@ -1641,14 +1716,13 @@ export function App(): ReactNode {
 
     if (
       !current.summary?.isValid ||
-      current.repoLoading ||
-      isOperationRunning(current) ||
-      repoRefreshInFlightRef.current
+      isOperationRunning(current)
     ) {
       return;
     }
 
     await refreshRepo({
+      reason: options.reason ?? "filesystem",
       silent: true,
       statusOnly: true
     });
@@ -1665,9 +1739,9 @@ export function App(): ReactNode {
       repositorySnapshots.current.markStale(event.repoPath, event.reason === "filesystem" ? ["status"] : ["identity", "status", "metadata"]);
       void checkSelectedDiffFreshness();
       if (event.reason === "filesystem") {
-        void refreshDirtyFileStatus();
+        void refreshDirtyFileStatus({ reason: "filesystem" });
       } else {
-        void refreshRepo({ silent: true });
+        void refreshRepo({ reason: "repository-change", silent: true });
         void loadRepositoryGroups();
       }
     });
@@ -1707,7 +1781,8 @@ export function App(): ReactNode {
 
       windowFocusedRef.current = true;
       void refreshDirtyFileStatus({
-        force: true
+        force: true,
+        reason: "focus"
       });
       void loadRepoSyncStatuses();
       void loadRepositoryGroups();
@@ -1740,6 +1815,9 @@ export function App(): ReactNode {
     const cached = repositorySnapshots.current.get(nextRepoPath);
     const changingRepositories = !isSameRepoPath(leaving.repoPath, nextRepoPath);
     if (changingRepositories) setStashComposer(emptyStashComposer);
+    if (changingRepositories && leaving.repoPath) {
+      void repositoryRefreshCoordinator.disposeRepository(leaving.repoPath);
+    }
 
     if (changingRepositories && leaving.settingsOpen) {
       applyColorTheme(leaving.appSettings?.colorTheme ?? "githead");
@@ -1761,9 +1839,6 @@ export function App(): ReactNode {
       void window.githead.cancelGitOperation({ operationId: detachedOperation.operationId }).catch(() => undefined);
     }
 
-    cancelRepositoryRead("identity", requestIds.current.repo);
-    cancelRepositoryRead("status", requestIds.current.repo);
-    cancelRepositoryRead("metadata", requestIds.current.repo);
     cancelRepositoryRead("diff", requestIds.current.diff);
     cancelRepositoryRead("diff-freshness", requestIds.current.diffFreshness);
     cancelRepositoryRead("history", requestIds.current.history);
@@ -1844,10 +1919,11 @@ export function App(): ReactNode {
     });
 
     await refreshRepo({
+      reason: "repository-change",
       addToRecents: options.addToRecents ?? false,
       ...(options.recentAnchorPath ? { recentAnchorPath: options.recentAnchorPath } : {})
     });
-  }, [closeTrustDialog, refreshRepo, updateState]);
+  }, [closeTrustDialog, refreshRepo, repositoryRefreshCoordinator, updateState]);
 
   const initializeRepository = useCallback(async (): Promise<void> => {
     let repoRecents: Awaited<ReturnType<typeof window.githead.getRepoRecents>> = [];
@@ -1880,6 +1956,7 @@ export function App(): ReactNode {
 
     if (repoRecents.length > 0) {
       void refreshRepo({
+        reason: "repository-change",
         addToRecents: false
       });
     }
@@ -2000,9 +2077,9 @@ export function App(): ReactNode {
   }, [loadGitIdentity, state.repoPath]);
 
   useEffect(() => () => {
-    cancelRepositoryRead("identity", requestIds.current.repo);
-    cancelRepositoryRead("status", requestIds.current.repo);
-    cancelRepositoryRead("metadata", requestIds.current.repo);
+    if (stateRef.current.repoPath) {
+      void repositoryRefreshCoordinator.disposeRepository(stateRef.current.repoPath);
+    }
     cancelRepositoryRead("diff", requestIds.current.diff);
     cancelRepositoryRead("history", requestIds.current.history);
     cancelRepositoryRead("commit-details", requestIds.current.commitDetails);
@@ -2013,7 +2090,7 @@ export function App(): ReactNode {
     const pendingTrust = pendingTrustConfirmationRef.current;
     pendingTrustConfirmationRef.current = null;
     pendingTrust?.resolve(false);
-  }, []);
+  }, [repositoryRefreshCoordinator]);
 
   const createActiveOperation = useCallback((
     label: string,
@@ -2088,7 +2165,7 @@ export function App(): ReactNode {
 
     if (refreshCurrentRepository) {
       repositorySnapshots.current.delete(stateRef.current.repoPath);
-      void refreshRepo({ silent: true });
+      void refreshRepo({ reason: "operation", silent: true });
       void loadRepoSyncStatuses();
     }
   }, [loadRepoSyncStatuses, refreshRepo, updateState]);
@@ -2222,7 +2299,7 @@ export function App(): ReactNode {
         ...latest,
         safeDirectoryDialogOpen: false
       }));
-      void refreshRepo({ addToRecents: true });
+      void refreshRepo({ reason: "operation", addToRecents: true });
     } catch (error) {
       if (!isActiveOperationCurrent(operation.token)) {
         return;
@@ -2612,12 +2689,12 @@ export function App(): ReactNode {
 
     let completedResult: GitRunResult | null = null;
     const operation = createActiveOperation(capitalize(action), repoPath, "action");
+    if (!hasProcessRunInFlight(latestBeforeStart)) activityLogStore.clear();
     updateState((latest) => ({
       ...latest,
       activeOperation: operation,
       runningAction: action,
-      lastResult: null,
-      activityLog: hasProcessRunInFlight(latest) ? latest.activityLog : createActivityLogState()
+      lastResult: null
     }));
 
     try {
@@ -2666,7 +2743,7 @@ export function App(): ReactNode {
     } finally {
       finishActiveOperation(operation.token, invalidateHistory);
       if (isSameRepoPath(repoPath, stateRef.current.repoPath)) {
-        await refreshRepo();
+        await refreshRepo({ reason: "operation" });
       }
       if (
         isSameRepoPath(repoPath, stateRef.current.repoPath) &&
@@ -2685,7 +2762,7 @@ export function App(): ReactNode {
       }
     }
     return isSameRepoPath(repoPath, stateRef.current.repoPath) ? completedResult : null;
-  }, [appendSystemLine, createActiveOperation, ensureTrustedRepo, finishActiveOperation, isActiveOperationCurrent, refreshRepo, updateState]);
+  }, [activityLogStore, appendSystemLine, createActiveOperation, ensureTrustedRepo, finishActiveOperation, isActiveOperationCurrent, refreshRepo, updateState]);
 
   const runAutomaticFetch = useCallback(async (): Promise<void> => {
     if (autoFetchInFlightRef.current) {
@@ -2776,6 +2853,7 @@ export function App(): ReactNode {
       }
       if (fetchStarted && repoPath && isSameRepoPath(repoPath, stateRef.current.summary?.repoPath ?? "")) {
         await refreshRepo({
+          reason: "operation",
           silent: true
         });
         void loadRepoSyncStatuses();
@@ -2828,12 +2906,12 @@ export function App(): ReactNode {
       cancelStatus: "idle",
       cancelError: ""
     };
+    if (!hasProcessRunInFlight(current)) activityLogStore.clear();
     updateState((latest) => ({
       ...latest,
       configuredActionRuns: [...latest.configuredActionRuns, invocation],
       lastResult: null,
-      activeView: "activity",
-      activityLog: hasProcessRunInFlight(latest) ? latest.activityLog : createActivityLogState()
+      activeView: "activity"
     }));
     const invocationIsTracked = (): boolean => stateRef.current.configuredActionRuns.some((run) => (
       run.id === invocation.id && run.operationId === invocation.operationId
@@ -2881,11 +2959,11 @@ export function App(): ReactNode {
           return isSameRepoPath(repoPath, latest.repoPath) ? invalidateHistory(next) : next;
         });
         if (isSameRepoPath(repoPath, stateRef.current.repoPath)) {
-          void refreshRepo();
+          void refreshRepo({ reason: "operation" });
         }
       }
     }
-  }, [appendSystemLine, ensureTrustedRepo, isInvocationCurrent, refreshRepo, updateState]);
+  }, [activityLogStore, appendSystemLine, ensureTrustedRepo, isInvocationCurrent, refreshRepo, updateState]);
 
   const openActionManager = useCallback((): void => {
     const current = stateRef.current;
@@ -3083,7 +3161,7 @@ export function App(): ReactNode {
           error: ""
         }
       }));
-      void refreshRepo();
+      void refreshRepo({ reason: "operation" });
     } catch (error) {
       if (saveToken !== actionManagerSaveTokenRef.current || !isActiveOperationCurrent(operation.token)) {
         return;
@@ -3179,7 +3257,7 @@ export function App(): ReactNode {
         return next;
       });
       if (completionIsCurrent) {
-        void refreshRepo();
+        void refreshRepo({ reason: "operation" });
       }
     }
     return operationResult;
@@ -3744,13 +3822,11 @@ export function App(): ReactNode {
 
     let completedResult: GitRunResult | null = null;
     const activeOperation = createActiveOperation("Publish", current.repoPath, "action");
+    if (!hasProcessRunInFlight(current)) activityLogStore.clear();
     updateState({
       activeOperation,
       runningAction: "publish",
       lastResult: null,
-      activityLog: hasProcessRunInFlight(stateRef.current)
-        ? stateRef.current.activityLog
-        : createActivityLogState(),
       publishError: ""
     });
 
@@ -3790,7 +3866,7 @@ export function App(): ReactNode {
     } finally {
       finishActiveOperation(activeOperation.token, invalidateHistory);
       if (isSameRepoPath(current.repoPath, stateRef.current.repoPath)) {
-        void refreshRepo();
+        void refreshRepo({ reason: "operation" });
       }
     }
 
@@ -3806,7 +3882,7 @@ export function App(): ReactNode {
     updateState({
       publishError: completedResult?.stderr.trim() || "Unable to publish branch."
     });
-  }, [appendSystemLine, createActiveOperation, ensureTrustedRepo, finishActiveOperation, isActiveOperationCurrent, isInvocationCurrent, refreshRepo, updateState]);
+  }, [activityLogStore, appendSystemLine, createActiveOperation, ensureTrustedRepo, finishActiveOperation, isActiveOperationCurrent, isInvocationCurrent, refreshRepo, updateState]);
 
   const pushToBranch = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
@@ -4202,14 +4278,12 @@ export function App(): ReactNode {
         repoPath,
         "pr-push"
       );
+      if (!hasProcessRunInFlight(current)) activityLogStore.clear();
       updateState((latest) => ({
         ...latest,
         activeOperation: pushOperation,
         runningAction: needsPublish ? "publish" : "push",
         lastResult: null,
-        activityLog: hasProcessRunInFlight(latest)
-          ? latest.activityLog
-          : createActivityLogState(),
         createPrDialog: {
           ...latest.createPrDialog,
           step: "pushing",
@@ -4244,13 +4318,13 @@ export function App(): ReactNode {
         const message = error instanceof Error ? error.message : "Unable to push branch.";
         appendSystemLine(message);
         finishActiveOperation(pushOperation.token, invalidateHistory);
-        void refreshRepo();
+        void refreshRepo({ reason: "operation" });
         setDialogError(message);
         return;
       }
 
       finishActiveOperation(pushOperation.token, invalidateHistory);
-      void refreshRepo();
+      void refreshRepo({ reason: "operation" });
 
       if (pushResult.exitCode !== 0) {
         setDialogError(pushResult.stderr.trim() || "Unable to push branch.");
@@ -4339,7 +4413,7 @@ export function App(): ReactNode {
         }
       }));
     }
-  }, [appendSystemLine, createActiveOperation, ensureTrustedRepo, finishActiveOperation, github, isActiveOperationCurrent, isInvocationCurrent, refreshRepo, updateState]);
+  }, [activityLogStore, appendSystemLine, createActiveOperation, ensureTrustedRepo, finishActiveOperation, github, isActiveOperationCurrent, isInvocationCurrent, refreshRepo, updateState]);
 
   const createBranch = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
@@ -4485,7 +4559,7 @@ export function App(): ReactNode {
       return;
     }
 
-    await refreshRepo();
+    await refreshRepo({ reason: "operation" });
     if (!isSameRepoPath(repoPath, stateRef.current.repoPath)) {
       return;
     }
@@ -5014,7 +5088,7 @@ export function App(): ReactNode {
 
     const latest = stateRef.current;
     if (view === "status") {
-      void refreshDirtyFileStatus();
+      void refreshDirtyFileStatus({ reason: "user" });
     }
     if (view === "history" && !latest.historyLoading) {
       void loadCommitHistory(true);
@@ -6170,13 +6244,18 @@ export function App(): ReactNode {
               }}
             />
 
-            <Tabs
-              value={state.activeView}
-              onValueChange={(value) => {
-                setWorkspaceView(value as WorkspaceView);
-              }}
-              className="flex min-h-0 flex-1 flex-col"
+            <WorkspacePanelStateProvider
+              key={getRepoPathKey(state.repoPath) || "setup"}
+              store={workspacePanelStateStore}
+              namespace={getRepoPathKey(state.repoPath) || "setup"}
             >
+              <Tabs
+                value={state.activeView}
+                onValueChange={(value) => {
+                  setWorkspaceView(value as WorkspaceView);
+                }}
+                className="flex min-h-0 flex-1 flex-col"
+              >
               <div className="workspace-tabs-bar border-b bg-card px-6 pt-2">
                 <TabsList variant="line" className="h-9 w-max min-w-full bg-transparent p-0">
                   <TabsTrigger value="status" className="workspace-tab-trigger h-9 rounded-none">
@@ -6239,7 +6318,7 @@ export function App(): ReactNode {
                 </TabsList>
               </div>
 
-              <TabsContent forceMount value="status" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
+              <PersistentWorkspaceTabsContent panelKey="status" active={state.activeView === "status"} value="status" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
                 <StatusView
                   stagedFiles={stagedFiles}
                   unstagedFiles={unstagedFiles}
@@ -6297,10 +6376,10 @@ export function App(): ReactNode {
                     />
                   ) : null}
                 />
-              </TabsContent>
+              </PersistentWorkspaceTabsContent>
 
               {showStashesTab ? (
-                <TabsContent forceMount value="stashes" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
+                <PersistentWorkspaceTabsContent panelKey="stashes" active={state.activeView === "stashes"} value="stashes" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
                   <StashesView
                     entries={stashWorkspace.state.entries}
                     loading={stashWorkspace.state.loading}
@@ -6332,10 +6411,10 @@ export function App(): ReactNode {
                     onDrop={dropStash}
                     onCreateBranch={createBranchFromStash}
                   />
-                </TabsContent>
+                </PersistentWorkspaceTabsContent>
               ) : null}
 
-              <TabsContent forceMount value="history" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
+              <PersistentWorkspaceTabsContent panelKey="history" active={state.activeView === "history"} preserveMount value="history" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
                 {state.historyRoute.kind === "file" ? (
                   <OptionalFeatureBoundary name="file history">
                   <FileHistoryView
@@ -6421,11 +6500,11 @@ export function App(): ReactNode {
                   onDownloadImage={() => { void downloadCommitLfsPreview(); }}
                   onWrapLinesChange={setWrapDiffLines}
                 />}
-              </TabsContent>
+              </PersistentWorkspaceTabsContent>
 
               {showGitHubTabs ? (
                 <>
-                  <TabsContent forceMount value="workflows" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
+                  <PersistentWorkspaceTabsContent panelKey="workflows" active={state.activeView === "workflows"} value="workflows" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
                     <WorkflowRunsView
                       summary={state.summary}
                       workflowRuns={github.workflows.data ?? []}
@@ -6448,9 +6527,9 @@ export function App(): ReactNode {
                         void github.refresh("workflowRuns");
                       }}
                     />
-                  </TabsContent>
+                  </PersistentWorkspaceTabsContent>
 
-                  <TabsContent forceMount value="pullRequests" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
+                  <PersistentWorkspaceTabsContent panelKey="pullRequests" active={state.activeView === "pullRequests"} value="pullRequests" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
                     <PullRequestsView
                       summary={state.summary}
                       pullRequests={github.pullRequests.data ?? []}
@@ -6474,9 +6553,9 @@ export function App(): ReactNode {
                         void Promise.allSettled([github.refresh("pullRequests"), github.refresh("openCounts")]);
                       }}
                     />
-                  </TabsContent>
+                  </PersistentWorkspaceTabsContent>
 
-                  <TabsContent forceMount value="issues" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
+                  <PersistentWorkspaceTabsContent panelKey="issues" active={state.activeView === "issues"} value="issues" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
                     <IssuesView
                       summary={state.summary}
                       issues={github.issues.data ?? []}
@@ -6499,25 +6578,19 @@ export function App(): ReactNode {
                         void Promise.allSettled([github.refresh("issues"), github.refresh("openCounts")]);
                       }}
                     />
-                  </TabsContent>
+                  </PersistentWorkspaceTabsContent>
                 </>
               ) : null}
 
-              <TabsContent value="activity" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
-                <ActivityLogView
-                  log={state.activityLog}
-                  statusLabel={getActivityLogStatus(state)}
-                  onClearLog={() => {
-                    updateState({
-                      activityLog: createActivityLogState()
-                    });
-                  }}
-                  onCopyRawLog={() => {
-                    void copyActivityLogRawText();
-                  }}
+              <PersistentWorkspaceTabsContent panelKey="activity" active={state.activeView === "activity"} value="activity" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
+                <ActivityLogPanel
+                  store={activityLogStore}
+                  operationStatus={getActivityLogOperationStatus(state)}
+                  onCopyRawLog={copyActivityLogRawText}
                 />
-              </TabsContent>
-            </Tabs>
+              </PersistentWorkspaceTabsContent>
+              </Tabs>
+            </WorkspacePanelStateProvider>
 
             {state.activeView === "status" && statusWorkspaceMode === "files" ? (
               <CommitPanel
@@ -6623,7 +6696,16 @@ export function App(): ReactNode {
           event.preventDefault();
           void saveSettings();
         }}
+        onOpenPerformanceDiagnostics={() => setPerformanceDiagnosticsOpen(true)}
       />
+      {performanceDiagnosticsOpen ? (
+        <OptionalFeatureBoundary name="performance diagnostics">
+          <PerformanceDiagnosticsDialog
+            open
+            onOpenChange={setPerformanceDiagnosticsOpen}
+          />
+        </OptionalFeatureBoundary>
+      ) : null}
       <RepositoryAiSettingsDialog open={Boolean(repositoryAiSettingsPath)} repoPath={repositoryAiSettingsPath} onOpenChange={(open) => { if (!open) setRepositoryAiSettingsPath(""); }} />
 
       {state.remoteManager.open ? (
@@ -9017,13 +9099,14 @@ function FileGroup({
     [selection, side]
   );
   const tree = useMemo(() => buildStatusFileTree(files), [files]);
-  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
+  const [collapsedFolders, setCollapsedFolders] = usePersistentWorkspacePanelState<Set<string>>(
+    `status-${side}-collapsed-folders`,
+    () => new Set()
+  );
   const treeRows = useMemo(
     () => flattenStatusFileTree(tree, collapsedFolders),
     [collapsedFolders, tree]
   );
-
-  useEffect(() => setCollapsedFolders(new Set()), [summary?.repoPath]);
 
   return (
     <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]" aria-label={title}>
@@ -9503,7 +9586,7 @@ function DiffPanel({
           ) : null}
         </div>
       </div>
-      <div className={`${outputClass}${changed ? " is-changed" : ""}`}>
+      <div data-workspace-scroll-key={`diff:${eyebrow}`} className={`${outputClass}${changed ? " is-changed" : ""}`}>
         {content}
       </div>
     </section>
@@ -9527,48 +9610,55 @@ function DiffRows({
   truncated: boolean;
   hunkAction?: DiffHunkAction | undefined;
 }): ReactNode {
-  const groups = useMemo(() => {
-    const rows = parseUnifiedDiff(text, truncated ? ["Diff truncated."] : []);
-    return groupDiffRowsByHunk(rows);
-  }, [text, truncated]);
+  const sessionRef = useRef<ReturnType<typeof createDiffProcessingSession> | null>(null);
   const {
-    value: highlightedResult,
-    requestValue: requestHighlightedResult,
+    value: processedValue,
+    requestValue: requestProcessedValue,
     rootRef,
     onPointerDownCapture
-  } = useSelectionSafeValue<{ groups: typeof groups; values: Map<number, HighlightedCode[]> } | null>(null);
+  } = useSelectionSafeValue<{
+    filePath: string;
+    text: string;
+    truncated: boolean;
+    result: ProcessedDiff;
+  } | null>(null);
 
   useEffect(() => {
+    const session = createDiffProcessingSession();
+    sessionRef.current = session;
+    return () => {
+      session.dispose();
+      if (sessionRef.current === session) sessionRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const session = sessionRef.current;
+    if (!session) return;
     let cancelled = false;
 
-    void import("./syntaxHighlighter.js")
-      .then(({ highlightDiffRows }) => {
-        if (cancelled) return;
-        requestHighlightedResult({
-          groups,
-          values: new Map(groups.map((group, groupIndex) => [
-            groupIndex,
-            highlightDiffRows(filePath, group.rows)
-          ]))
-        });
-      })
-      .catch(() => {
-        // Plain diff text stays available if optional syntax highlighting cannot load.
-      });
+    void session.process({ filePath, text, truncated }).then((result) => {
+      if (!cancelled && result) requestProcessedValue({ filePath, text, truncated, result });
+    });
 
     return () => {
       cancelled = true;
+      session.cancel();
     };
-  }, [filePath, groups, requestHighlightedResult]);
+  }, [filePath, requestProcessedValue, text, truncated]);
 
-  const highlightedGroups = highlightedResult?.groups === groups
-    ? highlightedResult.values
+  const processed = processedValue?.filePath === filePath
+    && processedValue.text === text
+    && processedValue.truncated === truncated
+    ? processedValue.result
     : null;
+  const groups = processed?.groups ?? [];
 
   let hunkNumber = 0;
 
   return (
-    <div className="diff-rows" ref={rootRef} onPointerDownCapture={onPointerDownCapture}>
+    <div className="diff-rows" ref={rootRef} aria-busy={!processed} onPointerDownCapture={onPointerDownCapture}>
+      {!processed ? <LoadingState label="Processing diff" className="min-h-32" /> : null}
       {groups.map((group, groupIndex) => {
         const groupKey = `${groupIndex}:${group.kind}:${group.rows[0]?.text ?? ""}`;
         const rowViews = group.rows.flatMap((row, rowIndex) => {
@@ -9577,7 +9667,7 @@ function DiffRows({
             <DiffRowView
               key={`${rowIndex}:${row.kind}:${row.oldLine ?? ""}:${row.newLine ?? ""}`}
               row={row}
-              highlighted={highlightedGroups?.get(groupIndex)?.[rowIndex] ?? { kind: "plain", value: row.text }}
+              highlighted={processed?.highlightedRows[groupIndex]?.[rowIndex] ?? { kind: "plain", value: row.text }}
             />
           ] : [];
         });
@@ -9769,7 +9859,7 @@ function HistoryView({
             ) : null}
             <ColumnVisibilityMenu columns={historyColumns} controller={columnLayout} />
           </div>
-          <div className="history-list" role="listbox" aria-label="Commit history">
+          <div className="history-list-shell">
             <AdjustableColumnHeader columns={historyColumns} controller={columnLayout} className="history-table-header" />
             {insightsError ? (
               <div className="history-insights-error" role="status">
@@ -9777,14 +9867,16 @@ function HistoryView({
                 <Button type="button" variant="ghost" size="sm" onClick={onRetryInsights}>Retry</Button>
               </div>
             ) : insightsLoading ? <span className="sr-only" role="status">Loading GitHub annotations</span> : null}
-            {historyLoading && history.length === 0 ? (
-              <LoadingState label="Loading commit history" className="h-full" />
-            ) : historyError && history.length === 0 ? (
-              <p className="empty-state bad selectable-text">{historyError}</p>
-            ) : !summary?.isValid ? (
-              null
-            ) : history.length === 0 ? (
-              <p className="empty-state">No commits in this repository.</p>
+            {history.length === 0 ? (
+              <div className="history-list" role="listbox" aria-label="Commit history">
+                {historyLoading ? (
+                  <LoadingState label="Loading commit history" className="h-full" />
+                ) : historyError ? (
+                  <p className="empty-state bad selectable-text">{historyError}</p>
+                ) : summary?.isValid ? (
+                  <p className="empty-state">No commits in this repository.</p>
+                ) : null}
+              </div>
             ) : (
               <>
                 {historyLoading ? <span className="sr-only" role="status">Refreshing commit history</span> : null}
@@ -9793,11 +9885,25 @@ function HistoryView({
                     Commit history refresh failed: {historyError}
                   </div>
                 ) : null}
-                <div className="history-rows">
-                  <CommitGraphSvg layout={graphLayout} selectedCommitHash={selectedCommitHash} />
-                  {history.map((commit) => (
+                <FixedSizeVirtualList
+                  items={history}
+                  itemKey={(commit) => commit.hash}
+                  rowHeight={COMMIT_GRAPH_ROW_HEIGHT}
+                  overscan={6}
+                  ariaLabel="Commit history"
+                  selectedKey={selectedCommitHash}
+                  className="history-list"
+                  multiSelectable={false}
+                  renderOverlay={(range) => (
+                    <CommitGraphSvg
+                      layout={graphLayout}
+                      selectedCommitHash={selectedCommitHash}
+                      visibleStartRow={range.start}
+                      visibleEndRow={range.end}
+                    />
+                  )}
+                  renderItem={(commit, _index, virtualRowProps) => (
                     <HistoryRow
-                      key={commit.hash}
                       commit={commit}
                       selected={commit.hash === selectedCommitHash}
                       tagsEnabled={summary?.capabilities.tags ?? true}
@@ -9806,9 +9912,10 @@ function HistoryView({
                       onSelectCommit={onSelectCommit}
                       onCommitContextAction={onCommitContextAction}
                       columnOrder={columnLayout.visibleOrder}
+                      virtualRowProps={virtualRowProps}
                     />
-                  ))}
-                </div>
+                  )}
+                />
               </>
             )}
           </div>
@@ -10347,12 +10454,16 @@ function GitHubViewHeader({
   );
 }
 
-function CommitGraphSvg({
+const CommitGraphSvg = memo(function CommitGraphSvg({
   layout,
-  selectedCommitHash
+  selectedCommitHash,
+  visibleStartRow,
+  visibleEndRow
 }: {
   layout: CommitGraphLayout;
   selectedCommitHash: string | null;
+  visibleStartRow: number;
+  visibleEndRow: number;
 }): ReactNode {
   if (layout.nodes.length === 0) {
     return null;
@@ -10368,7 +10479,7 @@ function CommitGraphSvg({
       aria-hidden="true"
     >
       <g className="commit-graph-edges">
-        {layout.edges.map((edge) => (
+        {layout.edges.filter((edge) => edge.fromRow < visibleEndRow && edge.toRow >= visibleStartRow).map((edge) => (
           <path
             key={edge.id}
             className={`commit-graph-edge lane-${edge.colorLane % 6}`}
@@ -10377,7 +10488,7 @@ function CommitGraphSvg({
         ))}
       </g>
       <g className="commit-graph-nodes">
-        {layout.nodes.map((node) => (
+        {layout.nodes.filter((node) => node.row >= visibleStartRow && node.row < visibleEndRow).map((node) => (
           <circle
             key={node.hash}
             data-testid="commit-graph-node"
@@ -10390,18 +10501,9 @@ function CommitGraphSvg({
       </g>
     </svg>
   );
-}
+});
 
-function HistoryRow({
-  commit,
-  selected,
-  tagsEnabled,
-  association,
-  onOpenExternalUrl,
-  onSelectCommit,
-  onCommitContextAction,
-  columnOrder
-}: {
+interface HistoryRowProps {
   commit: GitCommitGraphRow;
   selected: boolean;
   tagsEnabled: boolean;
@@ -10410,7 +10512,20 @@ function HistoryRow({
   onSelectCommit: (hash: string) => void;
   onCommitContextAction: (commit: GitCommitGraphRow, action: CommitContextActionKind) => void;
   columnOrder: readonly HistoryColumnId[];
-}): ReactNode {
+  virtualRowProps: VirtualRowProps;
+}
+
+const HistoryRow = memo(function HistoryRow({
+  commit,
+  selected,
+  tagsEnabled,
+  association,
+  onOpenExternalUrl,
+  onSelectCommit,
+  onCommitContextAction,
+  columnOrder,
+  virtualRowProps
+}: HistoryRowProps): ReactNode {
   return (
     <ContextMenu>
       <ContextMenuTrigger
@@ -10426,6 +10541,8 @@ function HistoryRow({
           role="option"
           tabIndex={0}
           aria-selected={selected}
+          data-virtual-index={virtualRowProps["aria-posinset"] - 1}
+          {...virtualRowProps}
           onClick={() => onSelectCommit(commit.hash)}
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ") {
@@ -10487,7 +10604,7 @@ function HistoryRow({
       </ContextMenuContent>
     </ContextMenu>
   );
-}
+}, areHistoryRowPropsEqual);
 
 function HistoryReferences({ commit, showEmpty = false }: { commit: GitCommitGraphRow; showEmpty?: boolean }): ReactNode {
   if (commit.refs.length === 0) return showEmpty ? <span className="github-secondary-text">-</span> : null;
@@ -11765,7 +11882,8 @@ function createInvalidSummary(repoPath: string, message: string): RepoSummary {
     defaultRemoteBranch: null,
     commitsAheadOfDefaultBranch: null,
     githubRepository: null,
-    statusLines: [],
+    ahead: null,
+    behind: null,
     files: [],
     safeDirectory: null,
     actionsConfig: createEmptyRendererActionsConfig(),
@@ -11785,7 +11903,8 @@ function createSummaryFromIdentity(identity: RepoIdentitySection): RepoSummary {
     defaultRemoteBranch: null,
     commitsAheadOfDefaultBranch: null,
     githubRepository: null,
-    statusLines: [],
+    ahead: null,
+    behind: null,
     files: [],
     actionsConfig: createEmptyRendererActionsConfig()
   };
@@ -11860,6 +11979,20 @@ function reconcileSelection(state: AppState): AppState {
   };
 }
 
+function areHistoryRowPropsEqual(previous: HistoryRowProps, next: HistoryRowProps): boolean {
+  return previous.commit === next.commit
+    && previous.selected === next.selected
+    && previous.tagsEnabled === next.tagsEnabled
+    && previous.association === next.association
+    && previous.onOpenExternalUrl === next.onOpenExternalUrl
+    && previous.onSelectCommit === next.onSelectCommit
+    && previous.onCommitContextAction === next.onCommitContextAction
+    && areStringArraysEqual(previous.columnOrder, next.columnOrder)
+    && previous.virtualRowProps["aria-posinset"] === next.virtualRowProps["aria-posinset"]
+    && previous.virtualRowProps["aria-setsize"] === next.virtualRowProps["aria-setsize"]
+    && previous.virtualRowProps.style.top === next.virtualRowProps.style.top;
+}
+
 function resolvePostHunkSelection(summary: RepoSummary | null, selection: FileSelection): FileSelection | null {
   if (!summary?.isValid) {
     return null;
@@ -11879,7 +12012,30 @@ function resolvePostHunkSelection(summary: RepoSummary | null, selection: FileSe
   return null;
 }
 
-function areStringArraysEqual(left: string[], right: string[]): boolean {
+function reuseCommitHistoryRows(
+  previous: GitCommitGraphRow[],
+  next: GitCommitGraphRow[]
+): GitCommitGraphRow[] {
+  if (previous.length !== next.length) return next;
+  return previous.every((commit, index) => areCommitHistoryRowsEqual(commit, next[index]!))
+    ? previous
+    : next;
+}
+
+function areCommitHistoryRowsEqual(left: GitCommitGraphRow, right: GitCommitGraphRow): boolean {
+  return left.hash === right.hash
+    && left.shortHash === right.shortHash
+    && left.subject === right.subject
+    && left.authorName === right.authorName
+    && left.authorEmail === right.authorEmail
+    && left.authorDate === right.authorDate
+    && left.relativeDate === right.relativeDate
+    && areStringArraysEqual(left.parents, right.parents)
+    && left.refs.length === right.refs.length
+    && left.refs.every((ref, index) => ref.name === right.refs[index]?.name && ref.kind === right.refs[index]?.kind);
+}
+
+function areStringArraysEqual(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
@@ -12692,7 +12848,7 @@ function getActionHeading(state: AppState): string {
   return "Ready";
 }
 
-function getActivityLogStatus(state: AppState): string {
+function getActivityLogOperationStatus(state: AppState): string | null {
   if (state.runningAction) {
     return `${capitalize(state.runningAction)} running`;
   }
@@ -12714,7 +12870,7 @@ function getActivityLogStatus(state: AppState): string {
     return state.lastOperationResult.exitCode === 0 ? "Operation complete" : "Operation failed";
   }
 
-  return hasActivityLogOutput(state.activityLog) ? "Output Available" : "Empty";
+  return null;
 }
 
 function getConfiguredActionRunningHeading(runs: ConfiguredActionRun[]): string {

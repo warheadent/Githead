@@ -1298,7 +1298,8 @@ describe("App", { timeout: 10_000 }, () => {
     const user = userEvent.setup();
     const pendingCommit = defer<GitOperationResult>();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      statusLines: ["# branch.ab +0 -0"],
+      ahead: 0,
+      behind: 0,
       files: [
         createStatusFile("src/renderer/App.tsx", {
           indexStatus: "M",
@@ -1367,7 +1368,8 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
     vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
       repoPath: requestedRepoPath,
-      statusLines: ["# branch.ab +1 -0"],
+      ahead: 1,
+      behind: 0,
       files: [createStatusFile(
         requestedRepoPath === repoPath ? "src/a.ts" : "src/b.ts",
         { indexStatus: "M", isStaged: true }
