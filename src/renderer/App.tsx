@@ -47,6 +47,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
   type DragEvent,
   type FormEvent,
@@ -867,6 +868,11 @@ const initialWindowState: AppWindowState = {
 export function App(): ReactNode {
   const [state, setState] = useState<AppState>(initialState);
   const [activityLogStore] = useState(() => new ActivityLogStore());
+  const activityLogAttention = useSyncExternalStore(
+    activityLogStore.subscribeAttention,
+    activityLogStore.getAttentionSnapshot,
+    activityLogStore.getAttentionSnapshot
+  );
   const [workspacePanelStateStore] = useState(() => new WorkspacePanelStateStore());
   const [performanceDiagnosticsOpen, setPerformanceDiagnosticsOpen] = useState(false);
   const [statusWorkspaceMode, setStatusWorkspaceMode] = useState<"files" | "plan">("files");
@@ -1044,6 +1050,10 @@ export function App(): ReactNode {
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  useEffect(() => {
+    activityLogStore.setViewing(state.activeView === "activity");
+  }, [activityLogStore, state.activeView]);
 
   const appendLog = useCallback((event: GitOutputEvent): void => {
     activityLogStore.append(event);
@@ -2722,6 +2732,7 @@ export function App(): ReactNode {
       if (!isActiveOperationCurrent(operation.token)) {
         return completedResult;
       }
+      activityLogStore.markOperationOutcome(lastResult.exitCode !== 0);
       updateState({
         lastResult,
         operationButtonFeedback: createOperationButtonFeedbackEvent(
@@ -2754,6 +2765,7 @@ export function App(): ReactNode {
         endedAt: new Date().toISOString()
       };
       completedResult = rendererResult;
+      activityLogStore.markOperationOutcome(true);
       updateState((latest) => ({
         ...latest,
         lastResult: {
@@ -5136,6 +5148,7 @@ export function App(): ReactNode {
       return;
     }
 
+    activityLogStore.setViewing(view === "activity");
     updateState({
       activeView: view,
       ...(view === "activity" ? { operationButtonFeedback: null } : {})
@@ -5153,7 +5166,7 @@ export function App(): ReactNode {
     if (view === "workflows") void github.ensure("workflowRuns");
     if (view === "pullRequests") void github.ensure("pullRequests");
     if (view === "issues") void github.ensure("issues");
-  }, [github.ensure, loadCommitHistory, refreshDirtyFileStatus, stashWorkspace.refresh, updateState]);
+  }, [activityLogStore, github.ensure, loadCommitHistory, refreshDirtyFileStatus, stashWorkspace.refresh, updateState]);
 
   useEffect(() => {
     if (
@@ -6088,8 +6101,9 @@ export function App(): ReactNode {
   );
   const pullRequestTabCount = github.counts.data ? formatCompactCount(github.counts.data.pullRequests) : null;
   const issueTabCount = github.counts.data ? formatCompactCount(github.counts.data.issues) : null;
-  const hasUnviewedOperationError = state.operationButtonFeedback?.outcome === "error"
-    && state.operationButtonFeedback.repoPath === state.repoPath;
+  const activityLogAttentionState = state.activeView === "activity" ? "none" : activityLogAttention;
+  const hasUnreadActivityLog = activityLogAttentionState !== "none";
+  const hasUnviewedOperationError = activityLogAttentionState === "error";
 
   if (state.startupStatus === "loading") {
     return (
@@ -6367,15 +6381,19 @@ export function App(): ReactNode {
                     <TooltipTrigger asChild>
                       <TabsTrigger
                         value="activity"
-                        aria-label={hasUnviewedOperationError ? "Activity Log, error details available" : "Activity Log"}
+                        aria-label={hasUnviewedOperationError
+                          ? "Activity Log, unread error details available"
+                          : hasUnreadActivityLog ? "Activity Log, unread output available" : "Activity Log"}
                         className="workspace-tab-trigger workspace-tab-trigger-end activity-log-tab h-9 rounded-none"
-                        data-error={hasUnviewedOperationError ? "true" : "false"}
+                        data-attention={hasUnviewedOperationError ? "error" : hasUnreadActivityLog ? "unread" : "none"}
                       >
                         <Clipboard />
-                        <span className="activity-log-error-indicator" aria-hidden="true" />
+                        <span className="activity-log-attention-indicator" aria-hidden="true" />
                       </TabsTrigger>
                     </TooltipTrigger>
-                    <TooltipContent>{hasUnviewedOperationError ? "View error details in Activity Log" : "Activity Log"}</TooltipContent>
+                    <TooltipContent>{hasUnviewedOperationError
+                      ? "View unread error details in Activity Log"
+                      : hasUnreadActivityLog ? "View unread Activity Log output" : "Activity Log"}</TooltipContent>
                   </Tooltip>
                 </TabsList>
               </div>

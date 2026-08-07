@@ -443,12 +443,12 @@ describe("App", { timeout: 10_000 }, () => {
       expect(button.querySelector(".operation-button-feedback")?.getAttribute("data-feedback")).toBe("error");
     });
 
-    const activityLogTab = screen.getByRole("tab", { name: "Activity Log, error details available" });
-    expect(activityLogTab.getAttribute("data-error")).toBe("true");
-    expect(activityLogTab.querySelector(".activity-log-error-indicator")).toBeTruthy();
+    const activityLogTab = screen.getByRole("tab", { name: "Activity Log, unread error details available" });
+    expect(activityLogTab.getAttribute("data-attention")).toBe("error");
+    expect(activityLogTab.querySelector(".activity-log-attention-indicator")).toBeTruthy();
 
     await user.click(activityLogTab);
-    expect(activityLogTab.getAttribute("data-error")).toBe("false");
+    expect(activityLogTab.getAttribute("data-attention")).toBe("none");
     expect(activityLogTab.getAttribute("aria-label")).toBe("Activity Log");
   });
 
@@ -626,7 +626,7 @@ describe("App", { timeout: 10_000 }, () => {
       expect(pushButton.querySelector(".operation-button-feedback")?.getAttribute("data-feedback")).toBe("success");
     });
     expect(screen.getByRole("tab", { name: "Commit History" }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByRole("tab", { name: "Activity Log" }).getAttribute("aria-selected")).toBe("false");
+    expect(screen.getByRole("tab", { name: /^Activity Log/ }).getAttribute("aria-selected")).toBe("false");
   });
 
   it("lazily renders and caches the working Markdown preview", async () => {
@@ -1179,7 +1179,7 @@ describe("App", { timeout: 10_000 }, () => {
     });
     expect(githead.runGitAction).not.toHaveBeenCalled();
     expect(screen.getByRole("tab", { name: "Commit History" }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByRole("tab", { name: "Activity Log" }).getAttribute("aria-selected")).toBe("false");
+    expect(screen.getByRole("tab", { name: /^Activity Log/ }).getAttribute("aria-selected")).toBe("false");
   });
 
   it("opens the Repository Actions manager without a .githead folder and saves a shared action", async () => {
@@ -1293,7 +1293,7 @@ describe("App", { timeout: 10_000 }, () => {
         operationId: expect.any(String)
       });
     });
-    expect(screen.getByRole("tab", { name: "Activity Log" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: /^Activity Log/ }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("does not retarget a configured action when the repository changes during trust lookup", async () => {

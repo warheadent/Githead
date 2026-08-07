@@ -54,4 +54,34 @@ describe("ActivityLogStore", () => {
     store.clear();
     expect(store.getRawText()).toBe("");
   });
+
+  it("tracks unread output without notifying on every chunk", () => {
+    const store = new ActivityLogStore();
+    const listener = vi.fn();
+    store.subscribeAttention(listener);
+
+    store.append(output("one\n"));
+    store.append(output("two\n"));
+
+    expect(store.getAttentionSnapshot()).toBe("unread");
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    store.append({ ...output("failure\n"), stream: "stderr" });
+    expect(store.getAttentionSnapshot()).toBe("error");
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  it("suppresses and clears attention while the log is being viewed", () => {
+    const store = new ActivityLogStore();
+    store.setViewing(true);
+    store.append(output("visible\n"));
+    expect(store.getAttentionSnapshot()).toBe("none");
+
+    store.setViewing(false);
+    store.markOperationOutcome(false);
+    expect(store.getAttentionSnapshot()).toBe("unread");
+
+    store.setViewing(true);
+    expect(store.getAttentionSnapshot()).toBe("none");
+  });
 });

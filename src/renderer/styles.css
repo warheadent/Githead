@@ -4381,7 +4381,7 @@ textarea,
   transition: color 180ms var(--ease-out);
 }
 
-.activity-log-tab[data-error="true"] {
+.activity-log-tab[data-attention="error"] {
   color: var(--destructive);
 }
 
@@ -4390,7 +4390,7 @@ textarea,
   z-index: 1;
 }
 
-.activity-log-error-indicator {
+.activity-log-attention-indicator {
   position: absolute;
   z-index: 2;
   right: 0.35rem;
@@ -4398,7 +4398,7 @@ textarea,
   width: 0.375rem;
   height: 0.375rem;
   border-radius: 999px;
-  background: var(--destructive);
+  background: var(--primary);
   box-shadow: 0 0 0 2px var(--card);
   opacity: 0;
   pointer-events: none;
@@ -4408,9 +4408,14 @@ textarea,
     transform 180ms var(--ease-out);
 }
 
-.activity-log-tab[data-error="true"] .activity-log-error-indicator {
+.activity-log-tab[data-attention="unread"] .activity-log-attention-indicator,
+.activity-log-tab[data-attention="error"] .activity-log-attention-indicator {
   opacity: 1;
   transform: scale(1);
+}
+
+.activity-log-tab[data-attention="error"] .activity-log-attention-indicator {
+  background: var(--destructive);
 }
 
 @keyframes motion-swap-exit {
@@ -4487,7 +4492,7 @@ textarea,
     transition-duration: 120ms !important;
   }
 
-  .activity-log-error-indicator {
+  .activity-log-attention-indicator {
     transform: none !important;
     transition-duration: 120ms !important;
   }
