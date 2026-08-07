@@ -1240,6 +1240,11 @@ textarea,
   white-space: nowrap;
 }
 
+.repo-remote-actions {
+  display: flex;
+  gap: 4px;
+}
+
 .commit-plan-view {
   display: grid;
   min-height: 0;

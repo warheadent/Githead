@@ -1243,6 +1243,20 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.runGitAction).not.toHaveBeenCalled();
   });
 
+  it("opens the hosted repository from the remote fact", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      remotes: [{ name: "origin", url: "git@github.com:openai/codex.git", direction: "fetch" }]
+    }));
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open remote repository" }));
+
+    expect(githead.openExternalUrl).toHaveBeenCalledWith({
+      url: "https://github.com/openai/codex"
+    });
+  });
+
   it("protects advanced remote URLs while retaining rename and remove actions", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRemoteConfigs).mockResolvedValue([

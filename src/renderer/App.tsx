@@ -182,6 +182,7 @@ import { AI_COMMIT_MESSAGE_PROVIDERS, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilit
 import { isMarkdownPath } from "../shared/filePreview";
 import { parseCommitSubject } from "../shared/commitSubject";
 import { parseGitHubReferences } from "../shared/githubReference";
+import { getRepositoryWebUrl } from "../shared/remoteWebUrl";
 import { ActivityLogPanel } from "./ActivityLogPanel";
 import { CommitPlanView } from "./CommitPlanView";
 import { BranchManagementDialog } from "./BranchManagementDialog";
@@ -6180,6 +6181,7 @@ export function App(): ReactNode {
               void setBranchUpstream(upstream);
             }}
             onOpenRemoteManager={openRemoteManager}
+            onOpenExternalUrl={openExternalUrl}
             onOpenSettings={openSettingsDialog}
             onCloneDraftChange={updateCloneDraft}
             onCloneSourceChange={(draft) => {
@@ -8057,6 +8059,7 @@ function RepositoryPanel({
   onOpenBranchManager,
   onChangeUpstream,
   onOpenRemoteManager,
+  onOpenExternalUrl,
   onOpenSettings,
   onCloneDraftChange,
   onCloneSourceChange,
@@ -8101,6 +8104,7 @@ function RepositoryPanel({
   onOpenBranchManager: () => void;
   onChangeUpstream: (upstream: string | null) => void;
   onOpenRemoteManager: () => void;
+  onOpenExternalUrl: (url: string) => void;
   onOpenSettings: () => void;
   onCloneDraftChange: (draft: CloneDraft) => void;
   onCloneSourceChange: (draft: CloneDraft) => void;
@@ -8116,6 +8120,7 @@ function RepositoryPanel({
   const remotes = summary?.remotes.length
     ? [...new Set(summary.remotes.map((remote) => remote.name))].join(", ")
     : "-";
+  const repositoryUrl = getRepositoryWebUrl(summary?.remotes ?? []);
   const addBusy = cloneRunning || cloneCheckRunning;
 
   const updateAddPopoverOpen = (open: boolean): void => {
@@ -8247,7 +8252,13 @@ function RepositoryPanel({
           />
         ) : null}
         {(summary?.capabilities.manageRemotes ?? false) ? (
-          <RemoteFact remotes={remotes} disabled={running || !summary?.isValid} onManage={onOpenRemoteManager} />
+          <RemoteFact
+            remotes={remotes}
+            repositoryUrl={repositoryUrl}
+            disabled={running || !summary?.isValid}
+            onOpen={onOpenExternalUrl}
+            onManage={onOpenRemoteManager}
+          />
         ) : (
           <Fact label={(summary?.capabilities.multipleRemotes ?? true) ? "Remotes" : "Remote"} value={remotes} />
         )}
@@ -12278,23 +12289,45 @@ function canStageStatusFile(file: GitStatusFile): boolean {
   return file.submodule?.canStage !== false;
 }
 
-function RemoteFact({ remotes, disabled, onManage }: { remotes: string; disabled: boolean; onManage: () => void }): ReactNode {
+function RemoteFact({ remotes, repositoryUrl, disabled, onOpen, onManage }: {
+  remotes: string;
+  repositoryUrl: string | null;
+  disabled: boolean;
+  onOpen: (url: string) => void;
+  onManage: () => void;
+}): ReactNode {
   return (
     <div className="repo-upstream-fact">
       <dt>Remotes</dt>
       <dd>
         <TooltipTarget content={remotes === "-" ? undefined : remotes}><span className="repo-upstream-name">{remotes}</span></TooltipTarget>
-        <TooltipButton
-          type="button"
-          variant="outline"
-          size="icon-xs"
-          disabled={disabled}
-          onClick={onManage}
-          aria-label="Manage remotes"
-          tooltip="Manage remotes"
-        >
-          <Settings />
-        </TooltipButton>
+        <span className="repo-remote-actions">
+          <TooltipButton
+            type="button"
+            variant="outline"
+            size="icon-xs"
+            disabled={disabled || !repositoryUrl}
+            onClick={() => {
+              if (repositoryUrl) onOpen(repositoryUrl);
+            }}
+            aria-label="Open remote repository"
+            tooltip="Open remote repository"
+            disabledTooltip={!repositoryUrl ? "No hosted repository URL available" : undefined}
+          >
+            <ExternalLink />
+          </TooltipButton>
+          <TooltipButton
+            type="button"
+            variant="outline"
+            size="icon-xs"
+            disabled={disabled}
+            onClick={onManage}
+            aria-label="Manage remotes"
+            tooltip="Manage remotes"
+          >
+            <Settings />
+          </TooltipButton>
+        </span>
       </dd>
     </div>
   );
