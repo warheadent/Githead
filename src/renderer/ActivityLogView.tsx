@@ -1,9 +1,10 @@
 import { ArrowDown, Clipboard, Eraser, WrapText } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ReactNode, type UIEvent } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type ReactNode, type UIEvent } from "react";
 import { Button, TooltipButton } from "@/components/ui/button";
 import type { ActivityLogBlock, ActivityLogState } from "./activityLog";
 import { hasActivityLogOutput } from "./activityLog";
 import { MotionPresence } from "./motion";
+import { usePersistentWorkspacePanelState } from "./workspacePanelState";
 
 interface ActivityLogViewProps {
   log: ActivityLogState;
@@ -19,7 +20,7 @@ export function ActivityLogView({
   onCopyRawLog
 }: ActivityLogViewProps): ReactNode {
   const outputRef = useRef<HTMLDivElement | null>(null);
-  const [wrapLines, setWrapLines] = useState(false);
+  const [wrapLines, setWrapLines] = usePersistentWorkspacePanelState("activity-wrap-lines", false);
   const [stickToBottom, setStickToBottom] = useState(true);
   const hasOutput = hasActivityLogOutput(log);
   const hasRawText = log.rawTextLength > 0;
@@ -86,6 +87,7 @@ export function ActivityLogView({
       </div>
       <div
         ref={outputRef}
+        data-workspace-scroll-key="activity-output"
         className={`log-output activity-log-output${wrapLines ? " is-wrapped" : ""}`}
         role="log"
         aria-live="polite"
@@ -115,7 +117,7 @@ export function ActivityLogView({
   );
 }
 
-function ActivityLogBlockView({ block }: { block: ActivityLogBlock }): ReactNode {
+const ActivityLogBlockView = memo(function ActivityLogBlockView({ block }: { block: ActivityLogBlock }): ReactNode {
   if (block.kind === "notice") {
     return (
       <div className="activity-log-block activity-log-notice" role="listitem">
@@ -133,7 +135,7 @@ function ActivityLogBlockView({ block }: { block: ActivityLogBlock }): ReactNode
       />
     </div>
   );
-}
+});
 
 function getStreamLabel(block: ActivityLogBlock): string {
   if (block.stream === "system") {

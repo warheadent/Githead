@@ -3160,9 +3160,7 @@ textarea,
 }
 
 .history-table-header {
-  position: sticky;
   z-index: 3;
-  top: 0;
   min-height: 30px;
   border-bottom: 1px solid var(--border);
   padding: 0 12px;
@@ -3170,6 +3168,16 @@ textarea,
   font-size: 0.76rem;
   font-weight: 700;
   background: var(--card);
+}
+
+.history-list-shell {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.history-list-shell > .history-list {
+  flex: 1 1 auto;
 }
 
 .history-row {
