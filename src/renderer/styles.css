@@ -16,6 +16,7 @@
   color-scheme: light;
   --font-ui: "Inter Variable", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   --font-code: "Cascadia Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --radius: 0.5rem;
   --background: oklch(0.975 0.005 255);
   --foreground: oklch(0.21 0.018 255);
@@ -4325,6 +4326,44 @@ textarea,
   animation: motion-swap-exit 120ms ease forwards;
 }
 
+.operation-button-feedback {
+  display: inline-grid;
+  align-items: center;
+  justify-items: center;
+}
+
+.operation-button-feedback-state {
+  display: inline-flex;
+  grid-area: 1 / 1;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity 180ms var(--ease-out),
+    transform 180ms var(--ease-out);
+}
+
+.operation-button-feedback-success {
+  opacity: 0;
+  transform: translateY(30%);
+}
+
+.operation-button-feedback-success::after {
+  content: attr(data-success-label);
+}
+
+.operation-button-feedback[data-success="true"] .operation-button-feedback-idle {
+  opacity: 0;
+  transform: translateY(-30%);
+}
+
+.operation-button-feedback[data-success="true"] .operation-button-feedback-success {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 @keyframes motion-swap-exit {
   from { opacity: 1; transform: translateY(0); }
   to { opacity: 0; transform: translateY(-2px); }
@@ -4392,6 +4431,11 @@ textarea,
     transform: none !important;
     animation-name: motion-swap-exit-reduced !important;
     animation-duration: 120ms !important;
+  }
+
+  .operation-button-feedback-state {
+    transform: none !important;
+    transition-duration: 120ms !important;
   }
 }
 

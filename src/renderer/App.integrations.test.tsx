@@ -410,6 +410,23 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.queryByRole("button", { name: /^Pull \(0\)$/ })).toBeNull();
   });
 
+  it.each([
+    { action: "fetch", buttonName: /^Fetch$/, successLabel: "Fetched" },
+    { action: "pull", buttonName: /^Pull$/, successLabel: "Pulled" }
+  ])("animates $successLabel after a successful $action", async ({ action, buttonName }) => {
+    const user = userEvent.setup();
+    vi.mocked(githead.runGitAction).mockResolvedValue(createRunResult(action));
+
+    render(<App />);
+
+    const button = await screen.findByRole("button", { name: buttonName });
+    await user.click(button);
+
+    await waitFor(() => {
+      expect(button.querySelector(".operation-button-feedback")?.getAttribute("data-success")).toBe("true");
+    });
+  });
+
   it("opens guided recovery after a forced-update pull failure", async () => {
     const user = userEvent.setup();
     const recovery = createPullRecovery();
@@ -570,7 +587,8 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(await screen.findByRole("tab", { name: "Commit History" }));
     expect(screen.getByRole("tab", { name: "Commit History" }).getAttribute("aria-selected")).toBe("true");
 
-    await user.click(await screen.findByRole("button", { name: /^Push$/ }));
+    const pushButton = await screen.findByRole("button", { name: /^Push$/ });
+    await user.click(pushButton);
 
     await waitFor(() => {
       expect(githead.runGitAction).toHaveBeenCalledWith({
@@ -578,6 +596,9 @@ describe("App", { timeout: 10_000 }, () => {
         action: "push",
         operationId: expect.any(String)
       });
+    });
+    await waitFor(() => {
+      expect(pushButton.querySelector(".operation-button-feedback")?.getAttribute("data-success")).toBe("true");
     });
     expect(screen.getByRole("tab", { name: "Commit History" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByRole("tab", { name: "Activity Log" }).getAttribute("aria-selected")).toBe("false");

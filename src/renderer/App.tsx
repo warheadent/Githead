@@ -58,6 +58,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button, TooltipButton } from "@/components/ui/button";
 import { LoadingState } from "./LoadingState";
 import {
+  createOperationButtonSuccessEvent,
+  OperationButtonFeedback,
+  type OperationButtonFeedbackSurface,
+  type OperationButtonSuccessEvent
+} from "./OperationButtonFeedback";
+import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
@@ -407,6 +413,7 @@ interface AppState {
   activeOperation: ActiveRendererOperation | null;
   lastResult: GitRunResult | null;
   lastOperationResult: GitOperationResult | null;
+  operationButtonSuccess: OperationButtonSuccessEvent | null;
   pullRecovery: GitPullRecovery | null;
   pullRecoveryOpen: boolean;
   pullRecoveryError: string;
@@ -797,6 +804,7 @@ const initialState: AppState = {
   activeOperation: null,
   lastResult: null,
   lastOperationResult: null,
+  operationButtonSuccess: null,
   pullRecovery: null,
   pullRecoveryOpen: false,
   pullRecoveryError: "",
@@ -1897,6 +1905,7 @@ export function App(): ReactNode {
       pushToBranchDialog: emptyPushToBranchDialog,
       lastResult: null,
       lastOperationResult: null,
+      operationButtonSuccess: null,
       pullRecovery: null,
       pullRecoveryOpen: false,
       pullRecoveryError: "",
@@ -2658,7 +2667,11 @@ export function App(): ReactNode {
       && (predicate?.(latest) ?? true);
   }, []);
 
-  const runAction = useCallback(async (action: GitAction, pushTarget?: GitPushTarget): Promise<GitRunResult | null> => {
+  const runAction = useCallback(async (
+    action: GitAction,
+    pushTarget?: GitPushTarget,
+    feedbackSurface: OperationButtonFeedbackSurface = "action-bar"
+  ): Promise<GitRunResult | null> => {
     const current = stateRef.current;
     if (!current.summary?.isValid || isOperationRunning(current)) {
       return null;
@@ -2695,7 +2708,8 @@ export function App(): ReactNode {
       ...latest,
       activeOperation: operation,
       runningAction: action,
-      lastResult: null
+      lastResult: null,
+      operationButtonSuccess: null
     }));
 
     try {
@@ -2710,6 +2724,9 @@ export function App(): ReactNode {
       }
       updateState({
         lastResult,
+        operationButtonSuccess: lastResult.exitCode === 0
+          ? createOperationButtonSuccessEvent(action, operation.operationId, repoPath, feedbackSurface)
+          : null,
         ...(lastResult.pullRecovery ? {
           pullRecovery: lastResult.pullRecovery,
           pullRecoveryOpen: true,
@@ -3181,7 +3198,11 @@ export function App(): ReactNode {
     label: string,
     nextSelection: FileSelection | null | undefined,
     operation: (operationId: string) => Promise<GitOperationResult>,
-    options: { requireValidRepo?: boolean; cancellable?: boolean } = {}
+    options: {
+      requireValidRepo?: boolean;
+      cancellable?: boolean;
+      successFeedback?: { action: "commit"; surface: OperationButtonFeedbackSurface };
+    } = {}
   ): Promise<GitOperationResult | null> => {
     const current = stateRef.current;
     if ((options.requireValidRepo ?? true) && !current.summary?.isValid) {
@@ -3202,7 +3223,8 @@ export function App(): ReactNode {
     updateState({
       activeOperation,
       runningOperation: label,
-      lastOperationResult: null
+      lastOperationResult: null,
+      ...(options.successFeedback ? { operationButtonSuccess: null } : {})
     });
 
     try {
@@ -3215,7 +3237,17 @@ export function App(): ReactNode {
       }
       operationResult = lastOperationResult;
       updateState({
-        lastOperationResult
+        lastOperationResult,
+        ...(options.successFeedback ? {
+          operationButtonSuccess: lastOperationResult.exitCode === 0
+            ? createOperationButtonSuccessEvent(
+                options.successFeedback.action,
+                activeOperation.operationId,
+                repoPath,
+                options.successFeedback.surface
+              )
+            : null
+        } : {})
       });
       appendOperationLog(label, lastOperationResult);
     } catch (error) {
@@ -4613,12 +4645,15 @@ export function App(): ReactNode {
       return null;
     }
 
-    const result = await runRepoOperation("Committing changes", null, (operationId) =>
-      window.githead.commitChanges({
+    const result = await runRepoOperation(
+      "Committing changes",
+      null,
+      (operationId) => window.githead.commitChanges({
         repoPath,
         message,
         operationId
-      })
+      }),
+      { successFeedback: { action: "commit", surface: "commit-panel" } }
     );
 
     if (!result || !isSameRepoPath(repoPath, stateRef.current.repoPath)) {
@@ -4698,7 +4733,7 @@ export function App(): ReactNode {
 
     const result = await commitChanges();
     if (result?.exitCode === 0) {
-      await runAction("push");
+      await runAction("push", undefined, "commit-panel");
     }
   }, [commitChanges, runAction]);
 
@@ -6219,6 +6254,7 @@ export function App(): ReactNode {
               heading={actionHeading}
               summary={state.summary}
               runningAction={state.runningAction}
+              successEvent={state.operationButtonSuccess?.repoPath === state.repoPath ? state.operationButtonSuccess : null}
               configuredActionRuns={state.configuredActionRuns}
               disabled={disableActions}
               cancellable={Boolean(cancellationTarget)}
@@ -6232,7 +6268,7 @@ export function App(): ReactNode {
                 if (action === "pull" && stateRef.current.pullRecovery) {
                   updateState({ pullRecoveryOpen: true, pullRecoveryError: "" });
                 } else {
-                  void runAction(action);
+                  void runAction(action, undefined, "action-bar");
                 }
               }}
               onOpenPushToBranch={openPushToBranchDialog}
@@ -6601,6 +6637,7 @@ export function App(): ReactNode {
                 disabled={disableActions}
                 primaryCommitAction={primaryCommitAction}
                 pushableCommitCount={getPushableCommitCount(state.summary)}
+                successEvent={state.operationButtonSuccess?.repoPath === state.repoPath ? state.operationButtonSuccess : null}
                 canCommit={canCommit(state)}
                 canGenerateCommitMessage={canGenerateCommitMessage(state)}
                 generateTitle={getGenerateMessageTitle(state)}
@@ -6608,7 +6645,7 @@ export function App(): ReactNode {
                   if (primaryCommitAction === "commit") {
                     void commitChanges();
                   } else if (primaryCommitAction === "push") {
-                    void runAction("push");
+                    void runAction("push", undefined, "commit-panel");
                   }
                 }}
                 onCommitAndPush={() => {
@@ -8612,6 +8649,7 @@ function ActionBar({
   heading,
   summary,
   runningAction,
+  successEvent,
   configuredActionRuns,
   disabled,
   cancellable,
@@ -8631,6 +8669,7 @@ function ActionBar({
   heading: string;
   summary: RepoSummary | null;
   runningAction: string | null;
+  successEvent: OperationButtonSuccessEvent | null;
   configuredActionRuns: ConfiguredActionRun[];
   disabled: boolean;
   cancellable: boolean;
@@ -8743,8 +8782,15 @@ function ActionBar({
             onClick={() => onRunAction("fetch")}
             className="min-w-24"
           >
-            {runningAction === "fetch" ? <Loader2 className="animate-spin" /> : <Download />}
-            Fetch
+            <OperationButtonFeedback
+              action="fetch"
+              event={successEvent}
+              successLabel="Fetched"
+              surface="action-bar"
+            >
+              {runningAction === "fetch" ? <Loader2 className="animate-spin" /> : <Download />}
+              Fetch
+            </OperationButtonFeedback>
           </Button>
         ) : null}
         <Button
@@ -8755,13 +8801,20 @@ function ActionBar({
           aria-label={pullAriaLabel}
           className="min-w-24"
         >
-          {runningAction === "pull" ? <Loader2 className="animate-spin" /> : pullRecovery ? <ShieldAlert /> : <Download />}
-          {pullLabel}
-          {!pullRecovery && !usesSync && pullableCommitCount > 0 ? (
-            <SyncCountChip title={formatCommitCountLabel(pullableCommitCount, "behind")}>
-              {pullableCommitCount}
-            </SyncCountChip>
-          ) : null}
+          <OperationButtonFeedback
+            action="pull"
+            event={successEvent}
+            successLabel={usesSync ? "Synced" : "Pulled"}
+            surface="action-bar"
+          >
+            {runningAction === "pull" ? <Loader2 className="animate-spin" /> : pullRecovery ? <ShieldAlert /> : <Download />}
+            {pullLabel}
+            {!pullRecovery && !usesSync && pullableCommitCount > 0 ? (
+              <SyncCountChip title={formatCommitCountLabel(pullableCommitCount, "behind")}>
+                {pullableCommitCount}
+              </SyncCountChip>
+            ) : null}
+          </OperationButtonFeedback>
         </Button>
         <div className="flex items-stretch">
           <Button
@@ -8772,13 +8825,20 @@ function ActionBar({
             aria-label={pushAriaLabel}
             className={`min-w-24 ${showPushMenu ? "rounded-r-none" : ""}`}
           >
-            {runningAction === "push" ? <Loader2 className="animate-spin" /> : <Upload />}
-            {publishInsteadOfPush ? "Publish" : "Push"}
-            {!publishInsteadOfPush && pushableCommitCount > 0 ? (
-              <SyncCountChip title={formatCommitCountLabel(pushableCommitCount, "ahead")}>
-                {pushableCommitCount}
-              </SyncCountChip>
-            ) : null}
+            <OperationButtonFeedback
+              action="push"
+              event={successEvent}
+              successLabel="Pushed"
+              surface="action-bar"
+            >
+              {runningAction === "push" ? <Loader2 className="animate-spin" /> : <Upload />}
+              {publishInsteadOfPush ? "Publish" : "Push"}
+              {!publishInsteadOfPush && pushableCommitCount > 0 ? (
+                <SyncCountChip title={formatCommitCountLabel(pushableCommitCount, "ahead")}>
+                  {pushableCommitCount}
+                </SyncCountChip>
+              ) : null}
+            </OperationButtonFeedback>
           </Button>
           {showPushMenu ? (
             <DropdownMenu>
@@ -10934,6 +10994,7 @@ function CommitPanel({
   disabled,
   primaryCommitAction,
   pushableCommitCount,
+  successEvent,
   canCommit: commitAllowed,
   canGenerateCommitMessage: generateAllowed,
   generateTitle,
@@ -10948,6 +11009,7 @@ function CommitPanel({
   disabled: boolean;
   primaryCommitAction: "commit" | "push" | null;
   pushableCommitCount: number;
+  successEvent: OperationButtonSuccessEvent | null;
   canCommit: boolean;
   canGenerateCommitMessage: boolean;
   generateTitle: string;
@@ -10965,6 +11027,10 @@ function CommitPanel({
     ? formatActionCountLabel("Push", pushableCommitCount)
     : undefined;
   const generateDisabled = disabled || !generateAllowed;
+  const feedbackAction: "commit" | "push" = successEvent?.surface === "commit-panel"
+    && (successEvent.action === "commit" || successEvent.action === "push")
+    ? successEvent.action
+    : primaryCommitAction === "push" ? "push" : "commit";
 
   return (
     <section className="grid min-h-0 gap-2.5 border-t bg-card px-6 py-4" aria-label="Commit staged files">
@@ -11023,13 +11089,20 @@ function CommitPanel({
             aria-label={primaryActionAriaLabel}
             className={primaryCommitAction === "commit" ? "rounded-r-none" : ""}
           >
-            {primaryCommitAction === "push" ? <Upload /> : <CheckCircle2 />}
-            {primaryActionLabel}
-            {primaryCommitAction === "push" && pushableCommitCount > 0 ? (
-              <SyncCountChip title={formatCommitCountLabel(pushableCommitCount, "ahead")}>
-                {pushableCommitCount}
-              </SyncCountChip>
-            ) : null}
+            <OperationButtonFeedback
+              action={feedbackAction}
+              event={successEvent}
+              successLabel={feedbackAction === "push" ? "Pushed" : "Committed"}
+              surface="commit-panel"
+            >
+              {primaryCommitAction === "push" ? <Upload /> : <CheckCircle2 />}
+              {primaryActionLabel}
+              {primaryCommitAction === "push" && pushableCommitCount > 0 ? (
+                <SyncCountChip title={formatCommitCountLabel(pushableCommitCount, "ahead")}>
+                  {pushableCommitCount}
+                </SyncCountChip>
+              ) : null}
+            </OperationButtonFeedback>
           </Button>
           {primaryCommitAction === "commit" ? (
             <DropdownMenu>

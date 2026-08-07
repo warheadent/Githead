@@ -832,7 +832,8 @@ describe("App", { timeout: 10_000 }, () => {
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: log commit output");
     expect((screen.getByRole("button", { name: /^Commit$/ }) as HTMLButtonElement).disabled).toBe(false);
 
-    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    const commitButton = screen.getByRole("button", { name: /^Commit$/ });
+    await user.click(commitButton);
 
     await waitFor(() => {
       expect(githead.commitChanges).toHaveBeenCalledWith({
@@ -840,6 +841,10 @@ describe("App", { timeout: 10_000 }, () => {
         message: "feat: log commit output",
         operationId: expect.any(String)
       });
+    });
+
+    await waitFor(() => {
+      expect(commitButton.querySelector(".operation-button-feedback")?.getAttribute("data-success")).toBe("true");
     });
 
     expect(screen.getByLabelText("Commit staged files").querySelector(".status-text")).toBeNull();
