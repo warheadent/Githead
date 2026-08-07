@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, type ReactNode } from "react";
 import { ChevronDown, Loader2, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -60,6 +60,8 @@ export function CommitPlanView({
     "commit-plan-exiting-groups",
     () => new Set()
   );
+  const [inboxCollapsed, setInboxCollapsed] = usePersistentWorkspacePanelState("commit-plan-inbox-collapsed", false);
+  const inboxId = useId();
   const previousRepoPathRef = useRef(repoPath);
   const fileByPath = useMemo(() => new Map(files.map((file) => [file.path, file])), [files]);
   const availablePaths = useMemo(
@@ -67,6 +69,15 @@ export function CommitPlanView({
     [files]
   );
   const blockedByStagedFiles = stagedCount > 0;
+  const plannedPaths = useMemo(
+    () => new Set(plan?.groups.flatMap((group) => group.paths) ?? []),
+    [plan]
+  );
+  const inboxPaths = useMemo(() => {
+    if (!plan) return availablePaths;
+    const unassignedPaths = new Set(plan.unassignedPaths);
+    return availablePaths.filter((path) => unassignedPaths.has(path) || !plannedPaths.has(path));
+  }, [availablePaths, plan, plannedPaths]);
 
   useEffect(() => {
     if (previousRepoPathRef.current === repoPath) return;
@@ -115,7 +126,7 @@ export function CommitPlanView({
     } : current);
   };
 
-  const movePath = (path: string, fromGroupId: string, targetGroupId: string | null): void => {
+  const movePath = (path: string, fromGroupId: string | null, targetGroupId: string | null): void => {
     setPlan((current) => {
       if (!current) return current;
       return {
@@ -166,12 +177,6 @@ export function CommitPlanView({
   }, []);
 
   const hasRenderedGroups = Boolean(plan && (plan.groups.length > 0 || exitingGroupIds.size > 0));
-  const unassignedSection = plan?.unassignedPaths.length ? (
-    <section className="commit-plan-unassigned" aria-label="Unassigned files">
-      <h3>Unassigned files ({plan.unassignedPaths.length})</h3>
-      {plan.unassignedPaths.map((path) => <div key={path}>{path}</div>)}
-    </section>
-  ) : null;
 
   return (
     <section className="commit-plan-view" aria-label="AI commit plan">
@@ -202,6 +207,62 @@ export function CommitPlanView({
       {error ? <div className="commit-plan-error" role="alert">{error}</div> : null}
 
       <div data-workspace-scroll-key="commit-plan" className="commit-plan-scroll">
+        <section className="commit-plan-inbox" aria-labelledby={`${inboxId}-title`}>
+          <header className="commit-plan-inbox-header">
+            <div className="commit-plan-inbox-copy">
+              <h3 id={`${inboxId}-title`}>Files to plan</h3>
+            </div>
+            <Badge variant={inboxPaths.length > 0 ? "secondary" : "outline"}>{inboxPaths.length}</Badge>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              aria-label={inboxCollapsed ? "Show files to plan" : "Hide files to plan"}
+              aria-expanded={!inboxCollapsed}
+              aria-controls={inboxId}
+              onClick={() => setInboxCollapsed((current) => !current)}
+            >
+              <ChevronDown className={inboxCollapsed ? "commit-plan-inbox-chevron is-collapsed" : "commit-plan-inbox-chevron"} />
+            </Button>
+          </header>
+          {!inboxCollapsed ? (
+            <div id={inboxId} className="commit-plan-inbox-content">
+              {inboxPaths.length > 0 ? (
+                <div className="commit-plan-files" role="list">
+                  {inboxPaths.map((path) => {
+                    const file = fileByPath.get(path);
+                    if (!file) return null;
+                    return (
+                      <div className={`commit-plan-file commit-plan-inbox-file ${selectedPath === path ? "is-selected" : ""}`} role="listitem" key={path}>
+                        <CommitPlanFileDetails file={file} onSelect={() => onSelectFile(file)} />
+                        {plan && plan.groups.length > 0 ? (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button type="button" variant="ghost" size="icon-xs" aria-label={`Assign ${path} to a commit`} disabled={disabled}>
+                                <ChevronDown />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              {plan.groups.map((target) => (
+                                <DropdownMenuItem key={target.id} onSelect={() => movePath(path, null, target.id)}>
+                                  {target.message}
+                                </DropdownMenuItem>
+                              ))}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="commit-plan-inbox-empty">
+                  {plan ? "Every eligible file is assigned to a planned commit." : "No eligible changed files."}
+                </p>
+              )}
+            </div>
+          ) : null}
+        </section>
         <MotionSwap
           className="commit-plan-state-swap"
           presenceClassName="commit-plan-state-presence"
@@ -217,10 +278,7 @@ export function CommitPlanView({
           } : !hasRenderedGroups ? {
             key: "complete",
             content: (
-              <>
-                <div className="commit-plan-empty"><strong>All planned groups are committed.</strong></div>
-                {unassignedSection}
-              </>
+              <div className="commit-plan-empty"><strong>All planned groups are committed.</strong></div>
             )
           } : {
             key: "groups",
@@ -260,7 +318,6 @@ export function CommitPlanView({
                           {group.paths.map((path) => {
                             const file = fileByPath.get(path);
                             if (!file) return null;
-                            const visuals = getFileStatusVisuals(file, "unstaged");
                             return (
                               <div className={`commit-plan-file ${selectedPath === path ? "is-selected" : ""}`} role="listitem" key={path}>
                                 <input
@@ -274,11 +331,7 @@ export function CommitPlanView({
                                     return next;
                                   })}
                                 />
-                                <button type="button" className="commit-plan-file-name" onClick={() => onSelectFile(file)}>
-                                  <span>{baseName(path)}</span>
-                                  <small>{directoryName(path)}</small>
-                                </button>
-                                <Badge variant="outline" className={`status-chip status-chip-${visuals.tone}`} title={visuals.label}>{visuals.code}</Badge>
+                                <CommitPlanFileDetails file={file} onSelect={() => onSelectFile(file)} />
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
                                     <Button type="button" variant="ghost" size="icon-xs" aria-label={`Move ${path} to another group`} disabled={disabled}>
@@ -305,13 +358,25 @@ export function CommitPlanView({
                   }))}
                   onItemExitComplete={finishGroupExit}
                 />
-                {unassignedSection}
               </>
             )
           }}
         />
       </div>
     </section>
+  );
+}
+
+function CommitPlanFileDetails({ file, onSelect }: { file: GitStatusFile; onSelect: () => void }): ReactNode {
+  const visuals = getFileStatusVisuals(file, "unstaged");
+  return (
+    <>
+      <Badge variant="outline" className={`status-chip status-chip-${visuals.tone}`} title={visuals.label}>{visuals.code}</Badge>
+      <button type="button" className="commit-plan-file-name" onClick={onSelect}>
+        <span>{baseName(file.path)}</span>
+        <small>{directoryName(file.path)}</small>
+      </button>
+    </>
   );
 }
 

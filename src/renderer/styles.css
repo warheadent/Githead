@@ -1296,6 +1296,61 @@ textarea,
   padding: 12px;
 }
 
+.commit-plan-inbox {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  overflow: hidden;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--foreground) 5%, transparent);
+}
+
+.commit-plan-inbox-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 12px;
+}
+
+.commit-plan-inbox-copy {
+  min-width: 0;
+}
+
+.commit-plan-inbox-copy h3 {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.commit-plan-inbox-content {
+  max-height: 160px;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+}
+
+.commit-plan-inbox-file {
+  min-height: 32px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding-block: 2px;
+}
+
+.commit-plan-inbox-empty {
+  padding: 11px 12px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.commit-plan-inbox-chevron {
+  transition: transform 140ms ease;
+}
+
+.commit-plan-inbox-chevron.is-collapsed {
+  transform: rotate(-90deg);
+}
+
 .commit-plan-state-swap {
   position: relative;
 }
@@ -1392,7 +1447,7 @@ textarea,
 .commit-plan-file {
   display: grid;
   min-height: 38px;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
@@ -1441,21 +1496,6 @@ textarea,
 .commit-plan-file-name small {
   color: var(--muted-foreground);
   font-size: 11px;
-}
-
-.commit-plan-unassigned {
-  border: 1px dashed var(--border);
-  border-radius: 8px;
-  padding: 10px 12px;
-  color: var(--muted-foreground);
-  font-size: 12px;
-}
-
-.commit-plan-unassigned h3 {
-  margin-bottom: 6px;
-  color: var(--foreground);
-  font-size: 12px;
-  font-weight: 600;
 }
 
 .repo-upstream-error {

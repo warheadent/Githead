@@ -54,12 +54,13 @@ afterEach(() => {
 
 function renderView(
   onGenerate = vi.fn().mockResolvedValue(generated),
-  onQuickCommit = vi.fn().mockResolvedValue(committed)
+  onQuickCommit = vi.fn().mockResolvedValue(committed),
+  viewFiles = files
 ): ReturnType<typeof render> {
   return render(
     <CommitPlanView
       repoPath="D:/repo"
-      files={files}
+      files={viewFiles}
       stagedCount={0}
       selectedPath={null}
       disabled={false}
@@ -81,6 +82,59 @@ async function generatePlan(): Promise<void> {
 }
 
 describe("CommitPlanView motion", () => {
+  it("shows eligible changed files in the persistent files-to-plan inbox", () => {
+    renderView();
+
+    const inbox = screen.getByRole("region", { name: "Files to plan" });
+    expect(inbox.textContent).toContain("2");
+    expect(inbox.textContent).toContain("a.ts");
+    expect(inbox.textContent).toContain("b.ts");
+    expect(screen.getByRole("button", { name: "Hide files to plan" }).getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("keeps only unassigned and newly changed files in the inbox after generation", async () => {
+    const generatedWithUnassigned = {
+      ...generated,
+      plan: {
+        groups: [plan.groups[0]!],
+        unassignedPaths: ["src/b.ts"]
+      }
+    };
+    const onGenerate = vi.fn().mockResolvedValue(generatedWithUnassigned);
+    const extraFile: GitStatusFile = {
+      path: "src/new.ts",
+      indexStatus: " ",
+      worktreeStatus: "?",
+      isStaged: false,
+      isUnstaged: true,
+      isConflicted: false
+    };
+    const view = renderView(onGenerate);
+    await generatePlan();
+
+    view.rerender(
+      <CommitPlanView
+        repoPath="D:/repo"
+        files={[...files, extraFile]}
+        stagedCount={0}
+        selectedPath={null}
+        disabled={false}
+        supported
+        canGenerate
+        generateTitle="Generate"
+        onSelectFile={vi.fn()}
+        onGenerate={onGenerate}
+        onQuickCommit={vi.fn().mockResolvedValue(committed)}
+      />
+    );
+
+    const inbox = screen.getByRole("region", { name: "Files to plan" });
+    expect(inbox.textContent).toContain("2");
+    expect(inbox.textContent).toContain("b.ts");
+    expect(inbox.textContent).toContain("new.ts");
+    expect(inbox.textContent).not.toContain("a.ts");
+  });
+
   it("swaps the empty state for an immediately usable generated plan", async () => {
     const { container } = renderView();
     act(() => vi.runOnlyPendingTimers());
@@ -161,6 +215,6 @@ describe("CommitPlanView motion", () => {
     act(() => vi.advanceTimersByTime(120));
 
     expect(screen.getByText("All planned groups are committed.")).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Unassigned files" }).textContent).toContain("src/b.ts");
+    expect(screen.getByRole("region", { name: "Files to plan" }).textContent).toContain("b.ts");
   });
 });
