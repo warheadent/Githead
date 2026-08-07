@@ -2,6 +2,7 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, safe
 import fs from "node:fs/promises";
 import path from "node:path";
 import { IPC_CHANNELS } from "../shared/ipc";
+import { PERFORMANCE_REFRESH_KINDS } from "../shared/types";
 import type {
   AiSettingsSaveRequest,
   RepositoryAiSettingsRequest,
@@ -72,6 +73,7 @@ import type {
   RepoTrustRequest,
   RepoSummaryReadRequest,
   RepoSectionRequest,
+  PerformanceRefreshRecord,
   GitRunRequest,
   GitRunResult,
   GitSafeDirectoryRequest,
@@ -101,11 +103,21 @@ import {
 } from "./coordinatedRepositoryOperation";
 import { deleteFiles, getStats, resolveRepoFilePath, showRepositoryInExplorer } from "./fileOperationService";
 import { GitIdentityService } from "./gitIdentityService";
+import { GitOutputBatcher, runWithGitOutputSink } from "./gitOutputBatcher";
 import { GitService } from "./gitService";
 import { DefaultGitHubClient, type GitHubClient } from "./githubClient";
 import { GitHubService } from "./githubService";
 import { RequestRegistry } from "./requestRegistry";
 import { LoreService } from "./loreService";
+import { InstrumentedProcessRunner } from "./instrumentedProcessRunner";
+import {
+  LOCAL_OPERATION_TIMEOUT_MS,
+  NETWORK_OPERATION_TIMEOUT_MS
+} from "./operationTimeouts";
+import {
+  PerformanceDiagnostics,
+  PerformanceDiagnosticsSessionRegistry
+} from "./performanceDiagnostics";
 import { NodeProcessRunner } from "./processRunner";
 import { PrDescriptionService } from "./prDescriptionService";
 import { getOpenRepositoryFileError } from "./openFilePolicy";
@@ -124,14 +136,18 @@ import { initializeSentry } from "./sentry";
 
 initializeSentry();
 
-const processRunner = new CancellableProcessRunner(new NodeProcessRunner());
+const performanceDiagnostics = new PerformanceDiagnostics({ appMetricsSource: app });
+const performanceDiagnosticsSessions = new PerformanceDiagnosticsSessionRegistry(performanceDiagnostics);
+const processRunner = new CancellableProcessRunner(
+  new InstrumentedProcessRunner(new NodeProcessRunner(), performanceDiagnostics)
+);
 const gitService = new GitService(processRunner);
 const loreService = new LoreService(processRunner);
 const vcsRouter = new VcsRouter(gitService, loreService);
 const repositoryOperations = new RepositoryOperationCoordinator();
-
-const LOCAL_OPERATION_TIMEOUT_MS = 10 * 60_000;
-const NETWORK_OPERATION_TIMEOUT_MS = 30 * 60_000;
+const gitOutputBatcher = new GitOutputBatcher({
+  getBroadcastTargets: () => BrowserWindow.getAllWindows().map((window) => window.webContents)
+});
 
 function isLoreSource(source: string): boolean {
   return source.trim().toLowerCase().startsWith("lore://");
@@ -191,6 +207,10 @@ async function createWindow(): Promise<void> {
   mainWindow.on("unmaximize", () => {
     sendWindowState(mainWindow);
   });
+  const outputWindow = mainWindow;
+  outputWindow.on("close", () => {
+    gitOutputBatcher.flushTarget(outputWindow.webContents);
+  });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     const parsed = normalizeExternalUrl(url);
@@ -223,6 +243,8 @@ function watchRepositoryOperationOwner(webContents: Electron.WebContents): Set<s
   const ownerSessions = new Set<string>();
   repositoryOperationOwnerSessions.set(webContents, ownerSessions);
   const cancelOwnedOperations = () => {
+    gitOutputBatcher.flushTarget(webContents);
+    performanceDiagnosticsSessions.stop(webContents);
     for (const ownerId of ownerSessions) {
       repositoryOperations.cancelAll(ownerId);
     }
@@ -251,12 +273,6 @@ function watchRepositoryOperationOwner(webContents: Electron.WebContents): Set<s
 
 function getWindowBackgroundColor(): string {
   return nativeTheme.shouldUseDarkColors ? "#12161b" : "#f4f5f7";
-}
-
-function sendGitOutput(event: GitOutputEvent): void {
-  BrowserWindow.getAllWindows().forEach((window) => {
-    window.webContents.send(IPC_CHANNELS.gitOutput, event);
-  });
 }
 
 function getDisplayWorkAreas(): Electron.Rectangle[] {
@@ -295,6 +311,8 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  gitOutputBatcher.flushAll();
+  performanceDiagnosticsSessions.stopAll();
   appUpdateService?.stop();
   repoWatchService?.stopWatching();
 });
@@ -374,6 +392,7 @@ ipcMain.handle(IPC_CHANNELS.getGitOperationStates, (event, request: GetGitOperat
 });
 
 ipcMain.handle(IPC_CHANNELS.cancelGitOperation, (event, request: CancelGitOperationRequest) => {
+  gitOutputBatcher.flushTarget(event.sender);
   return repositoryOperations.cancel(request.operationId, getRepositoryOperationOwnerId(event));
 });
 
@@ -678,7 +697,8 @@ ipcMain.handle(IPC_CHANNELS.setBranchUpstream, async (event, request: Coordinate
 
 ipcMain.handle(IPC_CHANNELS.publishBranch, async (event, request: CoordinatedRequest<GitPublishBranchRequest>) => {
   return runTrustedExclusiveGitOperation(
-    async () => (await vcsRouter.serviceForRepo(request.repoPath)).publishBranch(request, sendGitOutput),
+    async () => withOwnedGitOutput(event, async (onOutput) =>
+      (await vcsRouter.serviceForRepo(request.repoPath)).publishBranch(request, onOutput)),
     repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS)
   );
 });
@@ -994,10 +1014,10 @@ ipcMain.handle(IPC_CHANNELS.checkRepositoryAccess, async (event, request: Coordi
 
 ipcMain.handle(IPC_CHANNELS.runGitAction, async (event, request: CoordinatedRequest<GitRunRequest>) => {
   return runTrustedExclusiveRepositoryOperation(
-    async () => {
+    async () => withOwnedGitOutput(event, async (onOutput) => {
       const service = await vcsRouter.serviceForRepo(request.repoPath);
-      return service.runGitAction(request, sendGitOutput);
-    },
+      return service.runGitAction(request, onOutput);
+    }),
     repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS),
     (failure) => createGitRunFailure("untrusted", request.action, request.repoPath, failure.stderr),
     () => createGitRunFailure(
@@ -1043,10 +1063,10 @@ ipcMain.handle(IPC_CHANNELS.resolvePullRecovery, async (event, request: Coordina
 ipcMain.handle(IPC_CHANNELS.runConfiguredAction, async (event, request: CoordinatedRequest<GitConfiguredActionRunRequest>) => {
   const actionName = request.name.trim() || "Actions";
   return runTrustedExclusiveRepositoryOperation(
-    async () => {
+    async () => withOwnedGitOutput(event, async (onOutput) => {
       const service = await vcsRouter.serviceForRepo(request.repoPath);
-      return service.runConfiguredAction(request, sendGitOutput);
-    },
+      return service.runConfiguredAction(request, onOutput);
+    }),
     repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS),
     (failure) => createGitRunFailure("untrusted", actionName, request.repoPath, failure.stderr),
     () => createGitRunFailure(
@@ -1124,6 +1144,45 @@ ipcMain.handle(IPC_CHANNELS.getWindowState, () => {
   return getAppWindowState(getWindowForControl());
 });
 
+ipcMain.handle(IPC_CHANNELS.startPerformanceDiagnostics, (event) => {
+  watchRepositoryOperationOwner(event.sender);
+  return performanceDiagnosticsSessions.start(event.sender);
+});
+
+ipcMain.handle(IPC_CHANNELS.getPerformanceDiagnosticsSnapshot, (event) => {
+  return performanceDiagnosticsSessions.snapshot(event.sender);
+});
+
+ipcMain.handle(IPC_CHANNELS.stopPerformanceDiagnostics, (event) => {
+  performanceDiagnosticsSessions.stop(event.sender);
+});
+
+ipcMain.on(IPC_CHANNELS.recordPerformanceRefresh, (_event, record: unknown) => {
+  const normalized = normalizePerformanceRefreshRecord(record);
+  if (normalized) {
+    performanceDiagnostics.recordRefresh(normalized);
+  }
+});
+
+function normalizePerformanceRefreshRecord(record: unknown): PerformanceRefreshRecord | null {
+  if (!record || typeof record !== "object") return null;
+  const candidate = record as Partial<PerformanceRefreshRecord>;
+  if (!PERFORMANCE_REFRESH_KINDS.includes(candidate.refreshKind as PerformanceRefreshRecord["refreshKind"])) return null;
+  if (!isNonNegativeFiniteNumber(candidate.requestCount)) return null;
+  if (!isNonNegativeFiniteNumber(candidate.coalescedCount)) return null;
+  if (!isNonNegativeFiniteNumber(candidate.queueDepth)) return null;
+  return {
+    refreshKind: candidate.refreshKind,
+    requestCount: candidate.requestCount,
+    coalescedCount: candidate.coalescedCount,
+    queueDepth: candidate.queueDepth
+  } as PerformanceRefreshRecord;
+}
+
+function isNonNegativeFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
 function runExclusiveGitOperation(
   operation: (signal: AbortSignal) => Promise<GitOperationResult>,
   options: RepositoryOperationOptions
@@ -1138,6 +1197,13 @@ function runExclusiveGitOperation(
       stderr: "Another git command is already running for this repository."
     })
   );
+}
+
+async function withOwnedGitOutput<T>(
+  event: Electron.IpcMainInvokeEvent,
+  operation: (onOutput: (output: GitOutputEvent) => void) => Promise<T>
+): Promise<T> {
+  return runWithGitOutputSink(gitOutputBatcher.createSink(event.sender), operation);
 }
 
 function runTrustedExclusiveGitOperation(

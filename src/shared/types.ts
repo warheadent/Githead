@@ -389,7 +389,8 @@ export interface RepoSummary {
   defaultRemoteBranch: GitRemoteBranch | null;
   commitsAheadOfDefaultBranch: number | null;
   githubRepository: GitHubRepository | null;
-  statusLines: string[];
+  ahead: number | null;
+  behind: number | null;
   files: GitStatusFile[];
   submodules?: GitSubmodule[];
   validationErrors: string[];
@@ -605,7 +606,8 @@ export interface RepoIdentitySection {
 export interface RepoStatusSection {
   repoPath: string;
   generation: number;
-  statusLines: string[];
+  ahead: number | null;
+  behind: number | null;
   files: GitStatusFile[];
   submodules?: GitSubmodule[];
 }
@@ -1416,6 +1418,99 @@ export interface AppWindowState {
   isMaximized: boolean;
 }
 
+export const PERFORMANCE_COMMAND_KINDS = [
+  "git",
+  "lore",
+  "github",
+  "ai",
+  "configured-action",
+  "system",
+  "other"
+] as const;
+
+export const PERFORMANCE_COMMAND_OUTCOMES = [
+  "success",
+  "failure",
+  "cancelled",
+  "timed-out",
+  "truncated",
+  "rejected"
+] as const;
+
+export const PERFORMANCE_REFRESH_KINDS = [
+  "status",
+  "metadata",
+  "snapshot",
+  "references",
+  "github",
+  "other"
+] as const;
+
+export type PerformanceCommandKind = (typeof PERFORMANCE_COMMAND_KINDS)[number];
+export type PerformanceCommandOutcome = (typeof PERFORMANCE_COMMAND_OUTCOMES)[number];
+export type PerformanceRefreshKind = (typeof PERFORMANCE_REFRESH_KINDS)[number];
+
+export type PerformanceProcessKind = "browser" | "renderer" | "gpu" | "utility" | "other";
+
+export interface PerformanceCommandSample {
+  type: "command";
+  sequence: number;
+  recordedAtMs: number;
+  commandKind: PerformanceCommandKind;
+  durationMs: number;
+  outcome: PerformanceCommandOutcome;
+  outputBytes: number;
+  queueDepth: number;
+}
+
+export interface PerformanceQueueSample {
+  type: "queue";
+  sequence: number;
+  recordedAtMs: number;
+  queueDepth: number;
+}
+
+export interface PerformanceRefreshSample {
+  type: "refresh";
+  sequence: number;
+  recordedAtMs: number;
+  refreshKind: PerformanceRefreshKind;
+  refreshRequestCount: number;
+  refreshCoalescedCount: number;
+  queueDepth: number;
+}
+
+export interface PerformanceRefreshRecord {
+  refreshKind: PerformanceRefreshKind;
+  requestCount: number;
+  coalescedCount: number;
+  queueDepth: number;
+}
+
+export type PerformanceDiagnosticSample =
+  | PerformanceCommandSample
+  | PerformanceQueueSample
+  | PerformanceRefreshSample;
+
+export interface PerformanceProcessMetric {
+  processKind: PerformanceProcessKind;
+  percentCpuUsage: number;
+  idleWakeupsPerSecond: number;
+  workingSetKilobytes: number;
+  peakWorkingSetKilobytes: number;
+  privateKilobytes: number;
+}
+
+export interface PerformanceDiagnosticsSnapshot {
+  samples: PerformanceDiagnosticSample[];
+  processMetrics: PerformanceProcessMetric[];
+  processMetricsStatus: "available" | "unavailable";
+  processMetricLimit: number;
+  droppedProcessMetricCount: number;
+  retainedSampleLimit: number;
+  droppedSampleCount: number;
+}
+
 export interface GitheadApi {
   chooseRepo(defaultPath?: string): Promise<string | null>;
   chooseCloneParent(defaultPath?: string): Promise<string | null>;
@@ -1532,6 +1627,10 @@ export interface GitheadApi {
   toggleMaximizeWindow(): Promise<AppWindowState>;
   closeWindow(): Promise<void>;
   getWindowState(): Promise<AppWindowState>;
+  startPerformanceDiagnostics(): Promise<PerformanceDiagnosticsSnapshot>;
+  getPerformanceDiagnosticsSnapshot(): Promise<PerformanceDiagnosticsSnapshot>;
+  stopPerformanceDiagnostics(): Promise<void>;
+  recordPerformanceRefresh(record: PerformanceRefreshRecord): void;
   onGitOutput(callback: (event: GitOutputEvent) => void): () => void;
   onRepoChanged(callback: (event: RepoChangedEvent) => void): () => void;
   onUpdateState(callback: (state: AppUpdateState) => void): () => void;

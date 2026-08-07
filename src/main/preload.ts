@@ -320,6 +320,15 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.closeWindow) as ReturnType<GitheadApi["closeWindow"]>,
   getWindowState: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getWindowState) as ReturnType<GitheadApi["getWindowState"]>,
+  startPerformanceDiagnostics: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.startPerformanceDiagnostics) as ReturnType<GitheadApi["startPerformanceDiagnostics"]>,
+  getPerformanceDiagnosticsSnapshot: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.getPerformanceDiagnosticsSnapshot) as ReturnType<GitheadApi["getPerformanceDiagnosticsSnapshot"]>,
+  stopPerformanceDiagnostics: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.stopPerformanceDiagnostics) as ReturnType<GitheadApi["stopPerformanceDiagnostics"]>,
+  recordPerformanceRefresh: (record) => {
+    ipcRenderer.send(IPC_CHANNELS.recordPerformanceRefresh, record);
+  },
   onGitOutput: (callback: (event: GitOutputEvent) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, output: GitOutputEvent) => {
       callback(output);

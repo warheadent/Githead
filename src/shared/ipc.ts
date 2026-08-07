@@ -117,5 +117,9 @@ export const IPC_CHANNELS = {
   toggleMaximizeWindow: "window:toggle-maximize",
   closeWindow: "window:close",
   getWindowState: "window:state:get",
-  windowState: "window:state"
+  windowState: "window:state",
+  startPerformanceDiagnostics: "performance-diagnostics:start",
+  getPerformanceDiagnosticsSnapshot: "performance-diagnostics:snapshot",
+  stopPerformanceDiagnostics: "performance-diagnostics:stop",
+  recordPerformanceRefresh: "performance-diagnostics:record-refresh"
 } as const;
