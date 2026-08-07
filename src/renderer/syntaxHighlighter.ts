@@ -27,6 +27,8 @@ export interface HighlightedCode {
   value: string;
 }
 
+export const MAX_TOKENIZED_LINE_LENGTH = 1_000;
+
 const LANGUAGE_BY_EXTENSION = new Map<string, string>([
   ["bash", "bash"],
   ["c", "cpp"],
@@ -163,6 +165,35 @@ function highlightCodeLines(language: string, lines: readonly string[]): Highlig
     return [];
   }
 
+  const highlightedLines = lines.map(createPlainCode);
+  let segmentStart = 0;
+
+  for (let lineIndex = 0; lineIndex <= lines.length; lineIndex += 1) {
+    const line = lines[lineIndex];
+    const endsSegment = lineIndex === lines.length
+      || (line?.length ?? 0) > MAX_TOKENIZED_LINE_LENGTH;
+
+    if (!endsSegment) {
+      continue;
+    }
+
+    if (segmentStart < lineIndex) {
+      const segment = highlightCodeSegment(language, lines.slice(segmentStart, lineIndex));
+
+      if (segment) {
+        segment.forEach((value, segmentIndex) => {
+          highlightedLines[segmentStart + segmentIndex] = value;
+        });
+      }
+    }
+
+    segmentStart = lineIndex + 1;
+  }
+
+  return highlightedLines;
+}
+
+function highlightCodeSegment(language: string, lines: readonly string[]): HighlightedCode[] | null {
   try {
     const html = hljs.highlight(lines.join("\n"), {
       language,

@@ -27,6 +27,7 @@ interface FixedSizeVirtualListProps<T> {
   className?: string;
   multiSelectable?: boolean;
   role?: "listbox" | "tree";
+  renderOverlay?: (range: Readonly<VisibleRange>) => ReactNode;
   renderItem: (item: T, index: number, rowProps: VirtualRowProps) => ReactNode;
 }
 
@@ -62,6 +63,7 @@ export function FixedSizeVirtualList<T>({
   className,
   multiSelectable = true,
   role = "listbox",
+  renderOverlay,
   renderItem
 }: FixedSizeVirtualListProps<T>): ReactNode {
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -153,6 +155,7 @@ export function FixedSizeVirtualList<T>({
       onScroll={handleScroll}
     >
       <div className="virtual-list-spacer" style={{ height: `${items.length * rowHeight}px` }}>
+        {renderOverlay?.(range)}
         {visibleItems.map((item, offset) => {
           const index = range.start + offset;
           return <Fragment key={itemKey(item)}>{renderItem(item, index, {

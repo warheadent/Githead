@@ -1,7 +1,7 @@
 import hljs from "highlight.js/lib/core";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { parseUnifiedDiff } from "./diffParser";
-import { detectDiffLanguage, highlightDiffRows } from "./syntaxHighlighter";
+import { detectDiffLanguage, highlightDiffRows, MAX_TOKENIZED_LINE_LENGTH } from "./syntaxHighlighter";
 
 describe("detectDiffLanguage", () => {
   it("maps common code file extensions to registered languages", () => {
@@ -145,6 +145,29 @@ describe("highlightDiffRows", () => {
         kind: "plain",
         value: "const value = false;"
       });
+    } finally {
+      highlightSpy.mockRestore();
+    }
+  });
+
+  it("keeps oversized lines plain and highlights bounded neighboring lines", () => {
+    const oversizedLine = `const text = '${"x".repeat(MAX_TOKENIZED_LINE_LENGTH)}';`;
+    const rows = parseUnifiedDiff([
+      "@@ -0,0 +1,3 @@",
+      "+const before = true;",
+      `+${oversizedLine}`,
+      "+const after = false;"
+    ].join("\n"));
+    const highlightSpy = vi.spyOn(hljs, "highlight");
+
+    try {
+      const result = highlightDiffRows("src/example.ts", rows);
+
+      expect(result[1]?.kind).toBe("highlighted");
+      expect(result[2]).toEqual({ kind: "plain", value: oversizedLine });
+      expect(result[3]?.kind).toBe("highlighted");
+      expect(highlightSpy).toHaveBeenCalledTimes(2);
+      expect(highlightSpy.mock.calls.every(([value]) => value.length <= MAX_TOKENIZED_LINE_LENGTH)).toBe(true);
     } finally {
       highlightSpy.mockRestore();
     }
