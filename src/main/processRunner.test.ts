@@ -2,7 +2,11 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { NodeProcessRunner } from "./processRunner";
+import {
+  DEFAULT_PROCESS_MAX_OUTPUT_BYTES,
+  DEFAULT_PROCESS_TIMEOUT_MS,
+  NodeProcessRunner
+} from "./processRunner";
 
 async function withTempDir<T>(fn: (directory: string) => Promise<T>): Promise<T> {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "githead-process-runner-"));
@@ -14,6 +18,11 @@ async function withTempDir<T>(fn: (directory: string) => Promise<T>): Promise<T>
 }
 
 describe("NodeProcessRunner.run", () => {
+  it("defines bounded defaults for text commands", () => {
+    expect(DEFAULT_PROCESS_TIMEOUT_MS).toBe(60_000);
+    expect(DEFAULT_PROCESS_MAX_OUTPUT_BYTES).toBe(8 * 1024 * 1024);
+  });
+
   it("supports response-driven process input", async () => {
     const result = await new NodeProcessRunner().run(
       process.execPath,
@@ -111,6 +120,106 @@ describe("NodeProcessRunner.run", () => {
     expect(result.exitCode).not.toBe(0);
     expect(result.error).toBe("Command timed out after 50ms.");
     expect(result.terminationReason).toBe("timedOut");
+  });
+
+  it("terminates a command when stdout exceeds the error-mode limit", async () => {
+    const result = await new NodeProcessRunner(25, 25).run(
+      process.execPath,
+      ["-e", "process.stdout.write('abcdef'); setInterval(() => {}, 1000)"],
+      { maxOutputBytes: 5, outputMode: "error" }
+    );
+
+    expect(result).toMatchObject({
+      exitCode: -1,
+      stdout: "abcde",
+      stderr: "",
+      terminationReason: "outputLimit",
+      exceededLimit: true,
+      stdoutTruncated: true,
+      stderrTruncated: false,
+      outputLimitStream: "stdout"
+    });
+    expect(result.error).toContain("stdout exceeded the 5 byte output limit");
+  });
+
+  it("truncates stdout without changing a successful exit", async () => {
+    const result = await new NodeProcessRunner().run(
+      process.execPath,
+      ["-e", "process.stdout.write('abcdef')"],
+      { maxOutputBytes: 3, outputMode: "truncate", truncatedMarker: "[cut]" }
+    );
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stdout: "abc[cut]",
+      stderr: "",
+      terminationReason: "exited",
+      exceededLimit: false,
+      stdoutTruncated: true,
+      stderrTruncated: false
+    });
+  });
+
+  it("bounds stderr independently from stdout", async () => {
+    const result = await new NodeProcessRunner().run(
+      process.execPath,
+      ["-e", "process.stdout.write('ok'); process.stderr.write('warning')"],
+      { maxOutputBytes: 4, outputMode: "truncate" }
+    );
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stdout: "ok",
+      stderr: "warn",
+      stdoutTruncated: false,
+      stderrTruncated: true
+    });
+  });
+
+  it("does not split UTF-8 characters in retained or streamed output", async () => {
+    const streamed: string[] = [];
+    const script = [
+      "const bytes = Buffer.from('A🙂B');",
+      "process.stdout.write(bytes.subarray(0, 2));",
+      "setTimeout(() => process.stdout.write(bytes.subarray(2, 4)), 5);",
+      "setTimeout(() => process.stdout.write(bytes.subarray(4)), 10);"
+    ].join(" ");
+    const result = await new NodeProcessRunner().run(process.execPath, ["-e", script], {
+      onOutput: ({ text }) => streamed.push(text)
+    });
+
+    expect(result.stdout).toBe("A🙂B");
+    expect(streamed.join("")).toBe("A🙂B");
+    expect(streamed.join("")).not.toContain("�");
+  });
+
+  it("drops an incomplete UTF-8 sequence at a truncation boundary", async () => {
+    const result = await new NodeProcessRunner().run(
+      process.execPath,
+      ["-e", "process.stdout.write('A🙂B')"],
+      { maxOutputBytes: 4, outputMode: "truncate", truncatedMarker: "[cut]" }
+    );
+
+    expect(result.stdout).toBe("A[cut]");
+    expect(result.stdout).not.toContain("�");
+    expect(result.stdoutTruncated).toBe(true);
+  });
+
+  it("honors an explicit output limit larger than the default", async () => {
+    const outputBytes = DEFAULT_PROCESS_MAX_OUTPUT_BYTES + 1;
+    const result = await new NodeProcessRunner().run(
+      process.execPath,
+      ["-e", `process.stdout.write('x'.repeat(${outputBytes}))`],
+      { maxOutputBytes: outputBytes, timeoutMs: 10_000 }
+    );
+
+    expect(Buffer.byteLength(result.stdout)).toBe(outputBytes);
+    expect(result).toMatchObject({
+      exitCode: 0,
+      exceededLimit: false,
+      stdoutTruncated: false,
+      stderrTruncated: false
+    });
   });
 
   it("completes once and removes the abort listener before a late abort", async () => {

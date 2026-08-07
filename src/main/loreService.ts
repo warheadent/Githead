@@ -78,6 +78,7 @@ import type {
   RepoSyncStatus
 } from "../shared/types";
 import { loreCapabilities } from "../shared/types";
+import { NETWORK_OPERATION_TIMEOUT_MS } from "./operationTimeouts";
 import { createEmptyActionsConfig, readActionsConfig } from "./actionsConfig";
 import { validateCloneRequest } from "./cloneValidation";
 import type { GitOutputHandler } from "./gitService";
@@ -191,7 +192,8 @@ export class LoreService implements VcsService {
       defaultRemoteBranch: null,
       commitsAheadOfDefaultBranch: null,
       githubRepository: null,
-      statusLines: [],
+      ahead: null,
+      behind: null,
       files: status.files,
       safeDirectory: null,
       actionsConfig,
@@ -211,7 +213,7 @@ export class LoreService implements VcsService {
     const validation = await this.validateRepo(request.repoPath);
     if (!validation.isValid) throw new Error(validation.error);
     const status = parseLoreStatus((await this.runLore(validation.rootPath, ["status", "--scan"])).stdout);
-    return { repoPath: validation.rootPath, generation: request.generation, statusLines: [], files: status.files };
+    return { repoPath: validation.rootPath, generation: request.generation, ahead: null, behind: null, files: status.files };
   }
 
   async getRepoMetadata(request: RepoSectionRequest): Promise<RepoMetadataSection> {
@@ -559,7 +561,8 @@ export class LoreService implements VcsService {
       ] : [])
     ];
     const result = await this.runner.run("lore", args, {
-      cwd: validation.parentPath
+      cwd: validation.parentPath,
+      timeoutMs: NETWORK_OPERATION_TIMEOUT_MS
     });
 
     return {
@@ -817,7 +820,9 @@ export class LoreService implements VcsService {
     const args = LORE_ACTION_COMMANDS[request.action] ?? [
       "sync"
     ];
-    const options: ProcessRunOptions = {};
+    const options: ProcessRunOptions = {
+      timeoutMs: NETWORK_OPERATION_TIMEOUT_MS
+    };
     if (onOutput) {
       options.onOutput = (output) =>
         onOutput({
@@ -1162,7 +1167,8 @@ export class LoreService implements VcsService {
       defaultRemoteBranch: null,
       commitsAheadOfDefaultBranch: null,
       githubRepository: null,
-      statusLines: [],
+      ahead: null,
+      behind: null,
       files: [],
       safeDirectory: null,
       actionsConfig: createEmptyActionsConfig(),

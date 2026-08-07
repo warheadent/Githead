@@ -432,7 +432,8 @@ describe("LoreService", () => {
           "demo"
         ],
         options: {
-          cwd: dir
+          cwd: dir,
+          timeoutMs: 30 * 60_000
         }
       });
     });
@@ -541,6 +542,7 @@ describe("LoreService", () => {
         "-P",
         "sync"
       ]);
+      expect(pullRunner.calls[1]?.options?.timeoutMs).toBe(30 * 60_000);
 
       const pushRunner = new FakeRunner([
         ok("ok"),
@@ -557,6 +559,7 @@ describe("LoreService", () => {
         "-P",
         "push"
       ]);
+      expect(pushRunner.calls[1]?.options?.timeoutMs).toBe(30 * 60_000);
     });
   });
 

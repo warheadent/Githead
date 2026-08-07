@@ -75,7 +75,10 @@ describe("GitService progressive Repository sections", () => {
     const runner = new FakeRunner([ok("")]);
     const service = new GitService(runner);
 
-    await service.getRepoStatus({ repoPath: "D:\\Repo", generation: 2 });
+    await expect(service.getRepoStatus({ repoPath: "D:\\Repo", generation: 2 })).resolves.toMatchObject({
+      ahead: null,
+      behind: null
+    });
 
     expect(runner.calls[0]?.args).toEqual(["-C", "D:\\Repo", "--no-optional-locks", "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all"]);
   });
@@ -499,7 +502,10 @@ describe("GitService", () => {
     expect(result.exitCode).toBe(0);
     expect(runner.calls.at(-1)).toMatchObject({
       command: "git",
-      args: ["-C", "D:\\Repo", "fetch", "--all", "--prune"]
+      args: ["-C", "D:\\Repo", "fetch", "--all", "--prune"],
+      options: expect.objectContaining({
+        timeoutMs: 30 * 60_000
+      })
     });
   });
 
@@ -1293,7 +1299,8 @@ describe("GitService", () => {
           path.join(dir, "repo")
         ],
         options: {
-          cwd: dir
+          cwd: dir,
+          timeoutMs: 30 * 60_000
         }
       });
     });
@@ -1919,7 +1926,8 @@ describe("GitService", () => {
         command,
         args,
         options: expect.objectContaining({
-          cwd: dir
+          cwd: dir,
+          timeoutMs: 30 * 60_000
         })
       });
     });
@@ -2790,6 +2798,31 @@ describe("GitService", () => {
       "--file=-"
     ]);
     expect(stdinText(runner.calls.at(-1)!)).toBe("subject\n\nbody\n");
+  });
+
+  it("parses compact ahead and behind values without retained status lines", () => {
+    const parsed = parsePorcelainStatus([
+      "# branch.head main",
+      "# branch.upstream origin/main",
+      "# branch.ab +12 -3",
+      trackedRecord(".M", "src/file.ts")
+    ].join("\0"));
+
+    expect(parsed).toMatchObject({
+      ahead: 12,
+      behind: 3,
+      files: [
+        expect.objectContaining({ path: "src/file.ts" })
+      ]
+    });
+    expect(parsed).not.toHaveProperty("statusLines");
+  });
+
+  it("returns null counts for malformed ahead-behind data", () => {
+    expect(parsePorcelainStatus("# branch.ab +2\0")).toMatchObject({
+      ahead: null,
+      behind: null
+    });
   });
 
   it("stages and commits only the Quick Commit paths", async () => {

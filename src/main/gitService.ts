@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Effect } from "effect";
+import { NETWORK_OPERATION_TIMEOUT_MS } from "./operationTimeouts";
 import type {
   CommitRef,
   GitAction,
@@ -92,7 +93,7 @@ import { getSupportedGitHubOrigin, parseGitHubRemoteUrl } from "../shared/github
 import { gitCapabilities, isGitAction } from "../shared/types";
 import { createEmptyActionsConfig, getActionKey, readActionsConfig, saveActionsConfigFile } from "./actionsConfig";
 import { validateCloneRequest } from "./cloneValidation";
-import type { ProcessOutput, ProcessResult, ProcessRunner } from "./processRunner";
+import type { ProcessOutput, ProcessResult, ProcessRunOptions, ProcessRunner } from "./processRunner";
 import { mapRepoSyncStatuses } from "./repoSyncStatus";
 import { IMAGE_PREVIEW_LIMIT, imageFallbackText, imageVersionFromBytes, isPreviewableImagePath, type ImageReadResult } from "./imageDiff";
 import { escapeLfsIncludePath, isGitLfsPointerDiff, parseGitLfsPointer, parseLocalMediaDir, resolveLocalLfsImage, type GitLfsPointer } from "./gitLfs";
@@ -160,7 +161,8 @@ const emptySummary = (
   defaultRemoteBranch: null,
   commitsAheadOfDefaultBranch: null,
   githubRepository: null,
-  statusLines: [],
+  ahead: null,
+  behind: null,
   files: [],
   safeDirectory,
   actionsConfig: createEmptyActionsConfig(),
@@ -195,7 +197,7 @@ export class GitService {
   async getRepoStatus(request: RepoSectionRequest): Promise<RepoStatusSection> {
     const result = await this.runGitStatus(request.repoPath, ["--porcelain=v2", "-z", "--branch", "--untracked-files=all"]);
     const status = parsePorcelainStatus(result.stdout);
-    return { repoPath: request.repoPath, generation: request.generation, statusLines: status.statusLines, files: status.files, submodules: await this.getSubmodules(request.repoPath, status.files) };
+    return { repoPath: request.repoPath, generation: request.generation, ahead: status.ahead, behind: status.behind, files: status.files, submodules: await this.getSubmodules(request.repoPath, status.files) };
   }
 
   async getRepoMetadata(request: RepoSectionRequest): Promise<RepoMetadataSection> {
@@ -271,14 +273,13 @@ export class GitService {
       }
 
       const status = parsePorcelainStatus(statusResult.stdout);
-      const counts = parseAheadBehindCounts(status.statusLines);
 
       return {
         repoPath,
         kind: "git",
         isValid: true,
-        ahead: counts?.ahead ?? 0,
-        behind: counts?.behind ?? 0,
+        ahead: status.ahead ?? 0,
+        behind: status.behind ?? 0,
         error: ""
       };
     } catch (error) {
@@ -369,7 +370,8 @@ export class GitService {
       validation.destinationPath
     ];
     const result = await this.runner.run("git", args, {
-      cwd: validation.parentPath
+      cwd: validation.parentPath,
+      timeoutMs: NETWORK_OPERATION_TIMEOUT_MS
     });
 
     return {
@@ -1225,7 +1227,7 @@ export class GitService {
     const pathArgs = request.path ? ["--", request.path] : [];
     const result = await this.runGit(request.repoPath, [
       "submodule", "update", "--init", "--recursive", ...pathArgs
-    ]);
+    ], undefined, undefined, undefined, NETWORK_OPERATION_TIMEOUT_MS);
     return {
       repoPath: request.repoPath, exitCode: result.exitCode,
       stdout: result.stdout || (result.exitCode === 0 ? "Submodules updated." : ""),
@@ -1958,6 +1960,7 @@ export class GitService {
     const result = await this.runner.run(shellCommand.command, shellCommand.args, {
       cwd: repoRoot,
       ...createTerminalColorRunOptions(),
+      timeoutMs: NETWORK_OPERATION_TIMEOUT_MS,
       onOutput: (output) => {
         onOutput?.(this.createOutputEvent(runId, configuredAction.name, output.stream, output.text));
       }
@@ -2382,9 +2385,10 @@ export class GitService {
     args: string[],
     onOutput?: (output: ProcessOutput) => void,
     stdin?: string | Buffer,
-    env?: NodeJS.ProcessEnv
+    env?: NodeJS.ProcessEnv,
+    timeoutMs?: number
   ): Promise<ProcessResult> {
-    const options = createRunOptions(onOutput, stdin, env);
+    const options = createRunOptions(onOutput, stdin, env, timeoutMs);
 
     return this.runner.run("git", [
       "-C",
@@ -2799,7 +2803,7 @@ export class GitService {
 
     return await this.runGit(repoPath, commandArgs, (output) => {
       onOutput?.(this.createOutputEvent(runId, action, output.stream, output.text));
-    }, undefined, createTerminalColorEnv());
+    }, undefined, createTerminalColorEnv(), NETWORK_OPERATION_TIMEOUT_MS);
   }
 
   private async runPushWithTags(
@@ -3084,16 +3088,18 @@ function normalizeSafeDirectoryPath(repoPath: string): { path: string } | { erro
 function createRunOptions(
   onOutput?: (output: ProcessOutput) => void,
   stdin?: string | Buffer,
-  env?: NodeJS.ProcessEnv
-): { onOutput?: (output: ProcessOutput) => void; stdin?: string | Buffer; env?: NodeJS.ProcessEnv } | undefined {
-  if (!onOutput && stdin === undefined && !env) {
+  env?: NodeJS.ProcessEnv,
+  timeoutMs?: number
+): ProcessRunOptions | undefined {
+  if (!onOutput && stdin === undefined && !env && timeoutMs === undefined) {
     return undefined;
   }
 
   return {
     ...(onOutput ? { onOutput } : {}),
     ...(stdin !== undefined ? { stdin } : {}),
-    ...(env ? { env } : {})
+    ...(env ? { env } : {}),
+    ...(timeoutMs === undefined ? {} : { timeoutMs })
   };
 }
 
@@ -3568,16 +3574,21 @@ function splitAtFirst(text: string, separator: string): [string, string] {
   ];
 }
 
-export function parsePorcelainStatus(text: string): { files: GitStatusFile[]; statusLines: string[] } {
+export function parsePorcelainStatus(text: string): { files: GitStatusFile[]; ahead: number | null; behind: number | null } {
   const records = text.split("\0").filter((record) => record.length > 0);
   const files: GitStatusFile[] = [];
-  const branchLines: string[] = [];
+  let ahead: number | null = null;
+  let behind: number | null = null;
 
   for (let index = 0; index < records.length; index += 1) {
     const record = records[index] ?? "";
 
     if (record.startsWith("# ")) {
-      branchLines.push(record);
+      const counts = parseAheadBehindLine(record);
+      if (counts) {
+        ahead = counts.ahead;
+        behind = counts.behind;
+      }
       continue;
     }
 
@@ -3615,16 +3626,13 @@ export function parsePorcelainStatus(text: string): { files: GitStatusFile[]; st
 
   return {
     files,
-    statusLines: [
-      ...branchLines,
-      ...files.map((file) => `${file.indexStatus}${file.worktreeStatus} ${file.path}`)
-    ]
+    ahead,
+    behind
   };
 }
 
-function parseAheadBehindCounts(statusLines: string[]): { ahead: number; behind: number } | null {
-  const aheadBehindLine = statusLines.find((line) => line.startsWith("# branch.ab "));
-  const match = /^# branch\.ab \+(?<ahead>\d+) -(?<behind>\d+)$/.exec(aheadBehindLine ?? "");
+function parseAheadBehindLine(line: string): { ahead: number; behind: number } | null {
+  const match = /^# branch\.ab \+(?<ahead>\d+) -(?<behind>\d+)$/.exec(line);
   if (!match?.groups) {
     return null;
   }
