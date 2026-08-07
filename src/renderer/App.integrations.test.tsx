@@ -443,12 +443,13 @@ describe("App", { timeout: 10_000 }, () => {
       expect(button.querySelector(".operation-button-feedback")?.getAttribute("data-feedback")).toBe("error");
     });
 
-    const activityLogTab = screen.getByRole("tab", { name: "Activity Log" });
+    const activityLogTab = screen.getByRole("tab", { name: "Activity Log, error details available" });
     expect(activityLogTab.getAttribute("data-error")).toBe("true");
-    expect(within(activityLogTab).getByText("View log")).toBeTruthy();
+    expect(activityLogTab.querySelector(".activity-log-error-indicator")).toBeTruthy();
 
     await user.click(activityLogTab);
     expect(activityLogTab.getAttribute("data-error")).toBe("false");
+    expect(activityLogTab.getAttribute("aria-label")).toBe("Activity Log");
   });
 
   it("opens guided recovery after a forced-update pull failure", async () => {

@@ -6088,6 +6088,8 @@ export function App(): ReactNode {
   );
   const pullRequestTabCount = github.counts.data ? formatCompactCount(github.counts.data.pullRequests) : null;
   const issueTabCount = github.counts.data ? formatCompactCount(github.counts.data.issues) : null;
+  const hasUnviewedOperationError = state.operationButtonFeedback?.outcome === "error"
+    && state.operationButtonFeedback.repoPath === state.repoPath;
 
   if (state.startupStatus === "loading") {
     return (
@@ -6365,15 +6367,15 @@ export function App(): ReactNode {
                     <TooltipTrigger asChild>
                       <TabsTrigger
                         value="activity"
-                        aria-label="Activity Log"
+                        aria-label={hasUnviewedOperationError ? "Activity Log, error details available" : "Activity Log"}
                         className="workspace-tab-trigger workspace-tab-trigger-end activity-log-tab h-9 rounded-none"
-                        data-error={state.operationButtonFeedback?.outcome === "error" && state.operationButtonFeedback.repoPath === state.repoPath ? "true" : "false"}
+                        data-error={hasUnviewedOperationError ? "true" : "false"}
                       >
                         <Clipboard />
-                        <span className="activity-log-error-hint" aria-hidden="true">View log</span>
+                        <span className="activity-log-error-indicator" aria-hidden="true" />
                       </TabsTrigger>
                     </TooltipTrigger>
-                    <TooltipContent>Activity Log</TooltipContent>
+                    <TooltipContent>{hasUnviewedOperationError ? "View error details in Activity Log" : "Activity Log"}</TooltipContent>
                   </Tooltip>
                 </TabsList>
               </div>
