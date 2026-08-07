@@ -104,6 +104,7 @@ import { readGitFileBlame } from "./gitBlame";
 import { runEffect, tryPromise } from "../shared/effectRuntime";
 import { runProcessEffect } from "./processEffect";
 import { GIT_STASH_LIST_FORMAT, isGitStashRef, parseGitStashFiles, parseGitStashList } from "./gitStash";
+import { formatRevertCommitMessage } from "../shared/revertCommitMessage";
 
 export const GIT_ACTION_COMMANDS: Record<GitAction, string[]> = {
   fetch: [
@@ -1020,10 +1021,29 @@ export class GitService {
       return this.createOperationFailure(request.repoPath, hashResult.error);
     }
 
-    return this.runGitOperation(request.repoPath, [
-      "revert",
-      "--no-edit",
+    const subjectResult = await this.runGitOperation(request.repoPath, [
+      "show",
+      "--no-patch",
+      "--format=%s",
       hashResult.hash
+    ]);
+    if (subjectResult.exitCode !== 0) {
+      return subjectResult;
+    }
+
+    const revertResult = await this.runGitOperation(request.repoPath, [
+      "revert",
+      "--no-commit",
+      hashResult.hash
+    ]);
+    if (revertResult.exitCode !== 0) {
+      return revertResult;
+    }
+
+    return this.runGitOperation(request.repoPath, [
+      "commit",
+      "--message",
+      formatRevertCommitMessage(subjectResult.stdout)
     ]);
   }
 

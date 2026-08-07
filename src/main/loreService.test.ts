@@ -639,6 +639,7 @@ describe("LoreService", () => {
     await withLoreRepo(async (dir) => {
       const runner = new FakeRunner([
         ok("ok"),
+        ok(`Revision  : 42\nSignature : 7154881d5d929c4487cdee9d65fd7b9c6edb6de8994f819c80ac4191a8f08af4\n\n    Add account settings\n`),
         ok("Reverted"),
         ok("ok"),
         ok("Reset")
@@ -655,15 +656,17 @@ describe("LoreService", () => {
         mode: "hard"
       });
 
-      expect(runner.calls[1]?.args).toEqual([
+      expect(runner.calls[2]?.args).toEqual([
         "--repository",
         dir,
         "-P",
         "revision",
         "revert",
-        "7154881d5d929c4487cdee9d65fd7b9c6edb6de8994f819c80ac4191a8f08af4"
+        "7154881d5d929c4487cdee9d65fd7b9c6edb6de8994f819c80ac4191a8f08af4",
+        "--message",
+        "revert: Add account settings"
       ]);
-      expect(runner.calls[3]?.args).toEqual([
+      expect(runner.calls[4]?.args).toEqual([
         "--repository",
         dir,
         "-P",

@@ -97,6 +97,7 @@ import {
   parseLoreRevision,
   parseLoreStatus
 } from "./loreParsers";
+import { formatRevertCommitMessage } from "../shared/revertCommitMessage";
 
 const NOT_IMPLEMENTED = "This operation is not yet available for Lore repositories.";
 const DEFAULT_HISTORY_LIMIT = 200;
@@ -724,10 +725,22 @@ export class LoreService implements VcsService {
       return this.failure(request.repoPath, "Revision signature is invalid.");
     }
 
+    const infoResult = await this.runLore(validation.rootPath, [
+      "revision",
+      "info",
+      hash
+    ]);
+    const revision = parseLoreRevision(infoResult.stdout);
+    if (infoResult.exitCode !== 0 || !revision) {
+      return this.toOperationResult(request.repoPath, infoResult);
+    }
+
     const result = await this.runLore(validation.rootPath, [
       "revision",
       "revert",
-      hash
+      hash,
+      "--message",
+      formatRevertCommitMessage(revision.subject)
     ]);
     return this.toOperationResult(request.repoPath, result);
   }

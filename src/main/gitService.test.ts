@@ -2610,9 +2610,11 @@ describe("GitService", () => {
     expect(runner.calls).toHaveLength(1);
   });
 
-  it("reverts a commit without opening an editor", async () => {
+  it("reverts a commit with a conventional commit message", async () => {
     const runner = new FakeRunner([
       ok("true\n"),
+      ok("add account settings\n"),
+      ok(),
       ok()
     ]);
     const service = new GitService(runner);
@@ -2623,12 +2625,19 @@ describe("GitService", () => {
     });
 
     expect(result.exitCode).toBe(0);
-    expect(runner.calls.at(-1)?.args).toEqual([
+    expect(runner.calls.at(-2)?.args).toEqual([
       "-C",
       "D:\\Repo",
       "revert",
-      "--no-edit",
+      "--no-commit",
       oid
+    ]);
+    expect(runner.calls.at(-1)?.args).toEqual([
+      "-C",
+      "D:\\Repo",
+      "commit",
+      "--message",
+      "revert: add account settings"
     ]);
   });
 
