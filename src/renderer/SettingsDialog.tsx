@@ -74,11 +74,11 @@ export interface SettingsDraft {
 type SettingsCategory = "appearance" | "git-identity" | "sync" | "ai" | "diagnostics";
 
 const categories = [
-  { id: "appearance", label: "Appearance", description: "Theme and interface scale", icon: Palette },
-  { id: "git-identity", label: "Git Identity", description: "Commit author details", icon: GitCommitHorizontal },
-  { id: "sync", label: "Sync", description: "Automatic fetch behavior", icon: RefreshCw },
-  { id: "ai", label: "AI", description: "Generation providers and prompts", icon: Bot },
-  { id: "diagnostics", label: "Diagnostics", description: "On-demand performance metrics", icon: Gauge }
+  { id: "appearance", label: "Appearance", icon: Palette },
+  { id: "git-identity", label: "Git Identity", icon: GitCommitHorizontal },
+  { id: "sync", label: "Sync", icon: RefreshCw },
+  { id: "ai", label: "AI", icon: Bot },
+  { id: "diagnostics", label: "Diagnostics", icon: Gauge }
 ] as const;
 
 export interface SettingsDialogProps {
@@ -186,12 +186,12 @@ export function SettingsDialog({
                   ))}
                 </select>
                 <TabsList aria-label="Settings categories" className="hidden h-auto w-full flex-col items-stretch gap-1 bg-transparent p-0 md:flex">
-                  {categories.map(({ id, label, description, icon: Icon }) => (
+                  {categories.map(({ id, label, icon: Icon }) => (
                     <TabsTrigger
                       key={id}
                       value={id}
                       aria-label={label}
-                      className="group h-auto min-h-14 w-full justify-start gap-3 px-3 py-2 text-left data-[state=active]:bg-accent data-[state=active]:shadow-none"
+                      className="group h-auto w-full justify-start gap-3 px-3 py-2 text-left data-[state=active]:bg-accent data-[state=active]:shadow-none"
                     >
                       <Icon className="size-4 shrink-0 text-muted-foreground group-data-[state=active]:text-foreground" aria-hidden="true" />
                       <span className="min-w-0 flex-1">
@@ -200,7 +200,6 @@ export function SettingsDialog({
                           {dirtyCategories[id] ? <span className="size-1.5 rounded-full bg-primary" aria-label="Unsaved changes" /> : null}
                           {error && id === "git-identity" ? <CircleAlert className="size-3.5 text-destructive" aria-label="Error" /> : null}
                         </span>
-                        <span className="block truncate text-xs font-normal text-muted-foreground">{description}</span>
                       </span>
                     </TabsTrigger>
                   ))}
