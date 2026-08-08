@@ -58,6 +58,7 @@ import type {
   GitPathRequest,
   GitPublishBranchRequest,
   GitPullRecoveryRequest,
+  GitRepositoryOperationActionRequest,
   GitRemoveRemoteRequest,
   GitRenameRemoteRequest,
   GitRepositoryAccessCheckRequest,
@@ -106,6 +107,10 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getRepoStatus, request) as ReturnType<GitheadApi["getRepoStatus"]>,
   getRepoMetadata: (request: RepoSectionRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getRepoMetadata, request) as ReturnType<GitheadApi["getRepoMetadata"]>,
+  getRepositoryOperationState: (repoPath: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getRepositoryOperationState, repoPath) as ReturnType<GitheadApi["getRepositoryOperationState"]>,
+  resolveRepositoryOperation: (request: CoordinatedRequest<GitRepositoryOperationActionRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.resolveRepositoryOperation, request) as ReturnType<GitheadApi["resolveRepositoryOperation"]>,
   cancelRepositoryRead: (request: CancelRepositoryReadRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.cancelRepositoryRead, request) as ReturnType<GitheadApi["cancelRepositoryRead"]>,
   getGitOperationStates: (request: GetGitOperationStatesRequest) =>

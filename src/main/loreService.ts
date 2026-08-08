@@ -39,6 +39,9 @@ import type {
   GitLfsImageFetchRequest,
   GitIgnorePathRequest,
   GitOperationResult,
+  GitRepositoryOperationActionRequest,
+  GitRepositoryOperationActionResult,
+  GitRepositoryOperationState,
   GitPathRequest,
   GitPublishBranchRequest,
   GitPullRecovery,
@@ -196,6 +199,7 @@ export class LoreService implements VcsService {
       ahead: null,
       behind: null,
       files: status.files,
+      operationState: null,
       safeDirectory: null,
       actionsConfig,
       validationErrors: []
@@ -214,7 +218,19 @@ export class LoreService implements VcsService {
     const validation = await this.validateRepo(request.repoPath);
     if (!validation.isValid) throw new Error(validation.error);
     const status = parseLoreStatus((await this.runLore(validation.rootPath, ["status", "--scan"])).stdout);
-    return { repoPath: validation.rootPath, generation: request.generation, ahead: null, behind: null, files: status.files };
+    return { repoPath: validation.rootPath, generation: request.generation, ahead: null, behind: null, files: status.files, operationState: null };
+  }
+
+  async getRepositoryOperationState(_repoPath: string): Promise<GitRepositoryOperationState | null> {
+    return null;
+  }
+
+  async resolveRepositoryOperation(request: GitRepositoryOperationActionRequest): Promise<GitRepositoryOperationActionResult> {
+    return {
+      ...this.failure(request.repoPath, "Interrupted Git operation recovery is not supported for Lore repositories."),
+      outcome: "failed",
+      state: null
+    };
   }
 
   async getRepoMetadata(request: RepoSectionRequest): Promise<RepoMetadataSection> {
@@ -1183,6 +1199,7 @@ export class LoreService implements VcsService {
       ahead: null,
       behind: null,
       files: [],
+      operationState: null,
       safeDirectory: null,
       actionsConfig: createEmptyActionsConfig(),
       validationErrors: [

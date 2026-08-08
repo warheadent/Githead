@@ -1196,7 +1196,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     expect(await screen.findByText("fast/identity")).toBeTruthy();
     expect(screen.queryByRole("option", { name: /src\/later\.ts/ })).toBeNull();
-    pendingStatus.resolve({ repoPath, generation: 1, ahead: null, behind: null, files: [createStatusFile("src/later.ts", { isUnstaged: true, worktreeStatus: "M" })] });
+    pendingStatus.resolve({ repoPath, generation: 1, ahead: null, behind: null, files: [createStatusFile("src/later.ts", { isUnstaged: true, worktreeStatus: "M" })], operationState: null });
     pendingMetadata.resolve({ repoPath, generation: 1, upstream: null, branches: [], remotes: [], remoteBranches: [], defaultRemoteBranch: null, commitsAheadOfDefaultBranch: null, githubRepository: null, actionsConfig: createActionsConfig() });
     expect(await screen.findByRole("option", { name: /src\/later\.ts/ })).toBeTruthy();
   });

@@ -62,6 +62,8 @@ import type {
   GitIdentitySaveRequest,
   GitIgnorePathRequest,
   GitOperationResult,
+  GitRepositoryOperationActionRequest,
+  GitRepositoryOperationActionResult,
   GitOutputEvent,
   GitPathRequest,
   GitPublishBranchRequest,
@@ -386,6 +388,10 @@ ipcMain.handle(IPC_CHANNELS.getRepoStatus, (event, request: RepoSectionRequest) 
 ipcMain.handle(IPC_CHANNELS.getRepoMetadata, (event, request: RepoSectionRequest) =>
   handleRead(event, request, (signal) => processRunner.runWithSignal(signal, async () =>
     (await vcsRouter.serviceForRepo(request.repoPath)).getRepoMetadata(request))));
+
+ipcMain.handle(IPC_CHANNELS.getRepositoryOperationState, async (_event, repoPath: string) => {
+  return (await vcsRouter.serviceForRepo(repoPath)).getRepositoryOperationState(repoPath);
+});
 
 ipcMain.handle(IPC_CHANNELS.cancelRepositoryRead, (event, request: CancelRepositoryReadRequest) => {
   readRequests.cancel(event.sender.id, request.requestId);
@@ -1072,6 +1078,22 @@ ipcMain.handle(IPC_CHANNELS.resolvePullRecovery, async (event, request: Coordina
   );
 });
 
+ipcMain.handle(IPC_CHANNELS.resolveRepositoryOperation, async (event, request: CoordinatedRequest<GitRepositoryOperationActionRequest>) => {
+  return runTrustedExclusiveRepositoryOperation(
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).resolveRepositoryOperation(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath),
+    (failure): GitRepositoryOperationActionResult => ({ ...failure, outcome: "failed", state: null }),
+    (): GitRepositoryOperationActionResult => ({
+      repoPath: request.repoPath,
+      exitCode: -1,
+      stdout: "",
+      stderr: "Another git command is already running for this repository or a linked worktree.",
+      outcome: "failed",
+      state: null
+    })
+  );
+});
+
 ipcMain.handle(IPC_CHANNELS.runConfiguredAction, async (event, request: CoordinatedRequest<GitConfiguredActionRunRequest>) => {
   const actionName = request.name.trim() || "Actions";
   return runTrustedExclusiveRepositoryOperation(
@@ -1325,7 +1347,18 @@ function repositoryOperationOptions(
   }
   const ownerId = getRepositoryOperationOwnerId(event);
   watchRepositoryOperationOwner(event.sender).add(ownerId);
-  return { operationId, ownerId, repoPath, timeoutMs };
+  return {
+    operationId,
+    ownerId,
+    repoPath,
+    timeoutMs,
+    ...(path.isAbsolute(repoPath) ? {
+      resolveScopePath: (signal: AbortSignal) => processRunner.runWithSignal(
+        signal,
+        () => gitService.resolveMutationScope(repoPath)
+      )
+    } : {})
+  };
 }
 
 function getRepositoryOperationOwnerId(event: Electron.IpcMainInvokeEvent): string {

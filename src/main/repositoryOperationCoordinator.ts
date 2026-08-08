@@ -10,6 +10,7 @@ export interface RepositoryOperationOptions {
   ownerId: string;
   repoPath: string;
   timeoutMs: number;
+  resolveScopePath?: (signal: AbortSignal) => Promise<string>;
 }
 
 export function repositoryOperationOwnerId(
@@ -38,6 +39,7 @@ type OperationSettlement<T> =
   | { status: "rejected"; reason: unknown };
 
 const DEFAULT_ABORT_GRACE_MS = 1_000;
+const OPERATION_SCOPE_BUSY = Symbol("operation-scope-busy");
 
 export class RepositoryOperationCoordinator {
   private readonly activeByScope = new Map<string, ActiveOperation>();
@@ -95,9 +97,28 @@ export class RepositoryOperationCoordinator {
     };
     controller.signal.addEventListener("abort", onAbort, { once: true });
 
-    let operationPromise: Promise<T>;
+    const resolveScopePath = options.resolveScopePath;
+    let operationPromise: Promise<T | typeof OPERATION_SCOPE_BUSY>;
     try {
-      operationPromise = Promise.resolve(operation(controller.signal));
+      operationPromise = resolveScopePath
+        ? Promise.resolve().then(async () => {
+          controller.signal.throwIfAborted();
+          const resolvedScopeKey = repositoryOperationKey(await resolveScopePath(controller.signal));
+          controller.signal.throwIfAborted();
+          if (resolvedScopeKey !== active.scopeKey) {
+            const occupyingOperation = this.activeByScope.get(resolvedScopeKey);
+            if (occupyingOperation && occupyingOperation !== active) {
+              return OPERATION_SCOPE_BUSY;
+            }
+            if (this.activeByScope.get(active.scopeKey) === active) {
+              this.activeByScope.delete(active.scopeKey);
+            }
+            active.scopeKey = resolvedScopeKey;
+            this.activeByScope.set(resolvedScopeKey, active);
+          }
+          return operation(controller.signal);
+        })
+        : Promise.resolve(operation(controller.signal));
     } catch (error) {
       operationPromise = Promise.reject(error);
     }
@@ -105,9 +126,9 @@ export class RepositoryOperationCoordinator {
     // Convert rejection into data immediately. If cancellation wins the public
     // race, the callback remains observed until it eventually settles and can
     // safely release the quarantined repository key.
-    const settlement: Promise<OperationSettlement<T>> = operationPromise.then(
-      (value): OperationSettlement<T> => ({ status: "fulfilled", value }),
-      (reason: unknown): OperationSettlement<T> => ({ status: "rejected", reason })
+    const settlement: Promise<OperationSettlement<T | typeof OPERATION_SCOPE_BUSY>> = operationPromise.then(
+      (value): OperationSettlement<T | typeof OPERATION_SCOPE_BUSY> => ({ status: "fulfilled", value }),
+      (reason: unknown): OperationSettlement<T | typeof OPERATION_SCOPE_BUSY> => ({ status: "rejected", reason })
     );
     void settlement.then(() => {
       this.release(active);
@@ -126,10 +147,9 @@ export class RepositoryOperationCoordinator {
       if (outcome.value.status === "rejected") {
         throw outcome.value.reason;
       }
-      return {
-        started: true,
-        value: outcome.value.value
-      };
+      return outcome.value.value === OPERATION_SCOPE_BUSY
+        ? { started: false }
+        : { started: true, value: outcome.value.value };
     }
 
     await waitForSettlementOrGrace(settlement, this.abortGraceMs);

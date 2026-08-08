@@ -37,6 +37,8 @@ import type {
   GitheadApi,
   GitOperationResult,
   GitPullRecovery,
+  GitRepositoryOperationKind,
+  GitRepositoryOperationState,
   RepoChangedEvent,
   RepoSyncStatus,
   RepoSummary
@@ -249,12 +251,14 @@ export function createGitheadMock(): GitheadApi {
     }),
     getRepoStatus: vi.fn(async (request) => {
       const summary = await progressiveSummary(request);
-      return { repoPath: summary.repoPath, generation: request.generation, ahead: summary.ahead, behind: summary.behind, files: summary.files, ...(summary.submodules ? { submodules: summary.submodules } : {}) };
+      return { repoPath: summary.repoPath, generation: request.generation, ahead: summary.ahead, behind: summary.behind, files: summary.files, operationState: summary.operationState, ...(summary.submodules ? { submodules: summary.submodules } : {}) };
     }),
     getRepoMetadata: vi.fn(async (request) => {
       const summary = await progressiveSummary(request);
       return { repoPath: summary.repoPath, generation: request.generation, upstream: summary.upstream, branches: summary.branches, remotes: summary.remotes, remoteBranches: summary.remoteBranches, defaultRemoteBranch: summary.defaultRemoteBranch, commitsAheadOfDefaultBranch: summary.commitsAheadOfDefaultBranch, githubRepository: summary.githubRepository, actionsConfig: summary.actionsConfig };
     }),
+    getRepositoryOperationState: vi.fn().mockResolvedValue(null),
+    resolveRepositoryOperation: vi.fn(),
     cancelRepositoryRead: vi.fn().mockResolvedValue(undefined),
     getGitOperationStates: vi.fn().mockImplementation(async ({ operationIds }) => (
       operationIds.map((operationId: string) => ({ operationId, state: "running" }))
@@ -549,6 +553,7 @@ export function createSummary(
     ahead: null,
     behind: null,
     files: [],
+    operationState: null,
     safeDirectory: null,
     validationErrors: [],
     ...overrides,
@@ -790,6 +795,49 @@ export function createPullRecovery(overrides: Partial<GitPullRecovery> = {}): Gi
     hasWorkingChanges: false,
     canReapply: true,
     phase: "ready",
+    ...overrides
+  };
+}
+
+export function createRepositoryOperationState(
+  kind: GitRepositoryOperationKind = "merge",
+  overrides: Partial<GitRepositoryOperationState> = {}
+): GitRepositoryOperationState {
+  const hasConflicts = overrides.hasConflicts ?? true;
+  const skipSupported = kind !== "merge";
+  return {
+    stateId: `${kind}-${hasConflicts ? "conflicts" : "ready"}`,
+    kind,
+    phase: hasConflicts ? "conflicts" : "ready-to-continue",
+    backend: kind === "rebase" ? "merge" : null,
+    hasConflicts,
+    conflictedPaths: hasConflicts ? ["conflict.txt"] : [],
+    sequence: kind === "rebase" ? { current: 1, total: 2 } : null,
+    originalBranch: "feature/recovery",
+    currentBranch: kind === "rebase" ? null : "main",
+    actions: {
+      continue: {
+        supported: true,
+        enabled: !hasConflicts,
+        disabledReason: hasConflicts ? "Resolve and stage all conflicted files before continuing." : null,
+        requiresConfirmation: false
+      },
+      skip: {
+        supported: skipSupported,
+        enabled: skipSupported,
+        disabledReason: skipSupported ? null : "Git does not support skipping a merge.",
+        requiresConfirmation: skipSupported
+      },
+      abort: {
+        supported: true,
+        enabled: true,
+        disabledReason: null,
+        requiresConfirmation: hasConflicts
+      }
+    },
+    summary: hasConflicts
+      ? `A ${kind} is paused because one file still has unresolved conflicts.`
+      : `A ${kind} is ready to continue.`,
     ...overrides
   };
 }

@@ -43,6 +43,9 @@ import type {
   GitLfsImageFetchRequest,
   GitIgnorePathRequest,
   GitOperationResult,
+  GitRepositoryOperationActionRequest,
+  GitRepositoryOperationActionResult,
+  GitRepositoryOperationState,
   GitOutputEvent,
   GitPathRequest,
   GitPublishBranchRequest,
@@ -105,6 +108,7 @@ import { runEffect, tryPromise } from "../shared/effectRuntime";
 import { runProcessEffect } from "./processEffect";
 import { GIT_STASH_LIST_FORMAT, isGitStashRef, parseGitStashFiles, parseGitStashList } from "./gitStash";
 import { formatRevertCommitMessage } from "../shared/revertCommitMessage";
+import { GitOperationRecoveryService } from "./gitOperationRecovery";
 
 export const GIT_ACTION_COMMANDS: Record<GitAction, string[]> = {
   fetch: [
@@ -165,6 +169,7 @@ const emptySummary = (
   ahead: null,
   behind: null,
   files: [],
+  operationState: null,
   safeDirectory,
   actionsConfig: createEmptyActionsConfig(),
   validationErrors
@@ -175,7 +180,11 @@ const REPOSITORY_ACCESS_CHECK_TIMEOUT_MS = 30_000;
 
 export class GitService {
   private readonly lfsMediaDirs = new Map<string, string>();
-  constructor(private readonly runner: ProcessRunner) {}
+  private readonly operationRecovery: GitOperationRecoveryService;
+
+  constructor(private readonly runner: ProcessRunner, operationRecovery?: GitOperationRecoveryService) {
+    this.operationRecovery = operationRecovery ?? new GitOperationRecoveryService(runner);
+  }
 
   async getRepoSummary(repoPath: string): Promise<RepoSummary> {
     const request = { repoPath, generation: 0 };
@@ -198,7 +207,37 @@ export class GitService {
   async getRepoStatus(request: RepoSectionRequest): Promise<RepoStatusSection> {
     const result = await this.runGitStatus(request.repoPath, ["--porcelain=v2", "-z", "--branch", "--untracked-files=all"]);
     const status = parsePorcelainStatus(result.stdout);
-    return { repoPath: request.repoPath, generation: request.generation, ahead: status.ahead, behind: status.behind, files: status.files, submodules: await this.getSubmodules(request.repoPath, status.files) };
+    const [submodules, operationState] = await Promise.all([
+      this.getSubmodules(request.repoPath, status.files),
+      this.operationRecovery.detect(request.repoPath, result.stdout)
+    ]);
+    return { repoPath: request.repoPath, generation: request.generation, ahead: status.ahead, behind: status.behind, files: status.files, operationState, submodules };
+  }
+
+  async getRepositoryOperationState(repoPath: string): Promise<GitRepositoryOperationState | null> {
+    const validation = await this.validateRepo(repoPath);
+    return validation.isValid ? this.operationRecovery.detect(repoPath) : null;
+  }
+
+  async resolveRepositoryOperation(request: GitRepositoryOperationActionRequest): Promise<GitRepositoryOperationActionResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      return {
+        ...this.createOperationFailure(request.repoPath, validation.validationErrors.join(" ")),
+        outcome: "failed",
+        state: null
+      };
+    }
+    const result = await this.operationRecovery.runAction(request);
+    if (request.expectedKind === "rebase" && request.action !== "abort" && result.outcome === "completed") {
+      const recovery = await this.readPullRecovery(request.repoPath);
+      if (recovery) await this.clearPendingPullRecovery(request.repoPath, recovery.branchName);
+    }
+    return result;
+  }
+
+  resolveMutationScope(repoPath: string): Promise<string> {
+    return this.operationRecovery.resolveMutationScope(repoPath);
   }
 
   async getRepoMetadata(request: RepoSectionRequest): Promise<RepoMetadataSection> {
@@ -2106,18 +2145,20 @@ export class GitService {
     if (oldIsAncestorOfNew.exitCode === 0) return null;
     if (oldIsAncestorOfNew.exitCode !== 1) return null;
 
-    const [originalHeadResult, localAncestorResult, localCountResult, rebaseBranch, statusResult, currentBranchResult, currentHeadResult] = await runEffect(Effect.all([
+    const [originalHeadResult, localAncestorResult, localCountResult, operationState, statusResult, currentBranchResult, currentHeadResult] = await runEffect(Effect.all([
       this.runGitEffect(repoPath, ["show-ref", "--hash", "--verify", pullHeadRef(branchName)]),
       this.runGitEffect(repoPath, ["merge-base", "--is-ancestor", oldUpstreamOid, pullHeadRef(branchName)]),
       this.runGitEffect(repoPath, ["rev-list", "--count", `${oldUpstreamOid}..${pullHeadRef(branchName)}`]),
-      tryPromise(() => this.readRebaseBranch(repoPath)),
+      tryPromise(() => this.operationRecovery.detect(repoPath)),
       this.runGitEffect(repoPath, ["status", "--porcelain", "--untracked-files=all"]),
       this.runGitEffect(repoPath, ["branch", "--show-current"]),
       this.runGitEffect(repoPath, ["rev-parse", "--verify", "HEAD"])
     ], { concurrency: "unbounded" }));
     const originalHeadOid = originalHeadResult.stdout.trim();
     if (originalHeadResult.exitCode !== 0 || !originalHeadOid) return null;
-    const phase = rebaseBranch === branchName ? "rebase-conflicts" : "ready";
+    const phase = operationState?.kind === "rebase" && operationState.originalBranch === branchName
+      ? "rebase-conflicts"
+      : "ready";
     const branchUnchanged = currentBranchResult.exitCode === 0 && currentBranchResult.stdout.trim() === branchName
       && currentHeadResult.exitCode === 0 && currentHeadResult.stdout.trim() === originalHeadOid;
 
@@ -2132,22 +2173,6 @@ export class GitService {
       canReapply: phase === "rebase-conflicts" || (localAncestorResult.exitCode === 0 && branchUnchanged),
       phase
     };
-  }
-
-  private async readRebaseBranch(repoPath: string): Promise<string | null> {
-    const pathsResult = await this.runGit(repoPath, [
-      "rev-parse",
-      "--path-format=absolute",
-      "--git-path",
-      "rebase-merge/head-name",
-      "--git-path",
-      "rebase-apply/head-name"
-    ]);
-    if (pathsResult.exitCode !== 0) return null;
-    const paths = splitLines(pathsResult.stdout);
-    const headNames = await Promise.all(paths.map((filePath) => readTextIfExists(filePath)));
-    const headName = headNames.map((value) => value.trim()).find((value) => value.startsWith("refs/heads/"));
-    return headName?.slice("refs/heads/".length) ?? null;
   }
 
   private async completePullRecovery(
@@ -3637,7 +3662,7 @@ export function parsePorcelainStatus(text: string): { files: GitStatusFile[]; ah
     }
 
     if (record.startsWith("u ")) {
-      const parsed = parseTrackedRecord(record, 9);
+      const parsed = parseTrackedRecord(record, 10) ?? parseTrackedRecord(record, 9);
       if (parsed) {
         files.push(createStatusFile(parsed.path, parsed.indexStatus, parsed.worktreeStatus, true, undefined, parsed.submodule));
       }

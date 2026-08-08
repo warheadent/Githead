@@ -34,6 +34,7 @@ const baseSummary: RepoSummary = {
   ahead: null,
   behind: null,
   files: [],
+  operationState: null,
   safeDirectory: null,
   actionsConfig: {
     hasGitheadDir: false,

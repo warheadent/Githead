@@ -29,6 +29,12 @@ class FakeRunner implements ProcessRunner {
 
     this.calls.push(call);
 
+    if (args.includes("--git-path") && args.includes("MERGE_HEAD")) {
+      const queued = this.results[0];
+      if (queued?.exitCode === 1 && !queued.stdout && !queued.stderr) this.results.shift();
+      return failure("No operation metadata in this fake repository.");
+    }
+
     const result = this.results.shift();
     if (!result) {
       throw new Error("Fake runner has no result queued.");

@@ -161,6 +161,8 @@ import type {
   GitIdentityScope,
   GitIdentitySettings,
   GitOperationResult,
+  GitRepositoryOperationAction,
+  GitRepositoryOperationActionResult,
   GitPullRecovery,
   GitPullRecoveryAction,
   GitPullRecoveryResult,
@@ -196,6 +198,7 @@ import { CommitPlanView } from "./CommitPlanView";
 import { BranchManagementDialog } from "./BranchManagementDialog";
 import { WorktreeCreateDialog, WorktreeRemoveDialog } from "./WorktreeDialogs";
 import { PullRecoveryDialog } from "./PullRecoveryDialog";
+import { GitOperationRecoveryBanner } from "./GitOperationRecoveryBanner";
 import { emptyPushToBranchDialog, type PushToBranchDialogState } from "./pushToBranchState";
 import { useGitHubQueries } from "./useGitHubQueries";
 import { GitHubQueryToolbar } from "./GitHubQueryToolbar";
@@ -419,6 +422,7 @@ interface AppState {
   pullRecovery: GitPullRecovery | null;
   pullRecoveryOpen: boolean;
   pullRecoveryError: string;
+  repositoryOperationError: string;
   selection: FileSelection | null;
   diff: GitFileDiff | null;
   diffLoading: boolean;
@@ -812,6 +816,7 @@ const initialState: AppState = {
   pullRecovery: null,
   pullRecoveryOpen: false,
   pullRecoveryError: "",
+  repositoryOperationError: "",
   selection: null,
   diff: null,
   diffLoading: false,
@@ -1924,6 +1929,7 @@ export function App(): ReactNode {
       pullRecovery: null,
       pullRecoveryOpen: false,
       pullRecoveryError: "",
+      repositoryOperationError: "",
       commitMessageGenerationError: "",
       repositorySyncSettings: null,
       gitIdentity: null,
@@ -3463,6 +3469,53 @@ export function App(): ReactNode {
       pullRecovery: result.recovery,
       pullRecoveryOpen: result.outcome !== "complete",
       pullRecoveryError: result.exitCode === 0 ? "" : result.stderr.trim() || "Unable to resolve the remote history change."
+    }));
+  }, [ensureTrustedRepo, runRepoOperation, updateState]);
+
+  const resolveRepositoryOperation = useCallback(async (action: GitRepositoryOperationAction): Promise<void> => {
+    const current = stateRef.current;
+    const operationState = current.summary?.operationState;
+    if (!operationState || isOperationRunning(current)) return;
+    const availability = operationState.actions[action];
+    if (!availability.supported || !availability.enabled) return;
+    const repoPath = current.repoPath;
+    if (!(await ensureTrustedRepo(repoPath))) return;
+    if (
+      !isSameRepoPath(repoPath, stateRef.current.repoPath) ||
+      stateRef.current.summary?.operationState?.stateId !== operationState.stateId
+    ) return;
+
+    updateState({ repositoryOperationError: "" });
+    const result = await runRepoOperation(
+      `${action === "continue" ? "Continuing" : action === "skip" ? "Skipping" : "Aborting"} ${operationState.kind}`,
+      undefined,
+      (operationId) => window.githead.resolveRepositoryOperation({
+        repoPath,
+        expectedKind: operationState.kind,
+        expectedStateId: operationState.stateId,
+        action,
+        operationId
+      })
+    ) as GitRepositoryOperationActionResult | null;
+    if (!result || !isSameRepoPath(repoPath, stateRef.current.repoPath)) return;
+
+    let pullRecovery = stateRef.current.pullRecovery;
+    if (operationState.kind === "rebase") {
+      pullRecovery = await window.githead.getPullRecovery(repoPath).catch(() => pullRecovery);
+      if (!isSameRepoPath(repoPath, stateRef.current.repoPath)) return;
+    }
+    updateState((latest) => ({
+      ...latest,
+      summary: latest.summary && (result.state || result.outcome === "completed")
+        ? { ...latest.summary, operationState: result.state }
+        : latest.summary,
+      repositoryOperationError: result.outcome === "completed"
+        ? ""
+        : result.stderr.trim() || "Git could not complete the recovery action. The operation may still be active.",
+      ...(operationState.kind === "rebase" ? {
+        pullRecovery,
+        pullRecoveryOpen: Boolean(pullRecovery)
+      } : {})
     }));
   }, [ensureTrustedRepo, runRepoOperation, updateState]);
 
@@ -5265,6 +5318,18 @@ export function App(): ReactNode {
     void loadSelectedDiff(selection);
   }, [loadSelectedDiff, updateState]);
 
+  const openRepositoryOperationConflict = useCallback((filePath: string): void => {
+    const file = stateRef.current.summary?.files.find((candidate) => candidate.path === filePath);
+    if (!file) return;
+    setWorkspaceView("status");
+    setStatusWorkspaceMode("files");
+    selectFile(file, file.isUnstaged ? "unstaged" : "staged", {
+      extendRange: false,
+      selectAll: false,
+      toggle: false
+    });
+  }, [selectFile, setWorkspaceView]);
+
   const selectCommit = useCallback((hash: string): void => {
     if (!hash || hash === stateRef.current.selectedCommitHash) {
       return;
@@ -5851,6 +5916,13 @@ export function App(): ReactNode {
     kind: ContextActionKind,
     explicitPaths?: string[]
   ): Promise<void> => {
+    if (
+      stateRef.current.summary?.operationState &&
+      kind !== "toggle-stage" &&
+      kind !== "open" &&
+      kind !== "show" &&
+      kind !== "copy"
+    ) return;
     const paths = explicitPaths ?? getContextActionPaths(stateRef.current.selection, file, side);
 
     if (kind === "stash") {
@@ -6128,6 +6200,8 @@ export function App(): ReactNode {
   const running = isOperationRunning(state);
   const isValid = state.summary?.isValid ?? false;
   const disableActions = running || !isValid;
+  const repositoryOperationActive = Boolean(state.summary?.operationState);
+  const disableUnrelatedMutations = disableActions || repositoryOperationActive;
   const primaryCommitAction = getPrimaryCommitAction(state.summary);
   const actionHeading = getActionHeading(state);
   const cancellationTarget = state.activeOperation
@@ -6263,7 +6337,7 @@ export function App(): ReactNode {
             repoSyncStatuses={state.repoSyncStatuses}
             summary={state.summary}
             upstreamError={state.upstreamError}
-            running={running}
+            running={running || repositoryOperationActive}
             appUpdate={state.appUpdate}
             clonePanelOpen={state.clonePanelOpen}
             cloneDraft={state.cloneDraft}
@@ -6344,7 +6418,7 @@ export function App(): ReactNode {
               runningAction={state.runningAction}
               feedbackEvent={state.operationButtonFeedback?.repoPath === state.repoPath ? state.operationButtonFeedback : null}
               configuredActionRuns={state.configuredActionRuns}
-              disabled={disableActions}
+              disabled={disableUnrelatedMutations}
               cancellable={Boolean(cancellationTarget)}
               cancelStatus={cancellationTarget?.cancelStatus ?? "idle"}
               cancelError={cancellationTarget?.cancelError ?? ""}
@@ -6369,6 +6443,20 @@ export function App(): ReactNode {
                 if (cancellationRequestTarget) void cancelRunningOperation(cancellationRequestTarget);
               }}
             />
+
+            {state.summary?.operationState ? (
+              <GitOperationRecoveryBanner
+                state={state.summary.operationState}
+                busy={running}
+                cancellable={Boolean(cancellationRequestTarget)}
+                error={state.repositoryOperationError}
+                onAction={(action) => { void resolveRepositoryOperation(action); }}
+                onOpenConflict={openRepositoryOperationConflict}
+                onCancel={() => {
+                  if (cancellationRequestTarget) void cancelRunningOperation(cancellationRequestTarget);
+                }}
+              />
+            ) : null}
 
             <WorkspacePanelStateProvider
               key={getRepoPathKey(state.repoPath) || "setup"}
@@ -6460,6 +6548,7 @@ export function App(): ReactNode {
                   diffLoading={state.diffLoading}
                   diffChanged={state.diffChanged}
                   disabled={disableActions}
+                  recoveryMode={repositoryOperationActive}
                   workspaceMode={statusWorkspaceMode}
                   onWorkspaceModeChange={setStatusWorkspaceMode}
                   viewMode={state.appSettings?.statusFileViewMode ?? "list"}
@@ -6498,7 +6587,7 @@ export function App(): ReactNode {
                       branch={state.summary?.branch ?? null}
                       files={state.summary?.files ?? []}
                       selectedPaths={stashComposer.paths}
-                      disabled={disableActions}
+                      disabled={disableUnrelatedMutations}
                       canGenerateMessage={canUseSelectedAiProvider(state.aiSettings)}
                       generateTitle={getStashGenerateMessageTitle(state)}
                       onClose={() => setStashComposer(emptyStashComposer)}
@@ -6521,7 +6610,7 @@ export function App(): ReactNode {
                     detailsLoading={stashWorkspace.state.detailsLoading}
                     detailsError={stashWorkspace.state.detailsError}
                     selectedFilePath={stashWorkspace.state.selectedFilePath}
-                    disabled={disableActions}
+                    disabled={disableUnrelatedMutations}
                     diffContent={
                       <DiffPanel
                         title={stashWorkspace.state.selectedFilePath ?? "Select a file"}
@@ -6618,7 +6707,7 @@ export function App(): ReactNode {
                   commitFileDiffLoading={state.commitFileDiffLoading}
                   commitFileDiffError={state.commitFileDiffError}
                   wrapLines={state.appSettings?.wrapDiffLines ?? false}
-                  disabled={disableActions}
+                  disabled={disableUnrelatedMutations}
                   insights={historyInsights.data}
                   insightsLoading={historyInsights.loading}
                   insightsError={historyInsights.error}
@@ -6728,7 +6817,7 @@ export function App(): ReactNode {
               <CommitPanel
                 commitMessage={state.commitMessage}
                 generationError={state.commitMessageGenerationError}
-                disabled={disableActions}
+                disabled={disableUnrelatedMutations}
                 primaryCommitAction={primaryCommitAction}
                 pushableCommitCount={getPushableCommitCount(state.summary)}
                 feedbackEvent={state.operationButtonFeedback?.repoPath === state.repoPath ? state.operationButtonFeedback : null}
@@ -9000,6 +9089,7 @@ function StatusView({
   diffLoading,
   diffChanged,
   disabled,
+  recoveryMode,
   workspaceMode,
   onWorkspaceModeChange,
   viewMode,
@@ -9029,6 +9119,7 @@ function StatusView({
   diffLoading: boolean;
   diffChanged: boolean;
   disabled: boolean;
+  recoveryMode: boolean;
   workspaceMode: "files" | "plan";
   onWorkspaceModeChange: (mode: "files" | "plan") => void;
   viewMode: StatusFileViewMode;
@@ -9071,7 +9162,7 @@ function StatusView({
             {(summary?.submodules?.length ?? 0) > 0 ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button type="button" variant="outline" size="sm" disabled={disabled}>
+                  <Button type="button" variant="outline" size="sm" disabled={disabled || recoveryMode}>
                     <GitFork />
                     Submodules
                     <ChevronDown />
@@ -9092,7 +9183,7 @@ function StatusView({
             <div className="ml-auto inline-flex rounded-md border p-0.5" role="group" aria-label="Changed file view mode">
               <TooltipButton type="button" variant={workspaceMode === "files" && viewMode === "list" ? "secondary" : "ghost"} size="icon-xs" aria-pressed={workspaceMode === "files" && viewMode === "list"} aria-label="List view" tooltip="Show files as a list" onClick={() => { onWorkspaceModeChange("files"); onViewModeChange("list"); }}><List /></TooltipButton>
               <TooltipButton type="button" variant={workspaceMode === "files" && viewMode === "tree" ? "secondary" : "ghost"} size="icon-xs" aria-pressed={workspaceMode === "files" && viewMode === "tree"} aria-label="Tree view" tooltip="Show files as a tree" onClick={() => { onWorkspaceModeChange("files"); onViewModeChange("tree"); }}><ListTree /></TooltipButton>
-              <TooltipButton type="button" variant={workspaceMode === "plan" ? "secondary" : "ghost"} size="icon-xs" aria-pressed={workspaceMode === "plan"} aria-label="Commit plan view" tooltip="Group files into planned commits" onClick={() => onWorkspaceModeChange("plan")}><Sparkles /></TooltipButton>
+              <TooltipButton type="button" variant={workspaceMode === "plan" ? "secondary" : "ghost"} size="icon-xs" aria-pressed={workspaceMode === "plan"} aria-label="Commit plan view" tooltip="Group files into planned commits" disabled={recoveryMode} onClick={() => onWorkspaceModeChange("plan")}><Sparkles /></TooltipButton>
             </div>
           </div>
           {workspaceMode === "plan" ? (
@@ -9101,7 +9192,7 @@ function StatusView({
               files={unstagedFiles}
               stagedCount={stagedFiles.length}
               selectedPath={selection?.side === "unstaged" ? selection.path : null}
-              disabled={disabled}
+              disabled={disabled || recoveryMode}
               supported={summary?.kind === "git"}
               canGenerate={canGeneratePlan}
               generateTitle={generatePlanTitle}
@@ -9119,6 +9210,7 @@ function StatusView({
                 summary={summary}
                 selection={selection}
                 disabled={disabled}
+                recoveryMode={recoveryMode}
                 viewMode={viewMode}
                 actions={
                   <>
@@ -9162,6 +9254,7 @@ function StatusView({
                 summary={summary}
                 selection={selection}
                 disabled={disabled}
+                recoveryMode={recoveryMode}
                 viewMode={viewMode}
                 actions={
                   <>
@@ -9243,6 +9336,7 @@ function FileGroup({
   summary,
   selection,
   disabled,
+  recoveryMode,
   viewMode,
   actions,
   onSelectFile,
@@ -9254,6 +9348,7 @@ function FileGroup({
   summary: RepoSummary | null;
   selection: FileSelection | null;
   disabled: boolean;
+  recoveryMode: boolean;
   viewMode: StatusFileViewMode;
   actions: ReactNode;
   onSelectFile: (file: GitStatusFile, side: GitDiffSide, modifiers: FileSelectionModifiers) => void;
@@ -9304,6 +9399,7 @@ function FileGroup({
               level={row.level}
               collapsed={collapsedFolders.has(row.folder.id)}
               disabled={disabled}
+              recoveryMode={recoveryMode}
               virtualIndex={index}
               virtualRowProps={treeRowProps}
               onToggle={() => setCollapsedFolders((current) => {
@@ -9321,6 +9417,7 @@ function FileGroup({
               side={side}
               selected={selectedPathSet.has(row.file.path)}
               disabled={disabled}
+              recoveryMode={recoveryMode}
               onSelectFile={onSelectFile}
               onContextAction={onContextAction}
               treeLevel={row.level}
@@ -9345,6 +9442,7 @@ function FileGroup({
               side={side}
               selected={selectedPathSet.has(file.path)}
               disabled={disabled}
+              recoveryMode={recoveryMode}
               onSelectFile={onSelectFile}
               onContextAction={onContextAction}
               virtualIndex={index}
@@ -9357,12 +9455,13 @@ function FileGroup({
   );
 }
 
-function StatusFileTreeFolderRow({ folder, side, level, collapsed, disabled, virtualIndex, virtualRowProps, onToggle, onContextAction }: {
+function StatusFileTreeFolderRow({ folder, side, level, collapsed, disabled, recoveryMode, virtualIndex, virtualRowProps, onToggle, onContextAction }: {
   folder: StatusFileTreeFolder;
   side: GitDiffSide;
   level: number;
   collapsed: boolean;
   disabled: boolean;
+  recoveryMode: boolean;
   virtualIndex: number;
   virtualRowProps: VirtualRowProps;
   onToggle: () => void;
@@ -9389,7 +9488,7 @@ function StatusFileTreeFolderRow({ folder, side, level, collapsed, disabled, vir
           <Save />
           {side === "unstaged" ? "Stage folder" : "Unstage folder"}
         </ContextMenuItem>
-        <ContextMenuItem disabled={disabled || folder.descendantFiles.length === 0} onSelect={() => {
+        <ContextMenuItem disabled={disabled || recoveryMode || folder.descendantFiles.length === 0} onSelect={() => {
           const first = folder.descendantFiles[0];
           if (first) onContextAction(first, side, "stash", folder.descendantFiles.map((file) => file.path));
         }}>
@@ -9397,14 +9496,14 @@ function StatusFileTreeFolderRow({ folder, side, level, collapsed, disabled, vir
           Stash folder files...
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem disabled={disabled} onSelect={() => {
+        <ContextMenuItem disabled={disabled || recoveryMode} onSelect={() => {
           const first = folder.descendantFiles[0];
           if (first) onContextAction(first, side, "revert", folder.descendantFiles.map((file) => file.path));
         }}>
           <RotateCcw />
           Revert folder changes
         </ContextMenuItem>
-        <ContextMenuItem variant="destructive" disabled={disabled} onSelect={() => {
+        <ContextMenuItem variant="destructive" disabled={disabled || recoveryMode} onSelect={() => {
           const first = folder.descendantFiles[0];
           if (first) onContextAction(first, side, "delete", folder.descendantFiles.map((file) => file.path));
         }}>
@@ -9442,6 +9541,7 @@ function FileRow({
   side,
   selected,
   disabled,
+  recoveryMode,
   onSelectFile,
   onContextAction,
   treeLevel,
@@ -9452,6 +9552,7 @@ function FileRow({
   side: GitDiffSide;
   selected: boolean;
   disabled: boolean;
+  recoveryMode: boolean;
   onSelectFile: (file: GitStatusFile, side: GitDiffSide, modifiers: FileSelectionModifiers) => void;
   onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind, paths?: string[]) => void;
   treeLevel?: number;
@@ -9523,7 +9624,7 @@ function FileRow({
         {file.submodule ? (
           <>
             <ContextMenuSeparator />
-            <ContextMenuItem disabled={disabled} onSelect={() => onContextAction(file, side, "update-submodule")}>
+            <ContextMenuItem disabled={disabled || recoveryMode} onSelect={() => onContextAction(file, side, "update-submodule")}>
               <RefreshCw />
               Initialize / Update
             </ContextMenuItem>
@@ -9533,20 +9634,20 @@ function FileRow({
           <Save />
           {actionLabel}
         </ContextMenuItem>
-        <ContextMenuItem disabled={disabled} onSelect={() => onContextAction(file, side, "stash")}>
+        <ContextMenuItem disabled={disabled || recoveryMode} onSelect={() => onContextAction(file, side, "stash")}>
           <Archive />
           Stash selected files...
         </ContextMenuItem>
-        {!file.submodule ? <ContextMenuItem variant="destructive" disabled={disabled} onSelect={() => onContextAction(file, side, "delete")}>
+        {!file.submodule ? <ContextMenuItem variant="destructive" disabled={disabled || recoveryMode} onSelect={() => onContextAction(file, side, "delete")}>
           <Trash2 />
           Delete
         </ContextMenuItem> : null}
-        {!file.submodule ? <ContextMenuItem disabled={disabled} onSelect={() => onContextAction(file, side, "revert")}>
+        {!file.submodule ? <ContextMenuItem disabled={disabled || recoveryMode} onSelect={() => onContextAction(file, side, "revert")}>
           <RotateCcw />
           Revert changes
         </ContextMenuItem> : null}
         {!file.submodule ? <ContextMenuSeparator /> : null}
-        {!file.submodule ? <ContextMenuItem disabled={disabled || deleted} onSelect={() => onContextAction(file, side, "ignore")}>
+        {!file.submodule ? <ContextMenuItem disabled={disabled || recoveryMode || deleted} onSelect={() => onContextAction(file, side, "ignore")}>
           <FileCode2 />
           Add to ignore
         </ContextMenuItem> : null}
@@ -12115,6 +12216,7 @@ function createInvalidSummary(repoPath: string, message: string): RepoSummary {
     ahead: null,
     behind: null,
     files: [],
+    operationState: null,
     safeDirectory: null,
     actionsConfig: createEmptyRendererActionsConfig(),
     validationErrors: [
@@ -12136,6 +12238,7 @@ function createSummaryFromIdentity(identity: RepoIdentitySection): RepoSummary {
     ahead: null,
     behind: null,
     files: [],
+    operationState: null,
     actionsConfig: createEmptyRendererActionsConfig()
   };
 }
@@ -12763,7 +12866,9 @@ function hasGitIdentityChanges(draft: SettingsDraft, settings: GitIdentitySettin
 }
 
 function canCommit(state: AppState): boolean {
-  return hasStagedChanges(state.summary) && state.commitMessage.trim().length > 0;
+  return !state.summary?.operationState
+    && hasStagedChanges(state.summary)
+    && state.commitMessage.trim().length > 0;
 }
 
 function canGenerateCommitMessage(state: AppState): boolean {
@@ -13090,6 +13195,13 @@ function getActionHeading(state: AppState): string {
   const configuredActionHeading = getConfiguredActionRunningHeading(state.configuredActionRuns);
   if (configuredActionHeading) {
     return configuredActionHeading;
+  }
+
+  if (state.summary?.operationState) {
+    const kind = state.summary.operationState.kind === "cherry-pick"
+      ? "Cherry-pick"
+      : capitalize(state.summary.operationState.kind);
+    return `${kind} recovery required`;
   }
 
   if (state.lastResult) {

@@ -32,6 +32,45 @@ describe("RepositoryOperationCoordinator", () => {
     expect(coordinator.isRunning(repoPath)).toBe(false);
   });
 
+  it("serializes linked worktrees after both resolve to one Git common directory", async () => {
+    const coordinator = new RepositoryOperationCoordinator();
+    const commonDir = path.resolve("Shared", ".git");
+    let finishFirst!: () => void;
+    const firstMutation = vi.fn(() => new Promise<void>((resolve) => { finishFirst = resolve; }));
+    const secondMutation = vi.fn(async () => "second");
+    const first = coordinator.run({
+      ...operationOptions("linked-first", path.resolve("Worktree-A")),
+      resolveScopePath: async () => commonDir
+    }, firstMutation);
+    const second = coordinator.run({
+      ...operationOptions("linked-second", path.resolve("Worktree-B")),
+      resolveScopePath: async () => commonDir
+    }, secondMutation);
+
+    await expect(second).resolves.toEqual({ started: false });
+    expect(secondMutation).not.toHaveBeenCalled();
+    expect(firstMutation).toHaveBeenCalledOnce();
+    finishFirst();
+    await expect(first).resolves.toEqual({ started: true, value: undefined });
+  });
+
+  it("cancels during linked-worktree scope resolution without starting the mutation", async () => {
+    const coordinator = new RepositoryOperationCoordinator();
+    let resolveScope!: (scope: string) => void;
+    const mutation = vi.fn(async () => "mutated");
+    const operation = coordinator.run({
+      ...operationOptions("scope-cancel", path.resolve("Worktree")),
+      resolveScopePath: () => new Promise<string>((resolve) => { resolveScope = resolve; })
+    }, mutation);
+    await Promise.resolve();
+
+    expect(coordinator.cancel("scope-cancel", "owner-1")).toEqual({ accepted: true, state: "cancelling" });
+    resolveScope(path.resolve("Shared", ".git"));
+
+    await expect(operation).rejects.toMatchObject({ name: "AbortError" });
+    expect(mutation).not.toHaveBeenCalled();
+  });
+
   it("aborts an operation explicitly and releases its repository", async () => {
     const coordinator = new RepositoryOperationCoordinator();
     const operation = coordinator.run(operationOptions("cancel-me", "D:\\Repo"), (signal) => new Promise<string>((resolve) => {

@@ -392,6 +392,7 @@ export interface RepoSummary {
   ahead: number | null;
   behind: number | null;
   files: GitStatusFile[];
+  operationState: GitRepositoryOperationState | null;
   submodules?: GitSubmodule[];
   validationErrors: string[];
   safeDirectory: GitSafeDirectoryInfo | null;
@@ -609,6 +610,7 @@ export interface RepoStatusSection {
   ahead: number | null;
   behind: number | null;
   files: GitStatusFile[];
+  operationState: GitRepositoryOperationState | null;
   submodules?: GitSubmodule[];
 }
 
@@ -857,6 +859,46 @@ export interface GitPullRecoveryResult extends GitOperationResult {
   outcome: "complete" | "conflicts" | "ready" | "failed";
   recovery: GitPullRecovery | null;
   recoveryRef: string | null;
+}
+
+export type GitRepositoryOperationKind = "merge" | "rebase" | "cherry-pick" | "revert";
+export type GitRepositoryOperationPhase = "conflicts" | "ready-to-continue";
+export type GitRepositoryOperationAction = "continue" | "skip" | "abort";
+
+export interface GitRepositoryOperationActionAvailability {
+  supported: boolean;
+  enabled: boolean;
+  disabledReason: string | null;
+  requiresConfirmation: boolean;
+}
+
+export interface GitRepositoryOperationState {
+  stateId: string;
+  kind: GitRepositoryOperationKind;
+  phase: GitRepositoryOperationPhase;
+  backend: "merge" | "apply" | null;
+  hasConflicts: boolean;
+  conflictedPaths: string[];
+  sequence: {
+    current: number;
+    total: number;
+  } | null;
+  originalBranch: string | null;
+  currentBranch: string | null;
+  actions: Record<GitRepositoryOperationAction, GitRepositoryOperationActionAvailability>;
+  summary: string;
+}
+
+export interface GitRepositoryOperationActionRequest {
+  repoPath: string;
+  expectedKind: GitRepositoryOperationKind;
+  expectedStateId: string;
+  action: GitRepositoryOperationAction;
+}
+
+export interface GitRepositoryOperationActionResult extends GitOperationResult {
+  outcome: "completed" | "active" | "stale" | "failed";
+  state: GitRepositoryOperationState | null;
 }
 
 export interface GitRemoteBranchCheckoutRequest extends GitBranchRequest {
@@ -1538,6 +1580,8 @@ export interface GitheadApi {
   getRepoIdentity(request: RepoSectionRequest): Promise<RepoIdentitySection>;
   getRepoStatus(request: RepoSectionRequest): Promise<RepoStatusSection>;
   getRepoMetadata(request: RepoSectionRequest): Promise<RepoMetadataSection>;
+  getRepositoryOperationState(repoPath: string): Promise<GitRepositoryOperationState | null>;
+  resolveRepositoryOperation(request: CoordinatedRequest<GitRepositoryOperationActionRequest>): Promise<GitRepositoryOperationActionResult>;
   cancelRepositoryRead(request: CancelRepositoryReadRequest): Promise<void>;
   getGitOperationStates(request: GetGitOperationStatesRequest): Promise<GitOperationStateResult[]>;
   cancelGitOperation(request: CancelGitOperationRequest): Promise<CancelGitOperationResult>;
