@@ -353,7 +353,7 @@ function OverrideToggle({
   onChange: (checked: boolean) => void;
 }): ReactNode {
   return <label className="flex items-start gap-3 rounded-lg border bg-card p-4">
-    <input className="mt-1 size-4" type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} />
+    <input className="mt-1 size-4 shrink-0" type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} />
     <span><span className="block text-sm font-semibold">{title}</span><span className="block text-sm text-muted-foreground">{description}</span></span>
   </label>;
 }
