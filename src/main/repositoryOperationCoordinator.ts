@@ -10,6 +10,7 @@ export interface RepositoryOperationOptions {
   ownerId: string;
   repoPath: string;
   timeoutMs: number;
+  returnResultAfterAbort?: boolean;
   resolveScopePath?: (signal: AbortSignal) => Promise<string>;
 }
 
@@ -141,7 +142,7 @@ export class RepositoryOperationCoordinator {
 
     if (outcome.kind === "settled") {
       controller.signal.removeEventListener("abort", onAbort);
-      if (controller.signal.aborted) {
+      if (controller.signal.aborted && !options.returnResultAfterAbort) {
         throw getAbortReason(controller.signal);
       }
       if (outcome.value.status === "rejected") {
@@ -150,6 +151,17 @@ export class RepositoryOperationCoordinator {
       return outcome.value.value === OPERATION_SCOPE_BUSY
         ? { started: false }
         : { started: true, value: outcome.value.value };
+    }
+
+    if (options.returnResultAfterAbort) {
+      const completed = await settlement;
+      controller.signal.removeEventListener("abort", onAbort);
+      if (completed.status === "rejected") {
+        throw completed.reason;
+      }
+      return completed.value === OPERATION_SCOPE_BUSY
+        ? { started: false }
+        : { started: true, value: completed.value };
     }
 
     await waitForSettlementOrGrace(settlement, this.abortGraceMs);

@@ -211,7 +211,8 @@ export function createGitheadMock(): GitheadApi {
     codeFont: "system-mono",
     zoomFactor: 1,
     statusFileViewMode: "list",
-    wrapDiffLines: false
+    wrapDiffLines: false,
+    gitBehaviors: { tagPushBehavior: "all" }
   };
   const gitIdentity: GitIdentitySettings = {
     scope: "repository",

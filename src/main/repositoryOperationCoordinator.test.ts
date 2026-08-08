@@ -96,6 +96,28 @@ describe("RepositoryOperationCoordinator", () => {
     expect(coordinator.cancel("cancel-me", "owner-1")).toEqual({ accepted: false, state: "not-found" });
   });
 
+  it("can return a structured result after cancellation while keeping the repository serialized", async () => {
+    const coordinator = new RepositoryOperationCoordinator();
+    let finishCancellation!: () => void;
+    const operation = coordinator.run({
+      ...operationOptions("partial-push", "D:\\Repo"),
+      returnResultAfterAbort: true
+    }, (signal) => new Promise<{ partialSuccess: true }>((resolve) => {
+      signal.addEventListener("abort", () => {
+        finishCancellation = () => resolve({ partialSuccess: true });
+      }, { once: true });
+    }));
+
+    expect(coordinator.cancel("partial-push", "owner-1")).toEqual({ accepted: true, state: "cancelling" });
+    expect(coordinator.isRunning("D:\\Repo")).toBe(true);
+    await expect(coordinator.run(operationOptions("overlap-after-cancel", "D:\\Repo"), async () => "overlap"))
+      .resolves.toEqual({ started: false });
+
+    finishCancellation();
+    await expect(operation).resolves.toEqual({ started: true, value: { partialSuccess: true } });
+    expect(coordinator.isRunning("D:\\Repo")).toBe(false);
+  });
+
   it("only lets the renderer that owns an operation cancel it", async () => {
     const coordinator = new RepositoryOperationCoordinator();
     let signal!: AbortSignal;

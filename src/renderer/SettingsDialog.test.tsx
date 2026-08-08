@@ -25,6 +25,7 @@ const savedDraft: SettingsDraft = {
   uiFont: "inter",
   codeFont: "system-mono",
   zoomFactor: 1,
+  tagPushBehavior: "all",
   gitIdentityName: "Test User",
   gitIdentityEmail: "test@example.com",
   gitIdentityScope: "repository"
@@ -84,5 +85,75 @@ describe("SettingsDialog footer status", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open performance diagnostics" }));
 
     expect(onOpenPerformanceDiagnostics).toHaveBeenCalledOnce();
+  });
+
+  it("renders tag push behavior as a select with the current default and explanatory warning", () => {
+    const onDraftChange = vi.fn();
+    render(
+      <SettingsDialog
+        open
+        draft={savedDraft}
+        aiSettings={null}
+        saving={false}
+        error=""
+        onOpenChange={vi.fn()}
+        onDraftChange={onDraftChange}
+        onSave={vi.fn()}
+        onOpenPerformanceDiagnostics={vi.fn()}
+      />,
+      { wrapper: TooltipProvider }
+    );
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Settings category" }), {
+      target: { value: "git-behaviors" }
+    });
+
+    const select = screen.getByRole("combobox", { name: "Tag push behavior" }) as HTMLSelectElement;
+    expect(select.value).toBe("all");
+    expect(screen.getByRole("option", { name: "Push all local tags (Default)" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Push reachable annotated tags" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Do not push tags automatically" })).toBeTruthy();
+    expect(screen.getByText(/may publish tags unrelated to the branch being pushed/)).toBeTruthy();
+    expect(screen.getByText("After a branch push succeeds, Githead also pushes every local tag to the same remote.")).toBeTruthy();
+    expect(screen.getByText(/does not affect manually creating, pushing, or deleting an individual tag/)).toBeTruthy();
+
+    fireEvent.change(select, { target: { value: "follow" } });
+    expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({ tagPushBehavior: "follow" }));
+  });
+
+  it("discards an unsaved Git Behaviors change through the existing cancel flow", () => {
+    const onOpenChange = vi.fn();
+    const view = render(
+      <SettingsDialog
+        open
+        draft={savedDraft}
+        aiSettings={null}
+        saving={false}
+        error=""
+        onOpenChange={onOpenChange}
+        onDraftChange={vi.fn()}
+        onSave={vi.fn()}
+        onOpenPerformanceDiagnostics={vi.fn()}
+      />,
+      { wrapper: TooltipProvider }
+    );
+
+    view.rerender(
+      <SettingsDialog
+        open
+        draft={{ ...savedDraft, tagPushBehavior: "none" }}
+        aiSettings={null}
+        saving={false}
+        error=""
+        onOpenChange={onOpenChange}
+        onDraftChange={vi.fn()}
+        onSave={vi.fn()}
+        onOpenPerformanceDiagnostics={vi.fn()}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

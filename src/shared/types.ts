@@ -1376,6 +1376,14 @@ export type AppCodeFont = (typeof APP_CODE_FONTS)[number];
 export const STATUS_FILE_VIEW_MODES = ["list", "tree"] as const;
 export type StatusFileViewMode = (typeof STATUS_FILE_VIEW_MODES)[number];
 
+export const TAG_PUSH_BEHAVIORS = ["all", "follow", "none"] as const;
+export type TagPushBehavior = (typeof TAG_PUSH_BEHAVIORS)[number];
+export const DEFAULT_TAG_PUSH_BEHAVIOR: TagPushBehavior = "all";
+
+export interface GitBehaviorSettings {
+  tagPushBehavior: TagPushBehavior;
+}
+
 export const APP_ZOOM_FACTORS = [0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2] as const;
 
 export function isAppZoomFactor(value: unknown): value is number {
@@ -1391,6 +1399,7 @@ export interface AppSettings {
   zoomFactor: number;
   statusFileViewMode: StatusFileViewMode;
   wrapDiffLines: boolean;
+  gitBehaviors: GitBehaviorSettings;
 }
 
 export interface AppSettingsSaveRequest {
@@ -1402,6 +1411,7 @@ export interface AppSettingsSaveRequest {
   zoomFactor: number;
   statusFileViewMode?: StatusFileViewMode;
   wrapDiffLines?: boolean;
+  gitBehaviors?: GitBehaviorSettings;
 }
 
 export interface GenerateCommitMessageRequest {
@@ -1555,6 +1565,24 @@ export interface GitRunResult {
   startedAt: string;
   endedAt: string;
   pullRecovery?: GitPullRecovery;
+  push?: GitPushResultDetails;
+}
+
+export type GitTagPushOutcome =
+  | "not-requested"
+  | "not-started"
+  | "included-with-branch"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+  | "timed-out";
+
+export interface GitPushResultDetails {
+  branchSucceeded: boolean;
+  partialSuccess: boolean;
+  remoteName: string | null;
+  tagPushBehavior: TagPushBehavior;
+  tagOutcome: GitTagPushOutcome;
 }
 
 export interface GitOutputEvent {

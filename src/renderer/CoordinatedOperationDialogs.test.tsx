@@ -31,6 +31,7 @@ const settingsDraft: SettingsDraft = {
   uiFont: "inter",
   codeFont: "system-mono",
   zoomFactor: 1,
+  tagPushBehavior: "all",
   gitIdentityName: "Test User",
   gitIdentityEmail: "test@example.com",
   gitIdentityScope: "repository"

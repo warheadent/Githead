@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { APP_APPEARANCE_MODES, APP_CODE_FONTS, APP_COLOR_THEMES, APP_UI_FONTS, STATUS_FILE_VIEW_MODES, isAppZoomFactor, type AppAppearanceMode, type AppCodeFont, type AppColorTheme, type AppSettings, type AppSettingsSaveRequest, type AppUiFont, type StatusFileViewMode } from "../shared/types";
+import { APP_APPEARANCE_MODES, APP_CODE_FONTS, APP_COLOR_THEMES, APP_UI_FONTS, DEFAULT_TAG_PUSH_BEHAVIOR, STATUS_FILE_VIEW_MODES, TAG_PUSH_BEHAVIORS, isAppZoomFactor, type AppAppearanceMode, type AppCodeFont, type AppColorTheme, type AppSettings, type AppSettingsSaveRequest, type AppUiFont, type GitBehaviorSettings, type StatusFileViewMode, type TagPushBehavior } from "../shared/types";
 import {
   normalizeAutoFetchIntervalForSave,
   parseStoredAutoFetchInterval
@@ -17,6 +17,7 @@ interface StoredAppSettings {
   zoomFactor?: unknown;
   statusFileViewMode?: unknown;
   wrapDiffLines?: unknown;
+  gitBehaviors?: unknown;
 }
 
 export const DEFAULT_COLOR_THEME: AppColorTheme = "githead";
@@ -26,6 +27,7 @@ export const DEFAULT_CODE_FONT: AppCodeFont = "system-mono";
 export const DEFAULT_ZOOM_FACTOR = 1;
 export const DEFAULT_STATUS_FILE_VIEW_MODE: StatusFileViewMode = "list";
 export const DEFAULT_WRAP_DIFF_LINES = false;
+export { DEFAULT_TAG_PUSH_BEHAVIOR } from "../shared/types";
 
 export class AppSettingsService {
   private readonly settingsPath: string;
@@ -44,11 +46,13 @@ export class AppSettingsService {
       codeFont: parseStoredCodeFont(stored.codeFont),
       zoomFactor: parseStoredZoomFactor(stored.zoomFactor),
       statusFileViewMode: parseStoredStatusFileViewMode(stored.statusFileViewMode),
-      wrapDiffLines: parseStoredWrapDiffLines(stored.wrapDiffLines)
+      wrapDiffLines: parseStoredWrapDiffLines(stored.wrapDiffLines),
+      gitBehaviors: parseStoredGitBehaviors(stored.gitBehaviors)
     };
   }
 
   async saveSettings(request: AppSettingsSaveRequest): Promise<AppSettings> {
+    const existing = await this.getSettings();
     const autoFetchIntervalMinutes = normalizeAutoFetchIntervalForSave(request.autoFetchIntervalMinutes);
     const colorTheme = normalizeColorThemeForSave(request.colorTheme);
     const appearanceMode = normalizeAppearanceModeForSave(request.appearanceMode);
@@ -57,6 +61,9 @@ export class AppSettingsService {
     const zoomFactor = normalizeZoomFactorForSave(request.zoomFactor);
     const statusFileViewMode = normalizeStatusFileViewModeForSave(request.statusFileViewMode);
     const wrapDiffLines = normalizeWrapDiffLinesForSave(request.wrapDiffLines);
+    const gitBehaviors = request.gitBehaviors === undefined
+      ? existing.gitBehaviors
+      : normalizeGitBehaviorsForSave(request.gitBehaviors);
 
     await fs.mkdir(path.dirname(this.settingsPath), {
       recursive: true
@@ -69,7 +76,8 @@ export class AppSettingsService {
       codeFont,
       zoomFactor,
       statusFileViewMode,
-      wrapDiffLines
+      wrapDiffLines,
+      gitBehaviors
     } satisfies AppSettings, null, 2)}\n`, "utf8");
 
     return this.getSettings();
@@ -84,6 +92,26 @@ export class AppSettingsService {
       return {};
     }
   }
+}
+
+function parseStoredGitBehaviors(value: unknown): GitBehaviorSettings {
+  if (!value || typeof value !== "object") {
+    return { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR };
+  }
+
+  const tagPushBehavior = (value as { tagPushBehavior?: unknown }).tagPushBehavior;
+  return {
+    tagPushBehavior: TAG_PUSH_BEHAVIORS.includes(tagPushBehavior as TagPushBehavior)
+      ? tagPushBehavior as TagPushBehavior
+      : DEFAULT_TAG_PUSH_BEHAVIOR
+  };
+}
+
+function normalizeGitBehaviorsForSave(value: GitBehaviorSettings): GitBehaviorSettings {
+  if (!value || !TAG_PUSH_BEHAVIORS.includes(value.tagPushBehavior)) {
+    throw new Error("Unknown tag push behavior.");
+  }
+  return { tagPushBehavior: value.tagPushBehavior };
 }
 
 function parseStoredStatusFileViewMode(value: unknown): StatusFileViewMode {

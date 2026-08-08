@@ -115,6 +115,7 @@ import {
 import { deleteFiles, getStats, resolveRepoFilePath, showRepositoryInExplorer } from "./fileOperationService";
 import { GitIdentityService } from "./gitIdentityService";
 import { GitOutputBatcher, runWithGitOutputSink } from "./gitOutputBatcher";
+import { snapshotGitPushExecutionOptions } from "./gitPushBehavior";
 import { GitService } from "./gitService";
 import { DefaultGitHubClient, type GitHubClient } from "./githubClient";
 import { GitHubService } from "./githubService";
@@ -739,9 +740,14 @@ ipcMain.handle(IPC_CHANNELS.setBranchUpstream, async (event, request: Coordinate
 
 ipcMain.handle(IPC_CHANNELS.publishBranch, async (event, request: CoordinatedRequest<GitPublishBranchRequest>) => {
   return runTrustedExclusiveGitOperation(
-    async () => withOwnedGitOutput(event, async (onOutput) =>
-      (await vcsRouter.serviceForRepo(request.repoPath)).publishBranch(request, onOutput)),
-    repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS)
+    async (signal) => withOwnedGitOutput(event, async (onOutput) => {
+      const pushOptions = await snapshotGitPushExecutionOptions(
+        () => getAppSettingsService().getSettings(),
+        signal
+      );
+      return (await vcsRouter.serviceForRepo(request.repoPath)).publishBranch(request, onOutput, pushOptions);
+    }),
+    repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS, true)
   );
 });
 
@@ -1064,11 +1070,18 @@ ipcMain.handle(IPC_CHANNELS.checkRepositoryAccess, async (event, request: Coordi
 
 ipcMain.handle(IPC_CHANNELS.runGitAction, async (event, request: CoordinatedRequest<GitRunRequest>) => {
   return runTrustedExclusiveRepositoryOperation(
-    async () => withOwnedGitOutput(event, async (onOutput) => {
+    async (signal) => withOwnedGitOutput(event, async (onOutput) => {
       const service = await vcsRouter.serviceForRepo(request.repoPath);
-      return service.runGitAction(request, onOutput);
+      if (request.action !== "push") {
+        return service.runGitAction(request, onOutput);
+      }
+      const pushOptions = await snapshotGitPushExecutionOptions(
+        () => getAppSettingsService().getSettings(),
+        signal
+      );
+      return service.runGitAction(request, onOutput, pushOptions);
     }),
-    repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS),
+    repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS, request.action === "push"),
     (failure) => createGitRunFailure("untrusted", request.action, request.repoPath, failure.stderr),
     () => createGitRunFailure(
       "busy",
@@ -1408,7 +1421,8 @@ function repositoryOperationOptions(
   event: Electron.IpcMainInvokeEvent,
   operationId: string,
   repoPath: string,
-  timeoutMs = LOCAL_OPERATION_TIMEOUT_MS
+  timeoutMs = LOCAL_OPERATION_TIMEOUT_MS,
+  returnResultAfterAbort = false
 ): RepositoryOperationOptions {
   if (!event.senderFrame || event.senderFrame.isDestroyed()) {
     throw new DOMException("Operation owner is no longer available.", "AbortError");
@@ -1420,6 +1434,7 @@ function repositoryOperationOptions(
     ownerId,
     repoPath,
     timeoutMs,
+    ...(returnResultAfterAbort ? { returnResultAfterAbort: true } : {}),
     ...(path.isAbsolute(repoPath) ? {
       resolveScopePath: (signal: AbortSignal) => processRunner.runWithSignal(
         signal,

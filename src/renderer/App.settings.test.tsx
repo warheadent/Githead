@@ -975,9 +975,33 @@ describe("App", { timeout: 10_000 }, () => {
         codeFont: "system-mono",
         zoomFactor: 1,
         statusFileViewMode: "list",
-        wrapDiffLines: false
+        wrapDiffLines: false,
+        gitBehaviors: { tagPushBehavior: "all" }
       });
     });
+  });
+
+  it("saves Git Behaviors while preserving the rest of the application settings", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("tab", { name: "Git Behaviors" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Tag push behavior" }), "none");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(githead.saveAppSettings).toHaveBeenCalledWith({
+      autoFetchIntervalMinutes: 10,
+      colorTheme: "githead",
+      appearanceMode: "system",
+      uiFont: "inter",
+      codeFont: "system-mono",
+      zoomFactor: 1,
+      statusFileViewMode: "list",
+      wrapDiffLines: false,
+      gitBehaviors: { tagPushBehavior: "none" }
+    }));
   });
 
   it("recovers an unregistered settings save and does not start later save phases", async () => {
@@ -1128,7 +1152,8 @@ describe("App", { timeout: 10_000 }, () => {
       codeFont: "system-mono",
       zoomFactor: 1,
       statusFileViewMode: "list",
-      wrapDiffLines: false
+      wrapDiffLines: false,
+      gitBehaviors: { tagPushBehavior: "all" }
     }));
   });
 

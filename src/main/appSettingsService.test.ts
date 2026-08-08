@@ -10,6 +10,7 @@ import {
   DEFAULT_COLOR_THEME,
   DEFAULT_UI_FONT,
   DEFAULT_STATUS_FILE_VIEW_MODE,
+  DEFAULT_TAG_PUSH_BEHAVIOR,
   DEFAULT_WRAP_DIFF_LINES,
   DEFAULT_ZOOM_FACTOR
 } from "./appSettingsService";
@@ -40,8 +41,102 @@ describe("AppSettingsService", () => {
         codeFont: DEFAULT_CODE_FONT,
         zoomFactor: DEFAULT_ZOOM_FACTOR,
         statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE,
-        wrapDiffLines: DEFAULT_WRAP_DIFF_LINES
+        wrapDiffLines: DEFAULT_WRAP_DIFF_LINES,
+        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR }
       });
+    });
+  });
+
+  it("migrates missing and invalid Git Behaviors values to push all tags", async () => {
+    await withTempDir(async (dir) => {
+      const settingsPath = path.join(dir, "app-settings.json");
+
+      await fs.writeFile(settingsPath, JSON.stringify({ colorTheme: "orchid" }), "utf8");
+      await expect(new AppSettingsService(dir).getSettings()).resolves.toMatchObject({
+        colorTheme: "orchid",
+        gitBehaviors: { tagPushBehavior: "all" }
+      });
+
+      await fs.writeFile(settingsPath, JSON.stringify({
+        colorTheme: "tidepool",
+        gitBehaviors: { tagPushBehavior: "everything" }
+      }), "utf8");
+      await expect(new AppSettingsService(dir).getSettings()).resolves.toMatchObject({
+        colorTheme: "tidepool",
+        gitBehaviors: { tagPushBehavior: "all" }
+      });
+    });
+  });
+
+  it("saves and reloads every tag push behavior without changing unrelated settings", async () => {
+    await withTempDir(async (dir) => {
+      const service = new AppSettingsService(dir);
+
+      for (const tagPushBehavior of ["all", "follow", "none"] as const) {
+        const saved = await service.saveSettings({
+          autoFetchIntervalMinutes: 37,
+          colorTheme: "copper",
+          appearanceMode: "dark",
+          uiFont: "roboto",
+          codeFont: "fira-code",
+          zoomFactor: 1.25,
+          statusFileViewMode: "tree",
+          wrapDiffLines: true,
+          gitBehaviors: { tagPushBehavior }
+        });
+
+        expect(saved).toMatchObject({
+          autoFetchIntervalMinutes: 37,
+          colorTheme: "copper",
+          appearanceMode: "dark",
+          uiFont: "roboto",
+          codeFont: "fira-code",
+          zoomFactor: 1.25,
+          statusFileViewMode: "tree",
+          wrapDiffLines: true,
+          gitBehaviors: { tagPushBehavior }
+        });
+        await expect(new AppSettingsService(dir).getSettings()).resolves.toMatchObject({
+          gitBehaviors: { tagPushBehavior }
+        });
+      }
+    });
+  });
+
+  it("preserves Git Behaviors when an older save request omits the category", async () => {
+    await withTempDir(async (dir) => {
+      const service = new AppSettingsService(dir);
+      await service.saveSettings({
+        autoFetchIntervalMinutes: 10,
+        colorTheme: "githead",
+        appearanceMode: "system",
+        zoomFactor: 1,
+        gitBehaviors: { tagPushBehavior: "follow" }
+      });
+
+      await expect(service.saveSettings({
+        autoFetchIntervalMinutes: 20,
+        colorTheme: "orchid",
+        appearanceMode: "light",
+        zoomFactor: 1.1
+      })).resolves.toMatchObject({
+        autoFetchIntervalMinutes: 20,
+        colorTheme: "orchid",
+        appearanceMode: "light",
+        gitBehaviors: { tagPushBehavior: "follow" }
+      });
+    });
+  });
+
+  it("rejects an invalid tag push behavior when saving", async () => {
+    await withTempDir(async (dir) => {
+      await expect(new AppSettingsService(dir).saveSettings({
+        autoFetchIntervalMinutes: 10,
+        colorTheme: "githead",
+        appearanceMode: "system",
+        zoomFactor: 1,
+        gitBehaviors: { tagPushBehavior: "invalid" as "all" }
+      })).rejects.toThrow("Unknown tag push behavior.");
     });
   });
 
@@ -57,7 +152,8 @@ describe("AppSettingsService", () => {
         codeFont: "fira-code",
         zoomFactor: 1.25,
         statusFileViewMode: "list",
-        wrapDiffLines: true
+        wrapDiffLines: true,
+        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR }
       })).resolves.toEqual({
         autoFetchIntervalMinutes: 15,
         colorTheme: "tidepool",
@@ -66,7 +162,8 @@ describe("AppSettingsService", () => {
         codeFont: "fira-code",
         zoomFactor: 1.25,
         statusFileViewMode: "list",
-        wrapDiffLines: true
+        wrapDiffLines: true,
+        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR }
       });
 
       await expect(new AppSettingsService(dir).getSettings()).resolves.toEqual({
@@ -77,7 +174,8 @@ describe("AppSettingsService", () => {
         codeFont: "fira-code",
         zoomFactor: 1.25,
         statusFileViewMode: "list",
-        wrapDiffLines: true
+        wrapDiffLines: true,
+        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR }
       });
     });
   });
@@ -94,7 +192,8 @@ describe("AppSettingsService", () => {
         codeFont: DEFAULT_CODE_FONT,
         zoomFactor: 1,
         statusFileViewMode: "list",
-        wrapDiffLines: false
+        wrapDiffLines: false,
+        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR }
       })).resolves.toEqual({
         autoFetchIntervalMinutes: 0,
         colorTheme: "githead",
@@ -103,7 +202,8 @@ describe("AppSettingsService", () => {
         codeFont: DEFAULT_CODE_FONT,
         zoomFactor: 1,
         statusFileViewMode: "list",
-        wrapDiffLines: false
+        wrapDiffLines: false,
+        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR }
       });
     });
   });
@@ -148,7 +248,8 @@ describe("AppSettingsService", () => {
         codeFont: DEFAULT_CODE_FONT,
         zoomFactor: DEFAULT_ZOOM_FACTOR,
         statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE,
-        wrapDiffLines: DEFAULT_WRAP_DIFF_LINES
+        wrapDiffLines: DEFAULT_WRAP_DIFF_LINES,
+        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR }
       });
 
       await fs.writeFile(settingsPath, JSON.stringify({
@@ -163,7 +264,8 @@ describe("AppSettingsService", () => {
         codeFont: DEFAULT_CODE_FONT,
         zoomFactor: DEFAULT_ZOOM_FACTOR,
         statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE,
-        wrapDiffLines: DEFAULT_WRAP_DIFF_LINES
+        wrapDiffLines: DEFAULT_WRAP_DIFF_LINES,
+        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR }
       });
 
       await fs.writeFile(settingsPath, JSON.stringify({
@@ -177,7 +279,8 @@ describe("AppSettingsService", () => {
         codeFont: DEFAULT_CODE_FONT,
         zoomFactor: DEFAULT_ZOOM_FACTOR,
         statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE,
-        wrapDiffLines: DEFAULT_WRAP_DIFF_LINES
+        wrapDiffLines: DEFAULT_WRAP_DIFF_LINES,
+        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR }
       });
     });
   });
@@ -197,7 +300,8 @@ describe("AppSettingsService", () => {
         codeFont: DEFAULT_CODE_FONT,
         zoomFactor: DEFAULT_ZOOM_FACTOR,
         statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE,
-        wrapDiffLines: DEFAULT_WRAP_DIFF_LINES
+        wrapDiffLines: DEFAULT_WRAP_DIFF_LINES,
+        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR }
       });
     });
   });
@@ -232,7 +336,8 @@ describe("AppSettingsService", () => {
         codeFont: DEFAULT_CODE_FONT,
         zoomFactor: DEFAULT_ZOOM_FACTOR,
         statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE,
-        wrapDiffLines: DEFAULT_WRAP_DIFF_LINES
+        wrapDiffLines: DEFAULT_WRAP_DIFF_LINES,
+        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR }
       });
       await expect(service.saveSettings({
         autoFetchIntervalMinutes: 10,

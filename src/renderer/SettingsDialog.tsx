@@ -10,6 +10,7 @@ import {
   Palette,
   RefreshCw,
   Save,
+  SlidersHorizontal,
   Sun
 } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
@@ -35,7 +36,8 @@ import type {
   AppColorTheme,
   AppUiFont,
   GitIdentityScope,
-  SourceControlWritingStyle
+  SourceControlWritingStyle,
+  TagPushBehavior
 } from "../shared/types";
 import { AI_COMMIT_MESSAGE_PROVIDERS, APP_ZOOM_FACTORS } from "../shared/types";
 import { COLOR_THEME_OPTIONS } from "./themes";
@@ -66,20 +68,44 @@ export interface SettingsDraft {
   uiFont: AppUiFont;
   codeFont: AppCodeFont;
   zoomFactor: number;
+  tagPushBehavior: TagPushBehavior;
   gitIdentityName: string;
   gitIdentityEmail: string;
   gitIdentityScope: GitIdentityScope;
 }
 
-type SettingsCategory = "appearance" | "git-identity" | "sync" | "ai" | "diagnostics";
+type SettingsCategory = "appearance" | "git-identity" | "git-behaviors" | "sync" | "ai" | "diagnostics";
 
 const categories = [
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "git-identity", label: "Git Identity", icon: GitCommitHorizontal },
+  { id: "git-behaviors", label: "Git Behaviors", icon: SlidersHorizontal },
   { id: "sync", label: "Sync", icon: RefreshCw },
   { id: "ai", label: "AI", icon: Bot },
   { id: "diagnostics", label: "Diagnostics", icon: Gauge }
 ] as const;
+
+const tagPushBehaviorOptions = [
+  {
+    value: "all",
+    label: "Push all local tags (Default)",
+    description: "Runs a separate tag push after the branch succeeds. This may publish tags unrelated to the branch being pushed."
+  },
+  {
+    value: "follow",
+    label: "Push reachable annotated tags",
+    description: "Adds --follow-tags to the branch push. Lightweight tags are not included; only annotated tags reachable from pushed commits are sent."
+  },
+  {
+    value: "none",
+    label: "Do not push tags automatically",
+    description: "Pushes only the branch or ref requested by you."
+  }
+] as const satisfies readonly {
+  value: TagPushBehavior;
+  label: string;
+  description: string;
+}[];
 
 export interface SettingsDialogProps {
   open: boolean;
@@ -112,6 +138,7 @@ export function SettingsDialog({
   const dirty = open && baselineRef.current !== "" && serializedDraft !== baselineRef.current;
   const dirtyCategories = getDirtyCategories(baselineRef.current, draft);
   const provider = draft.selectedProvider;
+  const selectedTagPushBehavior = tagPushBehaviorOptions.find((option) => option.value === draft.tagPushBehavior) ?? tagPushBehaviorOptions[0];
   const footerStatus = error ? {
     key: "error",
     content: <p id="settings-git-identity-error" className="flex items-center gap-2 text-destructive" role="alert"><CircleAlert className="size-4 shrink-0" aria-hidden="true" /><span>{error}</span></p>
@@ -194,6 +221,35 @@ export function SettingsDialog({
                       })}
                     />
                     <p className="text-sm text-muted-foreground">Repository overrides are available from a repository's context menu.</p>
+                  </SettingsCard>
+                </SettingsPanel>
+                <SettingsPanel value="git-behaviors" title="Git Behaviors" description="Choose how Githead handles Git operations by default.">
+                  <SettingsCard title="Push" description="Control what happens to tags after an ordinary branch push, targeted push, or branch publish.">
+                    <div className="grid max-w-2xl gap-2">
+                      <Label htmlFor="tag-push-behavior">Tag push behavior</Label>
+                      <select
+                        id="tag-push-behavior"
+                        className="h-10 rounded-md border border-input bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                        value={draft.tagPushBehavior}
+                        disabled={saving}
+                        aria-describedby="tag-push-behavior-description tag-push-behavior-help"
+                        onChange={(event) => onDraftChange({ ...draft, tagPushBehavior: event.currentTarget.value as TagPushBehavior })}
+                      >
+                        {tagPushBehaviorOptions.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                      <p id="tag-push-behavior-description" className="text-xs leading-relaxed text-muted-foreground">
+                        {selectedTagPushBehavior.description}
+                      </p>
+                      {draft.tagPushBehavior === "all" ? (
+                        <p className="flex items-start gap-2 rounded-md border bg-muted/30 p-2.5 text-xs leading-relaxed" role="note">
+                          <CircleAlert className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                          <span>After a branch push succeeds, Githead also pushes every local tag to the same remote.</span>
+                        </p>
+                      ) : null}
+                      <p id="tag-push-behavior-help" className="text-xs text-muted-foreground">This setting does not affect manually creating, pushing, or deleting an individual tag.</p>
+                    </div>
                   </SettingsCard>
                 </SettingsPanel>
                 <SettingsPanel value="sync" title="Sync" description="Control automatic remote fetches while Githead is open.">
@@ -295,11 +351,12 @@ function serializeSettingsDraft(draft: SettingsDraft): string { return JSON.stri
 function formatZoomFactor(zoomFactor: number): string { return `${Math.round(zoomFactor * 100)}%`; }
 
 function getDirtyCategories(baseline: string, draft: SettingsDraft): Record<SettingsCategory, boolean> {
-  if (!baseline) return { appearance: false, "git-identity": false, sync: false, ai: false, diagnostics: false };
+  if (!baseline) return { appearance: false, "git-identity": false, "git-behaviors": false, sync: false, ai: false, diagnostics: false };
   const saved = JSON.parse(baseline) as SettingsDraft;
   return {
     appearance: saved.colorTheme !== draft.colorTheme || saved.appearanceMode !== draft.appearanceMode || saved.uiFont !== draft.uiFont || saved.codeFont !== draft.codeFont || saved.zoomFactor !== draft.zoomFactor,
     "git-identity": saved.gitIdentityName !== draft.gitIdentityName || saved.gitIdentityEmail !== draft.gitIdentityEmail,
+    "git-behaviors": saved.tagPushBehavior !== draft.tagPushBehavior,
     sync: saved.autoFetchIntervalMinutes !== draft.autoFetchIntervalMinutes,
     ai: JSON.stringify({ selectedProvider: saved.selectedProvider, providerModels: saved.providerModels, commitPlanModels: saved.commitPlanModels, commitPlanReasoningEfforts: saved.commitPlanReasoningEfforts, prDescriptionModels: saved.prDescriptionModels, reasoningEfforts: saved.reasoningEfforts, prDescriptionReasoningEfforts: saved.prDescriptionReasoningEfforts, apiKeys: saved.apiKeys, clearApiKeys: saved.clearApiKeys, commitMessagePrompt: saved.commitMessagePrompt, prDescriptionPrompt: saved.prDescriptionPrompt, sourceControlWritingStyle: saved.sourceControlWritingStyle }) !== JSON.stringify({ selectedProvider: draft.selectedProvider, providerModels: draft.providerModels, commitPlanModels: draft.commitPlanModels, commitPlanReasoningEfforts: draft.commitPlanReasoningEfforts, prDescriptionModels: draft.prDescriptionModels, reasoningEfforts: draft.reasoningEfforts, prDescriptionReasoningEfforts: draft.prDescriptionReasoningEfforts, apiKeys: draft.apiKeys, clearApiKeys: draft.clearApiKeys, commitMessagePrompt: draft.commitMessagePrompt, prDescriptionPrompt: draft.prDescriptionPrompt, sourceControlWritingStyle: draft.sourceControlWritingStyle }),
     diagnostics: false

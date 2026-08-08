@@ -629,6 +629,27 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.getByRole("tab", { name: /^Activity Log/ }).getAttribute("aria-selected")).toBe("false");
   });
 
+  it("shows branch-and-tag partial success explicitly after Push", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.runGitAction).mockResolvedValue(createRunResult("push", {
+      exitCode: 1,
+      stderr: "Branch push to 'origin' succeeded, but the automatic tag push failed. The branch remains pushed and was not rolled back.",
+      push: {
+        branchSucceeded: true,
+        partialSuccess: true,
+        remoteName: "origin",
+        tagPushBehavior: "all",
+        tagOutcome: "failed"
+      }
+    }));
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /^Push$/ }));
+
+    expect(await screen.findByRole("heading", { name: "Push partially complete" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Activity Log, unread error details available" })).toBeTruthy();
+  });
+
   it("lazily renders and caches the working Markdown preview", async () => {
     const user = userEvent.setup();
     const file = createStatusFile("README.md", { isUnstaged: true, worktreeStatus: "M" });
@@ -732,7 +753,8 @@ describe("App", { timeout: 10_000 }, () => {
       codeFont: "system-mono",
       zoomFactor: 1,
       statusFileViewMode: "list",
-      wrapDiffLines: true
+      wrapDiffLines: true,
+      gitBehaviors: { tagPushBehavior: "all" }
     });
     vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
     vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash, {

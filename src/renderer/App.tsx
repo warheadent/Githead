@@ -192,7 +192,7 @@ import type {
   RepositoryGroup,
   StatusFileViewMode
 } from "../shared/types";
-import { AI_COMMIT_MESSAGE_PROVIDERS, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
+import { AI_COMMIT_MESSAGE_PROVIDERS, DEFAULT_TAG_PUSH_BEHAVIOR, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
 import { isMarkdownPath } from "../shared/filePreview";
 import { parseCommitSubject } from "../shared/commitSubject";
 import { parseGitHubReferences } from "../shared/githubReference";
@@ -675,6 +675,7 @@ const emptySettingsDraft: SettingsDraft = {
   uiFont: "inter",
   codeFont: "system-mono",
   zoomFactor: 1,
+  tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR,
   gitIdentityName: "",
   gitIdentityEmail: "",
   gitIdentityScope: "repository"
@@ -2041,7 +2042,8 @@ export function App(): ReactNode {
           codeFont: "system-mono",
           zoomFactor: 1,
           statusFileViewMode: "list",
-          wrapDiffLines: false
+          wrapDiffLines: false,
+          gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR }
         },
         lastOperationResult: {
           repoPath: current.repoPath,
@@ -5054,6 +5056,7 @@ export function App(): ReactNode {
         uiFont: appSettings?.uiFont ?? "inter",
         codeFont: appSettings?.codeFont ?? "system-mono",
         zoomFactor: appSettings?.zoomFactor ?? 1,
+        tagPushBehavior: appSettings?.gitBehaviors?.tagPushBehavior ?? DEFAULT_TAG_PUSH_BEHAVIOR,
         gitIdentityName: gitIdentity?.global.name ?? "",
         gitIdentityEmail: gitIdentity?.global.email ?? "",
         gitIdentityScope: "global"
@@ -5148,7 +5151,8 @@ export function App(): ReactNode {
           codeFont: draft.codeFont,
           zoomFactor: draft.zoomFactor,
           statusFileViewMode: initial.appSettings?.statusFileViewMode ?? "list",
-          wrapDiffLines: initial.appSettings?.wrapDiffLines ?? false
+          wrapDiffLines: initial.appSettings?.wrapDiffLines ?? false,
+          gitBehaviors: { tagPushBehavior: draft.tagPushBehavior }
         });
         if (!isSaveCurrent()) return;
       }
@@ -12995,7 +12999,8 @@ function hasAppSettingsChanges(draft: SettingsDraft, settings: AppSettings | nul
     || draft.appearanceMode !== settings.appearanceMode
     || draft.uiFont !== settings.uiFont
     || draft.codeFont !== settings.codeFont
-    || draft.zoomFactor !== settings.zoomFactor;
+    || draft.zoomFactor !== settings.zoomFactor
+    || draft.tagPushBehavior !== (settings.gitBehaviors?.tagPushBehavior ?? DEFAULT_TAG_PUSH_BEHAVIOR);
 }
 
 function hasGitIdentityChanges(draft: SettingsDraft, settings: GitIdentitySettings | null): boolean {
@@ -13388,6 +13393,7 @@ function getConfiguredActionRunningHeading(runs: ConfiguredActionRun[]): string 
 
 function formatResultHeading(result: GitRunResult): string {
   const label = capitalize(result.action);
+  if (result.push?.partialSuccess) return `${label} partially complete`;
   return result.exitCode === 0 ? `${label} complete` : `${label} failed`;
 }
 

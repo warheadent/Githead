@@ -268,7 +268,7 @@ describe("App", { timeout: 10_000 }, () => {
 
   it("keeps a 10,000-file status tree viewport-proportional during file selection", async () => {
     vi.mocked(githead.getAppSettings).mockResolvedValue({
-      autoFetchIntervalMinutes: 10, colorTheme: "githead", appearanceMode: "system", uiFont: "inter", codeFont: "system-mono", zoomFactor: 1, statusFileViewMode: "tree", wrapDiffLines: false
+      autoFetchIntervalMinutes: 10, colorTheme: "githead", appearanceMode: "system", uiFont: "inter", codeFont: "system-mono", zoomFactor: 1, statusFileViewMode: "tree", wrapDiffLines: false, gitBehaviors: { tagPushBehavior: "all" }
     });
     const files = Array.from({ length: 10_000 }, (_, index) => createStatusFile(
       `generated/file-${index.toString().padStart(5, "0")}.ts`,

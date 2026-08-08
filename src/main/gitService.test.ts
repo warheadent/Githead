@@ -96,6 +96,14 @@ const failure = (stderr = "fatal: failed"): ProcessResult => ({
   stderr
 });
 
+const ordinaryPushPreflight = (remoteName = "origin"): ProcessResult[] => [
+  ok("main\n"),
+  failure(),
+  failure(),
+  ok(`${remoteName}\n`),
+  ok(`${remoteName}\n`)
+];
+
 const dubiousOwnershipError = [
   "fatal: detected dubious ownership in repository at 'D:/Repo'",
   "'D:/Repo' is owned by:",
@@ -694,6 +702,11 @@ describe("GitService", () => {
   it("pushes commits before pushing tags", async () => {
     const runner = new FakeRunner([
       ok("true\n"),
+      ok("main\n"),
+      failure(),
+      failure(),
+      ok("origin\n"),
+      ok("origin\n"),
       ok("branch pushed\n"),
       ok("tags pushed\n")
     ]);
@@ -706,13 +719,14 @@ describe("GitService", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("branch pushed\ntags pushed\n");
-    expect(runner.calls.slice(1)).toMatchObject([
+    expect(runner.calls.slice(-2)).toMatchObject([
       {
         command: "git",
         args: [
           "-C",
           "D:\\Repo",
-          "push"
+          "push",
+          "origin"
         ]
       },
       {
@@ -721,6 +735,7 @@ describe("GitService", () => {
           "-C",
           "D:\\Repo",
           "push",
+          "origin",
           "--tags"
         ]
       }
@@ -730,6 +745,11 @@ describe("GitService", () => {
   it("does not push tags when pushing commits fails", async () => {
     const runner = new FakeRunner([
       ok("true\n"),
+      ok("main\n"),
+      failure(),
+      failure(),
+      ok("origin\n"),
+      ok("origin\n"),
       failure("fatal: no upstream configured")
     ]);
     const service = new GitService(runner);
@@ -741,15 +761,168 @@ describe("GitService", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("fatal: no upstream configured");
-    expect(runner.calls).toHaveLength(2);
+    expect(runner.calls).toHaveLength(7);
     expect(runner.calls.at(-1)).toMatchObject({
       command: "git",
       args: [
         "-C",
         "D:\\Repo",
-        "push"
+        "push",
+        "origin"
       ]
     });
+  });
+
+  it("uses one ordinary push with follow-tags for reachable annotated tags", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ...ordinaryPushPreflight(),
+      ok("branch and annotated tags pushed\n")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.runGitAction({ repoPath: "D:\\Repo", action: "push" }, undefined, {
+      tagPushBehavior: "follow"
+    });
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      push: {
+        branchSucceeded: true,
+        partialSuccess: false,
+        remoteName: "origin",
+        tagPushBehavior: "follow",
+        tagOutcome: "included-with-branch"
+      }
+    });
+    expect(runner.calls.at(-1)?.args).toEqual([
+      "-C", "D:\\Repo", "push", "--follow-tags", "origin"
+    ]);
+  });
+
+  it("uses one branch-only ordinary push when automatic tags are disabled", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ...ordinaryPushPreflight(),
+      ok("branch pushed\n")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.runGitAction({ repoPath: "D:\\Repo", action: "push" }, undefined, {
+      tagPushBehavior: "none"
+    });
+
+    expect(result.push).toMatchObject({
+      branchSucceeded: true,
+      tagPushBehavior: "none",
+      tagOutcome: "not-requested"
+    });
+    expect(runner.calls.at(-1)?.args).toEqual(["-C", "D:\\Repo", "push", "origin"]);
+  });
+
+  it("reports partial success when an ordinary tag push fails", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ...ordinaryPushPreflight("upstream"),
+      ok("branch pushed\n"),
+      failure("fatal: tag rejected")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.runGitAction({ repoPath: "D:\\Repo", action: "push" });
+
+    expect(result).toMatchObject({
+      exitCode: 1,
+      push: {
+        branchSucceeded: true,
+        partialSuccess: true,
+        remoteName: "upstream",
+        tagOutcome: "failed"
+      }
+    });
+    expect(result.stderr).toContain("Branch push to 'upstream' succeeded");
+    expect(result.stderr).toContain("The branch remains pushed and was not rolled back.");
+  });
+
+  it("does not start the tag phase when cancellation arrives between phases", async () => {
+    const controller = new AbortController();
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ...ordinaryPushPreflight(),
+      ok("branch pushed\n")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.runGitAction(
+      { repoPath: "D:\\Repo", action: "push" },
+      (event) => {
+        if (event.stream === "stdout" && event.text.includes("branch pushed")) controller.abort();
+      },
+      { tagPushBehavior: "all", signal: controller.signal }
+    );
+
+    expect(result.push).toMatchObject({
+      branchSucceeded: true,
+      partialSuccess: true,
+      tagOutcome: "cancelled"
+    });
+    expect(runner.calls.at(-1)?.args).toEqual(["-C", "D:\\Repo", "push", "origin"]);
+    expect(result.stderr).toContain("automatic tag pushing was cancelled");
+  });
+
+  it("snapshots tag behavior before an active ordinary push can observe later changes", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ...ordinaryPushPreflight(),
+      ok("branch pushed\n"),
+      ok("tags pushed\n")
+    ]);
+    const service = new GitService(runner);
+    const options: { tagPushBehavior: "all" | "none" } = { tagPushBehavior: "all" };
+
+    const operation = service.runGitAction({ repoPath: "D:\\Repo", action: "push" }, undefined, options);
+    options.tagPushBehavior = "none";
+    const result = await operation;
+
+    expect(result.push?.tagPushBehavior).toBe("all");
+    expect(runner.calls.at(-1)?.args).toEqual(["-C", "D:\\Repo", "push", "origin", "--tags"]);
+  });
+
+  it("reports a tag-phase timeout as partial success and keeps phase output distinct", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ...ordinaryPushPreflight(),
+      ok("branch pushed\n"),
+      {
+        exitCode: -1,
+        stdout: "",
+        stderr: "",
+        error: "Command timed out.",
+        terminationReason: "timedOut"
+      }
+    ]);
+    const service = new GitService(runner);
+    const output: string[] = [];
+    const outputActions: string[] = [];
+
+    const result = await service.runGitAction(
+      { repoPath: "D:\\Repo", action: "push" },
+      (event) => {
+        output.push(event.text);
+        outputActions.push(event.action);
+      }
+    );
+
+    expect(result.push).toMatchObject({
+      branchSucceeded: true,
+      partialSuccess: true,
+      tagOutcome: "timed-out"
+    });
+    expect(result.stderr).toContain("automatic tag pushing timed out");
+    expect(output.join("")).toContain("[Branch push]");
+    expect(output.join("")).toContain("[Tag push]");
+    expect(outputActions).toContain("push:branch");
+    expect(outputActions).toContain("push:tags");
   });
 
   it("pushes HEAD to a selected remote branch before pushing tags to that remote", async () => {
@@ -782,6 +955,35 @@ describe("GitService", () => {
       { args: ["-C", "D:\\Repo", "push", "upstream", "HEAD:refs/heads/release/candidate"] },
       { args: ["-C", "D:\\Repo", "push", "upstream", "--tags"] }
     ]);
+  });
+
+  it("preserves the selected remote and refspec for follow-tags and branch-only targeted pushes", async () => {
+    for (const [tagPushBehavior, expectedArgs] of [
+      ["follow", ["-C", "D:\\Repo", "push", "--follow-tags", "upstream", "HEAD:refs/heads/release/candidate"]],
+      ["none", ["-C", "D:\\Repo", "push", "upstream", "HEAD:refs/heads/release/candidate"]]
+    ] as const) {
+      const runner = new FakeRunner([
+        ok("true\n"),
+        ok("feature/source\n"),
+        ok("origin\nupstream\n"),
+        ok("release/candidate\n"),
+        ok("branch pushed\n")
+      ]);
+
+      const result = await new GitService(runner).runGitAction({
+        repoPath: "D:\\Repo",
+        action: "push",
+        pushTarget: {
+          sourceBranch: "feature/source",
+          remoteName: "upstream",
+          destinationBranch: "release/candidate"
+        }
+      }, undefined, { tagPushBehavior });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.push?.remoteName).toBe("upstream");
+      expect(runner.calls.at(-1)?.args).toEqual(expectedArgs);
+    }
   });
 
   it("rejects a targeted push when the current branch changed", async () => {
@@ -968,6 +1170,36 @@ describe("GitService", () => {
     ]);
   });
 
+  it("preserves upstream publication for follow-tags and branch-only modes", async () => {
+    for (const [tagPushBehavior, expectedArgs] of [
+      ["follow", ["-C", "D:\\Repo", "push", "--follow-tags", "--set-upstream", "origin", "feature/x"]],
+      ["none", ["-C", "D:\\Repo", "push", "--set-upstream", "origin", "feature/x"]]
+    ] as const) {
+      const runner = new FakeRunner([
+        ok("true\n"),
+        ok("feature/x\n"),
+        ok(""),
+        ok("origin\n"),
+        ok("feature/x\n"),
+        ok("branch published\n")
+      ]);
+
+      const result = await new GitService(runner).publishBranch({
+        repoPath: "D:\\Repo",
+        branchName: "feature/x",
+        remoteName: "origin"
+      }, undefined, { tagPushBehavior });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.push).toMatchObject({
+        branchSucceeded: true,
+        remoteName: "origin",
+        tagPushBehavior
+      });
+      expect(runner.calls.at(-1)?.args).toEqual(expectedArgs);
+    }
+  });
+
   it("does not push tags when publishing a branch fails", async () => {
     const runner = new FakeRunner([
       ok("true\n"),
@@ -1010,7 +1242,14 @@ describe("GitService", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toBe("branch published\n");
-    expect(result.stderr).toBe("fatal: tag rejected");
+    expect(result.stderr).toContain("Branch push to 'upstream' succeeded");
+    expect(result.stderr).toContain("fatal: tag rejected");
+    expect(result.push).toMatchObject({
+      branchSucceeded: true,
+      partialSuccess: true,
+      remoteName: "upstream",
+      tagOutcome: "failed"
+    });
     expect(runner.calls.at(-1)).toMatchObject({
       command: "git",
       args: [
@@ -1254,6 +1493,7 @@ describe("GitService", () => {
   it("returns structured failures without throwing", async () => {
     const runner = new FakeRunner([
       ok("true\n"),
+      ...ordinaryPushPreflight(),
       failure("fatal: no upstream configured")
     ]);
     const service = new GitService(runner);

@@ -71,6 +71,7 @@ import type {
   GitResetCommitRequest,
   GitRunRequest,
   GitRunResult,
+  GitPushResultDetails,
   GitSafeDirectoryInfo,
   GitSafeDirectoryRequest,
   GitSetRemoteUrlRequest,
@@ -102,7 +103,7 @@ import type {
   RepoSummary
 } from "../shared/types";
 import { getSupportedGitHubOrigin, parseGitHubRemoteUrl } from "../shared/githubRemote";
-import { gitCapabilities, isGitAction } from "../shared/types";
+import { DEFAULT_TAG_PUSH_BEHAVIOR, gitCapabilities, isGitAction, type TagPushBehavior } from "../shared/types";
 import { createEmptyActionsConfig, getActionKey, readActionsConfig, saveActionsConfigFile } from "./actionsConfig";
 import { validateCloneRequest } from "./cloneValidation";
 import type { ProcessOutput, ProcessResult, ProcessRunOptions, ProcessRunner } from "./processRunner";
@@ -119,6 +120,7 @@ import { GIT_STASH_LIST_FORMAT, isGitStashRef, parseGitStashFiles, parseGitStash
 import { formatRevertCommitMessage } from "../shared/revertCommitMessage";
 import { GitOperationRecoveryService } from "./gitOperationRecovery";
 import { createIntegrationRunId, GitIntegrationService } from "./gitIntegrationService";
+import { planGitPush, type GitPushCommandPlan, type ValidatedGitPushTarget } from "./gitPushPlan";
 
 export const GIT_ACTION_COMMANDS: Record<GitAction, string[]> = {
   fetch: [
@@ -140,6 +142,15 @@ const PULL_HEAD_REF_PREFIX = "refs/githead/pull-head";
 const PULL_RECOVERY_REF_PREFIX = "refs/githead/recovery";
 
 export type GitOutputHandler = (event: GitOutputEvent) => void;
+
+export interface GitPushExecutionOptions {
+  signal?: AbortSignal;
+  tagPushBehavior: TagPushBehavior;
+}
+
+interface GitPushExecutionResult extends ProcessResult {
+  push: GitPushResultDetails;
+}
 
 export interface GitBranchRangeRequest {
   repoPath: string;
@@ -1671,11 +1682,13 @@ export class GitService {
 
   async publishBranch(
     request: GitPublishBranchRequest,
-    onOutput?: GitOutputHandler
+    onOutput?: GitOutputHandler,
+    pushOptions: GitPushExecutionOptions = { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR }
   ): Promise<GitRunResult> {
     const startedAt = new Date().toISOString();
     const runId = randomUUID();
     const action = "publish";
+    const pushSnapshot = { ...pushOptions };
 
     const validation = await this.validateRepo(request.repoPath);
     if (!validation.isValid) {
@@ -1740,41 +1753,26 @@ export class GitService {
       });
     }
 
-    const publishResult = await this.runNamedActionCommand(request.repoPath, action, runId, [
-      "push",
-      "--set-upstream",
-      remoteResult.remoteName,
-      branchResult.branchName
-    ], onOutput);
-
-    if (publishResult.exitCode !== 0) {
-      return this.createRunResult({
-        runId,
-        action,
-        repoPath: request.repoPath,
-        startedAt,
-        result: publishResult,
-        ...(onOutput ? { onOutput } : {})
-      });
-    }
-
-    const tagResult = await this.runNamedActionCommand(request.repoPath, action, runId, [
-      "push",
-      remoteResult.remoteName,
-      "--tags"
-    ], onOutput);
+    const pushResult = await this.executePushPlan(
+      request.repoPath,
+      action,
+      runId,
+      planGitPush({
+        remoteName: remoteResult.remoteName,
+        refspec: branchResult.branchName,
+        setUpstream: true
+      }, pushSnapshot.tagPushBehavior),
+      onOutput,
+      pushSnapshot.signal
+    );
 
     return this.createRunResult({
       runId,
       action,
       repoPath: request.repoPath,
       startedAt,
-      result: {
-        exitCode: tagResult.exitCode,
-        stdout: `${publishResult.stdout}${tagResult.stdout}`,
-        stderr: `${publishResult.stderr}${tagResult.stderr}`,
-        ...(tagResult.error ? { error: tagResult.error } : {})
-      },
+      result: pushResult,
+      push: pushResult.push,
       ...(onOutput ? { onOutput } : {})
     });
   }
@@ -1938,10 +1936,12 @@ export class GitService {
 
   async runGitAction(
     request: GitRunRequest,
-    onOutput?: GitOutputHandler
+    onOutput?: GitOutputHandler,
+    pushOptions: GitPushExecutionOptions = { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR }
   ): Promise<GitRunResult> {
     const startedAt = new Date().toISOString();
     const runId = randomUUID();
+    const pushSnapshot = { ...pushOptions };
 
     if (!isGitAction(request.action)) {
       return this.createImmediateFailure({
@@ -1968,7 +1968,7 @@ export class GitService {
       ? await this.preparePullRecovery(request.repoPath)
       : null;
     const result = request.action === "push"
-      ? await this.runPushWithTags(request, runId, onOutput)
+      ? await this.runPush(request, runId, onOutput, pushSnapshot)
       : await this.runActionCommand(request, runId, GIT_ACTION_COMMANDS[request.action], onOutput);
     const pullRecovery = pullSnapshot
       ? await this.finishPullRecoveryAttempt(request.repoPath, pullSnapshot, result.exitCode)
@@ -1993,6 +1993,7 @@ export class GitService {
       stderr: result.error ? `${result.stderr}${result.error}` : result.stderr,
       startedAt,
       endedAt,
+      ...(request.action === "push" ? { push: (result as GitPushExecutionResult).push } : {}),
       ...(pullRecovery ? { pullRecovery } : {})
     };
   }
@@ -3006,20 +3007,23 @@ export class GitService {
     }, undefined, createTerminalColorEnv(), NETWORK_OPERATION_TIMEOUT_MS);
   }
 
-  private async runPushWithTags(
+  private async runPush(
     request: GitRunRequest,
     runId: string,
-    onOutput?: GitOutputHandler
-  ): Promise<ProcessResult> {
+    onOutput: GitOutputHandler | undefined,
+    options: GitPushExecutionOptions
+  ): Promise<GitPushExecutionResult> {
     if (request.action !== "push") {
       return {
         exitCode: -1,
         stdout: "",
-        stderr: "Targeted push is only available for push actions."
+        stderr: "Targeted push is only available for push actions.",
+        push: this.createPushDetails(options.tagPushBehavior, null, false, "not-started")
       };
     }
 
     const target = request.pushTarget;
+    let validatedTarget: ValidatedGitPushTarget;
     if (target) {
       const expectedBranch = target.sourceBranch.trim();
       const currentBranchResult = await this.runGit(request.repoPath, [
@@ -3034,7 +3038,8 @@ export class GitService {
         return {
           exitCode: -1,
           stdout: "",
-          stderr: "Current branch changed before pushing. Refresh and try again."
+          stderr: "Current branch changed before pushing. Refresh and try again.",
+          push: this.createPushDetails(options.tagPushBehavior, null, false, "not-started")
         };
       }
 
@@ -3043,7 +3048,8 @@ export class GitService {
         return {
           exitCode: -1,
           stdout: "",
-          stderr: remoteResult.error
+          stderr: remoteResult.error,
+          push: this.createPushDetails(options.tagPushBehavior, null, false, "not-started")
         };
       }
 
@@ -3052,53 +3058,181 @@ export class GitService {
         return {
           exitCode: -1,
           stdout: "",
-          stderr: destinationResult.error
+          stderr: destinationResult.error,
+          push: this.createPushDetails(options.tagPushBehavior, remoteResult.remoteName, false, "not-started")
         };
       }
-
-      const pushResult = await this.runActionCommand(request, runId, [
-        "push",
-        remoteResult.remoteName,
-        `HEAD:refs/heads/${destinationResult.branchName}`
-      ], onOutput);
-
-      if (pushResult.exitCode !== 0) {
-        return pushResult;
+      validatedTarget = {
+        remoteName: remoteResult.remoteName,
+        refspec: `HEAD:refs/heads/${destinationResult.branchName}`
+      };
+    } else {
+      const remoteResult = await this.resolveOrdinaryPushRemote(request.repoPath);
+      if ("error" in remoteResult) {
+        return {
+          exitCode: -1,
+          stdout: "",
+          stderr: remoteResult.error,
+          push: this.createPushDetails(options.tagPushBehavior, null, false, "not-started")
+        };
       }
+      validatedTarget = { remoteName: remoteResult.remoteName };
+    }
 
-      const tagResult = await this.runActionCommand(request, runId, [
-        "push",
-        remoteResult.remoteName,
-        "--tags"
-      ], onOutput);
+    return this.executePushPlan(
+      request.repoPath,
+      request.action,
+      runId,
+      planGitPush(validatedTarget, options.tagPushBehavior),
+      onOutput,
+      options.signal
+    );
+  }
 
+  private async resolveOrdinaryPushRemote(
+    repoPath: string
+  ): Promise<{ remoteName: string } | { error: string }> {
+    const branchResult = await this.runGit(repoPath, ["branch", "--show-current"]);
+    const branchName = branchResult.stdout.trim();
+    if (branchResult.exitCode !== 0 || !branchName) {
+      return { error: "Git cannot determine a push remote while HEAD is detached." };
+    }
+
+    const [branchPushRemote, defaultPushRemote, branchRemote, remotesResult] = await Promise.all([
+      this.runGit(repoPath, ["config", "--get", `branch.${branchName}.pushRemote`]),
+      this.runGit(repoPath, ["config", "--get", "remote.pushDefault"]),
+      this.runGit(repoPath, ["config", "--get", `branch.${branchName}.remote`]),
+      this.runGit(repoPath, ["remote"])
+    ]);
+    if (remotesResult.exitCode !== 0) {
+      return { error: remotesResult.stderr.trim() || remotesResult.error || "Unable to resolve the push remote." };
+    }
+
+    const remotes = splitLines(remotesResult.stdout);
+    const configured = [branchPushRemote, defaultPushRemote, branchRemote]
+      .find((result) => result.exitCode === 0 && result.stdout.trim())
+      ?.stdout.trim();
+    const remoteName = configured ?? (remotes.includes("origin") ? "origin" : remotes.length === 1 ? remotes[0] : undefined);
+    if (!remoteName) {
+      return { error: "Git cannot determine the push remote. Configure an upstream or a default push remote and try again." };
+    }
+    if (remoteName !== "." && !remotes.includes(remoteName)) {
+      return { error: `The configured push remote '${remoteName}' no longer exists.` };
+    }
+
+    return { remoteName };
+  }
+
+  private async executePushPlan(
+    repoPath: string,
+    action: string,
+    runId: string,
+    plan: GitPushCommandPlan,
+    onOutput?: GitOutputHandler,
+    signal?: AbortSignal
+  ): Promise<GitPushExecutionResult> {
+    const branchPhase = plan.phases[0];
+    if (!branchPhase || branchPhase.kind !== "branch") {
+      throw new Error("Push plan is missing its branch phase.");
+    }
+
+    const branchAction = `${action}:branch`;
+    onOutput?.(this.createOutputEvent(runId, branchAction, "system", "\n[Branch push]\n"));
+    const branchResult = await this.runNamedActionCommand(repoPath, branchAction, runId, branchPhase.args, onOutput);
+    const tagOutcomeWithoutSecondPhase = plan.tagPushBehavior === "follow"
+      ? "included-with-branch"
+      : plan.tagPushBehavior === "none"
+        ? "not-requested"
+        : "not-started";
+    if (branchResult.exitCode !== 0) {
       return {
-        exitCode: tagResult.exitCode,
-        stdout: `${pushResult.stdout}${tagResult.stdout}`,
-        stderr: `${pushResult.stderr}${tagResult.stderr}`,
-        ...(tagResult.error ? { error: tagResult.error } : {})
+        ...branchResult,
+        push: this.createPushDetails(plan.tagPushBehavior, plan.remoteName, false, tagOutcomeWithoutSecondPhase)
       };
     }
 
-    const pushResult = await this.runActionCommand(request, runId, [
-      "push"
-    ], onOutput);
-
-    if (pushResult.exitCode !== 0) {
-      return pushResult;
+    const tagPhase = plan.phases[1];
+    if (!tagPhase) {
+      return {
+        ...branchResult,
+        push: this.createPushDetails(plan.tagPushBehavior, plan.remoteName, true, tagOutcomeWithoutSecondPhase)
+      };
     }
 
-    const tagResult = await this.runActionCommand(request, runId, [
-      "push",
-      "--tags"
-    ], onOutput);
+    const tagAction = `${action}:tags`;
+    onOutput?.(this.createOutputEvent(runId, tagAction, "system", "\n[Tag push]\n"));
+    if (signal?.aborted) {
+      const tagOutcome = this.getAbortedTagOutcome(signal);
+      const message = this.getPartialPushMessage(plan.remoteName, tagOutcome);
+      onOutput?.(this.createOutputEvent(runId, tagAction, "system", `${message}\n`));
+      return {
+        exitCode: -1,
+        stdout: branchResult.stdout,
+        stderr: `${branchResult.stderr}${message}\n`,
+        terminationReason: tagOutcome === "timed-out" ? "timedOut" : "aborted",
+        push: this.createPushDetails(plan.tagPushBehavior, plan.remoteName, true, tagOutcome)
+      };
+    }
+
+    const tagResult = await this.runNamedActionCommand(repoPath, tagAction, runId, tagPhase.args, onOutput);
+    if (tagResult.exitCode === 0) {
+      return {
+        exitCode: 0,
+        stdout: `${branchResult.stdout}${tagResult.stdout}`,
+        stderr: `${branchResult.stderr}${tagResult.stderr}`,
+        push: this.createPushDetails(plan.tagPushBehavior, plan.remoteName, true, "succeeded")
+      };
+    }
+
+    const tagOutcome = tagResult.terminationReason === "aborted"
+      ? "cancelled"
+      : tagResult.terminationReason === "timedOut"
+        ? "timed-out"
+        : "failed";
+    const message = this.getPartialPushMessage(plan.remoteName, tagOutcome);
+    onOutput?.(this.createOutputEvent(runId, tagAction, "system", `\n${message}\n`));
 
     return {
       exitCode: tagResult.exitCode,
-      stdout: `${pushResult.stdout}${tagResult.stdout}`,
-      stderr: `${pushResult.stderr}${tagResult.stderr}`,
-      ...(tagResult.error ? { error: tagResult.error } : {})
+      stdout: `${branchResult.stdout}${tagResult.stdout}`,
+      stderr: `${branchResult.stderr}${message}\n${tagResult.stderr}`,
+      ...(tagResult.error ? { error: tagResult.error } : {}),
+      ...(tagResult.terminationReason ? { terminationReason: tagResult.terminationReason } : {}),
+      push: this.createPushDetails(plan.tagPushBehavior, plan.remoteName, true, tagOutcome)
     };
+  }
+
+  private createPushDetails(
+    tagPushBehavior: TagPushBehavior,
+    remoteName: string | null,
+    branchSucceeded: boolean,
+    tagOutcome: GitPushResultDetails["tagOutcome"]
+  ): GitPushResultDetails {
+    return {
+      branchSucceeded,
+      partialSuccess: branchSucceeded && ["failed", "cancelled", "timed-out"].includes(tagOutcome),
+      remoteName,
+      tagPushBehavior,
+      tagOutcome
+    };
+  }
+
+  private getAbortedTagOutcome(signal: AbortSignal): "cancelled" | "timed-out" {
+    return signal.reason instanceof Error && signal.reason.name === "TimeoutError"
+      ? "timed-out"
+      : "cancelled";
+  }
+
+  private getPartialPushMessage(
+    remoteName: string,
+    outcome: "failed" | "cancelled" | "timed-out"
+  ): string {
+    const reason = outcome === "cancelled"
+      ? "automatic tag pushing was cancelled"
+      : outcome === "timed-out"
+        ? "automatic tag pushing timed out"
+        : "the automatic tag push failed";
+    return `Branch push to '${remoteName}' succeeded, but ${reason}. The branch remains pushed and was not rolled back.`;
   }
 
   private async readStashes(repoPath: string): Promise<GitStashEntry[]> {
@@ -3186,6 +3320,7 @@ export class GitService {
     repoPath: string;
     startedAt: string;
     result: ProcessResult;
+    push?: GitPushResultDetails;
     onOutput?: GitOutputHandler;
   }): GitRunResult {
     const endedAt = new Date().toISOString();
@@ -3206,7 +3341,8 @@ export class GitService {
       stdout: params.result.stdout,
       stderr: params.result.error ? `${params.result.stderr}${params.result.error}` : params.result.stderr,
       startedAt: params.startedAt,
-      endedAt
+      endedAt,
+      ...(params.push ? { push: params.push } : {})
     };
   }
 
