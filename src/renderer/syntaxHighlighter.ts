@@ -28,6 +28,7 @@ export interface HighlightedCode {
 }
 
 export const MAX_TOKENIZED_LINE_LENGTH = 1_000;
+export const MAX_TOKENIZED_CODE_LENGTH = 200_000;
 
 const LANGUAGE_BY_EXTENSION = new Map<string, string>([
   ["bash", "bash"],
@@ -148,6 +149,17 @@ export function highlightDiffRows(filePath: string, rows: readonly DiffRow[]): H
   return highlightedRows;
 }
 
+export function highlightCode(filePath: string, text: string): HighlightedCode[] {
+  const lines = splitCodeLines(text);
+  const language = detectDiffLanguage(filePath);
+
+  if (!language || text.length > MAX_TOKENIZED_CODE_LENGTH) {
+    return lines.map(createPlainCode);
+  }
+
+  return highlightCodeLines(language, lines) ?? lines.map(createPlainCode);
+}
+
 function collectCodeRowIndexes(rows: readonly DiffRow[], side: "old" | "new"): number[] {
   const indexes: number[] = [];
 
@@ -246,6 +258,10 @@ function createPlainCode(value: string): HighlightedCode {
     kind: "plain",
     value
   };
+}
+
+function splitCodeLines(text: string): string[] {
+  return text.split(/\r?\n/);
 }
 
 function getFileName(filePath: string): string {

@@ -87,4 +87,42 @@ describe("ConflictResolutionDialog", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Open in editor" })[0]!);
     expect(onOpenFile).toHaveBeenCalledWith("conflict.txt");
   });
+
+  it("renders syntax tokens, line gutters, and operation-aware diff bands", async () => {
+    const operation = createRepositoryOperationState("merge", {
+      conflictedPaths: ["policy.ts"]
+    });
+    vi.mocked(githead.getConflictResolution).mockResolvedValue({
+      outcome: "ready",
+      path: "policy.ts",
+      state: operation,
+      baseText: "export const retries = 2;\n",
+      currentText: "export const retries = 4;\n",
+      incomingText: "export const retries = 6;\n",
+      workingText: "<<<<<<< HEAD\nexport const retries = 4;\n=======\nexport const retries = 6;\n>>>>>>> topic\n",
+      workingHash: "working-hash",
+      message: "Choose a result."
+    });
+
+    render(
+      <ConflictResolutionDialog
+        open
+        repoPath={repoPath}
+        initialPath="policy.ts"
+        operation={operation}
+        busy={false}
+        onOpenChange={vi.fn()}
+        onOpenFile={vi.fn()}
+        onSave={vi.fn()}
+      />
+    );
+
+    expect(await screen.findByRole("dialog", { name: "Resolve policy.ts" })).toBeTruthy();
+    await waitFor(() => expect(document.querySelectorAll(".conflict-code-line-number").length).toBeGreaterThan(0));
+    expect(document.querySelectorAll(".conflict-code-line.delete").length).toBeGreaterThan(0);
+    expect(document.querySelectorAll(".conflict-code-line.add").length).toBeGreaterThan(0);
+    expect(document.querySelectorAll(".conflict-code-line.marker")).toHaveLength(3);
+    expect(document.querySelectorAll(".conflict-code-text .hljs-keyword").length).toBeGreaterThan(0);
+    expect(screen.getByRole("textbox", { name: "Resolved file content" })).toHaveProperty("value", expect.stringContaining("<<<<<<< HEAD"));
+  });
 });

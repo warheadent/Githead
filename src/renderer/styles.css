@@ -3222,20 +3222,150 @@ textarea,
   white-space: pre;
 }
 
-.diff-code.hljs {
+.conflict-code-scroll {
+  min-height: 0;
+  overflow: auto;
+  background: var(--diff-code);
+}
+
+.conflict-code-lines {
+  width: max-content;
+  min-width: 100%;
+  font-family: var(--font-code);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.conflict-code-line {
+  display: grid;
+  grid-template-columns: 40px 22px max-content;
+  width: max-content;
+  min-width: 100%;
+  min-height: 20px;
+  border-left: 3px solid transparent;
+  background: var(--diff-code);
+}
+
+.conflict-code-line.add {
+  border-left-color: var(--diff-add-border);
+  background: var(--diff-add-bg);
+}
+
+.conflict-code-line.delete {
+  border-left-color: var(--diff-delete-border);
+  background: var(--diff-delete-bg);
+}
+
+.conflict-code-line.marker {
+  border-left-color: var(--diff-hunk-border);
+  color: var(--diff-hunk-text);
+  background: var(--diff-hunk-bg);
+  font-weight: 700;
+}
+
+.conflict-code-line-number {
+  user-select: none;
+  border-right: 1px solid var(--border);
+  padding-right: 8px;
+  color: var(--muted-foreground);
+  background: var(--diff-line-number-bg);
+  text-align: right;
+}
+
+.conflict-code-marker {
+  user-select: none;
+  color: var(--muted-foreground);
+  text-align: center;
+}
+
+.conflict-code-line.add .conflict-code-marker {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.conflict-code-line.delete .conflict-code-marker {
+  color: var(--destructive);
+  font-weight: 700;
+}
+
+.conflict-code-text {
+  min-height: 20px;
+  padding-right: 16px;
+  padding-left: 10px;
+  white-space: pre;
+}
+
+.conflict-code-editor {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--diff-code);
+}
+
+.conflict-code-editor-clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.conflict-code-editor-layer {
+  width: max-content;
+  min-width: 100%;
+  transform: translate(0, 0);
+  will-change: transform;
+}
+
+.conflict-code-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  resize: none;
+  overflow: auto;
+  border: 0;
+  border-radius: 0;
+  padding: 0 0 0 72px;
+  background: transparent;
+  box-shadow: none;
+  color: transparent;
+  caret-color: var(--foreground);
+  -webkit-text-fill-color: transparent;
+  field-sizing: fixed;
+  font-family: var(--font-code);
+  font-size: 12px;
+  line-height: 20px;
+  white-space: pre;
+}
+
+.conflict-code-input:focus-visible {
+  border: 0;
+  box-shadow: inset 0 0 0 1px var(--ring);
+  outline: 0;
+  --tw-ring-shadow: 0 0 #0000;
+}
+
+.diff-code.hljs,
+.conflict-code-text.hljs {
   color: inherit;
   background: transparent;
 }
 
 .diff-code .hljs-comment,
-.diff-code .hljs-quote {
+.diff-code .hljs-quote,
+.conflict-code-text .hljs-comment,
+.conflict-code-text .hljs-quote {
   color: var(--syntax-comment);
   font-style: italic;
 }
 
 .diff-code .hljs-keyword,
 .diff-code .hljs-selector-tag,
-.diff-code .hljs-subst {
+.diff-code .hljs-subst,
+.conflict-code-text .hljs-keyword,
+.conflict-code-text .hljs-selector-tag,
+.conflict-code-text .hljs-subst {
   color: var(--syntax-keyword);
   font-weight: 700;
 }
@@ -3243,19 +3373,29 @@ textarea,
 .diff-code .hljs-number,
 .diff-code .hljs-literal,
 .diff-code .hljs-symbol,
-.diff-code .hljs-bullet {
+.diff-code .hljs-bullet,
+.conflict-code-text .hljs-number,
+.conflict-code-text .hljs-literal,
+.conflict-code-text .hljs-symbol,
+.conflict-code-text .hljs-bullet {
   color: var(--syntax-literal);
 }
 
 .diff-code .hljs-string,
 .diff-code .hljs-doctag,
-.diff-code .hljs-regexp {
+.diff-code .hljs-regexp,
+.conflict-code-text .hljs-string,
+.conflict-code-text .hljs-doctag,
+.conflict-code-text .hljs-regexp {
   color: var(--syntax-string);
 }
 
 .diff-code .hljs-title,
 .diff-code .hljs-section,
-.diff-code .hljs-selector-id {
+.diff-code .hljs-selector-id,
+.conflict-code-text .hljs-title,
+.conflict-code-text .hljs-section,
+.conflict-code-text .hljs-selector-id {
   color: var(--syntax-title);
   font-weight: 700;
 }
@@ -3265,26 +3405,39 @@ textarea,
 .diff-code .hljs-selector-class,
 .diff-code .hljs-attr,
 .diff-code .hljs-attribute,
-.diff-code .hljs-name {
+.diff-code .hljs-name,
+.conflict-code-text .hljs-variable,
+.conflict-code-text .hljs-template-variable,
+.conflict-code-text .hljs-selector-class,
+.conflict-code-text .hljs-attr,
+.conflict-code-text .hljs-attribute,
+.conflict-code-text .hljs-name {
   color: var(--syntax-variable);
 }
 
 .diff-code .hljs-type,
 .diff-code .hljs-built_in,
-.diff-code .hljs-class .hljs-title {
+.diff-code .hljs-class .hljs-title,
+.conflict-code-text .hljs-type,
+.conflict-code-text .hljs-built_in,
+.conflict-code-text .hljs-class .hljs-title {
   color: var(--syntax-literal);
 }
 
 .diff-code .hljs-meta,
-.diff-code .hljs-tag {
+.diff-code .hljs-tag,
+.conflict-code-text .hljs-meta,
+.conflict-code-text .hljs-tag {
   color: var(--syntax-meta);
 }
 
-.diff-code .hljs-deletion {
+.diff-code .hljs-deletion,
+.conflict-code-text .hljs-deletion {
   color: var(--destructive);
 }
 
-.diff-code .hljs-addition {
+.diff-code .hljs-addition,
+.conflict-code-text .hljs-addition {
   color: var(--primary);
 }
 

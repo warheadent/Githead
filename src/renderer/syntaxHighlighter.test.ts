@@ -1,7 +1,13 @@
 import hljs from "highlight.js/lib/core";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { parseUnifiedDiff } from "./diffParser";
-import { detectDiffLanguage, highlightDiffRows, MAX_TOKENIZED_LINE_LENGTH } from "./syntaxHighlighter";
+import {
+  detectDiffLanguage,
+  highlightCode,
+  highlightDiffRows,
+  MAX_TOKENIZED_CODE_LENGTH,
+  MAX_TOKENIZED_LINE_LENGTH
+} from "./syntaxHighlighter";
 
 describe("detectDiffLanguage", () => {
   it("maps common code file extensions to registered languages", () => {
@@ -180,6 +186,23 @@ describe("highlightDiffRows", () => {
     expect(result[1]?.value).toContain("&lt;script&gt;");
     expect(result[1]?.value).not.toContain("<script>");
     expect(result[1]?.value).not.toContain("</script>");
+  });
+});
+
+describe("highlightCode", () => {
+  it("preserves line alignment while highlighting a complete source file", () => {
+    const result = highlightCode("src/policy.ts", "export const enabled = true;\n");
+
+    expect(result).toHaveLength(2);
+    expect(result[0]?.kind).toBe("highlighted");
+    expect(result[0]?.value).toContain("hljs-keyword");
+    expect(result[1]).toEqual({ kind: "highlighted", value: "" });
+  });
+
+  it("keeps large editor buffers plain to protect typing responsiveness", () => {
+    const text = `const value = true;\n${"x".repeat(MAX_TOKENIZED_CODE_LENGTH)}`;
+
+    expect(highlightCode("src/large.ts", text).every(({ kind }) => kind === "plain")).toBe(true);
   });
 });
 
