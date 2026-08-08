@@ -10,34 +10,49 @@ afterEach(() => {
 
 describe("GitOperationRecoveryBanner", () => {
   it.each([
-    ["merge", "Merge in progress", false],
-    ["rebase", "Rebase (merge backend) in progress", true],
-    ["cherry-pick", "Cherry-pick in progress", true],
-    ["revert", "Revert in progress", true]
-  ] as const)("shows operation-aware controls for %s", (kind, heading, supportsSkip) => {
+    ["merge", "Finish this merge", false],
+    ["rebase", "Finish this rebase", true],
+    ["cherry-pick", "Finish this cherry-pick", true],
+    ["revert", "Finish this revert", true]
+  ] as const)("shows a guided recovery journey for %s", (kind, heading, supportsSkip) => {
     renderBanner(createOperationState(kind));
 
     expect(screen.getByText(heading)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty("disabled", true);
-    expect(screen.getByText(/Continue is disabled: Resolve and stage all conflicted files/)).toBeTruthy();
-    expect(Boolean(screen.queryByRole("button", { name: "Skip" }))).toBe(supportsSkip);
-    expect(screen.getByRole("button", { name: "Abort" })).toHaveProperty("disabled", false);
+    expect(screen.getByRole("list", { name: "Recovery steps" })).toBeTruthy();
+    expect(screen.getByText("Review and resolve")).toBeTruthy();
+    expect(screen.getByText("Stage resolutions")).toBeTruthy();
+    expect(screen.getByRole("button", { name: new RegExp(`Continue ${kind === "cherry-pick" ? "cherry-pick" : kind}`) })).toHaveProperty("disabled", true);
+    expect(screen.getByText("Stage conflicts to unlock")).toHaveProperty(
+      "title",
+      "Resolve and stage all conflicted files before continuing."
+    );
+    expect(Boolean(screen.queryByRole("button", { name: "Skip commit…" }))).toBe(supportsSkip);
+    expect(screen.getByRole("button", { name: new RegExp(`Abort ${kind === "cherry-pick" ? "cherry-pick" : kind}`) })).toHaveProperty("disabled", false);
   });
 
   it("opens a conflicted file through the existing diff workflow", () => {
     const onOpenConflict = vi.fn();
     renderBanner(createOperationState("merge"), { onOpenConflict });
 
-    fireEvent.click(screen.getByRole("button", { name: /src\/conflicted file\.ts/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Review diff" }));
 
     expect(onOpenConflict).toHaveBeenCalledWith("src/conflicted file.ts");
+  });
+
+  it("opens a conflicted file in the user's editor from the guide", () => {
+    const onOpenConflictFile = vi.fn();
+    renderBanner(createOperationState("merge"), { onOpenConflictFile });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open file" }));
+
+    expect(onOpenConflictFile).toHaveBeenCalledWith("src/conflicted file.ts");
   });
 
   it("confirms Abort when conflict-resolution work may be discarded", () => {
     const onAction = vi.fn();
     renderBanner(createOperationState("merge"), { onAction });
 
-    fireEvent.click(screen.getByRole("button", { name: "Abort" }));
+    fireEvent.click(screen.getByRole("button", { name: "Abort merge…" }));
     expect(screen.getByRole("dialog")).toBeTruthy();
     expect(screen.getByText(/discard conflict-resolution work/)).toBeTruthy();
     expect(onAction).not.toHaveBeenCalled();
@@ -51,7 +66,7 @@ describe("GitOperationRecoveryBanner", () => {
     const onCancel = vi.fn();
     const { rerender } = renderBanner(createOperationState("rebase"), { onAction, onCancel });
 
-    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    fireEvent.click(screen.getByRole("button", { name: "Skip commit…" }));
     fireEvent.click(screen.getByRole("button", { name: "Skip commit" }));
     expect(onAction).toHaveBeenCalledWith("skip");
 
@@ -63,6 +78,7 @@ describe("GitOperationRecoveryBanner", () => {
         error=""
         onAction={onAction}
         onOpenConflict={vi.fn()}
+        onOpenConflictFile={vi.fn()}
         onCancel={onCancel}
       />
     );
@@ -73,7 +89,7 @@ describe("GitOperationRecoveryBanner", () => {
   it("keeps a detected operation visible with an inline action failure", () => {
     renderBanner(createOperationState("revert"), { error: "Revert failed; the operation is still active." });
 
-    expect(screen.getByText("Revert in progress")).toBeTruthy();
+    expect(screen.getByText("Finish this revert")).toBeTruthy();
     expect(screen.getByRole("alert").textContent).toContain("still active");
   });
 });
@@ -90,6 +106,7 @@ function renderBanner(
       error=""
       onAction={vi.fn()}
       onOpenConflict={vi.fn()}
+      onOpenConflictFile={vi.fn()}
       onCancel={vi.fn()}
       {...overrides}
     />

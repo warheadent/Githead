@@ -16,10 +16,10 @@ import { App } from "./App";
 
 describe("App repository operation recovery", { timeout: 10_000 }, () => {
   it.each([
-    ["merge", "Merge in progress"],
-    ["rebase", "Rebase (merge backend) in progress"],
-    ["cherry-pick", "Cherry-pick in progress"],
-    ["revert", "Revert in progress"]
+    ["merge", "Finish this merge"],
+    ["rebase", "Finish this rebase"],
+    ["cherry-pick", "Finish this cherry-pick"],
+    ["revert", "Finish this revert"]
   ] as const)("restores a pre-existing %s operation during repository load", async (kind, heading) => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       operationState: createRepositoryOperationState(kind)
@@ -29,6 +29,7 @@ describe("App repository operation recovery", { timeout: 10_000 }, () => {
 
     expect(await screen.findByText(heading)).toBeTruthy();
     expect(screen.getByText(/recovery required/)).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Commit staged files" })).toBeNull();
   });
 
   it("sends a state-bound Continue request and hides recovery only after a confirmed fresh read", async () => {
@@ -57,7 +58,7 @@ describe("App repository operation recovery", { timeout: 10_000 }, () => {
     });
 
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Continue merge" }));
 
     await waitFor(() => expect(githead.resolveRepositoryOperation).toHaveBeenCalledWith({
       repoPath,
@@ -66,7 +67,7 @@ describe("App repository operation recovery", { timeout: 10_000 }, () => {
       action: "continue",
       operationId: expect.any(String)
     }));
-    await waitFor(() => expect(screen.queryByText("Merge in progress")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("Finish this merge")).toBeNull());
   });
 
   it("keeps recovery visible and adopts fresh state after stale-action rejection", async () => {
@@ -87,11 +88,11 @@ describe("App repository operation recovery", { timeout: 10_000 }, () => {
     });
 
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Continue revert" }));
 
     expect((await screen.findByRole("alert")).textContent).toContain("state changed");
-    expect(screen.getByText("Revert in progress")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty("disabled", true);
+    expect(screen.getByText("Finish this revert")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Continue revert" })).toHaveProperty("disabled", true);
   });
 
   it("opens a conflicted path in the existing status diff and permits staging it", async () => {
@@ -119,7 +120,7 @@ describe("App repository operation recovery", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    fireEvent.click(await screen.findByRole("button", { name: /conflict\.txt/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Review diff" }));
     await waitFor(() => expect(githead.getFileDiff).toHaveBeenCalledWith(expect.objectContaining({
       repoPath,
       path: "conflict.txt"
@@ -131,7 +132,29 @@ describe("App repository operation recovery", { timeout: 10_000 }, () => {
       paths: ["conflict.txt"],
       operationId: expect.any(String)
     }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty("disabled", false));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Continue merge" })).toHaveProperty("disabled", false));
+  });
+
+  it("opens a conflicted file in the configured editor from the recovery guide", async () => {
+    const conflictedFile = createStatusFile("conflict.txt", {
+      indexStatus: "U",
+      worktreeStatus: "U",
+      isStaged: true,
+      isUnstaged: true,
+      isConflicted: true
+    });
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [conflictedFile],
+      operationState: createRepositoryOperationState("merge")
+    }));
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open file" }));
+
+    await waitFor(() => expect(githead.openFile).toHaveBeenCalledWith({
+      repoPath,
+      path: "conflict.txt"
+    }));
   });
 
   it("does not hide a detected operation when an unrelated status refresh fails", async () => {
@@ -140,12 +163,12 @@ describe("App repository operation recovery", { timeout: 10_000 }, () => {
     }));
 
     render(<App />);
-    expect(await screen.findByText("Cherry-pick in progress")).toBeTruthy();
+    expect(await screen.findByText("Finish this cherry-pick")).toBeTruthy();
     vi.mocked(githead.getRepoStatus).mockRejectedValueOnce(new Error("status unavailable"));
     emitRepoChanged();
 
     await waitFor(() => expect(githead.getRepoStatus).toHaveBeenCalledTimes(2));
-    expect(screen.getByText("Cherry-pick in progress")).toBeTruthy();
+    expect(screen.getByText("Finish this cherry-pick")).toBeTruthy();
   });
 
   it("limits file actions to inspection and staging while recovery is active", async () => {

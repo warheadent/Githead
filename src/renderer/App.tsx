@@ -5330,6 +5330,16 @@ export function App(): ReactNode {
     });
   }, [selectFile, setWorkspaceView]);
 
+  const openRepositoryOperationConflictFile = useCallback((filePath: string): void => {
+    const current = stateRef.current;
+    if (!current.summary?.operationState || !current.summary.files.some((file) => file.path === filePath)) return;
+    openRepositoryOperationConflict(filePath);
+    void runRepoOperation(`Opening conflicted file ${filePath}`, undefined, () => window.githead.openFile({
+      repoPath: current.repoPath,
+      path: filePath
+    }), { cancellable: false });
+  }, [openRepositoryOperationConflict, runRepoOperation]);
+
   const selectCommit = useCallback((hash: string): void => {
     if (!hash || hash === stateRef.current.selectedCommitHash) {
       return;
@@ -6452,6 +6462,7 @@ export function App(): ReactNode {
                 error={state.repositoryOperationError}
                 onAction={(action) => { void resolveRepositoryOperation(action); }}
                 onOpenConflict={openRepositoryOperationConflict}
+                onOpenConflictFile={openRepositoryOperationConflictFile}
                 onCancel={() => {
                   if (cancellationRequestTarget) void cancelRunningOperation(cancellationRequestTarget);
                 }}
@@ -6813,7 +6824,7 @@ export function App(): ReactNode {
               </Tabs>
             </WorkspacePanelStateProvider>
 
-            {state.activeView === "status" && statusWorkspaceMode === "files" ? (
+            {state.activeView === "status" && statusWorkspaceMode === "files" && !repositoryOperationActive ? (
               <CommitPanel
                 commitMessage={state.commitMessage}
                 generationError={state.commitMessageGenerationError}

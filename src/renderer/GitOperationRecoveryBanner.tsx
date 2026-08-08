@@ -1,4 +1,15 @@
-import { AlertTriangle, FileWarning, Loader2, Play, RotateCcw, SkipForward } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  CheckCircle2,
+  ExternalLink,
+  FileWarning,
+  Loader2,
+  LockKeyhole,
+  Play,
+  RotateCcw,
+  SkipForward
+} from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -11,6 +22,7 @@ export interface GitOperationRecoveryBannerProps {
   error: string;
   onAction(action: GitRepositoryOperationAction): void;
   onOpenConflict(path: string): void;
+  onOpenConflictFile(path: string): void;
   onCancel(): void;
 }
 
@@ -21,11 +33,16 @@ export function GitOperationRecoveryBanner({
   error,
   onAction,
   onOpenConflict,
+  onOpenConflictFile,
   onCancel
 }: GitOperationRecoveryBannerProps): ReactNode {
   const [confirmationAction, setConfirmationAction] = useState<"skip" | "abort" | null>(null);
   const operationName = formatOperationName(state);
+  const operationKindName = formatOperationKindName(state.kind);
   const continueReason = state.actions.continue.disabledReason;
+  const readyToContinue = !state.hasConflicts && state.actions.continue.enabled;
+  const currentStep = readyToContinue ? 3 : 1;
+  const branchName = state.originalBranch ?? state.currentBranch;
 
   useEffect(() => {
     setConfirmationAction(null);
@@ -42,42 +59,37 @@ export function GitOperationRecoveryBanner({
   return (
     <>
       <section
-        className="border-b border-amber-500/35 bg-amber-500/10 px-6 py-3"
-        aria-label={`${operationName} recovery`}
+        className="border-b border-amber-500/35 bg-amber-500/[0.08] px-6 py-2.5"
+        aria-label={`${operationName} recovery guide`}
         aria-busy={busy}
       >
-        <div className="flex min-w-0 items-start justify-between gap-5">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="size-4 shrink-0 text-amber-700 dark:text-amber-400" aria-hidden="true" />
-              <h3 className="text-sm font-semibold">{operationName} in progress</h3>
-              {state.sequence ? (
-                <span className="rounded-full border border-amber-500/35 bg-background/70 px-2 py-0.5 text-[11px] font-medium">
-                  {state.sequence.current} of {state.sequence.total}
-                </span>
-              ) : null}
+        <div className="flex min-w-0 items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-amber-500/35 bg-amber-500/10 text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="size-4" aria-hidden="true" />
+            </span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.11em] text-amber-800 dark:text-amber-300">
+                {operationName} recovery · Step {currentStep} of 3
+                {state.sequence ? <span>· Commit {state.sequence.current} of {state.sequence.total}</span> : null}
+                {branchName ? <span>· {branchName}</span> : null}
+              </div>
+              <div className="mt-0.5 flex min-w-0 items-baseline gap-2.5">
+                <h3 className="shrink-0 text-sm font-semibold">Finish this {operationKindName.toLowerCase()}</h3>
+                <p className="truncate text-[11px] text-muted-foreground" title={state.summary}>
+                  {state.summary}
+                </p>
+              </div>
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">{state.summary}</p>
-            {state.originalBranch || state.currentBranch ? (
-              <p className="mt-1 text-xs text-muted-foreground">
-                {state.originalBranch ? <>Original branch: <span className="font-medium text-foreground">{state.originalBranch}</span></> : null}
-                {state.originalBranch && state.currentBranch && state.originalBranch !== state.currentBranch ? " · " : null}
-                {state.currentBranch && state.originalBranch !== state.currentBranch ? <>Current branch: <span className="font-medium text-foreground">{state.currentBranch}</span></> : null}
-              </p>
-            ) : null}
           </div>
-          <div className="flex shrink-0 items-center gap-2" role="group" aria-label={`${operationName} recovery actions`}>
+          <div className="flex shrink-0 items-center gap-2" role="group" aria-label={`${operationName} recovery options`}>
             {state.actions.skip.supported ? (
               <Button type="button" size="sm" variant="outline" disabled={busy || !state.actions.skip.enabled} onClick={() => requestAction("skip")}>
-                <SkipForward />Skip
+                <SkipForward />Skip commit…
               </Button>
             ) : null}
             <Button type="button" size="sm" variant="outline" disabled={busy || !state.actions.abort.enabled} onClick={() => requestAction("abort")}>
-              <RotateCcw />Abort
-            </Button>
-            <Button type="button" size="sm" disabled={busy || !state.actions.continue.enabled} onClick={() => requestAction("continue")}>
-              {busy ? <Loader2 className="animate-spin" /> : <Play />}
-              Continue
+              <RotateCcw />Abort {operationKindName.toLowerCase()}…
             </Button>
             {busy && cancellable ? (
               <Button type="button" size="sm" variant="destructive" onClick={onCancel}>Cancel command</Button>
@@ -85,24 +97,76 @@ export function GitOperationRecoveryBanner({
           </div>
         </div>
 
-        {continueReason ? <p className="mt-2 text-xs font-medium text-amber-800 dark:text-amber-300">Continue is disabled: {continueReason}</p> : null}
+        <ol className="mt-2 grid grid-cols-3 gap-1.5" aria-label="Recovery steps">
+          <RecoveryStep
+            number={1}
+            status={readyToContinue ? "complete" : "current"}
+            title="Review and resolve"
+            detail={readyToContinue
+              ? "Complete"
+              : formatConflictCount(state.conflictedPaths.length)}
+          />
+          <RecoveryStep
+            number={2}
+            status={readyToContinue ? "complete" : "pending"}
+            title="Stage resolutions"
+            detail={readyToContinue
+              ? "Complete"
+              : "Stage below"}
+          />
+          <RecoveryStep
+            number={3}
+            status={readyToContinue ? "current" : "locked"}
+            title={`Continue ${operationKindName.toLowerCase()}`}
+            detail={readyToContinue
+              ? "Ready"
+              : "Locked"}
+          />
+        </ol>
+
         {state.conflictedPaths.length > 0 ? (
-          <div className="mt-2 flex max-h-20 flex-wrap gap-1.5 overflow-y-auto" aria-label="Conflicted files">
-            {state.conflictedPaths.map((filePath) => (
-              <Button key={filePath} type="button" size="sm" variant="outline" className="h-7 max-w-full bg-background/70 px-2 text-xs" disabled={busy} onClick={() => onOpenConflict(filePath)}>
-                <FileWarning className="size-3.5" />
-                <span className="truncate">{filePath}</span>
-              </Button>
-            ))}
+          <div className="mt-2 flex min-w-0 items-center gap-2 rounded-md border border-amber-500/30 bg-background/75 px-2.5 py-1.5" aria-label="Conflicted files">
+            <FileWarning className="size-3.5 shrink-0 text-amber-700 dark:text-amber-400" aria-hidden="true" />
+            <span className="shrink-0 text-[11px] font-semibold text-amber-800 dark:text-amber-300">
+              {formatConflictCount(state.conflictedPaths.length)}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-xs font-medium" title={state.conflictedPaths[0]}>{state.conflictedPaths[0]}</span>
+            {state.conflictedPaths.length > 1 ? (
+              <span className="shrink-0 text-[11px] text-muted-foreground">+{state.conflictedPaths.length - 1} more</span>
+            ) : null}
+            <Button type="button" size="sm" variant="ghost" className="h-7 shrink-0 px-2 text-xs" disabled={busy} onClick={() => onOpenConflict(state.conflictedPaths[0]!)}>
+              Review diff
+            </Button>
+            <Button type="button" size="sm" variant="outline" className="h-7 shrink-0 px-2 text-xs" disabled={busy} onClick={() => onOpenConflictFile(state.conflictedPaths[0]!)}>
+              <ExternalLink className="size-3.5" />Open file
+            </Button>
+            <span className="ml-1 shrink-0 border-l pl-3 text-[11px] font-medium text-amber-800 dark:text-amber-300" title={continueReason ?? undefined}>
+              Stage conflicts to unlock
+            </span>
+            <Button type="button" size="sm" variant="outline" className="h-7 shrink-0" disabled>
+              <LockKeyhole />Continue {operationKindName.toLowerCase()}
+            </Button>
           </div>
-        ) : null}
+        ) : (
+          <div className="mt-2 flex items-center justify-between gap-4 rounded-md border border-emerald-500/35 bg-emerald-500/10 px-2.5 py-1.5">
+            <div className="flex min-w-0 items-center gap-2">
+              <CheckCircle2 className="size-4 shrink-0 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
+              <p className="truncate text-xs font-semibold">All conflicts are staged. Git is ready to finish the {operationKindName.toLowerCase()}.</p>
+            </div>
+            <Button type="button" size="sm" className="h-7" disabled={busy || !state.actions.continue.enabled} onClick={() => requestAction("continue")}>
+              {busy ? <Loader2 className="animate-spin" /> : <Play />}
+              Continue {operationKindName.toLowerCase()}
+            </Button>
+          </div>
+        )}
+
         {error ? <p className="mt-2 rounded border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-xs text-destructive" role="alert">{error}</p> : null}
       </section>
 
       <Dialog open={confirmationAction !== null} onOpenChange={(open) => { if (!open && !busy) setConfirmationAction(null); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{confirmationAction === "abort" ? `Abort ${operationName.toLowerCase()}?` : `Skip the current ${operationName.toLowerCase()} commit?`}</DialogTitle>
+            <DialogTitle>{confirmationAction === "abort" ? `Abort ${operationKindName.toLowerCase()}?` : `Skip the current ${operationKindName.toLowerCase()} commit?`}</DialogTitle>
             <DialogDescription>
               {confirmationAction === "abort"
                 ? "Git may discard conflict-resolution work made during this operation. Untracked files are not automatically removed."
@@ -131,8 +195,57 @@ export function GitOperationRecoveryBanner({
   );
 }
 
+function RecoveryStep({
+  number,
+  status,
+  title,
+  detail
+}: {
+  number: number;
+  status: "complete" | "current" | "pending" | "locked";
+  title: string;
+  detail: string;
+}): ReactNode {
+  const complete = status === "complete";
+  const current = status === "current";
+  return (
+    <li
+      className={`flex min-w-0 items-center gap-2 rounded-md border px-2.5 py-1.5 ${
+        complete
+          ? "border-emerald-500/35 bg-emerald-500/10"
+          : current
+            ? "border-amber-500/45 bg-background shadow-sm"
+            : "border-border/70 bg-muted/35"
+      }`}
+      aria-current={current ? "step" : undefined}
+    >
+      <span className={`flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${
+        complete
+          ? "bg-emerald-600 text-white"
+          : current
+            ? "bg-amber-500 text-amber-950"
+            : "border bg-background text-muted-foreground"
+      }`}>
+        {complete ? <Check className="size-3" aria-hidden="true" /> : status === "locked" ? <LockKeyhole className="size-2.5" aria-hidden="true" /> : number}
+      </span>
+      <div className="flex min-w-0 items-baseline gap-1.5">
+        <p className="truncate text-xs font-semibold">{title}</p>
+        <p className="shrink-0 text-[10px] text-muted-foreground">· {detail}</p>
+      </div>
+    </li>
+  );
+}
+
+function formatConflictCount(count: number): string {
+  return `${count} unresolved ${count === 1 ? "file" : "files"}`;
+}
+
+function formatOperationKindName(kind: GitRepositoryOperationState["kind"]): string {
+  if (kind === "cherry-pick") return "Cherry-pick";
+  return `${kind[0]?.toUpperCase() ?? ""}${kind.slice(1)}`;
+}
+
 function formatOperationName(state: GitRepositoryOperationState): string {
-  if (state.kind === "cherry-pick") return "Cherry-pick";
-  const name = `${state.kind[0]?.toUpperCase() ?? ""}${state.kind.slice(1)}`;
+  const name = formatOperationKindName(state.kind);
   return state.kind === "rebase" && state.backend ? `${name} (${state.backend} backend)` : name;
 }
