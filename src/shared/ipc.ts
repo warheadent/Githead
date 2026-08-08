@@ -8,6 +8,8 @@ export const IPC_CHANNELS = {
   getRepoMetadata: "repo:metadata",
   getRepositoryOperationState: "git:repository-operation-get",
   resolveRepositoryOperation: "git:repository-operation-resolve",
+  getConflictResolution: "git:conflict-resolution-get",
+  saveConflictResolution: "git:conflict-resolution-save",
   cancelRepositoryRead: "repo:read-cancel",
   getGitOperationStates: "git:operation-states",
   cancelGitOperation: "git:operation-cancel",

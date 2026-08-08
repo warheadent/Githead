@@ -33,6 +33,9 @@ import type {
   GitCloneRequest,
   GitConfiguredActionRunRequest,
   GitConfiguredActionSaveRequest,
+  GitConflictResolutionRequest,
+  GitConflictResolutionSaveRequest,
+  GitConflictResolutionSaveResult,
   GitCommitDetailsRequest,
   GitCommitFileDiffRequest,
   GitCommitFileResetRequest,
@@ -392,6 +395,11 @@ ipcMain.handle(IPC_CHANNELS.getRepoMetadata, (event, request: RepoSectionRequest
 ipcMain.handle(IPC_CHANNELS.getRepositoryOperationState, async (_event, repoPath: string) => {
   return (await vcsRouter.serviceForRepo(repoPath)).getRepositoryOperationState(repoPath);
 });
+
+ipcMain.handle(IPC_CHANNELS.getConflictResolution, (event, request: GitConflictResolutionRequest) =>
+  handleRead(event, request, async (signal) =>
+    processRunner.runWithSignal(signal, async () =>
+      (await vcsRouter.serviceForRepo(request.repoPath)).getConflictResolution(request))));
 
 ipcMain.handle(IPC_CHANNELS.cancelRepositoryRead, (event, request: CancelRepositoryReadRequest) => {
   readRequests.cancel(event.sender.id, request.requestId);
@@ -1084,6 +1092,21 @@ ipcMain.handle(IPC_CHANNELS.resolveRepositoryOperation, async (event, request: C
     repositoryOperationOptions(event, request.operationId, request.repoPath),
     (failure): GitRepositoryOperationActionResult => ({ ...failure, outcome: "failed", state: null }),
     (): GitRepositoryOperationActionResult => ({
+      repoPath: request.repoPath,
+      exitCode: -1,
+      stdout: "",
+      stderr: "Another git command is already running for this repository or a linked worktree.",
+      outcome: "failed",
+      state: null
+    })
+  );
+});
+
+ipcMain.handle(IPC_CHANNELS.saveConflictResolution, async (event, request: CoordinatedRequest<GitConflictResolutionSaveRequest>) => {
+  return runExclusiveRepositoryOperation<GitConflictResolutionSaveResult>(
+    repositoryOperationOptions(event, request.operationId, request.repoPath),
+    async () => (await vcsRouter.serviceForRepo(request.repoPath)).saveConflictResolution(request),
+    (): GitConflictResolutionSaveResult => ({
       repoPath: request.repoPath,
       exitCode: -1,
       stdout: "",

@@ -95,7 +95,7 @@ describe("App repository operation recovery", { timeout: 10_000 }, () => {
     expect(screen.getByRole("button", { name: "Continue revert" })).toHaveProperty("disabled", true);
   });
 
-  it("opens a conflicted path in the existing status diff and permits staging it", async () => {
+  it("opens a focused conflict resolver and saves an explicitly chosen result", async () => {
     const conflictedFile = createStatusFile("conflict.txt", {
       indexStatus: "U",
       worktreeStatus: "U",
@@ -117,21 +117,51 @@ describe("App repository operation recovery", { timeout: 10_000 }, () => {
         operationState: ready
       }));
     vi.mocked(githead.getFileDiff).mockResolvedValue(createTextDiff("conflict.txt", "resolved"));
+    vi.mocked(githead.getConflictResolution).mockResolvedValue({
+      outcome: "ready",
+      path: "conflict.txt",
+      state: conflicted,
+      baseText: "base\n",
+      currentText: "current\n",
+      incomingText: "incoming\n",
+      workingText: "<<<<<<< HEAD\ncurrent\n=======\nincoming\n>>>>>>> topic\n",
+      workingHash: "working-hash",
+      message: "Choose a result."
+    });
+    vi.mocked(githead.saveConflictResolution).mockResolvedValue({
+      ...createOperationResult(),
+      outcome: "staged",
+      state: ready
+    });
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    fireEvent.click(await screen.findByRole("button", { name: "Review diff" }));
-    await waitFor(() => expect(githead.getFileDiff).toHaveBeenCalledWith(expect.objectContaining({
+    fireEvent.click(await screen.findByRole("button", { name: "Resolve conflict" }));
+    expect(await screen.findByRole("dialog", { name: "Resolve conflict.txt" })).toBeTruthy();
+    await waitFor(() => expect(githead.getConflictResolution).toHaveBeenCalledWith(expect.objectContaining({
       repoPath,
-      path: "conflict.txt"
+      path: "conflict.txt",
+      expectedKind: "merge",
+      expectedStateId: conflicted.stateId,
+      requestId: expect.any(String)
     })));
+    expect(screen.getByRole("region", { name: "Current branch" }).textContent).toContain("current");
+    expect(screen.getByRole("region", { name: "Incoming branch" }).textContent).toContain("incoming");
+    expect(screen.getByRole("button", { name: "Save and stage" })).toHaveProperty("disabled", true);
 
-    fireEvent.click(screen.getByRole("button", { name: "Stage All" }));
-    await waitFor(() => expect(githead.stageFiles).toHaveBeenCalledWith({
+    fireEvent.click(screen.getByRole("button", { name: "Use current" }));
+    expect(screen.getByRole("button", { name: "Save and stage" })).toHaveProperty("disabled", false);
+    fireEvent.click(screen.getByRole("button", { name: "Save and stage" }));
+    await waitFor(() => expect(githead.saveConflictResolution).toHaveBeenCalledWith({
       repoPath,
-      paths: ["conflict.txt"],
+      path: "conflict.txt",
+      expectedKind: "merge",
+      expectedStateId: conflicted.stateId,
+      expectedWorkingHash: "working-hash",
+      resolvedText: "current\n",
       operationId: expect.any(String)
     }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Resolve conflict.txt" })).toBeNull());
     await waitFor(() => expect(screen.getByRole("button", { name: "Continue merge" })).toHaveProperty("disabled", false));
   });
 

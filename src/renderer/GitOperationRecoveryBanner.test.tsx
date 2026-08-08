@@ -34,7 +34,7 @@ describe("GitOperationRecoveryBanner", () => {
     const onOpenConflict = vi.fn();
     renderBanner(createOperationState("merge"), { onOpenConflict });
 
-    fireEvent.click(screen.getByRole("button", { name: "Review diff" }));
+    fireEvent.click(screen.getByRole("button", { name: "Resolve conflict" }));
 
     expect(onOpenConflict).toHaveBeenCalledWith("src/conflicted file.ts");
   });

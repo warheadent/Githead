@@ -139,6 +139,7 @@ import type {
   GitConfiguredActionFile,
   GitConfiguredAction,
   GitConfiguredActionFileConfig,
+  GitConflictResolutionSaveRequest,
   GitCommitChangedFile,
   GitCommitDetails,
   GitCommitGraphRow,
@@ -199,6 +200,7 @@ import { BranchManagementDialog } from "./BranchManagementDialog";
 import { WorktreeCreateDialog, WorktreeRemoveDialog } from "./WorktreeDialogs";
 import { PullRecoveryDialog } from "./PullRecoveryDialog";
 import { GitOperationRecoveryBanner } from "./GitOperationRecoveryBanner";
+import { ConflictResolutionDialog } from "./ConflictResolutionDialog";
 import { emptyPushToBranchDialog, type PushToBranchDialogState } from "./pushToBranchState";
 import { useGitHubQueries } from "./useGitHubQueries";
 import { GitHubQueryToolbar } from "./GitHubQueryToolbar";
@@ -884,6 +886,7 @@ export function App(): ReactNode {
   );
   const [workspacePanelStateStore] = useState(() => new WorkspacePanelStateStore());
   const [performanceDiagnosticsOpen, setPerformanceDiagnosticsOpen] = useState(false);
+  const [conflictResolverPath, setConflictResolverPath] = useState<string | null>(null);
   const [statusWorkspaceMode, setStatusWorkspaceMode] = useState<"files" | "plan">("files");
   const [stashComposer, setStashComposer] = useState<StashComposerState>(emptyStashComposer);
   const [repositorySettingsPath, setRepositorySettingsPath] = useState("");
@@ -5318,7 +5321,7 @@ export function App(): ReactNode {
     void loadSelectedDiff(selection);
   }, [loadSelectedDiff, updateState]);
 
-  const openRepositoryOperationConflict = useCallback((filePath: string): void => {
+  const selectRepositoryOperationConflict = useCallback((filePath: string): void => {
     const file = stateRef.current.summary?.files.find((candidate) => candidate.path === filePath);
     if (!file) return;
     setWorkspaceView("status");
@@ -5330,15 +5333,31 @@ export function App(): ReactNode {
     });
   }, [selectFile, setWorkspaceView]);
 
+  const openRepositoryOperationConflict = useCallback((filePath: string): void => {
+    const operation = stateRef.current.summary?.operationState;
+    if (!operation?.conflictedPaths.includes(filePath)) return;
+    selectRepositoryOperationConflict(filePath);
+    setConflictResolverPath(filePath);
+  }, [selectRepositoryOperationConflict]);
+
   const openRepositoryOperationConflictFile = useCallback((filePath: string): void => {
     const current = stateRef.current;
     if (!current.summary?.operationState || !current.summary.files.some((file) => file.path === filePath)) return;
-    openRepositoryOperationConflict(filePath);
+    selectRepositoryOperationConflict(filePath);
     void runRepoOperation(`Opening conflicted file ${filePath}`, undefined, () => window.githead.openFile({
       repoPath: current.repoPath,
       path: filePath
     }), { cancellable: false });
-  }, [openRepositoryOperationConflict, runRepoOperation]);
+  }, [runRepoOperation, selectRepositoryOperationConflict]);
+
+  const saveRepositoryOperationConflict = useCallback(async (request: GitConflictResolutionSaveRequest): Promise<string | null> => {
+    const result = await runRepoOperation(`Resolving ${request.path}`, undefined, (operationId) =>
+      window.githead.saveConflictResolution({ ...request, operationId }));
+    if (!result || result.exitCode !== 0) {
+      return getOperationFailureMessage(result, "Unable to save and stage the conflict resolution.");
+    }
+    return null;
+  }, [runRepoOperation]);
 
   const selectCommit = useCallback((hash: string): void => {
     if (!hash || hash === stateRef.current.selectedCommitHash) {
@@ -6993,6 +7012,17 @@ export function App(): ReactNode {
         onOpenChange={(open) => { if (!open) requestModalClose(["repo-operation"], closeBranchManager); }}
         onRename={(branchName, newBranchName) => runBranchOperation("rename", `Renaming branch ${branchName}`, branchName, (repoPath, operationId) => window.githead.renameBranch({ repoPath, branchName, newBranchName, operationId }))}
         onRemove={(branchName, force) => runBranchOperation("remove", `${force ? "Force deleting" : "Removing"} branch ${branchName}`, branchName, (repoPath, operationId) => window.githead.deleteBranch({ repoPath, branchName, force, operationId }))}
+      />
+
+      <ConflictResolutionDialog
+        open={Boolean(conflictResolverPath)}
+        repoPath={state.repoPath}
+        initialPath={conflictResolverPath}
+        operation={state.summary?.operationState ?? null}
+        busy={running}
+        onOpenChange={(open) => { if (!open) setConflictResolverPath(null); }}
+        onOpenFile={openRepositoryOperationConflictFile}
+        onSave={saveRepositoryOperationConflict}
       />
 
       <PullRecoveryDialog

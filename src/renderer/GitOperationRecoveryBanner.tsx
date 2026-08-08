@@ -135,7 +135,7 @@ export function GitOperationRecoveryBanner({
               <span className="shrink-0 text-[11px] text-muted-foreground">+{state.conflictedPaths.length - 1} more</span>
             ) : null}
             <Button type="button" size="sm" variant="ghost" className="h-7 shrink-0 px-2 text-xs" disabled={busy} onClick={() => onOpenConflict(state.conflictedPaths[0]!)}>
-              Review diff
+              Resolve conflict
             </Button>
             <Button type="button" size="sm" variant="outline" className="h-7 shrink-0 px-2 text-xs" disabled={busy} onClick={() => onOpenConflictFile(state.conflictedPaths[0]!)}>
               <ExternalLink className="size-3.5" />Open file

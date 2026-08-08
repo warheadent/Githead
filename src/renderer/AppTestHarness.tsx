@@ -259,6 +259,22 @@ export function createGitheadMock(): GitheadApi {
     }),
     getRepositoryOperationState: vi.fn().mockResolvedValue(null),
     resolveRepositoryOperation: vi.fn(),
+    getConflictResolution: vi.fn().mockResolvedValue({
+      outcome: "failed",
+      path: "",
+      state: null,
+      baseText: null,
+      currentText: null,
+      incomingText: null,
+      workingText: null,
+      workingHash: null,
+      message: "No conflict selected."
+    }),
+    saveConflictResolution: vi.fn().mockResolvedValue({
+      ...okOperation,
+      outcome: "failed",
+      state: null
+    }),
     cancelRepositoryRead: vi.fn().mockResolvedValue(undefined),
     getGitOperationStates: vi.fn().mockImplementation(async ({ operationIds }) => (
       operationIds.map((operationId: string) => ({ operationId, state: "running" }))

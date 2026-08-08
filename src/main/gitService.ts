@@ -17,6 +17,10 @@ import type {
   GitConfiguredAction,
   GitConfiguredActionRunRequest,
   GitConfiguredActionSaveRequest,
+  GitConflictResolution,
+  GitConflictResolutionRequest,
+  GitConflictResolutionSaveRequest,
+  GitConflictResolutionSaveResult,
   GitCommitChangedFile,
   GitCommitDetails,
   GitCommitDetailsRequest,
@@ -234,6 +238,34 @@ export class GitService {
       if (recovery) await this.clearPendingPullRecovery(request.repoPath, recovery.branchName);
     }
     return result;
+  }
+
+  async getConflictResolution(request: GitConflictResolutionRequest): Promise<GitConflictResolution> {
+    const validation = await this.validateRepo(request.repoPath);
+    return validation.isValid
+      ? this.operationRecovery.readConflict(request)
+      : {
+          outcome: "failed",
+          path: request.path,
+          state: null,
+          baseText: null,
+          currentText: null,
+          incomingText: null,
+          workingText: null,
+          workingHash: null,
+          message: validation.validationErrors.join(" ")
+        };
+  }
+
+  async saveConflictResolution(request: GitConflictResolutionSaveRequest): Promise<GitConflictResolutionSaveResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    return validation.isValid
+      ? this.operationRecovery.saveConflict(request)
+      : {
+          ...this.createOperationFailure(request.repoPath, validation.validationErrors.join(" ")),
+          outcome: "failed",
+          state: null
+        };
   }
 
   resolveMutationScope(repoPath: string): Promise<string> {

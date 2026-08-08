@@ -18,6 +18,8 @@ export type VcsService = Pick<
   | "getRepoMetadata"
   | "getRepositoryOperationState"
   | "resolveRepositoryOperation"
+  | "getConflictResolution"
+  | "saveConflictResolution"
   | "getRepoSyncStatus"
   | "getRepoSyncStatuses"
   | "getWorktrees"

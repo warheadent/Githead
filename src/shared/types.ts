@@ -901,6 +901,39 @@ export interface GitRepositoryOperationActionResult extends GitOperationResult {
   state: GitRepositoryOperationState | null;
 }
 
+export interface GitConflictResolutionRequest extends RepositoryReadRequest {
+  repoPath: string;
+  path: string;
+  expectedKind: GitRepositoryOperationKind;
+  expectedStateId: string;
+}
+
+export interface GitConflictResolution {
+  outcome: "ready" | "stale" | "unsupported" | "failed";
+  path: string;
+  state: GitRepositoryOperationState | null;
+  baseText: string | null;
+  currentText: string | null;
+  incomingText: string | null;
+  workingText: string | null;
+  workingHash: string | null;
+  message: string;
+}
+
+export interface GitConflictResolutionSaveRequest {
+  repoPath: string;
+  path: string;
+  expectedKind: GitRepositoryOperationKind;
+  expectedStateId: string;
+  expectedWorkingHash: string;
+  resolvedText: string;
+}
+
+export interface GitConflictResolutionSaveResult extends GitOperationResult {
+  outcome: "staged" | "stale" | "failed";
+  state: GitRepositoryOperationState | null;
+}
+
 export interface GitRemoteBranchCheckoutRequest extends GitBranchRequest {
   remoteBranch: string;
 }
@@ -1582,6 +1615,8 @@ export interface GitheadApi {
   getRepoMetadata(request: RepoSectionRequest): Promise<RepoMetadataSection>;
   getRepositoryOperationState(repoPath: string): Promise<GitRepositoryOperationState | null>;
   resolveRepositoryOperation(request: CoordinatedRequest<GitRepositoryOperationActionRequest>): Promise<GitRepositoryOperationActionResult>;
+  getConflictResolution(request: GitConflictResolutionRequest): Promise<GitConflictResolution>;
+  saveConflictResolution(request: CoordinatedRequest<GitConflictResolutionSaveRequest>): Promise<GitConflictResolutionSaveResult>;
   cancelRepositoryRead(request: CancelRepositoryReadRequest): Promise<void>;
   getGitOperationStates(request: GetGitOperationStatesRequest): Promise<GitOperationStateResult[]>;
   cancelGitOperation(request: CancelGitOperationRequest): Promise<CancelGitOperationResult>;

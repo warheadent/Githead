@@ -62,6 +62,77 @@ describe("GitOperationRecoveryService with real Git repositories", { timeout: 20
     });
   });
 
+  it("loads both conflict stages and explicitly saves and stages an edited result", async () => {
+    await withConflict("merge", async ({ repoPath, run }) => {
+      const service = new GitOperationRecoveryService(new NodeProcessRunner());
+      const state = await service.detect(repoPath);
+      const conflict = await service.readConflict({
+        repoPath,
+        path: "conflict.txt",
+        expectedKind: "merge",
+        expectedStateId: state!.stateId
+      });
+
+      expect(conflict).toMatchObject({
+        outcome: "ready",
+        currentText: "main\n",
+        incomingText: "topic\n"
+      });
+      expect(conflict.workingText).toContain("<<<<<<< HEAD");
+
+      const unresolved = await service.saveConflict({
+        repoPath,
+        path: "conflict.txt",
+        expectedKind: "merge",
+        expectedStateId: state!.stateId,
+        expectedWorkingHash: conflict.workingHash!,
+        resolvedText: conflict.workingText!
+      });
+      expect(unresolved).toMatchObject({ outcome: "failed", state: { hasConflicts: true } });
+      expect(unresolved.stderr).toContain("conflict marker");
+
+      const saved = await service.saveConflict({
+        repoPath,
+        path: "conflict.txt",
+        expectedKind: "merge",
+        expectedStateId: state!.stateId,
+        expectedWorkingHash: conflict.workingHash!,
+        resolvedText: "main and topic\n"
+      });
+
+      expect(saved).toMatchObject({ exitCode: 0, outcome: "staged", state: { phase: "ready-to-continue", hasConflicts: false } });
+      await expect(fs.readFile(path.join(repoPath, "conflict.txt"), "utf8")).resolves.toBe("main and topic\n");
+      expect((await run(["-C", repoPath, "diff", "--name-only", "--diff-filter=U"])).stdout).toBe("");
+    });
+  });
+
+  it("does not overwrite conflict work changed after the editor loaded", async () => {
+    await withConflict("merge", async ({ repoPath }) => {
+      const service = new GitOperationRecoveryService(new NodeProcessRunner());
+      const state = await service.detect(repoPath);
+      const conflict = await service.readConflict({
+        repoPath,
+        path: "conflict.txt",
+        expectedKind: "merge",
+        expectedStateId: state!.stateId
+      });
+      await fs.writeFile(path.join(repoPath, "conflict.txt"), "newer external edit\n");
+
+      const saved = await service.saveConflict({
+        repoPath,
+        path: "conflict.txt",
+        expectedKind: "merge",
+        expectedStateId: state!.stateId,
+        expectedWorkingHash: conflict.workingHash!,
+        resolvedText: "stale editor result\n"
+      });
+
+      expect(saved).toMatchObject({ outcome: "stale", state: { kind: "merge", hasConflicts: true } });
+      expect(saved.stderr).toContain("working file changed");
+      await expect(fs.readFile(path.join(repoPath, "conflict.txt"), "utf8")).resolves.toBe("newer external edit\n");
+    });
+  });
+
   it.each(["rebase", "cherry-pick", "revert"] satisfies GitRepositoryOperationKind[])(
     "skips the current %s commit where Git supports it",
     async (kind) => withConflict(kind, async ({ repoPath }) => {

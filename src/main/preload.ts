@@ -28,6 +28,8 @@ import type {
   GitCloneRequest,
   GitConfiguredActionRunRequest,
   GitConfiguredActionSaveRequest,
+  GitConflictResolutionRequest,
+  GitConflictResolutionSaveRequest,
   GitCommitDetailsRequest,
   GitCommitFileDiffRequest,
   GitCommitFileResetRequest,
@@ -111,6 +113,10 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getRepositoryOperationState, repoPath) as ReturnType<GitheadApi["getRepositoryOperationState"]>,
   resolveRepositoryOperation: (request: CoordinatedRequest<GitRepositoryOperationActionRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.resolveRepositoryOperation, request) as ReturnType<GitheadApi["resolveRepositoryOperation"]>,
+  getConflictResolution: (request: GitConflictResolutionRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getConflictResolution, request) as ReturnType<GitheadApi["getConflictResolution"]>,
+  saveConflictResolution: (request: CoordinatedRequest<GitConflictResolutionSaveRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.saveConflictResolution, request) as ReturnType<GitheadApi["saveConflictResolution"]>,
   cancelRepositoryRead: (request: CancelRepositoryReadRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.cancelRepositoryRead, request) as ReturnType<GitheadApi["cancelRepositoryRead"]>,
   getGitOperationStates: (request: GetGitOperationStatesRequest) =>

@@ -23,6 +23,10 @@ import type {
   GitCommitRequest,
   GitConfiguredActionRunRequest,
   GitConfiguredActionSaveRequest,
+  GitConflictResolution,
+  GitConflictResolutionRequest,
+  GitConflictResolutionSaveRequest,
+  GitConflictResolutionSaveResult,
   GitCreateTagRequest,
   GitDeleteTagRequest,
   GitFileChangesRequest,
@@ -223,6 +227,31 @@ export class LoreService implements VcsService {
 
   async getRepositoryOperationState(_repoPath: string): Promise<GitRepositoryOperationState | null> {
     return null;
+  }
+
+  async getConflictResolution(request: GitConflictResolutionRequest): Promise<GitConflictResolution> {
+    return {
+      outcome: "unsupported",
+      path: request.path,
+      state: null,
+      baseText: null,
+      currentText: null,
+      incomingText: null,
+      workingText: null,
+      workingHash: null,
+      message: "Conflict resolution is only available for Git repositories."
+    };
+  }
+
+  async saveConflictResolution(request: GitConflictResolutionSaveRequest): Promise<GitConflictResolutionSaveResult> {
+    return {
+      repoPath: request.repoPath,
+      exitCode: -1,
+      stdout: "",
+      stderr: "Conflict resolution is only available for Git repositories.",
+      outcome: "failed",
+      state: null
+    };
   }
 
   async resolveRepositoryOperation(request: GitRepositoryOperationActionRequest): Promise<GitRepositoryOperationActionResult> {
