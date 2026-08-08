@@ -41,6 +41,8 @@ describe("OperationButtonFeedback", () => {
 
     const feedback = view.container.querySelector(".operation-button-feedback");
     expect(feedback?.getAttribute("data-feedback")).toBe("success");
+    expect(feedback?.querySelector(".operation-button-feedback-idle")?.getAttribute("aria-hidden")).toBeNull();
+    expect(feedback?.querySelector(".operation-button-feedback-success")?.getAttribute("aria-hidden")).toBe("true");
     expect(view.getByRole("status").textContent).toBe("Fetched.");
 
     act(() => {

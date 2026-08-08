@@ -78,23 +78,18 @@ export function OperationButtonFeedback({
     <span className="operation-button-feedback" data-feedback={activeOutcome ?? "idle"}>
       <span
         className="operation-button-feedback-state operation-button-feedback-idle"
-        aria-hidden={activeOutcome !== null}
       >
         {children}
       </span>
       <span
         className="operation-button-feedback-state operation-button-feedback-success"
-        aria-hidden={activeOutcome !== "success"}
-        aria-label={successLabel}
-        data-success-label={successLabel}
+        aria-hidden="true"
       >
         <Check />
       </span>
       <span
         className="operation-button-feedback-state operation-button-feedback-error"
-        aria-hidden={activeOutcome !== "error"}
-        aria-label={errorLabel}
-        data-error-label={errorLabel}
+        aria-hidden="true"
       >
         <X />
       </span>
