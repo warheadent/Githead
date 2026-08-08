@@ -52,6 +52,7 @@ import type {
   GitFileChangesRequest,
   GitFileDiffRequest,
   GitFileHistoryRequest,
+  GitForceWithLeaseRequest,
   GitFileBlameRequest,
   GitFilePreviewRequest,
   GitHunkRequest,
@@ -64,6 +65,9 @@ import type {
   GitHubRepositoryRequest,
   GitIdentitySaveRequest,
   GitIgnorePathRequest,
+  GitIntegrationExecuteRequest,
+  GitIntegrationPreviewRequest,
+  GitIntegrationResult,
   GitOperationResult,
   GitRepositoryOperationActionRequest,
   GitRepositoryOperationActionResult,
@@ -675,6 +679,26 @@ ipcMain.handle(IPC_CHANNELS.revertCommit, async (event, request: CoordinatedRequ
   return runTrustedExclusiveGitOperation(
     async () => (await vcsRouter.serviceForRepo(request.repoPath)).revertCommit(request),
     repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
+});
+
+ipcMain.handle(IPC_CHANNELS.getIntegrationPreview, async (_event, request: GitIntegrationPreviewRequest) => {
+  return gitService.getIntegrationPreview(request);
+});
+
+ipcMain.handle(IPC_CHANNELS.runIntegration, async (event, request: CoordinatedRequest<GitIntegrationExecuteRequest>) => {
+  return runTrustedExclusiveRepositoryOperation(
+    async () => withOwnedGitOutput(event, (onOutput) => gitService.runIntegration(request, onOutput)),
+    repositoryOperationOptions(event, request.operationId, request.repoPath),
+    (failure) => createIntegrationFailure(request, failure.stderr),
+    () => createIntegrationFailure(request, "Another Git command is already running for this repository or a linked worktree.")
+  );
+});
+
+ipcMain.handle(IPC_CHANNELS.pushWithForceLease, async (event, request: CoordinatedRequest<GitForceWithLeaseRequest>) => {
+  return runTrustedExclusiveGitOperation(
+    async () => withOwnedGitOutput(event, (onOutput) => gitService.pushWithForceLease(request, onOutput)),
+    repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS)
   );
 });
 
@@ -1325,6 +1349,27 @@ function createGitRunFailure(
     stderr,
     startedAt: now,
     endedAt: now
+  };
+}
+
+function createIntegrationFailure(
+  request: Pick<GitIntegrationExecuteRequest, "kind" | "repoPath">,
+  message: string
+): GitIntegrationResult {
+  return {
+    repoPath: request.repoPath,
+    kind: request.kind,
+    exitCode: -1,
+    stdout: "",
+    stderr: message,
+    outcome: "failed",
+    message,
+    previousHeadOid: null,
+    headOid: null,
+    completedCommitOids: [],
+    stoppedCommitOid: null,
+    operationState: null,
+    forceWithLease: null
   };
 }
 

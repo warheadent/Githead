@@ -906,6 +906,73 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.getCommitHistory).toHaveBeenCalledTimes(1);
   });
 
+  it("previews and runs a typed cherry-pick from the history context menu", async () => {
+    const user = userEvent.setup();
+    const commit = createCommit({ subject: "pick this change" });
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash));
+    vi.mocked(githead.getIntegrationPreview).mockResolvedValue({
+      outcome: "ready",
+      message: "Review the preview.",
+      preview: {
+        kind: "cherry-pick",
+        repoPath,
+        snapshotId: "preview-1",
+        currentBranch: "main",
+        headOid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        clean: true,
+        blockingReasons: [],
+        warnings: [],
+        commitOids: [commit.hash],
+        mergeCommitOids: [],
+        commits: [{
+          oid: commit.hash,
+          shortOid: commit.shortHash,
+          parentOids: commit.parents,
+          subject: commit.subject,
+          authorName: commit.authorName,
+          authorEmail: commit.authorEmail,
+          authorDate: commit.authorDate,
+          files: [{ path: "src/picked.ts", status: "M", additions: 2, deletions: 1 }]
+        }],
+        files: [{ path: "src/picked.ts", status: "M" }]
+      }
+    });
+    vi.mocked(githead.runIntegration).mockResolvedValue({
+      ...createOperationResult({ stdout: "picked" }),
+      kind: "cherry-pick",
+      outcome: "completed",
+      message: "Cherry-picked 1 commit.",
+      previousHeadOid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      headOid: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      completedCommitOids: [commit.hash],
+      stoppedCommitOid: null,
+      operationState: null,
+      forceWithLease: null
+    });
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    expect(screen.queryByRole("button", { name: "Cherry-pick selected…" })).toBeNull();
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /pick this change/ }));
+    await user.click(await screen.findByRole("menuitem", { name: "Cherry-pick commit…" }));
+
+    expect(await screen.findByRole("heading", { name: "Cherry-pick commit" })).toBeTruthy();
+    expect(await screen.findByText("src/picked.ts", { exact: false })).toBeTruthy();
+    await user.click(screen.getByRole("checkbox", { name: /Apply without committing/ }));
+    await user.click(screen.getByRole("button", { name: "Apply changes" }));
+
+    await waitFor(() => expect(githead.runIntegration).toHaveBeenCalledWith({
+      kind: "cherry-pick",
+      repoPath,
+      commitOids: [commit.hash],
+      noCommit: true,
+      expectedSnapshotId: "preview-1",
+      operationId: expect.any(String)
+    }));
+  });
+
   it("opens a virtualized Blame view for the selected commit file", async () => {
     const user = userEvent.setup();
     const commit = createCommit();

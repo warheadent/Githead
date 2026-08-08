@@ -765,6 +765,117 @@ export interface GitCommitHashRequest {
   hash: string;
 }
 
+export type GitIntegrationKind = "merge" | "cherry-pick" | "rebase";
+export type GitIntegrationRefKind = "local" | "remote";
+
+export interface GitIntegrationRef {
+  kind: GitIntegrationRefKind;
+  /** Display name, for example `feature/search` or `origin/feature/search`. */
+  name: string;
+}
+
+export type GitMergeMode = "normal" | "ff-only" | "no-ff" | "squash";
+
+export interface GitIntegrationCommit {
+  oid: string;
+  shortOid: string;
+  parentOids: string[];
+  subject: string;
+  authorName: string;
+  authorEmail: string;
+  authorDate: string;
+  files: GitCommitChangedFile[];
+}
+
+export interface GitIntegrationFile {
+  path: string;
+  originalPath?: string;
+  status: string;
+}
+
+interface GitIntegrationPreviewBase {
+  kind: GitIntegrationKind;
+  repoPath: string;
+  snapshotId: string;
+  currentBranch: string | null;
+  headOid: string | null;
+  clean: boolean;
+  blockingReasons: string[];
+  warnings: string[];
+  commits: GitIntegrationCommit[];
+  files: GitIntegrationFile[];
+}
+
+export interface GitMergePreview extends GitIntegrationPreviewBase {
+  kind: "merge";
+  source: GitIntegrationRef;
+  sourceOid: string;
+  ahead: number;
+  behind: number;
+  canFastForward: boolean;
+  alreadyUpToDate: boolean;
+}
+
+export interface GitCherryPickPreview extends GitIntegrationPreviewBase {
+  kind: "cherry-pick";
+  /** Exact application order. */
+  commitOids: string[];
+  mergeCommitOids: string[];
+}
+
+export interface GitRebasePreview extends GitIntegrationPreviewBase {
+  kind: "rebase";
+  newBase: GitIntegrationRef;
+  newBaseOid: string;
+  upstream: string | null;
+  upstreamOid: string | null;
+  published: boolean;
+  expectedRewrittenCommitCount: number;
+  alreadyUpToDate: boolean;
+}
+
+export type GitIntegrationPreview = GitMergePreview | GitCherryPickPreview | GitRebasePreview;
+
+export type GitIntegrationPreviewRequest =
+  | { kind: "merge"; repoPath: string; source: GitIntegrationRef }
+  | { kind: "cherry-pick"; repoPath: string; commitOids: string[] }
+  | { kind: "rebase"; repoPath: string; newBase: GitIntegrationRef };
+
+export interface GitIntegrationPreviewResult {
+  outcome: "ready" | "blocked" | "failed";
+  preview: GitIntegrationPreview | null;
+  message: string;
+}
+
+export type GitIntegrationExecuteRequest =
+  | { kind: "merge"; repoPath: string; source: GitIntegrationRef; mode: GitMergeMode; expectedSnapshotId: string }
+  | { kind: "cherry-pick"; repoPath: string; commitOids: string[]; noCommit: boolean; expectedSnapshotId: string }
+  | { kind: "rebase"; repoPath: string; newBase: GitIntegrationRef; preserveMerges: boolean; expectedSnapshotId: string };
+
+export interface GitIntegrationResult extends GitOperationResult {
+  kind: GitIntegrationKind;
+  outcome: "completed" | "no-op" | "staged" | "active" | "stale" | "failed";
+  message: string;
+  previousHeadOid: string | null;
+  headOid: string | null;
+  completedCommitOids: string[];
+  stoppedCommitOid: string | null;
+  operationState: GitRepositoryOperationState | null;
+  forceWithLease: GitForceWithLeaseOffer | null;
+}
+
+export interface GitForceWithLeaseOffer {
+  branchName: string;
+  remoteName: string;
+  remoteBranchName: string;
+  expectedRemoteOid: string;
+  expectedHeadOid: string;
+}
+
+export interface GitForceWithLeaseRequest extends GitForceWithLeaseOffer {
+  repoPath: string;
+}
+
 export type GitResetMode = "soft" | "mixed" | "hard";
 
 export interface GitResetCommitRequest {
@@ -1666,6 +1777,9 @@ export interface GitheadApi {
   copyCommitShaToClipboard(request: GitCommitHashRequest): Promise<GitOperationResult>;
   resetBranchToCommit(request: CoordinatedRequest<GitResetCommitRequest>): Promise<GitOperationResult>;
   revertCommit(request: CoordinatedRequest<GitCommitHashRequest>): Promise<GitOperationResult>;
+  getIntegrationPreview(request: GitIntegrationPreviewRequest): Promise<GitIntegrationPreviewResult>;
+  runIntegration(request: CoordinatedRequest<GitIntegrationExecuteRequest>): Promise<GitIntegrationResult>;
+  pushWithForceLease(request: CoordinatedRequest<GitForceWithLeaseRequest>): Promise<GitOperationResult>;
   createTag(request: CoordinatedRequest<GitCreateTagRequest>): Promise<GitOperationResult>;
   deleteTag(request: CoordinatedRequest<GitDeleteTagRequest>): Promise<GitOperationResult>;
   switchBranch(request: CoordinatedRequest<GitBranchRequest>): Promise<GitOperationResult>;

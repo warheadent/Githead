@@ -148,6 +148,7 @@ import type {
   GitFileHistoryEntry,
   GitFileBlameResult,
   GitFilePreviewSource,
+  GitForceWithLeaseOffer,
   GitImageSide,
   GitHubIssue,
   GitHubIssueQuery,
@@ -161,6 +162,8 @@ import type {
   AppWindowState,
   GitIdentityScope,
   GitIdentitySettings,
+  GitIntegrationExecuteRequest,
+  GitIntegrationResult,
   GitOperationResult,
   GitRepositoryOperationAction,
   GitRepositoryOperationActionResult,
@@ -197,6 +200,7 @@ import { getRepositoryWebUrl } from "../shared/remoteWebUrl";
 import { ActivityLogPanel } from "./ActivityLogPanel";
 import { CommitPlanView } from "./CommitPlanView";
 import { BranchManagementDialog } from "./BranchManagementDialog";
+import { GitIntegrationDialog } from "./GitIntegrationDialog";
 import { WorktreeCreateDialog, WorktreeRemoveDialog } from "./WorktreeDialogs";
 import { PullRecoveryDialog } from "./PullRecoveryDialog";
 import { GitOperationRecoveryBanner } from "./GitOperationRecoveryBanner";
@@ -299,6 +303,7 @@ const ISSUE_COLUMNS = [
 ] as const satisfies readonly ColumnDefinition<IssueColumnId>[];
 
 type WorkspaceView = "status" | "stashes" | "history" | "workflows" | "pullRequests" | "issues" | "activity";
+type IntegrationDialogState = { kind: "merge" | "rebase" | "cherry-pick"; commitHash?: string } | null;
 
 interface FileSelection {
   path: string;
@@ -890,6 +895,8 @@ export function App(): ReactNode {
   const [statusWorkspaceMode, setStatusWorkspaceMode] = useState<"files" | "plan">("files");
   const [stashComposer, setStashComposer] = useState<StashComposerState>(emptyStashComposer);
   const [repositorySettingsPath, setRepositorySettingsPath] = useState("");
+  const [integrationDialog, setIntegrationDialog] = useState<IntegrationDialogState>(null);
+  const [forceLeaseOffer, setForceLeaseOffer] = useState<GitForceWithLeaseOffer | null>(null);
   const [workflowQuery, setWorkflowQuery] = useState<GitHubWorkflowRunQuery>({ ...DEFAULT_WORKFLOW_QUERY });
   const [workflowSearch, setWorkflowSearch] = useState("");
   const [workflowPreset, setWorkflowPreset] = useState("all");
@@ -3397,6 +3404,39 @@ export function App(): ReactNode {
     return operationResult;
   }, [appendOperationLog, createActiveOperation, finishActiveOperation, isActiveOperationCurrent, refreshRepo, updateState]);
 
+  const runIntegration = useCallback(async (request: GitIntegrationExecuteRequest): Promise<GitIntegrationResult | null> => {
+    const current = stateRef.current;
+    const repoPath = current.repoPath;
+    if (!current.summary?.isValid || current.summary.kind !== "git" || isOperationRunning(current)) return null;
+    if (!(await ensureTrustedRepo(repoPath))) return null;
+    if (!isSameRepoPath(repoPath, stateRef.current.repoPath)) return null;
+    const label = request.kind === "merge" ? "Merging branch" : request.kind === "rebase" ? "Rebasing branch" : "Cherry-picking commit";
+    const result = await runRepoOperation(label, undefined, (operationId) => window.githead.runIntegration({ ...request, operationId })) as GitIntegrationResult | null;
+    if (!result || !isSameRepoPath(repoPath, stateRef.current.repoPath)) return result;
+    if (result.operationState) {
+      updateState((latest) => ({
+        ...latest,
+        summary: latest.summary ? { ...latest.summary, operationState: result.operationState } : latest.summary,
+        repositoryOperationError: ""
+      }));
+    }
+    if (result.forceWithLease) setForceLeaseOffer(result.forceWithLease);
+    if (result.outcome === "staged") updateState({ activeView: "status" });
+    return result;
+  }, [ensureTrustedRepo, runRepoOperation, updateState]);
+
+  const publishRebasedBranch = useCallback(async (): Promise<void> => {
+    const offer = forceLeaseOffer;
+    const repoPath = stateRef.current.repoPath;
+    if (!offer || isOperationRunning(stateRef.current)) return;
+    const result = await runRepoOperation("Publishing rewritten branch with force-with-lease", undefined, (operationId) => window.githead.pushWithForceLease({
+      repoPath,
+      ...offer,
+      operationId
+    }));
+    if (result?.exitCode === 0) setForceLeaseOffer(null);
+  }, [forceLeaseOffer, runRepoOperation]);
+
   const createStash = useCallback(async (draft: StashCreateDraft): Promise<string | null> => {
     const current = stateRef.current;
     const repoPath = current.repoPath;
@@ -5536,6 +5576,11 @@ export function App(): ReactNode {
       return;
     }
 
+    if (action === "cherry-pick") {
+      setIntegrationDialog({ kind: "cherry-pick", commitHash: commit.hash });
+      return;
+    }
+
     void copyCommitShaToClipboard(commit);
   }, [copyCommitShaToClipboard, openResetCommitDialog, openRevertCommitDialog, openTagDialog, selectCommit]);
 
@@ -6403,6 +6448,8 @@ export function App(): ReactNode {
             onCheckoutRemoteBranch={checkoutRemoteBranch}
             onOpenBranchDialog={openBranchDialog}
             onOpenBranchManager={openBranchManager}
+            onOpenMerge={() => setIntegrationDialog({ kind: "merge" })}
+            onOpenRebase={() => setIntegrationDialog({ kind: "rebase" })}
             onChangeUpstream={(upstream) => {
               void setBranchUpstream(upstream);
             }}
@@ -7013,6 +7060,38 @@ export function App(): ReactNode {
         onRename={(branchName, newBranchName) => runBranchOperation("rename", `Renaming branch ${branchName}`, branchName, (repoPath, operationId) => window.githead.renameBranch({ repoPath, branchName, newBranchName, operationId }))}
         onRemove={(branchName, force) => runBranchOperation("remove", `${force ? "Force deleting" : "Removing"} branch ${branchName}`, branchName, (repoPath, operationId) => window.githead.deleteBranch({ repoPath, branchName, force, operationId }))}
       />
+
+      {integrationDialog ? (
+        <GitIntegrationDialog
+          open
+          kind={integrationDialog.kind}
+          repoPath={state.repoPath}
+          currentBranch={state.summary?.branch ?? null}
+          branches={state.summary?.branches ?? []}
+          remoteBranches={state.summary?.remoteBranches ?? []}
+          commit={integrationDialog.commitHash ? getCommitByHash(state.history, integrationDialog.commitHash) : null}
+          busy={running}
+          onOpenChange={(open) => { if (!open && !running) setIntegrationDialog(null); }}
+          onRun={runIntegration}
+        />
+      ) : null}
+
+      <Dialog open={Boolean(forceLeaseOffer)} onOpenChange={(open) => { if (!open && !running) setForceLeaseOffer(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <p className="eyebrow">Rebase complete</p>
+            <DialogTitle>Publish rewritten history?</DialogTitle>
+            <DialogDescription>
+              The rebased branch no longer fast-forwards its upstream. Publishing is a separate, explicit action and uses force-with-lease so Git refuses if the remote changed.
+            </DialogDescription>
+          </DialogHeader>
+          {forceLeaseOffer ? <div className="rounded-md border border-amber-500/45 bg-amber-500/10 p-3 text-sm"><p className="font-medium">{forceLeaseOffer.branchName} → {forceLeaseOffer.remoteName}/{forceLeaseOffer.remoteBranchName}</p><p className="mt-1 text-muted-foreground">Plain force is never used. No push has happened yet.</p></div> : null}
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={running} onClick={() => setForceLeaseOffer(null)}>Not now</Button>
+            <Button type="button" variant="destructive" disabled={running || !forceLeaseOffer} onClick={() => { void publishRebasedBranch(); }}>{running ? <Loader2 className="animate-spin" /> : <Upload />}Publish with force-with-lease</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <ConflictResolutionDialog
         open={Boolean(conflictResolverPath)}
@@ -8318,6 +8397,8 @@ function RepositoryPanel({
   onCheckoutRemoteBranch,
   onOpenBranchDialog,
   onOpenBranchManager,
+  onOpenMerge,
+  onOpenRebase,
   onChangeUpstream,
   onOpenRemoteManager,
   onOpenExternalUrl,
@@ -8363,6 +8444,8 @@ function RepositoryPanel({
   onCheckoutRemoteBranch: (remoteBranch: GitRemoteBranch) => void;
   onOpenBranchDialog: () => void;
   onOpenBranchManager: () => void;
+  onOpenMerge: () => void;
+  onOpenRebase: () => void;
   onChangeUpstream: (upstream: string | null) => void;
   onOpenRemoteManager: () => void;
   onOpenExternalUrl: (url: string) => void;
@@ -8495,12 +8578,15 @@ function RepositoryPanel({
           currentBranch={summary?.branch ?? null}
           branches={summary?.branches ?? []}
           remoteBranches={summary?.remoteBranches ?? []}
+          integrationEnabled={summary?.kind === "git"}
           disabled={running || !summary?.isValid}
           onSwitchBranch={onSwitchBranch}
           onOpenWorktree={onSelectRecent}
           onCheckoutRemoteBranch={onCheckoutRemoteBranch}
           onCreateBranch={onOpenBranchDialog}
           onManageBranches={onOpenBranchManager}
+          onMerge={onOpenMerge}
+          onRebase={onOpenRebase}
         />
         {(summary?.capabilities.setUpstream ?? true) ? (
           <UpstreamFact
@@ -8546,23 +8632,29 @@ function BranchFact({
   currentBranch,
   branches,
   remoteBranches,
+  integrationEnabled,
   disabled,
   onSwitchBranch,
   onOpenWorktree,
   onCheckoutRemoteBranch,
   onCreateBranch,
-  onManageBranches
+  onManageBranches,
+  onMerge,
+  onRebase
 }: {
   repoPath: string;
   currentBranch: string | null;
   branches: GitBranch[];
   remoteBranches: GitRemoteBranch[];
+  integrationEnabled: boolean;
   disabled: boolean;
   onSwitchBranch: (branchName: string) => void;
   onOpenWorktree: (repoPath: string) => void;
   onCheckoutRemoteBranch: (remoteBranch: GitRemoteBranch) => void;
   onCreateBranch: () => void;
   onManageBranches: () => void;
+  onMerge: () => void;
+  onRebase: () => void;
 }): ReactNode {
   const switchableBranches = branches.filter((branch) => !branch.current && branch.name !== currentBranch);
   const activeBranch = branches.find((branch) => branch.current || branch.name === currentBranch) ?? null;
@@ -8627,6 +8719,10 @@ function BranchFact({
           }}
           actions={[
             { label: "New Branch", icon: <Plus />, onSelect: onCreateBranch },
+            ...(integrationEnabled ? [
+              { label: "Merge Branch…", icon: <GitFork />, onSelect: onMerge },
+              { label: "Rebase Branch…", icon: <History />, onSelect: onRebase }
+            ] : []),
             { label: "Manage Branches…", icon: <Settings />, onSelect: onManageBranches }
           ]}
         />
@@ -9367,7 +9463,7 @@ function StatusView({
 }
 
 type ContextActionKind = "open" | "show" | "copy" | "toggle-stage" | "stash" | "delete" | "revert" | "ignore" | "update-submodule";
-type CommitContextActionKind = "tag" | "reset" | "revert" | "copy";
+type CommitContextActionKind = "tag" | "reset" | "revert" | "cherry-pick" | "copy";
 type CommitFileContextActionKind = "log" | "blame" | "reset" | "open-current" | "open-selected" | "copy";
 
 function FileGroup({
@@ -10947,6 +11043,11 @@ const HistoryRow = memo(function HistoryRow({
             Tag
           </ContextMenuItem>
         ) : null}
+        <ContextMenuItem onSelect={() => onCommitContextAction(commit, "cherry-pick")}>
+          <GitFork />
+          Cherry-pick commit…
+        </ContextMenuItem>
+        <ContextMenuSeparator />
         <ContextMenuItem onSelect={() => onCommitContextAction(commit, "reset")}>
           <GitBranchIcon />
           Reset current branch to this commit

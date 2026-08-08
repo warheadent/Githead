@@ -154,6 +154,7 @@ describe("GitOperationRecoveryService with real Git repositories", { timeout: 20
         phase: "conflicts",
         currentBranch: "main",
         conflictedPaths: ["conflict.txt"],
+        sequence: { current: 2, total: 3 },
         actions: { skip: { supported: true, enabled: true } }
       });
       const result = await service.runAction({

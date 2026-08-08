@@ -48,6 +48,8 @@ interface DetectedOperation {
   originalBranch: string | null;
   sequence: GitRepositoryOperationState["sequence"];
   metadataSignatures: string[];
+  sequencerHeadOid?: string;
+  sequencerRemaining?: number;
 }
 
 export class GitOperationRecoveryService {
@@ -67,6 +69,16 @@ export class GitOperationRecoveryService {
     const parsedStatus = parseOperationStatus(status);
     const operation = await detectOperation(layout);
     if (!operation) return null;
+    if (operation.sequencerHeadOid && operation.sequencerRemaining) {
+      const completed = await this.runGit(repoPath, ["rev-list", "--count", `${operation.sequencerHeadOid}..HEAD`]);
+      const completedCount = completed.exitCode === 0 ? Number.parseInt(completed.stdout.trim(), 10) : Number.NaN;
+      if (Number.isSafeInteger(completedCount) && completedCount >= 0) {
+        operation.sequence = {
+          current: completedCount + 1,
+          total: completedCount + operation.sequencerRemaining
+        };
+      }
+    }
 
     const hasConflicts = parsedStatus.conflictedPaths.length > 0;
     const phase = hasConflicts ? "conflicts" : "ready-to-continue";
@@ -566,8 +578,15 @@ async function detectSequencerOperation(
     backend: null,
     originalBranch: null,
     sequence: null,
-    metadataSignatures: [marker, todo, head, abortSafety].map((file) => file.signature)
+    metadataSignatures: [marker, todo, head, abortSafety].map((file) => file.signature),
+    ...(head.text.trim() ? { sequencerHeadOid: head.text.trim() } : {}),
+    sequencerRemaining: countSequencerCommands(todo.text, kind)
   };
+}
+
+function countSequencerCommands(todo: string, kind: "cherry-pick" | "revert"): number {
+  const command = kind === "cherry-pick" ? "pick" : "revert";
+  return todo.split(/\r?\n/).filter((line) => line.trim().startsWith(`${command} `)).length;
 }
 
 function actionAvailability(

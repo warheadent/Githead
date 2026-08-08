@@ -35,6 +35,7 @@ import type {
   GitDeleteTagRequest,
   GitDiffSide,
   GitFileChangesRequest,
+  GitForceWithLeaseRequest,
   GitFileDiff,
   GitFileDiffRequest,
   GitFileHistoryRequest,
@@ -46,6 +47,10 @@ import type {
   GitHunkRequest,
   GitLfsImageFetchRequest,
   GitIgnorePathRequest,
+  GitIntegrationExecuteRequest,
+  GitIntegrationPreviewRequest,
+  GitIntegrationPreviewResult,
+  GitIntegrationResult,
   GitOperationResult,
   GitRepositoryOperationActionRequest,
   GitRepositoryOperationActionResult,
@@ -113,6 +118,7 @@ import { runProcessEffect } from "./processEffect";
 import { GIT_STASH_LIST_FORMAT, isGitStashRef, parseGitStashFiles, parseGitStashList } from "./gitStash";
 import { formatRevertCommitMessage } from "../shared/revertCommitMessage";
 import { GitOperationRecoveryService } from "./gitOperationRecovery";
+import { createIntegrationRunId, GitIntegrationService } from "./gitIntegrationService";
 
 export const GIT_ACTION_COMMANDS: Record<GitAction, string[]> = {
   fetch: [
@@ -185,9 +191,11 @@ const REPOSITORY_ACCESS_CHECK_TIMEOUT_MS = 30_000;
 export class GitService {
   private readonly lfsMediaDirs = new Map<string, string>();
   private readonly operationRecovery: GitOperationRecoveryService;
+  private readonly integration: GitIntegrationService;
 
   constructor(private readonly runner: ProcessRunner, operationRecovery?: GitOperationRecoveryService) {
     this.operationRecovery = operationRecovery ?? new GitOperationRecoveryService(runner);
+    this.integration = new GitIntegrationService(runner, this.operationRecovery);
   }
 
   async getRepoSummary(repoPath: string): Promise<RepoSummary> {
@@ -1116,6 +1124,121 @@ export class GitService {
       "--message",
       formatRevertCommitMessage(subjectResult.stdout)
     ]);
+  }
+
+  async getIntegrationPreview(request: GitIntegrationPreviewRequest): Promise<GitIntegrationPreviewResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) return { outcome: "failed", preview: null, message: validation.validationErrors.join(" ") };
+    const result = await this.integration.preview(request);
+    if (request.kind !== "rebase" || !result.preview) return result;
+    const pullRecovery = await this.readPullRecovery(request.repoPath);
+    if (!pullRecovery) return result;
+    const message = "Resolve the pending pull recovery before starting a user-initiated branch rebase.";
+    return {
+      outcome: "blocked",
+      preview: { ...result.preview, blockingReasons: [...result.preview.blockingReasons, message] },
+      message
+    };
+  }
+
+  async runIntegration(
+    request: GitIntegrationExecuteRequest,
+    onOutput?: GitOutputHandler
+  ): Promise<GitIntegrationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      const message = validation.validationErrors.join(" ");
+      return {
+        repoPath: request.repoPath,
+        kind: request.kind,
+        exitCode: -1,
+        stdout: "",
+        stderr: message,
+        outcome: "failed",
+        message,
+        previousHeadOid: null,
+        headOid: null,
+        completedCommitOids: [],
+        stoppedCommitOid: null,
+        operationState: null,
+        forceWithLease: null
+      };
+    }
+    const runId = createIntegrationRunId();
+    const action = request.kind;
+    const startedAt = new Date().toISOString();
+    if (request.kind === "rebase" && await this.readPullRecovery(request.repoPath)) {
+      const message = "Resolve the pending pull recovery before starting a user-initiated branch rebase.";
+      return {
+        repoPath: request.repoPath,
+        kind: request.kind,
+        exitCode: -1,
+        stdout: "",
+        stderr: message,
+        outcome: "failed",
+        message,
+        previousHeadOid: null,
+        headOid: null,
+        completedCommitOids: [],
+        stoppedCommitOid: null,
+        operationState: null,
+        forceWithLease: null
+      };
+    }
+    onOutput?.(this.createOutputEvent(runId, action, "system", `${action} preflight passed; revalidated under the repository mutation lock.\n`));
+    const result = await this.integration.execute(request, (output) => {
+      onOutput?.(this.createOutputEvent(runId, action, output.stream, output.text));
+    });
+    onOutput?.(this.createOutputEvent(
+      runId,
+      action,
+      "system",
+      `\n${action} finished with ${result.outcome} (code ${result.exitCode}) after ${Date.now() - Date.parse(startedAt)}ms.\n`
+    ));
+    return result;
+  }
+
+  async pushWithForceLease(
+    request: GitForceWithLeaseRequest,
+    onOutput?: GitOutputHandler
+  ): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+    const branch = await this.validateBranchName(request.repoPath, request.branchName);
+    const remoteBranch = await this.validateBranchName(request.repoPath, request.remoteBranchName);
+    const remote = await this.validateRemoteName(request.repoPath, request.remoteName);
+    if ("error" in branch) return this.createOperationFailure(request.repoPath, branch.error);
+    if ("error" in remoteBranch) return this.createOperationFailure(request.repoPath, remoteBranch.error);
+    if ("error" in remote) return this.createOperationFailure(request.repoPath, remote.error);
+    const expectedHead = sanitizeCommitHash(request.expectedHeadOid);
+    const expectedRemote = sanitizeCommitHash(request.expectedRemoteOid);
+    if ("error" in expectedHead) return this.createOperationFailure(request.repoPath, expectedHead.error);
+    if ("error" in expectedRemote) return this.createOperationFailure(request.repoPath, expectedRemote.error);
+    const [currentBranch, currentHead, trackedRemote] = await Promise.all([
+      this.runGit(request.repoPath, ["symbolic-ref", "--quiet", "--short", "HEAD"]),
+      this.runGit(request.repoPath, ["rev-parse", "--verify", "HEAD"]),
+      this.runGit(request.repoPath, ["rev-parse", "--verify", "--quiet", `refs/remotes/${remote.remoteName}/${remoteBranch.branchName}`])
+    ]);
+    if (currentBranch.exitCode !== 0 || currentBranch.stdout.trim() !== branch.branchName || currentHead.stdout.trim() !== expectedHead.hash) {
+      return this.createOperationFailure(request.repoPath, "The current branch or HEAD changed after the rebase. Refresh before publishing rewritten history.");
+    }
+    if (trackedRemote.exitCode !== 0 || trackedRemote.stdout.trim() !== expectedRemote.hash) {
+      return this.createOperationFailure(request.repoPath, "The fetched remote branch changed after the rebase. Fetch and review it before trying again.");
+    }
+    const runId = randomUUID();
+    const result = await this.runNamedActionCommand(request.repoPath, "force-with-lease", runId, [
+      "push",
+      `--force-with-lease=refs/heads/${remoteBranch.branchName}:${expectedRemote.hash}`,
+      remote.remoteName,
+      `HEAD:refs/heads/${remoteBranch.branchName}`
+    ], onOutput);
+    onOutput?.(this.createOutputEvent(runId, "force-with-lease", "system", `\nforce-with-lease exited with code ${result.exitCode}.\n`));
+    return {
+      repoPath: request.repoPath,
+      exitCode: result.exitCode,
+      stdout: result.stdout,
+      stderr: result.error ? `${result.stderr}${result.error}` : result.stderr
+    };
   }
 
   async createTag(request: GitCreateTagRequest): Promise<GitOperationResult> {

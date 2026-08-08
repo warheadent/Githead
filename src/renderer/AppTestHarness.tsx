@@ -259,6 +259,9 @@ export function createGitheadMock(): GitheadApi {
     }),
     getRepositoryOperationState: vi.fn().mockResolvedValue(null),
     resolveRepositoryOperation: vi.fn(),
+    getIntegrationPreview: vi.fn().mockResolvedValue({ outcome: "failed", preview: null, message: "Not configured in this test." }),
+    runIntegration: vi.fn(),
+    pushWithForceLease: vi.fn(),
     getConflictResolution: vi.fn().mockResolvedValue({
       outcome: "failed",
       path: "",

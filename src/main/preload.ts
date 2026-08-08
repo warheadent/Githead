@@ -45,6 +45,7 @@ import type {
   GitFileChangesRequest,
   GitFileDiffRequest,
   GitFileHistoryRequest,
+  GitForceWithLeaseRequest,
   GitFileBlameRequest,
   GitFilePreviewRequest,
   GitHunkRequest,
@@ -56,6 +57,8 @@ import type {
   GitHubRepositoryRequest,
   GitIdentitySaveRequest,
   GitIgnorePathRequest,
+  GitIntegrationExecuteRequest,
+  GitIntegrationPreviewRequest,
   GitOutputEvent,
   GitPathRequest,
   GitPublishBranchRequest,
@@ -215,6 +218,12 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.resetBranchToCommit, request) as ReturnType<GitheadApi["resetBranchToCommit"]>,
   revertCommit: (request: CoordinatedRequest<GitCommitHashRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.revertCommit, request) as ReturnType<GitheadApi["revertCommit"]>,
+  getIntegrationPreview: (request: GitIntegrationPreviewRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getIntegrationPreview, request) as ReturnType<GitheadApi["getIntegrationPreview"]>,
+  runIntegration: (request: CoordinatedRequest<GitIntegrationExecuteRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.runIntegration, request) as ReturnType<GitheadApi["runIntegration"]>,
+  pushWithForceLease: (request: CoordinatedRequest<GitForceWithLeaseRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.pushWithForceLease, request) as ReturnType<GitheadApi["pushWithForceLease"]>,
   createTag: (request: CoordinatedRequest<GitCreateTagRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.createTag, request) as ReturnType<GitheadApi["createTag"]>,
   deleteTag: (request: CoordinatedRequest<GitDeleteTagRequest>) =>
