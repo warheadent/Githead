@@ -676,6 +676,7 @@ const emptySettingsDraft: SettingsDraft = {
   codeFont: "system-mono",
   zoomFactor: 1,
   tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR,
+  allowCherryPickingContainedCommits: false,
   gitIdentityName: "",
   gitIdentityEmail: "",
   gitIdentityScope: "repository"
@@ -3531,8 +3532,15 @@ export function App(): ReactNode {
     ) return;
 
     updateState({ repositoryOperationError: "" });
+    const actionLabel = action === "continue"
+      ? "Continuing"
+      : action === "skip"
+        ? "Skipping"
+        : action === "keep-empty"
+          ? "Keeping empty commit for"
+          : "Aborting";
     const result = await runRepoOperation(
-      `${action === "continue" ? "Continuing" : action === "skip" ? "Skipping" : "Aborting"} ${operationState.kind}`,
+      `${actionLabel} ${operationState.kind}`,
       undefined,
       (operationId) => window.githead.resolveRepositoryOperation({
         repoPath,
@@ -5057,6 +5065,7 @@ export function App(): ReactNode {
         codeFont: appSettings?.codeFont ?? "system-mono",
         zoomFactor: appSettings?.zoomFactor ?? 1,
         tagPushBehavior: appSettings?.gitBehaviors?.tagPushBehavior ?? DEFAULT_TAG_PUSH_BEHAVIOR,
+        allowCherryPickingContainedCommits: appSettings?.gitBehaviors?.allowCherryPickingContainedCommits ?? false,
         gitIdentityName: gitIdentity?.global.name ?? "",
         gitIdentityEmail: gitIdentity?.global.email ?? "",
         gitIdentityScope: "global"
@@ -5152,7 +5161,10 @@ export function App(): ReactNode {
           zoomFactor: draft.zoomFactor,
           statusFileViewMode: initial.appSettings?.statusFileViewMode ?? "list",
           wrapDiffLines: initial.appSettings?.wrapDiffLines ?? false,
-          gitBehaviors: { tagPushBehavior: draft.tagPushBehavior }
+          gitBehaviors: {
+            tagPushBehavior: draft.tagPushBehavior,
+            allowCherryPickingContainedCommits: draft.allowCherryPickingContainedCommits
+          }
         });
         if (!isSaveCurrent()) return;
       }
@@ -6788,6 +6800,7 @@ export function App(): ReactNode {
                   commitFileDiffLoading={state.commitFileDiffLoading}
                   commitFileDiffError={state.commitFileDiffError}
                   wrapLines={state.appSettings?.wrapDiffLines ?? false}
+                  allowCherryPickingContainedCommits={state.appSettings?.gitBehaviors?.allowCherryPickingContainedCommits ?? false}
                   disabled={disableUnrelatedMutations}
                   insights={historyInsights.data}
                   insightsLoading={historyInsights.loading}
@@ -7074,6 +7087,7 @@ export function App(): ReactNode {
           branches={state.summary?.branches ?? []}
           remoteBranches={state.summary?.remoteBranches ?? []}
           commit={integrationDialog.commitHash ? getCommitByHash(state.history, integrationDialog.commitHash) : null}
+          allowAlreadyContainedCherryPick={state.appSettings?.gitBehaviors?.allowCherryPickingContainedCommits ?? false}
           busy={running}
           onOpenChange={(open) => { if (!open && !running) setIntegrationDialog(null); }}
           onRun={runIntegration}
@@ -10224,6 +10238,7 @@ function HistoryView({
   commitFileDiffLoading,
   commitFileDiffError,
   wrapLines,
+  allowCherryPickingContainedCommits,
   disabled,
   insights,
   insightsLoading,
@@ -10252,6 +10267,7 @@ function HistoryView({
   commitFileDiffLoading: boolean;
   commitFileDiffError: string;
   wrapLines: boolean;
+  allowCherryPickingContainedCommits: boolean;
   disabled: boolean;
   insights: import("../shared/types").GitHubHistoryInsights;
   insightsLoading: boolean;
@@ -10366,6 +10382,8 @@ function HistoryView({
                       commit={commit}
                       selected={commit.hash === selectedCommitHash}
                       tagsEnabled={summary?.capabilities.tags ?? true}
+                      containedInCurrentBranch={historyScope === "current"}
+                      allowCherryPickingContainedCommits={allowCherryPickingContainedCommits}
                       {...(associations.get(commit.hash) ? { association: associations.get(commit.hash)! } : {})}
                       onOpenExternalUrl={onOpenExternalUrl}
                       onSelectCommit={onSelectCommit}
@@ -10966,6 +10984,8 @@ interface HistoryRowProps {
   commit: GitCommitGraphRow;
   selected: boolean;
   tagsEnabled: boolean;
+  containedInCurrentBranch: boolean;
+  allowCherryPickingContainedCommits: boolean;
   association?: GitHubCommitAssociation;
   onOpenExternalUrl: (url: string) => void;
   onSelectCommit: (hash: string) => void;
@@ -10978,6 +10998,8 @@ const HistoryRow = memo(function HistoryRow({
   commit,
   selected,
   tagsEnabled,
+  containedInCurrentBranch,
+  allowCherryPickingContainedCommits,
   association,
   onOpenExternalUrl,
   onSelectCommit,
@@ -10985,6 +11007,7 @@ const HistoryRow = memo(function HistoryRow({
   columnOrder,
   virtualRowProps
 }: HistoryRowProps): ReactNode {
+  const cherryPickDisabled = containedInCurrentBranch && !allowCherryPickingContainedCommits;
   return (
     <ContextMenu>
       <ContextMenuTrigger
@@ -11047,10 +11070,19 @@ const HistoryRow = memo(function HistoryRow({
             Tag
           </ContextMenuItem>
         ) : null}
-        <ContextMenuItem onSelect={() => onCommitContextAction(commit, "cherry-pick")}>
-          <GitFork />
-          Cherry-pick commit…
-        </ContextMenuItem>
+        <TooltipTarget
+          content={cherryPickDisabled ? "This commit is already included in the current branch." : undefined}
+          contentProps={{ side: "right", sideOffset: 8 }}
+        >
+          <ContextMenuItem
+            disabled={cherryPickDisabled}
+            className={cherryPickDisabled ? "data-[disabled]:pointer-events-auto" : undefined}
+            onSelect={() => onCommitContextAction(commit, "cherry-pick")}
+          >
+            <GitFork />
+            Cherry-pick commit…
+          </ContextMenuItem>
+        </TooltipTarget>
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={() => onCommitContextAction(commit, "reset")}>
           <GitBranchIcon />
@@ -12462,6 +12494,8 @@ function areHistoryRowPropsEqual(previous: HistoryRowProps, next: HistoryRowProp
   return previous.commit === next.commit
     && previous.selected === next.selected
     && previous.tagsEnabled === next.tagsEnabled
+    && previous.containedInCurrentBranch === next.containedInCurrentBranch
+    && previous.allowCherryPickingContainedCommits === next.allowCherryPickingContainedCommits
     && previous.association === next.association
     && previous.onOpenExternalUrl === next.onOpenExternalUrl
     && previous.onSelectCommit === next.onSelectCommit
@@ -13000,7 +13034,8 @@ function hasAppSettingsChanges(draft: SettingsDraft, settings: AppSettings | nul
     || draft.uiFont !== settings.uiFont
     || draft.codeFont !== settings.codeFont
     || draft.zoomFactor !== settings.zoomFactor
-    || draft.tagPushBehavior !== (settings.gitBehaviors?.tagPushBehavior ?? DEFAULT_TAG_PUSH_BEHAVIOR);
+    || draft.tagPushBehavior !== (settings.gitBehaviors?.tagPushBehavior ?? DEFAULT_TAG_PUSH_BEHAVIOR)
+    || draft.allowCherryPickingContainedCommits !== (settings.gitBehaviors?.allowCherryPickingContainedCommits ?? false);
 }
 
 function hasGitIdentityChanges(draft: SettingsDraft, settings: GitIdentitySettings | null): boolean {

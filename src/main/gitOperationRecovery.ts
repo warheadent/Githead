@@ -50,6 +50,7 @@ interface DetectedOperation {
   metadataSignatures: string[];
   sequencerHeadOid?: string;
   sequencerRemaining?: number;
+  headMarkerExists?: boolean;
 }
 
 export class GitOperationRecoveryService {
@@ -81,8 +82,12 @@ export class GitOperationRecoveryService {
     }
 
     const hasConflicts = parsedStatus.conflictedPaths.length > 0;
-    const phase = hasConflicts ? "conflicts" : "ready-to-continue";
-    const actions = getOperationActions(operation.kind, hasConflicts, parsedStatus.hasChanges);
+    const phase: GitRepositoryOperationState["phase"] = hasConflicts
+      ? "conflicts"
+      : operation.kind === "cherry-pick" && operation.headMarkerExists && !parsedStatus.hasChanges
+        ? "empty-commit"
+        : "ready-to-continue";
+    const actions = getOperationActions(operation.kind, phase, parsedStatus.hasChanges);
     const stateId = createHash("sha256")
       .update(operation.kind)
       .update("\0")
@@ -135,7 +140,7 @@ export class GitOperationRecoveryService {
     }
 
     const command = getGitOperationCommand(current.kind, request.action);
-    if (!command) {
+    if (!command && request.action !== "keep-empty") {
       return operationResult(
         request.repoPath,
         -1,
@@ -146,7 +151,9 @@ export class GitOperationRecoveryService {
       );
     }
 
-    const result = await this.runGit(request.repoPath, command);
+    const result = request.action === "keep-empty"
+      ? await this.keepEmptyCherryPick(request.repoPath)
+      : await this.runGit(request.repoPath, command!);
     const next = await this.detect(request.repoPath);
     const stderr = result.error ? `${result.stderr}${result.error}` : result.stderr;
     if (result.exitCode === 0 && next === null) {
@@ -159,6 +166,29 @@ export class GitOperationRecoveryService {
       return operationResult(request.repoPath, result.exitCode, result.stdout, operationStillActive, "active", next);
     }
     return operationResult(request.repoPath, result.exitCode, result.stdout, stderr, "failed", null);
+  }
+
+  private async keepEmptyCherryPick(repoPath: string): Promise<ProcessResult> {
+    const commit = await this.runGit(repoPath, ["-c", "core.editor=true", "commit", "--allow-empty", "--no-edit"]);
+    if (commit.exitCode !== 0) return commit;
+
+    const next = await this.detect(repoPath);
+    if (!next) return commit;
+    if (next.kind !== "cherry-pick") {
+      return {
+        ...commit,
+        exitCode: -1,
+        stderr: `${commit.stderr}Git created the empty commit, but another repository operation is now active.`
+      };
+    }
+
+    const continued = await this.runGit(repoPath, ["-c", "core.editor=true", "cherry-pick", "--continue"]);
+    return {
+      ...continued,
+      stdout: `${commit.stdout}${continued.stdout}`,
+      stderr: `${commit.stderr}${continued.stderr}`,
+      ...(continued.error ?? commit.error ? { error: continued.error ?? commit.error } : {})
+    };
   }
 
   async readConflict(request: GitConflictResolutionRequest): Promise<GitConflictResolution> {
@@ -468,6 +498,7 @@ export function getGitOperationCommand(
   kind: GitRepositoryOperationKind,
   action: GitRepositoryOperationAction
 ): string[] | null {
+  if (action === "keep-empty") return null;
   if (action === "skip" && kind === "merge") return null;
   const prefix = action === "continue" ? ["-c", "core.editor=true"] : [];
   return [...prefix, kind, `--${action}`];
@@ -475,17 +506,23 @@ export function getGitOperationCommand(
 
 export function getOperationActions(
   kind: GitRepositoryOperationKind,
-  hasConflicts: boolean,
+  phase: GitRepositoryOperationState["phase"],
   hasChanges: boolean
 ): GitRepositoryOperationState["actions"] {
+  const hasConflicts = phase === "conflicts";
   const continueDisabledReason = hasConflicts
     ? "Resolve every conflict and stage each resolved file before continuing."
+    : phase === "empty-commit"
+      ? "Choose whether to skip this commit or keep it as an empty commit."
     : null;
   return {
-    continue: actionAvailability(true, !hasConflicts, continueDisabledReason, false),
+    continue: actionAvailability(true, phase === "ready-to-continue", continueDisabledReason, false),
     skip: kind === "merge"
       ? actionAvailability(false, false, "Git merge does not support skipping a commit.", false)
       : actionAvailability(true, true, null, true),
+    "keep-empty": kind === "cherry-pick"
+      ? actionAvailability(true, phase === "empty-commit", phase === "empty-commit" ? null : "The current cherry-pick is not empty.", true)
+      : actionAvailability(false, false, `Git ${kind} does not support keeping an empty cherry-pick commit.`, false),
     abort: actionAvailability(true, true, null, hasChanges)
   };
 }
@@ -579,6 +616,7 @@ async function detectSequencerOperation(
     originalBranch: null,
     sequence: null,
     metadataSignatures: [marker, todo, head, abortSafety].map((file) => file.signature),
+    headMarkerExists: marker.exists,
     ...(head.text.trim() ? { sequencerHeadOid: head.text.trim() } : {}),
     sequencerRemaining: countSequencerCommands(todo.text, kind)
   };
@@ -630,6 +668,9 @@ function formatOperationSummary(
   const progress = sequence ? ` Commit ${sequence.current} of ${sequence.total}.` : "";
   if (phase === "conflicts") {
     return `${name} paused with ${conflictCount} unresolved ${conflictCount === 1 ? "conflict" : "conflicts"}.${progress} Resolve and stage the files before continuing.`;
+  }
+  if (phase === "empty-commit") {
+    return `${name} paused because the selected changes already exist.${progress} Skip the commit, keep an empty commit, or abort.`;
   }
   return `${name} is paused and ready to continue.${progress}`;
 }

@@ -28,6 +28,7 @@ export const DEFAULT_ZOOM_FACTOR = 1;
 export const DEFAULT_STATUS_FILE_VIEW_MODE: StatusFileViewMode = "list";
 export const DEFAULT_WRAP_DIFF_LINES = false;
 export { DEFAULT_TAG_PUSH_BEHAVIOR } from "../shared/types";
+export { DEFAULT_ALLOW_CHERRY_PICKING_CONTAINED_COMMITS } from "../shared/types";
 
 export class AppSettingsService {
   private readonly settingsPath: string;
@@ -96,14 +97,20 @@ export class AppSettingsService {
 
 function parseStoredGitBehaviors(value: unknown): GitBehaviorSettings {
   if (!value || typeof value !== "object") {
-    return { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR };
+    return {
+      tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR
+    };
   }
 
-  const tagPushBehavior = (value as { tagPushBehavior?: unknown }).tagPushBehavior;
+  const stored = value as { tagPushBehavior?: unknown; allowCherryPickingContainedCommits?: unknown };
+  const tagPushBehavior = stored.tagPushBehavior;
   return {
     tagPushBehavior: TAG_PUSH_BEHAVIORS.includes(tagPushBehavior as TagPushBehavior)
       ? tagPushBehavior as TagPushBehavior
-      : DEFAULT_TAG_PUSH_BEHAVIOR
+      : DEFAULT_TAG_PUSH_BEHAVIOR,
+    ...(stored.allowCherryPickingContainedCommits === true
+      ? { allowCherryPickingContainedCommits: true }
+      : {})
   };
 }
 
@@ -111,7 +118,18 @@ function normalizeGitBehaviorsForSave(value: GitBehaviorSettings): GitBehaviorSe
   if (!value || !TAG_PUSH_BEHAVIORS.includes(value.tagPushBehavior)) {
     throw new Error("Unknown tag push behavior.");
   }
-  return { tagPushBehavior: value.tagPushBehavior };
+  if (
+    value.allowCherryPickingContainedCommits !== undefined &&
+    typeof value.allowCherryPickingContainedCommits !== "boolean"
+  ) {
+    throw new Error("Cherry-pick contained commit behavior must be a Boolean value.");
+  }
+  return {
+    tagPushBehavior: value.tagPushBehavior,
+    ...(value.allowCherryPickingContainedCommits === true
+      ? { allowCherryPickingContainedCommits: true }
+      : {})
+  };
 }
 
 function parseStoredStatusFileViewMode(value: unknown): StatusFileViewMode {

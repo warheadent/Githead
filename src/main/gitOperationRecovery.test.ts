@@ -67,13 +67,13 @@ describe("Git operation action selection", () => {
     "supports skip for %s",
     (kind) => {
       expect(getGitOperationCommand(kind, "skip")).toEqual([kind, "--skip"]);
-      expect(getOperationActions(kind, true, true).skip).toMatchObject({ supported: true, enabled: true });
+      expect(getOperationActions(kind, "conflicts", true).skip).toMatchObject({ supported: true, enabled: true });
     }
   );
 
   it("rejects merge skip and disables Continue while conflicts remain", () => {
     expect(getGitOperationCommand("merge", "skip")).toBeNull();
-    expect(getOperationActions("merge", true, true)).toMatchObject({
+    expect(getOperationActions("merge", "conflicts", true)).toMatchObject({
       continue: { supported: true, enabled: false },
       skip: { supported: false, enabled: false },
       abort: { supported: true, enabled: true, requiresConfirmation: true }
@@ -82,6 +82,20 @@ describe("Git operation action selection", () => {
 
   it("uses a non-interactive editor for Continue", () => {
     expect(getGitOperationCommand("rebase", "continue")).toEqual(["-c", "core.editor=true", "rebase", "--continue"]);
+  });
+
+  it("offers Keep empty only for an empty cherry-pick", () => {
+    expect(getGitOperationCommand("cherry-pick", "keep-empty")).toBeNull();
+    expect(getOperationActions("cherry-pick", "empty-commit", false)).toMatchObject({
+      continue: { enabled: false },
+      skip: { enabled: true },
+      "keep-empty": { supported: true, enabled: true },
+      abort: { enabled: true }
+    });
+    expect(getOperationActions("revert", "ready-to-continue", false)["keep-empty"]).toMatchObject({
+      supported: false,
+      enabled: false
+    });
   });
 });
 

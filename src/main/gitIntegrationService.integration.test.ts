@@ -105,6 +105,52 @@ describe("GitIntegrationService with real Git repositories", { timeout: 30_000 }
     });
   });
 
+  it("blocks contained commits by default and can keep an allowed empty cherry-pick", async () => {
+    await withRepo(async (repo) => {
+      const containedOid = await repo.oid("HEAD");
+      const blocked = await repo.service.preview({
+        kind: "cherry-pick",
+        repoPath: repo.path,
+        commitOids: [containedOid]
+      });
+      expect(blocked).toMatchObject({
+        outcome: "blocked",
+        preview: { alreadyContainedCommitOids: [containedOid] }
+      });
+      expect(blocked.preview?.blockingReasons.join(" ")).toContain("already contained in the current branch");
+
+      const preview = await ready(repo, {
+        kind: "cherry-pick",
+        repoPath: repo.path,
+        commitOids: [containedOid],
+        allowAlreadyContained: true
+      });
+      expect(preview.warnings.join(" ")).toContain("Git may stop");
+      const execution = await repo.service.execute({
+        kind: "cherry-pick",
+        repoPath: repo.path,
+        commitOids: [containedOid],
+        noCommit: false,
+        allowAlreadyContained: true,
+        expectedSnapshotId: preview.snapshotId
+      });
+      expect(execution).toMatchObject({
+        outcome: "active",
+        operationState: { kind: "cherry-pick", phase: "empty-commit" }
+      });
+
+      const kept = await repo.gitService.resolveRepositoryOperation({
+        repoPath: repo.path,
+        expectedKind: "cherry-pick",
+        expectedStateId: execution.operationState!.stateId,
+        action: "keep-empty"
+      });
+      expect(kept).toMatchObject({ outcome: "completed", state: null, exitCode: 0 });
+      expect(await repo.oid("HEAD")).not.toBe(containedOid);
+      expect((await repo.run(["show", "--format=", "--name-only", "HEAD"])).stdout.trim()).toBe("");
+    });
+  });
+
   it("rejects merge-commit cherry-picks without a mainline parent", async () => {
     await withRepo(async (repo) => {
       await repo.branch("side");

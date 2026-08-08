@@ -92,6 +92,32 @@ describe("GitOperationRecoveryBanner", () => {
     expect(screen.getByText("Finish this revert")).toBeTruthy();
     expect(screen.getByRole("alert").textContent).toContain("still active");
   });
+
+  it("offers Skip, Keep empty commit, and Abort for an empty cherry-pick", () => {
+    const onAction = vi.fn();
+    const state = createOperationState("cherry-pick");
+    state.phase = "empty-commit";
+    state.hasConflicts = false;
+    state.conflictedPaths = [];
+    state.actions.continue.enabled = false;
+    state.actions.continue.disabledReason = "Choose an empty result.";
+    state.actions["keep-empty"] = {
+      supported: true,
+      enabled: true,
+      disabledReason: null,
+      requiresConfirmation: true
+    };
+    state.summary = "Cherry-pick paused because the selected changes already exist.";
+    renderBanner(state, { onAction });
+
+    expect(screen.getByText("Choose empty result")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Skip commit…" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Abort cherry-pick…" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Keep empty commit…" }));
+    expect(screen.getByText(/original message but no file changes/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Keep empty commit" }));
+    expect(onAction).toHaveBeenCalledWith("keep-empty");
+  });
 });
 
 function renderBanner(
@@ -137,6 +163,12 @@ function createOperationState(kind: GitRepositoryOperationKind): GitRepositoryOp
         enabled: skipSupported,
         disabledReason: skipSupported ? null : "Git does not support skipping a merge.",
         requiresConfirmation: skipSupported
+      },
+      "keep-empty": {
+        supported: kind === "cherry-pick",
+        enabled: false,
+        disabledReason: kind === "cherry-pick" ? "The current cherry-pick is not empty." : "Not supported.",
+        requiresConfirmation: false
       },
       abort: {
         supported: true,

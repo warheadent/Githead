@@ -69,6 +69,7 @@ export interface SettingsDraft {
   codeFont: AppCodeFont;
   zoomFactor: number;
   tagPushBehavior: TagPushBehavior;
+  allowCherryPickingContainedCommits: boolean;
   gitIdentityName: string;
   gitIdentityEmail: string;
   gitIdentityScope: GitIdentityScope;
@@ -251,6 +252,27 @@ export function SettingsDialog({
                       <p id="tag-push-behavior-help" className="text-xs text-muted-foreground">This setting does not affect manually creating, pushing, or deleting an individual tag.</p>
                     </div>
                   </SettingsCard>
+                  <SettingsCard title="Cherry-pick" description="Control whether Githead offers unusual cherry-pick workflows.">
+                    <div className="flex max-w-2xl items-start gap-3 rounded-md border p-3">
+                      <input
+                        id="allow-contained-cherry-pick"
+                        type="checkbox"
+                        className="mt-1 shrink-0"
+                        checked={draft.allowCherryPickingContainedCommits}
+                        disabled={saving}
+                        onChange={(event) => onDraftChange({
+                          ...draft,
+                          allowCherryPickingContainedCommits: event.currentTarget.checked
+                        })}
+                      />
+                      <span>
+                        <Label htmlFor="allow-contained-cherry-pick">Allow commits already contained in the current branch</Label>
+                        <span className="mt-1 block text-sm font-normal normal-case text-muted-foreground">
+                          Useful for reapplying reverted changes. Git may stop on an empty cherry-pick if the changes already exist.
+                        </span>
+                      </span>
+                    </div>
+                  </SettingsCard>
                 </SettingsPanel>
                 <SettingsPanel value="sync" title="Sync" description="Control automatic remote fetches while Githead is open.">
                   <SettingsCard title="Global auto-fetch" description="The default schedule for repositories without an override.">
@@ -356,7 +378,8 @@ function getDirtyCategories(baseline: string, draft: SettingsDraft): Record<Sett
   return {
     appearance: saved.colorTheme !== draft.colorTheme || saved.appearanceMode !== draft.appearanceMode || saved.uiFont !== draft.uiFont || saved.codeFont !== draft.codeFont || saved.zoomFactor !== draft.zoomFactor,
     "git-identity": saved.gitIdentityName !== draft.gitIdentityName || saved.gitIdentityEmail !== draft.gitIdentityEmail,
-    "git-behaviors": saved.tagPushBehavior !== draft.tagPushBehavior,
+    "git-behaviors": saved.tagPushBehavior !== draft.tagPushBehavior
+      || saved.allowCherryPickingContainedCommits !== draft.allowCherryPickingContainedCommits,
     sync: saved.autoFetchIntervalMinutes !== draft.autoFetchIntervalMinutes,
     ai: JSON.stringify({ selectedProvider: saved.selectedProvider, providerModels: saved.providerModels, commitPlanModels: saved.commitPlanModels, commitPlanReasoningEfforts: saved.commitPlanReasoningEfforts, prDescriptionModels: saved.prDescriptionModels, reasoningEfforts: saved.reasoningEfforts, prDescriptionReasoningEfforts: saved.prDescriptionReasoningEfforts, apiKeys: saved.apiKeys, clearApiKeys: saved.clearApiKeys, commitMessagePrompt: saved.commitMessagePrompt, prDescriptionPrompt: saved.prDescriptionPrompt, sourceControlWritingStyle: saved.sourceControlWritingStyle }) !== JSON.stringify({ selectedProvider: draft.selectedProvider, providerModels: draft.providerModels, commitPlanModels: draft.commitPlanModels, commitPlanReasoningEfforts: draft.commitPlanReasoningEfforts, prDescriptionModels: draft.prDescriptionModels, reasoningEfforts: draft.reasoningEfforts, prDescriptionReasoningEfforts: draft.prDescriptionReasoningEfforts, apiKeys: draft.apiKeys, clearApiKeys: draft.clearApiKeys, commitMessagePrompt: draft.commitMessagePrompt, prDescriptionPrompt: draft.prDescriptionPrompt, sourceControlWritingStyle: draft.sourceControlWritingStyle }),
     diagnostics: false

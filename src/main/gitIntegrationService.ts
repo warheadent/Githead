@@ -42,7 +42,11 @@ export class GitIntegrationService {
     try {
       if (request.kind === "merge") return await this.previewMerge(request.repoPath, request.source);
       if (request.kind === "rebase") return await this.previewRebase(request.repoPath, request.newBase);
-      return await this.previewCherryPick(request.repoPath, request.commitOids);
+      return await this.previewCherryPick(
+        request.repoPath,
+        request.commitOids,
+        request.allowAlreadyContained === true
+      );
     } catch (error) {
       return {
         outcome: "failed",
@@ -205,17 +209,32 @@ export class GitIntegrationService {
     return previewResult(preview);
   }
 
-  private async previewCherryPick(repoPath: string, requestedOids: string[]): Promise<GitIntegrationPreviewResult> {
+  private async previewCherryPick(
+    repoPath: string,
+    requestedOids: string[],
+    allowAlreadyContained: boolean
+  ): Promise<GitIntegrationPreviewResult> {
     if (requestedOids.length === 0) throw new Error("Select at least one commit to cherry-pick.");
     if (requestedOids.length > 100) throw new Error("Cherry-pick at most 100 commits at a time.");
     const snapshot = await this.readSnapshot(repoPath);
     const commitOids: string[] = [];
     for (const requested of requestedOids) commitOids.push(await this.resolveCommit(repoPath, requested));
     if (new Set(commitOids).size !== commitOids.length) throw new Error("The cherry-pick selection contains the same commit more than once.");
-    const commits = await this.readCommits(repoPath, commitOids);
+    const [commits, alreadyContainedCommitOids] = await Promise.all([
+      this.readCommits(repoPath, commitOids),
+      snapshot.headOid
+        ? this.readContainedCommitOids(repoPath, snapshot.headOid, commitOids)
+        : Promise.resolve([])
+    ]);
     const mergeCommitOids = commits.filter((commit) => commit.files.length >= 0 && commitParentCount(commit) > 1).map((commit) => commit.oid);
     const blockingReasons = commonBlockingReasons(snapshot, false);
     if (mergeCommitOids.length > 0) blockingReasons.push("Merge commits require an explicit mainline parent and are not supported in this version.");
+    if (alreadyContainedCommitOids.length > 0 && !allowAlreadyContained) {
+      blockingReasons.push(formatContainedCommitMessage(alreadyContainedCommitOids));
+    }
+    const warnings = alreadyContainedCommitOids.length > 0 && allowAlreadyContained
+      ? [`${formatContainedCommitMessage(alreadyContainedCommitOids)} Git may stop if the selected changes already exist.`]
+      : [];
     const files = dedupeFiles(commits.flatMap((commit) => commit.files.map((file) => ({
       path: file.path,
       ...(file.originalPath ? { originalPath: file.originalPath } : {}),
@@ -224,18 +243,42 @@ export class GitIntegrationService {
     const preview: GitCherryPickPreview = {
       kind: "cherry-pick",
       repoPath,
-      snapshotId: snapshotId("cherry-pick", snapshot, { commitOids }),
+      snapshotId: snapshotId("cherry-pick", snapshot, { commitOids, allowAlreadyContained }),
       currentBranch: snapshot.branch,
       headOid: snapshot.headOid,
       clean: isClean(snapshot.statusText),
       blockingReasons,
-      warnings: [],
+      warnings,
       commits,
       files,
       commitOids,
-      mergeCommitOids
+      mergeCommitOids,
+      alreadyContainedCommitOids
     };
     return previewResult(preview);
+  }
+
+  private async readContainedCommitOids(repoPath: string, headOid: string, commitOids: string[]): Promise<string[]> {
+    const contained = new Set<string>();
+    let nextIndex = 0;
+    const worker = async (): Promise<void> => {
+      while (nextIndex < commitOids.length) {
+        const oid = commitOids[nextIndex++];
+        if (!oid) continue;
+        if (oid === headOid) {
+          contained.add(oid);
+          continue;
+        }
+        const result = await this.runGit(repoPath, ["merge-base", "--is-ancestor", oid, headOid]);
+        if (result.exitCode === 0) {
+          contained.add(oid);
+        } else if (result.exitCode !== 1) {
+          throw new Error(processMessage(result, `Unable to check whether commit ${oid.slice(0, 7)} is already contained in HEAD.`));
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(4, commitOids.length) }, worker));
+    return commitOids.filter((oid) => contained.has(oid));
   }
 
   private async readSnapshot(repoPath: string): Promise<RepositorySnapshot> {
@@ -430,6 +473,13 @@ function previewResult<T extends GitIntegrationPreview>(preview: T): GitIntegrat
     preview,
     message: preview.blockingReasons[0] ?? "Review the preview before continuing."
   };
+}
+
+function formatContainedCommitMessage(commitOids: string[]): string {
+  if (commitOids.length === 1) {
+    return `Commit ${commitOids[0]!.slice(0, 7)} is already contained in the current branch.`;
+  }
+  return `${commitOids.length} selected commits are already contained in the current branch.`;
 }
 
 function commandFor(request: GitIntegrationExecuteRequest, preview: GitIntegrationPreview): string[] {

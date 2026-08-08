@@ -50,6 +50,7 @@ describe("GitIntegrationDialog", () => {
         ]}
         remoteBranches={[]}
         commit={null}
+        allowAlreadyContainedCherryPick={false}
         busy={false}
         onOpenChange={vi.fn()}
         onRun={vi.fn()}

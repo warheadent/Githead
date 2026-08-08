@@ -26,6 +26,7 @@ const savedDraft: SettingsDraft = {
   codeFont: "system-mono",
   zoomFactor: 1,
   tagPushBehavior: "all",
+  allowCherryPickingContainedCommits: false,
   gitIdentityName: "Test User",
   gitIdentityEmail: "test@example.com",
   gitIdentityScope: "repository"
@@ -116,9 +117,16 @@ describe("SettingsDialog footer status", () => {
     expect(screen.getByText(/may publish tags unrelated to the branch being pushed/)).toBeTruthy();
     expect(screen.getByText("After a branch push succeeds, Githead also pushes every local tag to the same remote.")).toBeTruthy();
     expect(screen.getByText(/does not affect manually creating, pushing, or deleting an individual tag/)).toBeTruthy();
+    const containedCommitToggle = screen.getByRole("checkbox", {
+      name: /Allow commits already contained in the current branch/
+    }) as HTMLInputElement;
+    expect(containedCommitToggle.checked).toBe(false);
+    expect(screen.getByText(/Useful for reapplying reverted changes/)).toBeTruthy();
 
     fireEvent.change(select, { target: { value: "follow" } });
     expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({ tagPushBehavior: "follow" }));
+    fireEvent.click(containedCommitToggle);
+    expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({ allowCherryPickingContainedCommits: true }));
   });
 
   it("discards an unsaved Git Behaviors change through the existing cancel flow", () => {

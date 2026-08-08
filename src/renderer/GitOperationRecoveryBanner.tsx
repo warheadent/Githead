@@ -36,12 +36,13 @@ export function GitOperationRecoveryBanner({
   onOpenConflictFile,
   onCancel
 }: GitOperationRecoveryBannerProps): ReactNode {
-  const [confirmationAction, setConfirmationAction] = useState<"skip" | "abort" | null>(null);
+  const [confirmationAction, setConfirmationAction] = useState<"skip" | "keep-empty" | "abort" | null>(null);
   const operationName = formatOperationName(state);
   const operationKindName = formatOperationKindName(state.kind);
   const continueReason = state.actions.continue.disabledReason;
   const readyToContinue = !state.hasConflicts && state.actions.continue.enabled;
-  const currentStep = readyToContinue ? 3 : 1;
+  const emptyCommit = state.phase === "empty-commit";
+  const currentStep = readyToContinue || emptyCommit ? 3 : 1;
   const branchName = state.originalBranch ?? state.currentBranch;
 
   useEffect(() => {
@@ -49,7 +50,7 @@ export function GitOperationRecoveryBanner({
   }, [state.stateId]);
 
   const requestAction = (action: GitRepositoryOperationAction): void => {
-    if ((action === "skip" || action === "abort") && state.actions[action].requiresConfirmation) {
+    if ((action === "skip" || action === "keep-empty" || action === "abort") && state.actions[action].requiresConfirmation) {
       setConfirmationAction(action);
       return;
     }
@@ -88,6 +89,11 @@ export function GitOperationRecoveryBanner({
                 <SkipForward />Skip commit…
               </Button>
             ) : null}
+            {emptyCommit && state.actions["keep-empty"].supported ? (
+              <Button type="button" size="sm" variant="outline" disabled={busy || !state.actions["keep-empty"].enabled} onClick={() => requestAction("keep-empty")}>
+                <Check />Keep empty commit…
+              </Button>
+            ) : null}
             <Button type="button" size="sm" variant="outline" disabled={busy || !state.actions.abort.enabled} onClick={() => requestAction("abort")}>
               <RotateCcw />Abort {operationKindName.toLowerCase()}…
             </Button>
@@ -100,7 +106,7 @@ export function GitOperationRecoveryBanner({
         <ol className="mt-2 grid grid-cols-3 gap-1.5" aria-label="Recovery steps">
           <RecoveryStep
             number={1}
-            status={readyToContinue ? "complete" : "current"}
+            status={readyToContinue || emptyCommit ? "complete" : "current"}
             title="Review and resolve"
             detail={readyToContinue
               ? "Complete"
@@ -108,7 +114,7 @@ export function GitOperationRecoveryBanner({
           />
           <RecoveryStep
             number={2}
-            status={readyToContinue ? "complete" : "pending"}
+            status={readyToContinue || emptyCommit ? "complete" : "pending"}
             title="Stage resolutions"
             detail={readyToContinue
               ? "Complete"
@@ -116,15 +122,24 @@ export function GitOperationRecoveryBanner({
           />
           <RecoveryStep
             number={3}
-            status={readyToContinue ? "current" : "locked"}
-            title={`Continue ${operationKindName.toLowerCase()}`}
-            detail={readyToContinue
+            status={readyToContinue || emptyCommit ? "current" : "locked"}
+            title={emptyCommit ? "Choose empty result" : `Continue ${operationKindName.toLowerCase()}`}
+            detail={emptyCommit
+              ? "Action needed"
+              : readyToContinue
               ? "Ready"
               : "Locked"}
           />
         </ol>
 
-        {state.conflictedPaths.length > 0 ? (
+        {emptyCommit ? (
+          <div className="mt-2 flex items-center justify-between gap-4 rounded-md border border-amber-500/35 bg-background/75 px-2.5 py-1.5">
+            <div className="flex min-w-0 items-center gap-2">
+              <AlertTriangle className="size-4 shrink-0 text-amber-700 dark:text-amber-400" aria-hidden="true" />
+              <p className="truncate text-xs font-semibold">This commit produces no changes. Choose Skip commit, Keep empty commit, or Abort above.</p>
+            </div>
+          </div>
+        ) : state.conflictedPaths.length > 0 ? (
           <div className="mt-2 flex min-w-0 items-center gap-2 rounded-md border border-amber-500/30 bg-background/75 px-2.5 py-1.5" aria-label="Conflicted files">
             <FileWarning className="size-3.5 shrink-0 text-amber-700 dark:text-amber-400" aria-hidden="true" />
             <span className="shrink-0 text-[11px] font-semibold text-amber-800 dark:text-amber-300">
@@ -166,18 +181,24 @@ export function GitOperationRecoveryBanner({
       <Dialog open={confirmationAction !== null} onOpenChange={(open) => { if (!open && !busy) setConfirmationAction(null); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{confirmationAction === "abort" ? `Abort ${operationKindName.toLowerCase()}?` : `Skip the current ${operationKindName.toLowerCase()} commit?`}</DialogTitle>
+            <DialogTitle>{confirmationAction === "abort"
+              ? `Abort ${operationKindName.toLowerCase()}?`
+              : confirmationAction === "keep-empty"
+                ? "Keep an empty commit?"
+                : `Skip the current ${operationKindName.toLowerCase()} commit?`}</DialogTitle>
             <DialogDescription>
               {confirmationAction === "abort"
                 ? "Git may discard conflict-resolution work made during this operation. Untracked files are not automatically removed."
+                : confirmationAction === "keep-empty"
+                  ? "Git will create a commit with the original message but no file changes, then continue the cherry-pick sequence."
                 : "Git will discard conflict-resolution work for the current commit and omit that commit from the sequence."}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button type="button" variant="outline" disabled={busy} onClick={() => setConfirmationAction(null)}>Keep resolving</Button>
+            <Button type="button" variant="outline" disabled={busy} onClick={() => setConfirmationAction(null)}>Go back</Button>
             <Button
               type="button"
-              variant="destructive"
+              variant={confirmationAction === "keep-empty" ? "default" : "destructive"}
               disabled={busy || confirmationAction === null}
               onClick={() => {
                 if (!confirmationAction) return;
@@ -186,7 +207,7 @@ export function GitOperationRecoveryBanner({
                 onAction(action);
               }}
             >
-              {confirmationAction === "abort" ? "Abort operation" : "Skip commit"}
+              {confirmationAction === "abort" ? "Abort operation" : confirmationAction === "keep-empty" ? "Keep empty commit" : "Skip commit"}
             </Button>
           </DialogFooter>
         </DialogContent>

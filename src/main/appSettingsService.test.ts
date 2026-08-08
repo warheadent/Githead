@@ -103,6 +103,30 @@ describe("AppSettingsService", () => {
     });
   });
 
+  it("saves the opt-in for cherry-picking commits contained in the current branch", async () => {
+    await withTempDir(async (dir) => {
+      const service = new AppSettingsService(dir);
+      const saved = await service.saveSettings({
+        autoFetchIntervalMinutes: 10,
+        colorTheme: "githead",
+        appearanceMode: "system",
+        zoomFactor: 1,
+        gitBehaviors: {
+          tagPushBehavior: "all",
+          allowCherryPickingContainedCommits: true
+        }
+      });
+
+      expect(saved.gitBehaviors).toEqual({
+        tagPushBehavior: "all",
+        allowCherryPickingContainedCommits: true
+      });
+      await expect(new AppSettingsService(dir).getSettings()).resolves.toMatchObject({
+        gitBehaviors: { allowCherryPickingContainedCommits: true }
+      });
+    });
+  });
+
   it("preserves Git Behaviors when an older save request omits the category", async () => {
     await withTempDir(async (dir) => {
       const service = new AppSettingsService(dir);

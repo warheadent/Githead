@@ -821,6 +821,7 @@ export interface GitCherryPickPreview extends GitIntegrationPreviewBase {
   /** Exact application order. */
   commitOids: string[];
   mergeCommitOids: string[];
+  alreadyContainedCommitOids: string[];
 }
 
 export interface GitRebasePreview extends GitIntegrationPreviewBase {
@@ -838,7 +839,7 @@ export type GitIntegrationPreview = GitMergePreview | GitCherryPickPreview | Git
 
 export type GitIntegrationPreviewRequest =
   | { kind: "merge"; repoPath: string; source: GitIntegrationRef }
-  | { kind: "cherry-pick"; repoPath: string; commitOids: string[] }
+  | { kind: "cherry-pick"; repoPath: string; commitOids: string[]; allowAlreadyContained?: boolean }
   | { kind: "rebase"; repoPath: string; newBase: GitIntegrationRef };
 
 export interface GitIntegrationPreviewResult {
@@ -849,7 +850,7 @@ export interface GitIntegrationPreviewResult {
 
 export type GitIntegrationExecuteRequest =
   | { kind: "merge"; repoPath: string; source: GitIntegrationRef; mode: GitMergeMode; expectedSnapshotId: string }
-  | { kind: "cherry-pick"; repoPath: string; commitOids: string[]; noCommit: boolean; expectedSnapshotId: string }
+  | { kind: "cherry-pick"; repoPath: string; commitOids: string[]; noCommit: boolean; allowAlreadyContained?: boolean; expectedSnapshotId: string }
   | { kind: "rebase"; repoPath: string; newBase: GitIntegrationRef; preserveMerges: boolean; expectedSnapshotId: string };
 
 export interface GitIntegrationResult extends GitOperationResult {
@@ -973,8 +974,8 @@ export interface GitPullRecoveryResult extends GitOperationResult {
 }
 
 export type GitRepositoryOperationKind = "merge" | "rebase" | "cherry-pick" | "revert";
-export type GitRepositoryOperationPhase = "conflicts" | "ready-to-continue";
-export type GitRepositoryOperationAction = "continue" | "skip" | "abort";
+export type GitRepositoryOperationPhase = "conflicts" | "empty-commit" | "ready-to-continue";
+export type GitRepositoryOperationAction = "continue" | "skip" | "keep-empty" | "abort";
 
 export interface GitRepositoryOperationActionAvailability {
   supported: boolean;
@@ -1379,9 +1380,11 @@ export type StatusFileViewMode = (typeof STATUS_FILE_VIEW_MODES)[number];
 export const TAG_PUSH_BEHAVIORS = ["all", "follow", "none"] as const;
 export type TagPushBehavior = (typeof TAG_PUSH_BEHAVIORS)[number];
 export const DEFAULT_TAG_PUSH_BEHAVIOR: TagPushBehavior = "all";
+export const DEFAULT_ALLOW_CHERRY_PICKING_CONTAINED_COMMITS = false;
 
 export interface GitBehaviorSettings {
   tagPushBehavior: TagPushBehavior;
+  allowCherryPickingContainedCommits?: boolean;
 }
 
 export const APP_ZOOM_FACTORS = [0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2] as const;

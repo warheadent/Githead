@@ -848,6 +848,12 @@ export function createRepositoryOperationState(
         disabledReason: skipSupported ? null : "Git does not support skipping a merge.",
         requiresConfirmation: skipSupported
       },
+      "keep-empty": {
+        supported: kind === "cherry-pick",
+        enabled: false,
+        disabledReason: kind === "cherry-pick" ? "The current cherry-pick is not empty." : "Not supported.",
+        requiresConfirmation: false
+      },
       abort: {
         supported: true,
         enabled: true,

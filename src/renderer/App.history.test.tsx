@@ -913,6 +913,17 @@ describe("App", { timeout: 10_000 }, () => {
     const commit = createCommit({ subject: "pick this change" });
     vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
     vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash));
+    vi.mocked(githead.getAppSettings).mockResolvedValue({
+      autoFetchIntervalMinutes: 10,
+      colorTheme: "githead",
+      appearanceMode: "system",
+      uiFont: "inter",
+      codeFont: "system-mono",
+      zoomFactor: 1,
+      statusFileViewMode: "list",
+      wrapDiffLines: false,
+      gitBehaviors: { tagPushBehavior: "all", allowCherryPickingContainedCommits: true }
+    });
     vi.mocked(githead.getIntegrationPreview).mockResolvedValue({
       outcome: "ready",
       message: "Review the preview.",
@@ -927,6 +938,7 @@ describe("App", { timeout: 10_000 }, () => {
         warnings: [],
         commitOids: [commit.hash],
         mergeCommitOids: [],
+        alreadyContainedCommitOids: [],
         commits: [{
           oid: commit.hash,
           shortOid: commit.shortHash,
@@ -970,9 +982,29 @@ describe("App", { timeout: 10_000 }, () => {
       repoPath,
       commitOids: [commit.hash],
       noCommit: true,
+      allowAlreadyContained: true,
       expectedSnapshotId: "preview-1",
       operationId: expect.any(String)
     }));
+  });
+
+  it("disables cherry-pick for commits in Current history by default", async () => {
+    const user = userEvent.setup();
+    const commit = createCommit({ subject: "already on this branch" });
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash));
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /already on this branch/ }));
+
+    const item = await screen.findByRole("menuitem", { name: "Cherry-pick commit…" });
+    expect(item.getAttribute("aria-disabled")).toBe("true");
+    expect(screen.queryByText("Already included")).toBeNull();
+    fireEvent.pointerMove(item, { pointerType: "mouse" });
+    await waitFor(() => expect(screen.getByRole("tooltip").textContent).toContain("This commit is already included in the current branch."));
+    expect(githead.getIntegrationPreview).not.toHaveBeenCalled();
   });
 
   it("opens a virtualized Blame view for the selected commit file", async () => {

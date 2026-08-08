@@ -32,6 +32,7 @@ const settingsDraft: SettingsDraft = {
   codeFont: "system-mono",
   zoomFactor: 1,
   tagPushBehavior: "all",
+  allowCherryPickingContainedCommits: false,
   gitIdentityName: "Test User",
   gitIdentityEmail: "test@example.com",
   gitIdentityScope: "repository"

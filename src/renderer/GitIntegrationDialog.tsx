@@ -24,13 +24,14 @@ export interface GitIntegrationDialogProps {
   branches: GitBranch[];
   remoteBranches: GitRemoteBranch[];
   commit: GitCommitGraphRow | null;
+  allowAlreadyContainedCherryPick: boolean;
   busy: boolean;
   onOpenChange(open: boolean): void;
   onRun(request: GitIntegrationExecuteRequest): Promise<GitIntegrationResult | null>;
 }
 
 export function GitIntegrationDialog(props: GitIntegrationDialogProps): ReactNode {
-  const { open, kind, repoPath, currentBranch, branches, remoteBranches, commit, busy, onOpenChange, onRun } = props;
+  const { open, kind, repoPath, currentBranch, branches, remoteBranches, commit, allowAlreadyContainedCherryPick, busy, onOpenChange, onRun } = props;
   const options = useMemo(() => createRefOptions(branches, remoteBranches, currentBranch), [branches, remoteBranches, currentBranch]);
   const [selectedValue, setSelectedValue] = useState("");
   const [preview, setPreview] = useState<GitIntegrationPreview | null>(null);
@@ -43,7 +44,12 @@ export function GitIntegrationDialog(props: GitIntegrationDialogProps): ReactNod
 
   const selectedRef = parseRefValue(selectedValue);
   const previewRequest: GitIntegrationPreviewRequest | null = kind === "cherry-pick"
-    ? commit ? { kind, repoPath, commitOids: [commit.hash] } : null
+    ? commit ? {
+        kind,
+        repoPath,
+        commitOids: [commit.hash],
+        allowAlreadyContained: allowAlreadyContainedCherryPick
+      } : null
     : selectedRef ? kind === "merge" ? { kind, repoPath, source: selectedRef } : { kind, repoPath, newBase: selectedRef } : null;
 
   const loadPreview = async (request: GitIntegrationPreviewRequest): Promise<void> => {
@@ -91,7 +97,7 @@ export function GitIntegrationDialog(props: GitIntegrationDialogProps): ReactNod
       if (!cancelled) setLoading(false);
     });
     return () => { cancelled = true; };
-  }, [open, repoPath, kind, selectedValue, commit?.hash]);
+  }, [open, repoPath, kind, selectedValue, commit?.hash, allowAlreadyContainedCherryPick]);
 
   const blocked = !preview || preview.blockingReasons.length > 0;
   const publishedRewrite = preview?.kind === "rebase" && preview.published && preview.expectedRewrittenCommitCount > 0;
@@ -104,7 +110,14 @@ export function GitIntegrationDialog(props: GitIntegrationDialogProps): ReactNod
       ? { kind: "merge", repoPath, source: preview.source, mode: mergeMode, expectedSnapshotId: preview.snapshotId }
       : preview.kind === "rebase"
         ? { kind: "rebase", repoPath, newBase: preview.newBase, preserveMerges, expectedSnapshotId: preview.snapshotId }
-        : { kind: "cherry-pick", repoPath, commitOids: preview.commitOids, noCommit, expectedSnapshotId: preview.snapshotId };
+        : {
+            kind: "cherry-pick",
+            repoPath,
+            commitOids: preview.commitOids,
+            noCommit,
+            allowAlreadyContained: allowAlreadyContainedCherryPick,
+            expectedSnapshotId: preview.snapshotId
+          };
     const result = await onRun(request);
     if (!result) return;
     if (result.outcome === "stale") {

@@ -976,7 +976,7 @@ describe("App", { timeout: 10_000 }, () => {
         zoomFactor: 1,
         statusFileViewMode: "list",
         wrapDiffLines: false,
-        gitBehaviors: { tagPushBehavior: "all" }
+        gitBehaviors: { tagPushBehavior: "all", allowCherryPickingContainedCommits: false }
       });
     });
   });
@@ -989,6 +989,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(await screen.findByRole("button", { name: "Settings" }));
     await user.click(screen.getByRole("tab", { name: "Git Behaviors" }));
     await user.selectOptions(screen.getByRole("combobox", { name: "Tag push behavior" }), "none");
+    await user.click(screen.getByRole("checkbox", { name: /Allow commits already contained/ }));
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(githead.saveAppSettings).toHaveBeenCalledWith({
@@ -1000,7 +1001,7 @@ describe("App", { timeout: 10_000 }, () => {
       zoomFactor: 1,
       statusFileViewMode: "list",
       wrapDiffLines: false,
-      gitBehaviors: { tagPushBehavior: "none" }
+      gitBehaviors: { tagPushBehavior: "none", allowCherryPickingContainedCommits: true }
     }));
   });
 
@@ -1153,7 +1154,7 @@ describe("App", { timeout: 10_000 }, () => {
       zoomFactor: 1,
       statusFileViewMode: "list",
       wrapDiffLines: false,
-      gitBehaviors: { tagPushBehavior: "all" }
+      gitBehaviors: { tagPushBehavior: "all", allowCherryPickingContainedCommits: false }
     }));
   });
 
