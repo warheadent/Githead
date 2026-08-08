@@ -82,6 +82,8 @@ export const IPC_CHANNELS = {
   saveAiSettings: "ai:settings:save",
   getRepositoryAiSettings: "ai:repository-settings:get",
   saveRepositoryAiSettings: "ai:repository-settings:save",
+  getRepositorySyncSettings: "sync:repository-settings:get",
+  saveRepositorySyncSettings: "sync:repository-settings:save",
   getAiReasoningCapabilities: "ai:reasoning-capabilities:get",
   getAppSettings: "app:settings:get",
   saveAppSettings: "app:settings:save",

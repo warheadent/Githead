@@ -58,18 +58,19 @@ async function withTempDir<T>(callback: (dir: string) => Promise<T>): Promise<T>
 }
 
 describe("GitIdentityService", () => {
-  it("reads repository and global identity with repository as the default scope", async () => {
-    await withTempDir(async (dir) => {
+  it("uses a repository identity when a local override exists", async () => {
+    await withTempDir(async () => {
       const runner = new FakeRunner([
         ok("Repo User\n"),
         ok("repo@example.test\n"),
         ok("Global User\n"),
         ok("global@example.test\n")
       ]);
-      const service = new GitIdentityService(dir, runner);
+      const service = new GitIdentityService(runner);
 
       await expect(service.getIdentity("D:\\Repo")).resolves.toEqual({
         scope: "repository",
+        repositoryOverrideEnabled: true,
         name: "Repo User",
         email: "repo@example.test",
         repository: {
@@ -90,8 +91,8 @@ describe("GitIdentityService", () => {
     });
   });
 
-  it("writes repository identity and persists the selected default", async () => {
-    await withTempDir(async (dir) => {
+  it("writes a repository identity override", async () => {
+    await withTempDir(async () => {
       const runner = new FakeRunner([
         ok(),
         ok(),
@@ -100,7 +101,7 @@ describe("GitIdentityService", () => {
         failure(),
         failure()
       ]);
-      const service = new GitIdentityService(dir, runner);
+      const service = new GitIdentityService(runner);
 
       await expect(service.saveIdentity({
         repoPath: "D:\\Repo",
@@ -117,13 +118,11 @@ describe("GitIdentityService", () => {
         ["-C", "D:\\Repo", "config", "user.name", "Taylor"],
         ["-C", "D:\\Repo", "config", "user.email", "taylor@example.test"]
       ]);
-      await expect(fs.readFile(path.join(dir, "git-identity-settings.json"), "utf8"))
-        .resolves.toContain("\"scope\": \"repository\"");
     });
   });
 
   it("writes global identity", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir(async () => {
       const runner = new FakeRunner([
         ok(),
         ok(),
@@ -132,7 +131,7 @@ describe("GitIdentityService", () => {
         ok("Taylor\n"),
         ok("taylor@example.test\n")
       ]);
-      const service = new GitIdentityService(dir, runner);
+      const service = new GitIdentityService(runner);
 
       await service.saveIdentity({
         repoPath: "D:\\Repo",
@@ -149,9 +148,9 @@ describe("GitIdentityService", () => {
   });
 
   it("validates identity before spawning git", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir(async () => {
       const runner = new FakeRunner([]);
-      const service = new GitIdentityService(dir, runner);
+      const service = new GitIdentityService(runner);
 
       await expect(service.saveIdentity({
         repoPath: "D:\\Repo",
@@ -164,11 +163,11 @@ describe("GitIdentityService", () => {
   });
 
   it("surfaces git config write failures", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir(async () => {
       const runner = new FakeRunner([
         failure("error: could not lock config file")
       ]);
-      const service = new GitIdentityService(dir, runner);
+      const service = new GitIdentityService(runner);
 
       await expect(service.saveIdentity({
         repoPath: "D:\\Repo",
@@ -176,6 +175,37 @@ describe("GitIdentityService", () => {
         email: "taylor@example.test",
         scope: "repository"
       })).rejects.toThrow("error: could not lock config file");
+    });
+  });
+
+  it("removes a repository identity override and falls back to global", async () => {
+    await withTempDir(async () => {
+      const runner = new FakeRunner([
+        ok(),
+        ok(),
+        failure(),
+        failure(),
+        ok("Global User\n"),
+        ok("global@example.test\n")
+      ]);
+      const service = new GitIdentityService(runner);
+
+      await expect(service.saveIdentity({
+        repoPath: "D:\\Repo",
+        name: "",
+        email: "",
+        scope: "repository",
+        enabled: false
+      })).resolves.toMatchObject({
+        scope: "global",
+        repositoryOverrideEnabled: false,
+        name: "Global User",
+        email: "global@example.test"
+      });
+      expect(runner.calls.slice(0, 2).map((call) => call.args)).toEqual([
+        ["-C", "D:\\Repo", "config", "--unset-all", "user.name"],
+        ["-C", "D:\\Repo", "config", "--unset-all", "user.email"]
+      ]);
     });
   });
 });

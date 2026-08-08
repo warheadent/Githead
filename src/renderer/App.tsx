@@ -109,7 +109,7 @@ import {
   type RepositoryActionManagerDraft
 } from "./RepositoryActionsDialog";
 import { SettingsDialog as RedesignedSettingsDialog, type SettingsDraft as SettingsDialogDraft } from "./SettingsDialog";
-import { RepositoryAiSettingsDialog } from "./RepositoryAiSettingsDialog";
+import { RepositorySettingsDialog } from "./RepositorySettingsDialog";
 import { ReferencePicker, type ReferencePickerOption } from "./ReferencePicker";
 import { GitIdentityFields } from "./GitIdentityFields";
 import { getAiProviderLabel, isApiKeyProvider, isCliProvider } from "./aiProvider";
@@ -179,6 +179,7 @@ import type {
   GitStatusFile,
   GitStashSelection,
   RepoSyncStatus,
+  RepositorySyncSettings,
   RepoIdentitySection,
   RepoTrustResult,
   RepoSummary,
@@ -427,6 +428,7 @@ interface AppState {
   generateContextDialog: GenerateContextDialogState;
   aiSettings: AiSettings | null;
   appSettings: AppSettings | null;
+  repositorySyncSettings: RepositorySyncSettings | null;
   gitIdentity: GitIdentitySettings | null;
   settingsOpen: boolean;
   settingsDraft: SettingsDraft;
@@ -504,6 +506,7 @@ function cancelRepositoryRead(kind: RepositoryReadKind, generation: number): voi
 interface RequestIds {
   repo: number;
   repoSyncStatuses: number;
+  repositorySyncSettings: number;
   diff: number;
   diffFreshness: number;
   history: number;
@@ -818,6 +821,7 @@ const initialState: AppState = {
   generateContextDialog: emptyGenerateContextDialog,
   aiSettings: null,
   appSettings: null,
+  repositorySyncSettings: null,
   gitIdentity: null,
   settingsOpen: false,
   settingsDraft: emptySettingsDraft,
@@ -877,7 +881,7 @@ export function App(): ReactNode {
   const [performanceDiagnosticsOpen, setPerformanceDiagnosticsOpen] = useState(false);
   const [statusWorkspaceMode, setStatusWorkspaceMode] = useState<"files" | "plan">("files");
   const [stashComposer, setStashComposer] = useState<StashComposerState>(emptyStashComposer);
-  const [repositoryAiSettingsPath, setRepositoryAiSettingsPath] = useState("");
+  const [repositorySettingsPath, setRepositorySettingsPath] = useState("");
   const [workflowQuery, setWorkflowQuery] = useState<GitHubWorkflowRunQuery>({ ...DEFAULT_WORKFLOW_QUERY });
   const [workflowSearch, setWorkflowSearch] = useState("");
   const [workflowPreset, setWorkflowPreset] = useState("all");
@@ -916,6 +920,7 @@ export function App(): ReactNode {
   const requestIds = useRef<RequestIds>({
     repo: 0,
     repoSyncStatuses: 0,
+    repositorySyncSettings: 0,
     diff: 0,
     diffFreshness: 0,
     history: 0,
@@ -1920,6 +1925,7 @@ export function App(): ReactNode {
       pullRecoveryOpen: false,
       pullRecoveryError: "",
       commitMessageGenerationError: "",
+      repositorySyncSettings: null,
       gitIdentity: null,
       gitIdentityPrompt: emptyGitIdentityPrompt,
       gitIdentitySaving: false,
@@ -2061,6 +2067,44 @@ export function App(): ReactNode {
     }
   }, [updateState]);
 
+  const loadRepositorySyncSettings = useCallback(async (repoPath: string): Promise<RepositorySyncSettings | null> => {
+    const requestId = requestIds.current.repositorySyncSettings + 1;
+    requestIds.current.repositorySyncSettings = requestId;
+    if (!repoPath) {
+      updateState({ repositorySyncSettings: null });
+      return null;
+    }
+    try {
+      const repositorySyncSettings = await window.githead.getRepositorySyncSettings({ repoPath });
+      if (requestId !== requestIds.current.repositorySyncSettings || !isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        return null;
+      }
+      updateState({ repositorySyncSettings });
+      return repositorySyncSettings;
+    } catch (error) {
+      if (requestId !== requestIds.current.repositorySyncSettings || !isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        return null;
+      }
+      updateState((current) => ({
+        ...current,
+        repositorySyncSettings: null,
+        lastOperationResult: {
+          repoPath: current.repoPath,
+          exitCode: -1,
+          stdout: "",
+          stderr: error instanceof Error ? error.message : "Unable to load repository sync settings."
+        }
+      }));
+      return null;
+    }
+  }, [updateState]);
+
+  const handleRepositorySettingsSaved = useCallback((repoPath: string): void => {
+    if (!isSameRepoPath(repoPath, stateRef.current.repoPath)) return;
+    void loadGitIdentity(repoPath);
+    void loadRepositorySyncSettings(repoPath);
+  }, [loadGitIdentity, loadRepositorySyncSettings]);
+
   const initializeApp = useCallback(async (): Promise<void> => {
     await Promise.all([
       initializeRepository(),
@@ -2094,7 +2138,8 @@ export function App(): ReactNode {
 
   useEffect(() => {
     void loadGitIdentity(state.repoPath);
-  }, [loadGitIdentity, state.repoPath]);
+    void loadRepositorySyncSettings(state.repoPath);
+  }, [loadGitIdentity, loadRepositorySyncSettings, state.repoPath]);
 
   useEffect(() => () => {
     if (stateRef.current.repoPath) {
@@ -2613,16 +2658,19 @@ export function App(): ReactNode {
 
   const ensureTrustedRepo = useCallback(async (
     expectedRepoPath?: string,
-    isRequestCurrent: () => boolean = () => true
+    isRequestCurrent: () => boolean = () => true,
+    requireActiveRepository = true
   ): Promise<boolean> => {
     const repoPath = expectedRepoPath ?? stateRef.current.repoPath;
-    if (!repoPath.trim() || !isRequestCurrent()) {
+    const requestIsCurrent = (): boolean => isRequestCurrent()
+      && (!requireActiveRepository || isSameRepoPath(repoPath, stateRef.current.repoPath));
+    if (!repoPath.trim() || !requestIsCurrent()) {
       return false;
     }
 
     try {
       const existingTrust = await window.githead.getRepoTrust({ repoPath });
-      if (!isRequestCurrent() || !isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+      if (!requestIsCurrent()) {
         return false;
       }
       if (existingTrust.trusted) {
@@ -2630,7 +2678,7 @@ export function App(): ReactNode {
       }
 
       if (!(await confirmWorkspaceTrust(repoPath))) {
-        if (isRequestCurrent() && isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        if (requestIsCurrent()) {
           updateState({
             lastOperationResult: createTrustFailure(repoPath)
           });
@@ -2638,12 +2686,12 @@ export function App(): ReactNode {
         return false;
       }
 
-      if (!isRequestCurrent() || !isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+      if (!requestIsCurrent()) {
         return false;
       }
 
       const nextTrust: RepoTrustResult = await window.githead.addRepoTrust({ repoPath });
-      if (!isRequestCurrent() || !isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+      if (!requestIsCurrent()) {
         return false;
       }
       if (nextTrust.trusted) {
@@ -2655,7 +2703,7 @@ export function App(): ReactNode {
       });
       return false;
     } catch (error) {
-      if (isRequestCurrent() && isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+      if (requestIsCurrent()) {
         updateState({
           lastOperationResult: {
             repoPath,
@@ -2668,6 +2716,15 @@ export function App(): ReactNode {
       return false;
     }
   }, [confirmWorkspaceTrust, createTrustFailure, updateState]);
+
+  const saveRepositoryGitIdentity = useCallback(async (
+    request: Parameters<typeof window.githead.saveGitIdentity>[0]
+  ): Promise<GitIdentitySettings> => {
+    if (!(await ensureTrustedRepo(request.repoPath, () => true, false))) {
+      throw new Error("Trust this repository before changing its Git identity.");
+    }
+    return window.githead.saveGitIdentity(request);
+  }, [ensureTrustedRepo]);
 
   const isInvocationCurrent = useCallback((repoPath: string, predicate?: (state: AppState) => boolean): boolean => {
     const latest = stateRef.current;
@@ -2907,7 +2964,9 @@ export function App(): ReactNode {
     : "";
 
   useEffect(() => {
-    const intervalMinutes = state.appSettings?.autoFetchIntervalMinutes;
+    const intervalMinutes = state.repositorySyncSettings?.enabled
+      ? state.repositorySyncSettings.autoFetchIntervalMinutes
+      : state.appSettings?.autoFetchIntervalMinutes;
     if (intervalMinutes === undefined || intervalMinutes <= 0 || !autoFetchRepoPath) {
       return;
     }
@@ -2922,7 +2981,9 @@ export function App(): ReactNode {
   }, [
     autoFetchRepoPath,
     runAutomaticFetch,
-    state.appSettings?.autoFetchIntervalMinutes
+    state.appSettings?.autoFetchIntervalMinutes,
+    state.repositorySyncSettings?.autoFetchIntervalMinutes,
+    state.repositorySyncSettings?.enabled
   ]);
 
   const runConfiguredAction = useCallback(async (action: GitConfiguredAction): Promise<void> => {
@@ -4897,9 +4958,9 @@ export function App(): ReactNode {
         uiFont: appSettings?.uiFont ?? "inter",
         codeFont: appSettings?.codeFont ?? "system-mono",
         zoomFactor: appSettings?.zoomFactor ?? 1,
-        gitIdentityName: gitIdentity?.name ?? "",
-        gitIdentityEmail: gitIdentity?.email ?? "",
-        gitIdentityScope: gitIdentity?.scope ?? "repository"
+        gitIdentityName: gitIdentity?.global.name ?? "",
+        gitIdentityEmail: gitIdentity?.global.email ?? "",
+        gitIdentityScope: "global"
       }
     });
   }, [updateState]);
@@ -4950,21 +5011,12 @@ export function App(): ReactNode {
       let aiSettings = initial.aiSettings;
       let appSettings = initial.appSettings;
 
-      if (
-        shouldSaveGitIdentity &&
-        draft.gitIdentityScope === "repository" &&
-        !(await ensureTrustedRepo(repoPath, isSaveCurrent))
-      ) {
-        return;
-      }
-      if (!isSaveCurrent()) return;
-
       if (shouldSaveGitIdentity) {
         gitIdentity = await window.githead.saveGitIdentity({
           repoPath,
           name: draft.gitIdentityName,
           email: draft.gitIdentityEmail,
-          scope: draft.gitIdentityScope,
+          scope: "global",
           operationId: operation.operationId
         });
         if (!isSaveCurrent()) {
@@ -5019,7 +5071,7 @@ export function App(): ReactNode {
     } finally {
       finishActiveOperation(operation.token);
     }
-  }, [createActiveOperation, ensureTrustedRepo, finishActiveOperation, isActiveOperationCurrent, updateState]);
+  }, [createActiveOperation, finishActiveOperation, isActiveOperationCurrent, updateState]);
 
   const closeGitIdentityPrompt = useCallback((): void => {
     if (stateRef.current.gitIdentitySaving) {
@@ -6159,7 +6211,7 @@ export function App(): ReactNode {
           onShowInExplorer={(repoPath) => {
             void showRecentRepositoryInExplorer(repoPath);
           }}
-          onOpenAiSettings={setRepositoryAiSettingsPath}
+          onOpenRepositorySettings={setRepositorySettingsPath}
           onCloneDraftChange={updateCloneDraft}
           onCloneSourceChange={(draft) => {
             updateCloneDraft(draft);
@@ -6188,7 +6240,7 @@ export function App(): ReactNode {
             void allowSafeDirectory();
           }}
         />
-        <RepositoryAiSettingsDialog open={Boolean(repositoryAiSettingsPath)} repoPath={repositoryAiSettingsPath} onOpenChange={(open) => { if (!open) setRepositoryAiSettingsPath(""); }} />
+        <RepositorySettingsDialog open={Boolean(repositorySettingsPath)} repoPath={repositorySettingsPath} onOpenChange={(open) => { if (!open) setRepositorySettingsPath(""); }} onSaved={handleRepositorySettingsSaved} onSaveGitIdentity={saveRepositoryGitIdentity} />
       </AppChrome>
     );
   }
@@ -6239,7 +6291,7 @@ export function App(): ReactNode {
             onShowInExplorer={(repoPath) => {
               void showRecentRepositoryInExplorer(repoPath);
             }}
-            onOpenAiSettings={setRepositoryAiSettingsPath}
+            onOpenRepositorySettings={setRepositorySettingsPath}
             onAddWorktree={openWorktreeDialog}
             onRemoveWorktree={(worktree) => { void openWorktreeRemoval(worktree); }}
             onSwitchBranch={(branchName) => {
@@ -6787,7 +6839,7 @@ export function App(): ReactNode {
           />
         </OptionalFeatureBoundary>
       ) : null}
-      <RepositoryAiSettingsDialog open={Boolean(repositoryAiSettingsPath)} repoPath={repositoryAiSettingsPath} onOpenChange={(open) => { if (!open) setRepositoryAiSettingsPath(""); }} />
+      <RepositorySettingsDialog open={Boolean(repositorySettingsPath)} repoPath={repositorySettingsPath} onOpenChange={(open) => { if (!open) setRepositorySettingsPath(""); }} onSaved={handleRepositorySettingsSaved} onSaveGitIdentity={saveRepositoryGitIdentity} />
 
       {state.remoteManager.open ? (
       <OptionalFeatureBoundary name="remote management">
@@ -7254,7 +7306,7 @@ function RepositorySetupScreen({
   onRemoveRecent,
   onReorderRepositories,
   onShowInExplorer,
-  onOpenAiSettings,
+  onOpenRepositorySettings,
   onCloneDraftChange,
   onCloneSourceChange,
   onChooseCloneParent,
@@ -7284,7 +7336,7 @@ function RepositorySetupScreen({
   onRemoveRecent: (repoPath: string) => void;
   onReorderRepositories: (repoPaths: string[]) => void;
   onShowInExplorer: (repoPath: string) => void;
-  onOpenAiSettings: (repoPath: string) => void;
+  onOpenRepositorySettings: (repoPath: string) => void;
   onCloneDraftChange: (draft: CloneDraft) => void;
   onCloneSourceChange: (draft: CloneDraft) => void;
   onChooseCloneParent: () => void;
@@ -7376,7 +7428,7 @@ function RepositorySetupScreen({
           onRemove={onRemoveRecent}
           onReorder={onReorderRepositories}
           onShowInExplorer={onShowInExplorer}
-          onOpenAiSettings={onOpenAiSettings}
+          onOpenRepositorySettings={onOpenRepositorySettings}
         />
       ) : null}
     </section>
@@ -7395,7 +7447,7 @@ interface RepositoryListProps {
   onRemove: (repoPath: string) => void;
   onReorder: (repoPaths: string[]) => void;
   onShowInExplorer: (repoPath: string) => void;
-  onOpenAiSettings: (repoPath: string) => void;
+  onOpenRepositorySettings: (repoPath: string) => void;
   onAddWorktree?: () => void;
   onRemoveWorktree?: (worktree: GitWorktree) => void;
 }
@@ -7415,7 +7467,7 @@ interface RecentRepositoryRowProps {
   onSelect: (repoPath: string) => void;
   onRemove: (repoPath: string) => void;
   onShowInExplorer: (repoPath: string) => void;
-  onOpenAiSettings: (repoPath: string) => void;
+  onOpenRepositorySettings: (repoPath: string) => void;
 }
 
 type RepositoryDropPosition = "before" | "after";
@@ -7433,7 +7485,7 @@ function RepositoryList({
   onRemove,
   onReorder,
   onShowInExplorer,
-  onOpenAiSettings,
+  onOpenRepositorySettings,
   onAddWorktree,
   onRemoveWorktree
 }: RepositoryListProps): ReactNode {
@@ -7610,7 +7662,7 @@ function RepositoryList({
             onSelect={onSelect}
             onRemove={() => onRemove(group.anchorPath)}
             onShowInExplorer={onShowInExplorer}
-            onOpenAiSettings={onOpenAiSettings}
+            onOpenRepositorySettings={onOpenRepositorySettings}
             {...(onAddWorktree ? { onAddWorktree } : {})}
             {...(onRemoveWorktree ? { onRemoveWorktree } : {})}
           />;
@@ -7648,7 +7700,7 @@ function RepositoryList({
               onSelect={onSelect}
               onRemove={onRemove}
               onShowInExplorer={onShowInExplorer}
-              onOpenAiSettings={onOpenAiSettings}
+              onOpenRepositorySettings={onOpenRepositorySettings}
             />
           );
         })}
@@ -7657,7 +7709,7 @@ function RepositoryList({
   );
 }
 
-function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled, dragging, dropPosition, syncStatuses, rowRef, onToggle, onDragStart, onPointerDragStart, onDragEnd, onKeyboardMove, onSelect, onRemove, onShowInExplorer, onOpenAiSettings, onAddWorktree, onRemoveWorktree }: {
+function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled, dragging, dropPosition, syncStatuses, rowRef, onToggle, onDragStart, onPointerDragStart, onDragEnd, onKeyboardMove, onSelect, onRemove, onShowInExplorer, onOpenRepositorySettings, onAddWorktree, onRemoveWorktree }: {
   group: RepositoryGroup;
   activeRepoPath: string;
   active: boolean;
@@ -7675,7 +7727,7 @@ function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled,
   onSelect: (repoPath: string) => void;
   onRemove: () => void;
   onShowInExplorer: (repoPath: string) => void;
-  onOpenAiSettings: (repoPath: string) => void;
+  onOpenRepositorySettings: (repoPath: string) => void;
   onAddWorktree?: () => void;
   onRemoveWorktree?: (worktree: GitWorktree) => void;
 }): ReactNode {
@@ -7699,12 +7751,12 @@ function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled,
       <button type="button" className="repo-group-main" disabled={disabled || navigationActive || navigationUnavailable} onClick={() => onSelect(group.lastUsedPath)} aria-current={navigationActive ? "true" : undefined} aria-label={`Switch to ${group.anchorPath}`}><RecentRepositoryVcsIcon kind={group.kind} /><span className="repo-recent-title">{displayName}</span></button>
       {active && group.kind === "git" && onAddWorktree ? <TooltipButton type="button" variant="ghost" size="icon-xs" disabled={disabled} onClick={onAddWorktree} aria-label="Add worktree" tooltip="Add worktree"><GitFork /></TooltipButton> : null}
       <TooltipButton type="button" variant="ghost" size="icon-xs" disabled={disabled} onClick={onRemove} aria-label={`Remove ${group.anchorPath} from recent repositories`} tooltip="Remove from recents"><X /></TooltipButton>
-    </div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{group.anchorPath}</ContextMenuLabel><ContextMenuSeparator /><ContextMenuItem disabled={disabled || navigationUnavailable} onSelect={() => onOpenAiSettings(group.lastUsedPath)}><Settings />AI Settings…</ContextMenuItem><ContextMenuItem disabled={navigationUnavailable} onSelect={() => onShowInExplorer(group.anchorPath)}><MapPinned />Show in Explorer</ContextMenuItem></ContextMenuContent></ContextMenu>
+    </div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{group.anchorPath}</ContextMenuLabel><ContextMenuSeparator /><ContextMenuItem disabled={disabled || navigationUnavailable} onSelect={() => onOpenRepositorySettings(group.lastUsedPath)}><Settings />Repository Settings…</ContextMenuItem><ContextMenuItem disabled={navigationUnavailable} onSelect={() => onShowInExplorer(group.anchorPath)}><MapPinned />Show in Explorer</ContextMenuItem></ContextMenuContent></ContextMenu>
     <MotionPresence present={expanded} id={worktreeListId} className="repo-worktree-list">{worktrees.map((worktree) => {
       const workspaceActive = isSameRepoPath(worktree.path, activeRepoPath);
       const unavailable = worktree.isBare || worktree.prunable;
       const status = syncStatuses[getRepoPathKey(worktree.path)] ?? null;
-      return <ContextMenu key={getRepoPathKey(worktree.path)}><ContextMenuTrigger asChild><div className={`repo-worktree-row ${workspaceActive ? "is-active" : ""}`}><button type="button" className="repo-worktree-main" disabled={disabled || workspaceActive || unavailable} onClick={() => onSelect(worktree.path)} aria-current={workspaceActive ? "true" : undefined}><GitBranchIcon /><span className="min-w-0 flex-1"><span className="repo-worktree-branch">{worktree.branch ?? (worktree.isDetached ? "Detached HEAD" : getRepoDisplayName(worktree.path))}</span><span className="repo-worktree-path">{getRepoDisplayName(worktree.path)}</span></span>{worktree.isMain ? <Badge variant="outline">Main</Badge> : null}{worktree.locked ? <Badge variant="outline">Locked</Badge> : null}{worktree.prunable ? <Badge variant="destructive">Missing</Badge> : null}<RepoSyncStatusChips status={status} /></button></div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{worktree.path}</ContextMenuLabel><ContextMenuSeparator /><ContextMenuItem disabled={disabled || unavailable} onSelect={() => onOpenAiSettings(worktree.path)}><Settings />AI Settings…</ContextMenuItem><ContextMenuItem disabled={unavailable} onSelect={() => onShowInExplorer(worktree.path)}><MapPinned />Show in Explorer</ContextMenuItem>{!worktree.isMain && !workspaceActive && onRemoveWorktree ? <ContextMenuItem disabled={disabled || unavailable || worktree.locked} onSelect={() => onRemoveWorktree(worktree)}><Trash2 />Remove Worktree…</ContextMenuItem> : null}</ContextMenuContent></ContextMenu>;
+      return <ContextMenu key={getRepoPathKey(worktree.path)}><ContextMenuTrigger asChild><div className={`repo-worktree-row ${workspaceActive ? "is-active" : ""}`}><button type="button" className="repo-worktree-main" disabled={disabled || workspaceActive || unavailable} onClick={() => onSelect(worktree.path)} aria-current={workspaceActive ? "true" : undefined}><GitBranchIcon /><span className="min-w-0 flex-1"><span className="repo-worktree-branch">{worktree.branch ?? (worktree.isDetached ? "Detached HEAD" : getRepoDisplayName(worktree.path))}</span><span className="repo-worktree-path">{getRepoDisplayName(worktree.path)}</span></span>{worktree.isMain ? <Badge variant="outline">Main</Badge> : null}{worktree.locked ? <Badge variant="outline">Locked</Badge> : null}{worktree.prunable ? <Badge variant="destructive">Missing</Badge> : null}<RepoSyncStatusChips status={status} /></button></div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{worktree.path}</ContextMenuLabel><ContextMenuSeparator /><ContextMenuItem disabled={disabled || unavailable} onSelect={() => onOpenRepositorySettings(worktree.path)}><Settings />Repository Settings…</ContextMenuItem><ContextMenuItem disabled={unavailable} onSelect={() => onShowInExplorer(worktree.path)}><MapPinned />Show in Explorer</ContextMenuItem>{!worktree.isMain && !workspaceActive && onRemoveWorktree ? <ContextMenuItem disabled={disabled || unavailable || worktree.locked} onSelect={() => onRemoveWorktree(worktree)}><Trash2 />Remove Worktree…</ContextMenuItem> : null}</ContextMenuContent></ContextMenu>;
     })}{group.error ? <p className="px-3 py-2 text-xs text-destructive">{group.error}</p> : null}</MotionPresence>
   </div>;
 }
@@ -7724,7 +7776,7 @@ function RecentRepositoryRow({
   onSelect,
   onRemove,
   onShowInExplorer,
-  onOpenAiSettings
+  onOpenRepositorySettings
 }: RecentRepositoryRowProps): ReactNode {
   const displayName = getRepoDisplayName(repoPath);
   const syncDescription = formatRepoSyncStatusDescription(syncStatus);
@@ -7808,9 +7860,9 @@ function RecentRepositoryRow({
           <ContextMenuLabel className="repo-recent-menu-path">{repoPath}</ContextMenuLabel>
         </TooltipTarget>
         <ContextMenuSeparator />
-        <ContextMenuItem disabled={disabled} onSelect={() => onOpenAiSettings(repoPath)}>
+        <ContextMenuItem disabled={disabled} onSelect={() => onOpenRepositorySettings(repoPath)}>
           <Settings />
-          AI Settings…
+          Repository Settings…
         </ContextMenuItem>
         <ContextMenuItem disabled={disabled} onSelect={() => onShowInExplorer(repoPath)}>
           <MapPinned />
@@ -8129,7 +8181,7 @@ function RepositoryPanel({
   onRemoveRecent,
   onReorderRepositories,
   onShowInExplorer,
-  onOpenAiSettings,
+  onOpenRepositorySettings,
   onAddWorktree,
   onRemoveWorktree,
   onSwitchBranch,
@@ -8174,7 +8226,7 @@ function RepositoryPanel({
   onRemoveRecent: (repoPath: string) => void;
   onReorderRepositories: (repoPaths: string[]) => void;
   onShowInExplorer: (repoPath: string) => void;
-  onOpenAiSettings: (repoPath: string) => void;
+  onOpenRepositorySettings: (repoPath: string) => void;
   onAddWorktree: () => void;
   onRemoveWorktree: (worktree: GitWorktree) => void;
   onSwitchBranch: (branchName: string) => void;
@@ -8233,7 +8285,7 @@ function RepositoryPanel({
         onRemove={onRemoveRecent}
         onReorder={onReorderRepositories}
         onShowInExplorer={onShowInExplorer}
-        onOpenAiSettings={onOpenAiSettings}
+        onOpenRepositorySettings={onOpenRepositorySettings}
         onAddWorktree={onAddWorktree}
         onRemoveWorktree={onRemoveWorktree}
         headingAction={(
@@ -12706,9 +12758,8 @@ function hasGitIdentityChanges(draft: SettingsDraft, settings: GitIdentitySettin
     return true;
   }
 
-  return draft.gitIdentityName !== settings.name
-    || draft.gitIdentityEmail !== settings.email
-    || draft.gitIdentityScope !== settings.scope;
+  return draft.gitIdentityName !== settings.global.name
+    || draft.gitIdentityEmail !== settings.global.email;
 }
 
 function canCommit(state: AppState): boolean {

@@ -213,6 +213,7 @@ export function createGitheadMock(): GitheadApi {
   };
   const gitIdentity: GitIdentitySettings = {
     scope: "repository",
+    repositoryOverrideEnabled: false,
     name: "",
     email: "",
     repository: {
@@ -354,6 +355,12 @@ export function createGitheadMock(): GitheadApi {
     saveAiSettings: vi.fn().mockResolvedValue(aiSettings),
     getRepositoryAiSettings: vi.fn().mockResolvedValue({ repoPath, enabled: false, settings: aiSettings }),
     saveRepositoryAiSettings: vi.fn().mockImplementation(async (request) => ({ repoPath: request.repoPath, enabled: request.enabled, settings: aiSettings })),
+    getRepositorySyncSettings: vi.fn().mockImplementation(async ({ repoPath: requestedRepoPath }) => ({
+      repoPath: requestedRepoPath,
+      enabled: false,
+      autoFetchIntervalMinutes: 10
+    })),
+    saveRepositorySyncSettings: vi.fn().mockImplementation(async (request) => ({ ...request })),
     getAiReasoningCapabilities: vi.fn().mockResolvedValue({
       status: "supported",
       supportedEfforts: ["low", "medium", "high"]

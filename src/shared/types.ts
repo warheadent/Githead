@@ -1004,6 +1004,7 @@ export interface GitIdentityValue {
 
 export interface GitIdentitySettings extends GitIdentityValue {
   scope: GitIdentityScope;
+  repositoryOverrideEnabled: boolean;
   repository: GitIdentityValue;
   global: GitIdentityValue;
 }
@@ -1011,6 +1012,8 @@ export interface GitIdentitySettings extends GitIdentityValue {
 export interface GitIdentitySaveRequest extends GitIdentityValue {
   repoPath: string;
   scope: GitIdentityScope;
+  /** Set to false to remove a repository-local identity override. */
+  enabled?: boolean;
 }
 
 export const AI_COMMIT_MESSAGE_PROVIDERS = [
@@ -1143,6 +1146,22 @@ export interface RepositoryAiSettingsSaveRequest extends RepositoryAiSettingsReq
   commitMessagePrompt: string;
   prDescriptionPrompt: string;
   sourceControlWritingStyle?: SourceControlWritingStyle;
+}
+
+export interface RepositorySyncSettings {
+  repoPath: string;
+  /** True when this repository overrides the global auto-fetch interval. */
+  enabled: boolean;
+  autoFetchIntervalMinutes: number;
+}
+
+export interface RepositorySyncSettingsRequest {
+  repoPath: string;
+}
+
+export interface RepositorySyncSettingsSaveRequest extends RepositorySyncSettingsRequest {
+  enabled: boolean;
+  autoFetchIntervalMinutes: number;
 }
 
 export const APP_COLOR_THEMES = [
@@ -1594,6 +1613,8 @@ export interface GitheadApi {
   saveAiSettings(request: AiSettingsSaveRequest): Promise<AiSettings>;
   getRepositoryAiSettings(request: RepositoryAiSettingsRequest): Promise<RepositoryAiSettings>;
   saveRepositoryAiSettings(request: RepositoryAiSettingsSaveRequest): Promise<RepositoryAiSettings>;
+  getRepositorySyncSettings(request: RepositorySyncSettingsRequest): Promise<RepositorySyncSettings>;
+  saveRepositorySyncSettings(request: RepositorySyncSettingsSaveRequest): Promise<RepositorySyncSettings>;
   getAiReasoningCapabilities(request: GetAiReasoningCapabilitiesRequest): Promise<AiReasoningCapabilities>;
   getAppSettings(): Promise<AppSettings>;
   saveAppSettings(request: AppSettingsSaveRequest): Promise<AppSettings>;

@@ -1,6 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { APP_APPEARANCE_MODES, APP_CODE_FONTS, APP_COLOR_THEMES, APP_UI_FONTS, STATUS_FILE_VIEW_MODES, isAppZoomFactor, type AppAppearanceMode, type AppCodeFont, type AppColorTheme, type AppSettings, type AppSettingsSaveRequest, type AppUiFont, type StatusFileViewMode } from "../shared/types";
+import {
+  normalizeAutoFetchIntervalForSave,
+  parseStoredAutoFetchInterval
+} from "./autoFetchSettings";
+
+export { DEFAULT_AUTO_FETCH_INTERVAL_MINUTES } from "./autoFetchSettings";
 
 interface StoredAppSettings {
   autoFetchIntervalMinutes?: unknown;
@@ -13,7 +19,6 @@ interface StoredAppSettings {
   wrapDiffLines?: unknown;
 }
 
-export const DEFAULT_AUTO_FETCH_INTERVAL_MINUTES = 10;
 export const DEFAULT_COLOR_THEME: AppColorTheme = "githead";
 export const DEFAULT_APPEARANCE_MODE: AppAppearanceMode = "system";
 export const DEFAULT_UI_FONT: AppUiFont = "inter";
@@ -21,8 +26,6 @@ export const DEFAULT_CODE_FONT: AppCodeFont = "system-mono";
 export const DEFAULT_ZOOM_FACTOR = 1;
 export const DEFAULT_STATUS_FILE_VIEW_MODE: StatusFileViewMode = "list";
 export const DEFAULT_WRAP_DIFF_LINES = false;
-export const MIN_AUTO_FETCH_INTERVAL_MINUTES = 0;
-export const MAX_AUTO_FETCH_INTERVAL_MINUTES = 1440;
 
 export class AppSettingsService {
   private readonly settingsPath: string;
@@ -34,7 +37,7 @@ export class AppSettingsService {
   async getSettings(): Promise<AppSettings> {
     const stored = await this.readStoredSettings();
     return {
-      autoFetchIntervalMinutes: parseStoredInterval(stored.autoFetchIntervalMinutes),
+      autoFetchIntervalMinutes: parseStoredAutoFetchInterval(stored.autoFetchIntervalMinutes),
       colorTheme: parseStoredColorTheme(stored.colorTheme),
       appearanceMode: parseStoredAppearanceMode(stored.appearanceMode),
       uiFont: parseStoredUiFont(stored.uiFont),
@@ -46,7 +49,7 @@ export class AppSettingsService {
   }
 
   async saveSettings(request: AppSettingsSaveRequest): Promise<AppSettings> {
-    const autoFetchIntervalMinutes = normalizeIntervalForSave(request.autoFetchIntervalMinutes);
+    const autoFetchIntervalMinutes = normalizeAutoFetchIntervalForSave(request.autoFetchIntervalMinutes);
     const colorTheme = normalizeColorThemeForSave(request.colorTheme);
     const appearanceMode = normalizeAppearanceModeForSave(request.appearanceMode);
     const uiFont = normalizeUiFontForSave(request.uiFont);
@@ -154,34 +157,6 @@ function parseStoredZoomFactor(value: unknown): number {
 export function normalizeZoomFactorForSave(value: number): number {
   if (!isAppZoomFactor(value)) {
     throw new Error("Unsupported interface scale.");
-  }
-
-  return value;
-}
-
-function parseStoredInterval(value: unknown): number {
-  if (typeof value !== "number" || !Number.isInteger(value)) {
-    return DEFAULT_AUTO_FETCH_INTERVAL_MINUTES;
-  }
-
-  if (value < MIN_AUTO_FETCH_INTERVAL_MINUTES || value > MAX_AUTO_FETCH_INTERVAL_MINUTES) {
-    return DEFAULT_AUTO_FETCH_INTERVAL_MINUTES;
-  }
-
-  return value;
-}
-
-function normalizeIntervalForSave(value: number): number {
-  if (!Number.isInteger(value)) {
-    throw new Error("Auto-fetch interval must be a whole number of minutes.");
-  }
-
-  if (value < MIN_AUTO_FETCH_INTERVAL_MINUTES) {
-    throw new Error("Auto-fetch interval cannot be negative.");
-  }
-
-  if (value > MAX_AUTO_FETCH_INTERVAL_MINUTES) {
-    throw new Error(`Auto-fetch interval cannot exceed ${MAX_AUTO_FETCH_INTERVAL_MINUTES} minutes.`);
   }
 
   return value;

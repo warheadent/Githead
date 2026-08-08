@@ -7,6 +7,8 @@ import type {
   AiSettingsSaveRequest,
   RepositoryAiSettingsRequest,
   RepositoryAiSettingsSaveRequest,
+  RepositorySyncSettingsRequest,
+  RepositorySyncSettingsSaveRequest,
   GetAiReasoningCapabilitiesRequest,
   AppSettingsSaveRequest,
   ClipboardTextRequest,
@@ -122,6 +124,7 @@ import { NodeProcessRunner } from "./processRunner";
 import { PrDescriptionService } from "./prDescriptionService";
 import { getOpenRepositoryFileError } from "./openFilePolicy";
 import { RepoRecentsService } from "./repoRecentsService";
+import { RepositorySyncSettingsService } from "./repositorySyncSettingsService";
 import { RepoTrustService } from "./repoTrustService";
 import { RepoWatchService, type RepoWatchTarget } from "./repoWatchService";
 import {
@@ -168,6 +171,7 @@ const readRequests = new RequestRegistry<number>();
 const readRequestOwners = new Set<number>();
 const repositoryOperationOwnerSessions = new WeakMap<Electron.WebContents, Set<string>>();
 let repoRecentsService: RepoRecentsService | null = null;
+let repositorySyncSettingsService: RepositorySyncSettingsService | null = null;
 let repoTrustService: RepoTrustService | null = null;
 let repoWatchService: RepoWatchService | null = null;
 let appUpdateService: AppUpdateService | null = null;
@@ -773,6 +777,14 @@ ipcMain.handle(IPC_CHANNELS.getRepositoryAiSettings, async (_event, request: Rep
 
 ipcMain.handle(IPC_CHANNELS.saveRepositoryAiSettings, async (_event, request: RepositoryAiSettingsSaveRequest) => {
   return getAiSettingsService().saveRepositorySettings(request);
+});
+
+ipcMain.handle(IPC_CHANNELS.getRepositorySyncSettings, async (_event, request: RepositorySyncSettingsRequest) => {
+  return getRepositorySyncSettingsService().getSettings(request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.saveRepositorySyncSettings, async (_event, request: RepositorySyncSettingsSaveRequest) => {
+  return getRepositorySyncSettingsService().saveSettings(request);
 });
 
 ipcMain.handle(IPC_CHANNELS.checkoutRemoteBranch, async (event, request: CoordinatedRequest<GitRemoteBranchCheckoutRequest>) => {
@@ -1473,8 +1485,13 @@ function getAppSettingsService(): AppSettingsService {
   return appSettingsService;
 }
 
+function getRepositorySyncSettingsService(): RepositorySyncSettingsService {
+  repositorySyncSettingsService ??= new RepositorySyncSettingsService(app.getPath("userData"));
+  return repositorySyncSettingsService;
+}
+
 function getGitIdentityService(): GitIdentityService {
-  gitIdentityService ??= new GitIdentityService(app.getPath("userData"), processRunner);
+  gitIdentityService ??= new GitIdentityService(processRunner);
   return gitIdentityService;
 }
 

@@ -894,6 +894,7 @@ describe("App", { timeout: 10_000 }, () => {
     const user = userEvent.setup();
     vi.mocked(githead.getGitIdentity).mockResolvedValue({
       scope: "global",
+      repositoryOverrideEnabled: false,
       name: "Existing User",
       email: "existing@example.test",
       repository: {
@@ -937,7 +938,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.type(screen.getByLabelText("Name"), "Taylor");
     await user.clear(screen.getByLabelText("Email"));
     await user.type(screen.getByLabelText("Email"), "taylor@example.test");
-    await user.click(screen.getByRole("radio", { name: "This repository" }));
+    expect(screen.queryByRole("radiogroup", { name: "Save Git identity to" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
@@ -945,7 +946,7 @@ describe("App", { timeout: 10_000 }, () => {
         repoPath,
         name: "Taylor",
         email: "taylor@example.test",
-        scope: "repository",
+        scope: "global",
         operationId: expect.any(String)
       });
     });
@@ -1010,28 +1011,22 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull();
   });
 
-  it("owns settings trust preflight so recovery cannot start a late identity save", async () => {
+  it("saves global identity without a repository trust preflight", async () => {
     const user = userEvent.setup();
-    const pendingTrust = defer<{ trusted: boolean }>();
-    vi.mocked(githead.getRepoTrust).mockReturnValueOnce(pendingTrust.promise);
-    vi.mocked(githead.cancelGitOperation).mockResolvedValueOnce({ accepted: false, state: "not-found" });
 
     render(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Settings" }));
     const name = screen.getByLabelText("Name");
-    await user.type(name, "Late Identity");
+    await user.type(name, "Global Identity");
+    await user.type(screen.getByLabelText("Email"), "global@example.test");
     await user.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(githead.getRepoTrust).toHaveBeenCalledWith({ repoPath }));
-
-    await user.click(screen.getByRole("button", { name: "Cancel operation" }));
-    await waitFor(() => expect(githead.cancelGitOperation).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull());
-
-    pendingTrust.resolve({ trusted: true });
-    await flushRendererAsync();
-
-    expect(githead.saveGitIdentity).not.toHaveBeenCalled();
+    await waitFor(() => expect(githead.saveGitIdentity).toHaveBeenCalledWith(expect.objectContaining({
+      scope: "global",
+      name: "Global Identity",
+      email: "global@example.test"
+    })));
+    expect(githead.getRepoTrust).not.toHaveBeenCalled();
   });
 
   it("protects unsaved settings and keeps drafts while navigating categories", async () => {

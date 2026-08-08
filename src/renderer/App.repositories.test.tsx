@@ -493,6 +493,58 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.runGitAction).not.toHaveBeenCalled();
   });
 
+  it("lets a repository override turn off global auto-fetch", async () => {
+    vi.useFakeTimers();
+    vi.mocked(githead.getRepositorySyncSettings).mockResolvedValue({
+      repoPath,
+      enabled: true,
+      autoFetchIntervalMinutes: 0
+    });
+
+    render(<App />);
+    await flushRendererAsync();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+    });
+    await flushRendererAsync();
+
+    expect(githead.runGitAction).not.toHaveBeenCalled();
+  });
+
+  it("lets a repository override enable auto-fetch when the global setting is off", async () => {
+    vi.useFakeTimers();
+    vi.mocked(githead.getAppSettings).mockResolvedValue({
+      autoFetchIntervalMinutes: 0,
+      colorTheme: "githead",
+      appearanceMode: "system",
+      uiFont: "inter",
+      codeFont: "system-mono",
+      zoomFactor: 1,
+      statusFileViewMode: "list",
+      wrapDiffLines: false
+    });
+    vi.mocked(githead.getRepositorySyncSettings).mockResolvedValue({
+      repoPath,
+      enabled: true,
+      autoFetchIntervalMinutes: 5
+    });
+
+    render(<App />);
+    await flushRendererAsync();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+    });
+    await flushRendererAsync();
+
+    expect(githead.runGitAction).toHaveBeenCalledWith({
+      repoPath,
+      action: "fetch",
+      operationId: expect.any(String)
+    });
+  });
+
   it("refreshes File Status when the window is refocused", async () => {
     const changedFile = createStatusFile("src/focused.ts", {
       isUnstaged: true,
@@ -1186,6 +1238,7 @@ describe("App", { timeout: 10_000 }, () => {
     const pendingIdentity = defer<GitIdentitySettings>();
     const identity = (name: string): GitIdentitySettings => ({
       scope: "repository",
+      repositoryOverrideEnabled: true,
       name,
       email: `${name.toLowerCase()}@example.test`,
       repository: { name, email: `${name.toLowerCase()}@example.test` },
@@ -1209,7 +1262,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await user.click(screen.getByRole("button", { name: "Settings" }));
     await user.click(screen.getByRole("tab", { name: "Git Identity" }));
-    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Repository B");
+    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Global");
   });
 
   it("removes a recent entry without switching repositories", async () => {
@@ -1348,7 +1401,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.getRepoSummary).not.toHaveBeenCalledWith(otherRepo);
   });
 
-  it("opens and saves AI settings for a recent repository from the context menu", async () => {
+  it("opens repository settings and saves an AI override from the context menu", async () => {
     const user = userEvent.setup();
     const otherRepo = "D:\\Work\\Other";
     vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
@@ -1358,17 +1411,54 @@ describe("App", { timeout: 10_000 }, () => {
 
     await waitForRepositoryWorkspace();
     fireEvent.contextMenu(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
-    await user.click(await screen.findByRole("menuitem", { name: "AI Settings…" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Repository Settings…" }));
 
-    const dialog = await screen.findByRole("dialog", { name: "Repository AI Settings" });
+    const dialog = await screen.findByRole("dialog", { name: "Repository Settings" });
     await waitFor(() => expect(githead.getRepositoryAiSettings).toHaveBeenCalledWith({ repoPath: otherRepo }));
-    await user.click(within(dialog).getByRole("checkbox"));
+    await user.click(within(dialog).getByRole("tab", { name: "AI" }));
+    await user.click(within(dialog).getByRole("checkbox", { name: /Use repository AI settings/ }));
     await user.click(within(dialog).getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(githead.saveRepositoryAiSettings).toHaveBeenCalledWith(expect.objectContaining({
       repoPath: otherRepo,
       enabled: true
     })));
+  });
+
+  it("saves repository identity and disabled sync overrides from repository settings", async () => {
+    const user = userEvent.setup();
+    const otherRepo = "D:\\Work\\Other";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+
+    render(<App />);
+
+    await waitForRepositoryWorkspace();
+    fireEvent.contextMenu(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
+    await user.click(await screen.findByRole("menuitem", { name: "Repository Settings…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Repository Settings" });
+
+    await user.click(within(dialog).getByRole("checkbox", { name: /Use repository identity/ }));
+    await user.type(within(dialog).getByLabelText("Name"), "Repository User");
+    await user.type(within(dialog).getByLabelText("Email"), "repo@example.test");
+    await user.click(within(dialog).getByRole("tab", { name: "Sync" }));
+    await user.click(within(dialog).getByRole("checkbox", { name: /Use repository sync settings/ }));
+    await user.click(within(dialog).getByRole("checkbox", { name: "Automatically fetch changes" }));
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(githead.saveGitIdentity).toHaveBeenCalledWith({
+      repoPath: otherRepo,
+      scope: "repository",
+      enabled: true,
+      name: "Repository User",
+      email: "repo@example.test",
+      operationId: expect.any(String)
+    }));
+    expect(githead.saveRepositorySyncSettings).toHaveBeenCalledWith({
+      repoPath: otherRepo,
+      enabled: true,
+      autoFetchIntervalMinutes: 0
+    });
   });
 
   it("adds a ninth browsed repository to the bottom and reveals its active row", async () => {

@@ -4,6 +4,8 @@ import type {
   AiSettingsSaveRequest,
   RepositoryAiSettingsRequest,
   RepositoryAiSettingsSaveRequest,
+  RepositorySyncSettingsRequest,
+  RepositorySyncSettingsSaveRequest,
   GetAiReasoningCapabilitiesRequest,
   AppSettingsSaveRequest,
   ClipboardTextRequest,
@@ -254,6 +256,10 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getRepositoryAiSettings, request) as ReturnType<GitheadApi["getRepositoryAiSettings"]>,
   saveRepositoryAiSettings: (request: RepositoryAiSettingsSaveRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.saveRepositoryAiSettings, request) as ReturnType<GitheadApi["saveRepositoryAiSettings"]>,
+  getRepositorySyncSettings: (request: RepositorySyncSettingsRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getRepositorySyncSettings, request) as ReturnType<GitheadApi["getRepositorySyncSettings"]>,
+  saveRepositorySyncSettings: (request: RepositorySyncSettingsSaveRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.saveRepositorySyncSettings, request) as ReturnType<GitheadApi["saveRepositorySyncSettings"]>,
   getAiReasoningCapabilities: (request: GetAiReasoningCapabilitiesRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getAiReasoningCapabilities, request) as ReturnType<GitheadApi["getAiReasoningCapabilities"]>,
   getAppSettings: () =>

@@ -25,7 +25,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type {
   AiApiKeyProvider,
   AiCommitMessageProvider,
@@ -45,6 +44,7 @@ import { getAiProviderLabel, getCliStatusMessage, isCliProvider } from "./aiProv
 import { GitIdentityFields } from "./GitIdentityFields";
 import { AiGenerationSettingsFields } from "./AiGenerationSettingsFields";
 import { MotionSwap } from "./motion";
+import { SettingsCard, SettingsCategoryLayout, SettingsPanel } from "./SettingsCategoryLayout";
 export { GitIdentityFields } from "./GitIdentityFields";
 
 export interface SettingsDraft {
@@ -166,72 +166,44 @@ export function SettingsDialog({
               <DialogDescription>Configure Githead for the way you work.</DialogDescription>
             </DialogHeader>
 
-            <Tabs
-              value={activeCategory}
-              orientation="vertical"
-              onValueChange={(value) => setActiveCategory(value as SettingsCategory)}
-              className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-0 md:grid-cols-[240px_minmax(0,1fr)] md:grid-rows-1"
+            <SettingsCategoryLayout
+              activeCategory={activeCategory}
+              categories={categories}
+              disabled={saving}
+              dirtyCategories={dirtyCategories}
+              errorCategories={{ "git-identity": Boolean(error) }}
+              onCategoryChange={setActiveCategory}
             >
-              <div className="border-b p-3 md:border-r md:border-b-0 md:p-4">
-                <Label htmlFor="settings-category" className="sr-only">Settings category</Label>
-                <select
-                  id="settings-category"
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm md:hidden"
-                  value={activeCategory}
-                  disabled={saving}
-                  onChange={(event) => setActiveCategory(event.target.value as SettingsCategory)}
-                >
-                  {categories.map((category) => (
-                    <option key={category.id} value={category.id}>{category.label}</option>
-                  ))}
-                </select>
-                <TabsList aria-label="Settings categories" className="hidden h-auto w-full flex-col items-stretch gap-1 bg-transparent p-0 md:flex">
-                  {categories.map(({ id, label, icon: Icon }) => (
-                    <TabsTrigger
-                      key={id}
-                      value={id}
-                      aria-label={label}
-                      className="group h-auto w-full justify-start gap-3 px-3 py-2 text-left data-[state=active]:bg-accent data-[state=active]:shadow-none"
-                    >
-                      <Icon className="size-4 shrink-0 text-muted-foreground group-data-[state=active]:text-foreground" aria-hidden="true" />
-                      <span className="min-w-0 flex-1">
-                        <span className="flex items-center gap-2 font-medium">
-                          {label}
-                          {dirtyCategories[id] ? <span className="size-1.5 rounded-full bg-primary" aria-label="Unsaved changes" /> : null}
-                          {error && id === "git-identity" ? <CircleAlert className="size-3.5 text-destructive" aria-label="Error" /> : null}
-                        </span>
-                      </span>
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-              </div>
-
-              <div className="min-h-0 overflow-hidden">
                 <SettingsPanel value="appearance" title="Appearance" description="Personalize Githead's look and interface scale.">
                   <AppearanceSettings draft={draft} saving={saving} onDraftChange={onDraftChange} />
                 </SettingsPanel>
-                <SettingsPanel value="git-identity" title="Git Identity" description="Choose the author details Git uses for commits.">
-                  <GitIdentityFields
-                    idPrefix="settings-git-identity"
-                    name={draft.gitIdentityName}
-                    email={draft.gitIdentityEmail}
-                    scope={draft.gitIdentityScope}
-                    disabled={saving}
-                    error={error}
-                    onChange={(patch) => onDraftChange({
-                      ...draft,
-                      ...(patch.name !== undefined ? { gitIdentityName: patch.name } : {}),
-                      ...(patch.email !== undefined ? { gitIdentityEmail: patch.email } : {}),
-                      ...(patch.scope !== undefined ? { gitIdentityScope: patch.scope } : {})
-                    })}
-                  />
+                <SettingsPanel value="git-identity" title="Git Identity" description="Set the default author details Git uses for commits.">
+                  <SettingsCard title="Global identity">
+                    <GitIdentityFields
+                      idPrefix="settings-git-identity"
+                      name={draft.gitIdentityName}
+                      email={draft.gitIdentityEmail}
+                      scope="global"
+                      showScope={false}
+                      disabled={saving}
+                      error={error}
+                      onChange={(patch) => onDraftChange({
+                        ...draft,
+                        ...(patch.name !== undefined ? { gitIdentityName: patch.name } : {}),
+                        ...(patch.email !== undefined ? { gitIdentityEmail: patch.email } : {})
+                      })}
+                    />
+                    <p className="text-sm text-muted-foreground">Repository overrides are available from a repository's context menu.</p>
+                  </SettingsCard>
                 </SettingsPanel>
                 <SettingsPanel value="sync" title="Sync" description="Control automatic remote fetches while Githead is open.">
-                  <div className="grid max-w-xl gap-2">
-                    <Label htmlFor="auto-fetch-interval">Auto-fetch interval</Label>
-                    <Input id="auto-fetch-interval" type="number" min={0} max={1440} step={1} value={draft.autoFetchIntervalMinutes} disabled={saving} onChange={(event) => onDraftChange({ ...draft, autoFetchIntervalMinutes: event.target.value })} />
-                    <p className="text-sm text-muted-foreground">Minutes between fetches. Use 0 to disable automatic fetch.</p>
-                  </div>
+                  <SettingsCard title="Global auto-fetch" description="The default schedule for repositories without an override.">
+                    <div className="grid max-w-xl gap-2">
+                      <Label htmlFor="auto-fetch-interval">Auto-fetch interval</Label>
+                      <Input id="auto-fetch-interval" type="number" min={0} max={1440} step={1} value={draft.autoFetchIntervalMinutes} disabled={saving} onChange={(event) => onDraftChange({ ...draft, autoFetchIntervalMinutes: event.target.value })} />
+                      <p className="text-sm text-muted-foreground">Minutes between fetches. The default is 10 minutes; use 0 to turn automatic fetch off.</p>
+                    </div>
+                  </SettingsCard>
                 </SettingsPanel>
                 <SettingsPanel value="ai" title="AI" description="Configure providers and instructions for generated Git content.">
                   <div className="grid max-w-2xl gap-4">
@@ -268,8 +240,7 @@ export function SettingsDialog({
                     </div>
                   </SettingsCard>
                 </SettingsPanel>
-              </div>
-            </Tabs>
+            </SettingsCategoryLayout>
 
             <div className="flex min-h-16 flex-col gap-3 border-t bg-background px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
               <MotionSwap
@@ -298,15 +269,6 @@ export function SettingsDialog({
     </>
   );
 }
-
-function SettingsPanel({ value, title, description, children }: { value: SettingsCategory; title: string; description: string; children: ReactNode }): ReactNode {
-  return <TabsContent value={value} className="m-0 h-full min-h-0 overflow-y-auto"><section className="grid gap-5 px-5 py-5 sm:px-6"><div><h2 className="text-base font-semibold">{title}</h2><p className="text-sm text-muted-foreground">{description}</p></div>{children}</section></TabsContent>;
-}
-
-function SettingsCard({ title, description, children }: { title: string; description: string; children: ReactNode }): ReactNode {
-  return <section className="grid gap-4 rounded-lg border bg-card p-4"><div><h3 className="text-sm font-semibold">{title}</h3><p className="text-sm text-muted-foreground">{description}</p></div>{children}</section>;
-}
-
 
 function AppearanceSettings({ draft, saving, onDraftChange }: { draft: SettingsDraft; saving: boolean; onDraftChange: (draft: SettingsDraft) => void }): ReactNode {
   return <div className="grid max-w-2xl gap-5">
@@ -337,7 +299,7 @@ function getDirtyCategories(baseline: string, draft: SettingsDraft): Record<Sett
   const saved = JSON.parse(baseline) as SettingsDraft;
   return {
     appearance: saved.colorTheme !== draft.colorTheme || saved.appearanceMode !== draft.appearanceMode || saved.uiFont !== draft.uiFont || saved.codeFont !== draft.codeFont || saved.zoomFactor !== draft.zoomFactor,
-    "git-identity": saved.gitIdentityName !== draft.gitIdentityName || saved.gitIdentityEmail !== draft.gitIdentityEmail || saved.gitIdentityScope !== draft.gitIdentityScope,
+    "git-identity": saved.gitIdentityName !== draft.gitIdentityName || saved.gitIdentityEmail !== draft.gitIdentityEmail,
     sync: saved.autoFetchIntervalMinutes !== draft.autoFetchIntervalMinutes,
     ai: JSON.stringify({ selectedProvider: saved.selectedProvider, providerModels: saved.providerModels, commitPlanModels: saved.commitPlanModels, commitPlanReasoningEfforts: saved.commitPlanReasoningEfforts, prDescriptionModels: saved.prDescriptionModels, reasoningEfforts: saved.reasoningEfforts, prDescriptionReasoningEfforts: saved.prDescriptionReasoningEfforts, apiKeys: saved.apiKeys, clearApiKeys: saved.clearApiKeys, commitMessagePrompt: saved.commitMessagePrompt, prDescriptionPrompt: saved.prDescriptionPrompt, sourceControlWritingStyle: saved.sourceControlWritingStyle }) !== JSON.stringify({ selectedProvider: draft.selectedProvider, providerModels: draft.providerModels, commitPlanModels: draft.commitPlanModels, commitPlanReasoningEfforts: draft.commitPlanReasoningEfforts, prDescriptionModels: draft.prDescriptionModels, reasoningEfforts: draft.reasoningEfforts, prDescriptionReasoningEfforts: draft.prDescriptionReasoningEfforts, apiKeys: draft.apiKeys, clearApiKeys: draft.clearApiKeys, commitMessagePrompt: draft.commitMessagePrompt, prDescriptionPrompt: draft.prDescriptionPrompt, sourceControlWritingStyle: draft.sourceControlWritingStyle }),
     diagnostics: false

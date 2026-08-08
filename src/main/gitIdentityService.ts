@@ -1,5 +1,3 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import { Effect } from "effect";
 import type {
   GitIdentitySaveRequest,
@@ -8,12 +6,8 @@ import type {
   GitIdentityValue
 } from "../shared/types";
 import type { ProcessRunner } from "./processRunner";
-import { runEffect, tryPromise } from "../shared/effectRuntime";
+import { runEffect } from "../shared/effectRuntime";
 import { runProcessEffect } from "./processEffect";
-
-interface StoredGitIdentitySettings extends Partial<GitIdentityValue> {
-  scope?: GitIdentityScope;
-}
 
 const emptyIdentity: GitIdentityValue = {
   name: "",
@@ -21,37 +15,39 @@ const emptyIdentity: GitIdentityValue = {
 };
 
 export class GitIdentityService {
-  private readonly settingsPath: string;
-
-  constructor(
-    userDataPath: string,
-    private readonly runner: ProcessRunner
-  ) {
-    this.settingsPath = path.join(userDataPath, "git-identity-settings.json");
-  }
+  constructor(private readonly runner: ProcessRunner) {}
 
   async getIdentity(repoPath: string): Promise<GitIdentitySettings> {
-    const [stored, repository, global] = await runEffect(Effect.all([
-      tryPromise(() => this.readStoredSettings()),
+    const [repository, global] = await runEffect(Effect.all([
       repoPath.trim()
         ? this.readGitIdentityEffect(repoPath, "repository")
         : Effect.succeed(emptyIdentity),
       this.readGitIdentityEffect("", "global")
     ], { concurrency: "unbounded" }));
-    const scope = stored.scope === "global" ? "global" : "repository";
-    const scopedIdentity = scope === "global" ? global : repository;
-    const fallbackIdentity = scope === "global" ? repository : global;
+    const repositoryOverrideEnabled = Boolean(
+      sanitizeText(repository.name) || sanitizeText(repository.email)
+    );
 
     return {
-      scope,
-      name: sanitizeText(scopedIdentity.name) || sanitizeText(stored.name) || sanitizeText(fallbackIdentity.name),
-      email: sanitizeText(scopedIdentity.email) || sanitizeText(stored.email) || sanitizeText(fallbackIdentity.email),
+      scope: repositoryOverrideEnabled ? "repository" : "global",
+      repositoryOverrideEnabled,
+      name: sanitizeText(repository.name) || sanitizeText(global.name),
+      email: sanitizeText(repository.email) || sanitizeText(global.email),
       repository,
       global
     };
   }
 
   async saveIdentity(request: GitIdentitySaveRequest): Promise<GitIdentitySettings> {
+    if (request.scope === "repository" && request.enabled === false) {
+      if (!request.repoPath.trim()) {
+        throw new Error("Select a repository before removing repository identity.");
+      }
+      await this.clearGitConfig(request.repoPath, "user.name");
+      await this.clearGitConfig(request.repoPath, "user.email");
+      return this.getIdentity(request.repoPath);
+    }
+
     const name = sanitizeText(request.name);
     const email = sanitizeText(request.email);
 
@@ -73,15 +69,6 @@ export class GitIdentityService {
 
     await this.writeGitConfig(request.repoPath, request.scope, "user.name", name);
     await this.writeGitConfig(request.repoPath, request.scope, "user.email", email);
-
-    await fs.mkdir(path.dirname(this.settingsPath), {
-      recursive: true
-    });
-    await fs.writeFile(this.settingsPath, `${JSON.stringify({
-      scope: request.scope,
-      name,
-      email
-    } satisfies StoredGitIdentitySettings, null, 2)}\n`, "utf8");
 
     return this.getIdentity(request.repoPath);
   }
@@ -122,18 +109,13 @@ export class GitIdentityService {
     }
   }
 
-  private async readStoredSettings(): Promise<StoredGitIdentitySettings> {
-    try {
-      const text = await fs.readFile(this.settingsPath, "utf8");
-      const parsed = JSON.parse(text) as StoredGitIdentitySettings;
-
-      return parsed && typeof parsed === "object" ? parsed : {};
-    } catch (error) {
-      if (isNodeError(error) && error.code === "ENOENT") {
-        return {};
-      }
-
-      throw error;
+  private async clearGitConfig(repoPath: string, key: string): Promise<void> {
+    const result = await runEffect(runProcessEffect(this.runner, "git", createGitConfigArgs(repoPath, "repository", [
+      "--unset-all",
+      key
+    ])));
+    if (result.exitCode !== 0 && (result.stderr.trim() || result.error)) {
+      throw new Error(result.stderr.trim() || result.error || `Unable to clear ${key}.`);
     }
   }
 }
@@ -161,8 +143,4 @@ function sanitizeText(value: string | undefined): string {
 
 function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-}
-
-function isNodeError(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && "code" in error;
 }

@@ -1189,6 +1189,7 @@ describe("App", { timeout: 10_000 }, () => {
     await screen.findByRole("option", { name: /src\/identity-b\.ts/ });
     pendingIdentity.resolve({
       scope: "repository",
+      repositoryOverrideEnabled: true,
       name: "Repository A User",
       email: "a@example.test",
       repository: { name: "Repository A User", email: "a@example.test" },

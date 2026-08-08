@@ -7,7 +7,8 @@ export interface GitIdentityFieldsProps {
   idPrefix: string;
   name: string;
   email: string;
-  scope: GitIdentityScope;
+  scope?: GitIdentityScope;
+  showScope?: boolean;
   disabled: boolean;
   error?: string;
   autoFocusName?: boolean;
@@ -18,7 +19,8 @@ export function GitIdentityFields({
   idPrefix,
   name,
   email,
-  scope,
+  scope = "repository",
+  showScope = true,
   disabled,
   error = "",
   autoFocusName = false,
@@ -55,7 +57,7 @@ export function GitIdentityFields({
           onChange={(event) => onChange({ email: event.target.value })}
         />
       </div>
-      <div className="grid gap-2">
+      {showScope ? <div className="grid gap-2">
         <p className="text-sm font-medium">Save identity to</p>
         <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Save Git identity to">
           {(["repository", "global"] as const).map((item) => (
@@ -72,7 +74,7 @@ export function GitIdentityFields({
             </Label>
           ))}
         </div>
-      </div>
+      </div> : null}
     </fieldset>
   );
 }
