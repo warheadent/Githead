@@ -8,6 +8,13 @@ import { GitOperationRecoveryService } from "./gitOperationRecovery";
 import { GitService } from "./gitService";
 import { NodeProcessRunner, type ProcessResult } from "./processRunner";
 
+const TEMP_DIRECTORY_REMOVE_OPTIONS = {
+  recursive: true,
+  force: true,
+  maxRetries: 5,
+  retryDelay: 100
+} as const;
+
 describe("GitIntegrationService with real Git repositories", { timeout: 30_000 }, () => {
   it("fast-forwards, reports already-up-to-date, and rejects a stale source ref", async () => {
     await withRepo(async (repo) => {
@@ -231,7 +238,7 @@ describe("GitIntegrationService with real Git repositories", { timeout: 30_000 }
       expect(detached).toMatchObject({ outcome: "blocked" });
       expect(detached.preview?.blockingReasons.join(" ")).toContain("detached HEAD");
       } finally {
-        await fs.rm(remotePath, { recursive: true, force: true });
+        await fs.rm(remotePath, TEMP_DIRECTORY_REMOVE_OPTIONS);
       }
     });
   });
@@ -319,7 +326,7 @@ async function withRepo(callback: (repo: RepoFixture) => Promise<void>): Promise
     await fixture.commit("README.md", "base\n", "initial");
     await callback(fixture);
   } finally {
-    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(root, TEMP_DIRECTORY_REMOVE_OPTIONS);
   }
 }
 
