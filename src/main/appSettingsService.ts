@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { APP_APPEARANCE_MODES, APP_CODE_FONTS, APP_COLOR_THEMES, APP_UI_FONTS, DEFAULT_TAG_PUSH_BEHAVIOR, STATUS_FILE_VIEW_MODES, TAG_PUSH_BEHAVIORS, isAppZoomFactor, type AppAppearanceMode, type AppCodeFont, type AppColorTheme, type AppSettings, type AppSettingsSaveRequest, type AppUiFont, type GitBehaviorSettings, type StatusFileViewMode, type TagPushBehavior } from "../shared/types";
+import { APP_APPEARANCE_MODES, APP_CODE_FONTS, APP_COLOR_THEMES, APP_UI_FONTS, DEFAULT_TAG_PUSH_BEHAVIOR, REMOTE_CHECK_LEASE_SECONDS, STATUS_FILE_VIEW_MODES, TAG_PUSH_BEHAVIORS, isAppZoomFactor, type AppAppearanceMode, type AppCodeFont, type AppColorTheme, type AppSettings, type AppSettingsSaveRequest, type AppUiFont, type GitBehaviorSettings, type RemoteCheckLeaseSeconds, type StatusFileViewMode, type TagPushBehavior } from "../shared/types";
 import {
   normalizeAutoFetchIntervalForSave,
   parseStoredAutoFetchInterval
@@ -106,6 +106,7 @@ function parseStoredGitBehaviors(value: unknown): GitBehaviorSettings {
     tagPushBehavior?: unknown;
     allowCherryPickingContainedCommits?: unknown;
     requireUpToDateUpstreamBeforeCommit?: unknown;
+    remoteCheckLeaseSeconds?: unknown;
   };
   const tagPushBehavior = stored.tagPushBehavior;
   return {
@@ -117,6 +118,9 @@ function parseStoredGitBehaviors(value: unknown): GitBehaviorSettings {
       : {}),
     ...(stored.requireUpToDateUpstreamBeforeCommit === true
       ? { requireUpToDateUpstreamBeforeCommit: true }
+      : {}),
+    ...(REMOTE_CHECK_LEASE_SECONDS.includes(stored.remoteCheckLeaseSeconds as RemoteCheckLeaseSeconds)
+      ? { remoteCheckLeaseSeconds: stored.remoteCheckLeaseSeconds as RemoteCheckLeaseSeconds }
       : {})
   };
 }
@@ -137,6 +141,12 @@ function normalizeGitBehaviorsForSave(value: GitBehaviorSettings): GitBehaviorSe
   ) {
     throw new Error("Pre-commit upstream behavior must be a Boolean value.");
   }
+  if (
+    value.remoteCheckLeaseSeconds !== undefined &&
+    !REMOTE_CHECK_LEASE_SECONDS.includes(value.remoteCheckLeaseSeconds)
+  ) {
+    throw new Error("Unknown remote check reuse duration.");
+  }
   return {
     tagPushBehavior: value.tagPushBehavior,
     ...(value.allowCherryPickingContainedCommits === true
@@ -144,6 +154,9 @@ function normalizeGitBehaviorsForSave(value: GitBehaviorSettings): GitBehaviorSe
       : {}),
     ...(value.requireUpToDateUpstreamBeforeCommit === true
       ? { requireUpToDateUpstreamBeforeCommit: true }
+      : {}),
+    ...(value.remoteCheckLeaseSeconds !== undefined
+      ? { remoteCheckLeaseSeconds: value.remoteCheckLeaseSeconds }
       : {})
   };
 }

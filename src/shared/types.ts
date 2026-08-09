@@ -1718,11 +1718,15 @@ export type TagPushBehavior = (typeof TAG_PUSH_BEHAVIORS)[number];
 export const DEFAULT_TAG_PUSH_BEHAVIOR: TagPushBehavior = "all";
 export const DEFAULT_ALLOW_CHERRY_PICKING_CONTAINED_COMMITS = false;
 export const DEFAULT_REQUIRE_UP_TO_DATE_UPSTREAM_BEFORE_COMMIT = false;
+export const REMOTE_CHECK_LEASE_SECONDS = [0, 30, 60, 120, 300, 600] as const;
+export type RemoteCheckLeaseSeconds = (typeof REMOTE_CHECK_LEASE_SECONDS)[number];
+export const DEFAULT_REMOTE_CHECK_LEASE_SECONDS: RemoteCheckLeaseSeconds = 120;
 
 export interface GitBehaviorSettings {
   tagPushBehavior: TagPushBehavior;
   allowCherryPickingContainedCommits?: boolean;
   requireUpToDateUpstreamBeforeCommit?: boolean;
+  remoteCheckLeaseSeconds?: RemoteCheckLeaseSeconds;
 }
 
 export const APP_ZOOM_FACTORS = [0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2] as const;

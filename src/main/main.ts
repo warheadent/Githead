@@ -2,7 +2,7 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, safe
 import fs from "node:fs/promises";
 import path from "node:path";
 import { IPC_CHANNELS } from "../shared/ipc";
-import { PERFORMANCE_REFRESH_KINDS } from "../shared/types";
+import { DEFAULT_REMOTE_CHECK_LEASE_SECONDS, PERFORMANCE_REFRESH_KINDS } from "../shared/types";
 import type {
   AiSettingsSaveRequest,
   RepositoryAiSettingsRequest,
@@ -11,6 +11,7 @@ import type {
   RepositorySyncSettingsSaveRequest,
   GetAiReasoningCapabilitiesRequest,
   AppSettingsSaveRequest,
+  AppSettings,
   ClipboardTextRequest,
   CancelRepositoryReadRequest,
   CancelGitOperationRequest,
@@ -711,7 +712,10 @@ ipcMain.handle(IPC_CHANNELS.commitChanges, async (event, request: CoordinatedReq
 
 ipcMain.handle(IPC_CHANNELS.commitWithRemoteCheck, async (event, request: CoordinatedRequest<GitCommitRequest>) => {
   return runTrustedExclusiveRepositoryOperation(
-    async () => withOwnedGitOutput(event, async (onOutput) => gitService.commitWithRemoteCheck(request, onOutput)),
+    async () => withOwnedGitOutput(event, async (onOutput) => {
+      const settings = await getAppSettingsService().getSettings();
+      return gitService.commitWithRemoteCheck(request, onOutput, remoteCheckLeaseDurationMs(settings));
+    }),
     repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS, true),
     (failure): GitCommitWithRemoteCheckResult => ({
       ...failure,
@@ -738,10 +742,12 @@ ipcMain.handle(IPC_CHANNELS.commitWithRemoteCheck, async (event, request: Coordi
 ipcMain.handle(IPC_CHANNELS.commitAndPush, async (event, request: CoordinatedRequest<GitCommitRequest>) => {
   return runTrustedExclusiveRepositoryOperation(
     async (signal) => withOwnedGitOutput(event, async (onOutput) => {
+      const settings = await getAppSettingsService().getSettings();
       const pushOptions = await snapshotGitPushExecutionOptions(
-        () => getAppSettingsService().getSettings(),
+        () => Promise.resolve(settings),
         signal
       );
+      pushOptions.remoteCheckLeaseDurationMs = remoteCheckLeaseDurationMs(settings);
       return gitService.commitAndPush(request, onOutput, pushOptions);
     }),
     repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS, true),
@@ -952,11 +958,20 @@ ipcMain.handle(IPC_CHANNELS.saveAiSettings, async (_event, request: AiSettingsSa
 });
 
 ipcMain.handle(IPC_CHANNELS.quickCommitFiles, async (event, request: CoordinatedRequest<GitQuickCommitRequest>) => {
-  return runTrustedExclusiveGitOperation(
-    async () => (await vcsRouter.resolveKind(request.repoPath)) === "git"
-      ? gitService.quickCommitFiles(request)
-      : createOperationFailure(request.repoPath, "Quick Commit is available only for Git repositories."),
-    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  return runTrustedExclusiveRepositoryOperation(
+    async () => withOwnedGitOutput(event, async (onOutput) => {
+      if ((await vcsRouter.resolveKind(request.repoPath)) !== "git") {
+        return createOperationFailure(request.repoPath, "Quick Commit is available only for Git repositories.");
+      }
+      const settings = await getAppSettingsService().getSettings();
+      const leaseDurationMs = settings.gitBehaviors?.requireUpToDateUpstreamBeforeCommit === true
+        ? remoteCheckLeaseDurationMs(settings)
+        : undefined;
+      return gitService.quickCommitFiles(request, onOutput, leaseDurationMs);
+    }),
+    repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS, true),
+    (failure) => failure,
+    () => createOperationFailure(request.repoPath, "Another git command is already running for this repository.")
   );
 });
 
@@ -1267,9 +1282,20 @@ ipcMain.handle(IPC_CHANNELS.runGitAction, async (event, request: CoordinatedRequ
 ipcMain.handle(IPC_CHANNELS.generateCommitPlan, async (event, request: CoordinatedRequest<GenerateCommitPlanRequest>) => {
   return runExclusiveRepositoryOperation<GenerateCommitPlanResult>(
     repositoryOperationOptions(event, request.operationId, request.repoPath),
-    async (signal) => (await vcsRouter.resolveKind(request.repoPath)) === "git"
-      ? getCommitPlanService().generateCommitPlan(request, signal)
-      : createCommitPlanFailure(request.repoPath, "Commit plans are available only for Git repositories."),
+    async (signal) => {
+      if ((await vcsRouter.resolveKind(request.repoPath)) !== "git") {
+        return createCommitPlanFailure(request.repoPath, "Commit plans are available only for Git repositories.");
+      }
+      const planPromise = getCommitPlanService().generateCommitPlan(request, signal);
+      const settings = await getAppSettingsService().getSettings();
+      const shouldWarmLease = settings.gitBehaviors?.requireUpToDateUpstreamBeforeCommit === true
+        && await getRepoTrustService().isTrusted(request.repoPath);
+      const warmLeasePromise = shouldWarmLease
+        ? gitService.warmRemoteCheckLease(request.repoPath, remoteCheckLeaseDurationMs(settings)).catch(() => undefined)
+        : Promise.resolve();
+      const [plan] = await Promise.all([planPromise, warmLeasePromise]);
+      return plan;
+    },
     () => createCommitPlanFailure(request.repoPath, "Another operation is already running for this repository.")
   );
 });
@@ -1771,6 +1797,10 @@ function getAiReasoningCapabilityService(): AiReasoningCapabilityService {
 function getAppSettingsService(): AppSettingsService {
   appSettingsService ??= new AppSettingsService(app.getPath("userData"));
   return appSettingsService;
+}
+
+function remoteCheckLeaseDurationMs(settings: AppSettings): number {
+  return (settings.gitBehaviors?.remoteCheckLeaseSeconds ?? DEFAULT_REMOTE_CHECK_LEASE_SECONDS) * 1_000;
 }
 
 function getRepositorySyncSettingsService(): RepositorySyncSettingsService {

@@ -3,16 +3,80 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { GitService } from "./gitService";
-import { NodeProcessRunner } from "./processRunner";
+import { NodeProcessRunner, type ProcessResult, type ProcessRunOptions, type ProcessRunner } from "./processRunner";
 
 const runner = new NodeProcessRunner();
 const roots: string[] = [];
+
+class CountingRunner implements ProcessRunner {
+  readonly calls: string[][] = [];
+  private readonly delegate = new NodeProcessRunner();
+
+  run(command: string, args: string[], options?: ProcessRunOptions): Promise<ProcessResult> {
+    this.calls.push(args);
+    return this.delegate.run(command, args, options);
+  }
+
+  fetchCount(): number {
+    return this.calls.filter((args) => args.includes("fetch") && args.includes("--prune")).length;
+  }
+}
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
 });
 
 describe("GitService safe commit and push", () => {
+  it("reuses one warmed remote check across several protected commits", async () => {
+    const repo = await createRepositories();
+    const countingRunner = new CountingRunner();
+    const service = new GitService(countingRunner);
+
+    await service.warmRemoteCheckLease(repo.local, 120_000);
+    await stageLocalChange(repo.local);
+    const first = await service.commitWithRemoteCheck({ repoPath: repo.local, message: "First local change" }, undefined, 120_000);
+    await fs.writeFile(path.join(repo.local, "second.txt"), "second\n", "utf8");
+    await runGit(repo.local, ["add", "second.txt"]);
+    const second = await service.commitWithRemoteCheck({ repoPath: repo.local, message: "Second local change" }, undefined, 120_000);
+
+    expect(first.outcome).toBe("committed");
+    expect(second.outcome).toBe("committed");
+    expect(countingRunner.fetchCount()).toBe(1);
+  });
+
+  it("invalidates a lease when the fetched upstream ref changes", async () => {
+    const repo = await createRepositories();
+    const countingRunner = new CountingRunner();
+    const service = new GitService(countingRunner);
+    await service.warmRemoteCheckLease(repo.local, 120_000);
+
+    await writeAndCommit(repo.other, "remote.txt", "remote\n", "Remote advance");
+    await runGit(repo.other, ["push"]);
+    await runGit(repo.local, ["fetch", "origin"]);
+    await stageLocalChange(repo.local);
+    const result = await service.commitWithRemoteCheck({ repoPath: repo.local, message: "Local change" }, undefined, 120_000);
+
+    expect(result.outcome).toBe("remote-ahead");
+    expect(countingRunner.fetchCount()).toBe(2);
+  });
+
+  it("checks the remote before Quick Commit stages selected files", async () => {
+    const repo = await createRepositories();
+    await writeAndCommit(repo.other, "remote.txt", "remote\n", "Remote advance");
+    await runGit(repo.other, ["push"]);
+    await fs.writeFile(path.join(repo.local, "quick.txt"), "quick\n", "utf8");
+
+    const result = await new GitService(runner).quickCommitFiles(
+      { repoPath: repo.local, paths: ["quick.txt"], message: "Quick local change" },
+      undefined,
+      120_000
+    );
+
+    expect(result.exitCode).toBe(-1);
+    expect(result.stderr).toContain("No commit was created");
+    expect(await stagedPaths(repo.local)).toEqual([]);
+  });
+
   it("checks the remote and stops an ordinary commit when the remote is ahead", async () => {
     const repo = await createRepositories();
     await writeAndCommit(repo.other, "remote.txt", "remote\n", "Remote advance");

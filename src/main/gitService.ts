@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Effect } from "effect";
 import { NETWORK_OPERATION_TIMEOUT_MS } from "./operationTimeouts";
+import { getRepoPathKey, normalizeRepoPath } from "./repoPath";
 import type {
   CommitRef,
   GitAction,
@@ -156,6 +157,7 @@ export type GitOutputHandler = (event: GitOutputEvent) => void;
 export interface GitPushExecutionOptions {
   signal?: AbortSignal;
   tagPushBehavior: TagPushBehavior;
+  remoteCheckLeaseDurationMs?: number;
 }
 
 interface GitPushExecutionResult extends ProcessResult {
@@ -182,6 +184,14 @@ interface CommitRemotePreflightBlocked {
 }
 
 type CommitRemotePreflightResult = CommitRemotePreflightReady | CommitRemotePreflightBlocked;
+
+interface RemoteCheckLease {
+  branchName: string;
+  upstreamName: string;
+  remoteName: string;
+  upstreamOid: string;
+  checkedAt: number;
+}
 
 export interface GitBranchRangeRequest {
   repoPath: string;
@@ -232,6 +242,7 @@ const REPOSITORY_ACCESS_CHECK_TIMEOUT_MS = 30_000;
 
 export class GitService {
   private readonly lfsMediaDirs = new Map<string, string>();
+  private readonly remoteCheckLeases = new Map<string, RemoteCheckLease>();
   private readonly operationRecovery: GitOperationRecoveryService;
   private readonly integration: GitIntegrationService;
   private readonly amend: GitAmendService;
@@ -982,7 +993,8 @@ export class GitService {
   private async checkRemoteBeforeCommit(
     repoPath: string,
     onOutput: GitOutputHandler | undefined,
-    requireRemoteUpstream: boolean
+    requireRemoteUpstream: boolean,
+    leaseDurationMs: number
   ): Promise<CommitRemotePreflightResult> {
     const runId = randomUUID();
     const branchResult = await this.runGit(repoPath, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
@@ -1006,6 +1018,7 @@ export class GitService {
         )
         : { ready: true, runId, branchName, ahead: null, behind: null, stdout: "" };
     }
+    const upstreamName = upstreamResult.stdout.trim();
 
     const fetchRemoteResult = await this.runGit(repoPath, ["config", "--get", `branch.${branchName}.remote`]);
     const fetchRemote = fetchRemoteResult.exitCode === 0 ? fetchRemoteResult.stdout.trim() : "";
@@ -1023,20 +1036,66 @@ export class GitService {
       return createCommitRemotePreflightFailure("preflight-failed", validatedFetchRemote.error, { branchName });
     }
 
-    onOutput?.(this.createOutputEvent(runId, "commit-remote-check", "system", "Checking the remote before creating a commit.\n"));
-    const fetchResult = await this.runNamedActionCommand(
-      repoPath,
-      "commit-remote-check:fetch",
-      runId,
-      ["fetch", "--prune", validatedFetchRemote.remoteName],
-      onOutput
-    );
-    if (fetchResult.exitCode !== 0) {
+    const upstreamOidResult = await this.runGit(repoPath, ["rev-parse", "--verify", "@{upstream}"]);
+    let upstreamOid = upstreamOidResult.exitCode === 0 ? upstreamOidResult.stdout.trim() : "";
+    if (!upstreamOid) {
       return createCommitRemotePreflightFailure(
-        "fetch-failed",
-        processFailureMessage(fetchResult, "Unable to fetch the upstream branch. No commit was created."),
-        { branchName, stdout: fetchResult.stdout }
+        "preflight-failed",
+        processFailureMessage(upstreamOidResult, "Unable to resolve the current upstream. No commit was created."),
+        { branchName }
       );
+    }
+
+    const leaseKey = remoteCheckLeaseKey(repoPath);
+    const lease = this.remoteCheckLeases.get(leaseKey);
+    const now = Date.now();
+    const canReuseLease = leaseDurationMs > 0
+      && lease !== undefined
+      && lease.checkedAt <= now
+      && now - lease.checkedAt <= leaseDurationMs
+      && lease.branchName === branchName
+      && lease.upstreamName === upstreamName
+      && lease.remoteName === validatedFetchRemote.remoteName
+      && lease.upstreamOid === upstreamOid;
+    let fetchStdout = "";
+
+    if (canReuseLease) {
+      onOutput?.(this.createOutputEvent(runId, "commit-remote-check", "system", "Using a recent remote check before creating a commit.\n"));
+    } else {
+      onOutput?.(this.createOutputEvent(runId, "commit-remote-check", "system", "Checking the remote before creating a commit.\n"));
+      const fetchResult = await this.runNamedActionCommand(
+        repoPath,
+        "commit-remote-check:fetch",
+        runId,
+        ["fetch", "--prune", validatedFetchRemote.remoteName],
+        onOutput
+      );
+      if (fetchResult.exitCode !== 0) {
+        this.remoteCheckLeases.delete(leaseKey);
+        return createCommitRemotePreflightFailure(
+          "fetch-failed",
+          processFailureMessage(fetchResult, "Unable to fetch the upstream branch. No commit was created."),
+          { branchName, stdout: fetchResult.stdout }
+        );
+      }
+      fetchStdout = fetchResult.stdout;
+      const fetchedUpstreamOidResult = await this.runGit(repoPath, ["rev-parse", "--verify", "@{upstream}"]);
+      upstreamOid = fetchedUpstreamOidResult.exitCode === 0 ? fetchedUpstreamOidResult.stdout.trim() : "";
+      if (!upstreamOid) {
+        this.remoteCheckLeases.delete(leaseKey);
+        return createCommitRemotePreflightFailure(
+          "preflight-failed",
+          processFailureMessage(fetchedUpstreamOidResult, "Unable to resolve the fetched upstream. No commit was created."),
+          { branchName, stdout: fetchStdout }
+        );
+      }
+      this.remoteCheckLeases.set(leaseKey, {
+        branchName,
+        upstreamName,
+        remoteName: validatedFetchRemote.remoteName,
+        upstreamOid,
+        checkedAt: Date.now()
+      });
     }
 
     const countsResult = await this.runGit(repoPath, [
@@ -1050,7 +1109,7 @@ export class GitService {
       return createCommitRemotePreflightFailure(
         "preflight-failed",
         processFailureMessage(countsResult, "Unable to compare the current branch with its upstream. No commit was created."),
-        { branchName, stdout: fetchResult.stdout }
+        { branchName, stdout: fetchStdout }
       );
     }
     if (counts.behind > 0) {
@@ -1061,7 +1120,7 @@ export class GitService {
       return createCommitRemotePreflightFailure(
         outcome,
         `${detail} Pull or rebase before committing. No commit was created.`,
-        { branchName, ahead: counts.ahead, behind: counts.behind, stdout: fetchResult.stdout }
+        { branchName, ahead: counts.ahead, behind: counts.behind, stdout: fetchStdout }
       );
     }
 
@@ -1071,13 +1130,18 @@ export class GitService {
       branchName,
       ahead: counts.ahead,
       behind: counts.behind,
-      stdout: fetchResult.stdout
+      stdout: fetchStdout
     };
+  }
+
+  async warmRemoteCheckLease(repoPath: string, leaseDurationMs: number): Promise<void> {
+    await this.checkRemoteBeforeCommit(repoPath, undefined, false, leaseDurationMs);
   }
 
   async commitWithRemoteCheck(
     request: GitCommitRequest,
-    onOutput?: GitOutputHandler
+    onOutput?: GitOutputHandler,
+    leaseDurationMs = 0
   ): Promise<GitCommitWithRemoteCheckResult> {
     const validation = await this.validateRepo(request.repoPath);
     if (!validation.isValid) {
@@ -1087,7 +1151,7 @@ export class GitService {
       return createCommitWithRemoteCheckFailure(request.repoPath, "preflight-failed", "Enter a commit message.");
     }
 
-    const preflight = await this.checkRemoteBeforeCommit(request.repoPath, onOutput, false);
+    const preflight = await this.checkRemoteBeforeCommit(request.repoPath, onOutput, false, leaseDurationMs);
     if (!preflight.ready) {
       return createCommitWithRemoteCheckFailure(request.repoPath, preflight.outcome, preflight.stderr, preflight);
     }
@@ -1125,7 +1189,12 @@ export class GitService {
       return createCommitAndPushFailure(request.repoPath, "preflight-failed", "Enter a commit message.");
     }
 
-    const preflight = await this.checkRemoteBeforeCommit(request.repoPath, onOutput, true);
+    const preflight = await this.checkRemoteBeforeCommit(
+      request.repoPath,
+      onOutput,
+      true,
+      pushOptions.remoteCheckLeaseDurationMs ?? 0
+    );
     if (!preflight.ready) {
       return createCommitAndPushFailure(request.repoPath, preflight.outcome, preflight.stderr, preflight);
     }
@@ -1330,7 +1399,11 @@ export class GitService {
     });
   }
 
-  async quickCommitFiles(request: GitQuickCommitRequest): Promise<GitOperationResult> {
+  async quickCommitFiles(
+    request: GitQuickCommitRequest,
+    onOutput?: GitOutputHandler,
+    remoteCheckLeaseDurationMs?: number
+  ): Promise<GitOperationResult> {
     const validation = await this.validateRepo(request.repoPath);
     if (!validation.isValid) {
       return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
@@ -1344,40 +1417,69 @@ export class GitService {
       return this.createOperationFailure(request.repoPath, "Enter a commit message.");
     }
 
-    const indexCheck = await this.runGit(request.repoPath, [
-      "diff",
-      "--cached",
-      "--quiet",
-      "--no-ext-diff"
-    ]);
-    if (indexCheck.exitCode === 1) {
-      return this.createOperationFailure(request.repoPath, "Unstage existing files before using Quick Commit.");
-    }
-    if (indexCheck.exitCode !== 0) {
-      return this.createOperationFailure(
+    const initialIndexFailure = await this.checkQuickCommitIndex(request.repoPath);
+    if (initialIndexFailure) return initialIndexFailure;
+
+    let preflightStdout = "";
+    if (remoteCheckLeaseDurationMs !== undefined) {
+      const preflight = await this.checkRemoteBeforeCommit(
         request.repoPath,
-        indexCheck.stderr.trim() || "Unable to check the staged files."
+        onOutput,
+        false,
+        remoteCheckLeaseDurationMs
       );
+      if (!preflight.ready) {
+        return {
+          repoPath: request.repoPath,
+          exitCode: -1,
+          stdout: preflight.stdout,
+          stderr: preflight.stderr
+        };
+      }
+      preflightStdout = preflight.stdout;
+
+      const currentIndexFailure = await this.checkQuickCommitIndex(request.repoPath);
+      if (currentIndexFailure) return currentIndexFailure;
     }
 
     const stageResult = await this.stageFiles({ repoPath: request.repoPath, paths });
     if (stageResult.exitCode !== 0) return stageResult;
 
     const commitResult = await this.commitChanges({ repoPath: request.repoPath, message: request.message });
+    const combinedCommitResult = { ...commitResult, stdout: `${preflightStdout}${commitResult.stdout}` };
     if (commitResult.exitCode === 0 || commitResult.errorKind === "missing-author-identity") {
-      return commitResult;
+      return combinedCommitResult;
     }
 
     const rollbackResult = await this.unstageFiles({ repoPath: request.repoPath, paths });
-    if (rollbackResult.exitCode === 0) return commitResult;
+    if (rollbackResult.exitCode === 0) return combinedCommitResult;
     return {
-      ...commitResult,
+      ...combinedCommitResult,
       stderr: [
         commitResult.stderr,
         "Githead could not restore the staged state.",
         rollbackResult.stderr
       ].filter(Boolean).join("\n")
     };
+  }
+
+  private async checkQuickCommitIndex(repoPath: string): Promise<GitOperationResult | null> {
+    const indexCheck = await this.runGit(repoPath, [
+      "diff",
+      "--cached",
+      "--quiet",
+      "--no-ext-diff"
+    ]);
+    if (indexCheck.exitCode === 1) {
+      return this.createOperationFailure(repoPath, "Unstage existing files before using Quick Commit.");
+    }
+    if (indexCheck.exitCode !== 0) {
+      return this.createOperationFailure(
+        repoPath,
+        indexCheck.stderr.trim() || "Unable to check the staged files."
+      );
+    }
+    return null;
   }
 
   async createStash(request: GitStashCreateRequest): Promise<GitOperationResult> {
@@ -3931,6 +4033,10 @@ function parseLeftRightCounts(text: string): { ahead: number; behind: number } |
   return Number.isSafeInteger(ahead) && ahead >= 0 && Number.isSafeInteger(behind) && behind >= 0
     ? { ahead, behind }
     : null;
+}
+
+function remoteCheckLeaseKey(repoPath: string): string {
+  return getRepoPathKey(normalizeRepoPath(repoPath) ?? path.resolve(repoPath));
 }
 
 function processFailureMessage(result: ProcessResult, fallback: string): string {

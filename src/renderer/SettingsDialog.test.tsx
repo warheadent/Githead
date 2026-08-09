@@ -27,6 +27,7 @@ const savedDraft: SettingsDraft = {
   zoomFactor: 1,
   tagPushBehavior: "all",
   requireUpToDateUpstreamBeforeCommit: false,
+  remoteCheckLeaseSeconds: 120,
   allowCherryPickingContainedCommits: false,
   gitIdentityName: "Test User",
   gitIdentityEmail: "test@example.com",
@@ -165,6 +166,9 @@ describe("SettingsDialog footer status", () => {
     }) as HTMLInputElement;
     expect(upstreamCheckToggle.checked).toBe(false);
     expect(screen.getByText(/Branches without a remote upstream can still commit locally/)).toBeTruthy();
+    const leaseSelect = screen.getByRole("combobox", { name: "Reuse a remote check for" }) as HTMLSelectElement;
+    expect(leaseSelect.value).toBe("120");
+    expect(screen.getByText(/Commit Plan checks while generating/)).toBeTruthy();
     const containedCommitToggle = screen.getByRole("checkbox", {
       name: /Allow commits already contained in the current branch/
     }) as HTMLInputElement;
@@ -175,6 +179,8 @@ describe("SettingsDialog footer status", () => {
     expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({ tagPushBehavior: "follow" }));
     fireEvent.click(upstreamCheckToggle);
     expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({ requireUpToDateUpstreamBeforeCommit: true }));
+    fireEvent.change(leaseSelect, { target: { value: "300" } });
+    expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({ remoteCheckLeaseSeconds: 300 }));
     fireEvent.click(containedCommitToggle);
     expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({ allowCherryPickingContainedCommits: true }));
   });

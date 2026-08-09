@@ -209,7 +209,7 @@ import type {
   RepositoryGroup,
   StatusFileViewMode
 } from "../shared/types";
-import { AI_COMMIT_MESSAGE_PROVIDERS, DEFAULT_TAG_PUSH_BEHAVIOR, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
+import { AI_COMMIT_MESSAGE_PROVIDERS, DEFAULT_REMOTE_CHECK_LEASE_SECONDS, DEFAULT_TAG_PUSH_BEHAVIOR, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
 import { isMarkdownPath } from "../shared/filePreview";
 import { parseCommitSubject } from "../shared/commitSubject";
 import { parseGitHubReferences } from "../shared/githubReference";
@@ -698,6 +698,7 @@ const emptySettingsDraft: SettingsDraft = {
   zoomFactor: 1,
   tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR,
   requireUpToDateUpstreamBeforeCommit: false,
+  remoteCheckLeaseSeconds: DEFAULT_REMOTE_CHECK_LEASE_SECONDS,
   allowCherryPickingContainedCommits: false,
   gitIdentityName: "",
   gitIdentityEmail: "",
@@ -5020,6 +5021,12 @@ export function App(): ReactNode {
     const current = stateRef.current;
     if (!current.summary?.isValid || current.summary.kind !== "git" || isOperationRunning(current)) return null;
     const repoPath = current.repoPath;
+    if (
+      current.appSettings?.gitBehaviors?.requireUpToDateUpstreamBeforeCommit === true
+      && (!(await ensureTrustedRepo(repoPath)) || !isSameRepoPath(repoPath, stateRef.current.repoPath))
+    ) {
+      return null;
+    }
     let generated: GenerateCommitPlanResult | null = null;
     const operationResult = await runRepoOperation("Generating commit plan", undefined, async (operationId) => {
       generated = await window.githead.generateCommitPlan({ repoPath, paths, operationId });
@@ -5031,7 +5038,7 @@ export function App(): ReactNode {
       };
     });
     return operationResult ? generated : null;
-  }, [runRepoOperation]);
+  }, [ensureTrustedRepo, runRepoOperation]);
 
   const quickCommitPlannedFiles = useCallback(async (paths: string[], message: string): Promise<GitOperationResult | null> => {
     const current = stateRef.current;
@@ -5056,7 +5063,10 @@ export function App(): ReactNode {
 
     const repoPath = current.repoPath;
     if (!(await ensureTrustedRepo(repoPath)) || !isSameRepoPath(repoPath, stateRef.current.repoPath)) return null;
-    const result = await runRepoOperation("Creating quick commit", null, (operationId) => window.githead.quickCommitFiles({
+    const operationLabel = current.appSettings?.gitBehaviors?.requireUpToDateUpstreamBeforeCommit === true
+      ? "Checking remote and creating quick commit"
+      : "Creating quick commit";
+    const result = await runRepoOperation(operationLabel, null, (operationId) => window.githead.quickCommitFiles({
       repoPath,
       paths,
       message,
@@ -5352,6 +5362,7 @@ export function App(): ReactNode {
         zoomFactor: appSettings?.zoomFactor ?? 1,
         tagPushBehavior: appSettings?.gitBehaviors?.tagPushBehavior ?? DEFAULT_TAG_PUSH_BEHAVIOR,
         requireUpToDateUpstreamBeforeCommit: appSettings?.gitBehaviors?.requireUpToDateUpstreamBeforeCommit ?? false,
+        remoteCheckLeaseSeconds: appSettings?.gitBehaviors?.remoteCheckLeaseSeconds ?? DEFAULT_REMOTE_CHECK_LEASE_SECONDS,
         allowCherryPickingContainedCommits: appSettings?.gitBehaviors?.allowCherryPickingContainedCommits ?? false,
         gitIdentityName: gitIdentity?.global.name ?? "",
         gitIdentityEmail: gitIdentity?.global.email ?? "",
@@ -5456,6 +5467,7 @@ export function App(): ReactNode {
           gitBehaviors: {
             tagPushBehavior: draft.tagPushBehavior,
             requireUpToDateUpstreamBeforeCommit: draft.requireUpToDateUpstreamBeforeCommit,
+            remoteCheckLeaseSeconds: draft.remoteCheckLeaseSeconds,
             allowCherryPickingContainedCommits: draft.allowCherryPickingContainedCommits
           }
         });
@@ -13669,6 +13681,7 @@ function hasAppSettingsChanges(draft: SettingsDraft, settings: AppSettings | nul
     || draft.zoomFactor !== settings.zoomFactor
     || draft.tagPushBehavior !== (settings.gitBehaviors?.tagPushBehavior ?? DEFAULT_TAG_PUSH_BEHAVIOR)
     || draft.requireUpToDateUpstreamBeforeCommit !== (settings.gitBehaviors?.requireUpToDateUpstreamBeforeCommit ?? false)
+    || draft.remoteCheckLeaseSeconds !== (settings.gitBehaviors?.remoteCheckLeaseSeconds ?? DEFAULT_REMOTE_CHECK_LEASE_SECONDS)
     || draft.allowCherryPickingContainedCommits !== (settings.gitBehaviors?.allowCherryPickingContainedCommits ?? false);
 }
 

@@ -42,10 +42,11 @@ import type {
   GitHubConnectionStatus,
   GitHubDeviceFlow,
   GitHubRepository,
+  RemoteCheckLeaseSeconds,
   SourceControlWritingStyle,
   TagPushBehavior
 } from "../shared/types";
-import { AI_COMMIT_MESSAGE_PROVIDERS, APP_ZOOM_FACTORS } from "../shared/types";
+import { AI_COMMIT_MESSAGE_PROVIDERS, APP_ZOOM_FACTORS, REMOTE_CHECK_LEASE_SECONDS } from "../shared/types";
 import { COLOR_THEME_OPTIONS } from "./themes";
 import { CODE_FONT_OPTIONS, UI_FONT_OPTIONS, type FontOption } from "./fonts";
 import { getAiProviderLabel, getCliStatusMessage, isCliProvider } from "./aiProvider";
@@ -76,6 +77,7 @@ export interface SettingsDraft {
   zoomFactor: number;
   tagPushBehavior: TagPushBehavior;
   requireUpToDateUpstreamBeforeCommit: boolean;
+  remoteCheckLeaseSeconds: RemoteCheckLeaseSeconds;
   allowCherryPickingContainedCommits: boolean;
   gitIdentityName: string;
   gitIdentityEmail: string;
@@ -115,6 +117,15 @@ const tagPushBehaviorOptions = [
   label: string;
   description: string;
 }[];
+
+const remoteCheckLeaseOptions: ReadonlyArray<{ value: RemoteCheckLeaseSeconds; label: string }> = [
+  { value: 0, label: "Always fetch" },
+  { value: 30, label: "30 seconds" },
+  { value: 60, label: "1 minute" },
+  { value: 120, label: "2 minutes (Default)" },
+  { value: 300, label: "5 minutes" },
+  { value: 600, label: "10 minutes" }
+];
 
 export interface SettingsDialogProps {
   open: boolean;
@@ -259,7 +270,7 @@ export function SettingsDialog({
                   </SettingsCard>
                 </SettingsPanel>
                 <SettingsPanel value="git-behaviors" title="Git Behaviors" description="Choose how Githead handles Git operations by default.">
-                  <SettingsCard title="Commit" description="Add a network safety check before Githead creates an ordinary commit.">
+                  <SettingsCard title="Commit" description="Control the network safety check used by commit operations.">
                     <div className="flex max-w-2xl items-start gap-3 rounded-md border p-3">
                       <input
                         id="require-up-to-date-upstream-before-commit"
@@ -278,6 +289,26 @@ export function SettingsDialog({
                           Fetch the tracked remote and stop before creating a commit when the remote is ahead or has diverged. Branches without a remote upstream can still commit locally.
                         </span>
                       </span>
+                    </div>
+                    <div className="grid max-w-2xl gap-2">
+                      <Label htmlFor="remote-check-lease-seconds">Reuse a remote check for</Label>
+                      <select
+                        id="remote-check-lease-seconds"
+                        className="h-10 rounded-md border border-input bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                        value={draft.remoteCheckLeaseSeconds}
+                        disabled={saving}
+                        onChange={(event) => {
+                          const value = Number(event.currentTarget.value);
+                          if (REMOTE_CHECK_LEASE_SECONDS.includes(value as RemoteCheckLeaseSeconds)) {
+                            onDraftChange({ ...draft, remoteCheckLeaseSeconds: value as RemoteCheckLeaseSeconds });
+                          }
+                        }}
+                      >
+                        {remoteCheckLeaseOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                      <p className="text-xs leading-relaxed text-muted-foreground">
+                        Commit Plan checks while generating. Other protected commits reuse that result until this time ends, while still validating the branch and fetched upstream locally.
+                      </p>
                     </div>
                   </SettingsCard>
                   <SettingsCard title="Push" description="Control what happens to tags after an ordinary branch push, targeted push, or branch publish.">
@@ -558,6 +589,7 @@ function getDirtyCategories(baseline: string, draft: SettingsDraft): Record<Sett
     "git-identity": saved.gitIdentityName !== draft.gitIdentityName || saved.gitIdentityEmail !== draft.gitIdentityEmail,
     "git-behaviors": saved.tagPushBehavior !== draft.tagPushBehavior
       || saved.requireUpToDateUpstreamBeforeCommit !== draft.requireUpToDateUpstreamBeforeCommit
+      || saved.remoteCheckLeaseSeconds !== draft.remoteCheckLeaseSeconds
       || saved.allowCherryPickingContainedCommits !== draft.allowCherryPickingContainedCommits,
     sync: saved.autoFetchIntervalMinutes !== draft.autoFetchIntervalMinutes,
     integrations: false,

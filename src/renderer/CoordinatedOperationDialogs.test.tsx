@@ -33,6 +33,7 @@ const settingsDraft: SettingsDraft = {
   zoomFactor: 1,
   tagPushBehavior: "all",
   requireUpToDateUpstreamBeforeCommit: false,
+  remoteCheckLeaseSeconds: 120,
   allowCherryPickingContainedCommits: false,
   gitIdentityName: "Test User",
   gitIdentityEmail: "test@example.com",

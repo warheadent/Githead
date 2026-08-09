@@ -127,7 +127,7 @@ describe("AppSettingsService", () => {
     });
   });
 
-  it("saves the opt-in for checking the upstream before an ordinary commit", async () => {
+  it("saves the opt-in and lease duration for checking the upstream before a commit", async () => {
     await withTempDir(async (dir) => {
       const service = new AppSettingsService(dir);
       const saved = await service.saveSettings({
@@ -137,16 +137,18 @@ describe("AppSettingsService", () => {
         zoomFactor: 1,
         gitBehaviors: {
           tagPushBehavior: "all",
-          requireUpToDateUpstreamBeforeCommit: true
+          requireUpToDateUpstreamBeforeCommit: true,
+          remoteCheckLeaseSeconds: 300
         }
       });
 
       expect(saved.gitBehaviors).toEqual({
         tagPushBehavior: "all",
-        requireUpToDateUpstreamBeforeCommit: true
+        requireUpToDateUpstreamBeforeCommit: true,
+        remoteCheckLeaseSeconds: 300
       });
       await expect(new AppSettingsService(dir).getSettings()).resolves.toMatchObject({
-        gitBehaviors: { requireUpToDateUpstreamBeforeCommit: true }
+        gitBehaviors: { requireUpToDateUpstreamBeforeCommit: true, remoteCheckLeaseSeconds: 300 }
       });
     });
   });
