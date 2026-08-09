@@ -34,8 +34,8 @@
     "version:patch": "node scripts/version-bump.mjs patch",
     "version:minor": "node scripts/version-bump.mjs minor",
     "version:major": "node scripts/version-bump.mjs major",
-    "package:win": "vp run build && node scripts/package-win.mjs",
-    "package:win:dir": "vp run build && node scripts/package-win.mjs --dir",
+    "package:win": "npm install && vp run build && node scripts/package-win.mjs",
+    "package:win:dir": "npm install && vp run build && node scripts/package-win.mjs --dir",
     "package:linux": "vp run build && node scripts/package-linux.mjs",
     "package:linux:dir": "vp run build && node scripts/package-linux.mjs --dir"
   },
