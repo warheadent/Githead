@@ -8052,7 +8052,6 @@ interface RepositoryListProps {
   onReorder: (repoPaths: string[]) => void;
   onShowInExplorer: (repoPath: string) => void;
   onOpenRepositorySettings: (repoPath: string) => void;
-  onAddWorktree?: () => void;
   onRemoveWorktree?: (worktree: GitWorktree) => void;
 }
 
@@ -8091,7 +8090,6 @@ function RepositoryList({
   onReorder,
   onShowInExplorer,
   onOpenRepositorySettings,
-  onAddWorktree,
   onRemoveWorktree
 }: RepositoryListProps): ReactNode {
   const draggedRepoPathRef = useRef<string | null>(null);
@@ -8099,6 +8097,7 @@ function RepositoryList({
   const [draggedRepoPath, setDraggedRepoPath] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ repoPath: string; position: RepositoryDropPosition } | null>(null);
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
+  const [removeTarget, setRemoveTarget] = useState<string | null>(null);
   const repositoryOrderDependency = (groups?.length
     ? groups.map((group) => getRepoPathKey(group.anchorPath))
     : repoPaths.map(getRepoPathKey)).join("\u0000");
@@ -8219,6 +8218,7 @@ function RepositoryList({
   };
 
   return (
+    <>
     <section className={className} aria-label="Repositories">
       <div className="repo-recents-heading">
         <p className="repo-recents-label">Repositories</p>
@@ -8262,10 +8262,9 @@ function RepositoryList({
             onDragEnd={() => { draggedRepoPathRef.current = null; setDraggedRepoPath(null); setDropTarget(null); }}
             onKeyboardMove={moveRepositoryByKeyboard}
             onSelect={onSelect}
-            onRemove={() => onRemove(group.anchorPath)}
+            onRemove={() => setRemoveTarget(group.anchorPath)}
             onShowInExplorer={onShowInExplorer}
             onOpenRepositorySettings={onOpenRepositorySettings}
-            {...(onAddWorktree ? { onAddWorktree } : {})}
             {...(onRemoveWorktree ? { onRemoveWorktree } : {})}
           />;
         }) : repoPaths.map((recentRepoPath) => {
@@ -8301,7 +8300,7 @@ function RepositoryList({
               }}
               onKeyboardMove={moveRepositoryByKeyboard}
               onSelect={onSelect}
-              onRemove={onRemove}
+              onRemove={setRemoveTarget}
               onShowInExplorer={onShowInExplorer}
               onOpenRepositorySettings={onOpenRepositorySettings}
             />
@@ -8309,10 +8308,30 @@ function RepositoryList({
         })}
       </div>
     </section>
+    <Dialog open={Boolean(removeTarget)} onOpenChange={(open) => { if (!open) setRemoveTarget(null); }}>
+      <DialogContent className="sm:max-w-[440px]">
+        <DialogHeader>
+          <DialogTitle>Remove Repository?</DialogTitle>
+          <DialogDescription>
+            This repository will no longer be tracked by Githead. The repository and all of its files will remain on disk.
+          </DialogDescription>
+        </DialogHeader>
+        <p className="break-all rounded-md border bg-muted/30 p-3 text-sm">{removeTarget}</p>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => setRemoveTarget(null)}>Cancel</Button>
+          <Button type="button" variant="destructive" onClick={() => {
+            if (!removeTarget) return;
+            onRemove(removeTarget);
+            setRemoveTarget(null);
+          }}><Trash2 />Remove Repository</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
 
-function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled, dragging, dropPosition, syncStatuses, layoutDependency, rowRef, onToggle, onDragStart, onPointerDragStart, onDragEnd, onKeyboardMove, onSelect, onRemove, onShowInExplorer, onOpenRepositorySettings, onAddWorktree, onRemoveWorktree }: {
+function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled, dragging, dropPosition, syncStatuses, layoutDependency, rowRef, onToggle, onDragStart, onPointerDragStart, onDragEnd, onKeyboardMove, onSelect, onRemove, onShowInExplorer, onOpenRepositorySettings, onRemoveWorktree }: {
   group: RepositoryGroup;
   activeRepoPath: string;
   active: boolean;
@@ -8332,7 +8351,6 @@ function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled,
   onRemove: () => void;
   onShowInExplorer: (repoPath: string) => void;
   onOpenRepositorySettings: (repoPath: string) => void;
-  onAddWorktree?: () => void;
   onRemoveWorktree?: (worktree: GitWorktree) => void;
 }): ReactNode {
   const worktreeListId = useId();
@@ -8353,9 +8371,7 @@ function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled,
       <button type="button" className="repo-recent-drag-handle" draggable={!disabled} disabled={disabled} onDragStart={(event) => onDragStart(event, group.anchorPath)} onMouseDown={() => onPointerDragStart(group.anchorPath)} onDragEnd={onDragEnd} onKeyDown={handleKeyDown} aria-label={`Reorder ${group.anchorPath}`}><GripVertical /></button>
       <button type="button" className="repo-group-toggle" disabled={disabled} onClick={onToggle} aria-expanded={expanded} aria-controls={worktreeListId} aria-label={`${expanded ? "Collapse" : "Expand"} worktrees for ${displayName}`}><ChevronRight className="repo-group-chevron" /></button>
       <button type="button" className="repo-group-main" disabled={disabled || navigationActive || navigationUnavailable} onClick={() => onSelect(group.lastUsedPath)} aria-current={navigationActive ? "true" : undefined} aria-label={`Switch to ${group.anchorPath}`}><RecentRepositoryVcsIcon kind={group.kind} /><span className="repo-recent-title">{displayName}</span></button>
-      {active && group.kind === "git" && onAddWorktree ? <TooltipButton type="button" variant="ghost" size="icon-xs" disabled={disabled} onClick={onAddWorktree} aria-label="Add worktree" tooltip="Add worktree"><GitFork /></TooltipButton> : null}
-      <TooltipButton type="button" variant="ghost" size="icon-xs" disabled={disabled} onClick={onRemove} aria-label={`Remove ${group.anchorPath} from recent repositories`} tooltip="Remove from recents"><X /></TooltipButton>
-    </div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{group.anchorPath}</ContextMenuLabel><ContextMenuSeparator /><ContextMenuItem disabled={disabled || navigationUnavailable} onSelect={() => onOpenRepositorySettings(group.lastUsedPath)}><Settings />Repository Settings…</ContextMenuItem><ContextMenuItem disabled={navigationUnavailable} onSelect={() => onShowInExplorer(group.anchorPath)}><MapPinned />Show in Explorer</ContextMenuItem></ContextMenuContent></ContextMenu>
+    </div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{group.anchorPath}</ContextMenuLabel><ContextMenuSeparator /><ContextMenuItem disabled={disabled || navigationUnavailable} onSelect={() => onOpenRepositorySettings(group.lastUsedPath)}><Settings />Repository Settings…</ContextMenuItem><ContextMenuItem disabled={navigationUnavailable} onSelect={() => onShowInExplorer(group.anchorPath)}><MapPinned />Show in Explorer</ContextMenuItem><ContextMenuSeparator /><ContextMenuItem variant="destructive" disabled={disabled} onSelect={onRemove}><Trash2 />Remove Repository</ContextMenuItem></ContextMenuContent></ContextMenu>
     <MotionPresence present={expanded} id={worktreeListId} className="repo-worktree-list" initialY={-2}>{worktrees.map((worktree) => {
       const workspaceActive = isSameRepoPath(worktree.path, activeRepoPath);
       const unavailable = worktree.isBare || worktree.prunable;
@@ -8448,19 +8464,6 @@ function RecentRepositoryRow({
               <RepoSyncStatusChips status={syncStatus} />
             </span>
           </button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            className="repo-recent-remove"
-            onClick={() => {
-              onRemove(repoPath);
-            }}
-            disabled={disabled}
-            aria-label={`Remove ${repoPath} from recent repositories`}
-          >
-            <X />
-          </Button>
         </motion.div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-72">
@@ -8475,6 +8478,11 @@ function RecentRepositoryRow({
         <ContextMenuItem disabled={disabled} onSelect={() => onShowInExplorer(repoPath)}>
           <MapPinned />
           Show in Explorer
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem variant="destructive" disabled={disabled} onSelect={() => onRemove(repoPath)}>
+          <Trash2 />
+          Remove Repository
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
@@ -8899,7 +8907,6 @@ function RepositoryPanel({
         onReorder={onReorderRepositories}
         onShowInExplorer={onShowInExplorer}
         onOpenRepositorySettings={onOpenRepositorySettings}
-        onAddWorktree={onAddWorktree}
         onRemoveWorktree={onRemoveWorktree}
         headingAction={(
           <Popover open={clonePanelOpen} onOpenChange={updateAddPopoverOpen}>
@@ -8984,6 +8991,7 @@ function RepositoryPanel({
           onOpenWorktree={onSelectRecent}
           onCheckoutRemoteBranch={onCheckoutRemoteBranch}
           onCreateBranch={onOpenBranchDialog}
+          onCreateWorktree={onAddWorktree}
           onManageBranches={onOpenBranchManager}
           onMerge={onOpenMerge}
           onRebase={onOpenRebase}
@@ -9038,6 +9046,7 @@ function BranchFact({
   onOpenWorktree,
   onCheckoutRemoteBranch,
   onCreateBranch,
+  onCreateWorktree,
   onManageBranches,
   onMerge,
   onRebase
@@ -9052,6 +9061,7 @@ function BranchFact({
   onOpenWorktree: (repoPath: string) => void;
   onCheckoutRemoteBranch: (remoteBranch: GitRemoteBranch) => void;
   onCreateBranch: () => void;
+  onCreateWorktree: () => void;
   onManageBranches: () => void;
   onMerge: () => void;
   onRebase: () => void;
@@ -9120,6 +9130,7 @@ function BranchFact({
           actions={[
             { label: "New Branch", icon: <Plus />, onSelect: onCreateBranch },
             ...(integrationEnabled ? [
+              { label: "Add Worktree…", icon: <GitFork />, onSelect: onCreateWorktree },
               { label: "Merge Branch…", icon: <GitFork />, onSelect: onMerge },
               { label: "Rebase Branch…", icon: <History />, onSelect: onRebase }
             ] : []),

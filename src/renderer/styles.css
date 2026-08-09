@@ -2505,8 +2505,7 @@ textarea,
 }
 
 .repo-recent-drag-handle:focus-visible,
-.repo-recent-main:focus-visible,
-.repo-recent-remove:focus-visible {
+.repo-recent-main:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
@@ -2588,10 +2587,6 @@ textarea,
 
 .repo-recent-sync .sync-count-chip.is-behind {
   color: var(--accent-foreground);
-}
-
-.repo-recent-remove {
-  margin-right: 6px;
 }
 
 .repo-recent-menu-path {

@@ -830,9 +830,10 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(disclosure);
     expect(await screen.findByText("feature/worktrees")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Collapse worktrees for Githead" }).getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByRole("button", { name: "Add worktree" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Add worktree" })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Switch branch" }));
+    expect(await screen.findByRole("button", { name: "Add Worktree…" })).toBeTruthy();
     await user.click(await screen.findByRole("option", { name: /feature\/worktrees/ }));
     await waitFor(() => expect(githead.getRepoSummary).toHaveBeenCalledWith(linked));
     expect(githead.switchBranch).not.toHaveBeenCalled();
@@ -884,7 +885,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(await screen.findByRole("button", { name: "Add worktree" }));
+    await user.click(screen.getByRole("button", { name: "Switch branch" }));
+    await user.click(await screen.findByRole("button", { name: "Add Worktree…" }));
     await user.type(screen.getByLabelText("Branch"), "feature/worktrees");
     await waitFor(() => expect((screen.getByLabelText("Destination") as HTMLInputElement).value).toBe("D:\\Githead-feature-worktrees"));
     await user.click(screen.getByRole("button", { name: "Create Worktree" }));
@@ -930,7 +932,8 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(screen.getByRole("button", { name: "Add repository" }));
     await user.click(await screen.findByRole("button", { name: "Add existing" }));
     await waitFor(() => expect(githead.chooseRepo).toHaveBeenCalledTimes(1));
-    await user.click(await screen.findByRole("button", { name: "Add worktree" }));
+    await user.click(screen.getByRole("button", { name: "Switch branch" }));
+    await user.click(await screen.findByRole("button", { name: "Add Worktree…" }));
     await user.type(screen.getByLabelText("Branch"), "feature/late");
     await user.clear(screen.getByLabelText("Destination"));
     await user.type(screen.getByLabelText("Destination"), destinationPath);
@@ -1278,13 +1281,47 @@ describe("App", { timeout: 10_000 }, () => {
 
     await waitForRepositoryWorkspace();
     vi.mocked(githead.getRepoSummary).mockClear();
-    await user.click(screen.getByRole("button", { name: `Remove ${otherRepo} from recent repositories` }));
+    fireEvent.contextMenu(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
+    await user.click(await screen.findByRole("menuitem", { name: "Remove Repository" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Remove Repository?" });
+    expect(within(dialog).getByText(/all of its files will remain on disk/)).toBeTruthy();
+    expect(within(dialog).getByText(otherRepo)).toBeTruthy();
+    expect(githead.removeRepoRecent).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole("button", { name: "Remove Repository" }));
 
     await waitFor(() => {
       expect(githead.removeRepoRecent).toHaveBeenCalledWith(otherRepo);
     });
     expect(screen.getByRole("button", { name: `Switch to ${repoPath}` }).getAttribute("aria-current")).toBe("true");
     expect(githead.getRepoSummary).not.toHaveBeenCalledWith(otherRepo);
+  });
+
+  it("opens repository removal from a grouped repository context menu", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepositoryGroups).mockResolvedValue([{
+      id: "d:\\githead\\.git",
+      kind: "git",
+      anchorPath: repoPath,
+      lastUsedPath: repoPath,
+      recentPaths: [repoPath],
+      commonDir: "D:\\Githead\\.git",
+      error: "",
+      worktrees: [{ path: repoPath, head: "abc", branch: "main", isMain: true, isBare: false, isDetached: false, locked: false, lockReason: null, prunable: false, prunableReason: null }]
+    }]);
+
+    render(<App />);
+
+    await waitForRepositoryWorkspace();
+    const groupHeading = screen.getByRole("button", { name: `Switch to ${repoPath}` }).closest(".repo-group-heading");
+    if (!groupHeading) throw new Error("Expected grouped repository heading.");
+    fireEvent.contextMenu(groupHeading);
+    await user.click(await screen.findByRole("menuitem", { name: "Remove Repository" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Remove Repository?" });
+    expect(within(dialog).getByText(repoPath)).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(githead.removeRepoRecent).not.toHaveBeenCalled();
   });
 
   it("reorders repositories with the keyboard handle", async () => {
