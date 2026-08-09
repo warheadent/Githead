@@ -313,8 +313,9 @@ describe("Git amend service with real Git repositories", { timeout: 30_000 }, ()
       await expect(cancelledPromise).resolves.toMatchObject({ outcome: "cancelled", amendErrorKind: "cancelled" });
       expect(await repo.oid("HEAD")).toBe(oldHead);
 
+      await removeFileWhenReleased(path.join(repo.path, ".git", "index.lock"));
       await fs.rm(hookStartedPath);
-      preview = (await cancellableService.getAmendPreview({ repoPath: repo.path, source: "history", mode: "message-only" })).preview!;
+      preview = await ready({ ...repo, service: cancellableService }, "history", "message-only");
       const timeoutController = new AbortController();
       const timedOutPromise = cancellableRunner.runWithSignal(timeoutController.signal, () => cancellableService.amendLastCommit({ repoPath: repo.path, source: "history", mode: "message-only", message: "timed out amend", expectedSnapshotId: preview.snapshotId }));
       await waitForFile(hookStartedPath);
@@ -375,4 +376,17 @@ async function waitForFile(filePath: string): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   throw new Error(`Timed out waiting for ${filePath}.`);
+}
+
+async function removeFileWhenReleased(filePath: string): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (true) {
+    try {
+      await fs.rm(filePath, { force: true });
+      return;
+    } catch (error) {
+      if (Date.now() >= deadline) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
 }
