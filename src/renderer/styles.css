@@ -4028,6 +4028,49 @@ textarea,
   content-visibility: auto;
 }
 
+.github-list-empty {
+  display: grid;
+  min-height: 180px;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--muted-foreground);
+  text-align: center;
+}
+
+.github-list-empty-icon {
+  display: inline-flex;
+  color: var(--primary);
+}
+
+.github-list-empty-icon > svg {
+  width: 28px;
+  height: 28px;
+  stroke-width: 1.7;
+}
+
+.github-list-empty h3,
+.github-list-empty p {
+  margin: 0;
+}
+
+.github-list-empty h3 {
+  color: var(--foreground);
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+.github-list-empty p {
+  max-width: 280px;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.github-list-empty > button {
+  margin-top: 4px;
+}
+
 .github-row {
   min-height: 46px;
   border-bottom: 1px solid var(--border);

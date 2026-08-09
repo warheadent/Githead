@@ -29,6 +29,7 @@ import {
   RefreshCw,
   RotateCcw,
   Save,
+  SearchX,
   Settings,
   ShieldAlert,
   Sparkles,
@@ -10869,6 +10870,7 @@ function WorkflowRunsView({
   const repository = summary?.githubRepository ?? null;
   const columnLayout = usePersistentColumnLayout("githead.column-layout.workflows", WORKFLOW_COLUMNS);
   const displayedRuns = useMemo(() => sortLoadedWorkflowRuns(filterLoadedWorkflowRuns(workflowRuns, search), query.sortDirection), [workflowRuns, search, query.sortDirection]);
+  const filtered = Boolean(search || query.branch || query.event || query.status);
   const countLabel = loaded ? (search ? `${displayedRuns.length} matches in ${workflowRuns.length} loaded runs` : formatLoadedCount(workflowRuns.length, totalCount, "run", "runs")) : "-";
   const applyPreset = (value: string): void => {
     onPresetChange(value);
@@ -10897,13 +10899,15 @@ function WorkflowRunsView({
       <div className="github-list" role="list" aria-label="Workflow runs">
         <AdjustableColumnHeader columns={WORKFLOW_COLUMNS} controller={columnLayout} className="github-table-header" />
         {!repository ? (
-          <p className="empty-state">Select a repository with a supported GitHub origin.</p>
+          <GitHubListEmptyState icon={<GitFork />} title="No GitHub repository" description="Select a repository with a supported GitHub origin." />
         ) : loading ? (
           <LoadingState label="Loading workflow runs" className="h-full" />
         ) : error && workflowRuns.length === 0 ? (
           <GitHubFailureState failure={failure} fallback={error} stale={false} onRetry={onRefresh} onConnect={onConnectGitHub} onReviewAccess={onReviewAccess} onCheckRemote={onCheckRemote} />
         ) : displayedRuns.length === 0 ? (
-          <p className="empty-state">{search ? "No loaded workflow runs match this search." : "No workflow runs match these filters."}</p>
+          filtered
+            ? <GitHubListEmptyState icon={<SearchX />} title="No matching workflow runs" description="Try changing or clearing your search and filters." actionLabel="Clear filters" onAction={() => { onSearchChange(""); applyPreset("all"); }} />
+            : <GitHubListEmptyState icon={<Workflow />} title="No workflow runs" description="Workflow runs for this repository will appear here." />
         ) : (
           displayedRuns.map((run) => (
             <WorkflowRunRow key={run.id} run={run} columnOrder={columnLayout.visibleOrder} onOpenExternalUrl={onOpenExternalUrl} />
@@ -11093,13 +11097,15 @@ function PullRequestsView({
       </GitHubQueryToolbar>
       <div className="github-list" role="list" aria-label="Pull requests">
         {!repository ? (
-          <p className="empty-state">Select a repository with a supported GitHub origin.</p>
+          <GitHubListEmptyState icon={<GitFork />} title="No GitHub repository" description="Select a repository with a supported GitHub origin." />
         ) : loading ? (
           <LoadingState label="Loading pull requests" className="h-full" />
         ) : error && pullRequests.length === 0 ? (
           <GitHubFailureState failure={failure} fallback={error} stale={false} onRetry={onRefresh} onConnect={onConnectGitHub} onReviewAccess={onReviewAccess} onCheckRemote={onCheckRemote} />
         ) : pullRequests.length === 0 ? (
-          <p className="empty-state">{filtered ? "No open pull requests match these filters." : "No open pull requests found."}</p>
+          filtered
+            ? <GitHubListEmptyState icon={<SearchX />} title="No matching pull requests" description="Try changing or clearing your filters." actionLabel="Clear filters" onAction={() => applyPreset("all")} />
+            : <GitHubListEmptyState icon={<GitPullRequest />} title="No open pull requests" description="Open pull requests for this repository will appear here." />
         ) : (
           pullRequests.map((pullRequest) => (
             <PullRequestRow
@@ -11268,13 +11274,15 @@ function IssuesView({
       <div className="github-list" role="list" aria-label="Issues">
         <AdjustableColumnHeader columns={ISSUE_COLUMNS} controller={columnLayout} className="github-table-header" />
         {!repository ? (
-          <p className="empty-state">Select a repository with a supported GitHub origin.</p>
+          <GitHubListEmptyState icon={<GitFork />} title="No GitHub repository" description="Select a repository with a supported GitHub origin." />
         ) : loading ? (
           <LoadingState label="Loading issues" className="h-full" />
         ) : error && issues.length === 0 ? (
           <GitHubFailureState failure={failure} fallback={error} stale={false} onRetry={onRefresh} onConnect={onConnectGitHub} onReviewAccess={onReviewAccess} onCheckRemote={onCheckRemote} />
         ) : issues.length === 0 ? (
-          <p className="empty-state">{filtered ? "No open issues match these filters." : "No open issues found."}</p>
+          filtered
+            ? <GitHubListEmptyState icon={<SearchX />} title="No matching issues" description="Try changing or clearing your filters." actionLabel="Clear filters" onAction={() => applyPreset("all")} />
+            : <GitHubListEmptyState icon={<CircleDot />} title="No open issues" description="Open issues for this repository will appear here." />
         ) : (
           issues.map((issue) => (
             <IssueRow
@@ -11396,6 +11404,22 @@ function getGitHubFailureTitle(kind: GitHubFailure["kind"]): string {
 function formatDateTime(value: string): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
+function GitHubListEmptyState({ icon, title, description, actionLabel, onAction }: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}): ReactNode {
+  const headingId = useId();
+  return <section className="github-list-empty" aria-labelledby={headingId}>
+    <span className="github-list-empty-icon" aria-hidden="true">{icon}</span>
+    <h3 id={headingId}>{title}</h3>
+    <p>{description}</p>
+    {actionLabel && onAction ? <Button type="button" variant="outline" size="sm" onClick={onAction}>{actionLabel}</Button> : null}
+  </section>;
 }
 
 function GitHubListFooter({ label, nextPage, loading, error, disabled, onLoadMore }: {

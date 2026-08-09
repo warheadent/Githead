@@ -224,6 +224,33 @@ describe("App", { timeout: 10_000 }, () => {
     });
   });
 
+  it("shows a recoverable empty state when pull request filters have no matches", async () => {
+    const user = userEvent.setup();
+    const item = createPullRequest({ number: 24, title: "Only ready pull request", draft: false });
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
+    vi.mocked(githead.getGitHubPullRequests).mockImplementation(async (request) => ({
+      ok: true,
+      data: { items: request.query?.draft === "draft" ? [] : [item], page: 1, nextPage: null, totalCount: request.query?.draft === "draft" ? 0 : 1 },
+      rateLimit: null
+    }));
+
+    render(<App />);
+    await user.click(await screen.findByRole("tab", { name: /Pull Requests/ }));
+    expect(await screen.findByRole("button", { name: "Only ready pull request" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Filters, 0 active" }));
+    await user.selectOptions(screen.getByLabelText("Preset"), "drafts");
+
+    const emptyHeading = await screen.findByRole("heading", { name: "No matching pull requests" });
+    const emptyState = emptyHeading.closest("section");
+    expect(emptyState).toBeTruthy();
+    expect(screen.getByText("Try changing or clearing your filters.")).toBeTruthy();
+    await user.click(within(emptyState!).getByRole("button", { name: "Clear filters" }));
+
+    expect(await screen.findByRole("button", { name: "Only ready pull request" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "No matching pull requests" })).toBeNull();
+  });
+
   it("loads and merges another workflow page", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
