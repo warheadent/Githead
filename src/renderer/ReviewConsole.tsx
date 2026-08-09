@@ -222,7 +222,6 @@ export function ReviewConsole({
                 <Button type="button" variant="outline" size="sm" disabled={Boolean(mutation.kind)} onClick={() => {
                   void runMutation("approve", () => window.githead.approveGitHubPullRequest({ repoPath, number: selection.item.number, operationId: createOperationId("approve") }));
                 }}>{mutation.kind === "approve" ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : <Check />}Approve</Button>
-                <Button type="button" variant="outline" size="sm" disabled={Boolean(mutation.kind)} onClick={() => commentRef.current?.focus()}><MessageSquare />Comment</Button>
                 <Button type="button" variant="outline" size="sm" disabled={Boolean(mutation.kind)} onClick={() => onCheckout(selection.item)}><GitPullRequest />Checkout</Button>
               </>
             )}
@@ -230,7 +229,6 @@ export function ReviewConsole({
         ) : (
           <Button type="button" variant="outline" size="sm" disabled={Boolean(mutation.kind)} onClick={() => commentRef.current?.focus()}><MessageSquare />Comment</Button>
         )}
-        <Button type="button" variant="ghost" size="sm" className="review-console-open-external" onClick={() => onOpenExternalUrl(externalUrl)}>Open on GitHub <ExternalLink /></Button>
       </footer>
     </aside>
   );

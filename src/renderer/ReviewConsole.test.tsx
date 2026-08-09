@@ -34,6 +34,8 @@ describe("ReviewConsole", () => {
     vi.mocked(githead.getGitHubPullRequestDetail).mockResolvedValue({ ok: true, data: createPullRequestDetail({ number: 24, title: "Review console" }), rateLimit: null });
     const { props } = renderConsole();
     const drawer = screen.getByRole("region", { name: "Review console" });
+    expect(within(drawer).getAllByRole("button", { name: /Open on GitHub/ })).toHaveLength(1);
+    expect(within(drawer).queryByRole("button", { name: "Comment" })).toBeNull();
     const overview = within(drawer).getByRole("tab", { name: /Overview/ });
     overview.focus();
     await user.keyboard("{ArrowRight}");

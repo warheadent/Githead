@@ -26,6 +26,44 @@ describe("GitHubQueryToolbar", () => {
     expect(onSearchChange).toHaveBeenCalledWith("fix");
   });
 
+  it("does not submit an unchanged search when callback identity changes", () => {
+    vi.useFakeTimers();
+    const firstSearchChange = vi.fn();
+    const nextSearchChange = vi.fn();
+    const props: React.ComponentProps<typeof GitHubQueryToolbar> = {
+      view: "pullRequests",
+      search: "",
+      preset: "all",
+      presets: [{ value: "all", label: "All open" }],
+      sort: "updated-desc",
+      sortOptions: [{ value: "updated-desc", label: "Recently updated" }],
+      viewerAvailable: true,
+      status: "",
+      onSearchChange: firstSearchChange,
+      onPresetChange: vi.fn(),
+      onSortChange: vi.fn(),
+      onClear: vi.fn()
+    };
+    const { rerender } = render(<GitHubQueryToolbar {...props} />);
+    rerender(<GitHubQueryToolbar {...props} preset="drafts" onSearchChange={nextSearchChange} />);
+
+    act(() => vi.advanceTimersByTime(300));
+
+    expect(firstSearchChange).not.toHaveBeenCalled();
+    expect(nextSearchChange).not.toHaveBeenCalled();
+  });
+
+  it("uses the themed menu for compact sorting", async () => {
+    const user = userEvent.setup();
+    const onSortChange = vi.fn();
+    render(<GitHubQueryToolbar compact view="pullRequests" search="" preset="all" presets={[{ value: "all", label: "All open" }]} sort="updated-desc" sortOptions={[{ value: "updated-desc", label: "Recently updated" }, { value: "created-desc", label: "Newest" }]} viewerAvailable status="" onSearchChange={vi.fn()} onPresetChange={vi.fn()} onSortChange={onSortChange} onClear={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Sort: Recently updated" }));
+    await user.click(screen.getByRole("menuitemradio", { name: "Newest" }));
+
+    expect(onSortChange).toHaveBeenCalledWith("created-desc");
+  });
+
   it("keeps advanced pull-request filters in a compact popover", async () => {
     const user = userEvent.setup();
     const onClear = vi.fn();

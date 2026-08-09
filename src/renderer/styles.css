@@ -4364,30 +4364,36 @@ textarea,
   height: 36px;
   min-width: 0;
   flex: 0 1 178px;
+  justify-content: flex-start;
   align-items: center;
   gap: 8px;
   overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding-left: 10px;
+  padding: 0 9px 0 10px;
   color: var(--muted-foreground);
-  background: var(--background);
   font-size: 0.78rem;
+  font-weight: 400;
   text-transform: none;
   white-space: nowrap;
 }
 
-.github-compact-sort select {
-  height: 100%;
+.github-compact-sort-value {
   min-width: 0;
   flex: 1;
-  border: 0;
-  outline: 0;
-  padding: 0 7px 0 0;
+  overflow: hidden;
   color: var(--foreground);
-  background: transparent;
-  font: inherit;
   font-weight: 650;
+  text-align: left;
+  text-overflow: ellipsis;
+}
+
+.github-compact-sort > svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+}
+
+.github-sort-menu {
+  min-width: 178px;
 }
 
 .github-query-refresh {
@@ -5379,10 +5385,6 @@ textarea,
   flex: 0 0 auto;
 }
 
-.review-console-open-external {
-  margin-left: auto;
-}
-
 .review-console-merge-confirmation {
   display: flex;
   min-width: 0;
@@ -5439,9 +5441,6 @@ textarea,
     overflow-x: visible;
   }
 
-  .review-console-open-external {
-    margin-left: 0;
-  }
 }
 
 .activity-log-status {

@@ -1,6 +1,13 @@
-import { Loader2, RefreshCw, Search, SlidersHorizontal } from "lucide-react";
+import { ChevronDown, Loader2, RefreshCw, Search, SlidersHorizontal } from "lucide-react";
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { Button, TooltipButton } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger
+} from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 interface Option { value: string; label: string; disabled?: boolean }
@@ -30,10 +37,10 @@ export function GitHubQueryToolbar({ view, search, preset, presets, sort, sortOp
   const [draft, setDraft] = useState(search);
   useEffect(() => setDraft(search), [search]);
   useEffect(() => {
-    if (view === "workflows") return;
+    if (view === "workflows" || draft === search) return;
     const timer = setTimeout(() => onSearchChange(draft), 300);
     return () => clearTimeout(timer);
-  }, [draft, onSearchChange, view]);
+  }, [draft, onSearchChange, search, view]);
   const placeholder = view === "workflows" ? "Search loaded runs" : view === "pullRequests" ? "Search open pull requests" : "Search open issues";
   const displayedPlaceholder = compact && view === "pullRequests" ? "Search pull requests" : placeholder;
 
@@ -66,10 +73,7 @@ export function GitHubQueryToolbar({ view, search, preset, presets, sort, sortOp
           <Button type="button" variant="outline" className="github-clear-filters" onClick={onClear}>Clear filters</Button>
         </PopoverContent>
       </Popover>
-      <label className="github-compact-sort" htmlFor={`${id}-sort`}>
-        <span aria-hidden="true">Sort:</span>
-        <select id={`${id}-sort`} aria-label="Sort" value={sort} onChange={(event) => onSortChange(event.target.value)}>{sortOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
-      </label>
+      <CompactSortMenu value={sort} options={sortOptions} onValueChange={onSortChange} />
       {onRefresh ? <TooltipButton type="button" variant="outline" size="icon" className="github-query-refresh" disabled={refreshDisabled || refreshing} aria-label="Refresh pull requests" tooltip="Refresh pull requests" onClick={onRefresh}>
         {refreshing ? <Loader2 className="animate-spin" /> : <RefreshCw />}
       </TooltipButton> : null}
@@ -86,4 +90,22 @@ export function GitHubQueryToolbar({ view, search, preset, presets, sort, sortOp
     {!viewerAvailable && view !== "workflows" ? <span className="github-query-help">Sign in to GitHub to use Mine presets.</span> : null}
     <span className="sr-only" role="status" aria-live="polite">{status}</span>
   </div>;
+}
+
+function CompactSortMenu({ value, options, onValueChange }: { value: string; options: Option[]; onValueChange: (value: string) => void }): ReactNode {
+  const selected = options.find((option) => option.value === value) ?? options[0];
+  return <DropdownMenu>
+    <DropdownMenuTrigger asChild>
+      <Button type="button" variant="outline" className="github-compact-sort" aria-label={`Sort: ${selected?.label ?? "Choose sorting"}`}>
+        <span>Sort:</span>
+        <span className="github-compact-sort-value">{selected?.label ?? "Choose sorting"}</span>
+        <ChevronDown aria-hidden="true" />
+      </Button>
+    </DropdownMenuTrigger>
+    <DropdownMenuContent align="end" className="github-sort-menu">
+      <DropdownMenuRadioGroup value={value} onValueChange={onValueChange}>
+        {options.map((option) => <DropdownMenuRadioItem key={option.value} value={option.value} {...(option.disabled === undefined ? {} : { disabled: option.disabled })}>{option.label}</DropdownMenuRadioItem>)}
+      </DropdownMenuRadioGroup>
+    </DropdownMenuContent>
+  </DropdownMenu>;
 }
