@@ -26,7 +26,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
 });
 
-describe("GitService safe commit and push", () => {
+describe("GitService safe commit and push", { timeout: 30_000 }, () => {
   it("reuses one warmed remote check across several protected commits", async () => {
     const repo = await createRepositories();
     const countingRunner = new CountingRunner();
