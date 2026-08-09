@@ -213,7 +213,7 @@ describe("Git amend service with real Git repositories", { timeout: 30_000 }, ()
       let preview = await ready(repo, "history", "message-only");
       const hook = await repo.service.amendLastCommit({ repoPath: repo.path, source: "history", mode: "message-only", message: "hook message", expectedSnapshotId: preview.snapshotId });
       expect(hook).toMatchObject({ outcome: "failed", amendErrorKind: "hook-rejected", recoveryRef: expect.stringContaining("refs/githead/amend-recovery/") });
-      await fs.chmod(hookPath, 0o644);
+      await fs.rm(hookPath);
 
       const signer = path.join(repo.path, "fail-sign.sh");
       await fs.writeFile(signer, "#!/bin/sh\necho gpg failed to sign the data >&2\nexit 1\n");
@@ -298,7 +298,8 @@ describe("Git amend service with real Git repositories", { timeout: 30_000 }, ()
 
       const hooks = (await repo.run(["rev-parse", "--git-path", "hooks"])).stdout.trim();
       const hookPath = path.resolve(repo.path, hooks, "commit-msg");
-      await fs.writeFile(hookPath, "#!/bin/sh\nsleep 10\n");
+      const hookStartedPath = path.join(repo.path, ".git", "githead-amend-hook-started");
+      await fs.writeFile(hookPath, "#!/bin/sh\n: > .git/githead-amend-hook-started\nsleep 10\n");
       await fs.chmod(hookPath, 0o755);
       const oldHead = await repo.oid("HEAD");
       const cancellableRunner = new CancellableProcessRunner(new NodeProcessRunner());
@@ -307,14 +308,17 @@ describe("Git amend service with real Git repositories", { timeout: 30_000 }, ()
       let preview = (await cancellableService.getAmendPreview({ repoPath: repo.path, source: "history", mode: "message-only" })).preview!;
       const cancelController = new AbortController();
       const cancelledPromise = cancellableRunner.runWithSignal(cancelController.signal, () => cancellableService.amendLastCommit({ repoPath: repo.path, source: "history", mode: "message-only", message: "cancelled amend", expectedSnapshotId: preview.snapshotId }));
-      setTimeout(() => cancelController.abort(new DOMException("Cancelled", "AbortError")), 250);
+      await waitForFile(hookStartedPath);
+      cancelController.abort(new DOMException("Cancelled", "AbortError"));
       await expect(cancelledPromise).resolves.toMatchObject({ outcome: "cancelled", amendErrorKind: "cancelled" });
       expect(await repo.oid("HEAD")).toBe(oldHead);
 
+      await fs.rm(hookStartedPath);
       preview = (await cancellableService.getAmendPreview({ repoPath: repo.path, source: "history", mode: "message-only" })).preview!;
       const timeoutController = new AbortController();
       const timedOutPromise = cancellableRunner.runWithSignal(timeoutController.signal, () => cancellableService.amendLastCommit({ repoPath: repo.path, source: "history", mode: "message-only", message: "timed out amend", expectedSnapshotId: preview.snapshotId }));
-      setTimeout(() => timeoutController.abort(new DOMException("Timed out", "TimeoutError")), 250);
+      await waitForFile(hookStartedPath);
+      timeoutController.abort(new DOMException("Timed out", "TimeoutError"));
       await expect(timedOutPromise).resolves.toMatchObject({ outcome: "timed-out", amendErrorKind: "timed-out" });
       expect(await repo.oid("HEAD")).toBe(oldHead);
     });
@@ -362,4 +366,13 @@ async function ready(
   expect(result.outcome).toBe("ready");
   expect(result.preview).toBeTruthy();
   return result.preview!;
+}
+
+async function waitForFile(filePath: string): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    if (await fs.stat(filePath).then(() => true, () => false)) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`Timed out waiting for ${filePath}.`);
 }
