@@ -331,6 +331,27 @@ export function createGitheadMock(): GitheadApi {
     stageHunk: vi.fn().mockResolvedValue(okOperation),
     unstageHunk: vi.fn().mockResolvedValue(okOperation),
     commitChanges: vi.fn().mockResolvedValue(okOperation),
+    getAmendPreview: vi.fn().mockResolvedValue({
+      outcome: "failed",
+      preview: null,
+      message: "No amend preview is configured for this test."
+    }),
+    amendLastCommit: vi.fn().mockResolvedValue({
+      ...okOperation,
+      outcome: "completed",
+      message: "The last commit was amended.",
+      previousHeadOid: "a".repeat(40),
+      headOid: "b".repeat(40),
+      recoveryRef: "refs/githead/amend-recovery/test"
+    }),
+    restoreAmendRecovery: vi.fn().mockResolvedValue({
+      ...okOperation,
+      outcome: "completed",
+      message: "The old commit is HEAD again.",
+      previousHeadOid: "b".repeat(40),
+      headOid: "a".repeat(40),
+      recoveryRef: "refs/githead/amend-recovery/test-restore"
+    }),
     quickCommitFiles: vi.fn().mockResolvedValue(okOperation),
     createStash: vi.fn().mockResolvedValue(okOperation),
     applyStash: vi.fn().mockResolvedValue(okOperation),

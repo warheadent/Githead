@@ -13,6 +13,12 @@ import type {
   GitRenameBranchRequest,
   GitDeleteBranchRequest,
   GitAddRemoteRequest,
+  GitAmendExecuteRequest,
+  GitAmendPreviewRequest,
+  GitAmendPreviewResult,
+  GitAmendRestoreRequest,
+  GitAmendRestoreResult,
+  GitAmendResult,
   GitCloneRequest,
   GitConfiguredAction,
   GitConfiguredActionRunRequest,
@@ -119,6 +125,7 @@ import { runProcessEffect } from "./processEffect";
 import { GIT_STASH_LIST_FORMAT, isGitStashRef, parseGitStashFiles, parseGitStashList } from "./gitStash";
 import { formatRevertCommitMessage } from "../shared/revertCommitMessage";
 import { GitOperationRecoveryService } from "./gitOperationRecovery";
+import { GitAmendService } from "./gitAmendService";
 import { createIntegrationRunId, GitIntegrationService } from "./gitIntegrationService";
 import { planGitPush, type GitPushCommandPlan, type ValidatedGitPushTarget } from "./gitPushPlan";
 
@@ -203,10 +210,12 @@ export class GitService {
   private readonly lfsMediaDirs = new Map<string, string>();
   private readonly operationRecovery: GitOperationRecoveryService;
   private readonly integration: GitIntegrationService;
+  private readonly amend: GitAmendService;
 
   constructor(private readonly runner: ProcessRunner, operationRecovery?: GitOperationRecoveryService) {
     this.operationRecovery = operationRecovery ?? new GitOperationRecoveryService(runner);
     this.integration = new GitIntegrationService(runner, this.operationRecovery);
+    this.amend = new GitAmendService(runner, this.operationRecovery);
   }
 
   async getRepoSummary(repoPath: string): Promise<RepoSummary> {
@@ -944,6 +953,63 @@ export class GitService {
     }
 
     return result;
+  }
+
+  async getAmendPreview(request: GitAmendPreviewRequest): Promise<GitAmendPreviewResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    return validation.isValid
+      ? this.amend.preview(request)
+      : { outcome: "failed", preview: null, message: validation.validationErrors.join(" ") };
+  }
+
+  async amendLastCommit(
+    request: GitAmendExecuteRequest,
+    onOutput?: GitOutputHandler
+  ): Promise<GitAmendResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      const message = validation.validationErrors.join(" ");
+      return {
+        repoPath: request.repoPath,
+        exitCode: -1,
+        stdout: "",
+        stderr: message,
+        outcome: "failed",
+        message,
+        previousHeadOid: null,
+        headOid: null,
+        recoveryRef: null
+      };
+    }
+    const runId = `amend-${randomUUID()}`;
+    return this.amend.execute(request, (output) => {
+      onOutput?.(this.createOutputEvent(runId, "amend", output.stream, output.text));
+    });
+  }
+
+  async restoreAmendRecovery(
+    request: GitAmendRestoreRequest,
+    onOutput?: GitOutputHandler
+  ): Promise<GitAmendRestoreResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      const message = validation.validationErrors.join(" ");
+      return {
+        repoPath: request.repoPath,
+        exitCode: -1,
+        stdout: "",
+        stderr: message,
+        outcome: "failed",
+        message,
+        previousHeadOid: null,
+        headOid: null,
+        recoveryRef: null
+      };
+    }
+    const runId = `amend-restore-${randomUUID()}`;
+    return this.amend.restore(request, (output) => {
+      onOutput?.(this.createOutputEvent(runId, "amend restore", output.stream, output.text));
+    });
   }
 
   async quickCommitFiles(request: GitQuickCommitRequest): Promise<GitOperationResult> {

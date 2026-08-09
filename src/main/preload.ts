@@ -25,6 +25,9 @@ import type {
   GitRenameBranchRequest,
   GitDeleteBranchRequest,
   GitAddRemoteRequest,
+  GitAmendExecuteRequest,
+  GitAmendPreviewRequest,
+  GitAmendRestoreRequest,
   GitCloneRequest,
   GitConfiguredActionRunRequest,
   GitConfiguredActionSaveRequest,
@@ -200,6 +203,12 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.unstageHunk, request) as ReturnType<GitheadApi["unstageHunk"]>,
   commitChanges: (request: CoordinatedRequest<GitCommitRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.commitChanges, request) as ReturnType<GitheadApi["commitChanges"]>,
+  getAmendPreview: (request: GitAmendPreviewRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getAmendPreview, request) as ReturnType<GitheadApi["getAmendPreview"]>,
+  amendLastCommit: (request: CoordinatedRequest<GitAmendExecuteRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.amendLastCommit, request) as ReturnType<GitheadApi["amendLastCommit"]>,
+  restoreAmendRecovery: (request: CoordinatedRequest<GitAmendRestoreRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.restoreAmendRecovery, request) as ReturnType<GitheadApi["restoreAmendRecovery"]>,
   quickCommitFiles: (request: CoordinatedRequest<GitQuickCommitRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.quickCommitFiles, request) as ReturnType<GitheadApi["quickCommitFiles"]>,
   createStash: (request: CoordinatedRequest<GitStashCreateRequest>) =>

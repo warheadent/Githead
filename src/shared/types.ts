@@ -756,6 +756,105 @@ export interface GitCommitRequest {
   message: string;
 }
 
+export type GitAmendMode = "message-only" | "staged-edit" | "staged-keep";
+export type GitAmendEntryPoint = "history" | "composer";
+
+export interface GitAmendPreviewRequest {
+  repoPath: string;
+  source: GitAmendEntryPoint;
+  mode?: GitAmendMode;
+}
+
+export interface GitAmendStagedFile {
+  path: string;
+  originalPath?: string;
+  status: string;
+}
+
+export interface GitAmendRecoveryPoint {
+  ref: string;
+  oid: string;
+  shortOid: string;
+  subject: string;
+  commitDate: string;
+  restoreToken: string;
+}
+
+export interface GitAmendPreview {
+  repoPath: string;
+  repositoryId: string;
+  snapshotId: string;
+  source: GitAmendEntryPoint;
+  mode: GitAmendMode;
+  defaultMode: GitAmendMode;
+  currentBranch: string | null;
+  headOid: string;
+  shortHeadOid: string;
+  subject: string;
+  message: string;
+  authorName: string;
+  authorEmail: string;
+  commitDate: string;
+  stagedFiles: GitAmendStagedFile[];
+  indexFingerprint: string;
+  upstream: string | null;
+  publication: "published" | "local-ahead" | "local" | "unknown";
+  publishedRefs: string[];
+  blockingReasons: string[];
+  recoveryPoints: GitAmendRecoveryPoint[];
+}
+
+export interface GitAmendPreviewResult {
+  outcome: "ready" | "blocked" | "failed";
+  preview: GitAmendPreview | null;
+  message: string;
+}
+
+export interface GitAmendExecuteRequest {
+  repoPath: string;
+  source: GitAmendEntryPoint;
+  mode: GitAmendMode;
+  message: string;
+  expectedSnapshotId: string;
+}
+
+export type GitAmendErrorKind =
+  | "missing-author-identity"
+  | "hook-rejected"
+  | "signing-failed"
+  | "invalid-message"
+  | "noninteractive-prompt"
+  | "stale"
+  | "no-head"
+  | "operation-active"
+  | "cancelled"
+  | "timed-out"
+  | "verification-failed";
+
+export interface GitAmendResult extends GitOperationResult {
+  outcome: "completed" | "stale" | "cancelled" | "timed-out" | "failed";
+  message: string;
+  previousHeadOid: string | null;
+  headOid: string | null;
+  recoveryRef: string | null;
+  amendErrorKind?: GitAmendErrorKind;
+  viewRefreshWarning?: string;
+}
+
+export interface GitAmendRestoreRequest {
+  repoPath: string;
+  recoveryRef: string;
+  expectedRestoreToken: string;
+}
+
+export interface GitAmendRestoreResult extends GitOperationResult {
+  outcome: "completed" | "stale" | "cancelled" | "timed-out" | "failed";
+  message: string;
+  previousHeadOid: string | null;
+  headOid: string | null;
+  recoveryRef: string | null;
+}
+
 export interface GitQuickCommitRequest extends GitCommitRequest {
   paths: string[];
 }
@@ -1799,6 +1898,9 @@ export interface GitheadApi {
   stageHunk(request: CoordinatedRequest<GitHunkRequest>): Promise<GitOperationResult>;
   unstageHunk(request: CoordinatedRequest<GitHunkRequest>): Promise<GitOperationResult>;
   commitChanges(request: CoordinatedRequest<GitCommitRequest>): Promise<GitOperationResult>;
+  getAmendPreview(request: GitAmendPreviewRequest): Promise<GitAmendPreviewResult>;
+  amendLastCommit(request: CoordinatedRequest<GitAmendExecuteRequest>): Promise<GitAmendResult>;
+  restoreAmendRecovery(request: CoordinatedRequest<GitAmendRestoreRequest>): Promise<GitAmendRestoreResult>;
   quickCommitFiles(request: CoordinatedRequest<GitQuickCommitRequest>): Promise<GitOperationResult>;
   createStash(request: CoordinatedRequest<GitStashCreateRequest>): Promise<GitOperationResult>;
   applyStash(request: CoordinatedRequest<GitStashRefRequest>): Promise<GitOperationResult>;

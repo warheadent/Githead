@@ -13,6 +13,7 @@ import {
   FolderOpen,
   Folder,
   GitFork,
+  GitCommitHorizontal,
   GitBranch as GitBranchIcon,
   GitPullRequest,
   GripVertical,
@@ -136,6 +137,11 @@ import type {
   GenerateCommitPlanResult,
   GitBranch,
   GitAction,
+  GitAmendEntryPoint,
+  GitAmendExecuteRequest,
+  GitAmendRestoreRequest,
+  GitAmendRestoreResult,
+  GitAmendResult,
   GitConfiguredActionFile,
   GitConfiguredAction,
   GitConfiguredActionFileConfig,
@@ -201,6 +207,7 @@ import { ActivityLogPanel } from "./ActivityLogPanel";
 import { CommitPlanView } from "./CommitPlanView";
 import { BranchManagementDialog } from "./BranchManagementDialog";
 import { GitIntegrationDialog } from "./GitIntegrationDialog";
+import { AmendDialog } from "./AmendDialog";
 import { WorktreeCreateDialog, WorktreeRemoveDialog } from "./WorktreeDialogs";
 import { PullRecoveryDialog } from "./PullRecoveryDialog";
 import { GitOperationRecoveryBanner } from "./GitOperationRecoveryBanner";
@@ -488,6 +495,7 @@ type RepositoryRefreshReason = "filesystem" | "focus" | "repository-change" | "o
 
 interface AppRepositoryRefreshRequest extends RepositoryRefreshRequest<RepositoryRefreshReason> {
   addToRecents?: boolean;
+  preserveWorkspaceOnFailure?: boolean;
   recentAnchorPath?: string;
   silent?: boolean;
   statusOnly?: boolean;
@@ -898,6 +906,8 @@ export function App(): ReactNode {
   const [stashComposer, setStashComposer] = useState<StashComposerState>(emptyStashComposer);
   const [repositorySettingsPath, setRepositorySettingsPath] = useState("");
   const [integrationDialog, setIntegrationDialog] = useState<IntegrationDialogState>(null);
+  const [amendDialogSource, setAmendDialogSource] = useState<GitAmendEntryPoint | null>(null);
+  const amendReturnFocusRef = useRef<HTMLElement | null>(null);
   const [forceLeaseOffer, setForceLeaseOffer] = useState<GitForceWithLeaseOffer | null>(null);
   const [workflowQuery, setWorkflowQuery] = useState<GitHubWorkflowRunQuery>({ ...DEFAULT_WORKFLOW_QUERY });
   const [workflowSearch, setWorkflowSearch] = useState("");
@@ -950,6 +960,7 @@ export function App(): ReactNode {
     remoteConfigs: 0
   });
   const repositorySnapshots = useRef(new RepositorySnapshotCache());
+  const lastRepositoryRefreshRef = useRef<{ repoPath: string; succeeded: boolean } | null>(null);
   const runRepoRefreshRef = useRef<(
     repoPath: string,
     request: AppRepositoryRefreshRequest,
@@ -1256,7 +1267,7 @@ export function App(): ReactNode {
     }
   }, [loadCommitFileDiff, updateState]);
 
-  const loadCommitHistory = useCallback(async (force: boolean): Promise<void> => {
+  const loadCommitHistory = useCallback(async (force: boolean): Promise<boolean> => {
     const current = stateRef.current;
     if (!current.summary?.isValid) {
       updateState({
@@ -1264,11 +1275,11 @@ export function App(): ReactNode {
         historyLoaded: false,
         historyError: current.summary?.validationErrors.join(" ") ?? ""
       });
-      return;
+      return false;
     }
 
     if (current.historyLoaded && !force) {
-      return;
+      return true;
     }
 
     const repoPath = current.repoPath;
@@ -1293,7 +1304,7 @@ export function App(): ReactNode {
       });
 
       if (requestId !== requestIds.current.history) {
-        return;
+        return false;
       }
 
       const latest = stateRef.current;
@@ -1343,6 +1354,7 @@ export function App(): ReactNode {
           });
         }
       }
+      return false;
     } finally {
       if (requestId === requestIds.current.history) {
         updateState({
@@ -1354,6 +1366,7 @@ export function App(): ReactNode {
     if (commitHashToLoad) {
       await loadCommitDetails(commitHashToLoad);
     }
+    return true;
   }, [loadCommitDetails, updateState]);
 
   const changeHistoryScope = useCallback((scope: CommitHistoryScope): void => {
@@ -1552,6 +1565,7 @@ export function App(): ReactNode {
     requestIds.current.repo = requestId;
     const fileStatusGeneration = fileStatusGenerationRef.current;
     let refreshSucceeded = false;
+    lastRepositoryRefreshRef.current = { repoPath, succeeded: false };
     repoRefreshInFlightRef.current = true;
 
     const cancelRefreshReads = (): void => {
@@ -1609,6 +1623,7 @@ export function App(): ReactNode {
         fileStatusGeneration
       );
       refreshSucceeded = Boolean(status);
+      lastRepositoryRefreshRef.current = { repoPath, succeeded: Boolean(status && metadata) };
       updateState((current) => reconcileGitHubUiState(reconcileSelection({
         ...current,
         summary,
@@ -1663,6 +1678,19 @@ export function App(): ReactNode {
     } catch (error) {
       if (signal.aborted) return;
       if (requestId === requestIds.current.repo && isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        lastRepositoryRefreshRef.current = { repoPath, succeeded: false };
+        if (options.preserveWorkspaceOnFailure && stateRef.current.summary?.isValid) {
+          updateState((current) => ({
+            ...current,
+            lastOperationResult: {
+              repoPath,
+              exitCode: -1,
+              stdout: "",
+              stderr: error instanceof Error ? error.message : "Unable to refresh the repository view."
+            }
+          }));
+          return;
+        }
         if (options.statusOnly && stateRef.current.summary?.isValid) {
           updateState((current) => ({ ...current, lastOperationResult: { repoPath, exitCode: -1, stdout: "", stderr: error instanceof Error ? error.message : "Unable to refresh File Status." } }));
           return;
@@ -3305,6 +3333,7 @@ export function App(): ReactNode {
       requireValidRepo?: boolean;
       cancellable?: boolean;
       successFeedback?: { action: "commit"; surface: OperationButtonFeedbackSurface };
+      refreshAfter?: boolean;
     } = {}
   ): Promise<GitOperationResult | null> => {
     const current = stateRef.current;
@@ -3400,7 +3429,7 @@ export function App(): ReactNode {
 
         return next;
       });
-      if (completionIsCurrent) {
+      if (completionIsCurrent && options.refreshAfter !== false) {
         void refreshRepo({ reason: "operation" });
       }
     }
@@ -4871,6 +4900,68 @@ export function App(): ReactNode {
     return result;
   }, [ensureTrustedRepo, isInvocationCurrent, openGitIdentityPrompt, runRepoOperation, updateState]);
 
+  const openAmendDialog = useCallback((source: GitAmendEntryPoint, commitHash?: string): void => {
+    const current = stateRef.current;
+    if (!current.summary?.isValid || current.summary.kind !== "git" || !current.summary.hasHead) return;
+    amendReturnFocusRef.current = source === "history" && commitHash
+      ? document.querySelector<HTMLElement>(`[data-commit-hash="${commitHash}"]`)
+      : document.querySelector<HTMLElement>("[data-amend-composer-trigger]");
+    setAmendDialogSource(source);
+  }, []);
+
+  const refreshAfterAmend = useCallback(async (repoPath: string): Promise<boolean> => {
+    await refreshRepo({ reason: "operation", preserveWorkspaceOnFailure: true });
+    const secondaryResults = await Promise.allSettled([
+      loadCommitHistory(true),
+      loadGitIdentity(repoPath)
+    ]);
+    const primaryRefresh = lastRepositoryRefreshRef.current;
+    return Boolean(
+      isSameRepoPath(repoPath, stateRef.current.repoPath)
+      && stateRef.current.summary?.isValid
+      && primaryRefresh
+      && isSameRepoPath(primaryRefresh.repoPath, repoPath)
+      && primaryRefresh.succeeded
+      && secondaryResults.every((result) => result.status === "fulfilled" && Boolean(result.value))
+    );
+  }, [loadCommitHistory, loadGitIdentity, refreshRepo]);
+
+  const amendLastCommit = useCallback(async (request: GitAmendExecuteRequest): Promise<GitAmendResult | null> => {
+    const current = stateRef.current;
+    const repoPath = current.repoPath;
+    if (!current.summary?.isValid || current.summary.kind !== "git" || isOperationRunning(current)) return null;
+    if (!(await ensureTrustedRepo(repoPath)) || !isSameRepoPath(repoPath, stateRef.current.repoPath)) return null;
+    const result = await runRepoOperation(
+      "Amending last commit",
+      undefined,
+      (operationId) => window.githead.amendLastCommit({ ...request, operationId }),
+      { refreshAfter: false }
+    ) as GitAmendResult | null;
+    if (!result || !isSameRepoPath(repoPath, stateRef.current.repoPath)) return result;
+    const refreshed = await refreshAfterAmend(repoPath);
+    if (result.amendErrorKind === "missing-author-identity") {
+      await openGitIdentityPrompt(repoPath, request.message);
+    }
+    return result.outcome === "completed" && !refreshed
+      ? { ...result, viewRefreshWarning: "The commit was amended, but Githead could not refresh every view. The view may be stale. Reopen the repository before you retry any operation." }
+      : result;
+  }, [ensureTrustedRepo, openGitIdentityPrompt, refreshAfterAmend, runRepoOperation]);
+
+  const restoreAmendRecovery = useCallback(async (request: GitAmendRestoreRequest): Promise<GitAmendRestoreResult | null> => {
+    const current = stateRef.current;
+    const repoPath = current.repoPath;
+    if (!current.summary?.isValid || current.summary.kind !== "git" || isOperationRunning(current)) return null;
+    if (!(await ensureTrustedRepo(repoPath)) || !isSameRepoPath(repoPath, stateRef.current.repoPath)) return null;
+    const result = await runRepoOperation(
+      "Restoring amend recovery point",
+      undefined,
+      (operationId) => window.githead.restoreAmendRecovery({ ...request, operationId }),
+      { refreshAfter: false }
+    ) as GitAmendRestoreResult | null;
+    if (result && isSameRepoPath(repoPath, stateRef.current.repoPath)) await refreshAfterAmend(repoPath);
+    return result;
+  }, [ensureTrustedRepo, refreshAfterAmend, runRepoOperation]);
+
   const generateCommitPlan = useCallback(async (paths: string[]): Promise<GenerateCommitPlanResult | null> => {
     const current = stateRef.current;
     if (!current.summary?.isValid || current.summary.kind !== "git" || isOperationRunning(current)) return null;
@@ -5597,8 +5688,13 @@ export function App(): ReactNode {
       return;
     }
 
+    if (action === "amend") {
+      openAmendDialog("history", commit.hash);
+      return;
+    }
+
     void copyCommitShaToClipboard(commit);
-  }, [copyCommitShaToClipboard, openResetCommitDialog, openRevertCommitDialog, openTagDialog, selectCommit]);
+  }, [copyCommitShaToClipboard, openAmendDialog, openResetCommitDialog, openRevertCommitDialog, openTagDialog, selectCommit]);
 
   const runCommitFileContextAction = useCallback((file: GitCommitChangedFile, action: CommitFileContextActionKind): void => {
     const repoPath = stateRef.current.repoPath;
@@ -6811,6 +6907,8 @@ export function App(): ReactNode {
                   onSelectCommit={selectCommit}
                   onSelectCommitFile={selectCommitFile}
                   onCommitContextAction={runCommitContextAction}
+                  currentHeadHash={getCurrentHistoryHeadSha(state.history, state.historyScope, state.summary?.branch ?? null)}
+                  amendDisabledReason={getAmendDisabledReason(state)}
                   onCommitFileContextAction={runCommitFileContextAction}
                   onDownloadImage={() => { void downloadCommitLfsPreview(); }}
                   onWrapLinesChange={setWrapDiffLines}
@@ -6928,6 +7026,11 @@ export function App(): ReactNode {
                 onCommitAndPush={() => {
                   void commitAndPush();
                 }}
+                showAmendAction={state.summary?.kind === "git"}
+                canAmend={Boolean(state.summary?.kind === "git" && state.summary.hasHead)}
+                amendDisabled={disableUnrelatedMutations}
+                amendDisabledReason={getAmendDisabledReason(state)}
+                onOpenAmend={() => openAmendDialog("composer")}
                 onGenerateMessage={() => {
                   void generateCommitMessage();
                 }}
@@ -6987,6 +7090,21 @@ export function App(): ReactNode {
           }
         }}
       />
+
+      {amendDialogSource ? (
+        <AmendDialog
+          open
+          repoPath={state.repoPath}
+          source={amendDialogSource}
+          busy={running}
+          returnFocusRef={amendReturnFocusRef}
+          onOpenChange={(open) => {
+            if (!open) requestModalClose(["repo-operation"], () => setAmendDialogSource(null));
+          }}
+          onRun={amendLastCommit}
+          onRestore={restoreAmendRecovery}
+        />
+      ) : null}
 
       <RedesignedSettingsDialog
         open={state.settingsOpen}
@@ -9481,7 +9599,7 @@ function StatusView({
 }
 
 type ContextActionKind = "open" | "show" | "copy" | "toggle-stage" | "stash" | "delete" | "revert" | "ignore" | "update-submodule";
-type CommitContextActionKind = "tag" | "reset" | "revert" | "cherry-pick" | "copy";
+type CommitContextActionKind = "amend" | "tag" | "reset" | "revert" | "cherry-pick" | "copy";
 type CommitFileContextActionKind = "log" | "blame" | "reset" | "open-current" | "open-selected" | "copy";
 
 function FileGroup({
@@ -10239,6 +10357,8 @@ function HistoryView({
   commitFileDiffError,
   wrapLines,
   allowCherryPickingContainedCommits,
+  currentHeadHash,
+  amendDisabledReason,
   disabled,
   insights,
   insightsLoading,
@@ -10268,6 +10388,8 @@ function HistoryView({
   commitFileDiffError: string;
   wrapLines: boolean;
   allowCherryPickingContainedCommits: boolean;
+  currentHeadHash: string | null;
+  amendDisabledReason: string | null;
   disabled: boolean;
   insights: import("../shared/types").GitHubHistoryInsights;
   insightsLoading: boolean;
@@ -10384,6 +10506,9 @@ function HistoryView({
                       tagsEnabled={summary?.capabilities.tags ?? true}
                       containedInCurrentBranch={historyScope === "current"}
                       allowCherryPickingContainedCommits={allowCherryPickingContainedCommits}
+                      isHead={commit.hash === currentHeadHash}
+                      amendDisabled={disabled}
+                      amendDisabledReason={amendDisabledReason}
                       {...(associations.get(commit.hash) ? { association: associations.get(commit.hash)! } : {})}
                       onOpenExternalUrl={onOpenExternalUrl}
                       onSelectCommit={onSelectCommit}
@@ -10986,6 +11111,9 @@ interface HistoryRowProps {
   tagsEnabled: boolean;
   containedInCurrentBranch: boolean;
   allowCherryPickingContainedCommits: boolean;
+  isHead: boolean;
+  amendDisabled: boolean;
+  amendDisabledReason: string | null;
   association?: GitHubCommitAssociation;
   onOpenExternalUrl: (url: string) => void;
   onSelectCommit: (hash: string) => void;
@@ -11000,6 +11128,9 @@ const HistoryRow = memo(function HistoryRow({
   tagsEnabled,
   containedInCurrentBranch,
   allowCherryPickingContainedCommits,
+  isHead,
+  amendDisabled,
+  amendDisabledReason,
   association,
   onOpenExternalUrl,
   onSelectCommit,
@@ -11023,10 +11154,22 @@ const HistoryRow = memo(function HistoryRow({
           role="option"
           tabIndex={0}
           aria-selected={selected}
+          data-commit-hash={commit.hash}
           data-virtual-index={virtualRowProps["aria-posinset"] - 1}
           {...virtualRowProps}
           onClick={() => onSelectCommit(commit.hash)}
           onKeyDown={(event) => {
+            if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+              event.preventDefault();
+              const bounds = event.currentTarget.getBoundingClientRect();
+              event.currentTarget.dispatchEvent(new globalThis.MouseEvent("contextmenu", {
+                bubbles: true,
+                clientX: bounds.left + 24,
+                clientY: bounds.top + 20,
+                button: 2
+              }));
+              return;
+            }
             if (event.key === "Enter" || event.key === " ") {
               event.preventDefault();
               onSelectCommit(commit.hash);
@@ -11092,6 +11235,21 @@ const HistoryRow = memo(function HistoryRow({
           <RotateCcw />
           Reverse commit
         </ContextMenuItem>
+        {isHead ? (
+          <TooltipTarget
+            content={amendDisabled ? amendDisabledReason ?? "Wait for the current Git operation to finish." : undefined}
+            contentProps={{ side: "right", sideOffset: 8 }}
+          >
+            <ContextMenuItem
+              disabled={amendDisabled}
+              className={amendDisabled ? "data-[disabled]:pointer-events-auto" : undefined}
+              onSelect={() => onCommitContextAction(commit, "amend")}
+            >
+              <GitCommitHorizontal />
+              Amend last commit…
+            </ContextMenuItem>
+          </TooltipTarget>
+        ) : null}
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={() => onCommitContextAction(commit, "copy")}>
           <Clipboard />
@@ -11425,6 +11583,11 @@ function CommitPanel({
   generateTitle,
   onCommit,
   onCommitAndPush,
+  showAmendAction,
+  canAmend,
+  amendDisabled,
+  amendDisabledReason,
+  onOpenAmend,
   onGenerateMessage,
   onOpenGenerateWithContext,
   onCommitMessageChange
@@ -11440,6 +11603,11 @@ function CommitPanel({
   generateTitle: string;
   onCommit: () => void;
   onCommitAndPush: () => void;
+  showAmendAction: boolean;
+  canAmend: boolean;
+  amendDisabled: boolean;
+  amendDisabledReason: string | null;
+  onOpenAmend: () => void;
   onGenerateMessage: () => void;
   onOpenGenerateWithContext: () => void;
   onCommitMessageChange: (message: string) => void;
@@ -11512,7 +11680,7 @@ function CommitPanel({
             disabled={commitDisabled}
             onClick={onCommit}
             aria-label={primaryActionAriaLabel}
-            className={primaryCommitAction === "commit" ? "rounded-r-none" : ""}
+            className={primaryCommitAction === "commit" || showAmendAction ? "rounded-r-none" : ""}
           >
             <OperationButtonFeedback
               action={feedbackAction}
@@ -11529,23 +11697,42 @@ function CommitPanel({
               ) : null}
             </OperationButtonFeedback>
           </Button>
-          {primaryCommitAction === "commit" ? (
+          {primaryCommitAction === "commit" || showAmendAction ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
                   type="button"
-                  disabled={disabled || !commitAllowed}
+                  disabled={!showAmendAction && (disabled || !commitAllowed)}
                   aria-label="More commit actions"
+                  data-amend-composer-trigger
                   className="rounded-l-none border-l-primary-foreground/25 px-2"
                 >
                   <ChevronDown />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" side="top">
-                <DropdownMenuItem onSelect={onCommitAndPush}>
-                  <Upload />
-                  Commit &amp; Push
-                </DropdownMenuItem>
+                {primaryCommitAction === "commit" ? (
+                  <DropdownMenuItem disabled={disabled || !commitAllowed} onSelect={onCommitAndPush}>
+                    <Upload />
+                    Commit &amp; Push
+                  </DropdownMenuItem>
+                ) : null}
+                {primaryCommitAction === "commit" && showAmendAction ? <DropdownMenuSeparator /> : null}
+                {showAmendAction ? (
+                  <TooltipTarget
+                    content={!canAmend ? "This repository has no commit to amend." : amendDisabled ? amendDisabledReason ?? "Wait for the current Git operation to finish." : undefined}
+                    contentProps={{ side: "left", sideOffset: 8 }}
+                  >
+                    <DropdownMenuItem
+                      disabled={!canAmend || amendDisabled}
+                      className={!canAmend || amendDisabled ? "data-[disabled]:pointer-events-auto" : undefined}
+                      onSelect={onOpenAmend}
+                    >
+                      <GitCommitHorizontal />
+                      Amend last commit…
+                    </DropdownMenuItem>
+                  </TooltipTarget>
+                ) : null}
               </DropdownMenuContent>
             </DropdownMenu>
           ) : null}
@@ -13160,6 +13347,17 @@ function isOperationRunning(state: AppState): boolean {
     state.gitIdentitySaving ||
     state.actionManager.savingTarget
   );
+}
+
+function getAmendDisabledReason(state: AppState): string | null {
+  const operation = state.summary?.operationState;
+  if (operation) {
+    return `Finish or abort the active ${operation.kind === "cherry-pick" ? "cherry-pick" : operation.kind} first.`;
+  }
+  if (isOperationRunning(state)) {
+    return "Wait for the current Git operation to finish.";
+  }
+  return null;
 }
 
 function hasProcessRunInFlight(state: AppState): boolean {

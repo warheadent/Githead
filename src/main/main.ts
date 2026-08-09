@@ -30,6 +30,11 @@ import type {
   GitRenameBranchRequest,
   GitDeleteBranchRequest,
   GitAddRemoteRequest,
+  GitAmendExecuteRequest,
+  GitAmendPreviewRequest,
+  GitAmendRestoreRequest,
+  GitAmendRestoreResult,
+  GitAmendResult,
   GitCloneRequest,
   GitConfiguredActionRunRequest,
   GitConfiguredActionSaveRequest,
@@ -661,6 +666,62 @@ ipcMain.handle(IPC_CHANNELS.commitChanges, async (event, request: CoordinatedReq
   return runTrustedExclusiveGitOperation(
     async () => (await vcsRouter.serviceForRepo(request.repoPath)).commitChanges(request),
     repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
+});
+
+ipcMain.handle(IPC_CHANNELS.getAmendPreview, async (_event, request: GitAmendPreviewRequest) => {
+  return gitService.getAmendPreview(request);
+});
+
+ipcMain.handle(IPC_CHANNELS.amendLastCommit, async (event, request: CoordinatedRequest<GitAmendExecuteRequest>) => {
+  return runTrustedExclusiveRepositoryOperation(
+    async () => withOwnedGitOutput(event, (onOutput) => gitService.amendLastCommit(request, onOutput)),
+    repositoryOperationOptions(event, request.operationId, request.repoPath, LOCAL_OPERATION_TIMEOUT_MS, true),
+    (failure): GitAmendResult => ({
+      ...failure,
+      outcome: "failed",
+      message: failure.stderr,
+      previousHeadOid: null,
+      headOid: null,
+      recoveryRef: null
+    }),
+    (): GitAmendResult => ({
+      repoPath: request.repoPath,
+      exitCode: -1,
+      stdout: "",
+      stderr: "Another Git command is already running for this repository or a linked worktree.",
+      outcome: "failed",
+      message: "Another Git command is already running for this repository or a linked worktree.",
+      previousHeadOid: null,
+      headOid: null,
+      recoveryRef: null
+    })
+  );
+});
+
+ipcMain.handle(IPC_CHANNELS.restoreAmendRecovery, async (event, request: CoordinatedRequest<GitAmendRestoreRequest>) => {
+  return runTrustedExclusiveRepositoryOperation(
+    async () => withOwnedGitOutput(event, (onOutput) => gitService.restoreAmendRecovery(request, onOutput)),
+    repositoryOperationOptions(event, request.operationId, request.repoPath, LOCAL_OPERATION_TIMEOUT_MS, true),
+    (failure): GitAmendRestoreResult => ({
+      ...failure,
+      outcome: "failed",
+      message: failure.stderr,
+      previousHeadOid: null,
+      headOid: null,
+      recoveryRef: null
+    }),
+    (): GitAmendRestoreResult => ({
+      repoPath: request.repoPath,
+      exitCode: -1,
+      stdout: "",
+      stderr: "Another Git command is already running for this repository or a linked worktree.",
+      outcome: "failed",
+      message: "Another Git command is already running for this repository or a linked worktree.",
+      previousHeadOid: null,
+      headOid: null,
+      recoveryRef: null
+    })
   );
 });
 
