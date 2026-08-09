@@ -4479,17 +4479,22 @@ textarea,
   width: 100%;
   height: 43px;
   justify-content: flex-start;
-  gap: 18px;
-  overflow-x: auto;
+  gap: clamp(8px, 3cqi, 18px);
+  overflow: hidden;
   border-bottom: 1px solid var(--border);
-  padding: 0 20px;
+  padding: 0 clamp(12px, 4cqi, 20px);
 }
 
 .review-console-tab-list [role="tab"] {
-  flex: 0 0 auto;
+  min-width: 0;
+  flex: 0 1 auto;
   height: 43px;
   padding: 0 2px;
   font-size: 0.8rem;
+}
+
+.review-console-tab-list [role="tab"]::after {
+  bottom: 0;
 }
 
 .review-console-single-tab > button {
@@ -5136,6 +5141,12 @@ textarea,
 
   .review-console-inspector-row {
     grid-template-columns: minmax(72px, 44%) minmax(0, 1fr);
+  }
+
+  .review-console-tab-count {
+    min-width: 18px;
+    padding-right: 5px;
+    padding-left: 5px;
   }
 
   .review-console-footer {
