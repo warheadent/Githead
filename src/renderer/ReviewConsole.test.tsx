@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
+  createIssue,
+  createIssueDetail,
   createPullRequest,
   createPullRequestDetail,
   defer,
@@ -88,6 +90,37 @@ describe("ReviewConsole", () => {
     })));
     await waitFor(() => expect(githead.getGitHubPullRequestDetail).toHaveBeenCalledTimes(2));
     expect((screen.getByRole("textbox", { name: "Write a comment" }) as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("shows supported issue metadata and backed external links", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getGitHubIssueDetail).mockResolvedValue({ ok: true, data: createIssueDetail({
+      number: 12,
+      title: "Issue console",
+      state: "closed",
+      closedAt: "2026-05-31T10:00:00Z",
+      comments: [{ id: "comment-1", kind: "issue", author: { login: "alex", avatarUrl: "", url: "https://github.com/alex" }, body: "Tracked here.", createdAt: "2026-05-30T11:00:00Z", updatedAt: "2026-05-30T11:00:00Z", url: "comment-url", path: null, line: null, side: null, diffHunk: null }],
+      assignees: [{ login: "alex", avatarUrl: "", url: "https://github.com/alex" }],
+      labels: [{ name: "enhancement", color: "84b6eb" }],
+      milestone: { number: 2, title: "Next", url: "https://github.com/openai/githead/milestone/2" },
+      linkedPullRequests: [{ number: 31, title: "Fix issue", state: "open", url: "https://github.com/openai/githead/pull/31" }]
+    }), rateLimit: null });
+    const { props } = renderConsole({ selection: { itemType: "issue", item: createIssue({ number: 12, title: "Issue console", state: "closed" }) } });
+
+    const drawer = await screen.findByRole("region", { name: "Issue console" });
+    expect(within(drawer).getByRole("tab", { name: /Overview.*1 comment/ })).toBeTruthy();
+    expect(within(drawer).getByText("Activity")).toBeTruthy();
+    expect(within(drawer).getByText("Tracked here.")).toBeTruthy();
+    expect(within(drawer).getByText("enhancement")).toBeTruthy();
+    expect(within(drawer).queryByRole("button", { name: "Merge" })).toBeNull();
+    expect(within(drawer).getByRole("button", { name: "Comment" })).toBeTruthy();
+
+    await user.click(within(drawer).getByRole("button", { name: "alex" }));
+    await user.click(within(drawer).getByRole("button", { name: "Next" }));
+    await user.click(within(drawer).getByRole("button", { name: /#31 Fix issue/ }));
+    expect(props.onOpenExternalUrl).toHaveBeenNthCalledWith(1, "https://github.com/alex");
+    expect(props.onOpenExternalUrl).toHaveBeenNthCalledWith(2, "https://github.com/openai/githead/milestone/2");
+    expect(props.onOpenExternalUrl).toHaveBeenNthCalledWith(3, "https://github.com/openai/githead/pull/31");
   });
 
   it("requires confirmation, disables non-mergeable requests, and reports successful merges", async () => {

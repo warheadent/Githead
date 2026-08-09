@@ -42,7 +42,9 @@ export function GitHubQueryToolbar({ view, search, preset, presets, sort, sortOp
     return () => clearTimeout(timer);
   }, [draft, onSearchChange, search, view]);
   const placeholder = view === "workflows" ? "Search loaded runs" : view === "pullRequests" ? "Search open pull requests" : "Search open issues";
-  const displayedPlaceholder = compact && view === "pullRequests" ? "Search pull requests" : placeholder;
+  const itemLabel = view === "pullRequests" ? "pull requests" : view === "issues" ? "issues" : "workflow runs";
+  const displayedPlaceholder = compact && view !== "workflows" ? `Search ${itemLabel}` : placeholder;
+  const refreshLabel = `Refresh ${itemLabel}`;
 
   if (compact) {
     return <div className="github-query-toolbar github-query-toolbar-compact">
@@ -63,7 +65,7 @@ export function GitHubQueryToolbar({ view, search, preset, presets, sort, sortOp
           <div className="github-filter-popover-header">
             <div>
               <p className="font-medium">Filters</p>
-              <p className="text-xs text-muted-foreground">Narrow the loaded pull requests.</p>
+              <p className="text-xs text-muted-foreground">Narrow the open {itemLabel}.</p>
             </div>
             <span className="github-filter-count" aria-label={`${activeFilterCount} active filters`}>{activeFilterCount}</span>
           </div>
@@ -74,7 +76,7 @@ export function GitHubQueryToolbar({ view, search, preset, presets, sort, sortOp
         </PopoverContent>
       </Popover>
       <CompactSortMenu value={sort} options={sortOptions} onValueChange={onSortChange} />
-      {onRefresh ? <TooltipButton type="button" variant="outline" size="icon" className="github-query-refresh" disabled={refreshDisabled || refreshing} aria-label="Refresh pull requests" tooltip="Refresh pull requests" onClick={onRefresh}>
+      {onRefresh ? <TooltipButton type="button" variant="outline" size="icon" className="github-query-refresh" disabled={refreshDisabled || refreshing} aria-label={refreshLabel} tooltip={refreshLabel} onClick={onRefresh}>
         {refreshing ? <Loader2 className="animate-spin" /> : <RefreshCw />}
       </TooltipButton> : null}
       <span className="sr-only" role="status" aria-live="polite">{status}</span>

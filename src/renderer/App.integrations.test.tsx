@@ -448,7 +448,9 @@ describe("App", { timeout: 10_000 }, () => {
         number: 12,
         title: "Add GitHub issue tab",
         labels: [
-          "enhancement"
+          "enhancement",
+          "needs-triage",
+          "not-shown"
         ],
         comments: 4,
         url: "https://github.com/openai/githead/issues/12"
@@ -472,15 +474,56 @@ describe("App", { timeout: 10_000 }, () => {
     expect(await screen.findByText("#12")).toBeTruthy();
     expect(screen.getByText("Add GitHub issue tab")).toBeTruthy();
     expect(screen.getByText("enhancement")).toBeTruthy();
-    expect(screen.getByText("4")).toBeTruthy();
+    expect(screen.getByText("needs-triage")).toBeTruthy();
+    expect(screen.queryByText("not-shown")).toBeNull();
+    expect(screen.getByText("taylor")).toBeTruthy();
+    expect(screen.getByText("Open")).toBeTruthy();
+    expect(screen.getByLabelText("4 comments")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Select an issue" })).toBeTruthy();
+    expect(within(screen.getByRole("list", { name: "Issues" })).queryByRole("columnheader")).toBeNull();
+    expect(screen.getByRole("button", { name: "Filters, 0 active" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sort: Recently updated" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Refresh issues" })).toBeTruthy();
 
     const title = screen.getByRole("button", { name: "Add GitHub issue tab" });
-    await user.click(title);
+    title.focus();
+    await user.keyboard("{Enter}");
 
     const drawer = await screen.findByRole("region", { name: /Add GitHub issue tab/ });
     expect(githead.openExternalUrl).not.toHaveBeenCalled();
+    expect(screen.getByRole("listitem").getAttribute("aria-current")).toBe("true");
     await user.click(within(drawer).getByRole("button", { name: /Open on GitHub/ }));
     expect(githead.openExternalUrl).toHaveBeenCalledWith({ url: "https://github.com/openai/githead/issues/12" });
+
+    await user.click(within(drawer).getByRole("button", { name: "Close review console" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: /Add GitHub issue tab/ })).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(title));
+  });
+
+  it("shows a recoverable empty state when issue filters have no matches", async () => {
+    const user = userEvent.setup();
+    const item = createIssue({ number: 12, title: "Assigned issue" });
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
+    vi.mocked(githead.getGitHubIssues).mockImplementation(async (request) => ({
+      ok: true,
+      data: { items: request.query?.unassigned ? [] : [item], page: 1, nextPage: null, totalCount: request.query?.unassigned ? 0 : 1 },
+      rateLimit: null
+    }));
+
+    render(<App />);
+    await user.click(await screen.findByRole("tab", { name: /Issues/ }));
+    expect(await screen.findByRole("button", { name: "Assigned issue" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Filters, 0 active" }));
+    await user.selectOptions(screen.getByLabelText("Preset"), "unassigned");
+
+    const emptyHeading = await screen.findByRole("heading", { name: "No matching issues" });
+    const emptyState = emptyHeading.closest("section");
+    expect(emptyState).toBeTruthy();
+    await user.click(within(emptyState!).getByRole("button", { name: "Clear filters" }));
+
+    expect(await screen.findByRole("button", { name: "Assigned issue" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "No matching issues" })).toBeNull();
   });
 
   it("shows upstream commits ready to pull in the Pull action", async () => {
