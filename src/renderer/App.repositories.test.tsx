@@ -1313,8 +1313,11 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    const groupHeading = screen.getByRole("button", { name: `Switch to ${repoPath}` }).closest(".repo-group-heading");
-    if (!groupHeading) throw new Error("Expected grouped repository heading.");
+    const groupHeading = await waitFor(() => {
+      const heading = screen.getByRole("button", { name: `Switch to ${repoPath}` }).closest(".repo-group-heading");
+      if (!heading) throw new Error("Expected grouped repository heading.");
+      return heading;
+    });
     fireEvent.contextMenu(groupHeading);
     await user.click(await screen.findByRole("menuitem", { name: "Remove Repository" }));
 
