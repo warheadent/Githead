@@ -147,6 +147,8 @@ import type {
   GitConfiguredActionFileConfig,
   GitConflictResolutionSaveRequest,
   GitCommitChangedFile,
+  GitCommitAndPushResult,
+  GitCommitWithRemoteCheckResult,
   GitCommitDetails,
   GitCommitGraphRow,
   GitDiffSide,
@@ -190,6 +192,7 @@ import type {
   GitSafeDirectoryInfo,
   GitStatusFile,
   GitStashSelection,
+  GitUndoCommitRequest,
   RepoSyncStatus,
   RepositorySyncSettings,
   RepoIdentitySection,
@@ -442,6 +445,7 @@ interface AppState {
   diffLoading: boolean;
   diffChanged: boolean;
   commitMessage: string;
+  commitPushSafetyNotice: CommitPushSafetyNotice | null;
   commitMessageGenerationError: string;
   generateContextDialog: GenerateContextDialogState;
   aiSettings: AiSettings | null;
@@ -488,6 +492,11 @@ interface AppState {
   fileBlameLoading: boolean;
   fileBlameError: string;
   appUpdate: AppUpdateState;
+}
+
+interface CommitPushSafetyNotice {
+  message: string;
+  undoRequest: GitUndoCommitRequest | null;
 }
 
 type AppStateUpdater = Partial<AppState> | ((state: AppState) => AppState);
@@ -684,6 +693,7 @@ const emptySettingsDraft: SettingsDraft = {
   codeFont: "system-mono",
   zoomFactor: 1,
   tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR,
+  requireUpToDateUpstreamBeforeCommit: false,
   allowCherryPickingContainedCommits: false,
   gitIdentityName: "",
   gitIdentityEmail: "",
@@ -839,6 +849,7 @@ const initialState: AppState = {
   diffLoading: false,
   diffChanged: false,
   commitMessage: "",
+  commitPushSafetyNotice: null,
   commitMessageGenerationError: "",
   generateContextDialog: emptyGenerateContextDialog,
   aiSettings: null,
@@ -1970,6 +1981,7 @@ export function App(): ReactNode {
       pullRecoveryOpen: false,
       pullRecoveryError: "",
       repositoryOperationError: "",
+      commitPushSafetyNotice: null,
       commitMessageGenerationError: "",
       repositorySyncSettings: null,
       gitIdentity: null,
@@ -3332,7 +3344,7 @@ export function App(): ReactNode {
     options: {
       requireValidRepo?: boolean;
       cancellable?: boolean;
-      successFeedback?: { action: "commit"; surface: OperationButtonFeedbackSurface };
+      successFeedback?: { action: "commit" | "push"; surface: OperationButtonFeedbackSurface };
       refreshAfter?: boolean;
     } = {}
   ): Promise<GitOperationResult | null> => {
@@ -4872,16 +4884,18 @@ export function App(): ReactNode {
       return null;
     }
 
+    const requireRemoteCheck = current.summary.kind === "git"
+      && current.appSettings?.gitBehaviors?.requireUpToDateUpstreamBeforeCommit === true;
+    updateState({ commitPushSafetyNotice: null });
+
     const result = await runRepoOperation(
-      "Committing changes",
+      requireRemoteCheck ? "Checking remote and committing changes" : "Committing changes",
       null,
-      (operationId) => window.githead.commitChanges({
-        repoPath,
-        message,
-        operationId
-      }),
+      (operationId) => requireRemoteCheck
+        ? window.githead.commitWithRemoteCheck({ repoPath, message, operationId })
+        : window.githead.commitChanges({ repoPath, message, operationId }),
       { successFeedback: { action: "commit", surface: "commit-panel" } }
-    );
+    ) as GitOperationResult | GitCommitWithRemoteCheckResult | null;
 
     if (!result || !isSameRepoPath(repoPath, stateRef.current.repoPath)) {
       return null;
@@ -4889,13 +4903,22 @@ export function App(): ReactNode {
 
     if (result.exitCode === 0) {
       updateState({
-        commitMessage: ""
+        commitMessage: "",
+        commitPushSafetyNotice: null
       });
       return result;
     }
 
     if (result.errorKind === "missing-author-identity") {
       await openGitIdentityPrompt(repoPath, message);
+    }
+    if (requireRemoteCheck && "commitCreated" in result && !result.commitCreated && result.outcome !== "commit-failed") {
+      updateState({
+        commitPushSafetyNotice: {
+          message: result.stderr.trim() || "The remote safety check failed. No commit was created.",
+          undoRequest: null
+        }
+      });
     }
     return result;
   }, [ensureTrustedRepo, isInvocationCurrent, openGitIdentityPrompt, runRepoOperation, updateState]);
@@ -5020,11 +5043,73 @@ export function App(): ReactNode {
       return;
     }
 
-    const result = await commitChanges();
-    if (result?.exitCode === 0) {
-      await runAction("push", undefined, "commit-panel");
+    if (current.summary.kind !== "git") {
+      const result = await commitChanges();
+      if (result?.exitCode === 0) await runAction("push", undefined, "commit-panel");
+      return;
     }
-  }, [commitChanges, runAction]);
+
+    if (shouldPublishInsteadOfPush(current.summary)) {
+      updateState({
+        publishDialogOpen: true,
+        publishRemoteDraft: getDefaultPublishRemote(current.summary),
+        publishError: "Publish this branch before committing and pushing staged changes. No commit has been created."
+      });
+      return;
+    }
+
+    const repoPath = current.repoPath;
+    const message = current.commitMessage;
+    if (!(await ensureTrustedRepo(repoPath)) || !isInvocationCurrent(repoPath, (latest) => latest.commitMessage === message && canCommit(latest))) {
+      return;
+    }
+    updateState({ commitPushSafetyNotice: null });
+    const result = await runRepoOperation(
+      "Checking remote, committing, and pushing",
+      null,
+      (operationId) => window.githead.commitAndPush({ repoPath, message, operationId }),
+      { cancellable: true, successFeedback: { action: "push", surface: "commit-panel" } }
+    ) as GitCommitAndPushResult | null;
+    if (!result || !isSameRepoPath(repoPath, stateRef.current.repoPath)) return;
+
+    if (result.exitCode === 0) {
+      updateState({ commitMessage: "", commitPushSafetyNotice: null });
+      return;
+    }
+    if (result.errorKind === "missing-author-identity") {
+      await openGitIdentityPrompt(repoPath, message);
+    }
+    if (result.commitCreated) void loadCommitHistory(true);
+    const undoRequest = result.canUndoCommit && result.branchName && result.headOid && result.previousHeadOid
+      ? {
+          repoPath,
+          branchName: result.branchName,
+          expectedHeadOid: result.headOid,
+          previousHeadOid: result.previousHeadOid
+        }
+      : null;
+    updateState({
+      ...(result.push?.branchSucceeded ? { commitMessage: "" } : {}),
+      commitPushSafetyNotice: {
+        message: result.stderr.trim() || "Commit & Push did not complete.",
+        undoRequest
+      }
+    });
+  }, [commitChanges, ensureTrustedRepo, isInvocationCurrent, loadCommitHistory, openGitIdentityPrompt, runAction, runRepoOperation, updateState]);
+
+  const undoFailedCommitPush = useCallback(async (): Promise<void> => {
+    const notice = stateRef.current.commitPushSafetyNotice;
+    if (!notice?.undoRequest || isOperationRunning(stateRef.current)) return;
+    const request = notice.undoRequest;
+    const result = await runRepoOperation(
+      "Undoing commit and restoring staged changes",
+      null,
+      (operationId) => window.githead.undoCommitAndKeepStaged({ ...request, operationId })
+    );
+    if (result?.exitCode === 0 && isSameRepoPath(request.repoPath, stateRef.current.repoPath)) {
+      updateState({ commitPushSafetyNotice: null });
+    }
+  }, [runRepoOperation, updateState]);
 
   const generateCommitMessage = useCallback(async (additionalContext?: string): Promise<boolean> => {
     const current = stateRef.current;
@@ -5156,6 +5241,7 @@ export function App(): ReactNode {
         codeFont: appSettings?.codeFont ?? "system-mono",
         zoomFactor: appSettings?.zoomFactor ?? 1,
         tagPushBehavior: appSettings?.gitBehaviors?.tagPushBehavior ?? DEFAULT_TAG_PUSH_BEHAVIOR,
+        requireUpToDateUpstreamBeforeCommit: appSettings?.gitBehaviors?.requireUpToDateUpstreamBeforeCommit ?? false,
         allowCherryPickingContainedCommits: appSettings?.gitBehaviors?.allowCherryPickingContainedCommits ?? false,
         gitIdentityName: gitIdentity?.global.name ?? "",
         gitIdentityEmail: gitIdentity?.global.email ?? "",
@@ -5254,6 +5340,7 @@ export function App(): ReactNode {
           wrapDiffLines: initial.appSettings?.wrapDiffLines ?? false,
           gitBehaviors: {
             tagPushBehavior: draft.tagPushBehavior,
+            requireUpToDateUpstreamBeforeCommit: draft.requireUpToDateUpstreamBeforeCommit,
             allowCherryPickingContainedCommits: draft.allowCherryPickingContainedCommits
           }
         });
@@ -7008,6 +7095,7 @@ export function App(): ReactNode {
             {state.activeView === "status" && statusWorkspaceMode === "files" && !repositoryOperationActive ? (
               <CommitPanel
                 commitMessage={state.commitMessage}
+                commitPushSafetyNotice={state.commitPushSafetyNotice}
                 generationError={state.commitMessageGenerationError}
                 disabled={disableUnrelatedMutations}
                 primaryCommitAction={primaryCommitAction}
@@ -7025,6 +7113,9 @@ export function App(): ReactNode {
                 }}
                 onCommitAndPush={() => {
                   void commitAndPush();
+                }}
+                onUndoFailedCommitPush={() => {
+                  void undoFailedCommitPush();
                 }}
                 showAmendAction={state.summary?.kind === "git"}
                 canAmend={Boolean(state.summary?.kind === "git" && state.summary.hasHead)}
@@ -11573,6 +11664,7 @@ function CommitFileRow({
 
 function CommitPanel({
   commitMessage,
+  commitPushSafetyNotice,
   generationError,
   disabled,
   primaryCommitAction,
@@ -11583,6 +11675,7 @@ function CommitPanel({
   generateTitle,
   onCommit,
   onCommitAndPush,
+  onUndoFailedCommitPush,
   showAmendAction,
   canAmend,
   amendDisabled,
@@ -11593,6 +11686,7 @@ function CommitPanel({
   onCommitMessageChange
 }: {
   commitMessage: string;
+  commitPushSafetyNotice: CommitPushSafetyNotice | null;
   generationError: string;
   disabled: boolean;
   primaryCommitAction: "commit" | "push" | null;
@@ -11603,6 +11697,7 @@ function CommitPanel({
   generateTitle: string;
   onCommit: () => void;
   onCommitAndPush: () => void;
+  onUndoFailedCommitPush: () => void;
   showAmendAction: boolean;
   canAmend: boolean;
   amendDisabled: boolean;
@@ -11637,6 +11732,18 @@ function CommitPanel({
       />
       {generationError ? (
         <p className="text-sm text-destructive" role="alert">{generationError}</p>
+      ) : null}
+      {commitPushSafetyNotice ? (
+        <div className="flex items-start gap-3 rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm" role="alert">
+          <ShieldAlert className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-300" />
+          <p className="min-w-0 flex-1 leading-5">{commitPushSafetyNotice.message}</p>
+          {commitPushSafetyNotice.undoRequest ? (
+            <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={onUndoFailedCommitPush} className="shrink-0">
+              <RotateCcw />
+              Undo commit
+            </Button>
+          ) : null}
+        </div>
       ) : null}
       <div className="flex flex-wrap justify-end gap-2">
         <div className="flex items-stretch">
@@ -13220,6 +13327,7 @@ function hasAppSettingsChanges(draft: SettingsDraft, settings: AppSettings | nul
     || draft.codeFont !== settings.codeFont
     || draft.zoomFactor !== settings.zoomFactor
     || draft.tagPushBehavior !== (settings.gitBehaviors?.tagPushBehavior ?? DEFAULT_TAG_PUSH_BEHAVIOR)
+    || draft.requireUpToDateUpstreamBeforeCommit !== (settings.gitBehaviors?.requireUpToDateUpstreamBeforeCommit ?? false)
     || draft.allowCherryPickingContainedCommits !== (settings.gitBehaviors?.allowCherryPickingContainedCommits ?? false);
 }
 

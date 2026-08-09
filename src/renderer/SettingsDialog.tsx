@@ -69,6 +69,7 @@ export interface SettingsDraft {
   codeFont: AppCodeFont;
   zoomFactor: number;
   tagPushBehavior: TagPushBehavior;
+  requireUpToDateUpstreamBeforeCommit: boolean;
   allowCherryPickingContainedCommits: boolean;
   gitIdentityName: string;
   gitIdentityEmail: string;
@@ -225,6 +226,27 @@ export function SettingsDialog({
                   </SettingsCard>
                 </SettingsPanel>
                 <SettingsPanel value="git-behaviors" title="Git Behaviors" description="Choose how Githead handles Git operations by default.">
+                  <SettingsCard title="Commit" description="Add a network safety check before Githead creates an ordinary commit.">
+                    <div className="flex max-w-2xl items-start gap-3 rounded-md border p-3">
+                      <input
+                        id="require-up-to-date-upstream-before-commit"
+                        type="checkbox"
+                        className="mt-1 shrink-0"
+                        checked={draft.requireUpToDateUpstreamBeforeCommit}
+                        disabled={saving}
+                        onChange={(event) => onDraftChange({
+                          ...draft,
+                          requireUpToDateUpstreamBeforeCommit: event.currentTarget.checked
+                        })}
+                      />
+                      <span>
+                        <Label htmlFor="require-up-to-date-upstream-before-commit">Check the upstream before committing</Label>
+                        <span className="mt-1 block text-sm font-normal normal-case text-muted-foreground">
+                          Fetch the tracked remote and stop before creating a commit when the remote is ahead or has diverged. Branches without a remote upstream can still commit locally.
+                        </span>
+                      </span>
+                    </div>
+                  </SettingsCard>
                   <SettingsCard title="Push" description="Control what happens to tags after an ordinary branch push, targeted push, or branch publish.">
                     <div className="grid max-w-2xl gap-2">
                       <Label htmlFor="tag-push-behavior">Tag push behavior</Label>
@@ -379,6 +401,7 @@ function getDirtyCategories(baseline: string, draft: SettingsDraft): Record<Sett
     appearance: saved.colorTheme !== draft.colorTheme || saved.appearanceMode !== draft.appearanceMode || saved.uiFont !== draft.uiFont || saved.codeFont !== draft.codeFont || saved.zoomFactor !== draft.zoomFactor,
     "git-identity": saved.gitIdentityName !== draft.gitIdentityName || saved.gitIdentityEmail !== draft.gitIdentityEmail,
     "git-behaviors": saved.tagPushBehavior !== draft.tagPushBehavior
+      || saved.requireUpToDateUpstreamBeforeCommit !== draft.requireUpToDateUpstreamBeforeCommit
       || saved.allowCherryPickingContainedCommits !== draft.allowCherryPickingContainedCommits,
     sync: saved.autoFetchIntervalMinutes !== draft.autoFetchIntervalMinutes,
     ai: JSON.stringify({ selectedProvider: saved.selectedProvider, providerModels: saved.providerModels, commitPlanModels: saved.commitPlanModels, commitPlanReasoningEfforts: saved.commitPlanReasoningEfforts, prDescriptionModels: saved.prDescriptionModels, reasoningEfforts: saved.reasoningEfforts, prDescriptionReasoningEfforts: saved.prDescriptionReasoningEfforts, apiKeys: saved.apiKeys, clearApiKeys: saved.clearApiKeys, commitMessagePrompt: saved.commitMessagePrompt, prDescriptionPrompt: saved.prDescriptionPrompt, sourceControlWritingStyle: saved.sourceControlWritingStyle }) !== JSON.stringify({ selectedProvider: draft.selectedProvider, providerModels: draft.providerModels, commitPlanModels: draft.commitPlanModels, commitPlanReasoningEfforts: draft.commitPlanReasoningEfforts, prDescriptionModels: draft.prDescriptionModels, reasoningEfforts: draft.reasoningEfforts, prDescriptionReasoningEfforts: draft.prDescriptionReasoningEfforts, apiKeys: draft.apiKeys, clearApiKeys: draft.clearApiKeys, commitMessagePrompt: draft.commitMessagePrompt, prDescriptionPrompt: draft.prDescriptionPrompt, sourceControlWritingStyle: draft.sourceControlWritingStyle }),

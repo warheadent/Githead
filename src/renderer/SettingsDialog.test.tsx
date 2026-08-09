@@ -26,6 +26,7 @@ const savedDraft: SettingsDraft = {
   codeFont: "system-mono",
   zoomFactor: 1,
   tagPushBehavior: "all",
+  requireUpToDateUpstreamBeforeCommit: false,
   allowCherryPickingContainedCommits: false,
   gitIdentityName: "Test User",
   gitIdentityEmail: "test@example.com",
@@ -117,6 +118,11 @@ describe("SettingsDialog footer status", () => {
     expect(screen.getByText(/may publish tags unrelated to the branch being pushed/)).toBeTruthy();
     expect(screen.getByText("After a branch push succeeds, Githead also pushes every local tag to the same remote.")).toBeTruthy();
     expect(screen.getByText(/does not affect manually creating, pushing, or deleting an individual tag/)).toBeTruthy();
+    const upstreamCheckToggle = screen.getByRole("checkbox", {
+      name: /Check the upstream before committing/
+    }) as HTMLInputElement;
+    expect(upstreamCheckToggle.checked).toBe(false);
+    expect(screen.getByText(/Branches without a remote upstream can still commit locally/)).toBeTruthy();
     const containedCommitToggle = screen.getByRole("checkbox", {
       name: /Allow commits already contained in the current branch/
     }) as HTMLInputElement;
@@ -125,6 +131,8 @@ describe("SettingsDialog footer status", () => {
 
     fireEvent.change(select, { target: { value: "follow" } });
     expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({ tagPushBehavior: "follow" }));
+    fireEvent.click(upstreamCheckToggle);
+    expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({ requireUpToDateUpstreamBeforeCommit: true }));
     fireEvent.click(containedCommitToggle);
     expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({ allowCherryPickingContainedCommits: true }));
   });

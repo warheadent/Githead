@@ -102,7 +102,11 @@ function parseStoredGitBehaviors(value: unknown): GitBehaviorSettings {
     };
   }
 
-  const stored = value as { tagPushBehavior?: unknown; allowCherryPickingContainedCommits?: unknown };
+  const stored = value as {
+    tagPushBehavior?: unknown;
+    allowCherryPickingContainedCommits?: unknown;
+    requireUpToDateUpstreamBeforeCommit?: unknown;
+  };
   const tagPushBehavior = stored.tagPushBehavior;
   return {
     tagPushBehavior: TAG_PUSH_BEHAVIORS.includes(tagPushBehavior as TagPushBehavior)
@@ -110,6 +114,9 @@ function parseStoredGitBehaviors(value: unknown): GitBehaviorSettings {
       : DEFAULT_TAG_PUSH_BEHAVIOR,
     ...(stored.allowCherryPickingContainedCommits === true
       ? { allowCherryPickingContainedCommits: true }
+      : {}),
+    ...(stored.requireUpToDateUpstreamBeforeCommit === true
+      ? { requireUpToDateUpstreamBeforeCommit: true }
       : {})
   };
 }
@@ -124,10 +131,19 @@ function normalizeGitBehaviorsForSave(value: GitBehaviorSettings): GitBehaviorSe
   ) {
     throw new Error("Cherry-pick contained commit behavior must be a Boolean value.");
   }
+  if (
+    value.requireUpToDateUpstreamBeforeCommit !== undefined &&
+    typeof value.requireUpToDateUpstreamBeforeCommit !== "boolean"
+  ) {
+    throw new Error("Pre-commit upstream behavior must be a Boolean value.");
+  }
   return {
     tagPushBehavior: value.tagPushBehavior,
     ...(value.allowCherryPickingContainedCommits === true
       ? { allowCherryPickingContainedCommits: true }
+      : {}),
+    ...(value.requireUpToDateUpstreamBeforeCommit === true
+      ? { requireUpToDateUpstreamBeforeCommit: true }
       : {})
   };
 }

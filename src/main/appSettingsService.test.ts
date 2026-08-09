@@ -127,6 +127,30 @@ describe("AppSettingsService", () => {
     });
   });
 
+  it("saves the opt-in for checking the upstream before an ordinary commit", async () => {
+    await withTempDir(async (dir) => {
+      const service = new AppSettingsService(dir);
+      const saved = await service.saveSettings({
+        autoFetchIntervalMinutes: 10,
+        colorTheme: "githead",
+        appearanceMode: "system",
+        zoomFactor: 1,
+        gitBehaviors: {
+          tagPushBehavior: "all",
+          requireUpToDateUpstreamBeforeCommit: true
+        }
+      });
+
+      expect(saved.gitBehaviors).toEqual({
+        tagPushBehavior: "all",
+        requireUpToDateUpstreamBeforeCommit: true
+      });
+      await expect(new AppSettingsService(dir).getSettings()).resolves.toMatchObject({
+        gitBehaviors: { requireUpToDateUpstreamBeforeCommit: true }
+      });
+    });
+  });
+
   it("preserves Git Behaviors when an older save request omits the category", async () => {
     await withTempDir(async (dir) => {
       const service = new AppSettingsService(dir);

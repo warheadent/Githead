@@ -26,6 +26,7 @@ import type {
   AppUpdateState,
   AppWindowState,
   GitCommitDetails,
+  GitCommitAndPushResult,
   GitCommitGraphRow,
   GitFileDiff,
   GitHubIssue,
@@ -331,6 +332,26 @@ export function createGitheadMock(): GitheadApi {
     stageHunk: vi.fn().mockResolvedValue(okOperation),
     unstageHunk: vi.fn().mockResolvedValue(okOperation),
     commitChanges: vi.fn().mockResolvedValue(okOperation),
+    commitWithRemoteCheck: vi.fn().mockResolvedValue({
+      ...okOperation,
+      outcome: "committed",
+      commitCreated: true,
+      branchName: "main",
+      ahead: 0,
+      behind: 0
+    }),
+    commitAndPush: vi.fn().mockResolvedValue({
+      ...okOperation,
+      outcome: "pushed",
+      commitCreated: true,
+      branchName: "main",
+      ahead: 0,
+      behind: 0,
+      previousHeadOid: "a".repeat(40),
+      headOid: "b".repeat(40),
+      canUndoCommit: false
+    }),
+    undoCommitAndKeepStaged: vi.fn().mockResolvedValue(okOperation),
     getAmendPreview: vi.fn().mockResolvedValue({
       outcome: "failed",
       preview: null,
@@ -954,6 +975,7 @@ export type {
   AiReasoningCapabilities,
   AiSettings,
   AppSettings,
+  GitCommitAndPushResult,
   GitCommitGraphRow,
   GitFileDiff,
   GitIdentitySettings,

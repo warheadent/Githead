@@ -35,6 +35,8 @@ import type {
   GitCommitGraphRow,
   GitCommitHashRequest,
   GitCommitHistoryRequest,
+  GitCommitAndPushResult,
+  GitCommitWithRemoteCheckResult,
   GitQuickCommitRequest,
   GitCommitRequest,
   GitCreateTagRequest,
@@ -99,6 +101,7 @@ import type {
   GitSubmodule,
   GitSubmoduleRequest,
   GitUpstreamRequest,
+  GitUndoCommitRequest,
   GitWorktree,
   GitWorktreeCreateRequest,
   GitWorktreeList,
@@ -158,6 +161,27 @@ export interface GitPushExecutionOptions {
 interface GitPushExecutionResult extends ProcessResult {
   push: GitPushResultDetails;
 }
+
+interface CommitRemotePreflightReady {
+  ready: true;
+  runId: string;
+  branchName: string;
+  ahead: number | null;
+  behind: number | null;
+  stdout: string;
+}
+
+interface CommitRemotePreflightBlocked {
+  ready: false;
+  outcome: "remote-ahead" | "diverged" | "fetch-failed" | "preflight-failed";
+  branchName: string | null;
+  ahead: number | null;
+  behind: number | null;
+  stdout: string;
+  stderr: string;
+}
+
+type CommitRemotePreflightResult = CommitRemotePreflightReady | CommitRemotePreflightBlocked;
 
 export interface GitBranchRangeRequest {
   repoPath: string;
@@ -953,6 +977,300 @@ export class GitService {
     }
 
     return result;
+  }
+
+  private async checkRemoteBeforeCommit(
+    repoPath: string,
+    onOutput: GitOutputHandler | undefined,
+    requireRemoteUpstream: boolean
+  ): Promise<CommitRemotePreflightResult> {
+    const runId = randomUUID();
+    const branchResult = await this.runGit(repoPath, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+    const branchName = branchResult.exitCode === 0 ? branchResult.stdout.trim() : "";
+    if (!branchName) {
+      return createCommitRemotePreflightFailure("preflight-failed", "Check out a branch before committing.");
+    }
+
+    const upstreamResult = await this.runGit(repoPath, [
+      "rev-parse",
+      "--abbrev-ref",
+      "--symbolic-full-name",
+      "@{upstream}"
+    ]);
+    if (upstreamResult.exitCode !== 0 || !upstreamResult.stdout.trim()) {
+      return requireRemoteUpstream
+        ? createCommitRemotePreflightFailure(
+          "preflight-failed",
+          "Publish this branch before committing and pushing staged changes.",
+          { branchName }
+        )
+        : { ready: true, runId, branchName, ahead: null, behind: null, stdout: "" };
+    }
+
+    const fetchRemoteResult = await this.runGit(repoPath, ["config", "--get", `branch.${branchName}.remote`]);
+    const fetchRemote = fetchRemoteResult.exitCode === 0 ? fetchRemoteResult.stdout.trim() : "";
+    if (!fetchRemote || fetchRemote === ".") {
+      return requireRemoteUpstream
+        ? createCommitRemotePreflightFailure(
+          "preflight-failed",
+          "The current branch does not track a remote branch. Set a remote upstream before committing and pushing.",
+          { branchName }
+        )
+        : { ready: true, runId, branchName, ahead: null, behind: null, stdout: "" };
+    }
+    const validatedFetchRemote = await this.validateRemoteName(repoPath, fetchRemote);
+    if ("error" in validatedFetchRemote) {
+      return createCommitRemotePreflightFailure("preflight-failed", validatedFetchRemote.error, { branchName });
+    }
+
+    onOutput?.(this.createOutputEvent(runId, "commit-remote-check", "system", "Checking the remote before creating a commit.\n"));
+    const fetchResult = await this.runNamedActionCommand(
+      repoPath,
+      "commit-remote-check:fetch",
+      runId,
+      ["fetch", "--prune", validatedFetchRemote.remoteName],
+      onOutput
+    );
+    if (fetchResult.exitCode !== 0) {
+      return createCommitRemotePreflightFailure(
+        "fetch-failed",
+        processFailureMessage(fetchResult, "Unable to fetch the upstream branch. No commit was created."),
+        { branchName, stdout: fetchResult.stdout }
+      );
+    }
+
+    const countsResult = await this.runGit(repoPath, [
+      "rev-list",
+      "--left-right",
+      "--count",
+      "HEAD...@{upstream}"
+    ]);
+    const counts = countsResult.exitCode === 0 ? parseLeftRightCounts(countsResult.stdout) : null;
+    if (!counts) {
+      return createCommitRemotePreflightFailure(
+        "preflight-failed",
+        processFailureMessage(countsResult, "Unable to compare the current branch with its upstream. No commit was created."),
+        { branchName, stdout: fetchResult.stdout }
+      );
+    }
+    if (counts.behind > 0) {
+      const outcome = counts.ahead > 0 ? "diverged" : "remote-ahead";
+      const detail = counts.ahead > 0
+        ? `The local and remote branches have diverged: ${counts.ahead} local ${pluralizeCommit(counts.ahead)} and ${counts.behind} remote ${pluralizeCommit(counts.behind)}.`
+        : `The remote branch has ${counts.behind} new ${pluralizeCommit(counts.behind)}.`;
+      return createCommitRemotePreflightFailure(
+        outcome,
+        `${detail} Pull or rebase before committing. No commit was created.`,
+        { branchName, ahead: counts.ahead, behind: counts.behind, stdout: fetchResult.stdout }
+      );
+    }
+
+    return {
+      ready: true,
+      runId,
+      branchName,
+      ahead: counts.ahead,
+      behind: counts.behind,
+      stdout: fetchResult.stdout
+    };
+  }
+
+  async commitWithRemoteCheck(
+    request: GitCommitRequest,
+    onOutput?: GitOutputHandler
+  ): Promise<GitCommitWithRemoteCheckResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      return createCommitWithRemoteCheckFailure(request.repoPath, "preflight-failed", validation.validationErrors.join(" "));
+    }
+    if (!request.message.trim()) {
+      return createCommitWithRemoteCheckFailure(request.repoPath, "preflight-failed", "Enter a commit message.");
+    }
+
+    const preflight = await this.checkRemoteBeforeCommit(request.repoPath, onOutput, false);
+    if (!preflight.ready) {
+      return createCommitWithRemoteCheckFailure(request.repoPath, preflight.outcome, preflight.stderr, preflight);
+    }
+
+    onOutput?.(this.createOutputEvent(preflight.runId, "commit-remote-check", "system", "Remote safety check passed. Creating the commit.\n"));
+    const commitResult = await this.commitChanges(request);
+    if (commitResult.exitCode !== 0) {
+      return {
+        ...createCommitWithRemoteCheckFailure(request.repoPath, "commit-failed", commitResult.stderr, preflight),
+        stdout: `${preflight.stdout}${commitResult.stdout}`,
+        ...(commitResult.errorKind ? { errorKind: commitResult.errorKind } : {})
+      };
+    }
+    return {
+      ...commitResult,
+      stdout: `${preflight.stdout}${commitResult.stdout}`,
+      outcome: "committed",
+      commitCreated: true,
+      branchName: preflight.branchName,
+      ahead: preflight.ahead,
+      behind: preflight.behind
+    };
+  }
+
+  async commitAndPush(
+    request: GitCommitRequest,
+    onOutput?: GitOutputHandler,
+    pushOptions: GitPushExecutionOptions = { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR }
+  ): Promise<GitCommitAndPushResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      return createCommitAndPushFailure(request.repoPath, "preflight-failed", validation.validationErrors.join(" "));
+    }
+    if (!request.message.trim()) {
+      return createCommitAndPushFailure(request.repoPath, "preflight-failed", "Enter a commit message.");
+    }
+
+    const preflight = await this.checkRemoteBeforeCommit(request.repoPath, onOutput, true);
+    if (!preflight.ready) {
+      return createCommitAndPushFailure(request.repoPath, preflight.outcome, preflight.stderr, preflight);
+    }
+    const { runId, branchName } = preflight;
+    const counts = { ahead: preflight.ahead ?? 0, behind: preflight.behind ?? 0 };
+    const fetchStdout = preflight.stdout;
+
+    const pushRemote = await this.resolveOrdinaryPushRemote(request.repoPath);
+    if ("error" in pushRemote) {
+      return createCommitAndPushFailure(request.repoPath, "preflight-failed", `${pushRemote.error} No commit was created.`, {
+        branchName,
+        ahead: counts.ahead,
+        behind: counts.behind,
+        stdout: fetchStdout
+      });
+    }
+    const dryRunResult = await this.runNamedActionCommand(
+      request.repoPath,
+      "commit-and-push:push-check",
+      runId,
+      ["push", "--dry-run", "--porcelain", "--no-verify", pushRemote.remoteName],
+      onOutput
+    );
+    if (dryRunResult.exitCode !== 0) {
+      const remoteAhead = isNonFastForwardPushError(dryRunResult);
+      const message = remoteAhead
+        ? "The push destination has commits that are not in the current branch. Fetch and reconcile them before committing and pushing. No commit was created."
+        : `${processFailureMessage(dryRunResult, "The push safety check failed.")} No commit was created.`;
+      return createCommitAndPushFailure(request.repoPath, remoteAhead ? "remote-ahead" : "preflight-failed", message, {
+        branchName,
+        ahead: counts.ahead,
+        behind: counts.behind,
+        stdout: `${fetchStdout}${dryRunResult.stdout}`
+      });
+    }
+
+    const previousHeadResult = await this.runGit(request.repoPath, ["rev-parse", "--verify", "HEAD"]);
+    const previousHeadOid = previousHeadResult.exitCode === 0 ? previousHeadResult.stdout.trim() : "";
+    if (!previousHeadOid) {
+      return createCommitAndPushFailure(request.repoPath, "preflight-failed", "Unable to record the current commit before committing and pushing.", {
+        branchName,
+        ahead: counts.ahead,
+        behind: counts.behind,
+        stdout: `${fetchStdout}${dryRunResult.stdout}`
+      });
+    }
+
+    onOutput?.(this.createOutputEvent(runId, "commit-and-push", "system", "Remote safety check passed. Creating the commit.\n"));
+    const commitResult = await this.commitChanges(request);
+    if (commitResult.exitCode !== 0) {
+      return {
+        ...createCommitAndPushFailure(request.repoPath, "commit-failed", commitResult.stderr, {
+          branchName,
+          ahead: counts.ahead,
+          behind: counts.behind,
+          previousHeadOid,
+          stdout: `${fetchStdout}${dryRunResult.stdout}${commitResult.stdout}`
+        }),
+        ...(commitResult.errorKind ? { errorKind: commitResult.errorKind } : {})
+      };
+    }
+
+    const headResult = await this.runGit(request.repoPath, ["rev-parse", "--verify", "HEAD"]);
+    const headOid = headResult.exitCode === 0 ? headResult.stdout.trim() : "";
+    onOutput?.(this.createOutputEvent(runId, "commit-and-push", "system", "Commit created. Pushing the branch.\n"));
+    const pushResult = await this.runPush(
+      { repoPath: request.repoPath, action: "push" },
+      runId,
+      onOutput,
+      pushOptions
+    );
+    const stdout = `${fetchStdout}${dryRunResult.stdout}${commitResult.stdout}${pushResult.stdout}`;
+    if (pushResult.exitCode === 0) {
+      return {
+        repoPath: request.repoPath,
+        exitCode: 0,
+        stdout,
+        stderr: pushResult.stderr,
+        outcome: "pushed",
+        commitCreated: true,
+        branchName,
+        ahead: counts.ahead,
+        behind: counts.behind,
+        previousHeadOid,
+        headOid: headOid || null,
+        canUndoCommit: false,
+        push: pushResult.push
+      };
+    }
+
+    const canUndoCommit = Boolean(
+      headOid
+      && !pushResult.push.branchSucceeded
+      && isNonFastForwardPushError(pushResult)
+    );
+    const pushMessage = processFailureMessage(pushResult, "The commit was created, but the push failed.");
+    const recoveryMessage = canUndoCommit
+      ? `${pushMessage} You can undo the new commit and keep its changes staged.`
+      : pushMessage;
+    return {
+      repoPath: request.repoPath,
+      exitCode: pushResult.exitCode,
+      stdout,
+      stderr: recoveryMessage,
+      outcome: "push-failed",
+      commitCreated: true,
+      branchName,
+      ahead: counts.ahead,
+      behind: counts.behind,
+      previousHeadOid,
+      headOid: headOid || null,
+      canUndoCommit,
+      push: pushResult.push
+    };
+  }
+
+  async undoCommitAndKeepStaged(request: GitUndoCommitRequest): Promise<GitOperationResult> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
+    const branch = await this.validateBranchName(request.repoPath, request.branchName);
+    const expectedHead = sanitizeCommitHash(request.expectedHeadOid);
+    const previousHead = sanitizeCommitHash(request.previousHeadOid);
+    if ("error" in branch) return this.createOperationFailure(request.repoPath, branch.error);
+    if ("error" in expectedHead) return this.createOperationFailure(request.repoPath, expectedHead.error);
+    if ("error" in previousHead) return this.createOperationFailure(request.repoPath, previousHead.error);
+
+    const [currentBranch, currentHead, parent] = await Promise.all([
+      this.runGit(request.repoPath, ["symbolic-ref", "--quiet", "--short", "HEAD"]),
+      this.runGit(request.repoPath, ["rev-parse", "--verify", "HEAD"]),
+      this.runGit(request.repoPath, ["rev-parse", "--verify", `${expectedHead.hash}^`])
+    ]);
+    if (currentBranch.exitCode !== 0 || currentBranch.stdout.trim() !== branch.branchName) {
+      return this.createOperationFailure(request.repoPath, "The current branch changed. The commit was not undone.");
+    }
+    if (currentHead.exitCode !== 0 || currentHead.stdout.trim() !== expectedHead.hash) {
+      return this.createOperationFailure(request.repoPath, "HEAD changed after the failed push. The commit was not undone.");
+    }
+    if (parent.exitCode !== 0 || parent.stdout.trim() !== previousHead.hash) {
+      return this.createOperationFailure(request.repoPath, "The new commit no longer has the expected parent. The commit was not undone.");
+    }
+
+    const result = await this.runGitOperation(request.repoPath, ["reset", "--soft", previousHead.hash]);
+    return result.exitCode === 0
+      ? { ...result, stdout: "Commit undone. Its changes remain staged." }
+      : result;
   }
 
   async getAmendPreview(request: GitAmendPreviewRequest): Promise<GitAmendPreviewResult> {
@@ -3604,6 +3922,89 @@ function isMissingAuthorIdentityError(result: GitOperationResult): boolean {
   const output = `${result.stderr}\n${result.stdout}`.toLowerCase();
   return output.includes("author identity unknown")
     || output.includes("unable to auto-detect email address");
+}
+
+function parseLeftRightCounts(text: string): { ahead: number; behind: number } | null {
+  const [aheadText, behindText, ...extra] = text.trim().split(/\s+/);
+  if (extra.length > 0 || aheadText === undefined || behindText === undefined) return null;
+  const ahead = Number.parseInt(aheadText, 10);
+  const behind = Number.parseInt(behindText, 10);
+  return Number.isSafeInteger(ahead) && ahead >= 0 && Number.isSafeInteger(behind) && behind >= 0
+    ? { ahead, behind }
+    : null;
+}
+
+function processFailureMessage(result: ProcessResult, fallback: string): string {
+  return result.stderr.trim() || result.error?.trim() || result.stdout.trim() || fallback;
+}
+
+function isNonFastForwardPushError(result: ProcessResult): boolean {
+  const output = `${result.stdout}\n${result.stderr}\n${result.error ?? ""}`.toLowerCase();
+  return output.includes("non-fast-forward")
+    || output.includes("fetch first")
+    || output.includes("remote contains work that you do not have locally")
+    || output.includes("incorrect old value provided");
+}
+
+function pluralizeCommit(count: number): string {
+  return count === 1 ? "commit" : "commits";
+}
+
+function createCommitRemotePreflightFailure(
+  outcome: CommitRemotePreflightBlocked["outcome"],
+  stderr: string,
+  details: Partial<Pick<CommitRemotePreflightBlocked, "branchName" | "ahead" | "behind" | "stdout">> = {}
+): CommitRemotePreflightBlocked {
+  return {
+    ready: false,
+    outcome,
+    stderr,
+    branchName: details.branchName ?? null,
+    ahead: details.ahead ?? null,
+    behind: details.behind ?? null,
+    stdout: details.stdout ?? ""
+  };
+}
+
+function createCommitWithRemoteCheckFailure(
+  repoPath: string,
+  outcome: Exclude<GitCommitWithRemoteCheckResult["outcome"], "committed">,
+  stderr: string,
+  details: Partial<Pick<GitCommitWithRemoteCheckResult, "branchName" | "ahead" | "behind" | "stdout">> = {}
+): GitCommitWithRemoteCheckResult {
+  return {
+    repoPath,
+    exitCode: -1,
+    stdout: details.stdout ?? "",
+    stderr,
+    outcome,
+    commitCreated: false,
+    branchName: details.branchName ?? null,
+    ahead: details.ahead ?? null,
+    behind: details.behind ?? null
+  };
+}
+
+function createCommitAndPushFailure(
+  repoPath: string,
+  outcome: Exclude<GitCommitAndPushResult["outcome"], "pushed" | "push-failed">,
+  stderr: string,
+  details: Partial<Pick<GitCommitAndPushResult, "branchName" | "ahead" | "behind" | "previousHeadOid" | "headOid" | "stdout">> = {}
+): GitCommitAndPushResult {
+  return {
+    repoPath,
+    exitCode: -1,
+    stdout: details.stdout ?? "",
+    stderr,
+    outcome,
+    commitCreated: false,
+    branchName: details.branchName ?? null,
+    ahead: details.ahead ?? null,
+    behind: details.behind ?? null,
+    previousHeadOid: details.previousHeadOid ?? null,
+    headOid: details.headOid ?? null,
+    canUndoCommit: false
+  };
 }
 
 function isResetMode(mode: string): mode is GitResetCommitRequest["mode"] {

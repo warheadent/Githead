@@ -756,6 +756,50 @@ export interface GitCommitRequest {
   message: string;
 }
 
+export type GitCommitAndPushOutcome =
+  | "pushed"
+  | "remote-ahead"
+  | "diverged"
+  | "fetch-failed"
+  | "preflight-failed"
+  | "commit-failed"
+  | "push-failed";
+
+export interface GitCommitAndPushResult extends GitOperationResult {
+  outcome: GitCommitAndPushOutcome;
+  commitCreated: boolean;
+  branchName: string | null;
+  ahead: number | null;
+  behind: number | null;
+  previousHeadOid: string | null;
+  headOid: string | null;
+  canUndoCommit: boolean;
+  push?: GitPushResultDetails;
+}
+
+export type GitCommitWithRemoteCheckOutcome =
+  | "committed"
+  | "remote-ahead"
+  | "diverged"
+  | "fetch-failed"
+  | "preflight-failed"
+  | "commit-failed";
+
+export interface GitCommitWithRemoteCheckResult extends GitOperationResult {
+  outcome: GitCommitWithRemoteCheckOutcome;
+  commitCreated: boolean;
+  branchName: string | null;
+  ahead: number | null;
+  behind: number | null;
+}
+
+export interface GitUndoCommitRequest {
+  repoPath: string;
+  branchName: string;
+  expectedHeadOid: string;
+  previousHeadOid: string;
+}
+
 export type GitAmendMode = "message-only" | "staged-edit" | "staged-keep";
 export type GitAmendEntryPoint = "history" | "composer";
 
@@ -1480,10 +1524,12 @@ export const TAG_PUSH_BEHAVIORS = ["all", "follow", "none"] as const;
 export type TagPushBehavior = (typeof TAG_PUSH_BEHAVIORS)[number];
 export const DEFAULT_TAG_PUSH_BEHAVIOR: TagPushBehavior = "all";
 export const DEFAULT_ALLOW_CHERRY_PICKING_CONTAINED_COMMITS = false;
+export const DEFAULT_REQUIRE_UP_TO_DATE_UPSTREAM_BEFORE_COMMIT = false;
 
 export interface GitBehaviorSettings {
   tagPushBehavior: TagPushBehavior;
   allowCherryPickingContainedCommits?: boolean;
+  requireUpToDateUpstreamBeforeCommit?: boolean;
 }
 
 export const APP_ZOOM_FACTORS = [0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2] as const;
@@ -1898,6 +1944,9 @@ export interface GitheadApi {
   stageHunk(request: CoordinatedRequest<GitHunkRequest>): Promise<GitOperationResult>;
   unstageHunk(request: CoordinatedRequest<GitHunkRequest>): Promise<GitOperationResult>;
   commitChanges(request: CoordinatedRequest<GitCommitRequest>): Promise<GitOperationResult>;
+  commitWithRemoteCheck(request: CoordinatedRequest<GitCommitRequest>): Promise<GitCommitWithRemoteCheckResult>;
+  commitAndPush(request: CoordinatedRequest<GitCommitRequest>): Promise<GitCommitAndPushResult>;
+  undoCommitAndKeepStaged(request: CoordinatedRequest<GitUndoCommitRequest>): Promise<GitOperationResult>;
   getAmendPreview(request: GitAmendPreviewRequest): Promise<GitAmendPreviewResult>;
   amendLastCommit(request: CoordinatedRequest<GitAmendExecuteRequest>): Promise<GitAmendResult>;
   restoreAmendRecovery(request: CoordinatedRequest<GitAmendRestoreRequest>): Promise<GitAmendRestoreResult>;

@@ -51,6 +51,9 @@ import type {
   GenerateCommitPlanRequest,
   GenerateCommitPlanResult,
   GitCommitRequest,
+  GitCommitAndPushResult,
+  GitCommitWithRemoteCheckResult,
+  GitUndoCommitRequest,
   GitQuickCommitRequest,
   GitCreateTagRequest,
   GitDeleteTagRequest,
@@ -665,6 +668,77 @@ ipcMain.handle(IPC_CHANNELS.unstageHunk, async (event, request: CoordinatedReque
 ipcMain.handle(IPC_CHANNELS.commitChanges, async (event, request: CoordinatedRequest<GitCommitRequest>) => {
   return runTrustedExclusiveGitOperation(
     async () => (await vcsRouter.serviceForRepo(request.repoPath)).commitChanges(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
+});
+
+ipcMain.handle(IPC_CHANNELS.commitWithRemoteCheck, async (event, request: CoordinatedRequest<GitCommitRequest>) => {
+  return runTrustedExclusiveRepositoryOperation(
+    async () => withOwnedGitOutput(event, async (onOutput) => gitService.commitWithRemoteCheck(request, onOutput)),
+    repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS, true),
+    (failure): GitCommitWithRemoteCheckResult => ({
+      ...failure,
+      outcome: "preflight-failed",
+      commitCreated: false,
+      branchName: null,
+      ahead: null,
+      behind: null
+    }),
+    (): GitCommitWithRemoteCheckResult => ({
+      repoPath: request.repoPath,
+      exitCode: -1,
+      stdout: "",
+      stderr: "Another git command is already running for this repository.",
+      outcome: "preflight-failed",
+      commitCreated: false,
+      branchName: null,
+      ahead: null,
+      behind: null
+    })
+  );
+});
+
+ipcMain.handle(IPC_CHANNELS.commitAndPush, async (event, request: CoordinatedRequest<GitCommitRequest>) => {
+  return runTrustedExclusiveRepositoryOperation(
+    async (signal) => withOwnedGitOutput(event, async (onOutput) => {
+      const pushOptions = await snapshotGitPushExecutionOptions(
+        () => getAppSettingsService().getSettings(),
+        signal
+      );
+      return gitService.commitAndPush(request, onOutput, pushOptions);
+    }),
+    repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS, true),
+    (failure): GitCommitAndPushResult => ({
+      ...failure,
+      outcome: "preflight-failed",
+      commitCreated: false,
+      branchName: null,
+      ahead: null,
+      behind: null,
+      previousHeadOid: null,
+      headOid: null,
+      canUndoCommit: false
+    }),
+    (): GitCommitAndPushResult => ({
+      repoPath: request.repoPath,
+      exitCode: -1,
+      stdout: "",
+      stderr: "Another git command is already running for this repository.",
+      outcome: "preflight-failed",
+      commitCreated: false,
+      branchName: null,
+      ahead: null,
+      behind: null,
+      previousHeadOid: null,
+      headOid: null,
+      canUndoCommit: false
+    })
+  );
+});
+
+ipcMain.handle(IPC_CHANNELS.undoCommitAndKeepStaged, async (event, request: CoordinatedRequest<GitUndoCommitRequest>) => {
+  return runTrustedExclusiveGitOperation(
+    () => gitService.undoCommitAndKeepStaged(request),
     repositoryOperationOptions(event, request.operationId, request.repoPath)
   );
 });

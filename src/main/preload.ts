@@ -42,6 +42,7 @@ import type {
   GenerateCommitMessageRequest,
   GenerateCommitPlanRequest,
   GitCommitRequest,
+  GitUndoCommitRequest,
   GitQuickCommitRequest,
   GitCreateTagRequest,
   GitDeleteTagRequest,
@@ -203,6 +204,12 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.unstageHunk, request) as ReturnType<GitheadApi["unstageHunk"]>,
   commitChanges: (request: CoordinatedRequest<GitCommitRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.commitChanges, request) as ReturnType<GitheadApi["commitChanges"]>,
+  commitWithRemoteCheck: (request: CoordinatedRequest<GitCommitRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.commitWithRemoteCheck, request) as ReturnType<GitheadApi["commitWithRemoteCheck"]>,
+  commitAndPush: (request: CoordinatedRequest<GitCommitRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.commitAndPush, request) as ReturnType<GitheadApi["commitAndPush"]>,
+  undoCommitAndKeepStaged: (request: CoordinatedRequest<GitUndoCommitRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.undoCommitAndKeepStaged, request) as ReturnType<GitheadApi["undoCommitAndKeepStaged"]>,
   getAmendPreview: (request: GitAmendPreviewRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getAmendPreview, request) as ReturnType<GitheadApi["getAmendPreview"]>,
   amendLastCommit: (request: CoordinatedRequest<GitAmendExecuteRequest>) =>

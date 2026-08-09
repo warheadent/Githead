@@ -5,7 +5,6 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
   createOperationResult,
-  createRunResult,
   createStatusFile,
   createSummary,
   createTextDiff,
@@ -24,7 +23,7 @@ import {
   waitForRepositoryWorkspace,
   type GitFileDiff,
   type GitIdentitySettings,
-  type GitOperationResult,
+  type GitCommitAndPushResult,
 } from "./AppTestHarness";
 import { App } from "./App";
 
@@ -1300,9 +1299,86 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.commitChanges).toHaveBeenCalledTimes(1);
   });
 
-  it("pushes after a successful commit even when the old summary has no unpushed commits", async () => {
+  it("uses the optional upstream safety check for an ordinary commit", async () => {
     const user = userEvent.setup();
-    const pendingCommit = defer<GitOperationResult>();
+    vi.mocked(githead.getAppSettings).mockResolvedValue({
+      autoFetchIntervalMinutes: 10,
+      colorTheme: "githead",
+      appearanceMode: "system",
+      uiFont: "inter",
+      codeFont: "system-mono",
+      zoomFactor: 1,
+      statusFileViewMode: "list",
+      wrapDiffLines: false,
+      gitBehaviors: {
+        tagPushBehavior: "all",
+        requireUpToDateUpstreamBeforeCommit: true
+      }
+    });
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [createStatusFile("src/safe.ts", { indexStatus: "M", isStaged: true })]
+    }));
+
+    render(<App />);
+
+    await screen.findByRole("option", { name: /src\/safe\.ts/ });
+    await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "fix: safe commit");
+    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+
+    await waitFor(() => expect(githead.commitWithRemoteCheck).toHaveBeenCalledWith({
+      repoPath,
+      message: "fix: safe commit",
+      operationId: expect.any(String)
+    }));
+    expect(githead.commitChanges).not.toHaveBeenCalled();
+  });
+
+  it("keeps the staged commit ready when the optional upstream check finds remote commits", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getAppSettings).mockResolvedValue({
+      autoFetchIntervalMinutes: 10,
+      colorTheme: "githead",
+      appearanceMode: "system",
+      uiFont: "inter",
+      codeFont: "system-mono",
+      zoomFactor: 1,
+      statusFileViewMode: "list",
+      wrapDiffLines: false,
+      gitBehaviors: {
+        tagPushBehavior: "all",
+        requireUpToDateUpstreamBeforeCommit: true
+      }
+    });
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [createStatusFile("src/safe.ts", { indexStatus: "M", isStaged: true })]
+    }));
+    vi.mocked(githead.commitWithRemoteCheck).mockResolvedValue({
+      repoPath,
+      exitCode: -1,
+      stdout: "",
+      stderr: "The remote branch has 1 new commit. Pull or rebase before committing. No commit was created.",
+      outcome: "remote-ahead",
+      commitCreated: false,
+      branchName: "main",
+      ahead: 0,
+      behind: 1
+    });
+
+    render(<App />);
+
+    await screen.findByRole("option", { name: /src\/safe\.ts/ });
+    const message = screen.getByPlaceholderText("Summarize staged changes...");
+    await user.type(message, "fix: safe commit");
+    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("No commit was created");
+    expect((message as HTMLTextAreaElement).value).toBe("fix: safe commit");
+    expect(githead.commitChanges).not.toHaveBeenCalled();
+  });
+
+  it("uses one coordinated safety check, commit, and push operation", async () => {
+    const user = userEvent.setup();
+    const pendingCommit = defer<GitCommitAndPushResult>();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       ahead: 0,
       behind: 0,
@@ -1313,8 +1389,7 @@ describe("App", { timeout: 10_000 }, () => {
         })
       ]
     }));
-    vi.mocked(githead.commitChanges).mockReturnValue(pendingCommit.promise);
-    vi.mocked(githead.runGitAction).mockResolvedValue(createRunResult("push"));
+    vi.mocked(githead.commitAndPush).mockReturnValue(pendingCommit.promise);
 
     render(<App />);
 
@@ -1322,22 +1397,29 @@ describe("App", { timeout: 10_000 }, () => {
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "fix: restore commit and push");
     await user.click(screen.getByRole("button", { name: "More commit actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Commit & Push" }));
-    await waitFor(() => expect(githead.commitChanges).toHaveBeenCalledTimes(1));
-
+    await waitFor(() => expect(githead.commitAndPush).toHaveBeenCalledWith({
+      repoPath,
+      message: "fix: restore commit and push",
+      operationId: expect.any(String)
+    }));
+    expect(githead.commitChanges).not.toHaveBeenCalled();
     expect(githead.runGitAction).not.toHaveBeenCalled();
 
-    pendingCommit.resolve(createOperationResult());
-
-    await waitFor(() => {
-      expect(githead.runGitAction).toHaveBeenCalledWith({
-        repoPath,
-        action: "push",
-        operationId: expect.any(String)
-      });
+    pendingCommit.resolve({
+      ...createOperationResult(),
+      outcome: "pushed",
+      commitCreated: true,
+      branchName: "main",
+      ahead: 0,
+      behind: 0,
+      previousHeadOid: "a".repeat(40),
+      headOid: "b".repeat(40),
+      canUndoCommit: false
     });
+    await waitFor(() => expect((screen.getByPlaceholderText("Summarize staged changes...") as HTMLTextAreaElement).value).toBe(""));
   });
 
-  it("does not push after a failed commit", async () => {
+  it("shows a safety warning without creating a commit when the fetched remote is ahead", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       files: [
@@ -1347,10 +1429,17 @@ describe("App", { timeout: 10_000 }, () => {
         })
       ]
     }));
-    vi.mocked(githead.commitChanges).mockResolvedValue(createOperationResult({
-      exitCode: 1,
-      stderr: "Commit failed."
-    }));
+    vi.mocked(githead.commitAndPush).mockResolvedValue({
+      ...createOperationResult({ exitCode: -1, stderr: "The remote branch has 2 new commits. Pull or rebase before committing and pushing. No commit was created." }),
+      outcome: "remote-ahead",
+      commitCreated: false,
+      branchName: "main",
+      ahead: 0,
+      behind: 2,
+      previousHeadOid: null,
+      headOid: null,
+      canUndoCommit: false
+    });
 
     render(<App />);
 
@@ -1358,16 +1447,80 @@ describe("App", { timeout: 10_000 }, () => {
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "fix: failed commit");
     await user.click(screen.getByRole("button", { name: "More commit actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Commit & Push" }));
-    await waitFor(() => expect(githead.commitChanges).toHaveBeenCalledTimes(1));
-    await flushRendererAsync();
-
+    expect((await screen.findByRole("alert")).textContent).toContain("No commit was created");
+    expect(githead.commitAndPush).toHaveBeenCalledTimes(1);
+    expect(githead.commitChanges).not.toHaveBeenCalled();
     expect(githead.runGitAction).not.toHaveBeenCalled();
   });
 
-  it("does not push the newly selected repository when an old commit-and-push completes late", async () => {
+  it("asks the user to publish an untracked branch before creating the commit", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      upstream: null,
+      ahead: null,
+      behind: null,
+      remotes: [
+        { name: "origin", url: "https://example.test/repo.git", direction: "fetch" },
+        { name: "origin", url: "https://example.test/repo.git", direction: "push" }
+      ],
+      files: [createStatusFile("src/renderer/App.tsx", { indexStatus: "M", isStaged: true })]
+    }));
+
+    render(<App />);
+
+    await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
+    await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: publish safely");
+    await user.click(screen.getByRole("button", { name: "More commit actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Commit & Push" }));
+
+    expect(await screen.findByRole("dialog", { name: "Publish Branch" })).toBeTruthy();
+    expect(screen.getByText(/No commit has been created/)).toBeTruthy();
+    expect(githead.commitAndPush).not.toHaveBeenCalled();
+    expect(githead.commitChanges).not.toHaveBeenCalled();
+  });
+
+  it("offers and runs the guarded undo after a non-fast-forward race", async () => {
+    const user = userEvent.setup();
+    const previousHeadOid = "a".repeat(40);
+    const headOid = "b".repeat(40);
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [createStatusFile("src/renderer/App.tsx", { indexStatus: "M", isStaged: true })]
+    }));
+    vi.mocked(githead.commitAndPush).mockResolvedValue({
+      ...createOperationResult({ exitCode: 1, stderr: "The remote changed after the safety check. You can undo the new commit and keep its changes staged." }),
+      outcome: "push-failed",
+      commitCreated: true,
+      branchName: "main",
+      ahead: 0,
+      behind: 0,
+      previousHeadOid,
+      headOid,
+      canUndoCommit: true
+    });
+    vi.mocked(githead.undoCommitAndKeepStaged).mockResolvedValue(createOperationResult({ stdout: "Commit undone. Its changes remain staged." }));
+
+    render(<App />);
+
+    await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
+    await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "fix: raced push");
+    await user.click(screen.getByRole("button", { name: "More commit actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Commit & Push" }));
+    await user.click(await screen.findByRole("button", { name: "Undo commit" }));
+
+    await waitFor(() => expect(githead.undoCommitAndKeepStaged).toHaveBeenCalledWith({
+      repoPath,
+      branchName: "main",
+      expectedHeadOid: headOid,
+      previousHeadOid,
+      operationId: expect.any(String)
+    }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Undo commit" })).toBeNull());
+  });
+
+  it("does not apply a late commit-and-push result to a newly selected repository", async () => {
     const user = userEvent.setup();
     const otherRepo = "D:\\Work\\Commit-B";
-    const pendingCommit = defer<GitOperationResult>();
+    const pendingCommit = defer<GitCommitAndPushResult>();
     const pendingRepositoryChoice = defer<string | null>();
     vi.mocked(githead.chooseRepo).mockReturnValue(pendingRepositoryChoice.promise);
     vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
@@ -1381,7 +1534,7 @@ describe("App", { timeout: 10_000 }, () => {
         { indexStatus: "M", isStaged: true }
       )]
     }));
-    vi.mocked(githead.commitChanges).mockReturnValue(pendingCommit.promise);
+    vi.mocked(githead.commitAndPush).mockReturnValue(pendingCommit.promise);
 
     render(<App />);
 
@@ -1392,13 +1545,23 @@ describe("App", { timeout: 10_000 }, () => {
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: repository A");
     await user.click(screen.getByRole("button", { name: "More commit actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Commit & Push" }));
-    await waitFor(() => expect(githead.commitChanges).toHaveBeenCalledWith({
+    await waitFor(() => expect(githead.commitAndPush).toHaveBeenCalledWith({
       repoPath,
       message: "feat: repository A",
       operationId: expect.any(String)
     }));
 
-    pendingCommit.resolve(createOperationResult({ repoPath }));
+    pendingCommit.resolve({
+      ...createOperationResult({ repoPath }),
+      outcome: "pushed",
+      commitCreated: true,
+      branchName: "main",
+      ahead: 0,
+      behind: 0,
+      previousHeadOid: "a".repeat(40),
+      headOid: "b".repeat(40),
+      canUndoCommit: false
+    });
     pendingRepositoryChoice.resolve(otherRepo);
     await screen.findByRole("option", { name: /src\/b\.ts/ });
     const message = screen.getByPlaceholderText("Summarize staged changes...") as HTMLTextAreaElement;
@@ -1407,7 +1570,6 @@ describe("App", { timeout: 10_000 }, () => {
 
     await flushRendererAsync();
 
-    expect(githead.runGitAction).not.toHaveBeenCalled();
     expect(message.value).toBe("feat: repository B");
   });
 
