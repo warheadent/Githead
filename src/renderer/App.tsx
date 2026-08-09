@@ -23,6 +23,7 @@ import {
   Loader2,
   MapPinned,
   Maximize2,
+  MessageSquare,
   Minus,
   Plus,
   RefreshCw,
@@ -282,7 +283,6 @@ const HISTORY_LIMIT = 200;
 
 type HistoryColumnId = "graph" | "description" | "date" | "author" | "commit" | "references" | "pullRequest" | "checks";
 type WorkflowColumnId = "status" | "workflow" | "branch" | "event" | "updated" | "run" | "commit" | "started" | "duration";
-type PullRequestColumnId = "number" | "title" | "branch" | "labels" | "updated" | "author" | "comments" | "draft" | "target";
 type IssueColumnId = "number" | "title" | "labels" | "comments" | "updated" | "author";
 
 const WORKFLOW_COLUMNS = [
@@ -296,18 +296,6 @@ const WORKFLOW_COLUMNS = [
   { id: "started", label: "Started", defaultWidth: 210, minWidth: 110, defaultVisible: false },
   { id: "duration", label: "Duration", defaultWidth: 110, minWidth: 80, defaultVisible: false }
 ] as const satisfies readonly ColumnDefinition<WorkflowColumnId>[];
-
-const PULL_REQUEST_COLUMNS = [
-  { id: "number", label: "PR", defaultWidth: 88, minWidth: 72 },
-  { id: "title", label: "Title", defaultWidth: 300, minWidth: 180 },
-  { id: "branch", label: "Branch", defaultWidth: 220, minWidth: 120 },
-  { id: "labels", label: "Labels", defaultWidth: 180, minWidth: 100 },
-  { id: "updated", label: "Updated", defaultWidth: 210, minWidth: 110 },
-  { id: "author", label: "Author", defaultWidth: 140, minWidth: 90, defaultVisible: false },
-  { id: "comments", label: "Comments", defaultWidth: 96, minWidth: 80, defaultVisible: false },
-  { id: "draft", label: "Draft", defaultWidth: 88, minWidth: 72, defaultVisible: false },
-  { id: "target", label: "Target branch", defaultWidth: 160, minWidth: 100, defaultVisible: false }
-] as const satisfies readonly ColumnDefinition<PullRequestColumnId>[];
 
 const ISSUE_COLUMNS = [
   { id: "number", label: "Issue", defaultWidth: 88, minWidth: 72 },
@@ -10975,17 +10963,18 @@ function WorkflowRunRow({
   );
 }
 
-function GitHubDetailWorkspace({ open, drawer, children }: { open: boolean; drawer: ReactNode; children: ReactNode }): ReactNode {
+function GitHubDetailWorkspace({ open, drawer, emptyDrawer, persistent = false, listDefaultSize = "40%", children }: { open: boolean; drawer: ReactNode; emptyDrawer?: ReactNode; persistent?: boolean; listDefaultSize?: string; children: ReactNode }): ReactNode {
+  const showDrawer = open || persistent;
   return (
     <ResizablePanelGroup orientation="horizontal" className="review-console-workspace">
-      <ResizablePanel defaultSize={open ? "40%" : "100%"} minSize="280px" className="review-console-list-panel">
+      <ResizablePanel defaultSize={showDrawer ? listDefaultSize : "100%"} minSize="280px" className="review-console-list-panel">
         {children}
       </ResizablePanel>
-      {open ? (
+      {showDrawer ? (
         <>
           <ResizableHandle withHandle className="review-console-resize-handle" aria-label="Resize review console" />
-          <ResizablePanel defaultSize="60%" minSize="420px" className="review-console-drawer-panel">
-            {drawer}
+          <ResizablePanel defaultSize={listDefaultSize === "38%" ? "62%" : "60%"} minSize="420px" className="review-console-drawer-panel">
+            {open ? drawer : emptyDrawer}
           </ResizablePanel>
         </>
       ) : null}
@@ -11047,9 +11036,9 @@ function PullRequestsView({
   const repository = summary?.githubRepository ?? null;
   const [selectedPullRequest, setSelectedPullRequest] = useState<GitHubPullRequest | null>(null);
   const selectedTitleRef = useRef<HTMLButtonElement | null>(null);
-  const columnLayout = usePersistentColumnLayout("githead.column-layout.pull-requests", PULL_REQUEST_COLUMNS);
   const filtered = Object.keys(query).some((key) => !["sort", "direction"].includes(key)) || query.sort !== "updated" || query.direction !== "desc";
   const countLabel = loaded ? (filtered && totalCount !== null ? `${totalCount} matching` : formatLoadedCount(pullRequests.length, openCount, "open pull request", "open pull requests")) : "-";
+  const activeFilterCount = Object.entries(query).filter(([key, value]) => !["search", "sort", "direction"].includes(key) && value !== undefined && value !== "").length;
   const applyPreset = (value: string): void => {
     onPresetChange(value);
     if (value === "branch") onQueryChange({ ...DEFAULT_PULL_REQUEST_QUERY, sourceBranch: summary?.branch ?? undefined });
@@ -11069,7 +11058,7 @@ function PullRequestsView({
   };
 
   return (
-    <GitHubDetailWorkspace open={selectedPullRequest !== null} drawer={selectedPullRequest && repository ? (
+    <GitHubDetailWorkspace persistent listDefaultSize="38%" open={selectedPullRequest !== null} emptyDrawer={<PullRequestEmptyDetails />} drawer={selectedPullRequest && repository ? (
       <Suspense fallback={<LoadingState label="Loading review console" className="h-full" />}>
         <ReviewConsole
           repoPath={summary?.repoPath ?? ""}
@@ -11082,23 +11071,19 @@ function PullRequestsView({
         />
       </Suspense>
     ) : null}>
-    <section ref={columnLayout.containerRef} style={columnLayout.style} className="github-view pull-requests-grid" aria-label="Pull requests">
-      <GitHubViewHeader
-        eyebrow="GitHub"
-        title="Pull Requests"
-        repositoryName={repository?.fullName ?? "-"}
-        countLabel={countLabel}
-        loading={loading || busy}
-        disabled={!repository}
-        actions={<ColumnVisibilityMenu columns={PULL_REQUEST_COLUMNS} controller={columnLayout} buttonSize="sm" />}
-        onRefresh={onRefresh}
-      />
-      <GitHubQueryToolbar view="pullRequests" search={query.search ?? ""} preset={preset} presets={[{ value: "all", label: "All open" }, { value: "branch", label: "Current Branch", disabled: !summary?.branch }, { value: "authored", label: "Authored by me", disabled: !viewerLogin }, { value: "assigned", label: "Assigned to me", disabled: !viewerLogin }, { value: "review", label: "Review requested", disabled: !viewerLogin }, { value: "drafts", label: "Drafts" }, { value: "custom", label: "Custom" }]} sort={`${query.sort}-${query.direction}`} sortOptions={[{ value: "updated-desc", label: "Recently updated" }, { value: "created-desc", label: "Newest" }, { value: "created-asc", label: "Oldest" }]} viewerAvailable={Boolean(viewerLogin)} status={loading || busy ? "Loading pull requests" : countLabel} onSearchChange={(value) => { onPresetChange("custom"); onQueryChange({ ...query, search: value || undefined }); }} onPresetChange={applyPreset} onSortChange={(value) => { const [sort, direction] = value.split("-") as ["updated" | "created", "asc" | "desc"]; onPresetChange("custom"); onQueryChange({ ...query, sort, direction }); }} onClear={() => applyPreset("all")}>
+    <section className="github-view pull-requests-grid" aria-label="Pull requests">
+      <div className="github-view-header pull-request-selector-header">
+        <div className="min-w-0">
+          <p className="eyebrow">GitHub</p>
+          <TooltipTarget content={repository?.fullName ?? "-"}><h2 className="truncate text-sm font-semibold">{repository?.fullName ?? "-"}</h2></TooltipTarget>
+          <p className="github-secondary-text">{countLabel}</p>
+        </div>
+      </div>
+      <GitHubQueryToolbar compact activeFilterCount={activeFilterCount} refreshDisabled={!repository} refreshing={loading || busy} onRefresh={onRefresh} view="pullRequests" search={query.search ?? ""} preset={preset} presets={[{ value: "all", label: "All open" }, { value: "branch", label: "Current Branch", disabled: !summary?.branch }, { value: "authored", label: "Authored by me", disabled: !viewerLogin }, { value: "assigned", label: "Assigned to me", disabled: !viewerLogin }, { value: "review", label: "Review requested", disabled: !viewerLogin }, { value: "drafts", label: "Drafts" }, { value: "custom", label: "Custom" }]} sort={`${query.sort}-${query.direction}`} sortOptions={[{ value: "updated-desc", label: "Recently updated" }, { value: "created-desc", label: "Newest" }, { value: "created-asc", label: "Oldest" }]} viewerAvailable={Boolean(viewerLogin)} status={loading || busy ? "Loading pull requests" : countLabel} onSearchChange={(value) => { onPresetChange("custom"); onQueryChange({ ...query, search: value || undefined }); }} onPresetChange={applyPreset} onSortChange={(value) => { const [sort, direction] = value.split("-") as ["updated" | "created", "asc" | "desc"]; onPresetChange("custom"); onQueryChange({ ...query, sort, direction }); }} onClear={() => applyPreset("all")}>
         <label className="github-query-field"><span>Label</span><input value={query.label ?? ""} onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, label: event.target.value || undefined }); }} /></label>
         <label className="github-query-field"><span>Draft</span><select value={query.draft ?? ""} onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, draft: (event.target.value || undefined) as GitHubPullRequestQuery["draft"] }); }}><option value="">Any</option><option value="draft">Draft</option><option value="ready">Ready</option></select></label>
       </GitHubQueryToolbar>
       <div className="github-list" role="list" aria-label="Pull requests">
-        <AdjustableColumnHeader columns={PULL_REQUEST_COLUMNS} controller={columnLayout} className="github-table-header" />
         {!repository ? (
           <p className="empty-state">Select a repository with a supported GitHub origin.</p>
         ) : loading ? (
@@ -11112,14 +11097,11 @@ function PullRequestsView({
             <PullRequestRow
               key={pullRequest.number}
               pullRequest={pullRequest}
-              columnOrder={columnLayout.visibleOrder}
-              busy={busy}
               selected={selectedPullRequest?.number === pullRequest.number}
               onSelect={(item, button) => {
                 selectedTitleRef.current = button;
                 setSelectedPullRequest(item);
               }}
-              onCheckout={onCheckout}
             />
           ))
         )}
@@ -11133,60 +11115,49 @@ function PullRequestsView({
 
 function PullRequestRow({
   pullRequest,
-  columnOrder,
-  busy,
   selected,
-  onSelect,
-  onCheckout
+  onSelect
 }: {
   pullRequest: GitHubPullRequest;
-  columnOrder: readonly PullRequestColumnId[];
-  busy: boolean;
   selected: boolean;
   onSelect: (pullRequest: GitHubPullRequest, button: HTMLButtonElement) => void;
-  onCheckout: (pullRequest: GitHubPullRequest) => void;
 }): ReactNode {
-  const secondaryText = formatPullRequestSummary(pullRequest, columnOrder);
   return (
     <div
       className={`github-row pull-request-row ${selected ? "is-selected" : ""}`}
       role="listitem"
       aria-current={selected ? "true" : undefined}
     >
-      <OrderedCells order={columnOrder} cells={{
-        number: <span className="github-issue-number">
-          #{pullRequest.number}
-          {pullRequest.draft && !columnOrder.includes("draft") ? <span className="github-draft-text">Draft</span> : null}
-          <TooltipButton type="button" variant="ghost" size="icon-xs" disabled={busy || !pullRequest.sourceBranch} aria-label={`Check out pull request #${pullRequest.number}`} tooltip="Check out pull request" disabledTooltip={!pullRequest.sourceBranch ? "The pull request source branch is unavailable" : undefined} onClick={() => onCheckout(pullRequest)}>
-            <Download />
-          </TooltipButton>
-        </span>,
-        title: <span className="min-w-0">
-          <TooltipTarget content={pullRequest.title}>
-            <button type="button" className="github-primary-text text-left" onClick={(event) => onSelect(pullRequest, event.currentTarget)}>{pullRequest.title}</button>
-          </TooltipTarget>
-          {secondaryText ? (
-            <TooltipTarget content={pullRequest.authorLogin}>
-              <span className="github-secondary-text">{secondaryText}</span>
-            </TooltipTarget>
-          ) : null}
-        </span>,
-        branch: <TooltipTarget content={pullRequest.sourceBranch && pullRequest.targetBranch ? `${pullRequest.sourceBranch} -> ${pullRequest.targetBranch}` : "Branch details unavailable in search results"}>
-          <span className="github-secondary-text">
-            {pullRequest.sourceBranch
-              ? columnOrder.includes("target") ? pullRequest.sourceBranch : pullRequest.targetBranch ? <>{pullRequest.sourceBranch} -&gt; {pullRequest.targetBranch}</> : pullRequest.sourceBranch
-              : "Branch details unavailable"}
+      <button type="button" className="pull-request-row-select" aria-label={pullRequest.title} aria-pressed={selected} onClick={(event) => onSelect(pullRequest, event.currentTarget)}>
+        <span className="pull-request-row-state" aria-hidden="true">
+          <GitPullRequest />
+          <CircleDot className="pull-request-open-state" />
+          <span className="github-issue-number">#{pullRequest.number}</span>
+          {pullRequest.draft ? <span className="github-draft-text">Draft</span> : null}
+        </span>
+        <span className="pull-request-row-content">
+          <TooltipTarget content={pullRequest.title}><span className="github-primary-text pull-request-row-title">{pullRequest.title}</span></TooltipTarget>
+          <span className="pull-request-row-meta github-secondary-text">
+            <TooltipTarget content={pullRequest.authorLogin}><span className="truncate">{pullRequest.authorLogin}</span></TooltipTarget>
+            <span aria-hidden="true">·</span>
+            <TooltipTarget content={formatDate(pullRequest.updatedAt)}><span className="truncate">updated {formatRelativeDate(pullRequest.updatedAt)}</span></TooltipTarget>
           </span>
-        </TooltipTarget>,
-        labels: <GitHubLabels labels={pullRequest.labels} />,
-        updated: <TooltipTarget content={formatDate(pullRequest.updatedAt)}><span className="github-updated-cell truncate">{formatDate(pullRequest.updatedAt)}</span></TooltipTarget>,
-        author: <TooltipTarget content={pullRequest.authorLogin}><span className="truncate">{pullRequest.authorLogin}</span></TooltipTarget>,
-        comments: <span className="github-comments-cell github-secondary-text">{pullRequest.comments}</span>,
-        draft: <span className="github-secondary-text">{pullRequest.draft ? "Draft" : "Ready"}</span>,
-        target: <TooltipTarget content={pullRequest.targetBranch || "Target branch unavailable"}><span className="truncate">{pullRequest.targetBranch || "-"}</span></TooltipTarget>
-      }} />
+          <span className="pull-request-row-details">
+            <span className="pull-request-comment-count github-secondary-text" aria-label={`${pullRequest.comments} ${pullRequest.comments === 1 ? "comment" : "comments"}`}><MessageSquare />{pullRequest.comments}</span>
+            <GitHubLabels labels={pullRequest.labels} max={2} />
+          </span>
+        </span>
+      </button>
     </div>
   );
+}
+
+function PullRequestEmptyDetails(): ReactNode {
+  return <section className="review-console-empty" aria-labelledby="pull-request-empty-heading">
+    <GitPullRequest aria-hidden="true" />
+    <h2 id="pull-request-empty-heading">Select a pull request</h2>
+    <p>Choose a pull request to view details, checks, files, and review activity.</p>
+  </section>;
 }
 
 function IssuesView({
@@ -11347,14 +11318,14 @@ function IssueRow({
   );
 }
 
-function GitHubLabels({ labels }: { labels: string[] }): ReactNode {
+function GitHubLabels({ labels, max = 3 }: { labels: string[]; max?: number }): ReactNode {
   return (
     <TooltipTarget content={labels.join(", ")}>
       <span className="github-labels">
         {labels.length === 0 ? (
           <span className="github-secondary-text">-</span>
         ) : (
-          labels.slice(0, 3).map((label) => (
+          labels.slice(0, max).map((label) => (
             <span key={label} className="github-label-chip">{label}</span>
           ))
         )}
@@ -14101,11 +14072,18 @@ function formatCompactUnit(value: number, unit: string): string {
   return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}${unit}`;
 }
 
-function formatPullRequestSummary(pullRequest: GitHubPullRequest, columnOrder: readonly PullRequestColumnId[]): string {
-  const parts: string[] = [];
-  if (!columnOrder.includes("author")) parts.push(pullRequest.authorLogin);
-  if (!columnOrder.includes("comments")) parts.push(`${pullRequest.comments} ${pullRequest.comments === 1 ? "comment" : "comments"}`);
-  return parts.join(" · ");
+function formatRelativeDate(value: string): string {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return value || "unknown";
+  const seconds = Math.round((timestamp - Date.now()) / 1_000);
+  const absolute = Math.abs(seconds);
+  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  if (absolute < 60) return formatter.format(seconds, "second");
+  if (absolute < 3_600) return formatter.format(Math.round(seconds / 60), "minute");
+  if (absolute < 86_400) return formatter.format(Math.round(seconds / 3_600), "hour");
+  if (absolute < 2_592_000) return formatter.format(Math.round(seconds / 86_400), "day");
+  if (absolute < 31_536_000) return formatter.format(Math.round(seconds / 2_592_000), "month");
+  return formatter.format(Math.round(seconds / 31_536_000), "year");
 }
 
 function formatRunDuration(startedAt: string, updatedAt: string): string {

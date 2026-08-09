@@ -160,9 +160,12 @@ describe("App", { timeout: 10_000 }, () => {
         sourceBranch: "feature/pr-tab",
         targetBranch: "main",
         labels: [
-          "ui"
+          "ui",
+          "accessibility",
+          "not-shown"
         ],
         comments: 3,
+        draft: true,
         url: "https://github.com/openai/githead/pull/24"
       })
     ], page: 1, nextPage: null, totalCount: null }, rateLimit: null });
@@ -186,11 +189,19 @@ describe("App", { timeout: 10_000 }, () => {
     });
     expect(await screen.findByText("#24")).toBeTruthy();
     expect(screen.getByText("Add GitHub pull request tab")).toBeTruthy();
-    expect(screen.getByText("feature/pr-tab -> main")).toBeTruthy();
+    expect(screen.getByText("taylor")).toBeTruthy();
+    expect(screen.getByLabelText("3 comments")).toBeTruthy();
     expect(screen.getByText("ui")).toBeTruthy();
+    expect(screen.getByText("accessibility")).toBeTruthy();
+    expect(screen.queryByText("not-shown")).toBeNull();
+    expect(screen.getByText("Draft")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Check out pull request #24" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Select a pull request" })).toBeTruthy();
+    expect(within(screen.getByRole("list", { name: "Pull requests" })).queryByRole("columnheader")).toBeNull();
 
     const title = screen.getByRole("button", { name: "Add GitHub pull request tab" });
-    await user.click(title);
+    title.focus();
+    await user.keyboard("{Enter}");
 
     const drawer = await screen.findByRole("region", { name: /Add GitHub pull request tab/ });
     expect(githead.openExternalUrl).not.toHaveBeenCalled();
