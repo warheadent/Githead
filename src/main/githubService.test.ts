@@ -59,6 +59,78 @@ describe("GitHubService", () => {
     expect(result).toEqual({ ok: true, rateLimit: null, data: { items: [{ number: 11, title: "PR", state: "open", authorLogin: "taylor", sourceBranch: "feature", sourceRepositoryFullName: "openai/githead", targetBranch: "main", labels: ["ui"], comments: 7, draft: true, updatedAt: "now", url: "pr-url" }], page: 1, nextPage: null, totalCount: null } });
   });
 
+  it("maps pull request detail resources into the dedicated model", async () => {
+    const client = new FakeClient([
+      {
+        number: 24, title: "Review console", state: "open", body: "Description", user: { login: "taylor", avatar_url: "avatar", html_url: "author-url" },
+        created_at: "created", updated_at: "updated", html_url: "pr-url", draft: false, merged_at: null, mergeable: true, mergeable_state: "clean", commits: 2,
+        head: { ref: "feature/review", sha: "a".repeat(40), repo: { full_name: "fork/githead" } },
+        base: { ref: "main", sha: "b".repeat(40), repo: { full_name: "openai/githead" } },
+        requested_reviewers: [{ login: "neon" }]
+      },
+      [{ id: 1, user: { login: "alex" }, body: "Looks useful", created_at: "2026-01-01", html_url: "comment-url" }],
+      [{ id: 2, user: { login: "neon" }, body: "Nit", created_at: "2026-01-02", path: "src/App.tsx", line: 12, side: "RIGHT", diff_hunk: "@@" }],
+      [{ id: 3, user: { login: "neon" }, state: "APPROVED", submitted_at: "2026-01-03", html_url: "review-url" }],
+      [{ filename: "src/App.tsx", previous_filename: "src/Old.tsx", status: "renamed", additions: 8, deletions: 3, patch: "@@", blob_url: "blob-url" }],
+      [{ sha: "c".repeat(40), html_url: "commit-url", commit: { message: "feat: review console\n\nbody", author: { name: "Taylor", date: "2026-01-01" } } }],
+      { check_runs: [{ id: 9, name: "CI", status: "completed", conclusion: "success", details_url: "check-url" }] },
+      { status: "ahead", ahead_by: 3, behind_by: 1 }
+    ]);
+
+    const result = await new GitHubService(provider(repository), client).getPullRequestDetail({ repoPath: "D:\\Repo", number: 24 });
+
+    expect(result).toMatchObject({ ok: true, data: {
+      number: 24,
+      title: "Review console",
+      displayState: "open",
+      sourceBranch: "feature/review",
+      targetBranch: "main",
+      mergeStatus: "ready",
+      canMerge: true,
+      reviewStatus: "approved",
+      commitCount: 2,
+      branchRelationship: "ahead",
+      aheadBy: 3,
+      behindBy: 1,
+      comments: [{ kind: "issue", author: { login: "alex" } }, { kind: "review", path: "src/App.tsx", line: 12 }],
+      reviews: [{ state: "approved", author: { login: "neon" } }],
+      files: [{ path: "src/App.tsx", previousPath: "src/Old.tsx", status: "renamed", additions: 8, deletions: 3, patch: "@@" }],
+      checks: [{ name: "CI", status: "completed", conclusion: "success", detailsUrl: "check-url" }],
+      commits: [{ shortSha: "ccccccc", message: "feat: review console", author: "Taylor" }]
+    } });
+    expect(client.calls.slice(0, 6).map((call) => call.path)).toEqual([
+      "/repos/openai/githead/pulls/24",
+      "/repos/openai/githead/issues/24/comments?per_page=100",
+      "/repos/openai/githead/pulls/24/comments?per_page=100",
+      "/repos/openai/githead/pulls/24/reviews?per_page=100",
+      "/repos/openai/githead/pulls/24/files?per_page=100",
+      "/repos/openai/githead/pulls/24/commits?per_page=100"
+    ]);
+  });
+
+  it("maps issue detail metadata and linked pull requests", async () => {
+    const client = new FakeClient([
+      {
+        number: 12, title: "Issue detail", state: "open", body: "Issue body", user: { login: "taylor" }, created_at: "created", updated_at: "updated", html_url: "issue-url",
+        assignees: [{ login: "alex" }], labels: [{ name: "bug", color: "ff0000" }], milestone: { number: 2, title: "Next", html_url: "milestone-url" }
+      },
+      [{ id: 1, user: { login: "alex" }, body: "Comment", created_at: "later" }],
+      [{ source: { issue: { number: 31, title: "Fix issue", state: "open", html_url: "pr-url", pull_request: {} } } }]
+    ]);
+
+    const result = await new GitHubService(provider(repository), client).getIssueDetail({ repoPath: "D:\\Repo", number: 12 });
+
+    expect(result).toMatchObject({ ok: true, data: {
+      number: 12,
+      body: "Issue body",
+      assignees: [{ login: "alex" }],
+      labels: [{ name: "bug", color: "ff0000" }],
+      milestone: { number: 2, title: "Next" },
+      comments: [{ body: "Comment", author: { login: "alex" } }],
+      linkedPullRequests: [{ number: 31, title: "Fix issue", state: "open", url: "pr-url" }]
+    } });
+  });
+
   it("loads both open counts concurrently", async () => {
     const gates: Array<(payload: unknown) => void> = [];
     const client = new FakeClient([], () => new Promise((resolve) => gates.push(resolve)));

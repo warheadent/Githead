@@ -3,14 +3,22 @@ import type {
   CreatePullRequestRequest,
   CreatePullRequestResult,
   GitHubIssue,
+  GitHubIssueDetail,
+  GitHubIssueDetailRequest,
+  GitHubItemCommentRequest,
   GitHubIssuesRequest,
   GitHubHistoryInsights,
   GitHubHistoryInsightsRequest,
   GitHubCommitAssociation,
   GitHubPullRequestAssociation,
   GitHubCheckState,
+  GitHubMutationResult,
   GitHubOpenCounts,
   GitHubPullRequest,
+  GitHubPullRequestDetail,
+  GitHubPullRequestDetailRequest,
+  GitHubPullRequestMergeRequest,
+  GitHubPullRequestReviewRequest,
   GitHubPullRequestsRequest,
   GitHubFailure,
   GitHubOperationResult,
@@ -106,10 +114,13 @@ interface GitHubApiPullRequest {
   } | null;
   head?: {
     ref?: string | null;
+    sha?: string | null;
     repo?: { full_name?: string | null } | null;
   } | null;
   base?: {
     ref?: string | null;
+    sha?: string | null;
+    repo?: { full_name?: string | null } | null;
   } | null;
   labels?: Array<string | {
     name?: string | null;
@@ -117,7 +128,14 @@ interface GitHubApiPullRequest {
   comments?: number | null;
   review_comments?: number | null;
   draft?: boolean | null;
+  body?: string | null;
+  created_at?: string | null;
   updated_at?: string | null;
+  merged_at?: string | null;
+  mergeable?: boolean | null;
+  mergeable_state?: string | null;
+  commits?: number | null;
+  requested_reviewers?: unknown[];
   html_url?: string | null;
 }
 
@@ -150,17 +168,26 @@ export class GitHubService {
   async getPullRequests(request: GitHubPullRequestsRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubPage<GitHubPullRequest>>> {
     return this.read(() => this.getPullRequestsData(request, signal));
   }
+  async getPullRequestDetail(request: GitHubPullRequestDetailRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubPullRequestDetail>> {
+    return this.read(() => this.getPullRequestDetailData(request, signal));
+  }
+  async getIssueDetail(request: GitHubIssueDetailRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubIssueDetail>> {
+    return this.read(() => this.getIssueDetailData(request, signal));
+  }
+  async approvePullRequest(request: GitHubPullRequestReviewRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubMutationResult>> {
+    return this.mutate(() => this.approvePullRequestData(request, signal));
+  }
+  async commentOnItem(request: GitHubItemCommentRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubMutationResult>> {
+    return this.mutate(() => this.commentOnItemData(request, signal));
+  }
+  async mergePullRequest(request: GitHubPullRequestMergeRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubMutationResult>> {
+    return this.mutate(() => this.mergePullRequestData(request, signal));
+  }
   async getHistoryInsights(request: GitHubHistoryInsightsRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubHistoryInsights>> {
     return this.read(() => this.getHistoryInsightsData(request, signal));
   }
   async createPullRequest(request: CreatePullRequestRequest, signal?: AbortSignal): Promise<GitHubOperationResult<CreatePullRequestResult>> {
-    return runEffect(tryPromise(() => this.createPullRequestData(request, signal)).pipe(
-      Effect.map((data): GitHubOperationResult<CreatePullRequestResult> => ({ ok: true, data, rateLimit: null })),
-      Effect.catch((error) => Effect.succeed<GitHubOperationResult<CreatePullRequestResult>>({
-        ok: false,
-        error: classifyError(error, "combined", true)
-      }))
-    ));
+    return this.mutate(() => this.createPullRequestData(request, signal));
   }
 
   private read<T>(operation: () => Promise<T>): Promise<GitHubOperationResult<T>> {
@@ -169,6 +196,16 @@ export class GitHubService {
       Effect.catch((error) => Effect.succeed<GitHubOperationResult<T>>({
         ok: false,
         error: classifyError(error, "combined", false)
+      }))
+    ));
+  }
+
+  private mutate<T>(operation: () => Promise<T>): Promise<GitHubOperationResult<T>> {
+    return runEffect(tryPromise(operation).pipe(
+      Effect.map((data): GitHubOperationResult<T> => ({ ok: true, data, rateLimit: null })),
+      Effect.catch((error) => Effect.succeed<GitHubOperationResult<T>>({
+        ok: false,
+        error: classifyError(error, "combined", true)
       }))
     ));
   }
@@ -325,6 +362,184 @@ export class GitHubService {
     if (!search && page === 1 && rawItems.length < PULL_REQUEST_LIMIT) this.observeCount(repository, "pullRequests", pullRequests.length);
     const totalCount = search && Number.isFinite((response as GitHubApiSearchResponse).total_count) ? Number((response as GitHubApiSearchResponse).total_count) : null;
     return { items: pullRequests, page, nextPage: search ? (page * PULL_REQUEST_LIMIT < (totalCount ?? 0) ? page + 1 : null) : getNextPage(headers, page, rawItems.length, PULL_REQUEST_LIMIT), totalCount };
+  }
+
+  private async getPullRequestDetailData(request: GitHubPullRequestDetailRequest, signal?: AbortSignal): Promise<GitHubPullRequestDetail> {
+    const number = validateItemNumber(request.number);
+    const repository = await this.getRepository(request.repoPath);
+    const prefix = `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}`;
+    const readRequest = { cache: { mode: "conditional" as const }, ...(signal ? { signal } : {}) };
+    const pullRequestPromise = this.client.requestJson<GitHubApiPullRequest>(repository, `${prefix}/pulls/${number}`, readRequest);
+    const [pullRequestResponse, issueCommentsResponse, reviewCommentsResponse, reviewsResponse, filesResponse, commitsResponse] = await Promise.all([
+      pullRequestPromise,
+      this.client.requestJson<unknown>(repository, `${prefix}/issues/${number}/comments?per_page=100`, readRequest),
+      this.client.requestJson<unknown>(repository, `${prefix}/pulls/${number}/comments?per_page=100`, readRequest),
+      this.client.requestJson<unknown>(repository, `${prefix}/pulls/${number}/reviews?per_page=100`, readRequest),
+      this.client.requestJson<unknown>(repository, `${prefix}/pulls/${number}/files?per_page=100`, readRequest),
+      this.client.requestJson<unknown>(repository, `${prefix}/pulls/${number}/commits?per_page=100`, readRequest)
+    ]);
+    const pullRequest = pullRequestResponse.payload;
+    if (!Number.isFinite(pullRequest.number)) {
+      throw new Error("GitHub returned an invalid pull request detail response.");
+    }
+
+    const sourceSha = normalizeText(pullRequest.head?.sha, "");
+    const targetSha = normalizeText(pullRequest.base?.sha, "");
+    const [checksResponse, comparisonResponse] = await Promise.all([
+      sourceSha
+        ? this.client.requestJson<unknown>(repository, `${prefix}/commits/${encodePath(sourceSha)}/check-runs?per_page=100`, readRequest)
+        : Promise.resolve(null),
+      sourceSha && targetSha
+        ? this.client.requestJson<unknown>(repository, `${prefix}/compare/${encodePath(targetSha)}...${encodePath(sourceSha)}`, readRequest)
+        : Promise.resolve(null)
+    ]);
+
+    const comments = [
+      ...asArray(issueCommentsResponse.payload).map((comment) => mapComment(comment, "issue")),
+      ...asArray(reviewCommentsResponse.payload).map((comment) => mapComment(comment, "review"))
+    ].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const reviews = asArray(reviewsResponse.payload).map(mapReview).sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
+    const requestedReviewers = asArray(pullRequest.requested_reviewers).map(mapUser);
+    const reviewStatus = getReviewStatus(reviews, requestedReviewers.length);
+    const checks = mapChecks(checksResponse?.payload);
+    const displayState = pullRequest.merged_at
+      ? "merged" as const
+      : pullRequest.draft === true
+        ? "draft" as const
+        : pullRequest.state?.toLowerCase() === "closed" ? "closed" as const : "open" as const;
+    const mergeable = typeof pullRequest.mergeable === "boolean" ? pullRequest.mergeable : null;
+    const mergeableState = normalizeText(pullRequest.mergeable_state, "unknown").toLowerCase();
+    const mergeStatus = getMergeStatus(displayState, mergeable, mergeableState, reviewStatus, checks);
+    const comparison = asRecord(comparisonResponse?.payload);
+
+    return {
+      number,
+      title: normalizeText(pullRequest.title, "(no title)"),
+      displayState,
+      draft: pullRequest.draft === true,
+      author: mapUser(pullRequest.user),
+      body: pullRequest.body ?? "",
+      createdAt: normalizeText(pullRequest.created_at, ""),
+      updatedAt: normalizeText(pullRequest.updated_at, ""),
+      mergedAt: pullRequest.merged_at?.trim() || null,
+      url: normalizeText(pullRequest.html_url, `${repository.webUrl}/pull/${number}`),
+      sourceBranch: normalizeText(pullRequest.head?.ref, ""),
+      sourceRepositoryFullName: normalizeText(pullRequest.head?.repo?.full_name, ""),
+      sourceSha,
+      targetBranch: normalizeText(pullRequest.base?.ref, ""),
+      targetRepositoryFullName: normalizeText(pullRequest.base?.repo?.full_name, repository.fullName),
+      mergeable,
+      mergeableState,
+      mergeStatus,
+      canMerge: mergeStatus === "ready",
+      reviewStatus,
+      requestedReviewers,
+      comments,
+      reviews,
+      files: asArray(filesResponse.payload).map(mapPullRequestFile),
+      checks,
+      commits: asArray(commitsResponse.payload).map(mapPullRequestCommit),
+      commitCount: finiteNumber(pullRequest.commits, asArray(commitsResponse.payload).length),
+      branchRelationship: normalizeText(stringValue(comparison?.status), "unknown"),
+      aheadBy: finiteNumber(comparison?.ahead_by, 0),
+      behindBy: finiteNumber(comparison?.behind_by, 0)
+    };
+  }
+
+  private async getIssueDetailData(request: GitHubIssueDetailRequest, signal?: AbortSignal): Promise<GitHubIssueDetail> {
+    const number = validateItemNumber(request.number);
+    const repository = await this.getRepository(request.repoPath);
+    const prefix = `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}`;
+    const readRequest = { cache: { mode: "conditional" as const }, ...(signal ? { signal } : {}) };
+    const [issueResponse, commentsResponse, timelineResponse] = await Promise.all([
+      this.client.requestJson<unknown>(repository, `${prefix}/issues/${number}`, readRequest),
+      this.client.requestJson<unknown>(repository, `${prefix}/issues/${number}/comments?per_page=100`, readRequest),
+      this.client.requestJson<unknown>(repository, `${prefix}/issues/${number}/timeline?per_page=100`, readRequest)
+    ]);
+    const issue = asRecord(issueResponse.payload);
+    if (!issue || !Number.isFinite(issue.number)) {
+      throw new Error("GitHub returned an invalid issue detail response.");
+    }
+
+    return {
+      number,
+      title: normalizeText(stringValue(issue.title), "(no title)"),
+      state: normalizeText(stringValue(issue.state), "open").toLowerCase(),
+      author: mapUser(issue.user),
+      body: stringValue(issue.body) ?? "",
+      createdAt: normalizeText(stringValue(issue.created_at), ""),
+      updatedAt: normalizeText(stringValue(issue.updated_at), ""),
+      closedAt: stringValue(issue.closed_at)?.trim() || null,
+      url: normalizeText(stringValue(issue.html_url), `${repository.webUrl}/issues/${number}`),
+      comments: asArray(commentsResponse.payload).map((comment) => mapComment(comment, "issue")),
+      assignees: asArray(issue.assignees).map(mapUser),
+      labels: asArray(issue.labels).flatMap(mapLabel),
+      milestone: mapMilestone(issue.milestone),
+      linkedPullRequests: mapLinkedPullRequests(timelineResponse.payload)
+    };
+  }
+
+  private async approvePullRequestData(request: GitHubPullRequestReviewRequest, signal?: AbortSignal): Promise<GitHubMutationResult> {
+    const number = validateItemNumber(request.number);
+    const repository = await this.getRepository(request.repoPath);
+    const body = request.body?.trim();
+    const { payload } = await this.client.requestJson<unknown>(
+      repository,
+      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/pulls/${number}/reviews`,
+      { method: "POST", body: { event: "APPROVE", ...(body ? { body } : {}) }, ...(signal ? { signal } : {}) }
+    );
+    const response = asRecord(payload);
+    if (!response || response.id === undefined) throw new GitHubMutationResponseError("GitHub returned an unexpected response while approving the pull request.");
+    this.client.invalidateRepository(repository);
+    return {
+      number,
+      url: normalizeText(stringValue(response.html_url), `${repository.webUrl}/pull/${number}`),
+      message: "Pull request approved.",
+      merged: null
+    };
+  }
+
+  private async commentOnItemData(request: GitHubItemCommentRequest, signal?: AbortSignal): Promise<GitHubMutationResult> {
+    const number = validateItemNumber(request.number);
+    const body = request.body.trim();
+    if (!body) throw new Error("Comment text is required.");
+    const repository = await this.getRepository(request.repoPath);
+    const { payload } = await this.client.requestJson<unknown>(
+      repository,
+      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/issues/${number}/comments`,
+      { method: "POST", body: { body }, ...(signal ? { signal } : {}) }
+    );
+    const response = asRecord(payload);
+    if (!response || response.id === undefined) throw new GitHubMutationResponseError("GitHub returned an unexpected response while adding the comment.");
+    this.client.invalidateRepository(repository);
+    const itemPath = request.itemType === "pullRequest" ? "pull" : "issues";
+    return {
+      number,
+      url: normalizeText(stringValue(response.html_url), `${repository.webUrl}/${itemPath}/${number}`),
+      message: "Comment added.",
+      merged: null
+    };
+  }
+
+  private async mergePullRequestData(request: GitHubPullRequestMergeRequest, signal?: AbortSignal): Promise<GitHubMutationResult> {
+    const number = validateItemNumber(request.number);
+    const repository = await this.getRepository(request.repoPath);
+    const { payload } = await this.client.requestJson<unknown>(
+      repository,
+      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/pulls/${number}/merge`,
+      { method: "PUT", body: { merge_method: request.method ?? "merge" }, ...(signal ? { signal } : {}) }
+    );
+    const response = asRecord(payload);
+    if (!response || typeof response.merged !== "boolean") throw new GitHubMutationResponseError("GitHub returned an unexpected response while merging the pull request.");
+    if (!response.merged) throw new Error(normalizeText(stringValue(response.message), "GitHub did not merge the pull request."));
+    this.client.invalidateRepository(repository);
+    this.clearObservedCount(repository, "pullRequests");
+    return {
+      number,
+      url: `${repository.webUrl}/pull/${number}`,
+      message: normalizeText(stringValue(response.message), "Pull request merged."),
+      merged: true
+    };
   }
 
   private async getHistoryInsightsData(request: GitHubHistoryInsightsRequest, signal?: AbortSignal): Promise<GitHubHistoryInsights> {
@@ -578,6 +793,178 @@ function sumCounts(...values: Array<number | null | undefined>): number {
   }
 
   return total;
+}
+
+function validateItemNumber(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 1) throw new Error("GitHub item number must be a positive safe integer.");
+  return value;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return isRecord(value) ? value : null;
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function finiteNumber(value: unknown, fallback: number): number {
+  return Number.isFinite(value) ? Number(value) : fallback;
+}
+
+function mapUser(value: unknown): GitHubPullRequestDetail["author"] {
+  const user = asRecord(value);
+  return {
+    login: normalizeText(stringValue(user?.login), "-"),
+    avatarUrl: normalizeText(stringValue(user?.avatar_url), ""),
+    url: normalizeText(stringValue(user?.html_url), "")
+  };
+}
+
+function mapComment(value: unknown, kind: "issue" | "review"): GitHubPullRequestDetail["comments"][number] {
+  const comment = asRecord(value);
+  return {
+    id: String(comment?.id ?? ""),
+    kind,
+    author: mapUser(comment?.user),
+    body: stringValue(comment?.body) ?? "",
+    createdAt: normalizeText(stringValue(comment?.created_at), ""),
+    updatedAt: normalizeText(stringValue(comment?.updated_at), ""),
+    url: normalizeText(stringValue(comment?.html_url), ""),
+    path: stringValue(comment?.path)?.trim() || null,
+    line: Number.isFinite(comment?.line) ? Number(comment?.line) : null,
+    side: stringValue(comment?.side)?.trim() || null,
+    diffHunk: stringValue(comment?.diff_hunk)?.trim() || null
+  };
+}
+
+function mapReview(value: unknown): GitHubPullRequestDetail["reviews"][number] {
+  const review = asRecord(value);
+  return {
+    id: String(review?.id ?? ""),
+    author: mapUser(review?.user),
+    state: normalizeText(stringValue(review?.state), "commented").toLowerCase(),
+    body: stringValue(review?.body) ?? "",
+    submittedAt: normalizeText(stringValue(review?.submitted_at), ""),
+    url: normalizeText(stringValue(review?.html_url), "")
+  };
+}
+
+function mapPullRequestFile(value: unknown): GitHubPullRequestDetail["files"][number] {
+  const file = asRecord(value);
+  return {
+    path: normalizeText(stringValue(file?.filename), "Unknown file"),
+    previousPath: stringValue(file?.previous_filename)?.trim() || null,
+    status: normalizeText(stringValue(file?.status), "modified").toLowerCase(),
+    additions: finiteNumber(file?.additions, 0),
+    deletions: finiteNumber(file?.deletions, 0),
+    patch: stringValue(file?.patch) ?? "",
+    url: normalizeText(stringValue(file?.blob_url), "")
+  };
+}
+
+function mapChecks(value: unknown): GitHubPullRequestDetail["checks"] {
+  const response = asRecord(value);
+  return asArray(response?.check_runs).map((entry) => {
+    const check = asRecord(entry);
+    return {
+      id: String(check?.id ?? ""),
+      name: normalizeText(stringValue(check?.name), "Unnamed check"),
+      status: normalizeText(stringValue(check?.status), "unknown").toLowerCase(),
+      conclusion: stringValue(check?.conclusion)?.trim().toLowerCase() || null,
+      detailsUrl: normalizeText(stringValue(check?.details_url), stringValue(check?.html_url) ?? ""),
+      startedAt: normalizeText(stringValue(check?.started_at), ""),
+      completedAt: normalizeText(stringValue(check?.completed_at), "")
+    };
+  });
+}
+
+function mapPullRequestCommit(value: unknown): GitHubPullRequestDetail["commits"][number] {
+  const entry = asRecord(value);
+  const commit = asRecord(entry?.commit);
+  const author = asRecord(commit?.author);
+  const sha = normalizeText(stringValue(entry?.sha), "");
+  return {
+    sha,
+    shortSha: sha.slice(0, 7),
+    message: getFirstLine(stringValue(commit?.message) ?? ""),
+    author: normalizeText(stringValue(author?.name), normalizeText(stringValue(asRecord(entry?.author)?.login), "-")),
+    authoredAt: normalizeText(stringValue(author?.date), ""),
+    url: normalizeText(stringValue(entry?.html_url), "")
+  };
+}
+
+function mapLabel(value: unknown): GitHubIssueDetail["labels"] {
+  if (typeof value === "string") return value.trim() ? [{ name: value.trim(), color: "" }] : [];
+  const label = asRecord(value);
+  const name = stringValue(label?.name)?.trim();
+  return name ? [{ name, color: normalizeText(stringValue(label?.color), "") }] : [];
+}
+
+function mapMilestone(value: unknown): GitHubIssueDetail["milestone"] {
+  const milestone = asRecord(value);
+  if (!milestone || !Number.isSafeInteger(milestone.number)) return null;
+  return {
+    number: Number(milestone.number),
+    title: normalizeText(stringValue(milestone.title), "Untitled milestone"),
+    url: normalizeText(stringValue(milestone.html_url), "")
+  };
+}
+
+function mapLinkedPullRequests(value: unknown): GitHubIssueDetail["linkedPullRequests"] {
+  const linked = new Map<number, GitHubIssueDetail["linkedPullRequests"][number]>();
+  for (const entry of asArray(value)) {
+    const event = asRecord(entry);
+    const source = asRecord(event?.source);
+    const issue = asRecord(source?.issue);
+    if (!issue || !isRecord(issue.pull_request) || !Number.isSafeInteger(issue.number)) continue;
+    const number = Number(issue.number);
+    linked.set(number, {
+      number,
+      title: normalizeText(stringValue(issue.title), `Pull request #${number}`),
+      state: normalizeText(stringValue(issue.state), "unknown").toLowerCase(),
+      url: normalizeText(stringValue(issue.html_url), "")
+    });
+  }
+  return [...linked.values()];
+}
+
+function getReviewStatus(
+  reviews: GitHubPullRequestDetail["reviews"],
+  requestedReviewerCount: number
+): GitHubPullRequestDetail["reviewStatus"] {
+  const latestByReviewer = new Map<string, GitHubPullRequestDetail["reviews"][number]>();
+  for (const review of reviews) {
+    const login = review.author.login.toLowerCase();
+    const previous = latestByReviewer.get(login);
+    if (!previous || previous.submittedAt <= review.submittedAt) latestByReviewer.set(login, review);
+  }
+  const states = [...latestByReviewer.values()].map((review) => review.state);
+  if (states.includes("changes_requested")) return "changesRequested";
+  if (states.includes("approved")) return "approved";
+  return requestedReviewerCount > 0 ? "reviewRequired" : "none";
+}
+
+function getMergeStatus(
+  displayState: GitHubPullRequestDetail["displayState"],
+  mergeable: boolean | null,
+  mergeableState: string,
+  reviewStatus: GitHubPullRequestDetail["reviewStatus"],
+  checks: GitHubPullRequestDetail["checks"]
+): GitHubPullRequestDetail["mergeStatus"] {
+  if (displayState === "merged") return "merged";
+  if (displayState === "closed") return "closed";
+  if (displayState === "draft") return "draft";
+  if (mergeable === null) return "checking";
+  if (!mergeable || mergeableState === "dirty") return "conflicting";
+  const failedCheck = checks.some((check) => check.status === "completed" && check.conclusion !== null && !["success", "neutral", "skipped"].includes(check.conclusion));
+  const activeCheck = checks.some((check) => check.status !== "completed");
+  if (failedCheck || activeCheck || reviewStatus === "changesRequested" || ["blocked", "behind", "draft"].includes(mergeableState)) return "blocked";
+  return "ready";
 }
 
 function classifyError(error: unknown, source: GitHubFailure["source"], mutation: boolean): GitHubFailure {

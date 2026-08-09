@@ -42,6 +42,7 @@ import {
   Fragment,
   lazy,
   memo,
+  Suspense,
   useCallback,
   useEffect,
   useId,
@@ -275,6 +276,7 @@ const FileHistoryView = lazy(() => import("./FileHistoryView.js").then((module) 
 const MarkdownPreview = lazy(() => import("./MarkdownPreview.js").then((module) => ({ default: module.MarkdownPreview })));
 const PushToBranchDialog = lazy(() => import("./PushToBranchDialog.js").then((module) => ({ default: module.PushToBranchDialog })));
 const RemoteManagementDialog = lazy(() => import("./RemoteManagementDialog.js").then((module) => ({ default: module.RemoteManagementDialog })));
+const ReviewConsole = lazy(() => import("./ReviewConsole.js").then((module) => ({ default: module.ReviewConsole })));
 
 const HISTORY_LIMIT = 200;
 
@@ -7180,6 +7182,11 @@ export function App(): ReactNode {
                       onRefresh={() => {
                         void Promise.allSettled([github.refresh("pullRequests"), github.refresh("openCounts")]);
                       }}
+                      onMerged={() => {
+                        github.invalidate("pullRequests");
+                        github.invalidate("openCounts");
+                        void Promise.allSettled([github.refresh("pullRequests"), github.refresh("openCounts")]);
+                      }}
                       onConnectGitHub={() => openSettingsDialog("integrations")}
                       onReviewAccess={() => { void window.githead.openExternalUrl({ url: GITHUB_APP_INSTALL_URL }); }}
                       onCheckRemote={openRemoteManager}
@@ -10968,6 +10975,24 @@ function WorkflowRunRow({
   );
 }
 
+function GitHubDetailWorkspace({ open, drawer, children }: { open: boolean; drawer: ReactNode; children: ReactNode }): ReactNode {
+  return (
+    <ResizablePanelGroup orientation="horizontal" className="review-console-workspace">
+      <ResizablePanel defaultSize={open ? "40%" : "100%"} minSize="280px" className="review-console-list-panel">
+        {children}
+      </ResizablePanel>
+      {open ? (
+        <>
+          <ResizableHandle withHandle className="review-console-resize-handle" aria-label="Resize review console" />
+          <ResizablePanel defaultSize="60%" minSize="420px" className="review-console-drawer-panel">
+            {drawer}
+          </ResizablePanel>
+        </>
+      ) : null}
+    </ResizablePanelGroup>
+  );
+}
+
 function PullRequestsView({
   summary,
   pullRequests,
@@ -10989,6 +11014,7 @@ function PullRequestsView({
   onOpenExternalUrl,
   onCheckout,
   onRefresh,
+  onMerged,
   onConnectGitHub,
   onReviewAccess,
   onCheckRemote
@@ -11013,11 +11039,14 @@ function PullRequestsView({
   onOpenExternalUrl: (url: string) => void;
   onCheckout: (pullRequest: GitHubPullRequest) => void;
   onRefresh: () => void;
+  onMerged: () => void;
   onConnectGitHub: () => void;
   onReviewAccess: () => void;
   onCheckRemote: () => void;
 }): ReactNode {
   const repository = summary?.githubRepository ?? null;
+  const [selectedPullRequest, setSelectedPullRequest] = useState<GitHubPullRequest | null>(null);
+  const selectedTitleRef = useRef<HTMLButtonElement | null>(null);
   const columnLayout = usePersistentColumnLayout("githead.column-layout.pull-requests", PULL_REQUEST_COLUMNS);
   const filtered = Object.keys(query).some((key) => !["sort", "direction"].includes(key)) || query.sort !== "updated" || query.direction !== "desc";
   const countLabel = loaded ? (filtered && totalCount !== null ? `${totalCount} matching` : formatLoadedCount(pullRequests.length, openCount, "open pull request", "open pull requests")) : "-";
@@ -11030,8 +11059,29 @@ function PullRequestsView({
     else if (value === "drafts") onQueryChange({ ...DEFAULT_PULL_REQUEST_QUERY, draft: "draft" });
     else onQueryChange({ ...DEFAULT_PULL_REQUEST_QUERY });
   };
+  useEffect(() => {
+    setSelectedPullRequest(null);
+    selectedTitleRef.current = null;
+  }, [summary?.repoPath]);
+  const closeDetail = (): void => {
+    setSelectedPullRequest(null);
+    requestAnimationFrame(() => selectedTitleRef.current?.focus());
+  };
 
   return (
+    <GitHubDetailWorkspace open={selectedPullRequest !== null} drawer={selectedPullRequest && repository ? (
+      <Suspense fallback={<LoadingState label="Loading review console" className="h-full" />}>
+        <ReviewConsole
+          repoPath={summary?.repoPath ?? ""}
+          githubFullName={repository.fullName}
+          selection={{ itemType: "pullRequest", item: selectedPullRequest }}
+          onClose={closeDetail}
+          onCheckout={onCheckout}
+          onOpenExternalUrl={onOpenExternalUrl}
+          onMerged={onMerged}
+        />
+      </Suspense>
+    ) : null}>
     <section ref={columnLayout.containerRef} style={columnLayout.style} className="github-view pull-requests-grid" aria-label="Pull requests">
       <GitHubViewHeader
         eyebrow="GitHub"
@@ -11059,13 +11109,25 @@ function PullRequestsView({
           <p className="empty-state">{filtered ? "No open pull requests match these filters." : "No open pull requests found."}</p>
         ) : (
           pullRequests.map((pullRequest) => (
-            <PullRequestRow key={pullRequest.number} pullRequest={pullRequest} columnOrder={columnLayout.visibleOrder} busy={busy} onOpenExternalUrl={onOpenExternalUrl} onCheckout={onCheckout} />
+            <PullRequestRow
+              key={pullRequest.number}
+              pullRequest={pullRequest}
+              columnOrder={columnLayout.visibleOrder}
+              busy={busy}
+              selected={selectedPullRequest?.number === pullRequest.number}
+              onSelect={(item, button) => {
+                selectedTitleRef.current = button;
+                setSelectedPullRequest(item);
+              }}
+              onCheckout={onCheckout}
+            />
           ))
         )}
         {error && pullRequests.length ? <GitHubFailureState failure={failure} fallback={error} stale onRetry={onRefresh} onConnect={onConnectGitHub} onReviewAccess={onReviewAccess} onCheckRemote={onCheckRemote} /> : null}
         <GitHubListFooter label="pull requests" nextPage={nextPage} loading={loadingMore} error="" disabled={busy} onLoadMore={onLoadMore} />
       </div>
     </section>
+    </GitHubDetailWorkspace>
   );
 }
 
@@ -11073,20 +11135,23 @@ function PullRequestRow({
   pullRequest,
   columnOrder,
   busy,
-  onOpenExternalUrl,
+  selected,
+  onSelect,
   onCheckout
 }: {
   pullRequest: GitHubPullRequest;
   columnOrder: readonly PullRequestColumnId[];
   busy: boolean;
-  onOpenExternalUrl: (url: string) => void;
+  selected: boolean;
+  onSelect: (pullRequest: GitHubPullRequest, button: HTMLButtonElement) => void;
   onCheckout: (pullRequest: GitHubPullRequest) => void;
 }): ReactNode {
   const secondaryText = formatPullRequestSummary(pullRequest, columnOrder);
   return (
     <div
-      className="github-row pull-request-row"
+      className={`github-row pull-request-row ${selected ? "is-selected" : ""}`}
       role="listitem"
+      aria-current={selected ? "true" : undefined}
     >
       <OrderedCells order={columnOrder} cells={{
         number: <span className="github-issue-number">
@@ -11098,7 +11163,7 @@ function PullRequestRow({
         </span>,
         title: <span className="min-w-0">
           <TooltipTarget content={pullRequest.title}>
-            <button type="button" className="github-primary-text text-left" onClick={() => onOpenExternalUrl(pullRequest.url)}>{pullRequest.title}</button>
+            <button type="button" className="github-primary-text text-left" onClick={(event) => onSelect(pullRequest, event.currentTarget)}>{pullRequest.title}</button>
           </TooltipTarget>
           {secondaryText ? (
             <TooltipTarget content={pullRequest.authorLogin}>
@@ -11172,6 +11237,8 @@ function IssuesView({
   onCheckRemote: () => void;
 }): ReactNode {
   const repository = summary?.githubRepository ?? null;
+  const [selectedIssue, setSelectedIssue] = useState<GitHubIssue | null>(null);
+  const selectedTitleRef = useRef<HTMLButtonElement | null>(null);
   const columnLayout = usePersistentColumnLayout("githead.column-layout.issues", ISSUE_COLUMNS);
   const filtered = Object.keys(query).some((key) => !["sort", "direction"].includes(key)) || query.sort !== "updated" || query.direction !== "desc";
   const countLabel = loaded ? (filtered && totalCount !== null ? `${totalCount} matching` : formatLoadedCount(issues.length, openCount, "open issue", "open issues")) : "-";
@@ -11182,8 +11249,29 @@ function IssuesView({
     else if (value === "unassigned") onQueryChange({ ...DEFAULT_ISSUE_QUERY, unassigned: true });
     else onQueryChange({ ...DEFAULT_ISSUE_QUERY });
   };
+  useEffect(() => {
+    setSelectedIssue(null);
+    selectedTitleRef.current = null;
+  }, [summary?.repoPath]);
+  const closeDetail = (): void => {
+    setSelectedIssue(null);
+    requestAnimationFrame(() => selectedTitleRef.current?.focus());
+  };
 
   return (
+    <GitHubDetailWorkspace open={selectedIssue !== null} drawer={selectedIssue && repository ? (
+      <Suspense fallback={<LoadingState label="Loading review console" className="h-full" />}>
+        <ReviewConsole
+          repoPath={summary?.repoPath ?? ""}
+          githubFullName={repository.fullName}
+          selection={{ itemType: "issue", item: selectedIssue }}
+          onClose={closeDetail}
+          onCheckout={() => undefined}
+          onOpenExternalUrl={onOpenExternalUrl}
+          onMerged={() => undefined}
+        />
+      </Suspense>
+    ) : null}>
     <section ref={columnLayout.containerRef} style={columnLayout.style} className="github-view issues-grid" aria-label="Issues">
       <GitHubViewHeader
         eyebrow="GitHub"
@@ -11210,46 +11298,52 @@ function IssuesView({
           <p className="empty-state">{filtered ? "No open issues match these filters." : "No open issues found."}</p>
         ) : (
           issues.map((issue) => (
-            <IssueRow key={issue.number} issue={issue} columnOrder={columnLayout.visibleOrder} onOpenExternalUrl={onOpenExternalUrl} />
+            <IssueRow
+              key={issue.number}
+              issue={issue}
+              columnOrder={columnLayout.visibleOrder}
+              selected={selectedIssue?.number === issue.number}
+              onSelect={(item, button) => {
+                selectedTitleRef.current = button;
+                setSelectedIssue(item);
+              }}
+            />
           ))
         )}
         {error && issues.length ? <GitHubFailureState failure={failure} fallback={error} stale onRetry={onRefresh} onConnect={onConnectGitHub} onReviewAccess={onReviewAccess} onCheckRemote={onCheckRemote} /> : null}
         <GitHubListFooter label="issues" nextPage={nextPage} loading={loadingMore} error="" disabled={busy} onLoadMore={onLoadMore} />
       </div>
     </section>
+    </GitHubDetailWorkspace>
   );
 }
 
 function IssueRow({
   issue,
   columnOrder,
-  onOpenExternalUrl
+  selected,
+  onSelect
 }: {
   issue: GitHubIssue;
   columnOrder: readonly IssueColumnId[];
-  onOpenExternalUrl: (url: string) => void;
+  selected: boolean;
+  onSelect: (issue: GitHubIssue, button: HTMLButtonElement) => void;
 }): ReactNode {
   return (
-    <a
-      className="github-row issue-row"
-      href={issue.url}
-      target="_blank"
-      rel="noreferrer"
+    <div
+      className={`github-row issue-row ${selected ? "is-selected" : ""}`}
       role="listitem"
-      onClick={(event) => {
-        event.preventDefault();
-        onOpenExternalUrl(issue.url);
-      }}
+      aria-current={selected ? "true" : undefined}
     >
       <OrderedCells order={columnOrder} cells={{
         number: <span className="github-issue-number">#{issue.number}</span>,
-        title: <TooltipTarget content={issue.title}><span className="github-primary-text">{issue.title}</span></TooltipTarget>,
+        title: <TooltipTarget content={issue.title}><button type="button" className="github-primary-text text-left" onClick={(event) => onSelect(issue, event.currentTarget)}>{issue.title}</button></TooltipTarget>,
         labels: <GitHubLabels labels={issue.labels} />,
         comments: <span className="github-comments-cell github-secondary-text">{issue.comments}</span>,
         updated: <TooltipTarget content={formatDate(issue.updatedAt)}><span className="github-updated-cell truncate">{formatDate(issue.updatedAt)}</span></TooltipTarget>,
         author: <TooltipTarget content={issue.authorLogin}><span className="truncate">{issue.authorLogin}</span></TooltipTarget>
       }} />
-    </a>
+    </div>
   );
 }
 

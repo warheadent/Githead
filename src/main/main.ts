@@ -18,7 +18,6 @@ import type {
   CoordinatedRequest,
   CancelGitHubRequest,
   CreatePullRequestRequest,
-  CreatePullRequestResult,
   ExternalUrlRequest,
   GeneratePrDescriptionRequest,
   GeneratePrTitleRequest,
@@ -67,6 +66,11 @@ import type {
   GitLfsImageFetchRequest,
   GitHubWorkflowRunsRequest,
   GitHubOperationResult,
+  GitHubPullRequestDetailRequest,
+  GitHubIssueDetailRequest,
+  GitHubPullRequestReviewRequest,
+  GitHubItemCommentRequest,
+  GitHubPullRequestMergeRequest,
   GitHubPullRequestsRequest,
   GitHubIssuesRequest,
   GitHubHistoryInsightsRequest,
@@ -519,6 +523,26 @@ function handleGitHubRead<T>(event: Electron.IpcMainInvokeEvent, request: GitHub
   return handleRead(event, request, operation);
 }
 
+function handleGitHubMutation<TRequest extends GitHubRepositoryRequest, TResult>(
+  event: Electron.IpcMainInvokeEvent,
+  request: CoordinatedRequest<TRequest>,
+  operation: (signal: AbortSignal) => Promise<GitHubOperationResult<TResult>>
+): Promise<GitHubOperationResult<TResult>> {
+  return runExclusiveRepositoryOperation(
+    repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS),
+    operation,
+    () => createGitHubMutationFailure<TResult>(
+      "unexpected",
+      "Another operation is already running for this repository.",
+      false
+    )
+  ).catch((error: unknown) => {
+    if (isAbortError(error)) return createGitHubMutationFailure<TResult>("cancelled", getErrorMessage(error), true);
+    if (isTimeoutError(error)) return createGitHubMutationFailure<TResult>("timeout", getErrorMessage(error), true);
+    throw error;
+  });
+}
+
 ipcMain.handle(IPC_CHANNELS.cancelGitHubRequest, (event, request: CancelGitHubRequest) => {
   readRequests.cancel(event.sender.id, request.requestId);
 });
@@ -547,27 +571,21 @@ ipcMain.handle(IPC_CHANNELS.getGitHubIssues, (event, request: GitHubIssuesReques
   handleGitHubRead(event, request, (signal) => getGitHubService().getIssues(request, signal)));
 ipcMain.handle(IPC_CHANNELS.getGitHubPullRequests, (event, request: GitHubPullRequestsRequest) =>
   handleGitHubRead(event, request, (signal) => getGitHubService().getPullRequests(request, signal)));
+ipcMain.handle(IPC_CHANNELS.getGitHubPullRequestDetail, (event, request: GitHubPullRequestDetailRequest) =>
+  handleGitHubRead(event, request, (signal) => getGitHubService().getPullRequestDetail(request, signal)));
+ipcMain.handle(IPC_CHANNELS.getGitHubIssueDetail, (event, request: GitHubIssueDetailRequest) =>
+  handleGitHubRead(event, request, (signal) => getGitHubService().getIssueDetail(request, signal)));
 ipcMain.handle(IPC_CHANNELS.getGitHubHistoryInsights, (event, request: GitHubHistoryInsightsRequest) =>
   handleGitHubRead(event, request, (signal) => getGitHubService().getHistoryInsights(request, signal)));
 
 ipcMain.handle(IPC_CHANNELS.createGitHubPullRequest, (event, request: CoordinatedRequest<CreatePullRequestRequest>) =>
-  runExclusiveRepositoryOperation(
-    repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS),
-    (signal) => getGitHubService().createPullRequest(request, signal),
-    () => createGitHubMutationFailure(
-      "unexpected",
-      "Another operation is already running for this repository.",
-      false
-    )
-  ).catch((error: unknown) => {
-    if (isAbortError(error)) {
-      return createGitHubMutationFailure("cancelled", getErrorMessage(error), true);
-    }
-    if (isTimeoutError(error)) {
-      return createGitHubMutationFailure("timeout", getErrorMessage(error), true);
-    }
-    throw error;
-  }));
+  handleGitHubMutation(event, request, (signal) => getGitHubService().createPullRequest(request, signal)));
+ipcMain.handle(IPC_CHANNELS.approveGitHubPullRequest, (event, request: CoordinatedRequest<GitHubPullRequestReviewRequest>) =>
+  handleGitHubMutation(event, request, (signal) => getGitHubService().approvePullRequest(request, signal)));
+ipcMain.handle(IPC_CHANNELS.commentOnGitHubItem, (event, request: CoordinatedRequest<GitHubItemCommentRequest>) =>
+  handleGitHubMutation(event, request, (signal) => getGitHubService().commentOnItem(request, signal)));
+ipcMain.handle(IPC_CHANNELS.mergeGitHubPullRequest, (event, request: CoordinatedRequest<GitHubPullRequestMergeRequest>) =>
+  handleGitHubMutation(event, request, (signal) => getGitHubService().mergePullRequest(request, signal)));
 
 ipcMain.handle(IPC_CHANNELS.getCommitHistory, (event, request: GitCommitHistoryRequest) =>
   handleRead(event, request, async (signal) =>
@@ -1540,11 +1558,11 @@ function createIntegrationFailure(
   };
 }
 
-function createGitHubMutationFailure(
+function createGitHubMutationFailure<T>(
   kind: "cancelled" | "timeout" | "unexpected",
   message: string,
   outcomeUnknown: boolean
-): GitHubOperationResult<CreatePullRequestResult> {
+): GitHubOperationResult<T> {
   return {
     ok: false,
     error: {

@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import type { GitHubFailure } from "../shared/types";
 import { forkEffect, tryPromise } from "../shared/effectRuntime";
 
-export type GitHubResource = "workflowRuns" | "openCounts" | "pullRequests" | "issues" | "viewer";
+export type GitHubResource = "workflowRuns" | "openCounts" | "pullRequests" | "issues" | "viewer" | "pullRequestDetail" | "issueDetail";
 
 export interface GitHubRepositoryScope { repoPath: string; githubFullName: string }
 export type GitHubQueryParams = Record<string, unknown>;
@@ -140,6 +140,19 @@ export function createGitHubQueryStore(options: GitHubQueryStoreOptions) {
     subscribe(descriptor: GitHubQueryDescriptor, listener: () => void): () => void { const entry = entryFor(descriptor); entry.listeners.add(listener); return () => entry.listeners.delete(listener); },
     ensure<T>(descriptor: GitHubQueryDescriptor): Promise<T> { return run<T>(descriptor, false); },
     refresh<T>(descriptor: GitHubQueryDescriptor): Promise<T> { return run<T>(descriptor, true); },
+    cancel(descriptor: GitHubQueryDescriptor): void {
+      const entry = entries.get(getGitHubQueryKey(descriptor));
+      if (!entry?.inFlight) return;
+      entry.generation += 1;
+      entry.interrupt?.();
+      entry.inFlight = undefined;
+      entry.interrupt = undefined;
+      entry.snapshot = entry.snapshot.data === undefined
+        ? IDLE
+        : { ...entry.snapshot, status: "success", error: "", failure: null };
+      touch(entry);
+      notify(entry);
+    },
     invalidate(matcher: GitHubQueryMatcher): void { for (const entry of entries.values()) if (matches(entry, matcher) && !entry.snapshot.isStale) { entry.snapshot = { ...entry.snapshot, isStale: true }; notify(entry); } },
     clearRepository(repository: GitHubRepositoryScope): void { for (const [key, entry] of entries) if (matches(entry, { repository })) { entry.generation++; entry.interrupt?.(); entries.delete(key); } },
     clear(): void { for (const entry of entries.values()) { entry.generation++; entry.interrupt?.(); } entries.clear(); },

@@ -109,6 +109,137 @@ export interface GitHubPullRequest {
   url: string;
 }
 
+export type GitHubItemType = "pullRequest" | "issue";
+export type GitHubPullRequestDisplayState = "open" | "closed" | "merged" | "draft";
+export type GitHubMergeStatus = "ready" | "blocked" | "conflicting" | "checking" | "closed" | "merged" | "draft";
+export type GitHubReviewStatus = "approved" | "changesRequested" | "reviewRequired" | "none";
+
+export interface GitHubUserSummary {
+  login: string;
+  avatarUrl: string;
+  url: string;
+}
+
+export interface GitHubCommentDetail {
+  id: string;
+  kind: "issue" | "review";
+  author: GitHubUserSummary;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  url: string;
+  path: string | null;
+  line: number | null;
+  side: string | null;
+  diffHunk: string | null;
+}
+
+export interface GitHubReviewDetail {
+  id: string;
+  author: GitHubUserSummary;
+  state: string;
+  body: string;
+  submittedAt: string;
+  url: string;
+}
+
+export interface GitHubPullRequestFileDetail {
+  path: string;
+  previousPath: string | null;
+  status: string;
+  additions: number;
+  deletions: number;
+  patch: string;
+  url: string;
+}
+
+export interface GitHubCheckDetail {
+  id: string;
+  name: string;
+  status: string;
+  conclusion: string | null;
+  detailsUrl: string;
+  startedAt: string;
+  completedAt: string;
+}
+
+export interface GitHubPullRequestCommitDetail {
+  sha: string;
+  shortSha: string;
+  message: string;
+  author: string;
+  authoredAt: string;
+  url: string;
+}
+
+export interface GitHubPullRequestDetail {
+  number: number;
+  title: string;
+  displayState: GitHubPullRequestDisplayState;
+  draft: boolean;
+  author: GitHubUserSummary;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  mergedAt: string | null;
+  url: string;
+  sourceBranch: string;
+  sourceRepositoryFullName: string;
+  sourceSha: string;
+  targetBranch: string;
+  targetRepositoryFullName: string;
+  mergeable: boolean | null;
+  mergeableState: string;
+  mergeStatus: GitHubMergeStatus;
+  canMerge: boolean;
+  reviewStatus: GitHubReviewStatus;
+  requestedReviewers: GitHubUserSummary[];
+  comments: GitHubCommentDetail[];
+  reviews: GitHubReviewDetail[];
+  files: GitHubPullRequestFileDetail[];
+  checks: GitHubCheckDetail[];
+  commits: GitHubPullRequestCommitDetail[];
+  commitCount: number;
+  branchRelationship: string;
+  aheadBy: number;
+  behindBy: number;
+}
+
+export interface GitHubLabelDetail {
+  name: string;
+  color: string;
+}
+
+export interface GitHubMilestoneDetail {
+  number: number;
+  title: string;
+  url: string;
+}
+
+export interface GitHubLinkedPullRequest {
+  number: number;
+  title: string;
+  state: string;
+  url: string;
+}
+
+export interface GitHubIssueDetail {
+  number: number;
+  title: string;
+  state: string;
+  author: GitHubUserSummary;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  closedAt: string | null;
+  url: string;
+  comments: GitHubCommentDetail[];
+  assignees: GitHubUserSummary[];
+  labels: GitHubLabelDetail[];
+  milestone: GitHubMilestoneDetail | null;
+  linkedPullRequests: GitHubLinkedPullRequest[];
+}
+
 export interface GitHubOpenCounts {
   issues: number;
   pullRequests: number;
@@ -529,6 +660,37 @@ export interface GitHubPageRequest extends GitHubRepositoryRequest {
 export interface GitHubWorkflowRunsRequest extends GitHubPageRequest { query?: GitHubWorkflowRunQuery | undefined }
 export interface GitHubPullRequestsRequest extends GitHubPageRequest { query?: GitHubPullRequestQuery | undefined }
 export interface GitHubIssuesRequest extends GitHubPageRequest { query?: GitHubIssueQuery | undefined }
+
+export interface GitHubPullRequestDetailRequest extends GitHubRepositoryRequest {
+  number: number;
+}
+
+export interface GitHubIssueDetailRequest extends GitHubRepositoryRequest {
+  number: number;
+}
+
+export interface GitHubPullRequestReviewRequest extends GitHubRepositoryRequest {
+  number: number;
+  body?: string;
+}
+
+export interface GitHubItemCommentRequest extends GitHubRepositoryRequest {
+  itemType: GitHubItemType;
+  number: number;
+  body: string;
+}
+
+export interface GitHubPullRequestMergeRequest extends GitHubRepositoryRequest {
+  number: number;
+  method?: "merge" | "squash" | "rebase";
+}
+
+export interface GitHubMutationResult {
+  number: number;
+  url: string;
+  message: string;
+  merged: boolean | null;
+}
 
 export interface GitHubPage<T> {
   items: T[];
@@ -1954,6 +2116,11 @@ export interface GitheadApi {
   getGitHubOpenCounts(request: GitHubRepositoryRequest): Promise<GitHubOperationResult<GitHubOpenCounts>>;
   getGitHubIssues(request: GitHubIssuesRequest): Promise<GitHubOperationResult<GitHubPage<GitHubIssue>>>;
   getGitHubPullRequests(request: GitHubPullRequestsRequest): Promise<GitHubOperationResult<GitHubPage<GitHubPullRequest>>>;
+  getGitHubPullRequestDetail(request: GitHubPullRequestDetailRequest): Promise<GitHubOperationResult<GitHubPullRequestDetail>>;
+  getGitHubIssueDetail(request: GitHubIssueDetailRequest): Promise<GitHubOperationResult<GitHubIssueDetail>>;
+  approveGitHubPullRequest(request: CoordinatedRequest<GitHubPullRequestReviewRequest>): Promise<GitHubOperationResult<GitHubMutationResult>>;
+  commentOnGitHubItem(request: CoordinatedRequest<GitHubItemCommentRequest>): Promise<GitHubOperationResult<GitHubMutationResult>>;
+  mergeGitHubPullRequest(request: CoordinatedRequest<GitHubPullRequestMergeRequest>): Promise<GitHubOperationResult<GitHubMutationResult>>;
   getGitHubHistoryInsights(request: GitHubHistoryInsightsRequest): Promise<GitHubOperationResult<GitHubHistoryInsights>>;
   createGitHubPullRequest(request: CoordinatedRequest<CreatePullRequestRequest>): Promise<GitHubOperationResult<CreatePullRequestResult>>;
   cancelGitHubRequest(request: CancelGitHubRequest): Promise<void>;

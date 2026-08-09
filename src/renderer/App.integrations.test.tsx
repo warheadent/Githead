@@ -11,6 +11,8 @@ import {
   createOpenCounts,
   createPullRecovery,
   createPullRequest,
+  createPullRequestDetail,
+  createIssueDetail,
   createRunResult,
   createStatusFile,
   createSummary,
@@ -164,6 +166,12 @@ describe("App", { timeout: 10_000 }, () => {
         url: "https://github.com/openai/githead/pull/24"
       })
     ], page: 1, nextPage: null, totalCount: null }, rateLimit: null });
+    vi.mocked(githead.getGitHubPullRequestDetail).mockResolvedValue({ ok: true, data: createPullRequestDetail({
+      number: 24,
+      title: "Add GitHub pull request tab",
+      url: "https://github.com/openai/githead/pull/24",
+      sourceBranch: "feature/pr-tab"
+    }), rateLimit: null });
 
     render(<App />);
 
@@ -181,12 +189,21 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.getByText("feature/pr-tab -> main")).toBeTruthy();
     expect(screen.getByText("ui")).toBeTruthy();
 
-    await user.click(screen.getByText("Add GitHub pull request tab"));
+    const title = screen.getByRole("button", { name: "Add GitHub pull request tab" });
+    await user.click(title);
 
+    const drawer = await screen.findByRole("region", { name: /Add GitHub pull request tab/ });
+    expect(githead.openExternalUrl).not.toHaveBeenCalled();
+    expect(within(drawer).getByRole("tab", { name: /Overview/ }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("listitem").getAttribute("aria-current")).toBe("true");
+
+    await user.click(within(drawer).getAllByRole("button", { name: /Open on GitHub/ })[0]!);
+    expect(githead.openExternalUrl).toHaveBeenCalledWith({ url: "https://github.com/openai/githead/pull/24" });
+
+    await user.click(within(drawer).getByRole("button", { name: "Close review console" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: /Add GitHub pull request tab/ })).toBeNull());
     await waitFor(() => {
-      expect(githead.openExternalUrl).toHaveBeenCalledWith({
-        url: "https://github.com/openai/githead/pull/24"
-      });
+      expect(document.activeElement).toBe(title);
     });
   });
 
@@ -393,6 +410,11 @@ describe("App", { timeout: 10_000 }, () => {
         url: "https://github.com/openai/githead/issues/12"
       })
     ], page: 1, nextPage: null, totalCount: null }, rateLimit: null });
+    vi.mocked(githead.getGitHubIssueDetail).mockResolvedValue({ ok: true, data: createIssueDetail({
+      number: 12,
+      title: "Add GitHub issue tab",
+      url: "https://github.com/openai/githead/issues/12"
+    }), rateLimit: null });
 
     render(<App />);
 
@@ -408,13 +430,13 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.getByText("enhancement")).toBeTruthy();
     expect(screen.getByText("4")).toBeTruthy();
 
-    await user.click(screen.getByText("Add GitHub issue tab"));
+    const title = screen.getByRole("button", { name: "Add GitHub issue tab" });
+    await user.click(title);
 
-    await waitFor(() => {
-      expect(githead.openExternalUrl).toHaveBeenCalledWith({
-        url: "https://github.com/openai/githead/issues/12"
-      });
-    });
+    const drawer = await screen.findByRole("region", { name: /Add GitHub issue tab/ });
+    expect(githead.openExternalUrl).not.toHaveBeenCalled();
+    await user.click(within(drawer).getAllByRole("button", { name: /Open on GitHub/ })[0]!);
+    expect(githead.openExternalUrl).toHaveBeenCalledWith({ url: "https://github.com/openai/githead/issues/12" });
   });
 
   it("shows upstream commits ready to pull in the Pull action", async () => {

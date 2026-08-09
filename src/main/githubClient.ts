@@ -5,7 +5,7 @@ const GITHUB_API_BASE_URL = "https://api.github.com";
 const GITHUB_API_VERSION = "2022-11-28";
 
 export interface GitHubClientRequest {
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "PUT";
   body?: unknown;
   cache?: {
     mode: "conditional" | "none";

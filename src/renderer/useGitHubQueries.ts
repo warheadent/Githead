@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { GitHubFailure, GitHubIssue, GitHubIssueQuery, GitHubOpenCounts, GitHubPage, GitHubPullRequest, GitHubPullRequestQuery, GitHubViewer, GitHubWorkflowRun, GitHubWorkflowRunQuery } from "../shared/types";
-import { createGitHubQueryStore, type GitHubQueryDescriptor, type GitHubQueryParams, type GitHubQuerySnapshot, type GitHubRepositoryScope, type GitHubResource } from "./githubQueryStore";
+import type { GitHubFailure, GitHubIssue, GitHubIssueDetail, GitHubIssueQuery, GitHubOpenCounts, GitHubPage, GitHubPullRequest, GitHubPullRequestDetail, GitHubPullRequestQuery, GitHubViewer, GitHubWorkflowRun, GitHubWorkflowRunQuery } from "../shared/types";
+import { createGitHubQueryStore, getGitHubQueryKey, type GitHubQueryDescriptor, type GitHubQueryParams, type GitHubQuerySnapshot, type GitHubRepositoryScope, type GitHubResource } from "./githubQueryStore";
 
 type ResourceData = {
   workflowRuns: GitHubPage<GitHubWorkflowRun>;
@@ -8,10 +8,13 @@ type ResourceData = {
   pullRequests: GitHubPage<GitHubPullRequest>;
   issues: GitHubPage<GitHubIssue>;
   viewer: GitHubViewer;
+  pullRequestDetail: GitHubPullRequestDetail;
+  issueDetail: GitHubIssueDetail;
 };
 const fallbackErrors: Record<GitHubResource, string> = {
   workflowRuns: "Unable to load workflow runs.", openCounts: "Unable to load GitHub counts.",
-  pullRequests: "Unable to load pull requests.", issues: "Unable to load issues.", viewer: "Unable to identify the GitHub viewer."
+  pullRequests: "Unable to load pull requests.", issues: "Unable to load issues.", viewer: "Unable to identify the GitHub viewer.",
+  pullRequestDetail: "Unable to load pull request details.", issueDetail: "Unable to load issue details."
 };
 class GitHubQueryError extends Error {
   constructor(readonly failure: GitHubFailure, fallback: string) {
@@ -32,7 +35,9 @@ export const gitHubQueryStore = createGitHubQueryStore({
     openCounts: (descriptor, requestId) => unwrap(window.githead.getGitHubOpenCounts({ repoPath: descriptor.repository.repoPath, requestId }), fallbackErrors.openCounts),
     pullRequests: (descriptor, requestId) => unwrap(window.githead.getGitHubPullRequests({ repoPath: descriptor.repository.repoPath, requestId, page: Number(descriptor.params.page ?? 1), query: descriptor.params.query as GitHubPullRequestQuery | undefined }), fallbackErrors.pullRequests),
     issues: (descriptor, requestId) => unwrap(window.githead.getGitHubIssues({ repoPath: descriptor.repository.repoPath, requestId, page: Number(descriptor.params.page ?? 1), query: descriptor.params.query as GitHubIssueQuery | undefined }), fallbackErrors.issues),
-    viewer: (descriptor, requestId) => unwrap(window.githead.getGitHubViewer({ repoPath: descriptor.repository.repoPath, requestId }), fallbackErrors.viewer)
+    viewer: (descriptor, requestId) => unwrap(window.githead.getGitHubViewer({ repoPath: descriptor.repository.repoPath, requestId }), fallbackErrors.viewer),
+    pullRequestDetail: (descriptor, requestId) => unwrap(window.githead.getGitHubPullRequestDetail({ repoPath: descriptor.repository.repoPath, requestId, number: Number(descriptor.params.number) }), fallbackErrors.pullRequestDetail),
+    issueDetail: (descriptor, requestId) => unwrap(window.githead.getGitHubIssueDetail({ repoPath: descriptor.repository.repoPath, requestId, number: Number(descriptor.params.number) }), fallbackErrors.issueDetail)
   }
 });
 
@@ -48,6 +53,46 @@ function useSnapshot<T>(value: GitHubQueryDescriptor | null): GitHubQuerySnapsho
   const subscribe = useCallback((listener: () => void) => value ? gitHubQueryStore.subscribe(value, listener) : () => undefined, [value]);
   const getSnapshot = useCallback(() => value ? gitHubQueryStore.getSnapshot<T>(value) : EMPTY, [value]);
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+export type GitHubDetailSelection =
+  | { itemType: "pullRequest"; number: number }
+  | { itemType: "issue"; number: number };
+
+export function getGitHubDetailDescriptor(
+  repository: GitHubRepositoryScope,
+  selection: GitHubDetailSelection
+): GitHubQueryDescriptor {
+  return {
+    repository,
+    resource: selection.itemType === "pullRequest" ? "pullRequestDetail" : "issueDetail",
+    params: { itemType: selection.itemType, number: selection.number }
+  };
+}
+
+export function useGitHubDetail<T extends GitHubPullRequestDetail | GitHubIssueDetail>(
+  repository: GitHubRepositoryScope | null,
+  selection: GitHubDetailSelection | null
+): GitHubQuerySnapshot<T> & { refresh: () => Promise<void> } {
+  const stableRepository = useMemo(() => repository ? { repoPath: repository.repoPath, githubFullName: repository.githubFullName } : null,
+    [repository?.repoPath, repository?.githubFullName]);
+  const value = useMemo(() => stableRepository && selection ? getGitHubDetailDescriptor(stableRepository, selection) : null,
+    [stableRepository, selection?.itemType, selection?.number]);
+  const key = value ? getGitHubQueryKey(value) : "";
+  const snapshot = useSnapshot<T>(value);
+
+  useEffect(() => {
+    if (!value) return;
+    void gitHubQueryStore.ensure<T>(value).catch(() => undefined);
+    return () => gitHubQueryStore.cancel(value);
+  }, [key]);
+
+  const refresh = useCallback(async () => {
+    if (!value) return;
+    await gitHubQueryStore.refresh<T>(value);
+  }, [key]);
+
+  return { ...snapshot, refresh };
 }
 
 export function useGitHubQueries(repository: GitHubRepositoryScope | null, queries?: { workflows?: GitHubWorkflowRunQuery; pullRequests?: GitHubPullRequestQuery; issues?: GitHubIssueQuery }) {

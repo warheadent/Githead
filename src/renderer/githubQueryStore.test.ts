@@ -77,10 +77,42 @@ describe("githubQueryStore", () => {
     expect(cancel).toHaveBeenCalledWith("issues-1");
   });
 
+  it("cancels the previous detail request when selection changes and ignores its stale response", async () => {
+    const first = deferred<string[]>();
+    const second = deferred<string[]>();
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const loader = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const store = createGitHubQueryStore({ loaders: { pullRequestDetail: loader }, cancel });
+    const detail = (number: number): GitHubQueryDescriptor => query("pullRequestDetail", { itemType: "pullRequest", number });
+    const oldRequest = store.ensure<string[]>(detail(1));
+    const oldResult = expect(oldRequest).rejects.toMatchObject({ name: "AbortError" });
+
+    store.cancel(detail(1));
+    const newRequest = store.ensure<string[]>(detail(2));
+    second.resolve(["new"]);
+    await newRequest;
+    await oldResult;
+    first.resolve(["old"]);
+    await Promise.resolve();
+
+    expect(cancel).toHaveBeenCalledWith("pullRequestDetail-1");
+    expect(store.getSnapshot<string[]>(detail(1)).data).toBeUndefined();
+    expect(store.getSnapshot<string[]>(detail(2)).data).toEqual(["new"]);
+  });
+
   it("keys repository, resource, and canonical params independently", () => {
     expect(getGitHubQueryKey(query("issues", { page: 1, filter: "open" }))).toBe(getGitHubQueryKey(query("issues", { filter: "open", page: 1 })));
     expect(getGitHubQueryKey(query("issues", { page: 1 }))).not.toBe(getGitHubQueryKey(query("issues", { page: 2 })));
     expect(getGitHubQueryKey(query("issues"))).not.toBe(getGitHubQueryKey(query("pullRequests")));
     expect(getGitHubQueryKey(query())).not.toBe(getGitHubQueryKey({ ...query(), repository: { ...repo, repoPath: "D:\\work\\Repo" } }));
+  });
+
+  it("keys detail data by repository, item type, and item number", () => {
+    const pullRequest = query("pullRequestDetail", { itemType: "pullRequest", number: 7 });
+    const anotherPullRequest = query("pullRequestDetail", { itemType: "pullRequest", number: 8 });
+    const issue = query("issueDetail", { itemType: "issue", number: 7 });
+    expect(getGitHubQueryKey(pullRequest)).not.toBe(getGitHubQueryKey(anotherPullRequest));
+    expect(getGitHubQueryKey(pullRequest)).not.toBe(getGitHubQueryKey(issue));
+    expect(getGitHubQueryKey(pullRequest)).not.toBe(getGitHubQueryKey({ ...pullRequest, repository: { ...repo, githubFullName: "other/repo" } }));
   });
 });

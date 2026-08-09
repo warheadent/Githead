@@ -30,8 +30,10 @@ import type {
   GitCommitGraphRow,
   GitFileDiff,
   GitHubIssue,
+  GitHubIssueDetail,
   GitHubOpenCounts,
   GitHubPullRequest,
+  GitHubPullRequestDetail,
   GitHubWorkflowRun,
   GitIdentitySettings,
   GitRunResult,
@@ -325,6 +327,11 @@ export function createGitheadMock(): GitheadApi {
     getGitHubOpenCounts: vi.fn().mockResolvedValue({ ok: true, data: createOpenCounts(), rateLimit: null }),
     getGitHubIssues: vi.fn().mockResolvedValue({ ok: true, data: { items: [], page: 1, nextPage: null, totalCount: null }, rateLimit: null }),
     getGitHubPullRequests: vi.fn().mockResolvedValue({ ok: true, data: { items: [], page: 1, nextPage: null, totalCount: null }, rateLimit: null }),
+    getGitHubPullRequestDetail: vi.fn().mockImplementation(async ({ number }) => ({ ok: true, data: createPullRequestDetail({ number }), rateLimit: null })),
+    getGitHubIssueDetail: vi.fn().mockImplementation(async ({ number }) => ({ ok: true, data: createIssueDetail({ number }), rateLimit: null })),
+    approveGitHubPullRequest: vi.fn().mockImplementation(async ({ number }) => ({ ok: true, data: { number, url: `https://github.com/openai/githead/pull/${number}`, message: "Pull request approved.", merged: null }, rateLimit: null })),
+    commentOnGitHubItem: vi.fn().mockImplementation(async ({ itemType, number }) => ({ ok: true, data: { number, url: `https://github.com/openai/githead/${itemType === "pullRequest" ? "pull" : "issues"}/${number}`, message: "Comment added.", merged: null }, rateLimit: null })),
+    mergeGitHubPullRequest: vi.fn().mockImplementation(async ({ number }) => ({ ok: true, data: { number, url: `https://github.com/openai/githead/pull/${number}`, message: "Pull request merged.", merged: true }, rateLimit: null })),
     createGitHubPullRequest: vi.fn().mockResolvedValue({ ok: true, data: {
       number: 12,
       url: "https://github.com/warheadent/Githead/pull/12",
@@ -802,6 +809,62 @@ export function createPullRequest(overrides: Partial<GitHubPullRequest> = {}): G
     draft: false,
     updatedAt: "2026-05-30T10:05:00Z",
     url: "https://github.com/openai/githead/pull/1",
+    ...overrides
+  };
+}
+
+export function createPullRequestDetail(overrides: Partial<GitHubPullRequestDetail> = {}): GitHubPullRequestDetail {
+  return {
+    number: 1,
+    title: "Default pull request",
+    displayState: "open",
+    draft: false,
+    author: { login: "taylor", avatarUrl: "", url: "https://github.com/taylor" },
+    body: "This pull request improves the review experience.",
+    createdAt: "2026-05-29T10:00:00Z",
+    updatedAt: "2026-05-30T10:05:00Z",
+    mergedAt: null,
+    url: "https://github.com/openai/githead/pull/1",
+    sourceBranch: "feature/default",
+    sourceRepositoryFullName: "openai/githead",
+    sourceSha: "a".repeat(40),
+    targetBranch: "main",
+    targetRepositoryFullName: "openai/githead",
+    mergeable: true,
+    mergeableState: "clean",
+    mergeStatus: "ready",
+    canMerge: true,
+    reviewStatus: "approved",
+    requestedReviewers: [],
+    comments: [],
+    reviews: [],
+    files: [{ path: "src/review.ts", previousPath: null, status: "modified", additions: 5, deletions: 2, patch: "@@ -1 +1 @@\n-old\n+new", url: "" }],
+    checks: [{ id: "1", name: "CI", status: "completed", conclusion: "success", detailsUrl: "https://github.com/openai/githead/actions/runs/1", startedAt: "2026-05-30T10:00:00Z", completedAt: "2026-05-30T10:02:00Z" }],
+    commits: [{ sha: "a".repeat(40), shortSha: "aaaaaaa", message: "feat: review console", author: "Taylor", authoredAt: "2026-05-30T09:00:00Z", url: "https://github.com/openai/githead/commit/aaa" }],
+    commitCount: 1,
+    branchRelationship: "ahead",
+    aheadBy: 1,
+    behindBy: 0,
+    ...overrides
+  };
+}
+
+export function createIssueDetail(overrides: Partial<GitHubIssueDetail> = {}): GitHubIssueDetail {
+  return {
+    number: 1,
+    title: "Default issue",
+    state: "open",
+    author: { login: "taylor", avatarUrl: "", url: "https://github.com/taylor" },
+    body: "This issue describes a requested improvement.",
+    createdAt: "2026-05-29T10:00:00Z",
+    updatedAt: "2026-05-30T10:05:00Z",
+    closedAt: null,
+    url: "https://github.com/openai/githead/issues/1",
+    comments: [],
+    assignees: [],
+    labels: [],
+    milestone: null,
+    linkedPullRequests: [],
     ...overrides
   };
 }

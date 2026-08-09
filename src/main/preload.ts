@@ -56,6 +56,11 @@ import type {
   GitLfsImageFetchRequest,
   GitHubWorkflowRunsRequest,
   GitHubPullRequestsRequest,
+  GitHubPullRequestDetailRequest,
+  GitHubPullRequestMergeRequest,
+  GitHubPullRequestReviewRequest,
+  GitHubItemCommentRequest,
+  GitHubIssueDetailRequest,
   GitHubIssuesRequest,
   GitHubHistoryInsightsRequest,
   GitHubConnectionRequest,
@@ -164,6 +169,16 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubIssues, request) as ReturnType<GitheadApi["getGitHubIssues"]>,
   getGitHubPullRequests: (request: GitHubPullRequestsRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubPullRequests, request) as ReturnType<GitheadApi["getGitHubPullRequests"]>,
+  getGitHubPullRequestDetail: (request: GitHubPullRequestDetailRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getGitHubPullRequestDetail, request) as ReturnType<GitheadApi["getGitHubPullRequestDetail"]>,
+  getGitHubIssueDetail: (request: GitHubIssueDetailRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getGitHubIssueDetail, request) as ReturnType<GitheadApi["getGitHubIssueDetail"]>,
+  approveGitHubPullRequest: (request: CoordinatedRequest<GitHubPullRequestReviewRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.approveGitHubPullRequest, request) as ReturnType<GitheadApi["approveGitHubPullRequest"]>,
+  commentOnGitHubItem: (request: CoordinatedRequest<GitHubItemCommentRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.commentOnGitHubItem, request) as ReturnType<GitheadApi["commentOnGitHubItem"]>,
+  mergeGitHubPullRequest: (request: CoordinatedRequest<GitHubPullRequestMergeRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.mergeGitHubPullRequest, request) as ReturnType<GitheadApi["mergeGitHubPullRequest"]>,
   getGitHubHistoryInsights: (request: GitHubHistoryInsightsRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubHistoryInsights, request) as ReturnType<GitheadApi["getGitHubHistoryInsights"]>,
   createGitHubPullRequest: (request: CoordinatedRequest<CreatePullRequestRequest>) =>
