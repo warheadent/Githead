@@ -109,7 +109,7 @@ import {
   type RepositoryActionDraft,
   type RepositoryActionManagerDraft
 } from "./RepositoryActionsDialog";
-import { SettingsDialog as RedesignedSettingsDialog, type SettingsDraft as SettingsDialogDraft } from "./SettingsDialog";
+import { SettingsDialog as RedesignedSettingsDialog, type SettingsCategory, type SettingsDraft as SettingsDialogDraft } from "./SettingsDialog";
 import { RepositorySettingsDialog } from "./RepositorySettingsDialog";
 import { ReferencePicker, type ReferencePickerOption } from "./ReferencePicker";
 import { GitIdentityFields } from "./GitIdentityFields";
@@ -124,6 +124,7 @@ import {
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import { DEFAULT_PR_DESCRIPTION_PROMPT } from "../shared/prDescriptionPrompt";
 import { DEFAULT_SOURCE_CONTROL_WRITING_STYLE } from "../shared/sourceControlWritingStyle";
+import { GITHUB_APP_INSTALL_URL } from "../shared/githubApp";
 import type {
   AiCommitMessageProvider,
   AiReasoningEffort,
@@ -160,6 +161,9 @@ import type {
   GitImageSide,
   GitHubIssue,
   GitHubIssueQuery,
+  GitHubConnectionStatus,
+  GitHubDeviceFlow,
+  GitHubFailure,
   GitHubCommitAssociation,
   GitHubPullRequestAssociation,
   GitHubRepository,
@@ -216,7 +220,7 @@ import { PullRecoveryDialog } from "./PullRecoveryDialog";
 import { GitOperationRecoveryBanner } from "./GitOperationRecoveryBanner";
 import { ConflictResolutionDialog } from "./ConflictResolutionDialog";
 import { emptyPushToBranchDialog, type PushToBranchDialogState } from "./pushToBranchState";
-import { useGitHubQueries } from "./useGitHubQueries";
+import { gitHubQueryStore, useGitHubQueries } from "./useGitHubQueries";
 import { GitHubQueryToolbar } from "./GitHubQueryToolbar";
 import { DEFAULT_ISSUE_QUERY, DEFAULT_PULL_REQUEST_QUERY, DEFAULT_WORKFLOW_QUERY, filterLoadedWorkflowRuns, sortLoadedWorkflowRuns } from "./githubViewQuery";
 import { useGitHubHistoryInsights } from "./useGitHubHistoryInsights";
@@ -392,6 +396,8 @@ interface CreatePrDialogState {
   step: "idle" | "pushing" | "creating";
   generating: "title" | "description" | null;
   error: string;
+  failure: GitHubFailure | null;
+  unknownOutcomeReviewed: boolean;
 }
 
 interface AppState {
@@ -453,9 +459,15 @@ interface AppState {
   repositorySyncSettings: RepositorySyncSettings | null;
   gitIdentity: GitIdentitySettings | null;
   settingsOpen: boolean;
+  settingsCategory: SettingsCategory;
   settingsDraft: SettingsDraft;
   settingsError: string;
   settingsSaving: boolean;
+  githubConnection: GitHubConnectionStatus | null;
+  githubConnectionLoading: boolean;
+  githubConnecting: boolean;
+  githubDeviceFlow: GitHubDeviceFlow | null;
+  githubConnectionError: string;
   gitIdentityPrompt: GitIdentityPromptState;
   gitIdentitySaving: boolean;
   actionManager: RepositoryActionManagerState;
@@ -778,7 +790,9 @@ const emptyCreatePrDialog: CreatePrDialogState = {
   draft: false,
   step: "idle",
   generating: null,
-  error: ""
+  error: "",
+  failure: null,
+  unknownOutcomeReviewed: false
 };
 
 const emptyRemoteManager: RemoteManagerState = {
@@ -857,9 +871,15 @@ const initialState: AppState = {
   repositorySyncSettings: null,
   gitIdentity: null,
   settingsOpen: false,
+  settingsCategory: "git-identity",
   settingsDraft: emptySettingsDraft,
   settingsError: "",
   settingsSaving: false,
+  githubConnection: null,
+  githubConnectionLoading: false,
+  githubConnecting: false,
+  githubDeviceFlow: null,
+  githubConnectionError: "",
   gitIdentityPrompt: emptyGitIdentityPrompt,
   gitIdentitySaving: false,
   actionManager: emptyActionManager,
@@ -953,6 +973,7 @@ export function App(): ReactNode {
   const codeFont = state.settingsOpen ? state.settingsDraft.codeFont : state.appSettings?.codeFont ?? "system-mono";
   useFontPreferences(uiFont, codeFont);
   const stateRef = useRef(state);
+  const githubConnectionGenerationRef = useRef(0);
   const appSettingsSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const appSettingsPreferenceSaveId = useRef(0);
   const requestIds = useRef<RequestIds>({
@@ -4489,6 +4510,10 @@ export function App(): ReactNode {
       return;
     }
 
+    if (dialog.failure?.outcomeUnknown && !dialog.unknownOutcomeReviewed) {
+      return;
+    }
+
     if (!summary?.isValid || !summary.branch) {
       return;
     }
@@ -4620,7 +4645,8 @@ export function App(): ReactNode {
       createPrDialog: {
         ...latest.createPrDialog,
         step: "creating",
-        error: ""
+        error: "",
+        failure: null
       }
     }));
 
@@ -4651,7 +4677,9 @@ export function App(): ReactNode {
           createPrDialog: {
             ...latest.createPrDialog,
             step: "idle",
-            error: errorMessage
+            error: errorMessage,
+            failure: result.error,
+            unknownOutcomeReviewed: !result.error.outcomeUnknown
           }
         }));
         return;
@@ -4676,12 +4704,23 @@ export function App(): ReactNode {
         return;
       }
       const message = error instanceof Error ? error.message : "Unable to create pull request.";
+      const failure: GitHubFailure = {
+        kind: "unexpected",
+        message,
+        retryable: false,
+        retryAfterAt: null,
+        outcomeUnknown: true,
+        source: "combined",
+        rateLimit: null
+      };
       finishActiveOperation(createOperation.token, (latest) => ({
         ...latest,
         createPrDialog: {
           ...latest.createPrDialog,
           step: "idle",
-          error: `${message} Check GitHub before retrying; the pull request may have been created.`
+          error: `${message} Check GitHub before retrying; the pull request may have been created.`,
+          failure,
+          unknownOutcomeReviewed: false
         }
       }));
     }
@@ -5214,12 +5253,91 @@ export function App(): ReactNode {
     }
   }, [appendOperationLog, createActiveOperation, finishActiveOperation, isActiveOperationCurrent, updateState]);
 
-  const openSettingsDialog = useCallback((): void => {
+  const loadGitHubConnection = useCallback(async (): Promise<void> => {
+    const generation = ++githubConnectionGenerationRef.current;
+    const current = stateRef.current;
+    updateState({ githubConnectionLoading: true, githubConnectionError: "" });
+    try {
+      const connection = await window.githead.getGitHubConnection(
+        current.summary?.isValid ? { repoPath: current.repoPath } : {}
+      );
+      if (githubConnectionGenerationRef.current !== generation) return;
+      updateState({ githubConnection: connection, githubConnectionLoading: false });
+    } catch (error) {
+      if (githubConnectionGenerationRef.current !== generation) return;
+      updateState({
+        githubConnectionLoading: false,
+        githubConnectionError: error instanceof Error ? error.message : "Unable to check the GitHub connection."
+      });
+    }
+  }, [updateState]);
+
+  const connectGitHub = useCallback(async (): Promise<void> => {
+    const generation = ++githubConnectionGenerationRef.current;
+    updateState({ githubConnecting: true, githubDeviceFlow: null, githubConnectionError: "" });
+    try {
+      let flow = await window.githead.beginGitHubDeviceFlow();
+      if (githubConnectionGenerationRef.current !== generation) return;
+      updateState({ githubDeviceFlow: flow });
+      void window.githead.openExternalUrl({ url: flow.verificationUri });
+      while (githubConnectionGenerationRef.current === generation) {
+        await waitForMilliseconds(flow.intervalSeconds * 1_000);
+        if (githubConnectionGenerationRef.current !== generation) return;
+        const result = await window.githead.pollGitHubDeviceFlow(flow);
+        if (githubConnectionGenerationRef.current !== generation) return;
+        if (result.state === "pending") {
+          flow = { ...flow, intervalSeconds: result.intervalSeconds };
+          updateState({ githubDeviceFlow: flow });
+          continue;
+        }
+        if (result.state === "error") {
+          updateState({ githubConnecting: false, githubDeviceFlow: null, githubConnectionError: result.message });
+          return;
+        }
+        gitHubQueryStore.clear();
+        updateState({ githubConnection: result.connection, githubDeviceFlow: null });
+        const current = stateRef.current;
+        const connection = await window.githead.getGitHubConnection(
+          current.summary?.isValid ? { repoPath: current.repoPath } : {}
+        );
+        if (githubConnectionGenerationRef.current !== generation) return;
+        updateState({ githubConnection: connection, githubConnecting: false, githubConnectionError: "" });
+        return;
+      }
+    } catch (error) {
+      if (githubConnectionGenerationRef.current !== generation) return;
+      updateState({
+        githubConnecting: false,
+        githubDeviceFlow: null,
+        githubConnectionError: error instanceof Error ? error.message : "Unable to connect GitHub."
+      });
+    }
+  }, [updateState]);
+
+  const disconnectGitHub = useCallback(async (): Promise<void> => {
+    const generation = ++githubConnectionGenerationRef.current;
+    updateState({ githubConnecting: true, githubDeviceFlow: null, githubConnectionError: "" });
+    try {
+      const connection = await window.githead.disconnectGitHub();
+      if (githubConnectionGenerationRef.current !== generation) return;
+      gitHubQueryStore.clear();
+      updateState({ githubConnection: connection, githubConnecting: false });
+    } catch (error) {
+      if (githubConnectionGenerationRef.current !== generation) return;
+      updateState({
+        githubConnecting: false,
+        githubConnectionError: error instanceof Error ? error.message : "Unable to disconnect GitHub."
+      });
+    }
+  }, [updateState]);
+
+  const openSettingsDialog = useCallback((category: SettingsCategory = "git-identity"): void => {
     const settings = stateRef.current.aiSettings;
     const appSettings = stateRef.current.appSettings;
     const gitIdentity = stateRef.current.gitIdentity;
     updateState({
       settingsOpen: true,
+      settingsCategory: category,
       settingsError: "",
       settingsDraft: {
         selectedProvider: settings?.selectedProvider ?? "openrouter",
@@ -5248,16 +5366,21 @@ export function App(): ReactNode {
         gitIdentityScope: "global"
       }
     });
-  }, [updateState]);
+    void loadGitHubConnection();
+  }, [loadGitHubConnection, updateState]);
 
   const closeSettingsDialog = useCallback((): void => {
     if (stateRef.current.settingsSaving) {
       return;
     }
 
+    githubConnectionGenerationRef.current += 1;
     updateState({
       settingsOpen: false,
-      settingsError: ""
+      settingsError: "",
+      githubConnecting: false,
+      githubDeviceFlow: null,
+      githubConnectionError: ""
     });
     applyColorTheme(stateRef.current.appSettings?.colorTheme ?? "githead");
     void window.githead.setWindowZoomFactor(stateRef.current.appSettings?.zoomFactor ?? 1).catch(() => undefined);
@@ -6654,7 +6777,7 @@ export function App(): ReactNode {
             }}
             onOpenRemoteManager={openRemoteManager}
             onOpenExternalUrl={openExternalUrl}
-            onOpenSettings={openSettingsDialog}
+            onOpenSettings={() => openSettingsDialog()}
             onCloneDraftChange={updateCloneDraft}
             onCloneSourceChange={(draft) => {
               updateCloneDraft(draft);
@@ -7012,6 +7135,7 @@ export function App(): ReactNode {
                       busy={github.workflows.status === "refreshing"}
                       loaded={github.workflows.data !== undefined}
                       error={github.workflows.error}
+                      failure={github.workflows.failure}
                       nextPage={github.workflows.nextPage}
                       loadingMore={github.workflows.loadingMore}
                       totalCount={github.workflows.totalCount}
@@ -7026,6 +7150,9 @@ export function App(): ReactNode {
                       onRefresh={() => {
                         void github.refresh("workflowRuns");
                       }}
+                      onConnectGitHub={() => openSettingsDialog("integrations")}
+                      onReviewAccess={() => { void window.githead.openExternalUrl({ url: GITHUB_APP_INSTALL_URL }); }}
+                      onCheckRemote={openRemoteManager}
                     />
                   </PersistentWorkspaceTabsContent>
 
@@ -7038,6 +7165,7 @@ export function App(): ReactNode {
                       busy={github.pullRequests.status === "refreshing"}
                       loaded={github.pullRequests.data !== undefined}
                       error={github.pullRequests.error}
+                      failure={github.pullRequests.failure}
                       nextPage={github.pullRequests.nextPage}
                       loadingMore={github.pullRequests.loadingMore}
                       totalCount={github.pullRequests.totalCount}
@@ -7052,6 +7180,9 @@ export function App(): ReactNode {
                       onRefresh={() => {
                         void Promise.allSettled([github.refresh("pullRequests"), github.refresh("openCounts")]);
                       }}
+                      onConnectGitHub={() => openSettingsDialog("integrations")}
+                      onReviewAccess={() => { void window.githead.openExternalUrl({ url: GITHUB_APP_INSTALL_URL }); }}
+                      onCheckRemote={openRemoteManager}
                     />
                   </PersistentWorkspaceTabsContent>
 
@@ -7064,6 +7195,7 @@ export function App(): ReactNode {
                       busy={github.issues.status === "refreshing"}
                       loaded={github.issues.data !== undefined}
                       error={github.issues.error}
+                      failure={github.issues.failure}
                       nextPage={github.issues.nextPage}
                       loadingMore={github.issues.loadingMore}
                       totalCount={github.issues.totalCount}
@@ -7077,6 +7209,9 @@ export function App(): ReactNode {
                       onRefresh={() => {
                         void Promise.allSettled([github.refresh("issues"), github.refresh("openCounts")]);
                       }}
+                      onConnectGitHub={() => openSettingsDialog("integrations")}
+                      onReviewAccess={() => { void window.githead.openExternalUrl({ url: GITHUB_APP_INSTALL_URL }); }}
+                      onCheckRemote={openRemoteManager}
                     />
                   </PersistentWorkspaceTabsContent>
                 </>
@@ -7199,6 +7334,7 @@ export function App(): ReactNode {
 
       <RedesignedSettingsDialog
         open={state.settingsOpen}
+        initialCategory={state.settingsCategory}
         draft={state.settingsDraft}
         aiSettings={state.aiSettings}
         saving={state.settingsSaving}
@@ -7222,6 +7358,21 @@ export function App(): ReactNode {
           void saveSettings();
         }}
         onOpenPerformanceDiagnostics={() => setPerformanceDiagnosticsOpen(true)}
+        githubConnection={state.githubConnection}
+        githubConnectionLoading={state.githubConnectionLoading}
+        githubConnecting={state.githubConnecting}
+        githubDeviceFlow={state.githubDeviceFlow}
+        githubConnectionError={state.githubConnectionError}
+        githubRepository={state.summary?.githubRepository ?? null}
+        onConnectGitHub={() => { void connectGitHub(); }}
+        onDisconnectGitHub={() => { void disconnectGitHub(); }}
+        onRetryGitHubConnection={() => { void loadGitHubConnection(); }}
+        onReviewGitHubAccess={() => { void window.githead.openExternalUrl({ url: GITHUB_APP_INSTALL_URL }); }}
+        onManageRemotes={openRemoteManager}
+        onOpenGitHubRepository={() => {
+          const url = stateRef.current.summary?.githubRepository?.webUrl;
+          if (url) void window.githead.openExternalUrl({ url });
+        }}
       />
       {performanceDiagnosticsOpen ? (
         <OptionalFeatureBoundary name="performance diagnostics">
@@ -7509,6 +7660,14 @@ export function App(): ReactNode {
         }}
         onGenerate={() => {
           void generatePrDescriptionForDialog();
+        }}
+        onReviewUnknownOutcome={() => {
+          const repository = stateRef.current.summary?.githubRepository;
+          if (repository) void window.githead.openExternalUrl({ url: `${repository.webUrl}/pulls` });
+          updateState((latest) => ({
+            ...latest,
+            createPrDialog: { ...latest.createPrDialog, unknownOutcomeReviewed: true }
+          }));
         }}
         onSubmit={(event) => {
           event.preventDefault();
@@ -10665,6 +10824,7 @@ function WorkflowRunsView({
   busy,
   loaded,
   error,
+  failure,
   nextPage,
   loadingMore,
   totalCount,
@@ -10676,7 +10836,10 @@ function WorkflowRunsView({
   onPresetChange,
   onLoadMore,
   onOpenExternalUrl,
-  onRefresh
+  onRefresh,
+  onConnectGitHub,
+  onReviewAccess,
+  onCheckRemote
 }: {
   summary: RepoSummary | null;
   workflowRuns: GitHubWorkflowRun[];
@@ -10684,6 +10847,7 @@ function WorkflowRunsView({
   busy: boolean;
   loaded: boolean;
   error: string;
+  failure: GitHubFailure | null;
   nextPage: number | null;
   loadingMore: boolean;
   totalCount: number | null;
@@ -10696,6 +10860,9 @@ function WorkflowRunsView({
   onLoadMore: () => void;
   onOpenExternalUrl: (url: string) => void;
   onRefresh: () => void;
+  onConnectGitHub: () => void;
+  onReviewAccess: () => void;
+  onCheckRemote: () => void;
 }): ReactNode {
   const repository = summary?.githubRepository ?? null;
   const columnLayout = usePersistentColumnLayout("githead.column-layout.workflows", WORKFLOW_COLUMNS);
@@ -10732,7 +10899,7 @@ function WorkflowRunsView({
         ) : loading ? (
           <LoadingState label="Loading workflow runs" className="h-full" />
         ) : error && workflowRuns.length === 0 ? (
-          <p className="empty-state bad selectable-text">{error}</p>
+          <GitHubFailureState failure={failure} fallback={error} stale={false} onRetry={onRefresh} onConnect={onConnectGitHub} onReviewAccess={onReviewAccess} onCheckRemote={onCheckRemote} />
         ) : displayedRuns.length === 0 ? (
           <p className="empty-state">{search ? "No loaded workflow runs match this search." : "No workflow runs match these filters."}</p>
         ) : (
@@ -10740,7 +10907,8 @@ function WorkflowRunsView({
             <WorkflowRunRow key={run.id} run={run} columnOrder={columnLayout.visibleOrder} onOpenExternalUrl={onOpenExternalUrl} />
           ))
         )}
-        <GitHubListFooter label="workflow runs" nextPage={nextPage} loading={loadingMore} error={workflowRuns.length ? error : ""} disabled={busy} onLoadMore={onLoadMore} />
+        {error && workflowRuns.length ? <GitHubFailureState failure={failure} fallback={error} stale onRetry={onRefresh} onConnect={onConnectGitHub} onReviewAccess={onReviewAccess} onCheckRemote={onCheckRemote} /> : null}
+        <GitHubListFooter label="workflow runs" nextPage={nextPage} loading={loadingMore} error="" disabled={busy} onLoadMore={onLoadMore} />
       </div>
 
     </section>
@@ -10808,6 +10976,7 @@ function PullRequestsView({
   busy,
   loaded,
   error,
+  failure,
   nextPage,
   loadingMore,
   totalCount,
@@ -10819,7 +10988,10 @@ function PullRequestsView({
   onLoadMore,
   onOpenExternalUrl,
   onCheckout,
-  onRefresh
+  onRefresh,
+  onConnectGitHub,
+  onReviewAccess,
+  onCheckRemote
 }: {
   summary: RepoSummary | null;
   pullRequests: GitHubPullRequest[];
@@ -10828,6 +11000,7 @@ function PullRequestsView({
   busy: boolean;
   loaded: boolean;
   error: string;
+  failure: GitHubFailure | null;
   nextPage: number | null;
   loadingMore: boolean;
   totalCount: number | null;
@@ -10840,6 +11013,9 @@ function PullRequestsView({
   onOpenExternalUrl: (url: string) => void;
   onCheckout: (pullRequest: GitHubPullRequest) => void;
   onRefresh: () => void;
+  onConnectGitHub: () => void;
+  onReviewAccess: () => void;
+  onCheckRemote: () => void;
 }): ReactNode {
   const repository = summary?.githubRepository ?? null;
   const columnLayout = usePersistentColumnLayout("githead.column-layout.pull-requests", PULL_REQUEST_COLUMNS);
@@ -10878,7 +11054,7 @@ function PullRequestsView({
         ) : loading ? (
           <LoadingState label="Loading pull requests" className="h-full" />
         ) : error && pullRequests.length === 0 ? (
-          <p className="empty-state bad selectable-text">{error}</p>
+          <GitHubFailureState failure={failure} fallback={error} stale={false} onRetry={onRefresh} onConnect={onConnectGitHub} onReviewAccess={onReviewAccess} onCheckRemote={onCheckRemote} />
         ) : pullRequests.length === 0 ? (
           <p className="empty-state">{filtered ? "No open pull requests match these filters." : "No open pull requests found."}</p>
         ) : (
@@ -10886,7 +11062,8 @@ function PullRequestsView({
             <PullRequestRow key={pullRequest.number} pullRequest={pullRequest} columnOrder={columnLayout.visibleOrder} busy={busy} onOpenExternalUrl={onOpenExternalUrl} onCheckout={onCheckout} />
           ))
         )}
-        <GitHubListFooter label="pull requests" nextPage={nextPage} loading={loadingMore} error={pullRequests.length ? error : ""} disabled={busy} onLoadMore={onLoadMore} />
+        {error && pullRequests.length ? <GitHubFailureState failure={failure} fallback={error} stale onRetry={onRefresh} onConnect={onConnectGitHub} onReviewAccess={onReviewAccess} onCheckRemote={onCheckRemote} /> : null}
+        <GitHubListFooter label="pull requests" nextPage={nextPage} loading={loadingMore} error="" disabled={busy} onLoadMore={onLoadMore} />
       </div>
     </section>
   );
@@ -10955,6 +11132,7 @@ function IssuesView({
   busy,
   loaded,
   error,
+  failure,
   nextPage,
   loadingMore,
   totalCount,
@@ -10965,7 +11143,10 @@ function IssuesView({
   onPresetChange,
   onLoadMore,
   onOpenExternalUrl,
-  onRefresh
+  onRefresh,
+  onConnectGitHub,
+  onReviewAccess,
+  onCheckRemote
 }: {
   summary: RepoSummary | null;
   issues: GitHubIssue[];
@@ -10974,6 +11155,7 @@ function IssuesView({
   busy: boolean;
   loaded: boolean;
   error: string;
+  failure: GitHubFailure | null;
   nextPage: number | null;
   loadingMore: boolean;
   totalCount: number | null;
@@ -10985,6 +11167,9 @@ function IssuesView({
   onLoadMore: () => void;
   onOpenExternalUrl: (url: string) => void;
   onRefresh: () => void;
+  onConnectGitHub: () => void;
+  onReviewAccess: () => void;
+  onCheckRemote: () => void;
 }): ReactNode {
   const repository = summary?.githubRepository ?? null;
   const columnLayout = usePersistentColumnLayout("githead.column-layout.issues", ISSUE_COLUMNS);
@@ -11020,7 +11205,7 @@ function IssuesView({
         ) : loading ? (
           <LoadingState label="Loading issues" className="h-full" />
         ) : error && issues.length === 0 ? (
-          <p className="empty-state bad selectable-text">{error}</p>
+          <GitHubFailureState failure={failure} fallback={error} stale={false} onRetry={onRefresh} onConnect={onConnectGitHub} onReviewAccess={onReviewAccess} onCheckRemote={onCheckRemote} />
         ) : issues.length === 0 ? (
           <p className="empty-state">{filtered ? "No open issues match these filters." : "No open issues found."}</p>
         ) : (
@@ -11028,7 +11213,8 @@ function IssuesView({
             <IssueRow key={issue.number} issue={issue} columnOrder={columnLayout.visibleOrder} onOpenExternalUrl={onOpenExternalUrl} />
           ))
         )}
-        <GitHubListFooter label="issues" nextPage={nextPage} loading={loadingMore} error={issues.length ? error : ""} disabled={busy} onLoadMore={onLoadMore} />
+        {error && issues.length ? <GitHubFailureState failure={failure} fallback={error} stale onRetry={onRefresh} onConnect={onConnectGitHub} onReviewAccess={onReviewAccess} onCheckRemote={onCheckRemote} /> : null}
+        <GitHubListFooter label="issues" nextPage={nextPage} loading={loadingMore} error="" disabled={busy} onLoadMore={onLoadMore} />
       </div>
     </section>
   );
@@ -11086,6 +11272,57 @@ function GitHubLabels({ labels }: { labels: string[] }): ReactNode {
 function formatLoadedCount(loaded: number, total: number | null, singular: string, plural: string): string {
   const noun = loaded === 1 ? singular : plural;
   return total === null ? `${loaded} ${noun} loaded` : `${loaded} of ${Math.max(total, loaded)} ${plural} loaded`;
+}
+
+function GitHubFailureState({
+  failure,
+  fallback,
+  stale,
+  onRetry,
+  onConnect,
+  onReviewAccess,
+  onCheckRemote
+}: {
+  failure: GitHubFailure | null;
+  fallback: string;
+  stale: boolean;
+  onRetry: () => void;
+  onConnect: () => void;
+  onReviewAccess: () => void;
+  onCheckRemote: () => void;
+}): ReactNode {
+  const kind = failure?.kind ?? "unexpected";
+  const retryAt = failure?.retryAfterAt ?? failure?.rateLimit?.resetAt ?? null;
+  return <div className={`grid gap-2 border-destructive/30 bg-destructive/5 p-4 text-sm ${stale ? "border-y" : "m-4 rounded-md border"}`} role="alert">
+    <div>
+      <p className="font-medium">{getGitHubFailureTitle(kind)}</p>
+      <p className="selectable-text text-muted-foreground">{fallback}</p>
+      {failure?.missingPermission ? <p className="mt-1 font-medium">Missing permission: {failure.missingPermission}</p> : null}
+      {stale ? <p className="mt-1 text-muted-foreground">Showing cached results while Githead recovers.</p> : null}
+      {retryAt ? <p className="mt-1 text-muted-foreground">Try again {formatDateTime(retryAt)}.</p> : null}
+    </div>
+    <div className="flex flex-wrap gap-2">
+      {kind === "authentication" ? <Button type="button" size="sm" onClick={onConnect}>Connect GitHub</Button> : null}
+      {kind === "authorization" ? <Button type="button" size="sm" onClick={onReviewAccess}>Review access</Button> : null}
+      {kind === "notFound" ? <Button type="button" size="sm" variant="outline" onClick={onCheckRemote}>Check remote</Button> : null}
+      {failure?.retryable || kind === "offline" || kind === "transient" || kind === "timeout" || kind === "rateLimited" || !failure ? <Button type="button" size="sm" variant="outline" onClick={onRetry}><RefreshCw />Retry</Button> : null}
+    </div>
+  </div>;
+}
+
+function getGitHubFailureTitle(kind: GitHubFailure["kind"]): string {
+  if (kind === "authentication") return "GitHub authentication is required";
+  if (kind === "authorization") return "GitHub repository access is not granted";
+  if (kind === "rateLimited") return "GitHub rate limit reached";
+  if (kind === "offline") return "GitHub is unavailable while offline";
+  if (kind === "transient" || kind === "timeout") return "GitHub is temporarily unavailable";
+  if (kind === "notFound") return "GitHub repository was not found";
+  return "Unable to load GitHub data";
+}
+
+function formatDateTime(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
 function GitHubListFooter({ label, nextPage, loading, error, disabled, onLoadMore }: {
@@ -12211,6 +12448,7 @@ function CreatePullRequestDialog({
   onOpenChange,
   onStateChange,
   onGenerate,
+  onReviewUnknownOutcome,
   onSubmit
 }: {
   state: CreatePrDialogState;
@@ -12222,6 +12460,7 @@ function CreatePullRequestDialog({
   onOpenChange: (open: boolean) => void;
   onStateChange: (state: CreatePrDialogState) => void;
   onGenerate: () => void;
+  onReviewUnknownOutcome: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }): ReactNode {
   const busy = state.step !== "idle";
@@ -12339,12 +12578,17 @@ function CreatePullRequestDialog({
             Create as draft
           </label>
 
-          <p className="min-h-5 text-sm text-destructive" role="alert">{state.error}</p>
+          <div className="grid min-h-5 gap-2">
+            <p className="text-sm text-destructive" role="alert">{state.error}</p>
+            {state.failure?.outcomeUnknown && !state.unknownOutcomeReviewed ? (
+              <Button type="button" variant="outline" className="w-fit" onClick={onReviewUnknownOutcome}><ExternalLink />Open Pull Requests</Button>
+            ) : null}
+          </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={busy || generating || !state.title.trim() || !state.baseBranch}>
+            <Button type="submit" disabled={busy || generating || !state.title.trim() || !state.baseBranch || Boolean(state.failure?.outcomeUnknown && !state.unknownOutcomeReviewed)}>
               {busy ? <Loader2 className="animate-spin" /> : <GitPullRequest />}
               {submitLabel}
             </Button>
@@ -13792,6 +14036,10 @@ function formatDate(value: string): string {
 
 function formatWorkflowRunStatus(run: GitHubWorkflowRun): string {
   return run.conclusion ?? run.status;
+}
+
+function waitForMilliseconds(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
 function getWorkflowRunStatusClass(run: GitHubWorkflowRun): string {

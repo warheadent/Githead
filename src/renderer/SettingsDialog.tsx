@@ -3,11 +3,14 @@ import {
   CheckCircle2,
   CircleAlert,
   Gauge,
+  GitFork,
   GitCommitHorizontal,
+  ExternalLink,
   Loader2,
   Monitor,
   Moon,
   Palette,
+  Plug,
   RefreshCw,
   Save,
   SlidersHorizontal,
@@ -36,6 +39,9 @@ import type {
   AppColorTheme,
   AppUiFont,
   GitIdentityScope,
+  GitHubConnectionStatus,
+  GitHubDeviceFlow,
+  GitHubRepository,
   SourceControlWritingStyle,
   TagPushBehavior
 } from "../shared/types";
@@ -76,13 +82,14 @@ export interface SettingsDraft {
   gitIdentityScope: GitIdentityScope;
 }
 
-type SettingsCategory = "appearance" | "git-identity" | "git-behaviors" | "sync" | "ai" | "diagnostics";
+export type SettingsCategory = "appearance" | "git-identity" | "git-behaviors" | "sync" | "integrations" | "ai" | "diagnostics";
 
 const categories = [
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "git-identity", label: "Git Identity", icon: GitCommitHorizontal },
   { id: "git-behaviors", label: "Git Behaviors", icon: SlidersHorizontal },
   { id: "sync", label: "Sync", icon: RefreshCw },
+  { id: "integrations", label: "Integrations", icon: Plug },
   { id: "ai", label: "AI", icon: Bot },
   { id: "diagnostics", label: "Diagnostics", icon: Gauge }
 ] as const;
@@ -119,6 +126,19 @@ export interface SettingsDialogProps {
   onDraftChange: (draft: SettingsDraft) => void;
   onSave: (event: FormEvent<HTMLFormElement>) => void;
   onOpenPerformanceDiagnostics: () => void;
+  initialCategory?: SettingsCategory;
+  githubConnection?: GitHubConnectionStatus | null;
+  githubConnectionLoading?: boolean;
+  githubConnecting?: boolean;
+  githubDeviceFlow?: GitHubDeviceFlow | null;
+  githubConnectionError?: string;
+  githubRepository?: GitHubRepository | null;
+  onConnectGitHub?: () => void;
+  onDisconnectGitHub?: () => void;
+  onRetryGitHubConnection?: () => void;
+  onReviewGitHubAccess?: () => void;
+  onManageRemotes?: () => void;
+  onOpenGitHubRepository?: () => void;
 }
 
 export function SettingsDialog({
@@ -130,7 +150,20 @@ export function SettingsDialog({
   onOpenChange,
   onDraftChange,
   onSave,
-  onOpenPerformanceDiagnostics
+  onOpenPerformanceDiagnostics,
+  initialCategory = "git-identity",
+  githubConnection = null,
+  githubConnectionLoading = false,
+  githubConnecting = false,
+  githubDeviceFlow = null,
+  githubConnectionError = "",
+  githubRepository = null,
+  onConnectGitHub = () => undefined,
+  onDisconnectGitHub = () => undefined,
+  onRetryGitHubConnection = () => undefined,
+  onReviewGitHubAccess = () => undefined,
+  onManageRemotes = () => undefined,
+  onOpenGitHubRepository = () => undefined
 }: SettingsDialogProps): ReactNode {
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>("git-identity");
   const [confirmDiscard, setConfirmDiscard] = useState(false);
@@ -155,11 +188,11 @@ export function SettingsDialog({
   useEffect(() => {
     if (open && !wasOpenRef.current) {
       baselineRef.current = serializeSettingsDraft(draft);
-      setActiveCategory("git-identity");
+      setActiveCategory(initialCategory);
       setConfirmDiscard(false);
     }
     wasOpenRef.current = open;
-  }, [draft, open]);
+  }, [draft, initialCategory, open]);
 
   const requestClose = (): void => {
     if (saving) {
@@ -305,6 +338,23 @@ export function SettingsDialog({
                     </div>
                   </SettingsCard>
                 </SettingsPanel>
+                <SettingsPanel value="integrations" title="Integrations" description="Connect external services used by Githead.">
+                  <GitHubIntegrationSettings
+                    connection={githubConnection}
+                    loading={githubConnectionLoading}
+                    connecting={githubConnecting}
+                    deviceFlow={githubDeviceFlow}
+                    error={githubConnectionError}
+                    repository={githubRepository}
+                    disabled={saving}
+                    onConnect={onConnectGitHub}
+                    onDisconnect={onDisconnectGitHub}
+                    onRetry={onRetryGitHubConnection}
+                    onReviewAccess={onReviewGitHubAccess}
+                    onManageRemotes={onManageRemotes}
+                    onOpenRepository={onOpenGitHubRepository}
+                  />
+                </SettingsPanel>
                 <SettingsPanel value="ai" title="AI" description="Configure providers and instructions for generated Git content.">
                   <div className="grid max-w-2xl gap-4">
                     <SettingsCard title="Provider" description="Connection and model used for AI generation.">
@@ -384,6 +434,111 @@ function AppearanceSettings({ draft, saving, onDraftChange }: { draft: SettingsD
   </div>;
 }
 
+function GitHubIntegrationSettings({
+  connection,
+  loading,
+  connecting,
+  deviceFlow,
+  error,
+  repository,
+  disabled,
+  onConnect,
+  onDisconnect,
+  onRetry,
+  onReviewAccess,
+  onManageRemotes,
+  onOpenRepository
+}: {
+  connection: GitHubConnectionStatus | null;
+  loading: boolean;
+  connecting: boolean;
+  deviceFlow: GitHubDeviceFlow | null;
+  error: string;
+  repository: GitHubRepository | null;
+  disabled: boolean;
+  onConnect: () => void;
+  onDisconnect: () => void;
+  onRetry: () => void;
+  onReviewAccess: () => void;
+  onManageRemotes: () => void;
+  onOpenRepository: () => void;
+}): ReactNode {
+  const status = connection?.state ?? "anonymous";
+  const requiresConnection = status === "anonymous" || connection?.failure?.kind === "authentication";
+  const authenticated = connection?.source !== "anonymous" && !requiresConnection;
+  const resetAt = connection?.failure?.retryAfterAt ?? connection?.failure?.rateLimit?.resetAt ?? null;
+  return <SettingsCard title="GitHub" description="Use one GitHub account for workflow runs, issues, and pull requests.">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="grid size-10 shrink-0 place-items-center rounded-lg border bg-muted/40"><GitFork className="size-5" aria-hidden="true" /></span>
+        <div className="min-w-0">
+          <p className="font-medium">GitHub Desktop connection</p>
+          <p className="text-sm text-muted-foreground">{loading ? "Checking GitHub connection…" : connection?.message ?? "GitHub is not connected."}</p>
+        </div>
+      </div>
+      <Badge variant={status === "authenticated" ? "secondary" : status === "unauthorized" || status === "rateLimited" ? "destructive" : "outline"}>
+        {formatGitHubConnectionState(status)}
+      </Badge>
+    </div>
+
+    <dl className="grid gap-2 rounded-md border bg-muted/20 p-3 text-sm">
+      <div className="grid gap-1 sm:grid-cols-[130px_minmax(0,1fr)]"><dt className="text-muted-foreground">Active account</dt><dd className="font-medium">{connection?.accountLogin ? `@${connection.accountLogin}` : authenticated ? "Authenticated account unavailable" : "No account"}</dd></div>
+      <div className="grid gap-1 sm:grid-cols-[130px_minmax(0,1fr)]"><dt className="text-muted-foreground">Access</dt><dd className="font-medium">{formatGitHubAccess(connection)}</dd></div>
+      <div className="grid gap-1 sm:grid-cols-[130px_minmax(0,1fr)]"><dt className="text-muted-foreground">Credential source</dt><dd className="font-medium">{formatGitHubSource(connection?.source ?? "anonymous")}</dd></div>
+    </dl>
+
+    {resetAt ? <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm" role="status">GitHub expects access to resume {formatResetTime(resetAt)}. Cached results remain visible.</p> : null}
+    {error ? <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">{error}</p> : null}
+
+    {deviceFlow ? <div className="grid gap-3 rounded-md border border-primary/30 bg-primary/5 p-3" role="status">
+      <div><p className="text-sm font-medium">Enter this code on GitHub</p><p className="mt-1 font-mono text-2xl font-semibold tracking-[0.2em] selectable-text">{deviceFlow.userCode}</p></div>
+      <p className="text-sm text-muted-foreground">Githead is waiting for authorization. This code expires {formatResetTime(deviceFlow.expiresAt)}.</p>
+      <Button type="button" variant="outline" className="w-fit" disabled={disabled} onClick={() => void window.githead.openExternalUrl({ url: deviceFlow.verificationUri })}><ExternalLink />Open GitHub</Button>
+    </div> : null}
+
+    <div className="flex flex-wrap gap-2">
+      {requiresConnection ? <Button type="button" disabled={disabled || connecting} onClick={onConnect}>{connecting ? <Loader2 className="animate-spin" /> : <GitFork />}{connecting ? "Waiting for GitHub…" : "Connect GitHub"}</Button> : null}
+      {status === "offline" || status === "rateLimited" || status === "unauthorized" ? <Button type="button" variant="outline" disabled={disabled || loading} onClick={onRetry}><RefreshCw />Retry</Button> : null}
+      {status === "unauthorized" || authenticated ? <Button type="button" variant="outline" disabled={disabled} onClick={onReviewAccess}><ExternalLink />Review access</Button> : null}
+      <Button type="button" variant="outline" disabled={disabled} onClick={onManageRemotes}>Manage remotes</Button>
+      {repository ? <Button type="button" variant="outline" disabled={disabled} onClick={onOpenRepository}><ExternalLink />Open repository</Button> : null}
+      {connection?.source === "githubApp" && status !== "anonymous" ? <Button type="button" variant="ghost" disabled={disabled || connecting} onClick={onDisconnect}>Disconnect</Button> : null}
+    </div>
+
+    <div className="grid gap-1 text-xs leading-relaxed text-muted-foreground">
+      <p>Private repositories require the Githead GitHub App to be installed for that repository.</p>
+      <p>Githead requests read access to Actions, Contents, and Issues, plus read and write access to Pull requests. Creating a pull request is the current GitHub write operation.</p>
+    </div>
+  </SettingsCard>;
+}
+
+function formatGitHubConnectionState(state: GitHubConnectionStatus["state"]): string {
+  if (state === "authenticated") return "Authenticated";
+  if (state === "unauthorized") return "Unauthorized";
+  if (state === "rateLimited") return "Rate limited";
+  if (state === "offline") return "Offline";
+  return "Anonymous";
+}
+
+function formatGitHubAccess(connection: GitHubConnectionStatus | null): string {
+  if (!connection || connection.state === "anonymous") return "Anonymous public access";
+  if (connection.repositoryAccess === "granted") return "Repository access granted";
+  if (connection.repositoryAccess === "missing") return "Repository access not granted";
+  return formatGitHubConnectionState(connection.state);
+}
+
+function formatGitHubSource(source: GitHubConnectionStatus["source"]): string {
+  if (source === "githubApp") return "Githead GitHub App";
+  if (source === "environment") return "Environment token";
+  if (source === "gh") return "GitHub CLI";
+  return "None";
+}
+
+function formatResetTime(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
 function FontSetting<T extends string>({ id, label, value, options, sample, disabled, onChange }: { id: string; label: string; value: T; options: readonly FontOption<T>[]; sample: string; disabled: boolean; onChange: (value: T) => void }): ReactNode {
   const selected = options.find((option) => option.id === value) ?? options[0];
   const helpId = `${id}-help`;
@@ -395,7 +550,7 @@ function serializeSettingsDraft(draft: SettingsDraft): string { return JSON.stri
 function formatZoomFactor(zoomFactor: number): string { return `${Math.round(zoomFactor * 100)}%`; }
 
 function getDirtyCategories(baseline: string, draft: SettingsDraft): Record<SettingsCategory, boolean> {
-  if (!baseline) return { appearance: false, "git-identity": false, "git-behaviors": false, sync: false, ai: false, diagnostics: false };
+  if (!baseline) return { appearance: false, "git-identity": false, "git-behaviors": false, sync: false, integrations: false, ai: false, diagnostics: false };
   const saved = JSON.parse(baseline) as SettingsDraft;
   return {
     appearance: saved.colorTheme !== draft.colorTheme || saved.appearanceMode !== draft.appearanceMode || saved.uiFont !== draft.uiFont || saved.codeFont !== draft.codeFont || saved.zoomFactor !== draft.zoomFactor,
@@ -404,6 +559,7 @@ function getDirtyCategories(baseline: string, draft: SettingsDraft): Record<Sett
       || saved.requireUpToDateUpstreamBeforeCommit !== draft.requireUpToDateUpstreamBeforeCommit
       || saved.allowCherryPickingContainedCommits !== draft.allowCherryPickingContainedCommits,
     sync: saved.autoFetchIntervalMinutes !== draft.autoFetchIntervalMinutes,
+    integrations: false,
     ai: JSON.stringify({ selectedProvider: saved.selectedProvider, providerModels: saved.providerModels, commitPlanModels: saved.commitPlanModels, commitPlanReasoningEfforts: saved.commitPlanReasoningEfforts, prDescriptionModels: saved.prDescriptionModels, reasoningEfforts: saved.reasoningEfforts, prDescriptionReasoningEfforts: saved.prDescriptionReasoningEfforts, apiKeys: saved.apiKeys, clearApiKeys: saved.clearApiKeys, commitMessagePrompt: saved.commitMessagePrompt, prDescriptionPrompt: saved.prDescriptionPrompt, sourceControlWritingStyle: saved.sourceControlWritingStyle }) !== JSON.stringify({ selectedProvider: draft.selectedProvider, providerModels: draft.providerModels, commitPlanModels: draft.commitPlanModels, commitPlanReasoningEfforts: draft.commitPlanReasoningEfforts, prDescriptionModels: draft.prDescriptionModels, reasoningEfforts: draft.reasoningEfforts, prDescriptionReasoningEfforts: draft.prDescriptionReasoningEfforts, apiKeys: draft.apiKeys, clearApiKeys: draft.clearApiKeys, commitMessagePrompt: draft.commitMessagePrompt, prDescriptionPrompt: draft.prDescriptionPrompt, sourceControlWritingStyle: draft.sourceControlWritingStyle }),
     diagnostics: false
   };

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { GitHubIssue, GitHubIssueQuery, GitHubOpenCounts, GitHubPage, GitHubPullRequest, GitHubPullRequestQuery, GitHubViewer, GitHubWorkflowRun, GitHubWorkflowRunQuery } from "../shared/types";
+import type { GitHubFailure, GitHubIssue, GitHubIssueQuery, GitHubOpenCounts, GitHubPage, GitHubPullRequest, GitHubPullRequestQuery, GitHubViewer, GitHubWorkflowRun, GitHubWorkflowRunQuery } from "../shared/types";
 import { createGitHubQueryStore, type GitHubQueryDescriptor, type GitHubQueryParams, type GitHubQuerySnapshot, type GitHubRepositoryScope, type GitHubResource } from "./githubQueryStore";
 
 type ResourceData = {
@@ -13,10 +13,16 @@ const fallbackErrors: Record<GitHubResource, string> = {
   workflowRuns: "Unable to load workflow runs.", openCounts: "Unable to load GitHub counts.",
   pullRequests: "Unable to load pull requests.", issues: "Unable to load issues.", viewer: "Unable to identify the GitHub viewer."
 };
-async function unwrap<T>(promise: Promise<{ ok: true; data: T } | { ok: false; error: { kind: string; message: string } }>, fallback: string): Promise<T> {
+class GitHubQueryError extends Error {
+  constructor(readonly failure: GitHubFailure, fallback: string) {
+    super(failure.kind === "cancelled" ? "" : failure.message || fallback);
+    this.name = "GitHubQueryError";
+  }
+}
+async function unwrap<T>(promise: Promise<{ ok: true; data: T } | { ok: false; error: GitHubFailure }>, fallback: string): Promise<T> {
   const result = await promise;
   if (result.ok) return result.data;
-  throw new Error(result.error.kind === "cancelled" ? "" : result.error.message || fallback);
+  throw new GitHubQueryError(result.error, fallback);
 }
 
 export const gitHubQueryStore = createGitHubQueryStore({
@@ -34,7 +40,7 @@ const workflowRunKey = (item: GitHubWorkflowRun): string => item.id;
 const pullRequestKey = (item: GitHubPullRequest): number => item.number;
 const issueKey = (item: GitHubIssue): number => item.number;
 
-const EMPTY: GitHubQuerySnapshot<never> = Object.freeze({ status: "idle", data: undefined, error: "", updatedAt: null, isStale: true });
+const EMPTY: GitHubQuerySnapshot<never> = Object.freeze({ status: "idle", data: undefined, error: "", failure: null, updatedAt: null, isStale: true });
 function descriptor(repository: GitHubRepositoryScope | null, resource: GitHubResource, params: GitHubQueryParams = {}): GitHubQueryDescriptor | null {
   return repository ? { repository, resource, params } : null;
 }
@@ -86,26 +92,33 @@ interface PagedSnapshot<T> extends GitHubQuerySnapshot<T[]> {
 type PagedState<T> = GitHubQuerySnapshot<T[]> & Pick<PagedSnapshot<T>, "nextPage" | "totalCount" | "loadingMore">;
 
 function usePagedQuery<T>(repository: GitHubRepositoryScope | null, resource: PagedResource, keyOf: (item: T) => string | number, query?: GitHubWorkflowRunQuery | GitHubPullRequestQuery | GitHubIssueQuery): PagedSnapshot<T> {
-  const [snapshot, setSnapshot] = useState<PagedState<T>>({ status: "idle", data: undefined, error: "", updatedAt: null, isStale: true, nextPage: null, totalCount: null, loadingMore: false });
+  const [snapshot, setSnapshot] = useState<PagedState<T>>({ status: "idle", data: undefined, error: "", failure: null, updatedAt: null, isStale: true, nextPage: null, totalCount: null, loadingMore: false });
   const generation = useRef(0);
   const busy = useRef(false);
   const canonicalQuery = canonicalPageQuery(resource, query);
   const queryKey = JSON.stringify(canonicalQuery);
   const repositoryKey = repository ? `${repository.repoPath}\0${repository.githubFullName}\0${queryKey}` : "";
-  useEffect(() => { generation.current += 1; busy.current = false; setSnapshot({ status: "idle", data: undefined, error: "", updatedAt: null, isStale: true, nextPage: null, totalCount: null, loadingMore: false }); }, [repositoryKey]);
+  useEffect(() => { generation.current += 1; busy.current = false; setSnapshot({ status: "idle", data: undefined, error: "", failure: null, updatedAt: null, isStale: true, nextPage: null, totalCount: null, loadingMore: false }); }, [repositoryKey]);
 
   const request = useCallback(async (page: number, replace: boolean) => {
     if (!repository || busy.current) return;
     busy.current = true;
     const requestGeneration = ++generation.current;
-    setSnapshot((current) => ({ ...current, status: current.data === undefined ? "loading" : "refreshing", loadingMore: !replace, error: "" }));
+    setSnapshot((current) => ({ ...current, status: current.data === undefined ? "loading" : "refreshing", loadingMore: !replace, error: "", failure: null }));
     try {
       const result = await gitHubQueryStore.refresh<GitHubPage<T>>({ repository, resource, params: { page, ...(Object.keys(canonicalQuery).length ? { query: canonicalQuery } : {}) } });
       if (generation.current !== requestGeneration) return;
-      setSnapshot((current) => ({ status: "success", data: replace ? result.items : mergeItems(current.data ?? [], result.items, keyOf), error: "", updatedAt: Date.now(), isStale: false, nextPage: result.nextPage, totalCount: result.totalCount, loadingMore: false }));
+      setSnapshot((current) => ({ status: "success", data: replace ? result.items : mergeItems(current.data ?? [], result.items, keyOf), error: "", failure: null, updatedAt: Date.now(), isStale: false, nextPage: result.nextPage, totalCount: result.totalCount, loadingMore: false }));
     } catch (error) {
       if (generation.current !== requestGeneration) return;
-      setSnapshot((current) => ({ ...current, status: "error", error: error instanceof Error ? error.message : String(error), isStale: true, loadingMore: false }));
+      setSnapshot((current) => ({
+        ...current,
+        status: "error",
+        error: error instanceof Error ? error.message : String(error),
+        failure: error instanceof GitHubQueryError ? error.failure : null,
+        isStale: true,
+        loadingMore: false
+      }));
     } finally {
       if (generation.current === requestGeneration) busy.current = false;
     }

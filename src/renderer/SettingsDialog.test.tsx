@@ -89,6 +89,48 @@ describe("SettingsDialog footer status", () => {
     expect(onOpenPerformanceDiagnostics).toHaveBeenCalledOnce();
   });
 
+  it("always shows app-wide GitHub connection details and recovery actions in Integrations", () => {
+    const onConnectGitHub = vi.fn();
+    const onManageRemotes = vi.fn();
+    render(
+      <SettingsDialog
+        open
+        initialCategory="integrations"
+        draft={savedDraft}
+        aiSettings={null}
+        saving={false}
+        error=""
+        githubConnection={{
+          state: "anonymous",
+          source: "anonymous",
+          accountLogin: null,
+          repositoryAccess: "unknown",
+          message: "Public repositories use anonymous GitHub access with a lower rate limit.",
+          failure: null
+        }}
+        githubRepository={null}
+        onOpenChange={vi.fn()}
+        onDraftChange={vi.fn()}
+        onSave={vi.fn()}
+        onOpenPerformanceDiagnostics={vi.fn()}
+        onConnectGitHub={onConnectGitHub}
+        onManageRemotes={onManageRemotes}
+      />,
+      { wrapper: TooltipProvider }
+    );
+
+    expect(screen.getByRole("tab", { name: "Integrations" })).toBeTruthy();
+    expect(screen.queryByText("Detected remote")).toBeNull();
+    expect(screen.queryByText("origin · git@example.test:team/project.git")).toBeNull();
+    expect(screen.getByText("No account")).toBeTruthy();
+    expect(screen.getByText("Anonymous public access")).toBeTruthy();
+    expect(screen.getByText(/Private repositories require/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Connect GitHub" }));
+    fireEvent.click(screen.getByRole("button", { name: "Manage remotes" }));
+    expect(onConnectGitHub).toHaveBeenCalledOnce();
+    expect(onManageRemotes).toHaveBeenCalledOnce();
+  });
+
   it("renders tag push behavior as a select with the current default and explanatory warning", () => {
     const onDraftChange = vi.fn();
     render(

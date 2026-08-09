@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { GitHubRepository } from "../shared/types";
-import { DefaultGitHubClient, type GitHubClient, type GitHubClientRequest, type GitHubClientResponse } from "./githubClient";
+import { DefaultGitHubClient, GitHubHttpError, type GitHubApiClient, type GitHubClientRequest, type GitHubClientResponse } from "./githubClient";
 import { GitHubService } from "./githubService";
 
 const repository: GitHubRepository = {
@@ -205,6 +205,50 @@ describe("GitHubService", () => {
     expect(result).toMatchObject({ ok: false, error: { kind: "authorization", source: "combined", retryable: false } });
   });
 
+  it("preserves rate-limit reset metadata and accepted permissions", async () => {
+    const resetAtSeconds = 2_000_000_000;
+    const client = new FakeClient([], async () => {
+      throw new GitHubHttpError("API rate limit exceeded.", 403, new Headers({
+        "x-ratelimit-limit": "5000",
+        "x-ratelimit-remaining": "0",
+        "x-ratelimit-reset": String(resetAtSeconds),
+        "x-ratelimit-resource": "core",
+        "x-accepted-github-permissions": "issues=read"
+      }), {});
+    });
+
+    const result = await new GitHubService(provider(repository), client).getIssues({ repoPath: "D:\\Repo" });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        kind: "rateLimited",
+        retryable: true,
+        retryAfterAt: new Date(resetAtSeconds * 1_000).toISOString(),
+        rateLimit: { limit: 5000, remaining: 0, resource: "core" }
+      }
+    });
+  });
+
+  it("reports the GitHub App permission required by an authorization failure", async () => {
+    const client = new FakeClient([], async () => {
+      throw new GitHubHttpError("Resource not accessible by integration.", 403, new Headers({
+        "x-accepted-github-permissions": "issues=read; pull_requests=write"
+      }), {});
+    });
+
+    const result = await new GitHubService(provider(repository), client).getIssues({ repoPath: "D:\\Repo" });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        kind: "authorization",
+        missingPermission: "issues=read; pull_requests=write",
+        message: expect.stringContaining("Required GitHub App permission")
+      }
+    });
+  });
+
   it("fails before transport for unsupported origins", async () => {
     const client = new FakeClient([]);
     const result = await new GitHubService(provider(null), client).getIssues({ repoPath: "D:\\Repo" });
@@ -250,7 +294,7 @@ describe("GitHubService", () => {
   });
 });
 
-class FakeClient implements GitHubClient {
+class FakeClient implements GitHubApiClient {
   readonly calls: Array<{ repository: GitHubRepository; path: string; request?: GitHubClientRequest }> = [];
   readonly invalidated: GitHubRepository[] = [];
   constructor(private readonly payloads: unknown[], private readonly handler?: (path: string) => Promise<unknown>) {}

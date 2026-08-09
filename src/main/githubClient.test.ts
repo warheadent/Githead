@@ -8,6 +8,53 @@ const repository: GitHubRepository = {
 };
 
 describe("DefaultGitHubClient", () => {
+  it("reports anonymous connection state without making a request", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const client = new DefaultGitHubClient(fetchImpl, undefined, { env: {} });
+    await expect(client.getConnectionStatus(repository)).resolves.toMatchObject({
+      state: "anonymous",
+      source: "anonymous",
+      accountLogin: null,
+      repositoryAccess: "unknown"
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("reports the active GitHub App account and repository access", async () => {
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ login: "octocat" }))
+      .mockResolvedValueOnce(jsonResponse({ full_name: repository.fullName }));
+    const client = new DefaultGitHubClient(fetchImpl, undefined, {
+      env: {},
+      appTokenProvider: { getToken: async () => "app-token" }
+    });
+
+    await expect(client.getConnectionStatus(repository)).resolves.toMatchObject({
+      state: "authenticated",
+      source: "githubApp",
+      accountLogin: "octocat",
+      repositoryAccess: "granted"
+    });
+    expect(authHeader(fetchImpl, 0)).toBe("Bearer app-token");
+  });
+
+  it("reports missing installation access for the detected repository", async () => {
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ login: "octocat" }))
+      .mockResolvedValueOnce(jsonResponse({ message: "Not Found" }, { status: 404 }));
+    const client = new DefaultGitHubClient(fetchImpl, undefined, {
+      env: {},
+      appTokenProvider: { getToken: async () => "app-token" }
+    });
+
+    await expect(client.getConnectionStatus(repository)).resolves.toMatchObject({
+      state: "unauthorized",
+      accountLogin: "octocat",
+      repositoryAccess: "missing",
+      failure: { kind: "authorization" }
+    });
+  });
+
   it("rejects absolute and protocol-relative request paths", async () => {
     const client = new DefaultGitHubClient(vi.fn<typeof fetch>(), undefined, { env: {} });
     await expect(client.requestJson(repository, "https://example.com/token-leak")).rejects.toThrow("relative path");

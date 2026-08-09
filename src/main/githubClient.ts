@@ -1,4 +1,4 @@
-import type { GitHubRepository } from "../shared/types";
+import type { GitHubConnectionStatus, GitHubFailure, GitHubRateLimit, GitHubRepository } from "../shared/types";
 import type { ProcessRunner } from "./processRunner";
 
 const GITHUB_API_BASE_URL = "https://api.github.com";
@@ -21,9 +21,14 @@ export interface GitHubClientResponse<T> {
   source: "network" | "fresh-cache" | "not-modified";
 }
 
-export interface GitHubClient {
+export interface GitHubApiClient {
   requestJson<T>(repository: GitHubRepository, path: string, request?: GitHubClientRequest): Promise<GitHubClientResponse<T>>;
   invalidateRepository(repository: GitHubRepository): void;
+}
+
+export interface GitHubClient extends GitHubApiClient {
+  getConnectionStatus(repository?: GitHubRepository | null): Promise<GitHubConnectionStatus>;
+  resetAuthentication(): void;
 }
 
 export class GitHubResponseBodyError extends Error {
@@ -33,8 +38,24 @@ export class GitHubResponseBodyError extends Error {
   }
 }
 
+export class GitHubHttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly headers: Headers,
+    readonly payload: unknown
+  ) {
+    super(message);
+    this.name = "GitHubHttpError";
+  }
+}
+
+export interface GitHubAppTokenProvider {
+  getToken(): Promise<string | null>;
+}
+
 type GitHubAuthStrategy =
-  | { kind: "token"; source: "GITHUB_TOKEN" | "GH_TOKEN" | "gh"; token: string }
+  | { kind: "token"; source: "GITHUB_TOKEN" | "GH_TOKEN" | "githubApp" | "gh"; token: string }
   | { kind: "anonymous" };
 
 interface CacheEntry {
@@ -60,6 +81,7 @@ export interface DefaultGitHubClientOptions {
   maxCacheEntries?: number;
   maxCachePayloadBytes?: number;
   maxInFlightRequests?: number;
+  appTokenProvider?: GitHubAppTokenProvider;
 }
 
 export class DefaultGitHubClient implements GitHubClient {
@@ -76,6 +98,7 @@ export class DefaultGitHubClient implements GitHubClient {
   private readonly maxCacheEntries: number;
   private readonly maxCachePayloadBytes: number;
   private readonly maxInFlightRequests: number;
+  private readonly appTokenProvider: GitHubAppTokenProvider | undefined;
 
   constructor(
     private readonly fetchImpl: typeof fetch = fetch,
@@ -90,6 +113,7 @@ export class DefaultGitHubClient implements GitHubClient {
     this.maxCacheEntries = options.maxCacheEntries ?? 100;
     this.maxCachePayloadBytes = options.maxCachePayloadBytes ?? 1_000_000;
     this.maxInFlightRequests = options.maxInFlightRequests ?? 100;
+    this.appTokenProvider = options.appTokenProvider;
   }
 
   async requestJson<T>(repository: GitHubRepository, path: string, request: GitHubClientRequest = {}): Promise<GitHubClientResponse<T>> {
@@ -123,6 +147,73 @@ export class DefaultGitHubClient implements GitHubClient {
     }
   }
 
+  resetAuthentication(): void {
+    this.authStrategy = undefined;
+    this.authGeneration += 1;
+    this.responseCache.clear();
+  }
+
+  async getConnectionStatus(repository: GitHubRepository | null = null): Promise<GitHubConnectionStatus> {
+    const auth = await this.resolveAuthStrategy();
+    if (auth.kind === "anonymous") {
+      return {
+        state: "anonymous",
+        source: "anonymous",
+        accountLogin: null,
+        repositoryAccess: "unknown",
+        message: "Public repositories use anonymous GitHub access with a lower rate limit.",
+        failure: null
+      };
+    }
+    try {
+      const viewer = await this.requestStatusJson<{ login?: string }>("/user", auth.token);
+      const accountLogin = viewer.payload.login?.trim() || null;
+      if (repository) {
+        try {
+          const access = await this.requestStatusJson(`/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}`, auth.token, true);
+          if (access.status === 404) {
+            return {
+              state: "unauthorized",
+              source: normalizeAuthSource(auth.source),
+              accountLogin,
+              repositoryAccess: "missing",
+              message: `GitHub account ${accountLogin ?? "the active account"} cannot access ${repository.fullName}.`,
+              failure: connectionFailure("authorization", `GitHub access to ${repository.fullName} is not granted.`, false, access.headers)
+            };
+          }
+        } catch (error) {
+          const failure = connectionFailureFromError(error);
+          return {
+            state: failure.kind === "rateLimited" ? "rateLimited" : failure.kind === "offline" || failure.kind === "transient" ? "offline" : "unauthorized",
+            source: normalizeAuthSource(auth.source),
+            accountLogin,
+            repositoryAccess: failure.kind === "authorization" || failure.kind === "notFound" ? "missing" : "unknown",
+            message: failure.message,
+            failure
+          };
+        }
+      }
+      return {
+        state: "authenticated",
+        source: normalizeAuthSource(auth.source),
+        accountLogin,
+        repositoryAccess: repository ? "granted" : "unknown",
+        message: accountLogin ? `Connected as ${accountLogin}.` : "GitHub authentication is active.",
+        failure: null
+      };
+    } catch (error) {
+      const failure = connectionFailureFromError(error);
+      return {
+        state: failure.kind === "rateLimited" ? "rateLimited" : failure.kind === "offline" || failure.kind === "transient" ? "offline" : "unauthorized",
+        source: normalizeAuthSource(auth.source),
+        accountLogin: null,
+        repositoryAccess: "unknown",
+        message: failure.message,
+        failure
+      };
+    }
+  }
+
   private async resolveAuthStrategy(): Promise<GitHubAuthStrategy> {
     if (this.authStrategy) return this.authStrategy;
     if (this.authInFlight) return this.authInFlight;
@@ -149,6 +240,8 @@ export class DefaultGitHubClient implements GitHubClient {
     if (githubToken) return { kind: "token", source: "GITHUB_TOKEN", token: githubToken };
     const ghToken = this.env.GH_TOKEN?.trim();
     if (ghToken) return { kind: "token", source: "GH_TOKEN", token: ghToken };
+    const appToken = await this.appTokenProvider?.getToken();
+    if (appToken) return { kind: "token", source: "githubApp", token: appToken };
     if (!this.runner) return { kind: "anonymous" };
     try {
       const result = await this.runner.run("gh", ["auth", "token", "--hostname", "github.com"], { timeoutMs: this.authTimeoutMs });
@@ -195,7 +288,7 @@ export class DefaultGitHubClient implements GitHubClient {
     request.signal?.throwIfAborted();
 
     if (response.status === 401) {
-      this.invalidateAuthentication(generation);
+      this.invalidateAuthenticationGeneration(generation);
       if (method === "GET" && !authRetried) {
         const refreshed = await this.resolveAuthStrategy();
         request.signal?.throwIfAborted();
@@ -215,7 +308,12 @@ export class DefaultGitHubClient implements GitHubClient {
     }
     const payload = result.payload;
     request.signal?.throwIfAborted();
-    if (!response.ok) throw new Error(createGitHubRequestError(repository, response.status, payload));
+    if (!response.ok) throw new GitHubHttpError(
+      createGitHubRequestError(repository, response.status, payload, response.headers),
+      response.status,
+      new Headers(response.headers),
+      payload
+    );
 
     if (cacheEnabled) {
       const etag = response.headers.get("etag");
@@ -261,11 +359,32 @@ export class DefaultGitHubClient implements GitHubClient {
     }
   }
 
-  private invalidateAuthentication(generation: number): void {
+  private invalidateAuthenticationGeneration(generation: number): void {
     if (generation !== this.authGeneration) return;
     this.authStrategy = undefined;
     this.authGeneration += 1;
     this.responseCache.clear();
+  }
+
+  private async requestStatusJson<T>(path: string, token: string, allowNotFound = false): Promise<{ payload: T; status: number; headers: Headers }> {
+    const response = await this.fetchImpl(`${GITHUB_API_BASE_URL}${path}`, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${token}`,
+        "User-Agent": "Githead",
+        "X-GitHub-Api-Version": GITHUB_API_VERSION
+      }
+    });
+    const payload = await response.json().catch(() => ({})) as T;
+    if (!response.ok && !(allowNotFound && response.status === 404)) {
+      throw new GitHubHttpError(
+        getStatusErrorMessage(response.status, payload),
+        response.status,
+        new Headers(response.headers),
+        payload
+      );
+    }
+    return { payload, status: response.status, headers: new Headers(response.headers) };
   }
 
   private createKey(generation: number, repository: GitHubRepository, method: string, path: string): string {
@@ -389,13 +508,19 @@ async function waitForAbortable<T>(operation: Promise<T>, signal: AbortSignal): 
   }
 }
 
-function createGitHubRequestError(repository: GitHubRepository, status: number, rawPayload: unknown): string {
+function createGitHubRequestError(repository: GitHubRepository, status: number, rawPayload: unknown, headers: Headers): string {
   const payload = isErrorPayload(rawPayload) ? rawPayload : {};
-  if (status === 404) {
-    return `GitHub could not find ${repository.fullName}. If this repository is private, authenticate GitHub CLI with gh auth login or set GITHUB_TOKEN, then refresh.`;
+  if (status === 429 || headers.get("x-ratelimit-remaining") === "0") {
+    return payload.message?.trim() || `GitHub rate limit reached for ${repository.fullName}.`;
   }
-  if (status === 401 || status === 403) {
-    return `${payload.message?.trim() || `GitHub rejected the request for ${repository.fullName} with status ${status}.`} Authenticate GitHub CLI with gh auth login or set GITHUB_TOKEN, then try again.`;
+  if (status === 404) {
+    return `GitHub could not find ${repository.fullName}. Check the detected remote and GitHub App repository access.`;
+  }
+  if (status === 401) {
+    return `${payload.message?.trim() || "GitHub authentication is no longer valid."} Connect GitHub, then try again.`;
+  }
+  if (status === 403) {
+    return `${payload.message?.trim() || `GitHub rejected the request for ${repository.fullName}.`} Review Githead GitHub App repository access.`;
   }
   const details = (payload.errors ?? []).map((error) => (typeof error === "string" ? error : error.message ?? "").trim()).filter(Boolean).join(" ");
   return [payload.message?.trim(), details].filter(Boolean).join(" ") || `GitHub request for ${repository.fullName} failed with status ${status}.`;
@@ -403,4 +528,73 @@ function createGitHubRequestError(repository: GitHubRepository, status: number, 
 
 function isErrorPayload(payload: unknown): payload is GitHubApiErrorResponse {
   return typeof payload === "object" && payload !== null;
+}
+
+function normalizeAuthSource(source: "GITHUB_TOKEN" | "GH_TOKEN" | "githubApp" | "gh"): "environment" | "githubApp" | "gh" {
+  return source === "githubApp" ? "githubApp" : source === "gh" ? "gh" : "environment";
+}
+
+function getStatusErrorMessage(status: number, payload: unknown): string {
+  const message = isErrorPayload(payload) ? payload.message?.trim() : "";
+  if (status === 401) return message || "GitHub authentication is no longer valid.";
+  if (status === 403) return message || "GitHub rejected the request because access is not granted.";
+  return message || `GitHub connection check failed with status ${status}.`;
+}
+
+function connectionFailureFromError(error: unknown): GitHubFailure {
+  if (error instanceof GitHubHttpError) {
+    const rateLimited = error.status === 429 || error.headers.get("x-ratelimit-remaining") === "0";
+    return connectionFailure(
+      rateLimited ? "rateLimited" : error.status === 401 ? "authentication" : error.status === 403 || error.status === 404 ? "authorization" : error.status >= 500 ? "transient" : "unexpected",
+      error.message,
+      rateLimited || error.status >= 500,
+      error.headers
+    );
+  }
+  const message = error instanceof Error ? error.message : "Unable to check the GitHub connection.";
+  const offline = /fetch failed|network|enotfound|econnreset|offline/i.test(message);
+  return connectionFailure(offline ? "offline" : "unexpected", message, offline, new Headers());
+}
+
+function connectionFailure(kind: GitHubFailure["kind"], message: string, retryable: boolean, headers: Headers): GitHubFailure {
+  const rateLimit = readRateLimit(headers);
+  const retryAfterAt = readRetryAfter(headers, rateLimit?.resetAt ?? null);
+  return {
+    kind,
+    message,
+    retryable,
+    retryAfterAt,
+    outcomeUnknown: false,
+    source: "rest",
+    rateLimit
+  };
+}
+
+function readRateLimit(headers: Headers): GitHubRateLimit | null {
+  const limit = parseHeaderNumber(headers.get("x-ratelimit-limit"));
+  const remaining = parseHeaderNumber(headers.get("x-ratelimit-remaining"));
+  const reset = parseHeaderNumber(headers.get("x-ratelimit-reset"));
+  const resource = headers.get("x-ratelimit-resource")?.trim() || null;
+  if (limit === null && remaining === null && reset === null && resource === null) return null;
+  return {
+    limit,
+    remaining,
+    resetAt: reset === null ? null : new Date(reset * 1_000).toISOString(),
+    resource
+  };
+}
+
+function readRetryAfter(headers: Headers, fallback: string | null): string | null {
+  const raw = headers.get("retry-after")?.trim();
+  if (!raw) return fallback;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds)) return new Date(Date.now() + seconds * 1_000).toISOString();
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : fallback;
+}
+
+function parseHeaderNumber(value: string | null): number | null {
+  if (value === null || value.trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }

@@ -302,6 +302,24 @@ export function createGitheadMock(): GitheadApi {
       trusted: true
     }),
     addSafeDirectory: vi.fn().mockResolvedValue(okOperation),
+    getGitHubConnection: vi.fn().mockResolvedValue({
+      state: "anonymous",
+      source: "anonymous",
+      accountLogin: null,
+      repositoryAccess: "unknown",
+      message: "Public repositories use anonymous GitHub access with a lower rate limit.",
+      failure: null
+    }),
+    beginGitHubDeviceFlow: vi.fn(),
+    pollGitHubDeviceFlow: vi.fn(),
+    disconnectGitHub: vi.fn().mockResolvedValue({
+      state: "anonymous",
+      source: "anonymous",
+      accountLogin: null,
+      repositoryAccess: "unknown",
+      message: "Public repositories use anonymous GitHub access with a lower rate limit.",
+      failure: null
+    }),
     getGitHubWorkflowRuns: vi.fn().mockResolvedValue({ ok: true, data: { items: [], page: 1, nextPage: null, totalCount: 0 }, rateLimit: null }),
     getGitHubViewer: vi.fn().mockResolvedValue({ ok: true, data: { login: "viewer", authenticated: true }, rateLimit: null }),
     getGitHubOpenCounts: vi.fn().mockResolvedValue({ ok: true, data: createOpenCounts(), rateLimit: null }),

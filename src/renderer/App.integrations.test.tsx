@@ -36,6 +36,10 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.queryByRole("tab", { name: /Workflow Runs/ })).toBeNull();
     expect(screen.queryByRole("tab", { name: /Pull Requests/ })).toBeNull();
     expect(screen.queryByRole("tab", { name: /Issues/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.change(await screen.findByRole("combobox", { name: "Settings category" }), { target: { value: "integrations" } });
+    expect(screen.getByRole("heading", { name: "GitHub" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Connect GitHub" })).toBeTruthy();
 
     unmount();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
@@ -345,6 +349,34 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(within(dialog).getByRole("button", { name: "Create Pull Request" }));
 
     expect(await within(dialog).findByText("Operation timed out. Check GitHub before retrying; the pull request may have been created.")).toBeTruthy();
+    const createButton = within(dialog).getByRole("button", { name: "Create Pull Request" }) as HTMLButtonElement;
+    expect(createButton.disabled).toBe(true);
+    await user.click(within(dialog).getByRole("button", { name: "Open Pull Requests" }));
+    expect(githead.openExternalUrl).toHaveBeenCalledWith({ url: "https://github.com/openai/githead/pulls" });
+    expect(createButton.disabled).toBe(false);
+  });
+
+  it("turns GitHub authentication failures into a Connect GitHub action", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
+    vi.mocked(githead.getGitHubIssues).mockResolvedValue({
+      ok: false,
+      error: {
+        kind: "authentication",
+        message: "GitHub authentication is required.",
+        retryable: false,
+        retryAfterAt: null,
+        outcomeUnknown: false,
+        source: "rest",
+        rateLimit: null
+      }
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("tab", { name: /Issues/ }));
+    await user.click(await screen.findByRole("button", { name: "Connect GitHub" }));
+
+    expect(await screen.findByRole("tabpanel", { name: "Integrations" })).toBeTruthy();
   });
 
   it("loads open issues from GitHub when the Issues tab opens", async () => {

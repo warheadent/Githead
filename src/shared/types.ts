@@ -492,6 +492,36 @@ export interface GitHubViewer {
   authenticated: boolean;
 }
 
+export type GitHubAuthenticationSource = "anonymous" | "environment" | "githubApp" | "gh";
+export type GitHubConnectionState = "anonymous" | "authenticated" | "unauthorized" | "rateLimited" | "offline";
+export type GitHubRepositoryAccess = "unknown" | "granted" | "missing";
+
+export interface GitHubConnectionStatus {
+  state: GitHubConnectionState;
+  source: GitHubAuthenticationSource;
+  accountLogin: string | null;
+  repositoryAccess: GitHubRepositoryAccess;
+  message: string;
+  failure: GitHubFailure | null;
+}
+
+export interface GitHubConnectionRequest {
+  repoPath?: string;
+}
+
+export interface GitHubDeviceFlow {
+  deviceCode: string;
+  userCode: string;
+  verificationUri: string;
+  expiresAt: string;
+  intervalSeconds: number;
+}
+
+export type GitHubDeviceFlowPollResult =
+  | { state: "pending"; intervalSeconds: number }
+  | { state: "connected"; connection: GitHubConnectionStatus }
+  | { state: "error"; message: string; retryable: boolean };
+
 export interface GitHubPageRequest extends GitHubRepositoryRequest {
   page?: number;
 }
@@ -525,6 +555,7 @@ export interface GitHubRateLimit {
 export interface GitHubFailure {
   kind: GitHubFailureKind;
   message: string;
+  missingPermission?: string | null;
   retryable: boolean;
   retryAfterAt: string | null;
   outcomeUnknown: boolean;
@@ -1926,6 +1957,10 @@ export interface GitheadApi {
   getGitHubHistoryInsights(request: GitHubHistoryInsightsRequest): Promise<GitHubOperationResult<GitHubHistoryInsights>>;
   createGitHubPullRequest(request: CoordinatedRequest<CreatePullRequestRequest>): Promise<GitHubOperationResult<CreatePullRequestResult>>;
   cancelGitHubRequest(request: CancelGitHubRequest): Promise<void>;
+  getGitHubConnection(request: GitHubConnectionRequest): Promise<GitHubConnectionStatus>;
+  beginGitHubDeviceFlow(): Promise<GitHubDeviceFlow>;
+  pollGitHubDeviceFlow(flow: GitHubDeviceFlow): Promise<GitHubDeviceFlowPollResult>;
+  disconnectGitHub(): Promise<GitHubConnectionStatus>;
   getCommitHistory(request: GitCommitHistoryRequest): Promise<GitCommitGraphRow[]>;
   getCommitDetails(request: GitCommitDetailsRequest): Promise<GitCommitDetails>;
   getCommitFileDiff(request: GitCommitFileDiffRequest): Promise<GitFileDiff>;

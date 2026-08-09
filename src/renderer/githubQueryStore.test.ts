@@ -28,6 +28,31 @@ describe("githubQueryStore", () => {
     expect(store.getSnapshot<string[]>(query())).toMatchObject({ status: "error", data: ["old"], error: "offline", isStale: true });
   });
 
+  it("preserves the complete structured failure with stale data", async () => {
+    const failure = {
+      kind: "rateLimited" as const,
+      message: "Rate limit reached.",
+      retryable: true,
+      retryAfterAt: "2030-01-01T00:00:00.000Z",
+      outcomeUnknown: false,
+      source: "rest" as const,
+      rateLimit: { limit: 5000, remaining: 0, resetAt: "2030-01-01T00:00:00.000Z", resource: "core" }
+    };
+    const error = Object.assign(new Error(failure.message), { failure });
+    const loader = vi.fn().mockResolvedValueOnce(["cached"]).mockRejectedValueOnce(error);
+    const store = createGitHubQueryStore({ loaders: { issues: loader } });
+    await store.ensure(query());
+
+    await expect(store.refresh(query())).rejects.toBe(error);
+
+    expect(store.getSnapshot<string[]>(query())).toMatchObject({
+      status: "error",
+      data: ["cached"],
+      failure,
+      isStale: true
+    });
+  });
+
   it("does not let a superseded response overwrite a newer refresh", async () => {
     const old = deferred<string[]>(); const fresh = deferred<string[]>();
     const loader = vi.fn().mockReturnValueOnce(old.promise).mockReturnValueOnce(fresh.promise);

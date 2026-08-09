@@ -70,6 +70,8 @@ import type {
   GitHubPullRequestsRequest,
   GitHubIssuesRequest,
   GitHubHistoryInsightsRequest,
+  GitHubConnectionRequest,
+  GitHubDeviceFlow,
   GitHubRepositoryRequest,
   GitIdentitySaveRequest,
   GitIgnorePathRequest,
@@ -126,6 +128,7 @@ import { GitOutputBatcher, runWithGitOutputSink } from "./gitOutputBatcher";
 import { snapshotGitPushExecutionOptions } from "./gitPushBehavior";
 import { GitService } from "./gitService";
 import { DefaultGitHubClient, type GitHubClient } from "./githubClient";
+import { GitHubAuthService } from "./githubAuthService";
 import { GitHubService } from "./githubService";
 import { RequestRegistry } from "./requestRegistry";
 import { LoreService } from "./loreService";
@@ -185,6 +188,7 @@ let commitPlanService: CommitPlanService | null = null;
 let prDescriptionService: PrDescriptionService | null = null;
 let githubService: GitHubService | null = null;
 let githubClient: GitHubClient | null = null;
+let githubAuthService: GitHubAuthService | null = null;
 const readRequests = new RequestRegistry<number>();
 const readRequestOwners = new Set<number>();
 const repositoryOperationOwnerSessions = new WeakMap<Electron.WebContents, Set<string>>();
@@ -517,6 +521,21 @@ function handleGitHubRead<T>(event: Electron.IpcMainInvokeEvent, request: GitHub
 
 ipcMain.handle(IPC_CHANNELS.cancelGitHubRequest, (event, request: CancelGitHubRequest) => {
   readRequests.cancel(event.sender.id, request.requestId);
+});
+ipcMain.handle(IPC_CHANNELS.getGitHubConnection, async (_event, request: GitHubConnectionRequest) => {
+  const repository = request.repoPath ? await gitService.getGitHubRepository(request.repoPath) : null;
+  return getGitHubClient().getConnectionStatus(repository);
+});
+ipcMain.handle(IPC_CHANNELS.beginGitHubDeviceFlow, () => getGitHubAuthService().beginDeviceFlow());
+ipcMain.handle(IPC_CHANNELS.pollGitHubDeviceFlow, async (_event, flow: GitHubDeviceFlow) => {
+  const result = await getGitHubAuthService().pollDeviceFlow(flow);
+  if (result.state === "connected") getGitHubClient().resetAuthentication();
+  return result;
+});
+ipcMain.handle(IPC_CHANNELS.disconnectGitHub, async () => {
+  await getGitHubAuthService().disconnect();
+  getGitHubClient().resetAuthentication();
+  return getGitHubClient().getConnectionStatus();
 });
 ipcMain.handle(IPC_CHANNELS.getGitHubWorkflowRuns, (event, request: GitHubWorkflowRunsRequest) =>
   handleGitHubRead(event, request, (signal) => getGitHubService().getWorkflowRuns(request, signal)));
@@ -1794,8 +1813,13 @@ function getGitHubService(): GitHubService {
 }
 
 function getGitHubClient(): GitHubClient {
-  githubClient ??= new DefaultGitHubClient(fetch, processRunner);
+  githubClient ??= new DefaultGitHubClient(fetch, processRunner, { appTokenProvider: getGitHubAuthService() });
   return githubClient;
+}
+
+function getGitHubAuthService(): GitHubAuthService {
+  githubAuthService ??= new GitHubAuthService(app.getPath("userData"), safeStorage, fetch);
+  return githubAuthService;
 }
 
 function getRepoRecentsService(): RepoRecentsService {

@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import type { GitHubFailure } from "../shared/types";
 import { forkEffect, tryPromise } from "../shared/effectRuntime";
 
 export type GitHubResource = "workflowRuns" | "openCounts" | "pullRequests" | "issues" | "viewer";
@@ -14,6 +15,7 @@ export interface GitHubQuerySnapshot<T> {
   status: "idle" | "loading" | "success" | "refreshing" | "error";
   data: T | undefined;
   error: string;
+  failure: GitHubFailure | null;
   updatedAt: number | null;
   isStale: boolean;
 }
@@ -36,7 +38,7 @@ export interface GitHubQueryStoreOptions {
   cancel?: (requestId: string) => Promise<void>;
 }
 
-const IDLE: GitHubQuerySnapshot<never> = Object.freeze({ status: "idle", data: undefined, error: "", updatedAt: null, isStale: true });
+const IDLE: GitHubQuerySnapshot<never> = Object.freeze({ status: "idle", data: undefined, error: "", failure: null, updatedAt: null, isStale: true });
 
 export function normalizeRepositoryPath(path: string): string {
   const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -99,7 +101,7 @@ export function createGitHubQueryStore(options: GitHubQueryStoreOptions) {
       entry.interrupt = undefined;
     }
     const generation = ++entry.generation;
-    entry.snapshot = { ...entry.snapshot, status: entry.snapshot.data === undefined ? "loading" : "refreshing", error: "" };
+    entry.snapshot = { ...entry.snapshot, status: entry.snapshot.data === undefined ? "loading" : "refreshing", error: "", failure: null };
     notify(entry);
     const loader = options.loaders[descriptor.resource];
     if (!loader) return Promise.reject(new Error(`No GitHub loader is registered for ${descriptor.resource}.`));
@@ -115,12 +117,18 @@ export function createGitHubQueryStore(options: GitHubQueryStoreOptions) {
     entry.interrupt = running.interrupt;
     void promise.then((data) => {
       if (!disposed && entries.get(getGitHubQueryKey(descriptor)) === entry && entry.generation === generation && entry.inFlight === promise) {
-        entry.snapshot = { status: "success", data, error: "", updatedAt: now(), isStale: false };
+        entry.snapshot = { status: "success", data, error: "", failure: null, updatedAt: now(), isStale: false };
         entry.inFlight = undefined; entry.interrupt = undefined; touch(entry); notify(entry); cleanup();
       }
     }, (error) => {
       if (!disposed && entries.get(getGitHubQueryKey(descriptor)) === entry && entry.generation === generation && entry.inFlight === promise) {
-        entry.snapshot = { ...entry.snapshot, status: "error", error: error instanceof Error ? error.message : String(error), isStale: true };
+        entry.snapshot = {
+          ...entry.snapshot,
+          status: "error",
+          error: error instanceof Error ? error.message : String(error),
+          failure: getGitHubFailure(error),
+          isStale: true
+        };
         entry.inFlight = undefined; entry.interrupt = undefined; touch(entry); notify(entry); cleanup();
       }
     });
@@ -137,6 +145,12 @@ export function createGitHubQueryStore(options: GitHubQueryStoreOptions) {
     clear(): void { for (const entry of entries.values()) { entry.generation++; entry.interrupt?.(); } entries.clear(); },
     dispose(): void { disposed = true; for (const entry of entries.values()) { entry.generation++; entry.interrupt?.(); entry.listeners.clear(); } entries.clear(); }
   };
+}
+
+function getGitHubFailure(error: unknown): GitHubFailure | null {
+  if (!(error instanceof Error) || !("failure" in error)) return null;
+  const failure = (error as Error & { failure?: unknown }).failure;
+  return failure && typeof failure === "object" && "kind" in failure ? failure as GitHubFailure : null;
 }
 
 export type GitHubQueryStore = ReturnType<typeof createGitHubQueryStore>;

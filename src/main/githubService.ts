@@ -21,7 +21,7 @@ import type {
   ,GitHubWorkflowRunsRequest,
   GitHubViewer
 } from "../shared/types";
-import { GitHubResponseBodyError, type GitHubClient } from "./githubClient";
+import { GitHubHttpError, GitHubResponseBodyError, type GitHubApiClient } from "./githubClient";
 import { buildIssueSearchPath, buildPullRequestSearchPath, buildWorkflowRunsPath, hasPullRequestSearchFilters } from "./githubQuery";
 import { runEffect, tryPromise } from "../shared/effectRuntime";
 
@@ -131,7 +131,7 @@ export class GitHubService {
 
   constructor(
     private readonly repositoryProvider: GitHubRepositoryProvider,
-    private readonly client: GitHubClient,
+    private readonly client: GitHubApiClient,
     private readonly now: () => number = Date.now
   ) {}
 
@@ -583,15 +583,16 @@ function sumCounts(...values: Array<number | null | undefined>): number {
 function classifyError(error: unknown, source: GitHubFailure["source"], mutation: boolean): GitHubFailure {
   const message = error instanceof Error ? error.message : "An unexpected GitHub error occurred.";
   const lower = message.toLowerCase();
+  const httpError = error instanceof GitHubHttpError ? error : null;
   const cancelled = lower.includes("abort") || lower.includes("cancel");
   const timeout = lower.includes("timed out") || lower.includes("timeout");
-  const authentication = /\b401\b|authenticate|auth login|bad credentials/.test(lower);
-  const authorization = !authentication && (/\b403\b|permission|forbidden/.test(lower));
-  const rateLimited = /rate.?limit|\b429\b/.test(lower);
-  const notFound = /\b404\b|could not find/.test(lower);
-  const validation = /\b422\b|validation/.test(lower);
+  const authentication = httpError?.status === 401 || /\b401\b|authenticate|auth login|bad credentials/.test(lower);
+  const rateLimited = httpError?.status === 429 || httpError?.headers.get("x-ratelimit-remaining") === "0" || /rate.?limit|\b429\b/.test(lower);
+  const authorization = !authentication && (httpError?.status === 403 || /\b403\b|permission|forbidden/.test(lower));
+  const notFound = httpError?.status === 404 || /\b404\b|could not find/.test(lower);
+  const validation = httpError?.status === 422 || /\b422\b|validation/.test(lower);
   const offline = /enotfound|econnreset|network|fetch failed|offline/.test(lower);
-  const transient = /\b(408|502|503|504)\b|temporar/.test(lower);
+  const transient = (httpError !== null && [408, 502, 503, 504].includes(httpError.status)) || /\b(408|502|503|504)\b|temporar/.test(lower);
   const responseAmbiguous = error instanceof GitHubResponseBodyError || error instanceof GitHubMutationResponseError;
   const outcomeUnknown = mutation && (cancelled || timeout || offline || transient || responseAmbiguous || lower.includes("outcome is unknown"));
   const kind: GitHubFailure["kind"] = cancelled ? "cancelled" : timeout ? "timeout" : rateLimited ? "rateLimited"
@@ -599,11 +600,42 @@ function classifyError(error: unknown, source: GitHubFailure["source"], mutation
     : validation ? "validation" : offline ? "offline" : transient ? "transient" : "unexpected";
   return {
     kind,
-    message,
-    retryable: !mutation && (timeout || offline || transient),
-    retryAfterAt: null,
+    message: authorization && httpError?.headers.get("x-accepted-github-permissions")
+      ? `${message} Required GitHub App permission: ${httpError.headers.get("x-accepted-github-permissions")}.`
+      : message,
+    missingPermission: authorization ? httpError?.headers.get("x-accepted-github-permissions") ?? null : null,
+    retryable: !mutation && (timeout || offline || transient || rateLimited),
+    retryAfterAt: getRetryAfterAt(httpError),
     outcomeUnknown,
     source,
-    rateLimit: null
+    rateLimit: getRateLimit(httpError)
   };
+}
+
+function getRateLimit(error: GitHubHttpError | null): GitHubFailure["rateLimit"] {
+  if (!error) return null;
+  const limit = parseHeaderNumber(error.headers.get("x-ratelimit-limit"));
+  const remaining = parseHeaderNumber(error.headers.get("x-ratelimit-remaining"));
+  const reset = parseHeaderNumber(error.headers.get("x-ratelimit-reset"));
+  const resource = error.headers.get("x-ratelimit-resource")?.trim() || null;
+  if (limit === null && remaining === null && reset === null && resource === null) return null;
+  return { limit, remaining, resetAt: reset === null ? null : new Date(reset * 1_000).toISOString(), resource };
+}
+
+function getRetryAfterAt(error: GitHubHttpError | null): string | null {
+  if (!error) return null;
+  const value = error.headers.get("retry-after")?.trim();
+  if (value) {
+    const seconds = Number(value);
+    if (Number.isFinite(seconds)) return new Date(Date.now() + seconds * 1_000).toISOString();
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return new Date(parsed).toISOString();
+  }
+  return getRateLimit(error)?.resetAt ?? null;
+}
+
+function parseHeaderNumber(value: string | null): number | null {
+  if (value === null || value.trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
