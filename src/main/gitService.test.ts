@@ -3934,6 +3934,25 @@ describe("GitService", () => {
     });
   });
 
+  it("escapes gitignore metacharacters in repo-relative paths", async () => {
+    await withTempDir(async (repoRoot) => {
+      const runner = new FakeRunner([
+        ok("true\n"),
+        ok(`${repoRoot}\n`)
+      ]);
+      const service = new GitService(runner);
+
+      const result = await service.addPathToIgnore({
+        repoPath: repoRoot,
+        path: "#drafts\\file[1]*?.ts"
+      });
+
+      expect(result.exitCode).toBe(0);
+      await expect(fs.readFile(path.join(repoRoot, ".gitignore"), "utf8"))
+        .resolves.toBe("\\#drafts/file\\[1\\]\\*\\?.ts\n");
+    });
+  });
+
   it("creates .gitignore when adding an ignored path", async () => {
     await withTempDir(async (repoRoot) => {
       const runner = new FakeRunner([

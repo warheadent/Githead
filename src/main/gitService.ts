@@ -2281,11 +2281,10 @@ export class GitService {
 
     const repoRoot = rootResult.stdout.trim();
     const ignorePath = path.join(repoRoot, ".gitignore");
-    const rawPattern = normalizeIgnorePattern(pathResult.path);
 
     try {
       const existing = await readTextIfExists(ignorePath);
-      const pattern = shouldEscapeIgnoreSpaces(existing) ? rawPattern.replace(/ /g, "\\ ") : rawPattern;
+      const pattern = escapeGitIgnorePattern(pathResult.path, shouldEscapeIgnoreSpaces(existing));
       const lines = existing.split(/\r?\n/);
       const hasPattern = lines.some((line) => {
         const trimmed = line.trim();
@@ -4132,8 +4131,13 @@ async function resolveExistingFileSystemPath(filePath: string): Promise<string> 
   }
 }
 
-function normalizeIgnorePattern(filePath: string): string {
-  return filePath.replace(/\\/g, "/");
+function escapeGitIgnorePattern(filePath: string, escapeSpaces: boolean): string {
+  const normalizedPath = filePath.replace(/\\/g, "/");
+  const escapedPattern = normalizedPath
+    .replace(/([*?[\]])/g, "\\$1")
+    .replace(/^([#!])/, "\\$1");
+
+  return escapeSpaces ? escapedPattern.split(" ").join("\\ ") : escapedPattern;
 }
 
 function shouldEscapeIgnoreSpaces(existing: string): boolean {

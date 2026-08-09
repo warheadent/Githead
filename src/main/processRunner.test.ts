@@ -8,6 +8,8 @@ import {
   NodeProcessRunner
 } from "./processRunner";
 
+const processTreeParentFixture = path.resolve("src/main/testFixtures/processTreeParent.mjs");
+
 async function withTempDir<T>(fn: (directory: string) => Promise<T>): Promise<T> {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "githead-process-runner-"));
   try {
@@ -394,26 +396,16 @@ describe("NodeProcessRunner.run", () => {
       const readyPath = path.join(directory, "descendant-ready");
       const sentinelPath = path.join(directory, "descendant-survived");
       const terminationGraceMs = 75;
-      const descendantScript = [
-        "const fs = require('node:fs');",
-        "process.on('SIGTERM', () => {});",
-        `fs.writeFileSync(${JSON.stringify(readyPath)}, 'ready');`,
-        `setTimeout(() => fs.writeFileSync(${JSON.stringify(sentinelPath)}, 'survived'), 250);`,
-        "setInterval(() => {}, 1000);"
-      ].join(" ");
-      const parentScript = [
-        "const { spawn } = require('node:child_process');",
-        "const fs = require('node:fs');",
-        `const descendant = spawn(process.execPath, ['-e', ${JSON.stringify(descendantScript)}], { stdio: 'ignore', windowsHide: true });`,
-        `const reportReady = () => fs.existsSync(${JSON.stringify(readyPath)}) ? process.stdout.write('started:' + descendant.pid + '\\n') : setTimeout(reportReady, 5);`,
-        "reportReady();",
-        "setInterval(() => {}, 1000);"
-      ].join(" ");
       const controller = new AbortController();
       let output = "";
       let descendantPid = 0;
       let abortedAt = 0;
-      const run = new NodeProcessRunner(25, terminationGraceMs).run(process.execPath, ["-e", parentScript], {
+      const run = new NodeProcessRunner(25, terminationGraceMs).run(process.execPath, [
+        processTreeParentFixture,
+        readyPath,
+        sentinelPath,
+        "250"
+      ], {
         signal: controller.signal,
         onOutput: ({ text }) => {
           output += text;
@@ -452,24 +444,15 @@ describe("NodeProcessRunner.run", () => {
     await withTempDir(async (directory) => {
       const readyPath = path.join(directory, "descendant-ready");
       const sentinelPath = path.join(directory, "descendant-survived");
-      const descendantScript = [
-        "const fs = require('node:fs');",
-        `fs.writeFileSync(${JSON.stringify(readyPath)}, 'ready');`,
-        `setTimeout(() => fs.writeFileSync(${JSON.stringify(sentinelPath)}, 'survived'), 750);`,
-        "setInterval(() => {}, 1000);"
-      ].join(" ");
-      const parentScript = [
-        "const { spawn } = require('node:child_process');",
-        "const fs = require('node:fs');",
-        `const descendant = spawn(process.execPath, ['-e', ${JSON.stringify(descendantScript)}], { stdio: 'ignore', windowsHide: true });`,
-        `const reportReady = () => fs.existsSync(${JSON.stringify(readyPath)}) ? process.stdout.write('started:' + descendant.pid + '\\n') : setTimeout(reportReady, 5);`,
-        "reportReady();",
-        "setInterval(() => {}, 1000);"
-      ].join(" ");
       const controller = new AbortController();
       let output = "";
       let descendantPid = 0;
-      const run = new NodeProcessRunner(25, 1_000).run(process.execPath, ["-e", parentScript], {
+      const run = new NodeProcessRunner(25, 1_000).run(process.execPath, [
+        processTreeParentFixture,
+        readyPath,
+        sentinelPath,
+        "750"
+      ], {
         signal: controller.signal,
         onOutput: ({ text }) => {
           output += text;
