@@ -50,16 +50,14 @@ function dialog(draft: SettingsDraft, error = "", onOpenPerformanceDiagnostics =
 }
 
 describe("SettingsDialog footer status", () => {
-  it("uses the shared motion timing while reserving the message height", () => {
+  it("uses the shared Motion presence while reserving the message height", () => {
     render(dialog(savedDraft), { wrapper: TooltipProvider });
 
     const presence = screen.getByText("All changes are saved.").closest(".motion-presence");
     const swap = presence?.parentElement;
 
     expect(swap?.className).toContain("min-h-5");
-    expect(presence?.className).toContain("[--motion-translate-y:-2px]");
-    expect(presence?.className).toContain("[--motion-reduced-opacity:0.92]");
-    expect(presence?.getAttribute("style")).toContain("--motion-enter-duration: 120ms");
+    expect(presence?.getAttribute("data-motion-state")).toBe("entered");
     expect(document.querySelector(".motion-swap-outgoing")).toBeNull();
   });
 
@@ -74,7 +72,9 @@ describe("SettingsDialog footer status", () => {
     view.rerender(dialog({ ...savedDraft, autoFetchIntervalMinutes: "20" }));
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getByRole("status").textContent).toContain("You have unsaved changes.");
-    expect(document.querySelector(".motion-swap-outgoing")?.textContent).toContain("Unable to save settings.");
+    const outgoingMessages = [...document.querySelectorAll(".motion-swap-outgoing")];
+    expect(outgoingMessages.some((message) => message.textContent?.includes("Unable to save settings."))).toBe(true);
+    expect(outgoingMessages.every((message) => message.getAttribute("aria-hidden") === "true")).toBe(true);
   });
 
   it("opens performance diagnostics from the Diagnostics category", () => {

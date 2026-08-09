@@ -103,8 +103,9 @@ import {
 } from "@/components/ui/resizable";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { motion } from "motion/react";
 import { TagDialog, type TagDialogState } from "./TagDialog";
-import { MotionPresence, MotionSwap, useFlipList } from "./motion";
+import { MotionPresence, MotionSwap } from "./motion";
 import {
   RepositoryActionsDialog,
   type RepositoryActionDraft,
@@ -8062,6 +8063,7 @@ interface RecentRepositoryRowProps {
   repoPath: string;
   rowRef: (element: HTMLDivElement | null) => void;
   syncStatus: RepoSyncStatus | null;
+  layoutDependency: string;
   onDragEnd: () => void;
   onDragStart: (event: DragEvent<HTMLButtonElement>, repoPath: string) => void;
   onPointerDragStart: (repoPath: string) => void;
@@ -8096,11 +8098,9 @@ function RepositoryList({
   const [draggedRepoPath, setDraggedRepoPath] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ repoPath: string; position: RepositoryDropPosition } | null>(null);
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
-  const repositoryOrder = groups?.length
+  const repositoryOrderDependency = (groups?.length
     ? groups.map((group) => getRepoPathKey(group.anchorPath))
-    : repoPaths.map(getRepoPathKey);
-  const captureRepositoryPositions = useFlipList(repositoryOrder, repositoryRowsRef);
-
+    : repoPaths.map(getRepoPathKey)).join("\u0000");
   useEffect(() => {
     const activeKey = repoPath ? getRepoPathKey(repoPath) : null;
     if (!activeKey) {
@@ -8119,10 +8119,9 @@ function RepositoryList({
 
     const next = moveRepoPath(repoPaths, fromRepoPath, toRepoPath, position);
     if (!areRepoPathListsEqual(repoPaths, next)) {
-      captureRepositoryPositions();
       onReorder(next);
     }
-  }, [captureRepositoryPositions, disabled, onReorder, repoPaths]);
+  }, [disabled, onReorder, repoPaths]);
 
   const moveRepositoryByKeyboard = useCallback((moveRepoPathValue: string, direction: RepositoryMoveDirection): void => {
     if (disabled) {
@@ -8142,9 +8141,8 @@ function RepositoryList({
     }
 
     next.splice(targetIndex, 0, moved);
-    captureRepositoryPositions();
     onReorder(next);
-  }, [captureRepositoryPositions, disabled, onReorder, repoPaths]);
+  }, [disabled, onReorder, repoPaths]);
 
   const startDrag = (event: DragEvent<HTMLButtonElement>, dragRepoPath: string): void => {
     if (disabled) {
@@ -8255,6 +8253,7 @@ function RepositoryList({
             dragging={Boolean(draggedRepoPath && isSameRepoPath(draggedRepoPath, group.anchorPath))}
             dropPosition={currentDropPosition}
             syncStatuses={syncStatuses}
+            layoutDependency={repositoryOrderDependency}
             rowRef={(element) => { if (element) repositoryRowsRef.current.set(key, element); else repositoryRowsRef.current.delete(key); }}
             onToggle={() => setExpandedGroupIds((current) => { const next = new Set(current); if (next.has(group.id)) next.delete(group.id); else next.add(group.id); return next; })}
             onDragStart={startDrag}
@@ -8287,6 +8286,7 @@ function RepositoryList({
                 }
               }}
               syncStatus={syncStatuses[key] ?? null}
+              layoutDependency={repositoryOrderDependency}
               active={active}
               disabled={disabled}
               dragging={Boolean(draggedRepoPath && isSameRepoPath(draggedRepoPath, recentRepoPath))}
@@ -8311,7 +8311,7 @@ function RepositoryList({
   );
 }
 
-function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled, dragging, dropPosition, syncStatuses, rowRef, onToggle, onDragStart, onPointerDragStart, onDragEnd, onKeyboardMove, onSelect, onRemove, onShowInExplorer, onOpenRepositorySettings, onAddWorktree, onRemoveWorktree }: {
+function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled, dragging, dropPosition, syncStatuses, layoutDependency, rowRef, onToggle, onDragStart, onPointerDragStart, onDragEnd, onKeyboardMove, onSelect, onRemove, onShowInExplorer, onOpenRepositorySettings, onAddWorktree, onRemoveWorktree }: {
   group: RepositoryGroup;
   activeRepoPath: string;
   active: boolean;
@@ -8320,6 +8320,7 @@ function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled,
   dragging: boolean;
   dropPosition: RepositoryDropPosition | null;
   syncStatuses: Record<string, RepoSyncStatus>;
+  layoutDependency: string;
   rowRef: (element: HTMLDivElement | null) => void;
   onToggle: () => void;
   onDragStart: (event: DragEvent<HTMLButtonElement>, repoPath: string) => void;
@@ -8346,7 +8347,7 @@ function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled,
       onKeyboardMove(group.anchorPath, event.key === "ArrowUp" ? "up" : "down");
     }
   };
-  return <div ref={rowRef} className={rowClassName} data-repo-path={group.anchorPath}>
+  return <motion.div ref={rowRef} layout="position" layoutDependency={layoutDependency} transition={{ layout: { duration: 0.12, ease: "easeOut" } }} className={rowClassName} data-repo-path={group.anchorPath}>
     <ContextMenu><ContextMenuTrigger asChild><div className="repo-group-heading">
       <button type="button" className="repo-recent-drag-handle" draggable={!disabled} disabled={disabled} onDragStart={(event) => onDragStart(event, group.anchorPath)} onMouseDown={() => onPointerDragStart(group.anchorPath)} onDragEnd={onDragEnd} onKeyDown={handleKeyDown} aria-label={`Reorder ${group.anchorPath}`}><GripVertical /></button>
       <button type="button" className="repo-group-toggle" disabled={disabled} onClick={onToggle} aria-expanded={expanded} aria-controls={worktreeListId} aria-label={`${expanded ? "Collapse" : "Expand"} worktrees for ${displayName}`}><ChevronRight className="repo-group-chevron" /></button>
@@ -8354,13 +8355,13 @@ function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled,
       {active && group.kind === "git" && onAddWorktree ? <TooltipButton type="button" variant="ghost" size="icon-xs" disabled={disabled} onClick={onAddWorktree} aria-label="Add worktree" tooltip="Add worktree"><GitFork /></TooltipButton> : null}
       <TooltipButton type="button" variant="ghost" size="icon-xs" disabled={disabled} onClick={onRemove} aria-label={`Remove ${group.anchorPath} from recent repositories`} tooltip="Remove from recents"><X /></TooltipButton>
     </div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{group.anchorPath}</ContextMenuLabel><ContextMenuSeparator /><ContextMenuItem disabled={disabled || navigationUnavailable} onSelect={() => onOpenRepositorySettings(group.lastUsedPath)}><Settings />Repository Settings…</ContextMenuItem><ContextMenuItem disabled={navigationUnavailable} onSelect={() => onShowInExplorer(group.anchorPath)}><MapPinned />Show in Explorer</ContextMenuItem></ContextMenuContent></ContextMenu>
-    <MotionPresence present={expanded} id={worktreeListId} className="repo-worktree-list">{worktrees.map((worktree) => {
+    <MotionPresence present={expanded} id={worktreeListId} className="repo-worktree-list" initialY={-2}>{worktrees.map((worktree) => {
       const workspaceActive = isSameRepoPath(worktree.path, activeRepoPath);
       const unavailable = worktree.isBare || worktree.prunable;
       const status = syncStatuses[getRepoPathKey(worktree.path)] ?? null;
       return <ContextMenu key={getRepoPathKey(worktree.path)}><ContextMenuTrigger asChild><div className={`repo-worktree-row ${workspaceActive ? "is-active" : ""}`}><button type="button" className="repo-worktree-main" disabled={disabled || workspaceActive || unavailable} onClick={() => onSelect(worktree.path)} aria-current={workspaceActive ? "true" : undefined}><GitBranchIcon /><span className="min-w-0 flex-1"><span className="repo-worktree-branch">{worktree.branch ?? (worktree.isDetached ? "Detached HEAD" : getRepoDisplayName(worktree.path))}</span><span className="repo-worktree-path">{getRepoDisplayName(worktree.path)}</span></span>{worktree.isMain ? <Badge variant="outline">Main</Badge> : null}{worktree.locked ? <Badge variant="outline">Locked</Badge> : null}{worktree.prunable ? <Badge variant="destructive">Missing</Badge> : null}<RepoSyncStatusChips status={status} /></button></div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{worktree.path}</ContextMenuLabel><ContextMenuSeparator /><ContextMenuItem disabled={disabled || unavailable} onSelect={() => onOpenRepositorySettings(worktree.path)}><Settings />Repository Settings…</ContextMenuItem><ContextMenuItem disabled={unavailable} onSelect={() => onShowInExplorer(worktree.path)}><MapPinned />Show in Explorer</ContextMenuItem>{!worktree.isMain && !workspaceActive && onRemoveWorktree ? <ContextMenuItem disabled={disabled || unavailable || worktree.locked} onSelect={() => onRemoveWorktree(worktree)}><Trash2 />Remove Worktree…</ContextMenuItem> : null}</ContextMenuContent></ContextMenu>;
     })}{group.error ? <p className="px-3 py-2 text-xs text-destructive">{group.error}</p> : null}</MotionPresence>
-  </div>;
+  </motion.div>;
 }
 
 function RecentRepositoryRow({
@@ -8371,6 +8372,7 @@ function RecentRepositoryRow({
   repoPath,
   rowRef,
   syncStatus,
+  layoutDependency,
   onDragEnd,
   onDragStart,
   onPointerDragStart,
@@ -8402,8 +8404,11 @@ function RecentRepositoryRow({
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <div
+        <motion.div
           ref={rowRef}
+          layout="position"
+          layoutDependency={layoutDependency}
+          transition={{ layout: { duration: 0.12, ease: "easeOut" } }}
           className={rowClassName}
           data-repo-path={repoPath}
         >
@@ -8455,7 +8460,7 @@ function RecentRepositoryRow({
           >
             <X />
           </Button>
-        </div>
+        </motion.div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-72">
         <TooltipTarget content={repoPath}>
@@ -8729,6 +8734,7 @@ function CloneRepositoryForm({
         } : null}
         className="clone-check-message-swap"
         presenceClassName="clone-check-message-presence"
+        initialY={-2}
       />
 
       <Button type="submit" className="w-full justify-center" disabled={cloneBusy}>
@@ -9262,6 +9268,7 @@ function AppUpdateControl({
       element="section"
       ariaLabel="App update"
       enterDuration={200}
+      initialY={4}
     >
       {visibleState.message ? (
         <Tooltip>

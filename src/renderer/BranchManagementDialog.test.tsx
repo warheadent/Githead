@@ -31,13 +31,12 @@ describe("BranchManagementDialog motion", () => {
 
     const swap = document.querySelector<HTMLElement>(".branch-management-mode-swap");
     const outgoing = swap?.querySelector<HTMLElement>(".motion-swap-outgoing");
-    const incoming = swap?.querySelector<HTMLElement>(".motion-presence");
+    const incoming = swap?.querySelector<HTMLElement>(".motion-presence:not(.motion-swap-outgoing)");
     expect(outgoing?.hasAttribute("inert")).toBe(true);
     expect(outgoing?.getAttribute("aria-hidden")).toBe("true");
     expect(outgoing?.querySelector<HTMLInputElement>('input[aria-label="Search branches"]')).toBeTruthy();
     expect(screen.queryByRole("textbox", { name: "Search branches" })).toBeNull();
     expect(screen.getByRole("textbox", { name: "New name" })).toBeTruthy();
-    expect(incoming?.classList.contains("[--motion-translate-y:-2px]")).toBe(true);
-    expect(incoming?.classList.contains("[--motion-reduced-opacity:0.85]")).toBe(true);
+    expect(incoming?.dataset.motionState).toBe("entered");
   });
 });
