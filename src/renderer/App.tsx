@@ -256,7 +256,8 @@ import { buildCommitGraphLayout, COMMIT_GRAPH_ROW_HEIGHT, type CommitGraphLayout
 import { createLinePatch, isTechnicalFileHeader, type DiffRow, type DiffRowGroup } from "./diffParser";
 import { createDiffProcessingSession, type ProcessedDiff } from "./diffProcessingClient";
 import { areFileDiffsEqual } from "./diffFreshness";
-import { getCommitFileStatusVisuals, getFileStatusVisuals, type FileStatusVisuals } from "./fileStatusVisuals";
+import { getCommitFileStatusVisuals, getFileStatusVisuals } from "./fileStatusVisuals";
+import { FileStatusChip } from "./FileStatusChip";
 import { FixedSizeVirtualList, type VirtualRowProps } from "./FixedSizeVirtualList";
 import type { HighlightedCode } from "./syntaxHighlighter";
 import { buildStatusFileTree, fileName, flattenStatusFileTree, type StatusFileTreeFolder } from "./statusFileTree";
@@ -10196,25 +10197,11 @@ function FileRow({
 }
 
 function StatusBadge({ file, side }: { file: GitStatusFile; side: GitDiffSide }): ReactNode {
-  return <StatusChip visuals={getFileStatusVisuals(file, side)} />;
+  return <FileStatusChip visuals={getFileStatusVisuals(file, side)} />;
 }
 
 function CommitFileStatusBadge({ status }: { status: string }): ReactNode {
-  return <StatusChip visuals={getCommitFileStatusVisuals(status)} />;
-}
-
-function StatusChip({ visuals }: { visuals: FileStatusVisuals }): ReactNode {
-  return (
-    <TooltipTarget content={visuals.label}>
-      <Badge
-        className={`status-chip status-chip-${visuals.tone}`}
-        data-status-tone={visuals.tone}
-        aria-label={visuals.label}
-      >
-        {visuals.code}
-      </Badge>
-    </TooltipTarget>
-  );
+  return <FileStatusChip visuals={getCommitFileStatusVisuals(status)} />;
 }
 
 function DiffPanel({

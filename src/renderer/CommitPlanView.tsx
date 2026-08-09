@@ -20,6 +20,7 @@ import type {
   GitStatusFile
 } from "../shared/types";
 import { getFileStatusVisuals } from "./fileStatusVisuals";
+import { FileStatusChip } from "./FileStatusChip";
 import { MotionList, MotionSwap } from "./motion";
 import { usePersistentWorkspacePanelState } from "./workspacePanelState";
 
@@ -361,7 +362,7 @@ function CommitPlanFileDetails({ file, onSelect }: { file: GitStatusFile; onSele
 
 function CommitPlanStatusBadge({ file }: { file: GitStatusFile }): ReactNode {
   const visuals = getFileStatusVisuals(file, "unstaged");
-  return <Badge variant="outline" className={`status-chip status-chip-${visuals.tone}`} title={visuals.label}>{visuals.code}</Badge>;
+  return <FileStatusChip visuals={visuals} tooltip={false} />;
 }
 
 function filterUnavailableChanges(plan: CommitPlan | null, currentPaths: Set<string>): CommitPlan | null {

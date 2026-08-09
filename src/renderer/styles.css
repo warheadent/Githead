@@ -2684,9 +2684,12 @@ textarea,
   border-radius: 4px;
   color: var(--status-chip-fg);
   background: var(--status-chip-bg);
-  font-family: var(--font-code);
-  font-size: 0.76rem;
-  font-weight: 700;
+}
+
+.status-chip svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.9;
 }
 
 .file-tree-folder-row {

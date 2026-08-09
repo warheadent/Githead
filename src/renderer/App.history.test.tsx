@@ -160,11 +160,18 @@ describe("App", { timeout: 10_000 }, () => {
     const stagedFiles = await screen.findByRole("listbox", { name: "Staged files" });
     const unstagedFiles = screen.getByRole("listbox", { name: "Unstaged files" });
 
-    expect(getStatusTone(within(stagedFiles).getByRole("option", { name: /src\/added\.ts/ }))).toBe("added");
-    expect(getStatusTone(within(unstagedFiles).getByRole("option", { name: /src\/modified\.ts/ }))).toBe("modified");
-    expect(getStatusTone(within(unstagedFiles).getByRole("option", { name: /src\/deleted\.ts/ }))).toBe("deleted");
-    expect(getStatusTone(within(unstagedFiles).getByRole("option", { name: /src\/untracked\.ts/ }))).toBe("untracked");
-    expect(getStatusTone(within(stagedFiles).getByRole("option", { name: /src\/conflicted\.ts/ }))).toBe("conflict");
+    const expectedStatuses = [
+      [within(stagedFiles).getByRole("option", { name: /src\/added\.ts/ }), "added"],
+      [within(unstagedFiles).getByRole("option", { name: /src\/modified\.ts/ }), "modified"],
+      [within(unstagedFiles).getByRole("option", { name: /src\/deleted\.ts/ }), "deleted"],
+      [within(unstagedFiles).getByRole("option", { name: /src\/untracked\.ts/ }), "untracked"],
+      [within(stagedFiles).getByRole("option", { name: /src\/conflicted\.ts/ }), "conflict"]
+    ] as const;
+
+    for (const [row, tone] of expectedStatuses) {
+      expect(getStatusTone(row)).toBe(tone);
+      expect(row.querySelector(".status-chip svg")).toBeTruthy();
+    }
   });
 
   it("generates a commit plan and creates a Quick Commit for one group", async () => {
