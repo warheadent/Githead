@@ -622,6 +622,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     fireEvent.change(screen.getByLabelText("OpenRouter API Key"), { target: { value: "sk-or-key" } });
     fireEvent.change(screen.getByLabelText("Model"), { target: { value: "openrouter/auto" } });
+    fireEvent.change(screen.getByLabelText("Group changes by"), { target: { value: "hunk" } });
     fireEvent.change(screen.getByLabelText("Commit Plan Model"), { target: { value: "openrouter/plan" } });
     fireEvent.change(instructions, { target: { value: "Write a single-line commit message." } });
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -629,6 +630,7 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => {
       expect(githead.saveAiSettings).toHaveBeenCalledWith({
         selectedProvider: "openrouter",
+        commitPlanGranularity: "hunk",
         providerModels: {
           openrouter: "openrouter/auto",
           openai: defaultProviderModels.openai,

@@ -181,6 +181,7 @@ import type {
   GitIntegrationExecuteRequest,
   GitIntegrationResult,
   GitOperationResult,
+  GitQuickCommitChange,
   GitRepositoryOperationAction,
   GitRepositoryOperationActionResult,
   GitPullRecovery,
@@ -209,7 +210,7 @@ import type {
   RepositoryGroup,
   StatusFileViewMode
 } from "../shared/types";
-import { AI_COMMIT_MESSAGE_PROVIDERS, DEFAULT_REMOTE_CHECK_LEASE_SECONDS, DEFAULT_TAG_PUSH_BEHAVIOR, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
+import { AI_COMMIT_MESSAGE_PROVIDERS, DEFAULT_COMMIT_PLAN_GRANULARITY, DEFAULT_REMOTE_CHECK_LEASE_SECONDS, DEFAULT_TAG_PUSH_BEHAVIOR, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
 import { isMarkdownPath } from "../shared/filePreview";
 import { parseCommitSubject } from "../shared/commitSubject";
 import { parseGitHubReferences } from "../shared/githubReference";
@@ -661,6 +662,7 @@ interface RemoteManagerState {
 
 const emptySettingsDraft: SettingsDraft = {
   selectedProvider: "openrouter",
+  commitPlanGranularity: DEFAULT_COMMIT_PLAN_GRANULARITY,
   providerModels: {
     openrouter: "",
     openai: "",
@@ -927,6 +929,7 @@ export function App(): ReactNode {
   const [performanceDiagnosticsOpen, setPerformanceDiagnosticsOpen] = useState(false);
   const [conflictResolverPath, setConflictResolverPath] = useState<string | null>(null);
   const [statusWorkspaceMode, setStatusWorkspaceMode] = useState<"files" | "plan">("files");
+  const [workingTreeChangeVersion, setWorkingTreeChangeVersion] = useState(0);
   const [stashComposer, setStashComposer] = useState<StashComposerState>(emptyStashComposer);
   const [repositorySettingsPath, setRepositorySettingsPath] = useState("");
   const [integrationDialog, setIntegrationDialog] = useState<IntegrationDialogState>(null);
@@ -1830,6 +1833,9 @@ export function App(): ReactNode {
       }
 
       fileStatusGenerationRef.current += 1;
+      if (event.reason === "filesystem") {
+        setWorkingTreeChangeVersion((current) => current + 1);
+      }
       repositorySnapshots.current.markStale(event.repoPath, event.reason === "filesystem" ? ["status"] : ["identity", "status", "metadata"]);
       void checkSelectedDiffFreshness();
       if (event.reason === "filesystem") {
@@ -5040,7 +5046,7 @@ export function App(): ReactNode {
     return operationResult ? generated : null;
   }, [ensureTrustedRepo, runRepoOperation]);
 
-  const quickCommitPlannedFiles = useCallback(async (paths: string[], message: string): Promise<GitOperationResult | null> => {
+  const quickCommitPlannedFiles = useCallback(async (changes: GitQuickCommitChange[], message: string): Promise<GitOperationResult | null> => {
     const current = stateRef.current;
     if (!current.summary?.isValid || current.summary.kind !== "git" || isOperationRunning(current)) return null;
     if (getStagedFiles(current.summary).length > 0) {
@@ -5052,7 +5058,7 @@ export function App(): ReactNode {
       };
     }
     const availablePaths = new Set(getUnstagedFiles(current.summary).filter(canStageStatusFile).map((file) => file.path));
-    if (paths.length === 0 || paths.some((path) => !availablePaths.has(path))) {
+    if (changes.length === 0 || changes.some((change) => !availablePaths.has(change.path))) {
       return {
         repoPath: current.repoPath,
         exitCode: -1,
@@ -5068,7 +5074,7 @@ export function App(): ReactNode {
       : "Creating quick commit";
     const result = await runRepoOperation(operationLabel, null, (operationId) => window.githead.quickCommitFiles({
       repoPath,
-      paths,
+      changes,
       message,
       operationId
     }));
@@ -5343,6 +5349,7 @@ export function App(): ReactNode {
       settingsError: "",
       settingsDraft: {
         selectedProvider: settings?.selectedProvider ?? "openrouter",
+        commitPlanGranularity: settings?.commitPlanGranularity ?? DEFAULT_COMMIT_PLAN_GRANULARITY,
         providerModels: createSettingsDraftProviderModels(settings),
         commitPlanModels: createSettingsDraftCommitPlanModels(settings),
         commitPlanReasoningEfforts: createSettingsDraftReasoningEfforts(settings, "commitPlan"),
@@ -5439,6 +5446,7 @@ export function App(): ReactNode {
         if (!isSaveCurrent()) return;
         aiSettings = await window.githead.saveAiSettings({
           selectedProvider: draft.selectedProvider,
+          commitPlanGranularity: draft.commitPlanGranularity,
           providerModels: draft.providerModels,
           commitPlanModels: draft.commitPlanModels,
           commitPlanReasoningEfforts: draft.commitPlanReasoningEfforts,
@@ -6982,6 +6990,7 @@ export function App(): ReactNode {
                   onSyncSubmodules={() => { void syncSubmodules(); }}
                   canGeneratePlan={canUseSelectedAiProvider(state.aiSettings)}
                   generatePlanTitle={getCommitPlanGenerateTitle(state)}
+                  repositoryChangeVersion={workingTreeChangeVersion}
                   onGeneratePlan={generateCommitPlan}
                   onQuickCommit={quickCommitPlannedFiles}
                   composer={stashComposer.open ? (
@@ -9656,6 +9665,7 @@ function StatusView({
   onSyncSubmodules,
   canGeneratePlan,
   generatePlanTitle,
+  repositoryChangeVersion,
   onGeneratePlan,
   onQuickCommit,
   composer
@@ -9686,8 +9696,9 @@ function StatusView({
   onSyncSubmodules: () => void;
   canGeneratePlan: boolean;
   generatePlanTitle: string;
+  repositoryChangeVersion: number;
   onGeneratePlan: (paths: string[]) => Promise<GenerateCommitPlanResult | null>;
-  onQuickCommit: (paths: string[], message: string) => Promise<GitOperationResult | null>;
+  onQuickCommit: (changes: GitQuickCommitChange[], message: string) => Promise<GitOperationResult | null>;
   composer?: ReactNode;
 }): ReactNode {
   const stagedSelectionPaths = selection?.side === "staged" ? getSelectionPaths(selection) : [];
@@ -9745,6 +9756,7 @@ function StatusView({
               supported={summary?.kind === "git"}
               canGenerate={canGeneratePlan}
               generateTitle={generatePlanTitle}
+              repositoryChangeVersion={repositoryChangeVersion}
               onSelectFile={(file) => onSelectFile(file, "unstaged", { extendRange: false, selectAll: false, toggle: false })}
               onGenerate={onGeneratePlan}
               onQuickCommit={onQuickCommit}
@@ -13639,6 +13651,7 @@ function createSettingsDraftReasoningEfforts(
 function hasAiSettingsChanges(draft: SettingsDraft, settings: AiSettings | null): boolean {
   if (!settings) {
     return draft.selectedProvider !== "openrouter"
+      || draft.commitPlanGranularity !== DEFAULT_COMMIT_PLAN_GRANULARITY
       || draft.commitMessagePrompt !== DEFAULT_COMMIT_MESSAGE_PROMPT
       || draft.prDescriptionPrompt !== DEFAULT_PR_DESCRIPTION_PROMPT
       || JSON.stringify(draft.sourceControlWritingStyle) !== JSON.stringify(DEFAULT_SOURCE_CONTROL_WRITING_STYLE)
@@ -13654,6 +13667,7 @@ function hasAiSettingsChanges(draft: SettingsDraft, settings: AiSettings | null)
 
   if (
     draft.selectedProvider !== settings.selectedProvider
+    || draft.commitPlanGranularity !== settings.commitPlanGranularity
     || draft.commitMessagePrompt !== settings.commitMessagePrompt
     || draft.prDescriptionPrompt !== settings.prDescriptionPrompt
     || JSON.stringify(draft.sourceControlWritingStyle) !== JSON.stringify(settings.sourceControlWritingStyle)

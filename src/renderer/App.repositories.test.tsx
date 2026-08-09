@@ -1460,7 +1460,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     await waitFor(() => expect(githead.saveRepositoryAiSettings).toHaveBeenCalledWith(expect.objectContaining({
       repoPath: otherRepo,
-      enabled: true
+      enabled: true,
+      commitPlanGranularity: "file"
     })));
   });
 

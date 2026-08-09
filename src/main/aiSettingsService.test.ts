@@ -64,6 +64,7 @@ describe("AiSettingsService", () => {
 
       await expect(service.getSettings()).resolves.toEqual({
         selectedProvider: "openrouter",
+        commitPlanGranularity: "file",
         providers: {
           openrouter: {
             model: DEFAULT_AI_PROVIDER_MODELS.openrouter,
@@ -302,6 +303,7 @@ describe("AiSettingsService", () => {
 
       await service.saveSettings({
         selectedProvider: "openai",
+        commitPlanGranularity: "hunk",
         providerModels: DEFAULT_AI_PROVIDER_MODELS,
         apiKeys: {
           openai: "sk-openai",
@@ -403,6 +405,7 @@ describe("AiSettingsService", () => {
         repoPath,
         enabled: true,
         selectedProvider: "codex-cli",
+        commitPlanGranularity: "file",
         providerModels: { ...DEFAULT_AI_PROVIDER_MODELS, "codex-cli": "gpt-repo" },
         commitPlanModels: { "codex-cli": "gpt-repo-plan" },
         commitPlanReasoningEfforts: { "codex-cli": "xhigh" },
@@ -415,6 +418,7 @@ describe("AiSettingsService", () => {
 
       expect(saved.enabled).toBe(true);
       expect(saved.settings.selectedProvider).toBe("codex-cli");
+      expect(saved.settings.commitPlanGranularity).toBe("file");
       expect(saved.settings.providers["codex-cli"]).toMatchObject({
         model: "gpt-repo",
         commitPlanModel: "gpt-repo-plan",

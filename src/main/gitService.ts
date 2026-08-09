@@ -39,6 +39,7 @@ import type {
   GitCommitAndPushResult,
   GitCommitWithRemoteCheckResult,
   GitQuickCommitRequest,
+  GitQuickCommitChange,
   GitCommitRequest,
   GitCreateTagRequest,
   GitDeleteTagRequest,
@@ -115,6 +116,8 @@ import type {
 import { getSupportedGitHubOrigin, parseGitHubRemoteUrl } from "../shared/githubRemote";
 import { DEFAULT_TAG_PUSH_BEHAVIOR, gitCapabilities, isGitAction, type TagPushBehavior } from "../shared/types";
 import { createEmptyActionsConfig, getActionKey, readActionsConfig, saveActionsConfigFile } from "./actionsConfig";
+import { combineHunkPatches, createCommitPlanChanges, type PreparedCommitPlanChange } from "./commitPlanChanges";
+import { mapWithConcurrency } from "./asyncMap";
 import { validateCloneRequest } from "./cloneValidation";
 import type { ProcessOutput, ProcessResult, ProcessRunOptions, ProcessRunner } from "./processRunner";
 import { mapRepoSyncStatuses } from "./repoSyncStatus";
@@ -1409,9 +1412,13 @@ export class GitService {
       return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
     }
 
-    const paths = sanitizePaths(request.paths);
-    if (paths.length === 0) {
-      return this.createOperationFailure(request.repoPath, "Select at least one file to commit.");
+    const legacyPaths = sanitizePaths(request.paths ?? []);
+    const requestedChanges = request.changes ?? [];
+    if (legacyPaths.length === 0 && requestedChanges.length === 0) {
+      return this.createOperationFailure(request.repoPath, "Select at least one change to commit.");
+    }
+    if (legacyPaths.length > 0 && requestedChanges.length > 0) {
+      return this.createOperationFailure(request.repoPath, "Quick Commit received two selection formats.");
     }
     if (!request.message.trim()) {
       return this.createOperationFailure(request.repoPath, "Enter a commit message.");
@@ -1442,8 +1449,56 @@ export class GitService {
       if (currentIndexFailure) return currentIndexFailure;
     }
 
-    const stageResult = await this.stageFiles({ repoPath: request.repoPath, paths });
-    if (stageResult.exitCode !== 0) return stageResult;
+    const selection = requestedChanges.length > 0
+      ? await this.resolveQuickCommitChanges(request.repoPath, requestedChanges)
+      : { filePaths: legacyPaths, hunkPatch: "" };
+    if ("error" in selection) {
+      return this.createOperationFailure(request.repoPath, selection.error);
+    }
+
+    if (selection.hunkPatch) {
+      const patchCheck = await this.runGitOperation(request.repoPath, [
+        "apply",
+        "--cached",
+        "--check",
+        "--whitespace=nowarn",
+        "-"
+      ], undefined, selection.hunkPatch);
+      if (patchCheck.exitCode !== 0) {
+        return this.createOperationFailure(
+          request.repoPath,
+          "The selected hunks changed. Generate the commit plan again."
+        );
+      }
+    }
+
+    if (selection.filePaths.length > 0) {
+      const stageResult = await this.stageFiles({ repoPath: request.repoPath, paths: selection.filePaths });
+      if (stageResult.exitCode !== 0) return stageResult;
+    }
+
+    if (selection.hunkPatch) {
+      const hunkStageResult = await this.runGitOperation(request.repoPath, [
+        "apply",
+        "--cached",
+        "--whitespace=nowarn",
+        "-"
+      ], undefined, selection.hunkPatch);
+      if (hunkStageResult.exitCode !== 0) {
+        const rollbackResult = selection.filePaths.length > 0
+          ? await this.unstageFiles({ repoPath: request.repoPath, paths: selection.filePaths })
+          : null;
+        if (!rollbackResult || rollbackResult.exitCode === 0) return hunkStageResult;
+        return {
+          ...hunkStageResult,
+          stderr: [
+            hunkStageResult.stderr,
+            "Githead could not restore the staged files.",
+            rollbackResult.stderr
+          ].filter(Boolean).join("\n")
+        };
+      }
+    }
 
     const commitResult = await this.commitChanges({ repoPath: request.repoPath, message: request.message });
     const combinedCommitResult = { ...commitResult, stdout: `${preflightStdout}${commitResult.stdout}` };
@@ -1451,15 +1506,70 @@ export class GitService {
       return combinedCommitResult;
     }
 
-    const rollbackResult = await this.unstageFiles({ repoPath: request.repoPath, paths });
-    if (rollbackResult.exitCode === 0) return combinedCommitResult;
+    const rollbackErrors: string[] = [];
+    if (selection.hunkPatch) {
+      const hunkRollback = await this.runGitOperation(request.repoPath, [
+        "apply",
+        "--cached",
+        "--reverse",
+        "--whitespace=nowarn",
+        "-"
+      ], undefined, selection.hunkPatch);
+      if (hunkRollback.exitCode !== 0) rollbackErrors.push(hunkRollback.stderr);
+    }
+    if (selection.filePaths.length > 0) {
+      const fileRollback = await this.unstageFiles({ repoPath: request.repoPath, paths: selection.filePaths });
+      if (fileRollback.exitCode !== 0) rollbackErrors.push(fileRollback.stderr);
+    }
+    if (rollbackErrors.length === 0) return combinedCommitResult;
     return {
       ...combinedCommitResult,
       stderr: [
         commitResult.stderr,
         "Githead could not restore the staged state.",
-        rollbackResult.stderr
+        ...rollbackErrors
       ].filter(Boolean).join("\n")
+    };
+  }
+
+  private async resolveQuickCommitChanges(
+    repoPath: string,
+    requestedChanges: GitQuickCommitChange[]
+  ): Promise<{ filePaths: string[]; hunkPatch: string } | { error: string }> {
+    const changes = dedupeQuickCommitChanges(requestedChanges);
+    if (changes.length === 0 || changes.length !== requestedChanges.length) {
+      return { error: "The planned changes are invalid. Generate the commit plan again." };
+    }
+
+    const paths = [...new Set(changes.map((change) => change.path))];
+    for (const filePath of paths) {
+      const pathResult = sanitizeSingleRepoPath(filePath);
+      if ("error" in pathResult) return pathResult;
+    }
+
+    const diffs = await mapWithConcurrency(paths, 4, (filePath) => this.getFileDiff({
+      repoPath,
+      path: filePath,
+      side: "unstaged"
+    }));
+    const diffByPath = new Map(diffs.map((diff) => [diff.path, diff]));
+    const resolvedHunks: PreparedCommitPlanChange[] = [];
+    const filePaths: string[] = [];
+
+    for (const change of changes) {
+      const diff = diffByPath.get(change.path);
+      if (!diff) return { error: "The working-tree changes changed. Generate the commit plan again." };
+      const currentChanges = createCommitPlanChanges([diff], change.kind === "hunk" ? "hunk" : "file");
+      const match = currentChanges.find((candidate) =>
+        candidate.kind === change.kind && candidate.fingerprint === change.fingerprint);
+      if (!match) return { error: "The working-tree changes changed. Generate the commit plan again." };
+      if (match.kind === "hunk") resolvedHunks.push(match);
+      else filePaths.push(match.path);
+    }
+
+    return {
+      filePaths: [...new Set(filePaths)],
+      hunkPatch: combineHunkPatches(resolvedHunks)
     };
   }
 
@@ -3993,6 +4103,22 @@ function parseRepositoryAccessRefs(stdout: string): { branches: string[]; defaul
 
 function sanitizePaths(paths: string[]): string[] {
   return [...new Set(paths.map((path) => path.trim()).filter((path) => path.length > 0))];
+}
+
+function dedupeQuickCommitChanges(changes: GitQuickCommitChange[]): GitQuickCommitChange[] {
+  const keys = new Set<string>();
+  const result: GitQuickCommitChange[] = [];
+  for (const change of changes) {
+    const path = change.path.trim();
+    if (!path || (change.kind !== "file" && change.kind !== "hunk") || !/^[0-9a-f]{64}$/i.test(change.fingerprint)) {
+      return [];
+    }
+    const key = `${path}\0${change.kind}\0${change.fingerprint}`;
+    if (keys.has(key)) continue;
+    keys.add(key);
+    result.push({ ...change, path });
+  }
+  return result;
 }
 
 function sanitizeRepoPaths(paths: string[]): { paths: string[] } | { error: string } {

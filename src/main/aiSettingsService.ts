@@ -9,6 +9,7 @@ import {
   AI_CLI_PROVIDERS,
   AI_COMMIT_MESSAGE_PROVIDERS,
   AI_REASONING_EFFORTS,
+  DEFAULT_COMMIT_PLAN_GRANULARITY,
   type AiApiKeyProvider,
   type AiCliProvider,
   type AiCliProviderStatus,
@@ -17,6 +18,7 @@ import {
   type AiReasoningEffort,
   type AiSettings,
   type AiSettingsSaveRequest,
+  type CommitPlanGranularity,
   type RepositoryAiSettings,
   type RepositoryAiSettingsSaveRequest,
   type SourceControlWritingStyle,
@@ -43,6 +45,7 @@ export const DEFAULT_AI_PROVIDER_MODELS: Record<AiCommitMessageProvider, string>
 
 interface StoredAiSettings {
   selectedProvider?: AiCommitMessageProvider;
+  commitPlanGranularity?: CommitPlanGranularity;
   providerModels?: Partial<Record<AiCommitMessageProvider, string>>;
   commitPlanModels?: Partial<Record<AiCommitMessageProvider, string>>;
   commitPlanReasoningEfforts?: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>>;
@@ -63,6 +66,7 @@ interface StoredAiSettings {
 interface StoredRepositoryAiSettings {
   version: 1;
   selectedProvider?: AiCommitMessageProvider;
+  commitPlanGranularity?: CommitPlanGranularity;
   providerModels?: Partial<Record<AiCommitMessageProvider, string>>;
   commitPlanModels?: Partial<Record<AiCommitMessageProvider, string>>;
   commitPlanReasoningEfforts?: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>>;
@@ -164,6 +168,7 @@ export class AiSettingsService {
     const stored: StoredRepositoryAiSettings = {
       version: 1,
       selectedProvider,
+      commitPlanGranularity: sanitizeCommitPlanGranularity(request.commitPlanGranularity),
       providerModels: createSavedProviderModels(request.providerModels),
       commitPlanModels: createSavedOptionalModels(request.commitPlanModels),
       ...(commitPlanReasoningEfforts ? { commitPlanReasoningEfforts } : {}),
@@ -204,6 +209,7 @@ export class AiSettingsService {
       selectedProvider: sanitizeProvider(stored.selectedProvider) ?? "openrouter",
       providers: createProviderSettings(stored, encryptedApiKeys),
       cliStatus,
+      commitPlanGranularity: sanitizeCommitPlanGranularity(stored.commitPlanGranularity),
       commitMessagePrompt: sanitizePrompt(stored.commitMessagePrompt) || DEFAULT_COMMIT_MESSAGE_PROMPT,
       prDescriptionPrompt: sanitizePrompt(stored.prDescriptionPrompt) || DEFAULT_PR_DESCRIPTION_PROMPT,
       sourceControlWritingStyle: resolveStoredWritingStyle(
@@ -275,9 +281,13 @@ export class AiSettingsService {
     const prDescriptionPrompt = request.prDescriptionPrompt === undefined
       ? sanitizePrompt(existing.prDescriptionPrompt)
       : sanitizePrompt(request.prDescriptionPrompt);
+    const commitPlanGranularity = sanitizeCommitPlanGranularity(
+      request.commitPlanGranularity ?? existing.commitPlanGranularity
+    );
 
     const stored: StoredAiSettings = {
       selectedProvider,
+      commitPlanGranularity,
       providerModels,
       reasoningEfforts,
       ...(commitPlanReasoningEfforts ? { commitPlanReasoningEfforts } : {}),
@@ -385,6 +395,9 @@ function mergeRepositorySettings(global: AiSettings, stored: StoredRepositoryAiS
     ...global,
     selectedProvider: sanitizeProvider(stored.selectedProvider) ?? global.selectedProvider,
     providers,
+    commitPlanGranularity: stored.commitPlanGranularity === undefined
+      ? global.commitPlanGranularity
+      : sanitizeCommitPlanGranularity(stored.commitPlanGranularity),
     commitMessagePrompt: sanitizePrompt(stored.commitMessagePrompt) || global.commitMessagePrompt,
     prDescriptionPrompt: sanitizePrompt(stored.prDescriptionPrompt) || global.prDescriptionPrompt,
     sourceControlWritingStyle: resolveStoredWritingStyle(
@@ -580,6 +593,10 @@ function sanitizeReasoningEffort(value: string | undefined): AiReasoningEffort {
   return AI_REASONING_EFFORTS.includes(value as AiReasoningEffort)
     ? value as AiReasoningEffort
     : DEFAULT_AI_REASONING_EFFORT;
+}
+
+function sanitizeCommitPlanGranularity(value: string | undefined): CommitPlanGranularity {
+  return value === "hunk" || value === "file" ? value : DEFAULT_COMMIT_PLAN_GRANULARITY;
 }
 
 function sanitizePrompt(value: string | undefined): string {

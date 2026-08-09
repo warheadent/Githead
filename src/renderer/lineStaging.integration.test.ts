@@ -3,10 +3,92 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 import { GitService } from "../main/gitService";
+import { createCommitPlanChanges } from "../main/commitPlanChanges";
 import { NodeProcessRunner, type ProcessResult } from "../main/processRunner";
 import { createLinePatch, groupDiffRowsByHunk, parseUnifiedDiff, type DiffRowGroup } from "./diffParser";
 
-describe("line staging patches", () => {
+describe("line staging patches", { timeout: 20_000 }, () => {
+  it("creates one commit from two selected hunks in one file", async () => {
+    await withRepository(async ({ repoPath, run, service }) => {
+      const original = Array.from({ length: 24 }, (_, index) => `value ${index + 1}`);
+      await fs.writeFile(path.join(repoPath, "combined.txt"), `${original.join("\n")}\n`, "utf8");
+      await run(["add", "combined.txt"]);
+      await run(["commit", "-m", "Add combined fixture"]);
+      const changed = [...original];
+      changed[1] = "changed near start";
+      changed[21] = "changed near end";
+      await fs.writeFile(path.join(repoPath, "combined.txt"), `${changed.join("\n")}\n`, "utf8");
+      const diff = await service.getFileDiff({ repoPath, path: "combined.txt", side: "unstaged" });
+      const hunks = createCommitPlanChanges([diff], "hunk");
+      expect(hunks).toHaveLength(2);
+
+      const result = await service.quickCommitFiles({
+        repoPath,
+        changes: hunks.map((hunk) => ({ path: hunk.path, kind: "hunk" as const, fingerprint: hunk.fingerprint })),
+        message: "Commit both hunks"
+      });
+
+      expect(result.exitCode, result.stderr).toBe(0);
+      expect((await run(["status", "--porcelain"])).stdout).toBe("");
+    });
+  });
+
+  it("creates sequential commits from two planned hunks in one file", async () => {
+    await withRepository(async ({ repoPath, run, service }) => {
+      const original = Array.from({ length: 24 }, (_, index) => `line ${index + 1}`);
+      await fs.writeFile(path.join(repoPath, "planned.txt"), `${original.join("\n")}\n`, "utf8");
+      await run(["add", "planned.txt"]);
+      await run(["commit", "-m", "Add planned fixture"]);
+      const changed = [...original];
+      changed.splice(2, 0, "inserted near start");
+      changed[20] = "changed near end";
+      await fs.writeFile(path.join(repoPath, "planned.txt"), `${changed.join("\n")}\n`, "utf8");
+      const diff = await service.getFileDiff({ repoPath, path: "planned.txt", side: "unstaged" });
+      const hunks = createCommitPlanChanges([diff], "hunk");
+      expect(hunks).toHaveLength(2);
+
+      const first = await service.quickCommitFiles({
+        repoPath,
+        changes: [{ path: hunks[0]!.path, kind: "hunk", fingerprint: hunks[0]!.fingerprint }],
+        message: "Add early line"
+      });
+      expect(first.exitCode, first.stderr).toBe(0);
+      expect((await run(["show", "HEAD:planned.txt"])).stdout).toContain("inserted near start");
+      expect((await run(["show", "HEAD:planned.txt"])).stdout).toContain("line 20");
+
+      const second = await service.quickCommitFiles({
+        repoPath,
+        changes: [{ path: hunks[1]!.path, kind: "hunk", fingerprint: hunks[1]!.fingerprint }],
+        message: "Change late line"
+      });
+      expect(second.exitCode, second.stderr).toBe(0);
+      expect((await run(["show", "HEAD:planned.txt"])).stdout).toContain("changed near end");
+      expect((await run(["status", "--porcelain"])).stdout).toBe("");
+    });
+  });
+
+  it("rejects a planned hunk after its content changes", async () => {
+    await withRepository(async ({ repoPath, run, service }) => {
+      await fs.writeFile(path.join(repoPath, "stale.txt"), "one\ntwo\nthree\n", "utf8");
+      await run(["add", "stale.txt"]);
+      await run(["commit", "-m", "Add stale fixture"]);
+      await fs.writeFile(path.join(repoPath, "stale.txt"), "one\nchanged\nthree\n", "utf8");
+      const diff = await service.getFileDiff({ repoPath, path: "stale.txt", side: "unstaged" });
+      const [hunk] = createCommitPlanChanges([diff], "hunk");
+      await fs.writeFile(path.join(repoPath, "stale.txt"), "one\nchanged again\nthree\n", "utf8");
+
+      const result = await service.quickCommitFiles({
+        repoPath,
+        changes: [{ path: hunk!.path, kind: "hunk", fingerprint: hunk!.fingerprint }],
+        message: "Use stale hunk"
+      });
+
+      expect(result.exitCode).toBe(-1);
+      expect(result.stderr).toContain("Generate the commit plan again");
+      expect((await run(["diff", "--cached", "--quiet"])).exitCode).toBe(0);
+    });
+  });
+
   it("stages one line from a newly added file", async () => {
     await withRepository(async ({ repoPath, run, service }) => {
       await fs.writeFile(path.join(repoPath, "new.txt"), "one\ntwo\nthree\n", "utf8");

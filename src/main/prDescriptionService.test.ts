@@ -54,6 +54,7 @@ interface FetchCall {
 
 const baseSettings: AiSettings = {
   selectedProvider: "openrouter",
+  commitPlanGranularity: "file",
   providers: {
     openrouter: {
       model: "openrouter/auto",

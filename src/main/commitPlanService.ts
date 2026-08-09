@@ -1,7 +1,6 @@
 import type {
   GenerateCommitPlanRequest,
-  GenerateCommitPlanResult,
-  GitFileDiff
+  GenerateCommitPlanResult
 } from "../shared/types";
 import type { AiSettingsService } from "./aiSettingsService";
 import { generateCompleteText } from "./commitMessageProviders";
@@ -12,6 +11,12 @@ import {
   MAX_COMMIT_PLAN_PATHS,
   parseCommitPlanResponse
 } from "./commitPlanPromptBuilder";
+import {
+  createCommitPlanChanges,
+  MAX_COMMIT_PLAN_CHANGES,
+  toPublicCommitPlanChange,
+  type PreparedCommitPlanChange
+} from "./commitPlanChanges";
 import { resolveAiProvider, resolveReasoningEffort, type AiReasoningCapabilityResolver } from "./commitMessageService";
 import { mapWithConcurrency } from "./asyncMap";
 import type { ProcessRunner } from "./processRunner";
@@ -68,6 +73,14 @@ export class CommitPlanService {
           : Promise.resolve([])
       ]);
       throwIfAborted(signal);
+      const preparedChanges = createCommitPlanChanges(diffs, settings.commitPlanGranularity);
+      if (preparedChanges.length > MAX_COMMIT_PLAN_CHANGES) {
+        return failure(
+          request.repoPath,
+          `Commit plans support up to ${MAX_COMMIT_PLAN_CHANGES} changes. Select fewer files or use file grouping.`
+        );
+      }
+      const changes = preparedChanges.map(toPublicCommitPlanChange);
 
       const reasoningEffort = await resolveReasoningEffort(
         this.reasoningCapabilities,
@@ -84,14 +97,14 @@ export class CommitPlanService {
         ...(reasoningEffort ? { reasoningEffort } : {}),
         systemPrompt: createCommitPlanSystemPrompt(settings.sourceControlWritingStyle),
         userPrompt: createCommitPlanUserPrompt(
-          paths,
-          createDiffContext(diffs),
+          changes,
+          createDiffContext(preparedChanges),
           settings.sourceControlWritingStyle,
           recentCommits.map((commit) => commit.subject)
         )
       });
       throwIfAborted(signal);
-      const plan = parseCommitPlanResponse(generation.text, paths);
+      const plan = parseCommitPlanResponse(generation.text, changes, settings.commitPlanGranularity);
 
       return {
         repoPath: request.repoPath,
@@ -110,24 +123,17 @@ export class CommitPlanService {
   }
 }
 
-function createDiffContext(diffs: GitFileDiff[]): string {
+function createDiffContext(changes: PreparedCommitPlanChange[]): string {
   const sections: string[] = [];
   let remaining = MAX_COMMIT_PLAN_DIFF_CHARS;
 
-  for (const diff of diffs) {
-    const heading = `### ${diff.path}\n`;
+  for (const change of changes) {
+    const heading = `### ${change.id}: ${change.path}${change.kind === "hunk" ? ` (${change.label})` : " (whole file)"}\n`;
     if (remaining <= heading.length) break;
-    const content = diff.kind === "text"
-      ? diff.text.trim()
-      : diff.kind === "image" ? "[Image file changed]"
-      : diff.kind === "binary" ? "[Binary file changed]"
-      : diff.kind === "empty" ? "[No textual diff available]"
-      : `[Diff unavailable: ${diff.text.trim() || "unknown error"}]`;
-    const available = remaining - heading.length;
-    const clipped = content.length > available
-      ? `${content.slice(0, Math.max(0, available - 30))}\n[Diff truncated by Githead]`
-      : content;
-    const section = `${heading}${clipped}`;
+    const fullSection = `${heading}${change.promptText}`;
+    const section = fullSection.length <= remaining
+      ? fullSection
+      : `${heading}[Change diff omitted by Githead]`;
     sections.push(section);
     remaining -= section.length + 2;
     if (remaining <= 0) break;

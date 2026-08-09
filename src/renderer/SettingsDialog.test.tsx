@@ -8,6 +8,7 @@ afterEach(cleanup);
 
 const savedDraft: SettingsDraft = {
   selectedProvider: "openrouter",
+  commitPlanGranularity: "file",
   providerModels: { openrouter: "", openai: "", "codex-cli": "", anthropic: "", "claude-code": "" },
   commitPlanModels: { openrouter: "", openai: "", "codex-cli": "", anthropic: "", "claude-code": "" },
   commitPlanReasoningEfforts: { openrouter: "medium", openai: "medium", "codex-cli": "medium", anthropic: "medium", "claude-code": "medium" },

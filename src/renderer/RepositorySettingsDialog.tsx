@@ -19,6 +19,7 @@ import type {
   RepositorySyncSettings
 } from "../shared/types";
 import { AI_COMMIT_MESSAGE_PROVIDERS } from "../shared/types";
+import { DEFAULT_COMMIT_PLAN_GRANULARITY } from "../shared/types";
 import { DEFAULT_SOURCE_CONTROL_WRITING_STYLE } from "../shared/sourceControlWritingStyle";
 import { AiGenerationSettingsFields, type AiGenerationSettingsDraft } from "./AiGenerationSettingsFields";
 import { getAiProviderLabel } from "./aiProvider";
@@ -51,6 +52,7 @@ const emptyDraft: RepositorySettingsDraft = {
   autoFetchIntervalMinutes: "10",
   aiEnabled: false,
   selectedProvider: "openrouter",
+  commitPlanGranularity: DEFAULT_COMMIT_PLAN_GRANULARITY,
   providerModels: createStringRecord(),
   commitPlanModels: createStringRecord(),
   commitPlanReasoningEfforts: createReasoningRecord(),
@@ -164,6 +166,7 @@ export function RepositorySettingsDialog({
           repoPath,
           enabled: draft.aiEnabled,
           selectedProvider: draft.selectedProvider,
+          commitPlanGranularity: draft.commitPlanGranularity,
           providerModels: draft.providerModels,
           commitPlanModels: draft.commitPlanModels,
           commitPlanReasoningEfforts: draft.commitPlanReasoningEfforts,
@@ -371,6 +374,7 @@ function createDraft(
     autoFetchIntervalMinutes: String(sync.autoFetchIntervalMinutes),
     aiEnabled: ai.enabled,
     selectedProvider: ai.settings.selectedProvider,
+    commitPlanGranularity: ai.settings.commitPlanGranularity,
     providerModels: mapProviders((provider) => ai.settings.providers[provider].model),
     commitPlanModels: mapProviders((provider) => ai.settings.providers[provider].commitPlanModel ?? ""),
     commitPlanReasoningEfforts: mapProviders((provider) => ai.settings.providers[provider].commitPlanReasoningEffort),

@@ -10,8 +10,10 @@ import {
 } from "../shared/sourceControlWritingStyle";
 import {
   AI_REASONING_EFFORTS,
+  COMMIT_PLAN_GRANULARITIES,
   SOURCE_CONTROL_WRITING_STYLE_MODES,
   type AiCommitMessageProvider,
+  type CommitPlanGranularity,
   type AiReasoningCapabilities,
   type AiReasoningEffort,
   type SourceControlWritingStyleMode
@@ -19,6 +21,7 @@ import {
 
 export interface AiGenerationSettingsDraft {
   selectedProvider: AiCommitMessageProvider;
+  commitPlanGranularity: CommitPlanGranularity;
   providerModels: Record<AiCommitMessageProvider, string>;
   commitPlanModels: Record<AiCommitMessageProvider, string>;
   commitPlanReasoningEfforts: Record<AiCommitMessageProvider, AiReasoningEffort>;
@@ -69,6 +72,30 @@ export function AiGenerationSettingsFields<T extends AiGenerationSettingsDraft>(
     </SettingsCard>
 
     <SettingsCard title="Commit plan generation" description="Optional model override and separate reasoning for commit grouping and messages.">
+      <div className="grid gap-2">
+        <Label htmlFor={`${idPrefix}-commit-plan-granularity`}>Group changes by</Label>
+        <select
+          id={`${idPrefix}-commit-plan-granularity`}
+          className="h-10 rounded-md border border-input bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+          value={draft.commitPlanGranularity}
+          disabled={disabled}
+          onChange={(event) => onDraftChange({
+            ...draft,
+            commitPlanGranularity: event.target.value as CommitPlanGranularity
+          })}
+        >
+          {COMMIT_PLAN_GRANULARITIES.map((granularity) => (
+            <option key={granularity} value={granularity}>
+              {granularity === "file" ? "Files (lower AI usage)" : "Hunks (higher AI usage)"}
+            </option>
+          ))}
+        </select>
+        <p className="text-sm text-muted-foreground">
+          {draft.commitPlanGranularity === "file"
+            ? "Each file belongs to one planned commit."
+            : "One file can supply separate hunks to different planned commits."}
+        </p>
+      </div>
       <div className="grid gap-2">
         <Label htmlFor={`${idPrefix}-commit-plan-model`}>Commit Plan Model</Label>
         <Input id={`${idPrefix}-commit-plan-model`} type="text" autoComplete="off" placeholder="Leave blank to use the commit message model" value={draft.commitPlanModels[provider]} disabled={disabled} onChange={(event) => onDraftChange({ ...draft, commitPlanModels: { ...draft.commitPlanModels, [provider]: event.target.value } })} />

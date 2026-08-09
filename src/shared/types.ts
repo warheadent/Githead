@@ -1092,8 +1092,16 @@ export interface GitAmendRestoreResult extends GitOperationResult {
   recoveryRef: string | null;
 }
 
+export interface GitQuickCommitChange {
+  path: string;
+  kind: "file" | "hunk";
+  fingerprint: string;
+}
+
 export interface GitQuickCommitRequest extends GitCommitRequest {
-  paths: string[];
+  /** Legacy file-only selection. */
+  paths?: string[];
+  changes?: GitQuickCommitChange[];
 }
 
 export interface GitCommitHashRequest {
@@ -1597,6 +1605,12 @@ export const SOURCE_CONTROL_WRITING_STYLE_MODES = [
 
 export type SourceControlWritingStyleMode = (typeof SOURCE_CONTROL_WRITING_STYLE_MODES)[number];
 
+export const COMMIT_PLAN_GRANULARITIES = ["file", "hunk"] as const;
+
+export type CommitPlanGranularity = (typeof COMMIT_PLAN_GRANULARITIES)[number];
+
+export const DEFAULT_COMMIT_PLAN_GRANULARITY: CommitPlanGranularity = "file";
+
 export interface SourceControlWritingStyle {
   mode: SourceControlWritingStyleMode;
   customInstructions: string;
@@ -1626,6 +1640,7 @@ export interface AiSettings {
   selectedProvider: AiCommitMessageProvider;
   providers: Record<AiCommitMessageProvider, AiProviderSettings>;
   cliStatus: Record<AiCliProvider, AiCliProviderStatus>;
+  commitPlanGranularity: CommitPlanGranularity;
   commitMessagePrompt: string;
   prDescriptionPrompt: string;
   sourceControlWritingStyle: SourceControlWritingStyle;
@@ -1634,6 +1649,7 @@ export interface AiSettings {
 export interface AiSettingsSaveRequest {
   selectedProvider: AiCommitMessageProvider;
   providerModels: Record<AiCommitMessageProvider, string>;
+  commitPlanGranularity?: CommitPlanGranularity;
   commitPlanModels?: Partial<Record<AiCommitMessageProvider, string>>;
   commitPlanReasoningEfforts?: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>>;
   prDescriptionModels?: Partial<Record<AiCommitMessageProvider, string>>;
@@ -1661,6 +1677,7 @@ export interface RepositoryAiSettingsSaveRequest extends RepositoryAiSettingsReq
   enabled: boolean;
   selectedProvider: AiCommitMessageProvider;
   providerModels: Record<AiCommitMessageProvider, string>;
+  commitPlanGranularity?: CommitPlanGranularity;
   commitPlanModels?: Partial<Record<AiCommitMessageProvider, string>>;
   commitPlanReasoningEfforts?: Partial<Record<AiCommitMessageProvider, AiReasoningEffort>>;
   prDescriptionModels?: Partial<Record<AiCommitMessageProvider, string>>;
@@ -1765,16 +1782,26 @@ export interface GenerateCommitMessageRequest {
   stashSelection?: GitStashSelection;
 }
 
+export interface CommitPlanChange {
+  id: string;
+  path: string;
+  kind: "file" | "hunk";
+  label: string;
+  fingerprint: string;
+}
+
 export interface CommitPlanGroup {
   id: string;
   message: string;
   rationale: string;
-  paths: string[];
+  changeIds: string[];
 }
 
 export interface CommitPlan {
+  granularity: CommitPlanGranularity;
+  changes: CommitPlanChange[];
   groups: CommitPlanGroup[];
-  unassignedPaths: string[];
+  unassignedChangeIds: string[];
 }
 
 export interface GenerateCommitPlanRequest {

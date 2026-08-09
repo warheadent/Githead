@@ -86,6 +86,7 @@ export function createAiSettings(
 ): AiSettings {
   return {
     selectedProvider,
+    commitPlanGranularity: "file",
     providers: {
       openrouter: {
         model: defaultProviderModels.openrouter,

@@ -179,13 +179,18 @@ describe("App", { timeout: 10_000 }, () => {
       repoPath,
       exitCode: 0,
       plan: {
+        granularity: "file",
+        changes: [
+          { id: "change-1", path: "src/plan.ts", kind: "file", label: "Whole file", fingerprint: "a".repeat(64) },
+          { id: "change-2", path: "src/plan.test.ts", kind: "file", label: "Whole file", fingerprint: "b".repeat(64) }
+        ],
         groups: [{
           id: "group-1",
           message: "feat(status): add commit plans",
           rationale: "Adds the plan workflow and its test.",
-          paths: ["src/plan.ts", "src/plan.test.ts"]
+          changeIds: ["change-1", "change-2"]
         }],
-        unassignedPaths: []
+        unassignedChangeIds: []
       },
       stderr: ""
     });
@@ -211,10 +216,41 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(screen.getByRole("button", { name: "Quick Commit" }));
     await waitFor(() => expect(githead.quickCommitFiles).toHaveBeenCalledWith({
       repoPath,
-      paths: ["src/plan.ts", "src/plan.test.ts"],
+      changes: [
+        { path: "src/plan.ts", kind: "file", fingerprint: "a".repeat(64) },
+        { path: "src/plan.test.ts", kind: "file", fingerprint: "b".repeat(64) }
+      ],
       message: "feat(status): add commit plans\n\nAdds the plan workflow and its test.",
       operationId: expect.any(String)
     }));
+  });
+
+  it("marks a commit plan stale after a monitored working-tree change", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [createStatusFile("src/plan.ts", { worktreeStatus: "M", isUnstaged: true })]
+    }));
+    vi.mocked(githead.generateCommitPlan).mockResolvedValue({
+      repoPath,
+      exitCode: 0,
+      plan: {
+        granularity: "hunk",
+        changes: [{ id: "change-1", path: "src/plan.ts", kind: "hunk", label: "@@ -1 +1 @@", fingerprint: "a".repeat(64) }],
+        groups: [{ id: "group-1", message: "Change one hunk", rationale: "Focused change.", changeIds: ["change-1"] }],
+        unassignedChangeIds: []
+      },
+      stderr: ""
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Commit plan view" }));
+    await user.click(screen.getByRole("button", { name: "Generate" }));
+    await screen.findByDisplayValue("Change one hunk");
+
+    emitRepoChanged();
+
+    expect(await screen.findByText("The working tree changed. Generate the commit plan again.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Quick Commit" }).hasAttribute("disabled")).toBe(true);
   });
 
   it("switches the maximize control to restore when the window is maximized", async () => {

@@ -38,6 +38,7 @@ import type {
   AppCodeFont,
   AppColorTheme,
   AppUiFont,
+  CommitPlanGranularity,
   GitIdentityScope,
   GitHubConnectionStatus,
   GitHubDeviceFlow,
@@ -58,6 +59,7 @@ export { GitIdentityFields } from "./GitIdentityFields";
 
 export interface SettingsDraft {
   selectedProvider: AiCommitMessageProvider;
+  commitPlanGranularity: CommitPlanGranularity;
   providerModels: Record<AiCommitMessageProvider, string>;
   commitPlanModels: Record<AiCommitMessageProvider, string>;
   commitPlanReasoningEfforts: Record<AiCommitMessageProvider, AiReasoningEffort>;
@@ -593,7 +595,7 @@ function getDirtyCategories(baseline: string, draft: SettingsDraft): Record<Sett
       || saved.allowCherryPickingContainedCommits !== draft.allowCherryPickingContainedCommits,
     sync: saved.autoFetchIntervalMinutes !== draft.autoFetchIntervalMinutes,
     integrations: false,
-    ai: JSON.stringify({ selectedProvider: saved.selectedProvider, providerModels: saved.providerModels, commitPlanModels: saved.commitPlanModels, commitPlanReasoningEfforts: saved.commitPlanReasoningEfforts, prDescriptionModels: saved.prDescriptionModels, reasoningEfforts: saved.reasoningEfforts, prDescriptionReasoningEfforts: saved.prDescriptionReasoningEfforts, apiKeys: saved.apiKeys, clearApiKeys: saved.clearApiKeys, commitMessagePrompt: saved.commitMessagePrompt, prDescriptionPrompt: saved.prDescriptionPrompt, sourceControlWritingStyle: saved.sourceControlWritingStyle }) !== JSON.stringify({ selectedProvider: draft.selectedProvider, providerModels: draft.providerModels, commitPlanModels: draft.commitPlanModels, commitPlanReasoningEfforts: draft.commitPlanReasoningEfforts, prDescriptionModels: draft.prDescriptionModels, reasoningEfforts: draft.reasoningEfforts, prDescriptionReasoningEfforts: draft.prDescriptionReasoningEfforts, apiKeys: draft.apiKeys, clearApiKeys: draft.clearApiKeys, commitMessagePrompt: draft.commitMessagePrompt, prDescriptionPrompt: draft.prDescriptionPrompt, sourceControlWritingStyle: draft.sourceControlWritingStyle }),
+    ai: JSON.stringify({ selectedProvider: saved.selectedProvider, commitPlanGranularity: saved.commitPlanGranularity, providerModels: saved.providerModels, commitPlanModels: saved.commitPlanModels, commitPlanReasoningEfforts: saved.commitPlanReasoningEfforts, prDescriptionModels: saved.prDescriptionModels, reasoningEfforts: saved.reasoningEfforts, prDescriptionReasoningEfforts: saved.prDescriptionReasoningEfforts, apiKeys: saved.apiKeys, clearApiKeys: saved.clearApiKeys, commitMessagePrompt: saved.commitMessagePrompt, prDescriptionPrompt: saved.prDescriptionPrompt, sourceControlWritingStyle: saved.sourceControlWritingStyle }) !== JSON.stringify({ selectedProvider: draft.selectedProvider, commitPlanGranularity: draft.commitPlanGranularity, providerModels: draft.providerModels, commitPlanModels: draft.commitPlanModels, commitPlanReasoningEfforts: draft.commitPlanReasoningEfforts, prDescriptionModels: draft.prDescriptionModels, reasoningEfforts: draft.reasoningEfforts, prDescriptionReasoningEfforts: draft.prDescriptionReasoningEfforts, apiKeys: draft.apiKeys, clearApiKeys: draft.clearApiKeys, commitMessagePrompt: draft.commitMessagePrompt, prDescriptionPrompt: draft.prDescriptionPrompt, sourceControlWritingStyle: draft.sourceControlWritingStyle }),
     diagnostics: false
   };
 }

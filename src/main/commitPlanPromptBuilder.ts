@@ -1,5 +1,6 @@
 import { createCommitWritingStyleInstructions, DEFAULT_SOURCE_CONTROL_WRITING_STYLE } from "../shared/sourceControlWritingStyle";
-import type { CommitPlan, SourceControlWritingStyle } from "../shared/types";
+import type { CommitPlan, CommitPlanChange, CommitPlanGranularity, SourceControlWritingStyle } from "../shared/types";
+import { MAX_COMMIT_PLAN_CHANGES } from "./commitPlanChanges";
 
 export const MAX_COMMIT_PLAN_PATHS = 500;
 export const MAX_COMMIT_PLAN_GROUPS = 50;
@@ -8,7 +9,7 @@ export const MAX_COMMIT_PLAN_DIFF_CHARS = 80_000;
 interface RawCommitPlanGroup {
   message?: unknown;
   rationale?: unknown;
-  paths?: unknown;
+  changeIds?: unknown;
 }
 
 interface RawCommitPlan {
@@ -27,14 +28,14 @@ export function createCommitPlanSystemPrompt(
     "Write one imperative commit subject per group with 72 characters or fewer and no trailing period.",
     "Write a concise rationale that describes the change and is suitable for the commit message body.",
     "Return valid JSON only. Do not use markdown fences or add commentary.",
-    "Use this exact shape: {\"groups\":[{\"message\":\"...\",\"rationale\":\"...\",\"paths\":[\"...\"]}],\"unassignedPaths\":[\"...\"]}.",
-    "Each supplied path must appear exactly once, either in one group or in unassignedPaths.",
-    "Use unassignedPaths when a safe relationship is unclear."
+    "Use this exact shape: {\"groups\":[{\"message\":\"...\",\"rationale\":\"...\",\"changeIds\":[\"...\"]}],\"unassignedChangeIds\":[\"...\"]}.",
+    "Each supplied change ID must appear exactly once, either in one group or in unassignedChangeIds.",
+    "Use unassignedChangeIds when a safe relationship is unclear."
   ].join(" ");
 }
 
 export function createCommitPlanUserPrompt(
-  paths: string[],
+  changes: CommitPlanChange[],
   diffContext: string,
   style: SourceControlWritingStyle = DEFAULT_SOURCE_CONTROL_WRITING_STYLE,
   recentCommitSubjects: string[] = []
@@ -44,8 +45,8 @@ export function createCommitPlanUserPrompt(
     : [];
 
   return [
-    "Create a commit plan for these working-tree files:",
-    ...paths.map((path) => `- ${path}`),
+    "Create a commit plan for these working-tree changes:",
+    ...changes.map((change) => `- ${change.id}: ${change.path}${change.kind === "hunk" ? ` (${change.label})` : " (whole file)"}`),
     examples.length > 0 ? "\nRecent commit subjects from this repository:" : "",
     ...examples.map((subject) => `- ${subject}`),
     "\nWorking-tree diffs:",
@@ -53,19 +54,23 @@ export function createCommitPlanUserPrompt(
   ].filter(Boolean).join("\n");
 }
 
-export function parseCommitPlanResponse(response: string, requestedPaths: string[]): CommitPlan {
-  const uniquePaths = [...new Set(requestedPaths.map((path) => path.trim()).filter(Boolean))];
-  if (uniquePaths.length === 0) {
-    throw new Error("Select at least one working-tree file.");
+export function parseCommitPlanResponse(
+  response: string,
+  requestedChanges: CommitPlanChange[],
+  granularity: CommitPlanGranularity
+): CommitPlan {
+  const changes = dedupeChanges(requestedChanges);
+  if (changes.length === 0) {
+    throw new Error("Select at least one working-tree change.");
   }
-  if (uniquePaths.length > MAX_COMMIT_PLAN_PATHS) {
-    throw new Error(`Commit plans support up to ${MAX_COMMIT_PLAN_PATHS} files.`);
+  if (changes.length > MAX_COMMIT_PLAN_CHANGES) {
+    throw new Error(`Commit plans support up to ${MAX_COMMIT_PLAN_CHANGES} changes.`);
   }
 
   const parsed = JSON.parse(extractJsonObject(response)) as RawCommitPlan;
   const rawGroups = Array.isArray(parsed.groups) ? parsed.groups.slice(0, MAX_COMMIT_PLAN_GROUPS) : [];
-  const allowedPaths = new Set(uniquePaths);
-  const assignedPaths = new Set<string>();
+  const allowedChangeIds = new Set(changes.map((change) => change.id));
+  const assignedChangeIds = new Set<string>();
   const groups: CommitPlan["groups"] = [];
 
   for (const [index, value] of rawGroups.entries()) {
@@ -73,23 +78,23 @@ export function parseCommitPlanResponse(response: string, requestedPaths: string
     const raw = value as RawCommitPlanGroup;
     const message = normalizeOneLine(raw.message);
     const rationale = normalizeOneLine(raw.rationale);
-    const rawPaths = Array.isArray(raw.paths) ? raw.paths : [];
-    const groupPaths = new Set<string>();
-    const paths = rawPaths.flatMap((path) => {
-      if (typeof path !== "string") return [];
-      const normalized = path.trim();
-      if (!allowedPaths.has(normalized) || assignedPaths.has(normalized) || groupPaths.has(normalized)) return [];
-      groupPaths.add(normalized);
+    const rawChangeIds = Array.isArray(raw.changeIds) ? raw.changeIds : [];
+    const groupChangeIds = new Set<string>();
+    const changeIds = rawChangeIds.flatMap((changeId) => {
+      if (typeof changeId !== "string") return [];
+      const normalized = changeId.trim();
+      if (!allowedChangeIds.has(normalized) || assignedChangeIds.has(normalized) || groupChangeIds.has(normalized)) return [];
+      groupChangeIds.add(normalized);
       return [normalized];
     });
 
-    if (!message || paths.length === 0) continue;
-    for (const path of paths) assignedPaths.add(path);
+    if (!message || changeIds.length === 0) continue;
+    for (const changeId of changeIds) assignedChangeIds.add(changeId);
     groups.push({
       id: `group-${index + 1}`,
       message,
       rationale,
-      paths
+      changeIds
     });
   }
 
@@ -98,9 +103,22 @@ export function parseCommitPlanResponse(response: string, requestedPaths: string
   }
 
   return {
+    granularity,
+    changes,
     groups,
-    unassignedPaths: uniquePaths.filter((path) => !assignedPaths.has(path))
+    unassignedChangeIds: changes
+      .map((change) => change.id)
+      .filter((changeId) => !assignedChangeIds.has(changeId))
   };
+}
+
+function dedupeChanges(changes: CommitPlanChange[]): CommitPlanChange[] {
+  const ids = new Set<string>();
+  return changes.filter((change) => {
+    if (!change.id || ids.has(change.id)) return false;
+    ids.add(change.id);
+    return true;
+  });
 }
 
 function extractJsonObject(value: string): string {
