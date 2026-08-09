@@ -25,8 +25,12 @@ import type {
   GitHubPage,
   GitHubRepository,
   GitHubRepositoryRequest,
-  GitHubWorkflowRun
-  ,GitHubWorkflowRunsRequest,
+  GitHubWorkflowJob,
+  GitHubWorkflowRun,
+  GitHubWorkflowRunDetail,
+  GitHubWorkflowRunMutationResult,
+  GitHubWorkflowRunRequest,
+  GitHubWorkflowRunsRequest,
   GitHubViewer
 } from "../shared/types";
 import { GitHubHttpError, GitHubResponseBodyError, type GitHubApiClient } from "./githubClient";
@@ -66,18 +70,27 @@ interface GitHubApiWorkflowRunsResponse extends GitHubApiErrorResponse {
 interface GitHubApiWorkflowRun {
   id?: number | string;
   name?: string | null;
+  display_title?: string | null;
   run_number?: number | null;
+  run_attempt?: number | null;
   status?: string | null;
   conclusion?: string | null;
   head_branch?: string | null;
   event?: string | null;
   head_sha?: string | null;
   html_url?: string | null;
+  created_at?: string | null;
   run_started_at?: string | null;
   updated_at?: string | null;
+  actor?: unknown;
   head_commit?: {
     message?: string | null;
   } | null;
+}
+
+interface GitHubApiWorkflowJobsResponse extends GitHubApiErrorResponse {
+  total_count?: number;
+  jobs?: unknown[];
 }
 
 interface GitHubApiIssue {
@@ -156,6 +169,15 @@ export class GitHubService {
   async getWorkflowRuns(request: GitHubWorkflowRunsRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubPage<GitHubWorkflowRun>>> {
     return this.read(() => this.getWorkflowRunsData(request, signal));
   }
+  async getWorkflowRunDetail(request: GitHubWorkflowRunRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubWorkflowRunDetail>> {
+    return this.read(() => this.getWorkflowRunDetailData(request, signal));
+  }
+  async rerunWorkflowRun(request: GitHubWorkflowRunRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubWorkflowRunMutationResult>> {
+    return this.mutate(() => this.mutateWorkflowRun(request, "rerun", signal));
+  }
+  async cancelWorkflowRun(request: GitHubWorkflowRunRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubWorkflowRunMutationResult>> {
+    return this.mutate(() => this.mutateWorkflowRun(request, "cancel", signal));
+  }
   async getOpenCounts(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubOpenCounts>> {
     return this.read(() => this.getOpenCountsData(request, signal));
   }
@@ -221,29 +243,52 @@ export class GitHubService {
 
     const rawItems = response.workflow_runs ?? [];
     const items = rawItems.flatMap((run) => {
-      const id = run.id === undefined || run.id === null ? "" : String(run.id);
-      if (!id) {
-        return [];
-      }
-
-      return [
-        {
-          id,
-          name: normalizeText(run.name, "Unnamed workflow"),
-          runNumber: Number.isFinite(run.run_number) ? Number(run.run_number) : null,
-          status: normalizeText(run.status, "unknown"),
-          conclusion: run.conclusion?.trim() || null,
-          branch: normalizeText(run.head_branch, "-"),
-          event: normalizeText(run.event, "-"),
-          commitSha: normalizeText(run.head_sha, ""),
-          commitMessage: getFirstLine(run.head_commit?.message ?? ""),
-          url: normalizeText(run.html_url, repository.webUrl),
-          startedAt: normalizeText(run.run_started_at, ""),
-          updatedAt: normalizeText(run.updated_at, "")
-        }
-      ];
+      const mapped = mapWorkflowRun(run, repository);
+      return mapped ? [mapped] : [];
     });
     return { items, page, nextPage: getNextPage(headers, page, rawItems.length, WORKFLOW_RUN_LIMIT), totalCount: Number.isFinite(response.total_count) ? Number(response.total_count) : null };
+  }
+
+  private async getWorkflowRunDetailData(request: GitHubWorkflowRunRequest, signal?: AbortSignal): Promise<GitHubWorkflowRunDetail> {
+    const runId = validateWorkflowRunId(request.runId);
+    const repository = await this.getRepository(request.repoPath);
+    const prefix = `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/actions/runs/${runId}`;
+    const readRequest = { cache: { mode: "conditional" as const }, ...(signal ? { signal } : {}) };
+    const [runResponse, jobsResponse] = await Promise.all([
+      this.client.requestJson<GitHubApiWorkflowRun>(repository, prefix, readRequest),
+      this.client.requestJson<GitHubApiWorkflowJobsResponse>(repository, `${prefix}/jobs?filter=all&per_page=100`, readRequest)
+    ]);
+    const run = mapWorkflowRun(runResponse.payload, repository);
+    if (!run) throw new Error("GitHub returned an invalid workflow run detail response.");
+    const jobs = asArray(jobsResponse.payload.jobs).flatMap((job) => {
+      const mapped = mapWorkflowJob(job);
+      return mapped ? [mapped] : [];
+    });
+    return {
+      ...run,
+      jobs,
+      jobCount: Number.isFinite(jobsResponse.payload.total_count) ? Number(jobsResponse.payload.total_count) : jobs.length
+    };
+  }
+
+  private async mutateWorkflowRun(
+    request: GitHubWorkflowRunRequest,
+    action: "rerun" | "cancel",
+    signal?: AbortSignal
+  ): Promise<GitHubWorkflowRunMutationResult> {
+    const runId = validateWorkflowRunId(request.runId);
+    const repository = await this.getRepository(request.repoPath);
+    await this.client.requestJson<unknown>(
+      repository,
+      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/actions/runs/${runId}/${action}`,
+      { method: "POST", ...(signal ? { signal } : {}) }
+    );
+    this.client.invalidateRepository(repository);
+    return {
+      runId,
+      url: `${repository.webUrl}/actions/runs/${runId}`,
+      message: action === "rerun" ? "Workflow re-run requested." : "Workflow cancellation requested."
+    };
   }
 
   private async getOpenCountsData(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubOpenCounts> {
@@ -772,6 +817,63 @@ function getFirstLine(value: string): string {
   return value.trim().split(/\r?\n/, 1)[0]?.trim() ?? "";
 }
 
+function mapWorkflowRun(run: GitHubApiWorkflowRun, repository: GitHubRepository): GitHubWorkflowRun | null {
+  const id = run.id === undefined || run.id === null ? "" : String(run.id);
+  if (!/^\d+$/.test(id)) return null;
+  const name = normalizeText(run.name, "Unnamed workflow");
+  const commitMessage = getFirstLine(run.head_commit?.message ?? "");
+  return {
+    id,
+    name,
+    displayTitle: normalizeText(run.display_title, commitMessage || name),
+    runNumber: Number.isFinite(run.run_number) ? Number(run.run_number) : null,
+    attempt: Math.max(1, finiteNumber(run.run_attempt, 1)),
+    status: normalizeText(run.status, "unknown").toLowerCase(),
+    conclusion: run.conclusion?.trim().toLowerCase() || null,
+    branch: normalizeText(run.head_branch, "-"),
+    event: normalizeText(run.event, "-"),
+    actor: mapUser(run.actor),
+    commitSha: normalizeText(run.head_sha, ""),
+    commitMessage,
+    url: normalizeText(run.html_url, `${repository.webUrl}/actions/runs/${id}`),
+    createdAt: normalizeText(run.created_at, ""),
+    startedAt: normalizeText(run.run_started_at, ""),
+    updatedAt: normalizeText(run.updated_at, "")
+  };
+}
+
+function mapWorkflowJob(value: unknown): GitHubWorkflowJob | null {
+  const job = asRecord(value);
+  if (!job) return null;
+  const id = job?.id === undefined || job.id === null ? "" : String(job.id);
+  if (!/^\d+$/.test(id)) return null;
+  const steps = asArray(job?.steps).flatMap((value) => {
+    const step = asRecord(value);
+    const number = finiteNumber(step?.number, 0);
+    if (!step || number < 1) return [];
+    return [{
+      number,
+      name: normalizeText(stringValue(step.name), `Step ${number}`),
+      status: normalizeText(stringValue(step.status), "unknown").toLowerCase(),
+      conclusion: stringValue(step.conclusion)?.trim().toLowerCase() || null,
+      startedAt: normalizeText(stringValue(step.started_at), ""),
+      completedAt: normalizeText(stringValue(step.completed_at), "")
+    }];
+  });
+  return {
+    id,
+    name: normalizeText(stringValue(job.name), "Unnamed job"),
+    status: normalizeText(stringValue(job.status), "unknown").toLowerCase(),
+    conclusion: stringValue(job.conclusion)?.trim().toLowerCase() || null,
+    url: normalizeText(stringValue(job.html_url), ""),
+    startedAt: normalizeText(stringValue(job.started_at), ""),
+    completedAt: normalizeText(stringValue(job.completed_at), ""),
+    runnerName: normalizeText(stringValue(job.runner_name), ""),
+    labels: asArray(job.labels).flatMap((label) => typeof label === "string" && label.trim() ? [label.trim()] : []),
+    steps
+  };
+}
+
 function normalizeLabels(labels: Array<string | { name?: string | null }>): string[] {
   return labels.flatMap((label) => {
     if (typeof label === "string") {
@@ -798,6 +900,12 @@ function sumCounts(...values: Array<number | null | undefined>): number {
 function validateItemNumber(value: number): number {
   if (!Number.isSafeInteger(value) || value < 1) throw new Error("GitHub item number must be a positive safe integer.");
   return value;
+}
+
+function validateWorkflowRunId(value: string): string {
+  const id = value.trim();
+  if (!/^[1-9]\d*$/.test(id)) throw new Error("GitHub workflow run ID must be a positive integer.");
+  return id;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

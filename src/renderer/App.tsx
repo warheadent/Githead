@@ -227,6 +227,7 @@ import { ConflictResolutionDialog } from "./ConflictResolutionDialog";
 import { emptyPushToBranchDialog, type PushToBranchDialogState } from "./pushToBranchState";
 import { gitHubQueryStore, useGitHubQueries } from "./useGitHubQueries";
 import { GitHubQueryToolbar } from "./GitHubQueryToolbar";
+import { WorkflowRunConsole } from "./WorkflowRunConsole";
 import { DEFAULT_ISSUE_QUERY, DEFAULT_PULL_REQUEST_QUERY, DEFAULT_WORKFLOW_QUERY, filterLoadedWorkflowRuns, sortLoadedWorkflowRuns } from "./githubViewQuery";
 import { useGitHubHistoryInsights } from "./useGitHubHistoryInsights";
 import {
@@ -285,20 +286,7 @@ const ReviewConsole = lazy(() => import("./ReviewConsole.js").then((module) => (
 const HISTORY_LIMIT = 200;
 
 type HistoryColumnId = "graph" | "description" | "date" | "author" | "commit" | "references" | "pullRequest" | "checks";
-type WorkflowColumnId = "status" | "workflow" | "branch" | "event" | "updated" | "run" | "commit" | "started" | "duration";
 type IssueColumnId = "number" | "title" | "labels" | "comments" | "updated" | "author";
-
-const WORKFLOW_COLUMNS = [
-  { id: "status", label: "Status", defaultWidth: 132, minWidth: 90 },
-  { id: "workflow", label: "Workflow", defaultWidth: 300, minWidth: 180 },
-  { id: "branch", label: "Branch", defaultWidth: 170, minWidth: 100 },
-  { id: "event", label: "Event", defaultWidth: 150, minWidth: 90 },
-  { id: "updated", label: "Updated", defaultWidth: 210, minWidth: 110 },
-  { id: "run", label: "Run", defaultWidth: 90, minWidth: 72, defaultVisible: false },
-  { id: "commit", label: "Commit", defaultWidth: 260, minWidth: 140, defaultVisible: false },
-  { id: "started", label: "Started", defaultWidth: 210, minWidth: 110, defaultVisible: false },
-  { id: "duration", label: "Duration", defaultWidth: 110, minWidth: 80, defaultVisible: false }
-] as const satisfies readonly ColumnDefinition<WorkflowColumnId>[];
 
 const ISSUE_COLUMNS = [
   { id: "number", label: "Issue", defaultWidth: 88, minWidth: 72 },
@@ -10903,110 +10891,135 @@ function WorkflowRunsView({
   onCheckRemote: () => void;
 }): ReactNode {
   const repository = summary?.githubRepository ?? null;
-  const columnLayout = usePersistentColumnLayout("githead.column-layout.workflows", WORKFLOW_COLUMNS);
+  const [selectedRun, setSelectedRun] = useState<GitHubWorkflowRun | null>(null);
+  const selectedRunRef = useRef<HTMLButtonElement | null>(null);
   const displayedRuns = useMemo(() => sortLoadedWorkflowRuns(filterLoadedWorkflowRuns(workflowRuns, search), query.sortDirection), [workflowRuns, search, query.sortDirection]);
   const filtered = Boolean(search || query.branch || query.event || query.status);
   const countLabel = loaded ? (search ? `${displayedRuns.length} matches in ${workflowRuns.length} loaded runs` : formatLoadedCount(workflowRuns.length, totalCount, "run", "runs")) : "-";
+  const activeFilterCount = [query.branch, query.event, query.status].filter(Boolean).length;
   const applyPreset = (value: string): void => {
     onPresetChange(value);
+    if (value === "custom") return;
     if (value === "branch") onQueryChange({ ...DEFAULT_WORKFLOW_QUERY, branch: summary?.branch ?? undefined });
     else if (value === "failed") onQueryChange({ ...DEFAULT_WORKFLOW_QUERY, status: "failure" });
     else if (value === "progress") onQueryChange({ ...DEFAULT_WORKFLOW_QUERY, status: "in_progress" });
     else onQueryChange({ ...DEFAULT_WORKFLOW_QUERY });
   };
+  useEffect(() => {
+    setSelectedRun(null);
+    selectedRunRef.current = null;
+  }, [summary?.repoPath]);
+  useEffect(() => {
+    setSelectedRun((current) => current ? workflowRuns.find((run) => run.id === current.id) ?? current : null);
+  }, [workflowRuns]);
+  const closeDetail = (): void => {
+    setSelectedRun(null);
+    requestAnimationFrame(() => selectedRunRef.current?.focus());
+  };
 
   return (
-    <section ref={columnLayout.containerRef} style={columnLayout.style} className="github-view workflow-runs-grid" aria-label="Workflow runs">
-      <GitHubViewHeader
-        eyebrow="GitHub"
-        title="Workflow Runs"
-        repositoryName={repository?.fullName ?? "-"}
-        countLabel={countLabel}
-        loading={loading || busy}
-        disabled={!repository}
-        actions={<ColumnVisibilityMenu columns={WORKFLOW_COLUMNS} controller={columnLayout} buttonSize="sm" />}
-        onRefresh={onRefresh}
+    <GitHubDetailWorkspace persistent listDefaultSize="38%" open={selectedRun !== null} emptyDrawer={<WorkflowRunEmptyDetails />} drawer={selectedRun && repository ? (
+      <WorkflowRunConsole
+        repoPath={summary?.repoPath ?? ""}
+        githubFullName={repository.fullName}
+        run={selectedRun}
+        onClose={closeDetail}
+        onOpenExternalUrl={onOpenExternalUrl}
+        onRunChanged={onRefresh}
       />
-      <GitHubQueryToolbar view="workflows" search={search} preset={preset} presets={[{ value: "all", label: "All runs" }, { value: "branch", label: "Current Branch", disabled: !summary?.branch }, { value: "failed", label: "Failed" }, { value: "progress", label: "In progress" }, { value: "custom", label: "Custom" }]} sort={query.sortDirection} sortOptions={[{ value: "desc", label: "Newest" }, { value: "asc", label: "Oldest loaded" }]} viewerAvailable status={loading || busy ? "Loading workflow runs" : countLabel} onSearchChange={onSearchChange} onPresetChange={applyPreset} onSortChange={(value) => { onPresetChange("custom"); onQueryChange({ ...query, sortDirection: value as "asc" | "desc" }); }} onClear={() => { onSearchChange(""); applyPreset("all"); }}>
-        <label className="github-query-field"><span>Event</span><input value={query.event ?? ""} placeholder="push" onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, event: event.target.value || undefined }); }} /></label>
-        <label className="github-query-field"><span>Status</span><select value={query.status ?? ""} onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, status: (event.target.value || undefined) as GitHubWorkflowRunQuery["status"] }); }}><option value="">Any</option><option value="queued">Queued</option><option value="in_progress">In progress</option><option value="completed">Completed</option><option value="success">Success</option><option value="failure">Failure</option><option value="cancelled">Cancelled</option></select></label>
-      </GitHubQueryToolbar>
-      <div className="github-list" role="list" aria-label="Workflow runs">
-        <AdjustableColumnHeader columns={WORKFLOW_COLUMNS} controller={columnLayout} className="github-table-header" />
-        {!repository ? (
-          <GitHubListEmptyState icon={<GitFork />} title="No GitHub repository" description="Select a repository with a supported GitHub origin." />
-        ) : loading ? (
-          <LoadingState label="Loading workflow runs" className="h-full" />
-        ) : error && workflowRuns.length === 0 ? (
-          <GitHubFailureState failure={failure} fallback={error} stale={false} onRetry={onRefresh} onConnect={onConnectGitHub} onReviewAccess={onReviewAccess} onCheckRemote={onCheckRemote} />
-        ) : displayedRuns.length === 0 ? (
-          filtered
-            ? <GitHubListEmptyState icon={<SearchX />} title="No matching workflow runs" description="Try changing or clearing your search and filters." actionLabel="Clear filters" onAction={() => { onSearchChange(""); applyPreset("all"); }} />
-            : <GitHubListEmptyState icon={<Workflow />} title="No workflow runs" description="Workflow runs for this repository will appear here." />
-        ) : (
-          displayedRuns.map((run) => (
-            <WorkflowRunRow key={run.id} run={run} columnOrder={columnLayout.visibleOrder} onOpenExternalUrl={onOpenExternalUrl} />
-          ))
-        )}
-        {error && workflowRuns.length ? <GitHubFailureState failure={failure} fallback={error} stale onRetry={onRefresh} onConnect={onConnectGitHub} onReviewAccess={onReviewAccess} onCheckRemote={onCheckRemote} /> : null}
-        <GitHubListFooter label="workflow runs" nextPage={nextPage} loading={loadingMore} error="" disabled={busy} onLoadMore={onLoadMore} />
-      </div>
-
-    </section>
+    ) : null}>
+      <section className="github-view workflow-runs-grid" aria-label="Workflow runs">
+        <div className="github-view-header github-selector-header">
+          <div className="min-w-0">
+            <p className="eyebrow">GitHub</p>
+            <TooltipTarget content={repository?.fullName ?? "-"}><h2 className="truncate text-sm font-semibold">{repository?.fullName ?? "-"}</h2></TooltipTarget>
+            <p className="github-secondary-text">{countLabel}</p>
+          </div>
+        </div>
+        <GitHubQueryToolbar compact activeFilterCount={activeFilterCount} refreshDisabled={!repository} refreshing={loading || busy} onRefresh={onRefresh} view="workflows" search={search} preset={preset} presets={[{ value: "all", label: "All runs" }, { value: "branch", label: "Current branch", disabled: !summary?.branch }, { value: "failed", label: "Failed" }, { value: "progress", label: "In progress" }, { value: "custom", label: "Custom" }]} sort={query.sortDirection} sortOptions={[{ value: "desc", label: "Newest" }, { value: "asc", label: "Oldest loaded" }]} viewerAvailable status={loading || busy ? "Loading workflow runs" : countLabel} onSearchChange={(value) => { onPresetChange("custom"); onSearchChange(value); }} onPresetChange={applyPreset} onSortChange={(value) => { onPresetChange("custom"); onQueryChange({ ...query, sortDirection: value as "asc" | "desc" }); }} onClear={() => { onSearchChange(""); applyPreset("all"); }}>
+          <label className="github-query-field"><span>Event</span><input value={query.event ?? ""} placeholder="push" onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, event: event.target.value || undefined }); }} /></label>
+          <label className="github-query-field"><span>Status</span><select value={query.status ?? ""} onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, status: (event.target.value || undefined) as GitHubWorkflowRunQuery["status"] }); }}><option value="">Any</option><option value="queued">Queued</option><option value="in_progress">In progress</option><option value="completed">Completed</option><option value="success">Success</option><option value="failure">Failure</option><option value="cancelled">Cancelled</option></select></label>
+        </GitHubQueryToolbar>
+        <div className="github-list" role="list" aria-label="Workflow runs">
+          {!repository ? (
+            <GitHubListEmptyState icon={<GitFork />} title="No GitHub repository" description="Select a repository with a supported GitHub origin." />
+          ) : loading ? (
+            <LoadingState label="Loading workflow runs" className="h-full" />
+          ) : error && workflowRuns.length === 0 ? (
+            <GitHubFailureState failure={failure} fallback={error} stale={false} onRetry={onRefresh} onConnect={onConnectGitHub} onReviewAccess={onReviewAccess} onCheckRemote={onCheckRemote} />
+          ) : displayedRuns.length === 0 ? (
+            filtered
+              ? <GitHubListEmptyState icon={<SearchX />} title="No matching workflow runs" description="Try changing or clearing your search and filters." actionLabel="Clear filters" onAction={() => { onSearchChange(""); applyPreset("all"); }} />
+              : <GitHubListEmptyState icon={<Workflow />} title="No workflow runs" description="Workflow runs for this repository will appear here." />
+          ) : (
+            displayedRuns.map((run) => (
+              <WorkflowRunRow key={run.id} run={run} selected={selectedRun?.id === run.id} onSelect={(item, button) => {
+                selectedRunRef.current = button;
+                setSelectedRun(item);
+              }} />
+            ))
+          )}
+          {error && workflowRuns.length ? <GitHubFailureState failure={failure} fallback={error} stale onRetry={onRefresh} onConnect={onConnectGitHub} onReviewAccess={onReviewAccess} onCheckRemote={onCheckRemote} /> : null}
+          <GitHubListFooter label="workflow runs" nextPage={nextPage} loading={loadingMore} error="" disabled={busy} onLoadMore={onLoadMore} />
+        </div>
+      </section>
+    </GitHubDetailWorkspace>
   );
 }
 
 function WorkflowRunRow({
   run,
-  columnOrder,
-  onOpenExternalUrl
+  selected,
+  onSelect
 }: {
   run: GitHubWorkflowRun;
-  columnOrder: readonly WorkflowColumnId[];
-  onOpenExternalUrl: (url: string) => void;
+  selected: boolean;
+  onSelect: (run: GitHubWorkflowRun, button: HTMLButtonElement) => void;
 }): ReactNode {
   const statusText = formatWorkflowRunStatus(run);
+  const title = run.displayTitle || run.commitMessage || run.name;
 
   return (
-    <a
-      className="github-row workflow-run-row"
-      href={run.url}
-      target="_blank"
-      rel="noreferrer"
+    <div
+      className={`github-row workflow-run-row ${selected ? "is-selected" : ""}`}
       role="listitem"
-      onClick={(event) => {
-        event.preventDefault();
-        onOpenExternalUrl(run.url);
-      }}
+      aria-current={selected ? "true" : undefined}
     >
-      <OrderedCells order={columnOrder} cells={{
-        status: <span className={`github-status ${getWorkflowRunStatusClass(run)}`}>
+      <button type="button" className="workflow-run-row-select" aria-label={`${run.name}: ${title}`} aria-pressed={selected} onClick={(event) => onSelect(run, event.currentTarget)}>
+        <span className={`workflow-run-row-state ${getWorkflowRunStatusClass(run)}`}>
           <span className="github-status-dot" aria-hidden="true" />
-          <TooltipTarget content={statusText}><span className="truncate">{statusText}</span></TooltipTarget>
-        </span>,
-        workflow: <span className="min-w-0">
-          <TooltipTarget content={run.name}><span className="github-primary-text">{run.name}</span></TooltipTarget>
-          {!columnOrder.includes("commit") ? (
-            <TooltipTarget content={run.commitMessage || run.commitSha}>
-              <span className="github-secondary-text">{run.commitMessage || formatShortHash(run.commitSha)}</span>
-            </TooltipTarget>
-          ) : null}
-        </span>,
-        branch: <TooltipTarget content={run.branch}><span className="truncate">{run.branch}</span></TooltipTarget>,
-        event: <TooltipTarget content={run.event}><span className="truncate">{run.event}</span></TooltipTarget>,
-        updated: <TooltipTarget content={formatDate(run.updatedAt)}><span className="github-updated-cell truncate">{formatDate(run.updatedAt)}</span></TooltipTarget>,
-        run: <span className="github-secondary-text">{run.runNumber === null ? "-" : `#${run.runNumber}`}</span>,
-        commit: <TooltipTarget content={run.commitMessage || run.commitSha}>
-          <span className="min-w-0">
-            <span className="github-primary-text">{run.commitMessage || "-"}</span>
-            {run.commitSha ? <span className="github-secondary-text">{formatShortHash(run.commitSha)}</span> : null}
+          <span>{statusText}</span>
+        </span>
+        <span className="workflow-run-row-content">
+          <span className="workflow-run-row-heading">
+            <TooltipTarget content={run.name}><strong>{run.name}</strong></TooltipTarget>
+            <span>{run.runNumber === null ? "Run" : `#${run.runNumber}`}</span>
           </span>
-        </TooltipTarget>,
-        started: <TooltipTarget content={formatDate(run.startedAt)}><span className="truncate">{formatDate(run.startedAt)}</span></TooltipTarget>,
-        duration: <span className="github-secondary-text">{formatRunDuration(run.startedAt, run.updatedAt)}</span>
-      }} />
-    </a>
+          <TooltipTarget content={title}><span className="github-primary-text workflow-run-row-title">{title}</span></TooltipTarget>
+          <span className="workflow-run-row-meta github-secondary-text">
+            <TooltipTarget content={run.actor.login}><span className="truncate">{run.actor.login}</span></TooltipTarget>
+            <span aria-hidden="true">·</span>
+            <TooltipTarget content={run.branch}><span className="truncate">{run.branch}</span></TooltipTarget>
+          </span>
+          <span className="workflow-run-row-details github-secondary-text">
+            <span>{formatWorkflowEvent(run.event)}</span>
+            <span aria-hidden="true">·</span>
+            <TooltipTarget content={formatDate(run.updatedAt)}><span>updated {formatRelativeDate(run.updatedAt)}</span></TooltipTarget>
+            <span aria-hidden="true">·</span>
+            <span>{formatRunDuration(run.startedAt, run.updatedAt)}</span>
+          </span>
+        </span>
+      </button>
+    </div>
   );
+}
+
+function WorkflowRunEmptyDetails(): ReactNode {
+  return <section className="review-console-empty" aria-labelledby="workflow-run-empty-heading">
+    <Workflow aria-hidden="true" />
+    <h2 id="workflow-run-empty-heading">Select a workflow run</h2>
+    <p>Choose a run to inspect jobs, steps, timing, logs, and available run actions.</p>
+  </section>;
 }
 
 function GitHubDetailWorkspace({ open, drawer, emptyDrawer, persistent = false, listDefaultSize = "40%", children }: { open: boolean; drawer: ReactNode; emptyDrawer?: ReactNode; persistent?: boolean; listDefaultSize?: string; children: ReactNode }): ReactNode {
@@ -11119,7 +11132,7 @@ function PullRequestsView({
       </Suspense>
     ) : null}>
     <section className="github-view pull-requests-grid" aria-label="Pull requests">
-      <div className="github-view-header pull-request-selector-header">
+      <div className="github-view-header github-selector-header">
         <div className="min-w-0">
           <p className="eyebrow">GitHub</p>
           <TooltipTarget content={repository?.fullName ?? "-"}><h2 className="truncate text-sm font-semibold">{repository?.fullName ?? "-"}</h2></TooltipTarget>
@@ -14177,7 +14190,11 @@ function formatDate(value: string): string {
 }
 
 function formatWorkflowRunStatus(run: GitHubWorkflowRun): string {
-  return run.conclusion ?? run.status;
+  return formatWorkflowEvent(run.conclusion ?? run.status);
+}
+
+function formatWorkflowEvent(value: string): string {
+  return value.split("_").filter(Boolean).map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`).join(" ") || "Unknown";
 }
 
 function waitForMilliseconds(milliseconds: number): Promise<void> {
@@ -14185,7 +14202,7 @@ function waitForMilliseconds(milliseconds: number): Promise<void> {
 }
 
 function getWorkflowRunStatusClass(run: GitHubWorkflowRun): string {
-  const status = formatWorkflowRunStatus(run).toLowerCase();
+  const status = (run.conclusion ?? run.status).toLowerCase();
   if (status === "success") {
     return "success";
   }
@@ -14197,10 +14214,6 @@ function getWorkflowRunStatusClass(run: GitHubWorkflowRun): string {
   }
 
   return "neutral";
-}
-
-function formatShortHash(hash: string): string {
-  return hash ? hash.slice(0, 7) : "-";
 }
 
 function isDeletedOnSide(file: GitStatusFile, side: GitDiffSide): boolean {

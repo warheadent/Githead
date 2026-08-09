@@ -71,16 +71,47 @@ export interface GitHubRepository {
 export interface GitHubWorkflowRun {
   id: string;
   name: string;
+  displayTitle: string;
   runNumber: number | null;
+  attempt: number;
   status: string;
   conclusion: string | null;
   branch: string;
   event: string;
+  actor: GitHubUserSummary;
   commitSha: string;
   commitMessage: string;
   url: string;
+  createdAt: string;
   startedAt: string;
   updatedAt: string;
+}
+
+export interface GitHubWorkflowStep {
+  number: number;
+  name: string;
+  status: string;
+  conclusion: string | null;
+  startedAt: string;
+  completedAt: string;
+}
+
+export interface GitHubWorkflowJob {
+  id: string;
+  name: string;
+  status: string;
+  conclusion: string | null;
+  url: string;
+  startedAt: string;
+  completedAt: string;
+  runnerName: string;
+  labels: string[];
+  steps: GitHubWorkflowStep[];
+}
+
+export interface GitHubWorkflowRunDetail extends GitHubWorkflowRun {
+  jobs: GitHubWorkflowJob[];
+  jobCount: number;
 }
 
 export interface GitHubIssue {
@@ -660,6 +691,16 @@ export interface GitHubPageRequest extends GitHubRepositoryRequest {
 export interface GitHubWorkflowRunsRequest extends GitHubPageRequest { query?: GitHubWorkflowRunQuery | undefined }
 export interface GitHubPullRequestsRequest extends GitHubPageRequest { query?: GitHubPullRequestQuery | undefined }
 export interface GitHubIssuesRequest extends GitHubPageRequest { query?: GitHubIssueQuery | undefined }
+
+export interface GitHubWorkflowRunRequest extends GitHubRepositoryRequest {
+  runId: string;
+}
+
+export interface GitHubWorkflowRunMutationResult {
+  runId: string;
+  url: string;
+  message: string;
+}
 
 export interface GitHubPullRequestDetailRequest extends GitHubRepositoryRequest {
   number: number;
@@ -2143,6 +2184,9 @@ export interface GitheadApi {
   addRepoTrust(request: RepoTrustRequest): Promise<RepoTrustResult>;
   addSafeDirectory(request: CoordinatedRequest<GitSafeDirectoryRequest>): Promise<GitOperationResult>;
   getGitHubWorkflowRuns(request: GitHubWorkflowRunsRequest): Promise<GitHubOperationResult<GitHubPage<GitHubWorkflowRun>>>;
+  getGitHubWorkflowRunDetail(request: GitHubWorkflowRunRequest): Promise<GitHubOperationResult<GitHubWorkflowRunDetail>>;
+  rerunGitHubWorkflowRun(request: CoordinatedRequest<GitHubWorkflowRunRequest>): Promise<GitHubOperationResult<GitHubWorkflowRunMutationResult>>;
+  cancelGitHubWorkflowRun(request: CoordinatedRequest<GitHubWorkflowRunRequest>): Promise<GitHubOperationResult<GitHubWorkflowRunMutationResult>>;
   getGitHubViewer(request: GitHubRepositoryRequest): Promise<GitHubOperationResult<GitHubViewer>>;
   getGitHubOpenCounts(request: GitHubRepositoryRequest): Promise<GitHubOperationResult<GitHubOpenCounts>>;
   getGitHubIssues(request: GitHubIssuesRequest): Promise<GitHubOperationResult<GitHubPage<GitHubIssue>>>;

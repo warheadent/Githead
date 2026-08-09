@@ -65,6 +65,7 @@ import type {
   GitFilePreviewRequest,
   GitHunkRequest,
   GitLfsImageFetchRequest,
+  GitHubWorkflowRunRequest,
   GitHubWorkflowRunsRequest,
   GitHubOperationResult,
   GitHubPullRequestDetailRequest,
@@ -564,6 +565,8 @@ ipcMain.handle(IPC_CHANNELS.disconnectGitHub, async () => {
 });
 ipcMain.handle(IPC_CHANNELS.getGitHubWorkflowRuns, (event, request: GitHubWorkflowRunsRequest) =>
   handleGitHubRead(event, request, (signal) => getGitHubService().getWorkflowRuns(request, signal)));
+ipcMain.handle(IPC_CHANNELS.getGitHubWorkflowRunDetail, (event, request: GitHubWorkflowRunRequest) =>
+  handleGitHubRead(event, request, (signal) => getGitHubService().getWorkflowRunDetail(request, signal)));
 ipcMain.handle(IPC_CHANNELS.getGitHubViewer, (event, request: GitHubRepositoryRequest) =>
   handleGitHubRead(event, request, (signal) => getGitHubService().getViewer(request, signal)));
 ipcMain.handle(IPC_CHANNELS.getGitHubOpenCounts, (event, request: GitHubRepositoryRequest) =>
@@ -581,6 +584,10 @@ ipcMain.handle(IPC_CHANNELS.getGitHubHistoryInsights, (event, request: GitHubHis
 
 ipcMain.handle(IPC_CHANNELS.createGitHubPullRequest, (event, request: CoordinatedRequest<CreatePullRequestRequest>) =>
   handleGitHubMutation(event, request, (signal) => getGitHubService().createPullRequest(request, signal)));
+ipcMain.handle(IPC_CHANNELS.rerunGitHubWorkflowRun, (event, request: CoordinatedRequest<GitHubWorkflowRunRequest>) =>
+  handleGitHubMutation(event, request, (signal) => getGitHubService().rerunWorkflowRun(request, signal)));
+ipcMain.handle(IPC_CHANNELS.cancelGitHubWorkflowRun, (event, request: CoordinatedRequest<GitHubWorkflowRunRequest>) =>
+  handleGitHubMutation(event, request, (signal) => getGitHubService().cancelWorkflowRun(request, signal)));
 ipcMain.handle(IPC_CHANNELS.approveGitHubPullRequest, (event, request: CoordinatedRequest<GitHubPullRequestReviewRequest>) =>
   handleGitHubMutation(event, request, (signal) => getGitHubService().approvePullRequest(request, signal)));
 ipcMain.handle(IPC_CHANNELS.commentOnGitHubItem, (event, request: CoordinatedRequest<GitHubItemCommentRequest>) =>

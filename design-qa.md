@@ -81,3 +81,53 @@ Console errors checked: no renderer errors or warnings were reported after the f
 No blocking follow-up polish remains in the requested scope.
 
 final result: passed
+
+---
+
+# Workflow Runs Redesign Design QA
+
+Reference Pull Requests screen: `/home/dev/.t3/userdata/attachments/708969d8-ad57-40a9-b069-8a7b120c294a-0383491f-1e31-4800-853d-ee74e838a310.png`
+
+Matched baseline: `artifacts/workflow-runs-before.png`
+
+Matched implementation: `artifacts/workflow-runs-after.png`
+
+Populated implementation: `artifacts/workflow-runs-after-detail.png`
+
+Combined before/after comparison: `artifacts/workflow-runs-before-after.png`
+
+Combined reference/detail comparison: `artifacts/workflow-runs-design-comparison.png`
+
+Viewport and renderer:
+
+- The before and after captures use the same 1920 x 1080 viewport, repository, Workflow Runs tab, top scroll position, no selection, and light appearance.
+- The populated capture uses the same viewport and Electron renderer with live public workflow-run data from `warheadent/Githead`.
+- The reference/detail comparison keeps each full application view. Its theme and repository content intentionally differ.
+- The inspected target exposed `window.githead`; the Vite page was not used as renderer evidence.
+
+## Findings
+
+No actionable P0, P1, or P2 visual difference remains in this scope.
+
+- Layout and hierarchy: the workflow screen now follows the Pull Requests screen's persistent 38/62 list-detail workspace, compact repository header, query toolbar, selected-row treatment, resizable separator, centered unselected state, and detail header.
+- List scanning: each row keeps status in a stable leading column, then shows workflow and run number, run title, actor, ref, trigger, relative update time, and duration. Titles clamp and long refs truncate without changing row selection.
+- Run investigation: the detail view gives jobs and steps the main space. Run metadata stays in a fixed inspector. The live capture shows completed, active, and pending steps without layout shifts.
+- Colors and typography: all layout, borders, selection, text, and status treatments reuse Githead variables and existing type styles. The reference is dark and the test environment is light, so the visible accent differs by the active theme.
+- Icons and assets: the screen uses the project's Lucide icon set. No custom SVG, gradient, placeholder asset, or copied GitHub visual was added.
+- Interaction and accessibility: rows and job expanders are native buttons with selected or expanded state. Search, filters, sort, refresh, external links, close, logs, cancel confirmation, and re-run actions have accessible names. Closing details restores focus to the selected row.
+- Loading and failures: the list keeps the established GitHub loading, empty, stale-data, access, rate-limit, offline, and retry patterns. The detail query adds matching loading, retry, stale-data, and empty-job states.
+
+## Primary Interactions Tested
+
+- Loaded 30 of 449 live workflow runs in the Electron renderer.
+- Selected an active run and loaded its run detail, one job, and live step states.
+- Confirmed the job expands, the Logs link is present, run metadata is readable, and only the supported Cancel action is shown for the active run.
+- Confirmed the compact search, filter, sort, and refresh controls are present and keyboard-accessible.
+- Confirmed no renderer console error, page error, or Vite error overlay was present.
+- Automated tests covered run selection, detail loading, step rendering, external run and job links, focus restoration, re-run, cancel confirmation, search, API mapping, invalid IDs, and empty POST responses.
+
+## Comparison History
+
+Initial implementation review found no blocking visual defect. The final pass kept the Pull Requests layout rhythm while giving CI jobs and steps more horizontal space than review prose.
+
+final result: passed

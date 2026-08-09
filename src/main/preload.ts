@@ -54,6 +54,7 @@ import type {
   GitFilePreviewRequest,
   GitHunkRequest,
   GitLfsImageFetchRequest,
+  GitHubWorkflowRunRequest,
   GitHubWorkflowRunsRequest,
   GitHubPullRequestsRequest,
   GitHubPullRequestDetailRequest,
@@ -161,6 +162,12 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.addSafeDirectory, request) as ReturnType<GitheadApi["addSafeDirectory"]>,
   getGitHubWorkflowRuns: (request: GitHubWorkflowRunsRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubWorkflowRuns, request) as ReturnType<GitheadApi["getGitHubWorkflowRuns"]>,
+  getGitHubWorkflowRunDetail: (request: GitHubWorkflowRunRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getGitHubWorkflowRunDetail, request) as ReturnType<GitheadApi["getGitHubWorkflowRunDetail"]>,
+  rerunGitHubWorkflowRun: (request: CoordinatedRequest<GitHubWorkflowRunRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.rerunGitHubWorkflowRun, request) as ReturnType<GitheadApi["rerunGitHubWorkflowRun"]>,
+  cancelGitHubWorkflowRun: (request: CoordinatedRequest<GitHubWorkflowRunRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.cancelGitHubWorkflowRun, request) as ReturnType<GitheadApi["cancelGitHubWorkflowRun"]>,
   getGitHubViewer: (request: GitHubRepositoryRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubViewer, request) as ReturnType<GitheadApi["getGitHubViewer"]>,
   getGitHubOpenCounts: (request: GitHubRepositoryRequest) =>

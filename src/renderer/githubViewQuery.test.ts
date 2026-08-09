@@ -1,14 +1,36 @@
 import { describe, expect, it } from "vitest";
 import { filterLoadedWorkflowRuns, normalizePullRequestQuery, sortLoadedWorkflowRuns } from "./githubViewQuery";
 
-const run = (id: string, name: string, startedAt: string) => ({ id, name, runNumber: 1, status: "completed", conclusion: "success", branch: "main", event: "push", commitSha: id, commitMessage: name, url: "url", startedAt, updatedAt: startedAt });
+const run = (id: string, name: string, startedAt: string) => ({
+  id,
+  name,
+  displayTitle: name,
+  runNumber: 1,
+  attempt: 1,
+  status: "completed",
+  conclusion: "success",
+  branch: "main",
+  event: "workflow_dispatch",
+  actor: { login: "taylor", avatarUrl: "", url: "" },
+  commitSha: id,
+  commitMessage: name,
+  url: "url",
+  createdAt: startedAt,
+  startedAt,
+  updatedAt: startedAt
+});
 
 describe("GitHub view queries", () => {
   it("normalizes whitespace without changing case", () => {
     expect(normalizePullRequestQuery({ search: "  Fix Repo  ", label: " Needs Review ", sort: "updated", direction: "desc" })).toEqual({ search: "Fix Repo", label: "Needs Review", sort: "updated", direction: "desc" });
   });
   it("filters loaded workflow fields case-insensitively", () => {
-    expect(filterLoadedWorkflowRuns([run("abc", "Release Build", "2026-01-01")], "release")).toHaveLength(1);
+    const runs = [run("123", "Release Build", "2026-01-01")];
+    expect(filterLoadedWorkflowRuns(runs, "release")).toHaveLength(1);
+    expect(filterLoadedWorkflowRuns(runs, "taylor")).toHaveLength(1);
+    expect(filterLoadedWorkflowRuns(runs, "workflow dispatch")).toHaveLength(0);
+    expect(filterLoadedWorkflowRuns(runs, "workflow_dispatch")).toHaveLength(1);
+    expect(filterLoadedWorkflowRuns(runs, "123")).toHaveLength(1);
   });
   it("sorts a copy rather than mutating stored runs", () => {
     const stored = [run("2", "new", "2026-02-01"), run("1", "old", "2026-01-01")];

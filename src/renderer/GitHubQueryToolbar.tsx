@@ -42,14 +42,15 @@ export function GitHubQueryToolbar({ view, search, preset, presets, sort, sortOp
     return () => clearTimeout(timer);
   }, [draft, onSearchChange, search, view]);
   const placeholder = view === "workflows" ? "Search loaded runs" : view === "pullRequests" ? "Search open pull requests" : "Search open issues";
-  const displayedPlaceholder = compact && view === "pullRequests" ? "Search pull requests" : placeholder;
+  const displayedPlaceholder = compact ? view === "workflows" ? "Search workflow runs" : view === "pullRequests" ? "Search pull requests" : "Search issues" : placeholder;
+  const viewLabel = view === "workflows" ? "workflow runs" : view === "pullRequests" ? "pull requests" : "issues";
 
   if (compact) {
     return <div className="github-query-toolbar github-query-toolbar-compact">
       <label className="github-compact-search" htmlFor={`${id}-search`}>
         <span className="sr-only">Search</span>
         <Search aria-hidden="true" />
-        <input id={`${id}-search`} type="search" value={draft} placeholder={displayedPlaceholder} onChange={(event) => setDraft(event.target.value)} />
+        <input id={`${id}-search`} type="search" value={draft} placeholder={displayedPlaceholder} onChange={(event) => { setDraft(event.target.value); if (view === "workflows") onSearchChange(event.target.value); }} />
       </label>
       <Popover>
         <PopoverTrigger asChild>
@@ -63,7 +64,7 @@ export function GitHubQueryToolbar({ view, search, preset, presets, sort, sortOp
           <div className="github-filter-popover-header">
             <div>
               <p className="font-medium">Filters</p>
-              <p className="text-xs text-muted-foreground">Narrow the loaded pull requests.</p>
+              <p className="text-xs text-muted-foreground">Narrow the loaded {viewLabel}.</p>
             </div>
             <span className="github-filter-count" aria-label={`${activeFilterCount} active filters`}>{activeFilterCount}</span>
           </div>
@@ -74,7 +75,7 @@ export function GitHubQueryToolbar({ view, search, preset, presets, sort, sortOp
         </PopoverContent>
       </Popover>
       <CompactSortMenu value={sort} options={sortOptions} onValueChange={onSortChange} />
-      {onRefresh ? <TooltipButton type="button" variant="outline" size="icon" className="github-query-refresh" disabled={refreshDisabled || refreshing} aria-label="Refresh pull requests" tooltip="Refresh pull requests" onClick={onRefresh}>
+      {onRefresh ? <TooltipButton type="button" variant="outline" size="icon" className="github-query-refresh" disabled={refreshDisabled || refreshing} aria-label={`Refresh ${viewLabel}`} tooltip={`Refresh ${viewLabel}`} onClick={onRefresh}>
         {refreshing ? <Loader2 className="animate-spin" /> : <RefreshCw />}
       </TooltipButton> : null}
       <span className="sr-only" role="status" aria-live="polite">{status}</span>

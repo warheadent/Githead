@@ -64,6 +64,18 @@ describe("GitHubQueryToolbar", () => {
     expect(onSortChange).toHaveBeenCalledWith("created-desc");
   });
 
+  it("applies compact workflow search immediately and exposes a specific refresh label", async () => {
+    const user = userEvent.setup();
+    const onSearchChange = vi.fn();
+    const onRefresh = vi.fn();
+    render(<TooltipProvider><GitHubQueryToolbar compact view="workflows" search="" preset="all" presets={[{ value: "all", label: "All runs" }]} sort="desc" sortOptions={[{ value: "desc", label: "Newest" }]} viewerAvailable status="" onSearchChange={onSearchChange} onPresetChange={vi.fn()} onSortChange={vi.fn()} onClear={vi.fn()} onRefresh={onRefresh} /></TooltipProvider>);
+
+    await user.type(screen.getByRole("searchbox", { name: "Search" }), "linux");
+    expect(onSearchChange).toHaveBeenLastCalledWith("linux");
+    await user.click(screen.getByRole("button", { name: "Refresh workflow runs" }));
+    expect(onRefresh).toHaveBeenCalledOnce();
+  });
+
   it("keeps advanced pull-request filters in a compact popover", async () => {
     const user = userEvent.setup();
     const onClear = vi.fn();

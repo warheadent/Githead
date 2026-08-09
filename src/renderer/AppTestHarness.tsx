@@ -35,6 +35,7 @@ import type {
   GitHubPullRequest,
   GitHubPullRequestDetail,
   GitHubWorkflowRun,
+  GitHubWorkflowRunDetail,
   GitIdentitySettings,
   GitRunResult,
   GitheadApi,
@@ -324,6 +325,9 @@ export function createGitheadMock(): GitheadApi {
       failure: null
     }),
     getGitHubWorkflowRuns: vi.fn().mockResolvedValue({ ok: true, data: { items: [], page: 1, nextPage: null, totalCount: 0 }, rateLimit: null }),
+    getGitHubWorkflowRunDetail: vi.fn().mockImplementation(async ({ runId }) => ({ ok: true, data: createWorkflowRunDetail({ id: runId }), rateLimit: null })),
+    rerunGitHubWorkflowRun: vi.fn().mockImplementation(async ({ runId }) => ({ ok: true, data: { runId, url: `https://github.com/openai/githead/actions/runs/${runId}`, message: "Workflow re-run requested." }, rateLimit: null })),
+    cancelGitHubWorkflowRun: vi.fn().mockImplementation(async ({ runId }) => ({ ok: true, data: { runId, url: `https://github.com/openai/githead/actions/runs/${runId}`, message: "Workflow cancellation requested." }, rateLimit: null })),
     getGitHubViewer: vi.fn().mockResolvedValue({ ok: true, data: { login: "viewer", authenticated: true }, rateLimit: null }),
     getGitHubOpenCounts: vi.fn().mockResolvedValue({ ok: true, data: createOpenCounts(), rateLimit: null }),
     getGitHubIssues: vi.fn().mockResolvedValue({ ok: true, data: { items: [], page: 1, nextPage: null, totalCount: null }, rateLimit: null }),
@@ -758,18 +762,49 @@ export function createStatusFile(path: string, overrides: Partial<RepoSummary["f
 
 export function createWorkflowRun(overrides: Partial<GitHubWorkflowRun> = {}): GitHubWorkflowRun {
   return {
-    id: "run-1",
+    id: "1",
     name: "CI",
+    displayTitle: "fix: default workflow run",
     runNumber: 1,
+    attempt: 1,
     status: "completed",
     conclusion: "success",
     branch: "main",
     event: "push",
+    actor: { login: "taylor", avatarUrl: "", url: "https://github.com/taylor" },
     commitSha: "abcdef1234567890",
     commitMessage: "fix: default workflow run",
     url: "https://github.com/openai/githead/actions/runs/1",
+    createdAt: "2026-05-30T10:00:00Z",
     startedAt: "2026-05-30T10:00:00Z",
     updatedAt: "2026-05-30T10:05:00Z",
+    ...overrides
+  };
+}
+
+export function createWorkflowRunDetail(overrides: Partial<GitHubWorkflowRunDetail> = {}): GitHubWorkflowRunDetail {
+  return {
+    ...createWorkflowRun(),
+    jobs: [{
+      id: "11",
+      name: "build-linux",
+      status: "completed",
+      conclusion: "success",
+      url: "https://github.com/openai/githead/actions/runs/1/job/11",
+      startedAt: "2026-05-30T10:00:10Z",
+      completedAt: "2026-05-30T10:04:40Z",
+      runnerName: "GitHub Actions 1",
+      labels: ["ubuntu-latest"],
+      steps: [{
+        number: 1,
+        name: "Run tests",
+        status: "completed",
+        conclusion: "success",
+        startedAt: "2026-05-30T10:00:30Z",
+        completedAt: "2026-05-30T10:04:20Z"
+      }]
+    }],
+    jobCount: 1,
     ...overrides
   };
 }

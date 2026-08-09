@@ -29,17 +29,70 @@ describe("GitHubService", () => {
 
   it("normalizes workflow runs and preserves the endpoint", async () => {
     const client = new FakeClient([{ workflow_runs: [{
-      id: 123, name: "CI", run_number: 42, status: "completed", conclusion: "success", head_branch: "main",
+      id: 123, name: "CI", display_title: "Release validation", run_number: 42, run_attempt: 2, status: "completed", conclusion: "success", head_branch: "main",
       event: "push", head_sha: "abcdef", html_url: "https://github.com/openai/githead/actions/runs/123",
-      run_started_at: "start", updated_at: "end", head_commit: { message: "feat: test\n\nbody" }
+      created_at: "created", run_started_at: "start", updated_at: "end", actor: { login: "taylor", avatar_url: "avatar", html_url: "actor-url" }, head_commit: { message: "feat: test\n\nbody" }
     }] }]);
     const result = await new GitHubService(provider(repository), client).getWorkflowRuns({ repoPath: "D:\\Repo" });
     expect(result).toEqual({ ok: true, rateLimit: null, data: { items: [{
-      id: "123", name: "CI", runNumber: 42, status: "completed", conclusion: "success", branch: "main",
-      event: "push", commitSha: "abcdef", commitMessage: "feat: test", url: "https://github.com/openai/githead/actions/runs/123",
+      id: "123", name: "CI", displayTitle: "Release validation", runNumber: 42, attempt: 2, status: "completed", conclusion: "success", branch: "main",
+      event: "push", actor: { login: "taylor", avatarUrl: "avatar", url: "actor-url" }, commitSha: "abcdef", commitMessage: "feat: test", url: "https://github.com/openai/githead/actions/runs/123", createdAt: "created",
       startedAt: "start", updatedAt: "end"
     }], page: 1, nextPage: null, totalCount: null } });
     expect(client.calls[0]?.path).toBe("/repos/openai/githead/actions/runs?per_page=30&page=1");
+  });
+
+  it("loads workflow run jobs and maps their steps", async () => {
+    const client = new FakeClient([
+      {
+        id: 123, name: "CI", display_title: "Validate release", run_number: 42, run_attempt: 1,
+        status: "completed", conclusion: "failure", head_branch: "release", event: "workflow_dispatch", head_sha: "abcdef",
+        html_url: "run-url", created_at: "created", run_started_at: "started", updated_at: "updated",
+        actor: { login: "taylor" }, head_commit: { message: "release" }
+      },
+      {
+        total_count: 1,
+        jobs: [{
+          id: 91, name: "linux", status: "completed", conclusion: "failure", html_url: "job-url",
+          started_at: "job-started", completed_at: "job-completed", runner_name: "runner", labels: ["ubuntu-latest"],
+          steps: [{ number: 1, name: "Test", status: "completed", conclusion: "failure", started_at: "step-started", completed_at: "step-completed" }]
+        }]
+      }
+    ]);
+
+    const result = await new GitHubService(provider(repository), client).getWorkflowRunDetail({ repoPath: "D:\\Repo", runId: "123" });
+
+    expect(result).toMatchObject({ ok: true, data: {
+      id: "123",
+      displayTitle: "Validate release",
+      actor: { login: "taylor" },
+      jobCount: 1,
+      jobs: [{ id: "91", name: "linux", runnerName: "runner", labels: ["ubuntu-latest"], steps: [{ number: 1, name: "Test", conclusion: "failure" }] }]
+    } });
+    expect(client.calls.map((call) => call.path)).toEqual([
+      "/repos/openai/githead/actions/runs/123",
+      "/repos/openai/githead/actions/runs/123/jobs?filter=all&per_page=100"
+    ]);
+  });
+
+  it("uses supported workflow mutation endpoints and invalidates repository data", async () => {
+    const client = new FakeClient([null, null]);
+    const service = new GitHubService(provider(repository), client);
+
+    await expect(service.rerunWorkflowRun({ repoPath: "D:\\Repo", runId: "123" })).resolves.toMatchObject({ ok: true, data: { runId: "123", message: "Workflow re-run requested." } });
+    await expect(service.cancelWorkflowRun({ repoPath: "D:\\Repo", runId: "123" })).resolves.toMatchObject({ ok: true, data: { runId: "123", message: "Workflow cancellation requested." } });
+    expect(client.calls.map((call) => [call.path, call.request?.method])).toEqual([
+      ["/repos/openai/githead/actions/runs/123/rerun", "POST"],
+      ["/repos/openai/githead/actions/runs/123/cancel", "POST"]
+    ]);
+    expect(client.invalidated).toEqual([repository, repository]);
+  });
+
+  it("rejects invalid workflow run IDs before transport", async () => {
+    const client = new FakeClient([]);
+    const result = await new GitHubService(provider(repository), client).getWorkflowRunDetail({ repoPath: "D:\\Repo", runId: "run-1" });
+    expect(result).toMatchObject({ ok: false, error: { message: "GitHub workflow run ID must be a positive integer." } });
+    expect(client.calls).toHaveLength(0);
   });
 
   it("normalizes issues and excludes pull requests", async () => {
