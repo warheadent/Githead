@@ -10,7 +10,12 @@ import { RepositoryActionsDialog } from "./RepositoryActionsDialog";
 import { SettingsDialog, type SettingsDraft } from "./SettingsDialog";
 import { TagDialog, type TagDialogState } from "./TagDialog";
 
-afterEach(cleanup);
+afterEach(async () => {
+  cleanup();
+  // Radix FocusScope restores focus on a zero-delay timer during unmount.
+  // Let that callback run before Vitest disposes this file's jsdom instance.
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+});
 
 const settingsDraft: SettingsDraft = {
   selectedProvider: "openrouter",
