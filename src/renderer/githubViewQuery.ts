@@ -19,7 +19,16 @@ function compact<T extends object>(value: T): T { return Object.fromEntries(Obje
 export function filterLoadedWorkflowRuns(runs: GitHubWorkflowRun[], search: string): GitHubWorkflowRun[] {
   const needle = search.trim().toLocaleLowerCase();
   if (!needle) return runs;
-  return runs.filter((run) => [run.name, run.commitMessage, run.commitSha, run.branch].some((value) => value.toLocaleLowerCase().includes(needle)));
+  return runs.filter((run) => [
+    run.name,
+    run.displayTitle,
+    run.commitMessage,
+    run.commitSha,
+    run.branch,
+    run.event,
+    run.actor.login,
+    run.runNumber?.toString() ?? ""
+  ].some((value) => value.toLocaleLowerCase().includes(needle)));
 }
 export function sortLoadedWorkflowRuns(runs: GitHubWorkflowRun[], direction: "asc" | "desc"): GitHubWorkflowRun[] {
   return [...runs].sort((a, b) => (Date.parse(a.startedAt || a.updatedAt) - Date.parse(b.startedAt || b.updatedAt)) * (direction === "asc" ? 1 : -1));

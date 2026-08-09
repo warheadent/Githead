@@ -154,6 +154,16 @@ describe("DefaultGitHubClient", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
+  it("accepts an empty successful POST response but still rejects an empty GET response", async () => {
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(null, { status: 201 }))
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+    const client = new DefaultGitHubClient(fetchImpl, undefined, { env: {} });
+
+    await expect(client.requestJson(repository, "/actions/runs/1/rerun", { method: "POST" })).resolves.toMatchObject({ payload: null, status: 201 });
+    await expect(client.requestJson(repository, "/actions/runs/1")).rejects.toThrow("invalid JSON");
+  });
+
   it("does not fetch when the request signal is already aborted", async () => {
     const fetchImpl = vi.fn<typeof fetch>();
     const client = new DefaultGitHubClient(fetchImpl, undefined, { env: {} });

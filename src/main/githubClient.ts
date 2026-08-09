@@ -350,7 +350,7 @@ export class DefaultGitHubClient implements GitHubClient {
         await cancelResponseBody(response, controller.signal);
         return { response, hasPayload: false };
       }
-      const payload = await parseJson(response, controller.signal);
+      const payload = await parseJson(response, controller.signal, init.method !== undefined && init.method !== "GET");
       controller.signal.throwIfAborted();
       return { response, hasPayload: true, payload };
     } finally {
@@ -434,10 +434,11 @@ function bodySize(payload: unknown): number {
   try { return Buffer.byteLength(JSON.stringify(payload)); } catch { return Number.POSITIVE_INFINITY; }
 }
 
-async function parseJson(response: Response, signal: AbortSignal): Promise<unknown> {
+async function parseJson(response: Response, signal: AbortSignal, allowEmpty: boolean): Promise<unknown> {
   try {
     const text = await readResponseBody(response, signal);
     signal.throwIfAborted();
+    if (allowEmpty && response.ok && !text.trim()) return null;
     return JSON.parse(text) as unknown;
   } catch (error) {
     signal.throwIfAborted();

@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import type { GitHubFailure } from "../shared/types";
 import { forkEffect, tryPromise } from "../shared/effectRuntime";
 
-export type GitHubResource = "workflowRuns" | "openCounts" | "pullRequests" | "issues" | "viewer" | "pullRequestDetail" | "issueDetail";
+export type GitHubResource = "workflowRuns" | "workflowRunDetail" | "openCounts" | "pullRequests" | "issues" | "viewer" | "pullRequestDetail" | "issueDetail";
 
 export interface GitHubRepositoryScope { repoPath: string; githubFullName: string }
 export type GitHubQueryParams = Record<string, unknown>;

@@ -43,7 +43,7 @@ export function GitHubQueryToolbar({ view, search, preset, presets, sort, sortOp
   }, [draft, onSearchChange, search, view]);
   const placeholder = view === "workflows" ? "Search loaded runs" : view === "pullRequests" ? "Search open pull requests" : "Search open issues";
   const itemLabel = view === "pullRequests" ? "pull requests" : view === "issues" ? "issues" : "workflow runs";
-  const displayedPlaceholder = compact && view !== "workflows" ? `Search ${itemLabel}` : placeholder;
+  const displayedPlaceholder = compact ? `Search ${itemLabel}` : placeholder;
   const refreshLabel = `Refresh ${itemLabel}`;
 
   if (compact) {
@@ -51,7 +51,7 @@ export function GitHubQueryToolbar({ view, search, preset, presets, sort, sortOp
       <label className="github-compact-search" htmlFor={`${id}-search`}>
         <span className="sr-only">Search</span>
         <Search aria-hidden="true" />
-        <input id={`${id}-search`} type="search" value={draft} placeholder={displayedPlaceholder} onChange={(event) => setDraft(event.target.value)} />
+        <input id={`${id}-search`} type="search" value={draft} placeholder={displayedPlaceholder} onChange={(event) => { setDraft(event.target.value); if (view === "workflows") onSearchChange(event.target.value); }} />
       </label>
       <Popover>
         <PopoverTrigger asChild>
@@ -65,7 +65,7 @@ export function GitHubQueryToolbar({ view, search, preset, presets, sort, sortOp
           <div className="github-filter-popover-header">
             <div>
               <p className="font-medium">Filters</p>
-              <p className="text-xs text-muted-foreground">Narrow the open {itemLabel}.</p>
+              <p className="text-xs text-muted-foreground">Narrow the {view === "workflows" ? "loaded" : "open"} {itemLabel}.</p>
             </div>
             <span className="github-filter-count" aria-label={`${activeFilterCount} active filters`}>{activeFilterCount}</span>
           </div>

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { GitHubFailure, GitHubIssue, GitHubIssueDetail, GitHubIssueQuery, GitHubOpenCounts, GitHubPage, GitHubPullRequest, GitHubPullRequestDetail, GitHubPullRequestQuery, GitHubViewer, GitHubWorkflowRun, GitHubWorkflowRunQuery } from "../shared/types";
+import type { GitHubFailure, GitHubIssue, GitHubIssueDetail, GitHubIssueQuery, GitHubOpenCounts, GitHubPage, GitHubPullRequest, GitHubPullRequestDetail, GitHubPullRequestQuery, GitHubViewer, GitHubWorkflowRun, GitHubWorkflowRunDetail, GitHubWorkflowRunQuery } from "../shared/types";
 import { createGitHubQueryStore, getGitHubQueryKey, type GitHubQueryDescriptor, type GitHubQueryParams, type GitHubQuerySnapshot, type GitHubRepositoryScope, type GitHubResource } from "./githubQueryStore";
 
 type ResourceData = {
   workflowRuns: GitHubPage<GitHubWorkflowRun>;
+  workflowRunDetail: GitHubWorkflowRunDetail;
   openCounts: GitHubOpenCounts;
   pullRequests: GitHubPage<GitHubPullRequest>;
   issues: GitHubPage<GitHubIssue>;
@@ -12,7 +13,7 @@ type ResourceData = {
   issueDetail: GitHubIssueDetail;
 };
 const fallbackErrors: Record<GitHubResource, string> = {
-  workflowRuns: "Unable to load workflow runs.", openCounts: "Unable to load GitHub counts.",
+  workflowRuns: "Unable to load workflow runs.", workflowRunDetail: "Unable to load workflow run details.", openCounts: "Unable to load GitHub counts.",
   pullRequests: "Unable to load pull requests.", issues: "Unable to load issues.", viewer: "Unable to identify the GitHub viewer.",
   pullRequestDetail: "Unable to load pull request details.", issueDetail: "Unable to load issue details."
 };
@@ -32,6 +33,7 @@ export const gitHubQueryStore = createGitHubQueryStore({
   cancel: (requestId) => window.githead.cancelGitHubRequest({ requestId }),
   loaders: {
     workflowRuns: (descriptor, requestId) => unwrap(window.githead.getGitHubWorkflowRuns({ repoPath: descriptor.repository.repoPath, requestId, page: Number(descriptor.params.page ?? 1), query: descriptor.params.query as GitHubWorkflowRunQuery | undefined }), fallbackErrors.workflowRuns),
+    workflowRunDetail: (descriptor, requestId) => unwrap(window.githead.getGitHubWorkflowRunDetail({ repoPath: descriptor.repository.repoPath, requestId, runId: String(descriptor.params.runId) }), fallbackErrors.workflowRunDetail),
     openCounts: (descriptor, requestId) => unwrap(window.githead.getGitHubOpenCounts({ repoPath: descriptor.repository.repoPath, requestId }), fallbackErrors.openCounts),
     pullRequests: (descriptor, requestId) => unwrap(window.githead.getGitHubPullRequests({ repoPath: descriptor.repository.repoPath, requestId, page: Number(descriptor.params.page ?? 1), query: descriptor.params.query as GitHubPullRequestQuery | undefined }), fallbackErrors.pullRequests),
     issues: (descriptor, requestId) => unwrap(window.githead.getGitHubIssues({ repoPath: descriptor.repository.repoPath, requestId, page: Number(descriptor.params.page ?? 1), query: descriptor.params.query as GitHubIssueQuery | undefined }), fallbackErrors.issues),
@@ -90,6 +92,34 @@ export function useGitHubDetail<T extends GitHubPullRequestDetail | GitHubIssueD
   const refresh = useCallback(async () => {
     if (!value) return;
     await gitHubQueryStore.refresh<T>(value);
+  }, [key]);
+
+  return { ...snapshot, refresh };
+}
+
+export function useGitHubWorkflowRunDetail(
+  repository: GitHubRepositoryScope | null,
+  runId: string | null
+): GitHubQuerySnapshot<GitHubWorkflowRunDetail> & { refresh: () => Promise<void> } {
+  const stableRepository = useMemo(() => repository ? { repoPath: repository.repoPath, githubFullName: repository.githubFullName } : null,
+    [repository?.repoPath, repository?.githubFullName]);
+  const value = useMemo(() => stableRepository && runId ? {
+    repository: stableRepository,
+    resource: "workflowRunDetail" as const,
+    params: { runId }
+  } : null, [stableRepository, runId]);
+  const key = value ? getGitHubQueryKey(value) : "";
+  const snapshot = useSnapshot<GitHubWorkflowRunDetail>(value);
+
+  useEffect(() => {
+    if (!value) return;
+    void gitHubQueryStore.ensure<GitHubWorkflowRunDetail>(value).catch(() => undefined);
+    return () => gitHubQueryStore.cancel(value);
+  }, [key]);
+
+  const refresh = useCallback(async () => {
+    if (!value) return;
+    await gitHubQueryStore.refresh<GitHubWorkflowRunDetail>(value);
   }, [key]);
 
   return { ...snapshot, refresh };

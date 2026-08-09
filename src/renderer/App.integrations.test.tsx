@@ -18,6 +18,7 @@ import {
   createSummary,
   createTextDiff,
   createWorkflowRun,
+  createWorkflowRunDetail,
   defer,
   flushRendererAsync,
   githead,
@@ -90,15 +91,27 @@ describe("App", { timeout: 10_000 }, () => {
   it("loads workflow runs from GitHub when the Workflow Runs tab opens", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
+    const workflowRun = createWorkflowRun({
+      name: "CI",
+      displayTitle: "feat: add workflow runs tab",
+      conclusion: "success",
+      branch: "main",
+      event: "push",
+      commitMessage: "feat: add workflow runs tab"
+    });
     vi.mocked(githead.getGitHubWorkflowRuns).mockResolvedValue({ ok: true, data: { items: [
-      createWorkflowRun({
-        name: "CI",
-        conclusion: "success",
-        branch: "main",
-        event: "push",
-        commitMessage: "feat: add workflow runs tab"
-      })
+      workflowRun
     ], page: 1, nextPage: null, totalCount: 1 }, rateLimit: null });
+    vi.mocked(githead.getGitHubWorkflowRunDetail).mockResolvedValue({ ok: true, data: createWorkflowRunDetail({
+      ...workflowRun,
+      jobs: [{
+        ...createWorkflowRunDetail().jobs[0]!,
+        id: "11",
+        name: "build-linux",
+        url: "https://github.com/openai/githead/actions/runs/1/job/11",
+        steps: [{ ...createWorkflowRunDetail().jobs[0]!.steps[0]!, name: "Run tests" }]
+      }]
+    }), rateLimit: null });
 
     render(<App />);
 
@@ -109,45 +122,73 @@ describe("App", { timeout: 10_000 }, () => {
         repoPath
       }));
     });
-    expect(await screen.findByText("CI")).toBeTruthy();
-    expect(screen.getByText("success")).toBeTruthy();
+    const runButton = await screen.findByRole("button", { name: "CI: feat: add workflow runs tab" });
+    expect(screen.getByText("Success")).toBeTruthy();
     expect(screen.getByText("feat: add workflow runs tab")).toBeTruthy();
 
-    await user.click(screen.getByText("CI"));
+    await user.click(runButton);
 
     await waitFor(() => {
-      expect(githead.openExternalUrl).toHaveBeenCalledWith({
-        url: "https://github.com/openai/githead/actions/runs/1"
-      });
+      expect(githead.getGitHubWorkflowRunDetail).toHaveBeenCalledWith(expect.objectContaining({ repoPath, runId: "1" }));
     });
+    expect(await screen.findByRole("main", { name: "Workflow jobs" })).toBeTruthy();
+    expect(screen.getByText("build-linux")).toBeTruthy();
+    expect(screen.getByText("Run tests")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Logs" }));
+    expect(githead.openExternalUrl).toHaveBeenCalledWith({ url: "https://github.com/openai/githead/actions/runs/1/job/11" });
+    await user.click(screen.getByRole("button", { name: /Open on GitHub/ }));
+    expect(githead.openExternalUrl).toHaveBeenCalledWith({ url: "https://github.com/openai/githead/actions/runs/1" });
+
+    await user.click(screen.getByRole("button", { name: "Close workflow run details" }));
+    await waitFor(() => expect(document.activeElement).toBe(runButton));
   });
 
-  it("keeps new workflow columns hidden until the user selects them", async () => {
+  it("re-runs completed workflow runs with a coordinated mutation", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
+    const workflowRun = createWorkflowRun({ runNumber: 42, conclusion: "failure", displayTitle: "Release failed" });
     vi.mocked(githead.getGitHubWorkflowRuns).mockResolvedValue({
       ok: true,
-      data: { items: [createWorkflowRun({ runNumber: 42 })], page: 1, nextPage: null, totalCount: 1 },
+      data: { items: [workflowRun], page: 1, nextPage: null, totalCount: 1 },
       rateLimit: null
     });
+    vi.mocked(githead.getGitHubWorkflowRunDetail).mockResolvedValue({ ok: true, data: createWorkflowRunDetail({ ...workflowRun }), rateLimit: null });
 
     render(<App />);
 
     await user.click(await screen.findByRole("tab", { name: /Workflow Runs/ }));
-    await screen.findByText("CI");
-    const workflowList = screen.getByRole("list", { name: "Workflow runs" });
-    const workflowView = screen.getByRole("heading", { name: "Workflow Runs" }).closest("section");
-    expect(workflowView).toBeTruthy();
-    expect(within(workflowList).queryByRole("columnheader", { name: /^Run/ })).toBeNull();
+    await user.click(await screen.findByRole("button", { name: "CI: Release failed" }));
+    await user.click(await screen.findByRole("button", { name: "Re-run all jobs" }));
 
-    await user.click(within(workflowView!).getByRole("button", { name: "Choose table columns" }));
-    const runOption = screen.getByRole("menuitemcheckbox", { name: "Run" });
-    expect(runOption.getAttribute("aria-checked")).toBe("false");
-    await user.click(runOption);
-    await user.keyboard("{Escape}");
+    await waitFor(() => expect(githead.rerunGitHubWorkflowRun).toHaveBeenCalledWith({
+      repoPath,
+      runId: "1",
+      operationId: expect.stringMatching(/^github-workflow-rerun-/)
+    }));
+    await waitFor(() => expect(screen.getAllByText("Workflow re-run requested.")).toHaveLength(2));
+  });
 
-    expect(within(workflowList).getByRole("columnheader", { name: /^Run/ })).toBeTruthy();
-    expect(screen.getByText("#42")).toBeTruthy();
+  it("confirms cancellation for an active workflow run", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
+    const workflowRun = createWorkflowRun({ status: "in_progress", conclusion: null, displayTitle: "Deploy preview" });
+    vi.mocked(githead.getGitHubWorkflowRuns).mockResolvedValue({ ok: true, data: { items: [workflowRun], page: 1, nextPage: null, totalCount: 1 }, rateLimit: null });
+    vi.mocked(githead.getGitHubWorkflowRunDetail).mockResolvedValue({ ok: true, data: createWorkflowRunDetail({ ...workflowRun }), rateLimit: null });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("tab", { name: /Workflow Runs/ }));
+    await user.click(await screen.findByRole("button", { name: "CI: Deploy preview" }));
+    await user.click(await screen.findByRole("button", { name: "Cancel run" }));
+    expect(screen.getByRole("group", { name: "Confirm workflow cancellation" })).toBeTruthy();
+    await user.click(within(screen.getByRole("group", { name: "Confirm workflow cancellation" })).getByRole("button", { name: "Cancel run" }));
+
+    await waitFor(() => expect(githead.cancelGitHubWorkflowRun).toHaveBeenCalledWith({
+      repoPath,
+      runId: "1",
+      operationId: expect.stringMatching(/^github-workflow-cancel-/)
+    }));
   });
 
   it("loads open pull requests from GitHub when the Pull Requests tab opens", async () => {
