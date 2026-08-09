@@ -10,7 +10,7 @@ import { NodeProcessRunner, type ProcessResult } from "./processRunner";
 const TEMP_DIRECTORY_REMOVE_OPTIONS = {
   recursive: true,
   force: true,
-  maxRetries: 5,
+  maxRetries: 10,
   retryDelay: 100
 } as const;
 
@@ -299,7 +299,7 @@ describe("Git amend service with real Git repositories", { timeout: 30_000 }, ()
       const hooks = (await repo.run(["rev-parse", "--git-path", "hooks"])).stdout.trim();
       const hookPath = path.resolve(repo.path, hooks, "commit-msg");
       const hookStartedPath = path.join(repo.path, ".git", "githead-amend-hook-started");
-      await fs.writeFile(hookPath, "#!/bin/sh\n: > .git/githead-amend-hook-started\nsleep 10\n");
+      await fs.writeFile(hookPath, "#!/bin/sh\n: > .git/githead-amend-hook-started\nwhile :; do :; done\n");
       await fs.chmod(hookPath, 0o755);
       const oldHead = await repo.oid("HEAD");
       const cancellableRunner = new CancellableProcessRunner(new NodeProcessRunner());
@@ -322,6 +322,8 @@ describe("Git amend service with real Git repositories", { timeout: 30_000 }, ()
       timeoutController.abort(new DOMException("Timed out", "TimeoutError"));
       await expect(timedOutPromise).resolves.toMatchObject({ outcome: "timed-out", amendErrorKind: "timed-out" });
       expect(await repo.oid("HEAD")).toBe(oldHead);
+      await removeFileWhenReleased(path.join(repo.path, ".git", "index.lock"));
+      await fs.rm(hookStartedPath);
     });
   });
 });
