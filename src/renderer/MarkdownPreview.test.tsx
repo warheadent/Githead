@@ -148,12 +148,8 @@ describe("MarkdownPreview", () => {
     const exitingCopy = copiedButton.querySelector(".lucide-copy")?.parentElement;
     const enteringCheck = copiedButton.querySelector(".lucide-check")?.parentElement;
     expect(exitingCopy?.dataset.motionState).toBe("exiting");
-    expect(enteringCheck?.dataset.motionState).toBe("entering");
-    expect(enteringCheck?.className).toContain("[--motion-scale:0.97]");
-    expect(enteringCheck?.className).toContain("[--motion-reduced-opacity:0.85]");
-
-    act(() => vi.advanceTimersByTime(120));
-    expect(copiedButton.querySelector(".lucide-copy")).toBeNull();
+    expect(enteringCheck?.dataset.motionState).toBe("entered");
+    expect(enteringCheck?.getAttribute("style")).toContain("scale(0.97)");
     expect(copiedButton.querySelector(".lucide-check")).toBeTruthy();
   });
 

@@ -1416,13 +1416,6 @@ textarea,
   position: relative;
 }
 
-.commit-plan-state-presence {
-  --motion-opacity: 0.85;
-  --motion-translate-y: -2px;
-  --motion-scale: 1;
-  --motion-reduced-opacity: 0.85;
-}
-
 .commit-plan-empty {
   display: flex;
   min-height: 220px;
@@ -1453,9 +1446,6 @@ textarea,
 }
 
 .commit-plan-group {
-  --motion-translate-y: -2px;
-  --motion-scale: 1;
-  --motion-reduced-opacity: 0.92;
   overflow: hidden;
   margin-bottom: 12px;
   border: 1px solid var(--border);
@@ -1572,9 +1562,6 @@ textarea,
 }
 
 .app-update-control {
-  --motion-translate-y: 4px;
-  --motion-scale: 1;
-  --motion-reduced-opacity: 0.85;
   display: grid;
   gap: 6px;
   padding: 10px;
@@ -2360,9 +2347,6 @@ textarea,
 .repo-group-main > svg { width: 14px; height: 14px; flex: none; }
 
 .repo-worktree-list {
-  --motion-translate-y: -2px;
-  --motion-scale: 1;
-  --motion-reduced-opacity: 0.85;
   display: grid;
   padding: 1px 5px 5px 34px;
 }
@@ -5586,9 +5570,6 @@ textarea,
 }
 
 .activity-log-jump-presence {
-  --motion-translate-y: 4px;
-  --motion-scale: 0.97;
-  --motion-reduced-opacity: 0.85;
   position: absolute;
   right: 18px;
   bottom: 18px;
@@ -5678,25 +5659,6 @@ textarea,
   box-shadow: 0 12px 28px oklch(0 0 0 / 0.22);
 }
 
-.motion-presence {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-  transition-property: opacity, transform;
-  transition-duration: var(--motion-enter-duration);
-  transition-timing-function: ease;
-}
-
-.motion-presence[data-motion-state="entering"],
-.motion-presence[data-motion-state="exiting"] {
-  opacity: var(--motion-opacity, 0);
-  transform: translateY(var(--motion-translate-y, 0)) scale(var(--motion-scale, 1));
-}
-
-.motion-presence[data-motion-state="exiting"] {
-  transition-duration: var(--motion-exit-duration);
-  pointer-events: none;
-}
-
 .clone-check-message-swap {
   position: relative;
 }
@@ -5705,17 +5667,10 @@ textarea,
   display: none;
 }
 
-.clone-check-message-presence {
-  --motion-translate-y: -2px;
-  --motion-scale: 1;
-  --motion-reduced-opacity: 0.85;
-}
-
 .motion-swap-outgoing {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  animation: motion-swap-exit 120ms ease forwards;
 }
 
 .operation-button-feedback {
@@ -5802,11 +5757,6 @@ textarea,
   background: var(--destructive);
 }
 
-@keyframes motion-swap-exit {
-  from { opacity: 1; transform: translateY(0); }
-  to { opacity: 0; transform: translateY(-2px); }
-}
-
 .ansi-black-fg { color: var(--ansi-black); }
 .ansi-red-fg { color: var(--ansi-red); }
 .ansi-green-fg { color: var(--ansi-green); }
@@ -5850,27 +5800,6 @@ textarea,
     animation-iteration-count: 1 !important;
   }
 
-  .motion-presence {
-    transform: none !important;
-    transition-duration: 120ms !important;
-  }
-
-  .motion-presence[data-motion-state="entering"],
-  .motion-presence[data-motion-state="exiting"] {
-    opacity: var(--motion-reduced-opacity, 0.85);
-    transform: none !important;
-  }
-
-  .motion-presence[data-motion-state="exiting"] {
-    transition-duration: 120ms !important;
-  }
-
-  .motion-swap-outgoing {
-    transform: none !important;
-    animation-name: motion-swap-exit-reduced !important;
-    animation-duration: 120ms !important;
-  }
-
   .operation-button-feedback-state {
     transform: none !important;
     transition-duration: 120ms !important;
@@ -5881,9 +5810,4 @@ textarea,
     transition-duration: 120ms !important;
   }
 
-}
-
-@keyframes motion-swap-exit-reduced {
-  from { opacity: 1; }
-  to { opacity: 0.85; }
 }

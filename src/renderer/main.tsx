@@ -2,6 +2,7 @@ import React, { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { init as initializeSentry } from "@sentry/electron/renderer";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { MotionConfig } from "motion/react";
 import { App } from "./App";
 import "./styles.css";
 
@@ -19,8 +20,10 @@ if (!app) {
 
 createRoot(app).render(
   <StrictMode>
-    <TooltipProvider>
-      <App />
-    </TooltipProvider>
+    <MotionConfig reducedMotion="user" transition={{ duration: 0.12, ease: "easeOut" }}>
+      <TooltipProvider>
+        <App />
+      </TooltipProvider>
+    </MotionConfig>
   </StrictMode>
 );

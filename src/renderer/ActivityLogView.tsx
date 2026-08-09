@@ -107,6 +107,8 @@ export function ActivityLogView({
       <MotionPresence
         present={hasOutput && !stickToBottom}
         className="activity-log-jump-presence"
+        initialY={4}
+        initialScale={0.97}
       >
         <Button type="button" className="activity-log-jump" size="sm" onClick={jumpToLatest}>
           <ArrowDown />

@@ -161,7 +161,10 @@ export function PersistentWorkspaceTabsContent({
     const root = rootRef.current;
     if (!active || !context || !root) return;
 
-    const frameId = requestAnimationFrame(() => {
+    let restored = false;
+    const restoreScrollPositions = (): void => {
+      if (restored) return;
+      restored = true;
       const candidates = [root, ...root.querySelectorAll<HTMLElement>("[data-workspace-scroll-key], [role][aria-label]")];
       for (const candidate of candidates) {
         const scrollKey = getScrollKey(candidate);
@@ -172,9 +175,12 @@ export function PersistentWorkspaceTabsContent({
         candidate.scrollLeft = position.left;
         candidate.dispatchEvent(new Event("scroll", { bubbles: true }));
       }
-    });
+    };
+    const frameId = requestAnimationFrame(restoreScrollPositions);
+    const fallbackTimer = window.setTimeout(restoreScrollPositions, 34);
     return () => {
       cancelAnimationFrame(frameId);
+      window.clearTimeout(fallbackTimer);
       const candidates = [root, ...root.querySelectorAll<HTMLElement>("[data-workspace-scroll-key], [role][aria-label]")];
       for (const candidate of candidates) {
         const scrollKey = getScrollKey(candidate);

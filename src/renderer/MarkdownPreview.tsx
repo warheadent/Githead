@@ -17,7 +17,7 @@ const COPY_FEEDBACK_DURATION_MS = 2_000;
 
 type CopyStatus = "idle" | "copied" | "error";
 
-const COPY_ICON_PRESENCE_CLASS = "grid place-items-center [--motion-scale:0.97] [--motion-reduced-opacity:0.85]";
+const COPY_ICON_PRESENCE_CLASS = "grid place-items-center";
 
 function getNodeText(node: ReactNode): string {
   if (typeof node === "string" || typeof node === "number") {
@@ -110,6 +110,7 @@ function MarkdownCopyableCodeBlock({ children, ...props }: ComponentProps<"pre">
             <MotionPresence
               present={status !== "copied"}
               className={COPY_ICON_PRESENCE_CLASS}
+              initialScale={0.97}
               presenceKey="copy"
             >
               <Copy />
@@ -117,6 +118,7 @@ function MarkdownCopyableCodeBlock({ children, ...props }: ComponentProps<"pre">
             <MotionPresence
               present={status === "copied"}
               className={COPY_ICON_PRESENCE_CLASS}
+              initialScale={0.97}
               presenceKey="check"
             >
               <Check />

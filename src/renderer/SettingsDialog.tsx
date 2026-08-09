@@ -396,7 +396,8 @@ export function SettingsDialog({
               <MotionSwap
                 item={footerStatus}
                 className="relative min-h-5 min-w-0 text-sm"
-                presenceClassName="[--motion-translate-y:-2px] [--motion-reduced-opacity:0.92]"
+                presenceClassName=""
+                initialY={-2}
               />
               <DialogFooter className="shrink-0">
                 <Button type="button" variant="outline" onClick={requestClose}>{saving ? "Cancel operation" : "Cancel"}</Button>

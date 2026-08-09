@@ -266,6 +266,8 @@ export function CommitPlanView({
         <MotionSwap
           className="commit-plan-state-swap"
           presenceClassName="commit-plan-state-presence"
+          initialOpacity={0.85}
+          initialY={-2}
           item={!plan ? {
             key: "empty",
             content: (
@@ -287,6 +289,7 @@ export function CommitPlanView({
                 <MotionList
                   element="article"
                   itemClassName="commit-plan-group"
+                  initialY={-2}
                   items={plan.groups.map((group, index) => ({
                     key: group.id,
                     content: (

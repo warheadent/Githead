@@ -1,144 +1,112 @@
 import {
-  createElement,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type Key,
-  type ReactNode,
-  type RefObject
-} from "react";
+  AnimatePresence,
+  motion,
+  useIsPresent,
+  type HTMLMotionProps,
+  type Transition
+} from "motion/react";
+import { type Key, type ReactNode } from "react";
 
-type PresenceState = "entering" | "entered" | "exiting" | "unmounted";
+const DEFAULT_DURATION_SECONDS = 0.12;
+const DEFAULT_TRANSITION: Transition = {
+  duration: DEFAULT_DURATION_SECONDS,
+  ease: "easeOut"
+};
+
+type MotionElement = "article" | "div" | "section";
 
 interface MotionPresenceProps {
   present: boolean;
   children: ReactNode;
   className: string;
-  element?: "article" | "div" | "section";
+  element?: MotionElement;
   id?: string;
   ariaLabel?: string;
   presenceKey?: Key;
   enterDuration?: number;
   exitDuration?: number;
+  initialOpacity?: number;
+  initialY?: number;
+  initialScale?: number;
   initial?: boolean;
   onExitComplete?: () => void;
-  elementRef?: (element: HTMLElement | null) => void;
 }
 
-interface MotionStyle extends CSSProperties {
-  "--motion-enter-duration": string;
-  "--motion-exit-duration": string;
+interface PresenceItemProps extends Omit<MotionPresenceProps, "present" | "presenceKey" | "onExitComplete"> {
+  layout?: boolean | "position" | "size" | "preserve-aspect";
+  layoutDependency?: unknown;
+  onExitAnimationComplete?: () => void;
 }
 
-function scheduleFrame(callback: () => void): () => void {
-  if (typeof window.requestAnimationFrame === "function") {
-    let completed = false;
-    const runOnce = (): void => {
-      if (completed) {
-        return;
-      }
-
-      completed = true;
-      callback();
-    };
-    const frame = window.requestAnimationFrame(runOnce);
-    const fallbackTimer = window.setTimeout(runOnce, 34);
-    return () => {
-      completed = true;
-      window.cancelAnimationFrame(frame);
-      window.clearTimeout(fallbackTimer);
-    };
-  }
-
-  const timer = window.setTimeout(callback, 0);
-  return () => window.clearTimeout(timer);
-}
-
-/**
- * Keeps exiting content mounted long enough to animate while making it
- * immediately unavailable to pointer, keyboard, and assistive-technology input.
- */
-export function MotionPresence({
-  present,
+function PresenceItem({
   children,
   className,
   element = "div",
   id,
   ariaLabel,
-  presenceKey,
   enterDuration = 120,
   exitDuration = 120,
-  initial = true,
-  onExitComplete,
-  elementRef
-}: MotionPresenceProps): ReactNode {
-  const [state, setState] = useState<PresenceState>(() => present ? (initial ? "entering" : "entered") : "unmounted");
-  const stateRef = useRef(state);
-  const lastChildrenRef = useRef(children);
-  const initialRenderRef = useRef(true);
-  const onExitCompleteRef = useRef(onExitComplete);
-
-  onExitCompleteRef.current = onExitComplete;
-
-  if (present) {
-    lastChildrenRef.current = children;
-  }
-
-  useLayoutEffect(() => {
-    let cancelScheduledWork = (): void => {};
-
-    if (present) {
-      if (initialRenderRef.current && !initial) {
-        stateRef.current = "entered";
-        setState("entered");
-        initialRenderRef.current = false;
-        return cancelScheduledWork;
-      }
-      stateRef.current = "entering";
-      setState("entering");
-      cancelScheduledWork = scheduleFrame(() => {
-        stateRef.current = "entered";
-        setState("entered");
-      });
-    } else if (stateRef.current !== "unmounted") {
-      stateRef.current = "exiting";
-      setState("exiting");
-      const timer = window.setTimeout(() => {
-        stateRef.current = "unmounted";
-        setState("unmounted");
-        onExitCompleteRef.current?.();
-      }, exitDuration);
-      cancelScheduledWork = () => window.clearTimeout(timer);
-    }
-
-    initialRenderRef.current = false;
-
-    return cancelScheduledWork;
-  }, [exitDuration, initial, presenceKey, present]);
-
-  if (state === "unmounted") {
-    return null;
-  }
-
-  const exiting = state === "exiting";
-  const style: MotionStyle = {
-    "--motion-enter-duration": `${enterDuration}ms`,
-    "--motion-exit-duration": `${exitDuration}ms`
+  initialOpacity = 0,
+  initialY = 0,
+  initialScale = 1,
+  layout,
+  layoutDependency,
+  onExitAnimationComplete
+}: PresenceItemProps): ReactNode {
+  const isPresent = useIsPresent();
+  const hidden = {
+    opacity: initialOpacity,
+    y: initialY,
+    scale: initialScale
   };
-
-  return createElement(element, {
+  const transition: Transition = {
+    ...DEFAULT_TRANSITION,
+    duration: (isPresent ? enterDuration : exitDuration) / 1_000,
+    layout: DEFAULT_TRANSITION
+  };
+  const props = {
     ...(id ? { id } : {}),
     ...(ariaLabel ? { "aria-label": ariaLabel } : {}),
     className: `motion-presence ${className}`,
-    "data-motion-state": state,
-    "aria-hidden": exiting ? true : undefined,
-    inert: exiting ? true : undefined,
-    ref: elementRef,
-    style
-  }, present ? children : lastChildrenRef.current);
+    "data-motion-state": isPresent ? "entered" : "exiting",
+    "aria-hidden": isPresent ? undefined : true,
+    inert: isPresent ? undefined : true,
+    initial: hidden,
+    animate: { opacity: 1, y: 0, scale: 1 },
+    exit: hidden,
+    transition,
+    layout,
+    layoutDependency,
+    onAnimationComplete: () => {
+      if (!isPresent) {
+        onExitAnimationComplete?.();
+      }
+    },
+    children
+  };
+
+  if (element === "article") {
+    return <motion.article {...props as HTMLMotionProps<"article">} />;
+  }
+  if (element === "section") {
+    return <motion.section {...props as HTMLMotionProps<"section">} />;
+  }
+  return <motion.div {...props as HTMLMotionProps<"div">} />;
+}
+
+/** Keeps exiting content mounted and delegates animation lifecycle to Motion. */
+export function MotionPresence({
+  present,
+  presenceKey = "presence",
+  initial = true,
+  onExitComplete,
+  ...props
+}: MotionPresenceProps): ReactNode {
+  return (
+    <AnimatePresence initial={initial} {...(onExitComplete ? { onExitComplete } : {})}>
+      {present ? <PresenceItem key={presenceKey} {...props} /> : null}
+    </AnimatePresence>
+  );
 }
 
 interface MotionSwapItem {
@@ -151,6 +119,31 @@ interface MotionSwapProps {
   className: string;
   presenceClassName: string;
   exitDuration?: number;
+  initialOpacity?: number;
+  initialY?: number;
+  initialScale?: number;
+}
+
+function SwapItem({ item, presenceClassName, exitDuration, initialOpacity, initialY, initialScale }: {
+  item: MotionSwapItem;
+  presenceClassName: string;
+  exitDuration: number;
+  initialOpacity?: number;
+  initialY?: number;
+  initialScale?: number;
+}): ReactNode {
+  const isPresent = useIsPresent();
+  return (
+    <PresenceItem
+      className={`${presenceClassName}${isPresent ? "" : " motion-swap-outgoing"}`}
+      exitDuration={exitDuration}
+      {...(initialOpacity === undefined ? {} : { initialOpacity })}
+      {...(initialY === undefined ? {} : { initialY })}
+      {...(initialScale === undefined ? {} : { initialScale })}
+    >
+      {item.content}
+    </PresenceItem>
+  );
 }
 
 /** Cross-fades keyed content while exposing only the newest live-region node. */
@@ -158,48 +151,26 @@ export function MotionSwap({
   item,
   className,
   presenceClassName,
-  exitDuration = 120
+  exitDuration = 120,
+  initialOpacity,
+  initialY,
+  initialScale
 }: MotionSwapProps): ReactNode {
-  const previousItemRef = useRef<MotionSwapItem | null>(item);
-  const [outgoingItem, setOutgoingItem] = useState<MotionSwapItem | null>(null);
-
-  if (item && previousItemRef.current?.key === item.key) {
-    previousItemRef.current = item;
-  }
-
-  useLayoutEffect(() => {
-    const previousItem = previousItemRef.current;
-    previousItemRef.current = item;
-    if (!item) {
-      setOutgoingItem(null);
-      return;
-    }
-    if (!previousItem || previousItem.key === item.key) {
-      return;
-    }
-
-    setOutgoingItem(previousItem);
-    const timer = window.setTimeout(() => {
-      setOutgoingItem((current) => current?.key === previousItem.key ? null : current);
-    }, exitDuration);
-    return () => window.clearTimeout(timer);
-  }, [exitDuration, item?.key]);
-
   return (
     <div className={className}>
-      {outgoingItem ? (
-        <div className="motion-swap-outgoing" aria-hidden="true" inert>
-          {outgoingItem.content}
-        </div>
-      ) : null}
-      <MotionPresence
-        present={Boolean(item)}
-        className={presenceClassName}
-        exitDuration={exitDuration}
-        {...(item ? { presenceKey: item.key } : {})}
-      >
-        {item?.content}
-      </MotionPresence>
+      <AnimatePresence initial mode="sync">
+        {item ? (
+          <SwapItem
+            key={item.key}
+            item={item}
+            presenceClassName={presenceClassName}
+            exitDuration={exitDuration}
+            {...(initialOpacity === undefined ? {} : { initialOpacity })}
+            {...(initialY === undefined ? {} : { initialY })}
+            {...(initialScale === undefined ? {} : { initialScale })}
+          />
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }
@@ -209,212 +180,83 @@ export interface MotionListItem {
   content: ReactNode;
 }
 
-interface RenderedMotionListItem {
-  key: string;
-  present: boolean;
-}
-
 interface MotionListProps {
   items: readonly MotionListItem[];
   itemClassName: string;
-  element?: "article" | "div" | "section";
+  element?: MotionElement;
   exitDuration?: number;
+  initialOpacity?: number;
+  initialY?: number;
+  initialScale?: number;
   onItemExitComplete?: (key: string) => void;
 }
 
-function reconcileMotionListItems(
-  current: readonly RenderedMotionListItem[],
-  nextKeys: readonly string[]
-): RenderedMotionListItem[] {
-  const nextKeySet = new Set(nextKeys);
-  const next = nextKeys.map((key) => ({ key, present: true }));
-
-  current.forEach((item, index) => {
-    if (nextKeySet.has(item.key)) {
-      return;
-    }
-    next.splice(Math.min(index, next.length), 0, { key: item.key, present: false });
-  });
-
-  if (
-    next.length === current.length
-    && next.every((item, index) => item.key === current[index]?.key && item.present === current[index]?.present)
-  ) {
-    return current as RenderedMotionListItem[];
-  }
-  return next;
+function MotionListRow({
+  item,
+  itemClassName,
+  element,
+  exitDuration,
+  initialOpacity,
+  initialY,
+  initialScale,
+  layoutDependency,
+  onItemExitComplete
+}: {
+  item: MotionListItem;
+  itemClassName: string;
+  element: MotionElement;
+  exitDuration: number;
+  initialOpacity?: number;
+  initialY?: number;
+  initialScale?: number;
+  layoutDependency: string;
+  onItemExitComplete?: (key: string) => void;
+}): ReactNode {
+  return (
+    <PresenceItem
+      className={itemClassName}
+      element={element}
+      exitDuration={exitDuration}
+      {...(initialOpacity === undefined ? {} : { initialOpacity })}
+      {...(initialY === undefined ? {} : { initialY })}
+      {...(initialScale === undefined ? {} : { initialScale })}
+      layout="position"
+      layoutDependency={layoutDependency}
+      onExitAnimationComplete={() => onItemExitComplete?.(item.key)}
+    >
+      {item.content}
+    </PresenceItem>
+  );
 }
 
-/** Keeps removed list items mounted for their exit, then moves the remaining items with FLIP. */
+/** Uses Motion presence and layout projection for list exits and reordering. */
 export function MotionList({
   items,
   itemClassName,
   element = "div",
   exitDuration = 120,
+  initialOpacity,
+  initialY,
+  initialScale,
   onItemExitComplete
 }: MotionListProps): ReactNode {
-  const contentsRef = useRef(new Map<string, ReactNode>());
-  const currentKeysRef = useRef<string[]>([]);
-  const elementsRef = useRef(new Map<string, HTMLElement>());
-  const elementRefsRef = useRef(new Map<string, (element: HTMLElement | null) => void>());
-  const onItemExitCompleteRef = useRef(onItemExitComplete);
-  const [renderedItems, setRenderedItems] = useState<RenderedMotionListItem[]>(() => (
-    items.map((item) => ({ key: item.key, present: true }))
-  ));
-  const itemKeySignature = JSON.stringify(items.map((item) => item.key));
-  const renderedOrder = renderedItems.map((item) => item.key);
-  const capturePositions = useFlipList(renderedOrder, elementsRef);
-
-  currentKeysRef.current = items.map((item) => item.key);
-  onItemExitCompleteRef.current = onItemExitComplete;
-  for (const item of items) {
-    contentsRef.current.set(item.key, item.content);
-  }
-
-  useLayoutEffect(() => {
-    capturePositions();
-    setRenderedItems((current) => reconcileMotionListItems(current, currentKeysRef.current));
-  }, [capturePositions, itemKeySignature]);
-
-  const getElementRef = useCallback((key: string): ((element: HTMLElement | null) => void) => {
-    const existing = elementRefsRef.current.get(key);
-    if (existing) {
-      return existing;
-    }
-    const ref = (element: HTMLElement | null): void => {
-      if (element) {
-        elementsRef.current.set(key, element);
-      } else {
-        elementsRef.current.delete(key);
-      }
-    };
-    elementRefsRef.current.set(key, ref);
-    return ref;
-  }, []);
-
-  const finishExit = useCallback((key: string): void => {
-    if (currentKeysRef.current.includes(key)) {
-      return;
-    }
-    capturePositions();
-    contentsRef.current.delete(key);
-    elementRefsRef.current.delete(key);
-    setRenderedItems((current) => current.filter((item) => item.key !== key));
-    onItemExitCompleteRef.current?.(key);
-  }, [capturePositions]);
-
-  return renderedItems.map((item) => (
-    <MotionPresence
-      key={item.key}
-      present={item.present}
-      presenceKey={item.key}
-      className={itemClassName}
-      element={element}
-      exitDuration={exitDuration}
-      initial={false}
-      onExitComplete={() => finishExit(item.key)}
-      elementRef={getElementRef(item.key)}
-    >
-      {contentsRef.current.get(item.key)}
-    </MotionPresence>
-  ));
-}
-
-interface FlipAnimationEntry {
-  animation: Animation;
-  cleanupTimer: number;
-  element: HTMLElement;
-}
-
-function cancelFlipAnimation(entry: FlipAnimationEntry): void {
-  window.clearTimeout(entry.cleanupTimer);
-  entry.animation.cancel();
-}
-
-function getElementPositions(elements: Map<string, HTMLElement>): Map<string, DOMRect> {
-  return new Map([...elements].map(([key, element]) => [key, element.getBoundingClientRect()]));
-}
-
-/**
- * Animates only rows whose vertical layout position changed. Call capture before
- * a synchronous reorder so rapid changes begin from the currently painted layout.
- */
-export function useFlipList(
-  order: readonly string[],
-  elementsRef: RefObject<Map<string, HTMLElement>>
-): () => void {
-  const beforePositionsRef = useRef<Map<string, DOMRect> | null>(null);
-  const lastPositionsRef = useRef(new Map<string, DOMRect>());
-  const animationsRef = useRef(new Map<string, FlipAnimationEntry>());
-  const orderSignature = order.join("\u0000");
-
-  const capture = useCallback(() => {
-    beforePositionsRef.current = getElementPositions(elementsRef.current);
-  }, [elementsRef]);
-
-  useLayoutEffect(() => {
-    const elements = elementsRef.current;
-    const currentPositions = getElementPositions(elements);
-    const beforePositions = beforePositionsRef.current ?? lastPositionsRef.current;
-    beforePositionsRef.current = null;
-    lastPositionsRef.current = currentPositions;
-
-    for (const [key, entry] of animationsRef.current) {
-      if (!elements.has(key) || elements.get(key) !== entry.element) {
-        cancelFlipAnimation(entry);
-        animationsRef.current.delete(key);
-      }
-    }
-
-    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-    for (const [key, currentRect] of currentPositions) {
-      const previousRect = beforePositions.get(key);
-      const element = elements.get(key);
-      const deltaY = previousRect ? previousRect.top - currentRect.top : 0;
-      if (!element || Math.abs(deltaY) < 0.5 || typeof element.animate !== "function") {
-        continue;
-      }
-
-      const previousAnimation = animationsRef.current.get(key);
-      if (previousAnimation) {
-        cancelFlipAnimation(previousAnimation);
-      }
-      const animation = element.animate(
-        reducedMotion
-          ? [{ opacity: 0.92 }, { opacity: 1 }]
-          : [{ transform: `translateY(${deltaY}px)` }, { transform: "translateY(0)" }],
-        { duration: 120, easing: "ease" }
-      );
-      const entry: FlipAnimationEntry = {
-        animation,
-        cleanupTimer: window.setTimeout(() => {
-          if (animationsRef.current.get(key) === entry) {
-            animationsRef.current.delete(key);
-            animation.cancel();
-          }
-        }, 200),
-        element
-      };
-      animationsRef.current.set(key, entry);
-      void animation.finished.then(() => {
-        if (animationsRef.current.get(key) === entry) {
-          window.clearTimeout(entry.cleanupTimer);
-          animationsRef.current.delete(key);
-        }
-      }).catch(() => {
-        // Cancellation is expected when another reorder supersedes this one.
-      });
-    }
-  }, [elementsRef, orderSignature]);
-
-  useEffect(() => () => {
-    for (const entry of animationsRef.current.values()) {
-      cancelFlipAnimation(entry);
-    }
-    animationsRef.current.clear();
-    beforePositionsRef.current = null;
-    lastPositionsRef.current.clear();
-  }, []);
-
-  return capture;
+  const layoutDependency = items.map((item) => item.key).join("\u0000");
+  return (
+    <AnimatePresence initial={false} mode="sync">
+      {items.map((item) => (
+        <MotionListRow
+          key={item.key}
+          item={item}
+          itemClassName={itemClassName}
+          element={element}
+          exitDuration={exitDuration}
+          {...(initialOpacity === undefined ? {} : { initialOpacity })}
+          {...(initialY === undefined ? {} : { initialY })}
+          {...(initialScale === undefined ? {} : { initialScale })}
+          layoutDependency={layoutDependency}
+          {...(onItemExitComplete ? { onItemExitComplete } : {})}
+        />
+      ))}
+    </AnimatePresence>
+  );
 }
