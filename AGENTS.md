@@ -1,31 +1,33 @@
-## Core Priorities
+# Githead Agent Guide
 
-1. Performance first.
+## Priorities
 
-2. Reliability first.
-
-3. Keep behavior predictable under load and during failures (session restarts, reconnects, partial streams).
-
-If a tradeoff is required, choose correctness and robustness over short-term convenience.
+Optimize for performance and reliability. Preserve predictable behavior under load and during session restarts, reconnects, and partial streams. When priorities conflict, choose correctness and robust recovery over short-term convenience.
 
 ## Maintainability
 
-Long term maintainability is a core priority. If you add new functionality, first check if there is shared logic that can be extracted to a separate module. Duplicate logic across multiple files is a code smell and should be avoided. Don't be afraid to change existing code. Don't take shortcuts by just adding local logic to solve a problem.
+- Reuse existing abstractions and module boundaries.
+- Before adding functionality, search for existing shared logic. Extend it when it has multiple consumers or a clear reusable responsibility.
+- Keep each behavior in one authoritative implementation. Avoid parallel local fixes and speculative abstractions.
 
 ## Verification
 
-Do not use standalone Vite/browser visual verification for the renderer. The app depends on Electron preload APIs, so opening `http://127.0.0.1:5173/` or similar directly in a browser can render a blank page and misleading errors such as missing `window.githead` handlers.
+Use the narrowest relevant checks for the change. For the normal project check, run `vp check`, `vp run typecheck`, and the relevant tests; run `vp run build` when build or packaging behavior is affected.
 
-For visual checks, run `npm run dev:inspect`. This starts the Vite development server inside the Electron shell and exposes its real renderer on CDP port 9222. Connect browser automation to that existing target (for example, `agent-browser --cdp 9222 snapshot -i`) instead of opening the Vite URL. The inspected page must have `window.githead` available. If Electron visual verification is not available, rely on targeted automated tests, `vp check`, `vp run typecheck`, and `vp run build`, and clearly state that visual verification was not performed.
+For renderer-visible changes or visual checks:
+
+1. Run `npm run dev:inspect`.
+2. Connect browser automation to the Electron CDP target on port `9222`.
+3. Verify that the inspected target exposes `window.githead` before judging renderer behavior.
+
+The Vite URL is not a valid renderer test target because it does not receive the Electron preload API and may appear blank. If Electron verification is unavailable, run the relevant automated checks and report that visual verification was not performed. Verification is complete only when the applicable checks pass and this limitation is reported when it applies.
 
 ## Lore
 
-Lore is a new open source version control system from Epic Games. Whenever working with Lore features in this project, always reference the current version of the documentation and source rather than making assumptions.
+When a task touches Lore commands, repository behavior, configuration, or data models, read the current official Lore documentation and source before designing, implementing, or reviewing the change. Use the source to resolve behavior that the documentation does not define, and report any conflict between them.
 
-### Official Lore Links
-
-- Source: https://github.com/EpicGames/lore
-- System Design: https://epicgames.github.io/lore/explanation/system-design/
-- QuickStart: https://epicgames.github.io/lore/tutorials/quickstart/
-- CLI Command Reference: https://epicgames.github.io/lore/reference/lore-cli-commands/
-- CLI Config Reference: https://epicgames.github.io/lore/reference/lore-cli-config/
+- [Lore source](https://github.com/EpicGames/lore)
+- [System design](https://epicgames.github.io/lore/explanation/system-design/)
+- [QuickStart](https://epicgames.github.io/lore/tutorials/quickstart/)
+- [CLI command reference](https://epicgames.github.io/lore/reference/lore-cli-commands/)
+- [CLI config reference](https://epicgames.github.io/lore/reference/lore-cli-config/)
