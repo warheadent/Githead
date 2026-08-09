@@ -91,4 +91,17 @@ describe("GitHubQueryToolbar", () => {
     await user.click(screen.getByRole("button", { name: "Refresh pull requests" }));
     expect(onRefresh).toHaveBeenCalledOnce();
   });
+
+  it("uses issue-specific compact labels", async () => {
+    const user = userEvent.setup();
+    const onRefresh = vi.fn();
+    render(<TooltipProvider><GitHubQueryToolbar compact view="issues" search="" preset="all" presets={[{ value: "all", label: "All open" }]} sort="updated-desc" sortOptions={[{ value: "updated-desc", label: "Recently updated" }]} viewerAvailable status="2 open issues" onSearchChange={vi.fn()} onPresetChange={vi.fn()} onSortChange={vi.fn()} onClear={vi.fn()} onRefresh={onRefresh} /></TooltipProvider>);
+
+    expect(screen.getByPlaceholderText("Search issues")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Filters, 0 active" }));
+    expect(screen.getByText("Narrow the open issues.")).toBeTruthy();
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Refresh issues" }));
+    expect(onRefresh).toHaveBeenCalledOnce();
+  });
 });

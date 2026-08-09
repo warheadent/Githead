@@ -4176,14 +4176,6 @@ textarea,
   font-weight: 700;
 }
 
-.github-draft-text {
-  display: block;
-  margin-top: 2px;
-  color: var(--muted-foreground);
-  font-family: var(--font-ui);
-  font-size: 0.72rem;
-}
-
 .github-status {
   display: inline-flex;
   min-width: 0;
@@ -4446,11 +4438,12 @@ textarea,
 }
 
 .pull-requests-grid .github-list,
+.issues-grid .github-list,
 .workflow-runs-grid .github-list {
   content-visibility: visible;
 }
 
-.pull-request-row {
+.github-item-row {
   position: relative;
   display: grid;
   min-height: 112px;
@@ -4459,7 +4452,11 @@ textarea,
   padding: 0;
 }
 
-.pull-request-row-select {
+.issue-row {
+  min-height: 96px;
+}
+
+.github-item-row-select {
   display: grid;
   min-width: 0;
   grid-template-columns: 100px minmax(0, 1fr);
@@ -4473,12 +4470,12 @@ textarea,
   cursor: pointer;
 }
 
-.pull-request-row-select:focus-visible {
+.github-item-row-select:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: -3px;
 }
 
-.pull-request-row-state {
+.github-item-row-state {
   display: grid;
   grid-template-columns: 16px 14px minmax(0, 1fr);
   align-items: center;
@@ -4486,28 +4483,39 @@ textarea,
   color: var(--primary);
 }
 
-.pull-request-row-state > svg {
+.github-item-row-state.is-issue {
+  grid-template-columns: 16px minmax(0, 1fr);
+}
+
+.github-item-row-state > svg {
   width: 16px;
   height: 16px;
 }
 
-.pull-request-row-state > .pull-request-open-state {
+.github-item-row-state > .github-item-open-state {
   width: 12px;
   height: 12px;
 }
 
-.pull-request-row-state .github-draft-text {
+.github-item-qualifier {
   grid-column: 3;
   margin-top: 0;
+  color: var(--muted-foreground);
+  font-family: var(--font-ui);
+  font-size: 0.72rem;
 }
 
-.pull-request-row-content {
+.github-item-row-state.is-issue .github-item-qualifier {
+  grid-column: 2;
+}
+
+.github-item-row-content {
   display: grid;
   min-width: 0;
   gap: 4px;
 }
 
-.pull-request-row-title {
+.github-item-row-title {
   display: -webkit-box;
   overflow: hidden;
   line-height: 1.35;
@@ -4516,32 +4524,32 @@ textarea,
   -webkit-line-clamp: 2;
 }
 
-.pull-request-row-meta,
-.pull-request-row-details,
-.pull-request-comment-count {
+.github-item-row-meta,
+.github-item-row-details,
+.github-item-comment-count {
   display: flex;
   min-width: 0;
   align-items: center;
 }
 
-.pull-request-row-meta {
+.github-item-row-meta {
   gap: 6px;
 }
 
-.pull-request-row-details {
+.github-item-row-details {
   min-height: 20px;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 10px;
 }
 
-.pull-request-row .github-labels {
+.github-item-row .github-labels {
   flex-wrap: wrap;
   justify-content: flex-end;
   overflow: visible;
 }
 
-.pull-request-row .github-label-chip {
+.github-item-row .github-label-chip {
   max-width: 180px;
   overflow: visible;
   line-height: 1.25;
@@ -4550,12 +4558,12 @@ textarea,
   white-space: normal;
 }
 
-.pull-request-comment-count {
+.github-item-comment-count {
   flex: 0 0 auto;
   gap: 4px;
 }
 
-.pull-request-comment-count > svg {
+.github-item-comment-count > svg {
   width: 14px;
   height: 14px;
 }
@@ -4704,7 +4712,7 @@ textarea,
 }
 
 @container (max-width: 390px) {
-  .pull-request-row-select,
+  .github-item-row-select,
   .workflow-run-row-select {
     grid-template-columns: 82px minmax(0, 1fr);
     padding-left: 12px;
@@ -4717,6 +4725,22 @@ textarea,
 
   .workflow-run-row-state {
     padding-top: 0;
+  }
+}
+
+@container (max-width: 620px) {
+  .github-query-toolbar-compact {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .github-compact-search {
+    grid-column: 1 / -1;
+  }
+
+  .github-compact-sort {
+    width: 100%;
+    min-width: 0;
   }
 }
 
@@ -4945,6 +4969,9 @@ textarea,
 
 .review-console-single-tab > button {
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   border: 0;
   color: var(--foreground);
   background: transparent;
@@ -5093,6 +5120,25 @@ textarea,
 .review-console-markdown .markdown-preview h2 { font-size: 1.05rem; }
 .review-console-markdown .markdown-preview h3 { font-size: 0.95rem; }
 
+.review-console-activity-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  padding: 14px 0 8px;
+}
+
+.review-console-activity-heading h3,
+.review-console-activity-heading span {
+  margin: 0;
+  font-size: 0.74rem;
+}
+
+.review-console-activity-heading span {
+  color: var(--muted-foreground);
+}
+
 .review-console-context {
   display: flex;
   align-items: center;
@@ -5223,6 +5269,72 @@ textarea,
 .review-console-inspector-row code {
   font-family: var(--font-code);
   font-size: 0.7rem;
+}
+
+.review-console-assignees,
+.review-console-issue-labels {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.review-console-assignees > button,
+.review-console-detail-link {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  border: 0;
+  padding: 0;
+  color: var(--foreground);
+  background: transparent;
+  font: inherit;
+  text-align: right;
+}
+
+.review-console-assignees > button:hover,
+.review-console-detail-link:hover {
+  color: var(--primary);
+}
+
+.review-console-assignees > button:focus-visible,
+.review-console-detail-link:focus-visible {
+  border-radius: 3px;
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.review-console-assignees img,
+.review-console-assignees svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+.review-console-detail-link svg {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+}
+
+.review-console-issue-label {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px;
+}
+
+.review-console-issue-label-color {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in oklch, var(--foreground) 20%, transparent);
+  border-radius: 999px;
 }
 
 .review-console-merge-status {
@@ -5471,8 +5583,22 @@ textarea,
 }
 
 .review-console-linked-prs h4 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin: 0 0 8px;
   font-size: 0.75rem;
+}
+
+.review-console-linked-prs h4 > span {
+  min-width: 19px;
+  border-radius: 999px;
+  padding: 1px 5px;
+  color: var(--muted-foreground);
+  background: var(--muted);
+  font-size: 0.65rem;
+  text-align: center;
 }
 
 .review-console-linked-prs > p {
@@ -5760,6 +5886,11 @@ textarea,
   }
 
   .review-console-header-actions > button:first-child {
+    width: 32px;
+    padding-inline: 0;
+  }
+
+  .review-console-open-label {
     display: none;
   }
 

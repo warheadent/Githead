@@ -286,16 +286,6 @@ const ReviewConsole = lazy(() => import("./ReviewConsole.js").then((module) => (
 const HISTORY_LIMIT = 200;
 
 type HistoryColumnId = "graph" | "description" | "date" | "author" | "commit" | "references" | "pullRequest" | "checks";
-type IssueColumnId = "number" | "title" | "labels" | "comments" | "updated" | "author";
-
-const ISSUE_COLUMNS = [
-  { id: "number", label: "Issue", defaultWidth: 88, minWidth: 72 },
-  { id: "title", label: "Title", defaultWidth: 300, minWidth: 180 },
-  { id: "labels", label: "Labels", defaultWidth: 220, minWidth: 100 },
-  { id: "comments", label: "Comments", defaultWidth: 96, minWidth: 80 },
-  { id: "updated", label: "Updated", defaultWidth: 210, minWidth: 110 },
-  { id: "author", label: "Author", defaultWidth: 140, minWidth: 90, defaultVisible: false }
-] as const satisfies readonly ColumnDefinition<IssueColumnId>[];
 
 type WorkspaceView = "status" | "stashes" | "history" | "workflows" | "pullRequests" | "issues" | "activity";
 type IntegrationDialogState = { kind: "merge" | "rebase" | "cherry-pick"; commitHash?: string } | null;
@@ -10929,13 +10919,7 @@ function WorkflowRunsView({
       />
     ) : null}>
       <section className="github-view workflow-runs-grid" aria-label="Workflow runs">
-        <div className="github-view-header github-selector-header">
-          <div className="min-w-0">
-            <p className="eyebrow">GitHub</p>
-            <TooltipTarget content={repository?.fullName ?? "-"}><h2 className="truncate text-sm font-semibold">{repository?.fullName ?? "-"}</h2></TooltipTarget>
-            <p className="github-secondary-text">{countLabel}</p>
-          </div>
-        </div>
+        <GitHubSelectorHeader repositoryName={repository?.fullName ?? "-"} countLabel={countLabel} />
         <GitHubQueryToolbar compact activeFilterCount={activeFilterCount} refreshDisabled={!repository} refreshing={loading || busy} onRefresh={onRefresh} view="workflows" search={search} preset={preset} presets={[{ value: "all", label: "All runs" }, { value: "branch", label: "Current branch", disabled: !summary?.branch }, { value: "failed", label: "Failed" }, { value: "progress", label: "In progress" }, { value: "custom", label: "Custom" }]} sort={query.sortDirection} sortOptions={[{ value: "desc", label: "Newest" }, { value: "asc", label: "Oldest loaded" }]} viewerAvailable status={loading || busy ? "Loading workflow runs" : countLabel} onSearchChange={(value) => { onPresetChange("custom"); onSearchChange(value); }} onPresetChange={applyPreset} onSortChange={(value) => { onPresetChange("custom"); onQueryChange({ ...query, sortDirection: value as "asc" | "desc" }); }} onClear={() => { onSearchChange(""); applyPreset("all"); }}>
           <label className="github-query-field"><span>Event</span><input value={query.event ?? ""} placeholder="push" onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, event: event.target.value || undefined }); }} /></label>
           <label className="github-query-field"><span>Status</span><select value={query.status ?? ""} onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, status: (event.target.value || undefined) as GitHubWorkflowRunQuery["status"] }); }}><option value="">Any</option><option value="queued">Queued</option><option value="in_progress">In progress</option><option value="completed">Completed</option><option value="success">Success</option><option value="failure">Failure</option><option value="cancelled">Cancelled</option></select></label>
@@ -11132,13 +11116,7 @@ function PullRequestsView({
       </Suspense>
     ) : null}>
     <section className="github-view pull-requests-grid" aria-label="Pull requests">
-      <div className="github-view-header github-selector-header">
-        <div className="min-w-0">
-          <p className="eyebrow">GitHub</p>
-          <TooltipTarget content={repository?.fullName ?? "-"}><h2 className="truncate text-sm font-semibold">{repository?.fullName ?? "-"}</h2></TooltipTarget>
-          <p className="github-secondary-text">{countLabel}</p>
-        </div>
-      </div>
+      <GitHubSelectorHeader repositoryName={repository?.fullName ?? "-"} countLabel={countLabel} />
       <GitHubQueryToolbar compact activeFilterCount={activeFilterCount} refreshDisabled={!repository} refreshing={loading || busy} onRefresh={onRefresh} view="pullRequests" search={query.search ?? ""} preset={preset} presets={[{ value: "all", label: "All open" }, { value: "branch", label: "Current Branch", disabled: !summary?.branch }, { value: "authored", label: "Authored by me", disabled: !viewerLogin }, { value: "assigned", label: "Assigned to me", disabled: !viewerLogin }, { value: "review", label: "Review requested", disabled: !viewerLogin }, { value: "drafts", label: "Drafts" }, { value: "custom", label: "Custom" }]} sort={`${query.sort}-${query.direction}`} sortOptions={[{ value: "updated-desc", label: "Recently updated" }, { value: "created-desc", label: "Newest" }, { value: "created-asc", label: "Oldest" }]} viewerAvailable={Boolean(viewerLogin)} status={loading || busy ? "Loading pull requests" : countLabel} onSearchChange={(value) => { onPresetChange("custom"); onQueryChange({ ...query, search: value || undefined }); }} onPresetChange={applyPreset} onSortChange={(value) => { const [sort, direction] = value.split("-") as ["updated" | "created", "asc" | "desc"]; onQueryChange({ ...query, sort, direction }); }} onClear={() => applyPreset("all")}>
         <label className="github-query-field"><span>Label</span><input value={query.label ?? ""} onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, label: event.target.value || undefined }); }} /></label>
         <label className="github-query-field"><span>Draft</span><select value={query.draft ?? ""} onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, draft: (event.target.value || undefined) as GitHubPullRequestQuery["draft"] }); }}><option value="">Any</option><option value="draft">Draft</option><option value="ready">Ready</option></select></label>
@@ -11184,42 +11162,23 @@ function PullRequestRow({
   selected: boolean;
   onSelect: (pullRequest: GitHubPullRequest, button: HTMLButtonElement) => void;
 }): ReactNode {
-  return (
-    <div
-      className={`github-row pull-request-row ${selected ? "is-selected" : ""}`}
-      role="listitem"
-      aria-current={selected ? "true" : undefined}
-    >
-      <button type="button" className="pull-request-row-select" aria-label={pullRequest.title} aria-pressed={selected} onClick={(event) => onSelect(pullRequest, event.currentTarget)}>
-        <span className="pull-request-row-state" aria-hidden="true">
-          <GitPullRequest />
-          <CircleDot className="pull-request-open-state" />
-          <span className="github-issue-number">#{pullRequest.number}</span>
-          {pullRequest.draft ? <span className="github-draft-text">Draft</span> : null}
-        </span>
-        <span className="pull-request-row-content">
-          <TooltipTarget content={pullRequest.title}><span className="github-primary-text pull-request-row-title">{pullRequest.title}</span></TooltipTarget>
-          <span className="pull-request-row-meta github-secondary-text">
-            <TooltipTarget content={pullRequest.authorLogin}><span className="truncate">{pullRequest.authorLogin}</span></TooltipTarget>
-            <span aria-hidden="true">·</span>
-            <TooltipTarget content={formatDate(pullRequest.updatedAt)}><span className="truncate">updated {formatRelativeDate(pullRequest.updatedAt)}</span></TooltipTarget>
-          </span>
-          <span className="pull-request-row-details">
-            <span className="pull-request-comment-count github-secondary-text" aria-label={`${pullRequest.comments} ${pullRequest.comments === 1 ? "comment" : "comments"}`}><MessageSquare />{pullRequest.comments}</span>
-            <GitHubLabels labels={pullRequest.labels} max={2} />
-          </span>
-        </span>
-      </button>
-    </div>
-  );
+  return <GitHubItemRow
+    itemType="pullRequest"
+    number={pullRequest.number}
+    title={pullRequest.title}
+    state={pullRequest.state}
+    {...(pullRequest.draft ? { qualifier: "Draft" } : {})}
+    authorLogin={pullRequest.authorLogin}
+    updatedAt={pullRequest.updatedAt}
+    labels={pullRequest.labels}
+    comments={pullRequest.comments}
+    selected={selected}
+    onSelect={(button) => onSelect(pullRequest, button)}
+  />;
 }
 
 function PullRequestEmptyDetails(): ReactNode {
-  return <section className="review-console-empty" aria-labelledby="pull-request-empty-heading">
-    <GitPullRequest aria-hidden="true" />
-    <h2 id="pull-request-empty-heading">Select a pull request</h2>
-    <p>Choose a pull request to view details, checks, files, and review activity.</p>
-  </section>;
+  return <GitHubSelectionEmptyDetails itemType="pullRequest" />;
 }
 
 function IssuesView({
@@ -11272,9 +11231,9 @@ function IssuesView({
   const repository = summary?.githubRepository ?? null;
   const [selectedIssue, setSelectedIssue] = useState<GitHubIssue | null>(null);
   const selectedTitleRef = useRef<HTMLButtonElement | null>(null);
-  const columnLayout = usePersistentColumnLayout("githead.column-layout.issues", ISSUE_COLUMNS);
   const filtered = Object.keys(query).some((key) => !["sort", "direction"].includes(key)) || query.sort !== "updated" || query.direction !== "desc";
   const countLabel = loaded ? (filtered && totalCount !== null ? `${totalCount} matching` : formatLoadedCount(issues.length, openCount, "open issue", "open issues")) : "-";
+  const activeFilterCount = Object.entries(query).filter(([key, value]) => !["search", "sort", "direction"].includes(key) && value !== undefined && value !== "").length;
   const applyPreset = (value: string): void => {
     onPresetChange(value);
     if (value === "authored" && viewerLogin) onQueryChange({ ...DEFAULT_ISSUE_QUERY, author: viewerLogin });
@@ -11292,7 +11251,7 @@ function IssuesView({
   };
 
   return (
-    <GitHubDetailWorkspace open={selectedIssue !== null} drawer={selectedIssue && repository ? (
+    <GitHubDetailWorkspace persistent listDefaultSize="38%" open={selectedIssue !== null} emptyDrawer={<IssueEmptyDetails />} drawer={selectedIssue && repository ? (
       <Suspense fallback={<LoadingState label="Loading review console" className="h-full" />}>
         <ReviewConsole
           repoPath={summary?.repoPath ?? ""}
@@ -11305,22 +11264,12 @@ function IssuesView({
         />
       </Suspense>
     ) : null}>
-    <section ref={columnLayout.containerRef} style={columnLayout.style} className="github-view issues-grid" aria-label="Issues">
-      <GitHubViewHeader
-        eyebrow="GitHub"
-        title="Issues"
-        repositoryName={repository?.fullName ?? "-"}
-        countLabel={countLabel}
-        loading={loading || busy}
-        disabled={!repository}
-        actions={<ColumnVisibilityMenu columns={ISSUE_COLUMNS} controller={columnLayout} buttonSize="sm" />}
-        onRefresh={onRefresh}
-      />
-      <GitHubQueryToolbar view="issues" search={query.search ?? ""} preset={preset} presets={[{ value: "all", label: "All open" }, { value: "authored", label: "Authored by me", disabled: !viewerLogin }, { value: "assigned", label: "Assigned to me", disabled: !viewerLogin }, { value: "unassigned", label: "Unassigned" }, { value: "custom", label: "Custom" }]} sort={`${query.sort}-${query.direction}`} sortOptions={[{ value: "updated-desc", label: "Recently updated" }, { value: "created-desc", label: "Newest" }, { value: "created-asc", label: "Oldest" }]} viewerAvailable={Boolean(viewerLogin)} status={loading || busy ? "Loading issues" : countLabel} onSearchChange={(value) => { onPresetChange("custom"); onQueryChange({ ...query, search: value || undefined }); }} onPresetChange={applyPreset} onSortChange={(value) => { const [sort, direction] = value.split("-") as ["updated" | "created", "asc" | "desc"]; onPresetChange("custom"); onQueryChange({ ...query, sort, direction }); }} onClear={() => applyPreset("all")}>
+    <section className="github-view issues-grid" aria-label="Issues">
+      <GitHubSelectorHeader repositoryName={repository?.fullName ?? "-"} countLabel={countLabel} />
+      <GitHubQueryToolbar compact activeFilterCount={activeFilterCount} refreshDisabled={!repository} refreshing={loading || busy} onRefresh={onRefresh} view="issues" search={query.search ?? ""} preset={preset} presets={[{ value: "all", label: "All open" }, { value: "authored", label: "Authored by me", disabled: !viewerLogin }, { value: "assigned", label: "Assigned to me", disabled: !viewerLogin }, { value: "unassigned", label: "Unassigned" }, { value: "custom", label: "Custom" }]} sort={`${query.sort}-${query.direction}`} sortOptions={[{ value: "updated-desc", label: "Recently updated" }, { value: "created-desc", label: "Newest" }, { value: "created-asc", label: "Oldest" }]} viewerAvailable={Boolean(viewerLogin)} status={loading || busy ? "Loading issues" : countLabel} onSearchChange={(value) => { onPresetChange("custom"); onQueryChange({ ...query, search: value || undefined }); }} onPresetChange={applyPreset} onSortChange={(value) => { const [sort, direction] = value.split("-") as ["updated" | "created", "asc" | "desc"]; onPresetChange("custom"); onQueryChange({ ...query, sort, direction }); }} onClear={() => applyPreset("all")}>
         <label className="github-query-field"><span>Label</span><input value={query.label ?? ""} onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, label: event.target.value || undefined }); }} /></label>
       </GitHubQueryToolbar>
       <div className="github-list" role="list" aria-label="Issues">
-        <AdjustableColumnHeader columns={ISSUE_COLUMNS} controller={columnLayout} className="github-table-header" />
         {!repository ? (
           <GitHubListEmptyState icon={<GitFork />} title="No GitHub repository" description="Select a repository with a supported GitHub origin." />
         ) : loading ? (
@@ -11336,7 +11285,6 @@ function IssuesView({
             <IssueRow
               key={issue.number}
               issue={issue}
-              columnOrder={columnLayout.visibleOrder}
               selected={selectedIssue?.number === issue.number}
               onSelect={(item, button) => {
                 selectedTitleRef.current = button;
@@ -11355,31 +11303,100 @@ function IssuesView({
 
 function IssueRow({
   issue,
-  columnOrder,
   selected,
   onSelect
 }: {
   issue: GitHubIssue;
-  columnOrder: readonly IssueColumnId[];
   selected: boolean;
   onSelect: (issue: GitHubIssue, button: HTMLButtonElement) => void;
 }): ReactNode {
-  return (
-    <div
-      className={`github-row issue-row ${selected ? "is-selected" : ""}`}
-      role="listitem"
-      aria-current={selected ? "true" : undefined}
-    >
-      <OrderedCells order={columnOrder} cells={{
-        number: <span className="github-issue-number">#{issue.number}</span>,
-        title: <TooltipTarget content={issue.title}><button type="button" className="github-primary-text text-left" onClick={(event) => onSelect(issue, event.currentTarget)}>{issue.title}</button></TooltipTarget>,
-        labels: <GitHubLabels labels={issue.labels} />,
-        comments: <span className="github-comments-cell github-secondary-text">{issue.comments}</span>,
-        updated: <TooltipTarget content={formatDate(issue.updatedAt)}><span className="github-updated-cell truncate">{formatDate(issue.updatedAt)}</span></TooltipTarget>,
-        author: <TooltipTarget content={issue.authorLogin}><span className="truncate">{issue.authorLogin}</span></TooltipTarget>
-      }} />
+  return <GitHubItemRow
+    itemType="issue"
+    number={issue.number}
+    title={issue.title}
+    state={issue.state}
+    qualifier={capitalize(issue.state)}
+    authorLogin={issue.authorLogin}
+    updatedAt={issue.updatedAt}
+    labels={issue.labels}
+    comments={issue.comments}
+    selected={selected}
+    onSelect={(button) => onSelect(issue, button)}
+  />;
+}
+
+function IssueEmptyDetails(): ReactNode {
+  return <GitHubSelectionEmptyDetails itemType="issue" />;
+}
+
+function GitHubSelectorHeader({ repositoryName, countLabel }: { repositoryName: string; countLabel: string }): ReactNode {
+  return <div className="github-view-header github-selector-header">
+    <div className="min-w-0">
+      <p className="eyebrow">GitHub</p>
+      <TooltipTarget content={repositoryName}><h2 className="truncate text-sm font-semibold">{repositoryName}</h2></TooltipTarget>
+      <p className="github-secondary-text">{countLabel}</p>
     </div>
-  );
+  </div>;
+}
+
+function GitHubSelectionEmptyDetails({ itemType }: { itemType: "pullRequest" | "issue" }): ReactNode {
+  const pullRequest = itemType === "pullRequest";
+  const headingId = `github-${itemType}-empty-heading`;
+  return <section className="review-console-empty" aria-labelledby={headingId}>
+    {pullRequest ? <GitPullRequest aria-hidden="true" /> : <CircleDot aria-hidden="true" />}
+    <h2 id={headingId}>Select {pullRequest ? "a pull request" : "an issue"}</h2>
+    <p>{pullRequest
+      ? "Choose a pull request to view details, checks, files, and review activity."
+      : "Choose an issue to view its description, activity, and project details."}</p>
+  </section>;
+}
+
+function GitHubItemRow({ itemType, number, title, state, qualifier, authorLogin, updatedAt, labels, comments, selected, onSelect }: {
+  itemType: "pullRequest" | "issue";
+  number: number;
+  title: string;
+  state: string;
+  qualifier?: string;
+  authorLogin: string;
+  updatedAt: string;
+  labels: string[];
+  comments: number;
+  selected: boolean;
+  onSelect: (button: HTMLButtonElement) => void;
+}): ReactNode {
+  const pullRequest = itemType === "pullRequest";
+  return <div
+    className={`github-row github-item-row ${pullRequest ? "pull-request-row" : "issue-row"} ${selected ? "is-selected" : ""}`}
+    role="listitem"
+    aria-current={selected ? "true" : undefined}
+  >
+    <button
+      type="button"
+      className="github-item-row-select"
+      aria-label={title}
+      aria-pressed={selected}
+      title={`${capitalize(state)} ${pullRequest ? "pull request" : "issue"} #${number}`}
+      onClick={(event) => onSelect(event.currentTarget)}
+    >
+      <span className={`github-item-row-state is-${itemType}`} aria-hidden="true">
+        {pullRequest ? <><GitPullRequest /><CircleDot className="github-item-open-state" /></> : <CircleDot />}
+        <span className="github-issue-number">#{number}</span>
+        {qualifier ? <span className="github-item-qualifier">{qualifier}</span> : null}
+      </span>
+      <span className="github-item-row-content">
+        <TooltipTarget content={title}><span className="github-primary-text github-item-row-title">{title}</span></TooltipTarget>
+        <span className="github-item-row-meta github-secondary-text">
+          <TooltipTarget content={authorLogin}><span className="truncate">{authorLogin}</span></TooltipTarget>
+          <span aria-hidden="true">·</span>
+          <TooltipTarget content={formatDate(updatedAt)}><span className="truncate">updated {formatRelativeDate(updatedAt)}</span></TooltipTarget>
+        </span>
+        <span className="github-item-row-details">
+          <span className="github-item-comment-count github-secondary-text" aria-label={`${comments} ${comments === 1 ? "comment" : "comments"}`}><MessageSquare />{comments}</span>
+          <GitHubLabels labels={labels} max={2} />
+        </span>
+      </span>
+    </button>
+  </div>;
 }
 
 function GitHubLabels({ labels, max = 3 }: { labels: string[]; max?: number }): ReactNode {
@@ -11487,44 +11504,6 @@ function GitHubListFooter({ label, nextPage, loading, error, disabled, onLoadMor
           {error ? "Retry" : "Load more"}
         </Button>
       ) : null}
-    </div>
-  );
-}
-
-function GitHubViewHeader({
-  eyebrow,
-  title,
-  repositoryName,
-  countLabel,
-  loading,
-  disabled,
-  actions,
-  onRefresh
-}: {
-  eyebrow: string;
-  title: string;
-  repositoryName: string;
-  countLabel: string;
-  loading: boolean;
-  disabled: boolean;
-  actions?: ReactNode;
-  onRefresh: () => void;
-}): ReactNode {
-  return (
-    <div className="github-view-header">
-      <div className="min-w-0">
-        <p className="eyebrow">{eyebrow}</p>
-        <h2 className="truncate text-sm font-semibold">{title}</h2>
-        <TooltipTarget content={repositoryName}><p className="github-secondary-text">{repositoryName}</p></TooltipTarget>
-      </div>
-      <div className="github-view-actions">
-        <span className="github-count">{countLabel}</span>
-        {actions}
-        <Button type="button" variant="outline" size="sm" disabled={disabled || loading} onClick={onRefresh}>
-          {loading ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-          Refresh
-        </Button>
-      </div>
     </div>
   );
 }

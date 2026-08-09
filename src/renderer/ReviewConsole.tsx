@@ -160,8 +160,8 @@ export function ReviewConsole({
           ) : null}
         </div>
         <div className="review-console-header-actions">
-          <Button type="button" variant="ghost" size="sm" onClick={() => onOpenExternalUrl(externalUrl)}>
-            Open on GitHub <ExternalLink />
+          <Button type="button" variant="ghost" size="sm" aria-label="Open on GitHub" title="Open on GitHub" onClick={() => onOpenExternalUrl(externalUrl)}>
+            <span className="review-console-open-label">Open on GitHub</span><ExternalLink />
           </Button>
           <TooltipButton type="button" variant="ghost" size="icon-sm" aria-label="Close review console" tooltip="Close" onClick={onClose}>
             <X />
@@ -192,7 +192,10 @@ export function ReviewConsole({
       ) : (
         <div className="review-console-tabs">
           <div className="review-console-tab-list review-console-single-tab" role="tablist" aria-label="Issue details">
-            <button type="button" role="tab" aria-selected="true">Overview</button>
+            <button type="button" role="tab" aria-selected="true">
+              Overview
+              {issueDetail ? <span className="review-console-tab-count" aria-label={`${issueDetail.comments.length} ${issueDetail.comments.length === 1 ? "comment" : "comments"}`}>{issueDetail.comments.length}</span> : null}
+            </button>
           </div>
           <DetailStatus detail={detail} />
           {issueDetail ? <IssueOverview detail={issueDetail} comment={comment} commentRef={commentRef} mutation={mutation} onCommentChange={setComment} onSubmitComment={submitComment} onOpenExternalUrl={onOpenExternalUrl} /> : null}
@@ -384,18 +387,47 @@ function IssueOverview({ detail, comment, commentRef, mutation, onCommentChange,
     <div className="review-console-overview review-console-issue-overview">
       <main className="review-console-thread">
         <article className="review-console-description"><PersonHeader user={detail.author} date={detail.createdAt} /><Markdown text={detail.body || "No description provided."} /></article>
+        <div className="review-console-activity-heading">
+          <h3>Activity</h3>
+          <span>{detail.comments.length} {detail.comments.length === 1 ? "comment" : "comments"}</span>
+        </div>
         {detail.comments.map((commentEntry) => <article className="review-console-timeline-entry" key={commentEntry.id}><PersonHeader user={commentEntry.author} date={commentEntry.createdAt} /><Markdown text={commentEntry.body || "No comment body."} /></article>)}
         <CommentComposer value={comment} inputRef={commentRef} busy={mutation.kind === "comment"} onChange={onCommentChange} onSubmit={onSubmitComment} />
       </main>
       <aside className="review-console-inspector" aria-label="Issue metadata">
         <h3>Issue details</h3>
-        <InspectorRow label="Assignees"><span>{detail.assignees.length ? detail.assignees.map((assignee) => assignee.login).join(", ") : "None"}</span></InspectorRow>
-        <InspectorRow label="Labels"><span>{detail.labels.length ? detail.labels.map((label) => label.name).join(", ") : "None"}</span></InspectorRow>
-        <InspectorRow label="Milestone"><span>{detail.milestone?.title ?? "None"}</span></InspectorRow>
-        <div className="review-console-linked-prs"><h4>Linked pull requests</h4>{detail.linkedPullRequests.length ? detail.linkedPullRequests.map((pullRequest) => <button type="button" key={pullRequest.number} onClick={() => onOpenExternalUrl(pullRequest.url)}><GitPullRequest /><span>#{pullRequest.number} {pullRequest.title}</span><small>{pullRequest.state}</small></button>) : <p>None</p>}</div>
+        <InspectorRow label="State"><span className="capitalize">{detail.state}</span></InspectorRow>
+        {detail.closedAt ? <InspectorRow label="Closed"><time dateTime={detail.closedAt}>{formatDateTime(detail.closedAt)}</time></InspectorRow> : null}
+        <InspectorRow label="Assignees"><IssueAssignees assignees={detail.assignees} onOpenExternalUrl={onOpenExternalUrl} /></InspectorRow>
+        <InspectorRow label="Labels"><IssueLabels labels={detail.labels} /></InspectorRow>
+        <InspectorRow label="Milestone">{detail.milestone?.url ? <button type="button" className="review-console-detail-link" onClick={() => onOpenExternalUrl(detail.milestone?.url ?? "")}>{detail.milestone.title}<ExternalLink aria-hidden="true" /></button> : <span>{detail.milestone?.title ?? "None"}</span>}</InspectorRow>
+        <div className="review-console-linked-prs"><h4>Linked pull requests <span>{detail.linkedPullRequests.length}</span></h4>{detail.linkedPullRequests.length ? detail.linkedPullRequests.map((pullRequest) => <button type="button" key={pullRequest.number} onClick={() => onOpenExternalUrl(pullRequest.url)}><GitPullRequest /><span>#{pullRequest.number} {pullRequest.title}</span><small>{pullRequest.state}</small></button>) : <p>None</p>}</div>
       </aside>
     </div>
   );
+}
+
+function IssueAssignees({ assignees, onOpenExternalUrl }: { assignees: GitHubUserSummary[]; onOpenExternalUrl: (url: string) => void }): ReactNode {
+  if (!assignees.length) return <span>None</span>;
+  return <span className="review-console-assignees">
+    {assignees.map((assignee) => assignee.url ? <button type="button" key={assignee.login} onClick={() => onOpenExternalUrl(assignee.url)}>
+      {assignee.avatarUrl ? <img src={assignee.avatarUrl} alt="" /> : <UserRound aria-hidden="true" />}
+      <span>{assignee.login}</span>
+    </button> : <span key={assignee.login}>{assignee.login}</span>)}
+  </span>;
+}
+
+function IssueLabels({ labels }: { labels: GitHubIssueDetail["labels"] }): ReactNode {
+  if (!labels.length) return <span>None</span>;
+  return <span className="review-console-issue-labels">
+    {labels.map((label) => {
+      const color = /^[0-9a-f]{6}$/i.test(label.color) ? `#${label.color}` : null;
+      return <span className="github-label-chip review-console-issue-label" key={label.name}>
+        {color ? <span className="review-console-issue-label-color" style={{ backgroundColor: color }} aria-hidden="true" /> : null}
+        {label.name}
+      </span>;
+    })}
+  </span>;
 }
 
 function CommentComposer({ value, inputRef, busy, onChange, onSubmit }: {
