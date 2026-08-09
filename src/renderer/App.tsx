@@ -11711,13 +11711,11 @@ function CommitPanel({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" side="top">
-                {primaryCommitAction === "commit" ? (
-                  <DropdownMenuItem disabled={disabled || !commitAllowed} onSelect={onCommitAndPush}>
-                    <Upload />
-                    Commit &amp; Push
-                  </DropdownMenuItem>
-                ) : null}
-                {primaryCommitAction === "commit" && showAmendAction ? <DropdownMenuSeparator /> : null}
+                <DropdownMenuItem disabled={disabled || !commitAllowed} onSelect={onCommitAndPush}>
+                  <Upload />
+                  Commit &amp; Push
+                </DropdownMenuItem>
+                {showAmendAction ? <DropdownMenuSeparator /> : null}
                 {showAmendAction ? (
                   <TooltipTarget
                     content={!canAmend ? "This repository has no commit to amend." : amendDisabled ? amendDisabledReason ?? "Wait for the current Git operation to finish." : undefined}

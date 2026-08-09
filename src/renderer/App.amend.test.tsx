@@ -88,6 +88,19 @@ describe("App amend entry points", { timeout: 10_000 }, () => {
     await waitFor(() => expect(document.activeElement).toBe(trigger));
   });
 
+  it("keeps Commit & Push visible when the amend action makes the Commit menu available", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [] }));
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("button", { name: "More commit actions" }));
+
+    const commitAndPush = screen.getByRole("menuitem", { name: "Commit & Push" });
+    expect(commitAndPush.getAttribute("data-disabled")).not.toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Amend last commit…" })).toBeTruthy();
+  });
+
   it("keeps History staged choice predictable and defaults to message only", async () => {
     const user = userEvent.setup();
     const head = createCommit({ hash: "a".repeat(40), refs: [{ kind: "branch", name: "main" }], subject: "History staged" });
