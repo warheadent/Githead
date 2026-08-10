@@ -5178,10 +5178,12 @@ export function App(): ReactNode {
       : null;
     updateState({
       ...(result.push?.branchSucceeded ? { commitMessage: "" } : {}),
-      commitPushSafetyNotice: {
-        message: result.stderr.trim() || "Commit & Push did not complete.",
-        undoRequest
-      }
+      commitPushSafetyNotice: result.push?.partialSuccess
+        ? null
+        : {
+            message: result.stderr.trim() || "Commit & Push did not complete.",
+            undoRequest
+          }
     });
   }, [commitChanges, ensureTrustedRepo, isInvocationCurrent, loadCommitHistory, openGitIdentityPrompt, runAction, runRepoOperation, updateState]);
 

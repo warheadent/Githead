@@ -1423,6 +1423,53 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => expect((screen.getByPlaceholderText("Summarize staged changes...") as HTMLTextAreaElement).value).toBe(""));
   });
 
+  it("keeps a partial automatic tag-push failure out of the commit box", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      ahead: 0,
+      behind: 0,
+      files: [
+        createStatusFile("src/renderer/App.tsx", {
+          indexStatus: "M",
+          isStaged: true
+        })
+      ]
+    }));
+    vi.mocked(githead.commitAndPush).mockResolvedValue({
+      ...createOperationResult({
+        exitCode: 1,
+        stderr: "Branch push to 'origin' succeeded, but the automatic tag push failed. The branch remains pushed and was not rolled back."
+      }),
+      outcome: "push-failed",
+      commitCreated: true,
+      branchName: "main",
+      ahead: 0,
+      behind: 0,
+      previousHeadOid: "a".repeat(40),
+      headOid: "b".repeat(40),
+      canUndoCommit: false,
+      push: {
+        branchSucceeded: true,
+        partialSuccess: true,
+        remoteName: "origin",
+        tagPushBehavior: "all",
+        tagOutcome: "failed"
+      }
+    });
+
+    render(<App />);
+
+    await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
+    const message = screen.getByPlaceholderText("Summarize staged changes...");
+    await user.type(message, "fix: keep tag failures in activity");
+    await user.click(screen.getByRole("button", { name: "More commit actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Commit & Push" }));
+
+    await waitFor(() => expect((message as HTMLTextAreaElement).value).toBe(""));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("tab", { name: "Activity Log, unread error details available" })).toBeTruthy();
+  });
+
   it("shows a safety warning without creating a commit when the fetched remote is ahead", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
