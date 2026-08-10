@@ -288,6 +288,7 @@ const RemoteManagementDialog = lazy(() => import("./RemoteManagementDialog.js").
 const ReviewConsole = lazy(() => import("./ReviewConsole.js").then((module) => ({ default: module.ReviewConsole })));
 
 const HISTORY_LIMIT = 200;
+const HISTORY_PRELOAD_LIMIT = 20;
 
 type HistoryColumnId = "graph" | "description" | "date" | "author" | "commit" | "references" | "pullRequest" | "checks";
 
@@ -1355,7 +1356,10 @@ export function App(): ReactNode {
     }
   }, [loadCommitFileDiff, updateState]);
 
-  const loadCommitHistory = useCallback(async (force: boolean): Promise<boolean> => {
+  const loadCommitHistory = useCallback(async (
+    force: boolean,
+    limit = HISTORY_LIMIT
+  ): Promise<boolean> => {
     const current = stateRef.current;
     if (!current.summary?.isValid) {
       updateState({
@@ -1386,7 +1390,7 @@ export function App(): ReactNode {
     try {
       const loadedHistory = await window.githead.getCommitHistory({
         repoPath,
-        limit: HISTORY_LIMIT,
+        limit,
         scope,
         requestId: repositoryReadRequestId("history", requestId)
       });
@@ -1401,7 +1405,9 @@ export function App(): ReactNode {
         ? latest.selectedCommitHash
         : history[0]?.hash ?? null;
       const selectionChanged = selectedCommitHash !== latest.selectedCommitHash;
-      const detailsNeedLoading = Boolean(selectedCommitHash) && latest.commitDetails?.hash !== selectedCommitHash;
+      const detailsNeedLoading = Boolean(selectedCommitHash)
+        && latest.commitDetails?.hash !== selectedCommitHash
+        && !(latest.commitDetailsLoading && latest.selectedCommitHash === selectedCommitHash);
 
       updateState(selectionChanged ? {
         history,
@@ -1451,11 +1457,54 @@ export function App(): ReactNode {
       }
     }
 
-    if (commitHashToLoad) {
+    if (commitHashToLoad && stateRef.current.activeView === "history") {
       await loadCommitDetails(commitHashToLoad);
+    }
+
+    if (
+      limit < HISTORY_LIMIT &&
+      requestId === requestIds.current.history &&
+      stateRef.current.activeView === "history" &&
+      stateRef.current.historyRoute.kind === "repository"
+    ) {
+      queueMicrotask(() => {
+        void loadCommitHistory(true);
+      });
     }
     return true;
   }, [loadCommitDetails, updateState]);
+
+  useEffect(() => {
+    if (
+      state.repoLoading ||
+      !state.summary?.isValid ||
+      state.historyLoaded ||
+      state.historyLoading ||
+      typeof window.requestIdleCallback !== "function"
+    ) {
+      return;
+    }
+
+    const repoPath = state.repoPath;
+    const scope = state.historyScope;
+    const idleCallbackId = window.requestIdleCallback(() => {
+      const latest = stateRef.current;
+      if (
+        !isSameRepoPath(repoPath, latest.repoPath) ||
+        latest.historyScope !== scope ||
+        latest.historyLoaded ||
+        latest.historyLoading ||
+        !latest.summary?.isValid
+      ) {
+        return;
+      }
+      void loadCommitHistory(false, HISTORY_PRELOAD_LIMIT);
+    }, { timeout: 750 });
+
+    return () => {
+      window.cancelIdleCallback(idleCallbackId);
+    };
+  }, [loadCommitHistory, state.historyLoaded, state.historyLoading, state.historyScope, state.repoLoading, state.repoPath, state.summary?.isValid]);
 
   const changeHistoryScope = useCallback(async (scope: CommitHistoryScope): Promise<void> => {
     let current = stateRef.current;
@@ -5689,13 +5738,20 @@ export function App(): ReactNode {
       void refreshDirtyFileStatus({ reason: "user" });
     }
     if (view === "history" && !latest.historyLoading) {
+      if (
+        latest.selectedCommitHash &&
+        latest.commitDetails?.hash !== latest.selectedCommitHash &&
+        !latest.commitDetailsLoading
+      ) {
+        void loadCommitDetails(latest.selectedCommitHash);
+      }
       void loadCommitHistory(true);
     }
     if (view === "stashes") void stashWorkspace.refresh();
     if (view === "workflows") void github.ensure("workflowRuns");
     if (view === "pullRequests") void github.ensure("pullRequests");
     if (view === "issues") void github.ensure("issues");
-  }, [activityLogStore, github.ensure, loadCommitHistory, refreshDirtyFileStatus, stashWorkspace.refresh, updateState]);
+  }, [activityLogStore, github.ensure, loadCommitDetails, loadCommitHistory, refreshDirtyFileStatus, stashWorkspace.refresh, updateState]);
 
   useEffect(() => {
     if (
