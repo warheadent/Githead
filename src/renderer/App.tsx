@@ -35,6 +35,7 @@ import {
   Sparkles,
   Tag,
   Trash2,
+  TriangleAlert,
   Upload,
   WrapText,
   Workflow,
@@ -2770,6 +2771,42 @@ export function App(): ReactNode {
       }));
     }
   }, [updateState]);
+
+  const recoverRecentRepo = useCallback(async (repoPath: string): Promise<RepositoryRecoveryResult> => {
+    try {
+      const replacementRepoPath = await window.githead.chooseRepo(repoPath);
+      if (!replacementRepoPath) {
+        return { status: "cancelled" };
+      }
+
+      const [replacementStatus] = await window.githead.getRepoSyncStatuses([replacementRepoPath]);
+      if (!replacementStatus?.isValid) {
+        return {
+          status: "error",
+          message: replacementStatus?.error || "The selected folder is not a valid repository."
+        };
+      }
+
+      const recents = await window.githead.replaceRepoRecent({
+        repoPath,
+        replacementRepoPath
+      });
+      const repoRecents = recents.map((recent) => recent.anchorPath);
+      updateState((current) => ({
+        ...current,
+        repoRecents,
+        repoSyncStatuses: createRepoSyncStatusMap(repoRecents, [replacementStatus], current.repoSyncStatuses)
+      }));
+      void loadRepoSyncStatuses(repoRecents);
+      await switchRepo(replacementRepoPath);
+      return { status: "success" };
+    } catch (error) {
+      return {
+        status: "error",
+        message: error instanceof Error ? error.message : "Unable to update the repository location."
+      };
+    }
+  }, [loadRepoSyncStatuses, switchRepo, updateState]);
 
   const reorderRepositories = useCallback(async (repoPaths: string[]): Promise<void> => {
     const previousRepoRecents = stateRef.current.repoRecents;
@@ -6707,6 +6744,7 @@ export function App(): ReactNode {
           onRemoveRecent={(repoPath) => {
             void removeRecentRepo(repoPath);
           }}
+          onRecoverRecent={recoverRecentRepo}
           onReorderRepositories={(repoPaths) => {
             void reorderRepositories(repoPaths);
           }}
@@ -6787,6 +6825,7 @@ export function App(): ReactNode {
             onRemoveRecent={(repoPath) => {
               void removeRecentRepo(repoPath);
             }}
+            onRecoverRecent={recoverRecentRepo}
             onReorderRepositories={(repoPaths) => {
               void reorderRepositories(repoPaths);
             }}
@@ -7945,6 +7984,7 @@ function RepositorySetupScreen({
   onOpenSafeDirectoryDialog,
   onSelectRecent,
   onRemoveRecent,
+  onRecoverRecent,
   onReorderRepositories,
   onShowInExplorer,
   onOpenRepositorySettings,
@@ -7975,6 +8015,7 @@ function RepositorySetupScreen({
   onOpenSafeDirectoryDialog: () => void;
   onSelectRecent: (repoPath: string) => void;
   onRemoveRecent: (repoPath: string) => void;
+  onRecoverRecent: (repoPath: string) => Promise<RepositoryRecoveryResult>;
   onReorderRepositories: (repoPaths: string[]) => void;
   onShowInExplorer: (repoPath: string) => void;
   onOpenRepositorySettings: (repoPath: string) => void;
@@ -8067,6 +8108,7 @@ function RepositorySetupScreen({
           disabled={running}
           onSelect={onSelectRecent}
           onRemove={onRemoveRecent}
+          onRecover={onRecoverRecent}
           onReorder={onReorderRepositories}
           onShowInExplorer={onShowInExplorer}
           onOpenRepositorySettings={onOpenRepositorySettings}
@@ -8086,6 +8128,7 @@ interface RepositoryListProps {
   syncStatuses: Record<string, RepoSyncStatus>;
   onSelect: (repoPath: string) => void;
   onRemove: (repoPath: string) => void;
+  onRecover: (repoPath: string) => Promise<RepositoryRecoveryResult>;
   onReorder: (repoPaths: string[]) => void;
   onShowInExplorer: (repoPath: string) => void;
   onOpenRepositorySettings: (repoPath: string) => void;
@@ -8100,6 +8143,7 @@ interface RecentRepositoryRowProps {
   repoPath: string;
   rowRef: (element: HTMLDivElement | null) => void;
   syncStatus: RepoSyncStatus | null;
+  unavailableReason: string;
   layoutDependency: string;
   onDragEnd: () => void;
   onDragStart: (event: DragEvent<HTMLButtonElement>, repoPath: string) => void;
@@ -8107,12 +8151,17 @@ interface RecentRepositoryRowProps {
   onKeyboardMove: (repoPath: string, direction: RepositoryMoveDirection) => void;
   onSelect: (repoPath: string) => void;
   onRemove: (repoPath: string) => void;
+  onRecover: (repoPath: string, reason: string) => void;
   onShowInExplorer: (repoPath: string) => void;
   onOpenRepositorySettings: (repoPath: string) => void;
 }
 
 type RepositoryDropPosition = "before" | "after";
 type RepositoryMoveDirection = "up" | "down";
+type RepositoryRecoveryResult =
+  | { status: "success" }
+  | { status: "cancelled" }
+  | { status: "error"; message: string };
 
 function RepositoryList({
   className = "repo-recents",
@@ -8124,6 +8173,7 @@ function RepositoryList({
   syncStatuses,
   onSelect,
   onRemove,
+  onRecover,
   onReorder,
   onShowInExplorer,
   onOpenRepositorySettings,
@@ -8135,6 +8185,9 @@ function RepositoryList({
   const [dropTarget, setDropTarget] = useState<{ repoPath: string; position: RepositoryDropPosition } | null>(null);
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
   const [removeTarget, setRemoveTarget] = useState<string | null>(null);
+  const [recoveryTarget, setRecoveryTarget] = useState<{ repoPath: string; reason: string } | null>(null);
+  const [recoveryError, setRecoveryError] = useState("");
+  const [recoveryRunning, setRecoveryRunning] = useState(false);
   const repositoryOrderDependency = (groups?.length
     ? groups.map((group) => getRepoPathKey(group.anchorPath))
     : repoPaths.map(getRepoPathKey)).join("\u0000");
@@ -8300,6 +8353,10 @@ function RepositoryList({
             onKeyboardMove={moveRepositoryByKeyboard}
             onSelect={onSelect}
             onRemove={() => setRemoveTarget(group.anchorPath)}
+            onRecover={(reason) => {
+              setRecoveryError("");
+              setRecoveryTarget({ repoPath: group.anchorPath, reason });
+            }}
             onShowInExplorer={onShowInExplorer}
             onOpenRepositorySettings={onOpenRepositorySettings}
             {...(onRemoveWorktree ? { onRemoveWorktree } : {})}
@@ -8323,6 +8380,7 @@ function RepositoryList({
                 }
               }}
               syncStatus={syncStatuses[key] ?? null}
+              unavailableReason={syncStatuses[key]?.isValid === false ? syncStatuses[key]?.error ?? "" : ""}
               layoutDependency={repositoryOrderDependency}
               active={active}
               disabled={disabled}
@@ -8338,6 +8396,10 @@ function RepositoryList({
               onKeyboardMove={moveRepositoryByKeyboard}
               onSelect={onSelect}
               onRemove={setRemoveTarget}
+              onRecover={(targetRepoPath, reason) => {
+                setRecoveryError("");
+                setRecoveryTarget({ repoPath: targetRepoPath, reason });
+              }}
               onShowInExplorer={onShowInExplorer}
               onOpenRepositorySettings={onOpenRepositorySettings}
             />
@@ -8364,11 +8426,58 @@ function RepositoryList({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    <Dialog open={Boolean(recoveryTarget)} onOpenChange={(open) => {
+      if (!open && !recoveryRunning) {
+        setRecoveryTarget(null);
+        setRecoveryError("");
+      }
+    }}>
+      <DialogContent className="min-w-0 overflow-hidden sm:max-w-[480px]" showCloseButton={!recoveryRunning}>
+        <DialogHeader className="min-w-0">
+          <DialogTitle>Repository Unavailable</DialogTitle>
+          <DialogDescription className="min-w-0 break-words">
+            Githead cannot open this saved repository. Choose its new location if it still exists, or remove it from Githead.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid min-w-0 max-w-full gap-2 overflow-hidden rounded-md border bg-muted/30 p-3 text-sm">
+          <p className="break-all font-medium">{recoveryTarget?.repoPath}</p>
+          <p className="break-words text-destructive">{recoveryTarget?.reason}</p>
+        </div>
+        {recoveryError ? <p className="text-sm text-destructive" role="alert">{recoveryError}</p> : null}
+        <DialogFooter className="min-w-0 sm:flex-wrap">
+          <Button type="button" variant="outline" disabled={recoveryRunning} onClick={() => {
+            setRecoveryTarget(null);
+            setRecoveryError("");
+          }}>Cancel</Button>
+          <Button type="button" variant="destructive" disabled={recoveryRunning} onClick={() => {
+            if (!recoveryTarget) return;
+            onRemove(recoveryTarget.repoPath);
+            setRecoveryTarget(null);
+            setRecoveryError("");
+          }}><Trash2 />Remove Repository</Button>
+          <Button type="button" disabled={recoveryRunning} onClick={() => {
+            if (!recoveryTarget) return;
+            setRecoveryRunning(true);
+            setRecoveryError("");
+            void onRecover(recoveryTarget.repoPath).then((result) => {
+              if (result.status === "success") {
+                setRecoveryTarget(null);
+              } else if (result.status === "error") {
+                setRecoveryError(result.message);
+              }
+            }).finally(() => setRecoveryRunning(false));
+          }}>
+            {recoveryRunning ? <Loader2 className="animate-spin" /> : <FolderOpen />}
+            {recoveryRunning ? "Checking Location" : "Choose New Location"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     </>
   );
 }
 
-function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled, dragging, dropPosition, syncStatuses, layoutDependency, rowRef, onToggle, onDragStart, onPointerDragStart, onDragEnd, onKeyboardMove, onSelect, onRemove, onShowInExplorer, onOpenRepositorySettings, onRemoveWorktree }: {
+function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled, dragging, dropPosition, syncStatuses, layoutDependency, rowRef, onToggle, onDragStart, onPointerDragStart, onDragEnd, onKeyboardMove, onSelect, onRemove, onRecover, onShowInExplorer, onOpenRepositorySettings, onRemoveWorktree }: {
   group: RepositoryGroup;
   activeRepoPath: string;
   active: boolean;
@@ -8386,6 +8495,7 @@ function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled,
   onKeyboardMove: (repoPath: string, direction: RepositoryMoveDirection) => void;
   onSelect: (repoPath: string) => void;
   onRemove: () => void;
+  onRecover: (reason: string) => void;
   onShowInExplorer: (repoPath: string) => void;
   onOpenRepositorySettings: (repoPath: string) => void;
   onRemoveWorktree?: (worktree: GitWorktree) => void;
@@ -8395,6 +8505,8 @@ function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled,
   const displayName = getRepoDisplayName(group.anchorPath);
   const navigationWorktree = worktrees.find((worktree) => isSameRepoPath(worktree.path, group.lastUsedPath));
   const navigationUnavailable = Boolean(navigationWorktree?.isBare || navigationWorktree?.prunable);
+  const syncStatus = syncStatuses[getRepoPathKey(group.anchorPath)] ?? null;
+  const unavailableReason = (syncStatus?.isValid === false ? syncStatus.error : "") || group.error;
   const navigationActive = isSameRepoPath(group.lastUsedPath, activeRepoPath);
   const rowClassName = ["repo-group", active ? "is-active" : "", dragging ? "is-dragging" : "", dropPosition ? `is-drop-${dropPosition}` : ""].filter(Boolean).join(" ");
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>): void => {
@@ -8407,7 +8519,8 @@ function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled,
     <ContextMenu><ContextMenuTrigger asChild><div className="repo-group-heading">
       <button type="button" className="repo-recent-drag-handle" draggable={!disabled} disabled={disabled} onDragStart={(event) => onDragStart(event, group.anchorPath)} onMouseDown={() => onPointerDragStart(group.anchorPath)} onDragEnd={onDragEnd} onKeyDown={handleKeyDown} aria-label={`Reorder ${group.anchorPath}`}><GripVertical /></button>
       <button type="button" className="repo-group-toggle" disabled={disabled} onClick={onToggle} aria-expanded={expanded} aria-controls={worktreeListId} aria-label={`${expanded ? "Collapse" : "Expand"} worktrees for ${displayName}`}><ChevronRight className="repo-group-chevron" /></button>
-      <button type="button" className="repo-group-main" disabled={disabled || navigationActive || navigationUnavailable} onClick={() => onSelect(group.lastUsedPath)} aria-current={navigationActive ? "true" : undefined} aria-label={`Switch to ${group.anchorPath}`}><RecentRepositoryVcsIcon kind={group.kind} /><span className="repo-recent-title">{displayName}</span></button>
+      <button type="button" className="repo-group-main" disabled={disabled || navigationActive || navigationUnavailable || Boolean(unavailableReason)} onClick={() => onSelect(group.lastUsedPath)} aria-current={navigationActive ? "true" : undefined} aria-label={`Switch to ${group.anchorPath}`}><RecentRepositoryVcsIcon kind={group.kind} /><span className="repo-recent-title">{displayName}</span></button>
+      {unavailableReason ? <RepositoryUnavailableButton repoPath={group.anchorPath} reason={unavailableReason} disabled={disabled} onClick={() => onRecover(unavailableReason)} /> : null}
     </div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{group.anchorPath}</ContextMenuLabel><ContextMenuSeparator /><ContextMenuItem disabled={disabled || navigationUnavailable} onSelect={() => onOpenRepositorySettings(group.lastUsedPath)}><Settings />Repository Settings…</ContextMenuItem><ContextMenuItem disabled={navigationUnavailable} onSelect={() => onShowInExplorer(group.anchorPath)}><MapPinned />Show in Explorer</ContextMenuItem><ContextMenuSeparator /><ContextMenuItem variant="destructive" disabled={disabled} onSelect={onRemove}><Trash2 />Remove Repository</ContextMenuItem></ContextMenuContent></ContextMenu>
     <MotionPresence present={expanded} id={worktreeListId} className="repo-worktree-list" initialY={-2}>{worktrees.map((worktree) => {
       const workspaceActive = isSameRepoPath(worktree.path, activeRepoPath);
@@ -8426,6 +8539,7 @@ function RecentRepositoryRow({
   repoPath,
   rowRef,
   syncStatus,
+  unavailableReason,
   layoutDependency,
   onDragEnd,
   onDragStart,
@@ -8433,6 +8547,7 @@ function RecentRepositoryRow({
   onKeyboardMove,
   onSelect,
   onRemove,
+  onRecover,
   onShowInExplorer,
   onOpenRepositorySettings
 }: RecentRepositoryRowProps): ReactNode {
@@ -8491,7 +8606,7 @@ function RecentRepositoryRow({
             onClick={() => {
               onSelect(repoPath);
             }}
-            disabled={disabled || active}
+            disabled={disabled || active || Boolean(unavailableReason)}
             aria-current={active ? "true" : undefined}
             aria-label={syncDescription ? `Switch to ${repoPath}, ${syncDescription}` : `Switch to ${repoPath}`}
           >
@@ -8501,6 +8616,7 @@ function RecentRepositoryRow({
               <RepoSyncStatusChips status={syncStatus} />
             </span>
           </button>
+          {unavailableReason ? <RepositoryUnavailableButton repoPath={repoPath} reason={unavailableReason} disabled={disabled} onClick={() => onRecover(repoPath, unavailableReason)} /> : null}
         </motion.div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-72">
@@ -8523,6 +8639,29 @@ function RecentRepositoryRow({
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
+  );
+}
+
+function RepositoryUnavailableButton({ repoPath, reason, disabled, onClick }: {
+  repoPath: string;
+  reason: string;
+  disabled: boolean;
+  onClick: () => void;
+}): ReactNode {
+  return (
+    <TooltipTarget content={reason} contentProps={{ className: "max-w-80" }}>
+      <button
+        type="button"
+        className="repo-recent-recovery"
+        aria-disabled={disabled ? "true" : undefined}
+        aria-label={`Repair repository location for ${repoPath}`}
+        onClick={() => {
+          if (!disabled) onClick();
+        }}
+      >
+        <TriangleAlert />
+      </button>
+    </TooltipTarget>
   );
 }
 
@@ -8833,6 +8972,7 @@ function RepositoryPanel({
   onChooseRepo,
   onSelectRecent,
   onRemoveRecent,
+  onRecoverRecent,
   onReorderRepositories,
   onShowInExplorer,
   onOpenRepositorySettings,
@@ -8880,6 +9020,7 @@ function RepositoryPanel({
   onChooseRepo: () => void;
   onSelectRecent: (repoPath: string) => void;
   onRemoveRecent: (repoPath: string) => void;
+  onRecoverRecent: (repoPath: string) => Promise<RepositoryRecoveryResult>;
   onReorderRepositories: (repoPaths: string[]) => void;
   onShowInExplorer: (repoPath: string) => void;
   onOpenRepositorySettings: (repoPath: string) => void;
@@ -8941,6 +9082,7 @@ function RepositoryPanel({
         disabled={running}
         onSelect={onSelectRecent}
         onRemove={onRemoveRecent}
+        onRecover={onRecoverRecent}
         onReorder={onReorderRepositories}
         onShowInExplorer={onShowInExplorer}
         onOpenRepositorySettings={onOpenRepositorySettings}

@@ -297,6 +297,7 @@ export function createGitheadMock(): GitheadApi {
       repoPath: nextRepoPath
     }))),
     addRepoRecent: vi.fn().mockImplementation(async (request) => repositoryRecents(request.repoPath)),
+    replaceRepoRecent: vi.fn().mockImplementation(async (request) => repositoryRecents(request.replacementRepoPath)),
     removeRepoRecent: vi.fn().mockResolvedValue([]),
     reorderRepoRecents: vi.fn().mockImplementation(async (repoPaths: string[]) => repositoryRecents(...repoPaths)),
     getRepositoryGroups: vi.fn().mockResolvedValue([]),

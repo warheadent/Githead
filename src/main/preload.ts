@@ -101,6 +101,7 @@ import type {
   AppUpdateState,
   AppWindowState,
   RepoChangedEvent,
+  RepositoryRecentReplacementRequest,
   RepoSectionRequest,
   RepoSummaryReadRequest,
   RepoTrustRequest,
@@ -149,6 +150,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getRepoSyncStatuses, repoPaths) as ReturnType<GitheadApi["getRepoSyncStatuses"]>,
   addRepoRecent: (request: RepositoryRecentSelectionRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.addRepoRecent, request) as ReturnType<GitheadApi["addRepoRecent"]>,
+  replaceRepoRecent: (request: RepositoryRecentReplacementRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.replaceRepoRecent, request) as ReturnType<GitheadApi["replaceRepoRecent"]>,
   removeRepoRecent: (repoPath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.removeRepoRecent, repoPath) as ReturnType<GitheadApi["removeRepoRecent"]>,
   reorderRepoRecents: (repoPaths: string[]) =>

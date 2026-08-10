@@ -2519,8 +2519,37 @@ textarea,
   opacity: 1;
 }
 
+.repo-recent-recovery {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  place-items: center;
+  margin-right: 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--destructive);
+  cursor: pointer;
+}
+
+.repo-recent-recovery:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--destructive) 12%, transparent);
+}
+
+.repo-recent-recovery[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.repo-recent-recovery > svg {
+  width: 16px;
+  height: 16px;
+}
+
 .repo-recent-drag-handle:focus-visible,
-.repo-recent-main:focus-visible {
+.repo-recent-main:focus-visible,
+.repo-recent-recovery:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
