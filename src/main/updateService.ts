@@ -26,6 +26,11 @@ import {
   reduceAppUpdateStateOnReleaseNotesLoaded,
   reduceAppUpdateStateOnUpdateAvailable
 } from "./updateMachine";
+import {
+  reportOperationalFailure,
+  reportUnexpectedError,
+  type OperationalFailureCategory
+} from "./operationalErrorReporter";
 
 const STARTUP_CHECK_DELAY_MS = 15_000;
 const UPDATE_POLL_INTERVAL_MS = 4 * 60_000;
@@ -182,6 +187,7 @@ export class AppUpdateService {
         state: this.getState()
       };
     } catch (error) {
+      reportUpdateFailure("check", error);
       this.setState(reduceAppUpdateStateOnCheckFailure(
         this.state,
         getUpdateErrorMessage("check", error),
@@ -217,6 +223,7 @@ export class AppUpdateService {
         state
       };
     } catch (error) {
+      reportUpdateFailure("download", error);
       this.setState(reduceAppUpdateStateOnDownloadFailure(this.state, getUpdateErrorMessage("download", error)));
       return {
         accepted: true,
@@ -247,6 +254,7 @@ export class AppUpdateService {
         state: this.getState()
       };
     } catch (error) {
+      reportUpdateFailure("install", error, "error");
       this.installInFlight = false;
       this.setState(reduceAppUpdateStateOnInstallFailure(this.state, getUpdateErrorMessage("install", error)));
       return {
@@ -289,7 +297,8 @@ export class AppUpdateService {
     try {
       await ensureHealthyUpdateConfig(this.resourcesPath);
       this.refreshUpdaterConfigPath();
-    } catch {
+    } catch (error) {
+      reportUnexpectedError(error, { subsystem: "update", operation: "config-repair" });
       return UPDATE_CONFIG_REPAIR_FAILURE_MESSAGE;
     }
 
@@ -367,17 +376,20 @@ export class AppUpdateService {
 
   private handleUpdaterError(error: unknown): void {
     if (this.installInFlight) {
+      reportUpdateFailure("install", error, "error");
       this.installInFlight = false;
       this.setState(reduceAppUpdateStateOnInstallFailure(this.state, getUpdateErrorMessage("install", error)));
       return;
     }
 
     if (this.downloadInFlight || this.state.status === "downloading") {
+      reportUpdateFailure("download", error);
       this.setState(reduceAppUpdateStateOnDownloadFailure(this.state, getUpdateErrorMessage("download", error)));
       return;
     }
 
     const context: AppUpdateErrorContext = "check";
+    reportUpdateFailure("check", error);
     this.setState({
       ...this.state,
       status: "error",
@@ -426,6 +438,7 @@ export class AppUpdateService {
         this.setState(reduceAppUpdateStateOnReleaseNotesLoaded(this.state, releaseNotes));
       }
     } catch (error) {
+      reportUpdateFailure("release-notes", error, undefined);
       if (this.releaseNotesRequestId === requestId) {
         this.setState(reduceAppUpdateStateOnReleaseNotesFailure(
           this.state,
@@ -538,6 +551,28 @@ function isMissingFileError(error: unknown): boolean {
 
 function isErrorWithCode(error: unknown, code: string): boolean {
   return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: unknown }).code === code);
+}
+
+function reportUpdateFailure(
+  operation: "check" | "download" | "install" | "release-notes",
+  error: unknown,
+  issue: "warning" | "error" | undefined = "warning"
+): void {
+  const category = classifyUpdateFailure(error);
+  reportOperationalFailure({
+    subsystem: "update",
+    operation,
+    category,
+    retryable: operation !== "install"
+  }, issue ? { issue } : {});
+}
+
+function classifyUpdateFailure(error: unknown): OperationalFailureCategory {
+  if (error instanceof Error && error.name === "TimeoutError") return "timeout";
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  if (/enotfound|econnreset|network|fetch failed|offline/u.test(message)) return "network";
+  if (/\b(?:408|429|502|503|504)\b|temporar/u.test(message)) return "transient";
+  return "provider";
 }
 
 function escapeRegExp(value: string): string {

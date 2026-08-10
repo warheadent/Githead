@@ -2012,12 +2012,25 @@ export type GitFileDiff = GitFileDiffBase & (
 
 export type GitWorktreeCreateRequest = GitWorktreeCreateDraft & { repoPath: string };
 
+export type GitOperationErrorKind =
+  | "missing-author-identity"
+  | "branch-name-conflict"
+  | "authentication"
+  | "authorization"
+  | "cancelled"
+  | "conflict"
+  | "network"
+  | "not-found"
+  | "timeout"
+  | "validation"
+  | "process-failure";
+
 export interface GitOperationResult {
   repoPath: string;
   exitCode: number;
   stdout: string;
   stderr: string;
-  errorKind?: "missing-author-identity" | "branch-name-conflict";
+  errorKind?: GitOperationErrorKind;
 }
 
 export interface GitRunResult {

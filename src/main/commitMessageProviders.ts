@@ -45,6 +45,28 @@ export interface CompleteGenerationResult {
   retriedAfterLength: boolean;
 }
 
+export type AiProviderFailureKind =
+  | "authentication"
+  | "configuration"
+  | "rate-limit"
+  | "quota"
+  | "output-limit"
+  | "timeout"
+  | "network"
+  | "provider"
+  | "cli";
+
+export class AiProviderError extends Error {
+  constructor(
+    readonly kind: AiProviderFailureKind,
+    message: string,
+    readonly status?: number
+  ) {
+    super(message);
+    this.name = "AiProviderError";
+  }
+}
+
 interface OpenRouterResponse {
   choices?: Array<{
     finish_reason?: string | null;
@@ -176,7 +198,10 @@ export class OpenAiCommitMessageProvider implements CommitMessageProvider {
       createJsonFallback: () => ({} as OpenAiResponse)
     });
     if (!response.ok) {
-      throw new Error(payload.error?.message || `OpenAI request failed with status ${response.status}.`);
+      throw createProviderHttpError(
+        response.status,
+        payload.error?.message || `OpenAI request failed with status ${response.status}.`
+      );
     }
 
     return {
@@ -222,7 +247,10 @@ export class AnthropicCommitMessageProvider implements CommitMessageProvider {
       createJsonFallback: () => ({} as AnthropicResponse)
     });
     if (!response.ok) {
-      throw new Error(payload.error?.message || `Anthropic request failed with status ${response.status}.`);
+      throw createProviderHttpError(
+        response.status,
+        payload.error?.message || `Anthropic request failed with status ${response.status}.`
+      );
     }
 
     return {
@@ -263,7 +291,8 @@ export class CodexCliCommitMessageProvider implements CommitMessageProvider {
     });
 
     if (result.exitCode !== 0) {
-      throw new Error(result.stderr.trim() || result.error || "Codex CLI failed to generate a commit message.");
+      const message = result.stderr.trim() || result.error || "Codex CLI failed to generate a commit message.";
+      throw new AiProviderError(classifyCliFailure(message), message);
     }
 
     return { text: result.stdout, finishReason: "complete" };
@@ -300,7 +329,8 @@ export class ClaudeCodeCommitMessageProvider implements CommitMessageProvider {
     });
 
     if (result.exitCode !== 0) {
-      throw new Error(result.stderr.trim() || result.error || "Claude Code failed to generate a commit message.");
+      const message = result.stderr.trim() || result.error || "Claude Code failed to generate a commit message.";
+      throw new AiProviderError(classifyCliFailure(message), message);
     }
 
     return { text: result.stdout, finishReason: "complete" };
@@ -318,8 +348,11 @@ function isTemporaryFlexFailure(status: number): boolean {
   return status === 429 || status === 503;
 }
 
-function createOpenRouterError(response: Response, payload: OpenRouterResponse): Error {
-  return new Error(payload.error?.message || `OpenRouter request failed with status ${response.status}.`);
+function createOpenRouterError(response: Response, payload: OpenRouterResponse): AiProviderError {
+  return createProviderHttpError(
+    response.status,
+    payload.error?.message || `OpenRouter request failed with status ${response.status}.`
+  );
 }
 
 function extractOpenRouterResult(payload: OpenRouterResponse): CommitMessageProviderResult {
@@ -350,7 +383,10 @@ export async function generateCompleteText(
   }
 
   if (first.text.trim()) {
-    throw new Error("The model reached its output limit before it returned a complete result.");
+    throw new AiProviderError(
+      "output-limit",
+      "The model reached its output limit before it returned a complete result."
+    );
   }
 
   const initialMaxTokens = input.maxTokens ?? DEFAULT_MAX_TOKENS;
@@ -359,7 +395,10 @@ export async function generateCompleteText(
     maxTokens: Math.max(initialMaxTokens * 2, MIN_LENGTH_RETRY_TOKENS)
   });
   if (retry.finishReason === "length") {
-    throw new Error("The model reached its output limit before it returned a complete result.");
+    throw new AiProviderError(
+      "output-limit",
+      "The model reached its output limit before it returned a complete result."
+    );
   }
 
   return { text: retry.text, retriedAfterLength: true };
@@ -371,4 +410,54 @@ function createCliPrompt(input: CommitMessageProviderInput): string {
     "",
     input.userPrompt
   ].join("\n");
+}
+
+export function classifyAiProviderFailure(error: unknown): AiProviderFailureKind | "unexpected" {
+  if (error instanceof AiProviderError) {
+    return error.kind;
+  }
+  if (error instanceof Error && error.name === "TimeoutError") {
+    return "timeout";
+  }
+  if (error instanceof TypeError && /fetch failed|network|enotfound|econnreset|econnrefused/u.test(error.message.toLowerCase())) {
+    return "network";
+  }
+  return "unexpected";
+}
+
+function createProviderHttpError(
+  status: number,
+  message: string
+): AiProviderError {
+  return new AiProviderError(classifyHttpFailure(status, message), message, status);
+}
+
+function classifyHttpFailure(status: number, message: string): AiProviderFailureKind {
+  const normalized = message.toLowerCase();
+  if (status === 402 || /\b(?:quota|billing|credit|usage limit|insufficient_quota)\b/u.test(normalized)) {
+    return "quota";
+  }
+  if (status === 429 || /rate.?limit|too many requests/u.test(normalized)) {
+    return "rate-limit";
+  }
+  if (status === 401 || status === 403) {
+    return "authentication";
+  }
+  if (status === 400 || status === 404 || status === 422) {
+    return "configuration";
+  }
+  if (status === 408 || status === 504) {
+    return "timeout";
+  }
+  return "provider";
+}
+
+function classifyCliFailure(message: string): AiProviderFailureKind {
+  const normalized = message.toLowerCase();
+  if (/\b(?:quota|billing|credit|usage limit|usage cap)\b/u.test(normalized)) return "quota";
+  if (/rate.?limit|too many requests/u.test(normalized)) return "rate-limit";
+  if (/authenticate|authentication|not logged in|login required|invalid api key/u.test(normalized)) return "authentication";
+  if (/invalid model|unknown model|model .* not found/u.test(normalized)) return "configuration";
+  if (/timed out|timeout/u.test(normalized)) return "timeout";
+  return "cli";
 }

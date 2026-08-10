@@ -1,5 +1,13 @@
-import { init } from "@sentry/electron/main";
+import {
+  addBreadcrumb,
+  captureException,
+  captureMessage,
+  init,
+  metrics,
+  withScope
+} from "@sentry/electron/main";
 import { app } from "electron";
+import { configureOperationalErrorReporter } from "./operationalErrorReporter";
 
 declare const __SENTRY_DSN__: string;
 declare const __SENTRY_ENVIRONMENT__: string;
@@ -23,5 +31,26 @@ export function initializeSentry(): void {
     attachScreenshot: false,
     enableRendererProfiling: false,
     includeLocalVariables: false
+  });
+
+  configureOperationalErrorReporter({
+    addBreadcrumb,
+    countMetric: (name, attributes) => metrics.count(name, 1, { attributes }),
+    captureException: (error, context) => {
+      withScope((scope) => {
+        scope.setLevel(context.level);
+        scope.setFingerprint(context.fingerprint);
+        scope.setTags(context.tags);
+        captureException(error);
+      });
+    },
+    captureMessage: (message, context) => {
+      withScope((scope) => {
+        scope.setLevel(context.level);
+        scope.setFingerprint(context.fingerprint);
+        scope.setTags(context.tags);
+        captureMessage(message);
+      });
+    }
   });
 }

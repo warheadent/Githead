@@ -3,6 +3,7 @@ import type { BinaryProcessResult, ProcessResult, ProcessRunner } from "./proces
 import { PerformanceDiagnostics } from "./performanceDiagnostics";
 import {
   classifyPerformanceCommand,
+  classifyProcessFailure,
   InstrumentedProcessRunner
 } from "./instrumentedProcessRunner";
 
@@ -14,6 +15,14 @@ describe("InstrumentedProcessRunner", () => {
     expect(classifyPerformanceCommand("cmd.exe", ["/d", "/c", "codex", "exec"])).toBe("ai");
     expect(classifyPerformanceCommand("powershell.exe", ["-Command", "secret command"])).toBe("configured-action");
     expect(classifyPerformanceCommand("private-tool", ["private-argument"])).toBe("other");
+  });
+
+  it("classifies common process failures without retaining output", () => {
+    expect(classifyProcessFailure("git", "CONFLICT (content): merge conflict")).toBe("conflict");
+    expect(classifyProcessFailure("git", "fatal: Authentication failed for a private remote")).toBe("authentication");
+    expect(classifyProcessFailure("git", "fatal: unable to access remote: Could not resolve host")).toBe("network");
+    expect(classifyProcessFailure("git", "fatal: an unusual repository failure")).toBe("process-exit");
+    expect(classifyProcessFailure("configured-action", "CONFLICT private output")).toBe("process-exit");
   });
 
   it("records text output, outcome, duration, and active depth", async () => {

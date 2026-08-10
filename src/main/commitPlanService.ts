@@ -1,7 +1,13 @@
 import type {
+  AiCommitMessageProvider,
   GenerateCommitPlanRequest,
   GenerateCommitPlanResult
 } from "../shared/types";
+import {
+  recordAiGenerationRecovery,
+  recordAiPreflightFailure,
+  reportAiGenerationFailure
+} from "./aiOperationReporter";
 import type { AiSettingsService } from "./aiSettingsService";
 import { generateCompleteText } from "./commitMessageProviders";
 import {
@@ -38,6 +44,7 @@ export class CommitPlanService {
   ) {}
 
   async generateCommitPlan(request: GenerateCommitPlanRequest, signal?: AbortSignal): Promise<GenerateCommitPlanResult> {
+    let selectedProvider: AiCommitMessageProvider | undefined;
     try {
       throwIfAborted(signal);
       const paths = [...new Set(request.paths.map((path) => path.trim()).filter(Boolean))];
@@ -48,7 +55,7 @@ export class CommitPlanService {
 
       const settings = await this.settingsService.getSettings(request.repoPath);
       throwIfAborted(signal);
-      const selectedProvider = settings.selectedProvider;
+      selectedProvider = settings.selectedProvider;
       const providerSettings = settings.providers[selectedProvider];
       const model = providerSettings.commitPlanModel?.trim() || providerSettings.model;
       const resolution = await resolveAiProvider(
@@ -59,7 +66,10 @@ export class CommitPlanService {
         this.runner
       );
       throwIfAborted(signal);
-      if (resolution.kind === "error") return failure(request.repoPath, resolution.message);
+      if (resolution.kind === "error") {
+        recordAiPreflightFailure("commit-plan", selectedProvider, resolution.category);
+        return failure(request.repoPath, resolution.message);
+      }
 
       const service = await this.resolveService(request.repoPath);
       const [diffs, recentCommits] = await Promise.all([
@@ -106,6 +116,10 @@ export class CommitPlanService {
       throwIfAborted(signal);
       const plan = parseCommitPlanResponse(generation.text, changes, settings.commitPlanGranularity);
 
+      if (generation.retriedAfterLength) {
+        recordAiGenerationRecovery("commit-plan", selectedProvider);
+      }
+
       return {
         repoPath: request.repoPath,
         exitCode: 0,
@@ -115,6 +129,7 @@ export class CommitPlanService {
       };
     } catch (error) {
       if (signal?.aborted) throw signal.reason ?? error;
+      reportAiGenerationFailure("commit-plan", selectedProvider, error);
       return failure(
         request.repoPath,
         error instanceof Error ? error.message : "Unable to generate a commit plan."

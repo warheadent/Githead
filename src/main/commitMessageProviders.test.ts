@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { ProcessRunOptions, ProcessRunner } from "./processRunner";
 import {
+  AiProviderError,
   AnthropicCommitMessageProvider,
+  classifyAiProviderFailure,
   CodexCliCommitMessageProvider,
   OpenAiCommitMessageProvider,
   OpenRouterCommitMessageProvider,
@@ -209,6 +211,37 @@ describe("OpenRouter Flex fallback", () => {
 
     await expect(provider.generate(providerInput)).rejects.toThrow("Invalid model.");
     expect(getServiceTiers(fetchImpl)).toEqual(["flex"]);
+  });
+});
+
+describe("AI provider failure classification", () => {
+  it("uses a typed category for API rate limits", async () => {
+    const provider = new OpenAiCommitMessageProvider(
+      "test-key",
+      vi.fn<typeof fetch>().mockResolvedValue(createResponse(429, "Too many requests."))
+    );
+
+    const error = await provider.generate(providerInput).catch((failure: unknown) => failure);
+
+    expect(error).toBeInstanceOf(AiProviderError);
+    expect(error).toMatchObject({ kind: "rate-limit", status: 429 });
+    expect(classifyAiProviderFailure(error)).toBe("rate-limit");
+  });
+
+  it("recognizes CLI usage limits without exposing command output to reporting", async () => {
+    const provider = new CodexCliCommitMessageProvider({
+      run: async () => ({
+        exitCode: 1,
+        stdout: "",
+        stderr: "You have hit your usage limit for this account."
+      })
+    });
+
+    const error = await provider.generate(providerInput).catch((failure: unknown) => failure);
+
+    expect(error).toBeInstanceOf(AiProviderError);
+    expect(error).toMatchObject({ kind: "quota" });
+    expect(classifyAiProviderFailure(error)).toBe("quota");
   });
 });
 

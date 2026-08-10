@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Effect } from "effect";
 import { NETWORK_OPERATION_TIMEOUT_MS } from "./operationTimeouts";
+import { classifyGitOperationError } from "./gitOperationFailure";
 import { getRepoPathKey, normalizeRepoPath } from "./repoPath";
 import type {
   CommitRef,
@@ -3872,12 +3873,14 @@ export class GitService {
     const input = paths ? createPathspecInput(paths) : stdin;
     const result = await this.runGit(repoPath, args, undefined, input);
     const stderr = result.error ? `${result.stderr}${result.error}` : result.stderr;
+    const errorKind = result.exitCode === 0 ? null : classifyGitOperationError(stderr);
 
     return {
       repoPath,
       exitCode: result.exitCode,
       stdout: result.stdout,
-      stderr: appendIndexLockGuidance(stderr)
+      stderr: appendIndexLockGuidance(stderr),
+      ...(errorKind && errorKind !== "process-failure" ? { errorKind } : {})
     };
   }
 

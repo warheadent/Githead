@@ -1,4 +1,10 @@
-import type { GeneratePrDescriptionRequest, GeneratePrTitleRequest, GitOperationResult } from "../shared/types";
+import type { AiCommitMessageProvider, GeneratePrDescriptionRequest, GeneratePrTitleRequest, GitOperationResult } from "../shared/types";
+import {
+  recordAiGenerationRecovery,
+  recordAiPreflightFailure,
+  reportAiEmptyResponse,
+  reportAiGenerationFailure
+} from "./aiOperationReporter";
 import { getProviderLabel, type AiSettingsService } from "./aiSettingsService";
 import { normalizeGeneratedMessage } from "./commitMessagePromptBuilder";
 import { generateCompleteText } from "./commitMessageProviders";
@@ -32,11 +38,12 @@ export class PrDescriptionService {
   ) {}
 
   async generatePrTitle(request: GeneratePrTitleRequest, signal?: AbortSignal): Promise<GitOperationResult> {
+    let selectedProvider: AiCommitMessageProvider | undefined;
     try {
       throwIfAborted(signal);
       const settings = await this.settingsService.getSettings(request.repoPath);
       throwIfAborted(signal);
-      const selectedProvider = settings.selectedProvider;
+      selectedProvider = settings.selectedProvider;
       const providerSettings = settings.providers[selectedProvider];
       const providerLabel = getProviderLabel(selectedProvider);
       const model = providerSettings.model;
@@ -50,6 +57,7 @@ export class PrDescriptionService {
       );
       throwIfAborted(signal);
       if (resolution.kind === "error") {
+        recordAiPreflightFailure("pull-request-title", selectedProvider, resolution.category);
         return createFailure(request.repoPath, resolution.message);
       }
 
@@ -87,7 +95,12 @@ export class PrDescriptionService {
       const title = normalizeGeneratedPrTitle(generation.text);
       throwIfAborted(signal);
       if (!title) {
+        reportAiEmptyResponse("pull-request-title", selectedProvider);
         return createFailure(request.repoPath, `${providerLabel} returned an empty pull request title.`);
+      }
+
+      if (generation.retriedAfterLength) {
+        recordAiGenerationRecovery("pull-request-title", selectedProvider);
       }
 
       return {
@@ -102,6 +115,7 @@ export class PrDescriptionService {
       if (signal?.aborted) {
         throw signal.reason ?? error;
       }
+      reportAiGenerationFailure("pull-request-title", selectedProvider, error);
       return createFailure(
         request.repoPath,
         error instanceof Error ? error.message : "Unable to generate pull request title."
@@ -110,11 +124,12 @@ export class PrDescriptionService {
   }
 
   async generatePrDescription(request: GeneratePrDescriptionRequest, signal?: AbortSignal): Promise<GitOperationResult> {
+    let selectedProvider: AiCommitMessageProvider | undefined;
     try {
       throwIfAborted(signal);
       const settings = await this.settingsService.getSettings(request.repoPath);
       throwIfAborted(signal);
-      const selectedProvider = settings.selectedProvider;
+      selectedProvider = settings.selectedProvider;
       const providerSettings = settings.providers[selectedProvider];
       const providerLabel = getProviderLabel(selectedProvider);
       const model = providerSettings.prDescriptionModel.trim() || providerSettings.model;
@@ -128,6 +143,7 @@ export class PrDescriptionService {
       );
       throwIfAborted(signal);
       if (resolution.kind === "error") {
+        recordAiPreflightFailure("pull-request-description", selectedProvider, resolution.category);
         return createFailure(request.repoPath, resolution.message);
       }
 
@@ -168,7 +184,12 @@ export class PrDescriptionService {
       const description = normalizeGeneratedMessage(generation.text);
       throwIfAborted(signal);
       if (!description) {
+        reportAiEmptyResponse("pull-request-description", selectedProvider);
         return createFailure(request.repoPath, `${providerLabel} returned an empty pull request description.`);
+      }
+
+      if (generation.retriedAfterLength) {
+        recordAiGenerationRecovery("pull-request-description", selectedProvider);
       }
 
       return {
@@ -183,6 +204,7 @@ export class PrDescriptionService {
       if (signal?.aborted) {
         throw signal.reason ?? error;
       }
+      reportAiGenerationFailure("pull-request-description", selectedProvider, error);
       return createFailure(
         request.repoPath,
         error instanceof Error ? error.message : "Unable to generate pull request description."

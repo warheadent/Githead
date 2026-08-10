@@ -68,6 +68,7 @@ import type {
   GitLfsImageFetchRequest,
   GitHubWorkflowRunRequest,
   GitHubWorkflowRunsRequest,
+  GitHubFailure,
   GitHubOperationResult,
   GitHubPullRequestDetailRequest,
   GitHubIssueDetailRequest,
@@ -137,9 +138,14 @@ import { GitService } from "./gitService";
 import { DefaultGitHubClient, type GitHubClient } from "./githubClient";
 import { GitHubAuthService } from "./githubAuthService";
 import { GitHubService } from "./githubService";
+import { reportGitHubFailure } from "./githubOperationReporter";
 import { RequestRegistry } from "./requestRegistry";
 import { LoreService } from "./loreService";
 import { InstrumentedProcessRunner } from "./instrumentedProcessRunner";
+import {
+  reportOperationalFailure,
+  reportUnexpectedError
+} from "./operationalErrorReporter";
 import {
   LOCAL_OPERATION_TIMEOUT_MS,
   NETWORK_OPERATION_TIMEOUT_MS
@@ -1539,7 +1545,10 @@ function runTrustedExclusiveRepositoryOperation<T>(
     operation,
     trustFailure,
     busyResult
-  );
+  ).catch((error: unknown) => {
+    reportRepositoryOperationRejection(error);
+    throw error;
+  });
 }
 
 function runExclusiveRepositoryOperation<T>(
@@ -1553,7 +1562,30 @@ function runExclusiveRepositoryOperation<T>(
     options,
     operation,
     busyResult
-  );
+  ).catch((error: unknown) => {
+    reportRepositoryOperationRejection(error);
+    throw error;
+  });
+}
+
+function reportRepositoryOperationRejection(error: unknown): void {
+  const context = { subsystem: "repository" as const, operation: "repository-operation" as const };
+  if (isAbortError(error)) {
+    reportOperationalFailure({ ...context, category: "cancelled" });
+    return;
+  }
+  if (isTimeoutError(error)) {
+    reportOperationalFailure({ ...context, category: "timeout" }, { issue: "warning" });
+    return;
+  }
+  if (
+    (error instanceof TypeError && error.message === "Repository operation ID is required.") ||
+    (error instanceof Error && error.name === "DuplicateRepositoryOperationIdError")
+  ) {
+    reportOperationalFailure({ ...context, category: "validation" });
+    return;
+  }
+  reportUnexpectedError(error, context);
 }
 
 function createGitRunFailure(
@@ -1601,17 +1633,21 @@ function createGitHubMutationFailure<T>(
   message: string,
   outcomeUnknown: boolean
 ): GitHubOperationResult<T> {
+  const failure: GitHubFailure = {
+    kind,
+    message,
+    retryable: false,
+    retryAfterAt: null,
+    outcomeUnknown,
+    source: "combined",
+    rateLimit: null
+  };
+  if (kind !== "unexpected" || outcomeUnknown) {
+    reportGitHubFailure("mutation", failure);
+  }
   return {
     ok: false,
-    error: {
-      kind,
-      message,
-      retryable: false,
-      retryAfterAt: null,
-      outcomeUnknown,
-      source: "combined",
-      rateLimit: null
-    }
+    error: failure
   };
 }
 

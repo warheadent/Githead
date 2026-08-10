@@ -1,4 +1,10 @@
 import type { AiApiKeyProvider, AiCommitMessageProvider, AiReasoningEffort, AiSettings, GenerateCommitMessageRequest, GetAiReasoningCapabilitiesRequest, GitOperationResult } from "../shared/types";
+import {
+  recordAiGenerationRecovery,
+  recordAiPreflightFailure,
+  reportAiEmptyResponse,
+  reportAiGenerationFailure
+} from "./aiOperationReporter";
 import { getProviderLabel, isApiKeyProvider, isCliProvider, type AiSettingsService } from "./aiSettingsService";
 import {
   AnthropicCommitMessageProvider,
@@ -39,11 +45,12 @@ export class CommitMessageService {
   ) {}
 
   async generateCommitMessage(request: GenerateCommitMessageRequest, signal?: AbortSignal): Promise<GitOperationResult> {
+    let selectedProvider: AiCommitMessageProvider | undefined;
     try {
       throwIfAborted(signal);
       const settings = await this.settingsService.getSettings(request.repoPath);
       throwIfAborted(signal);
-      const selectedProvider = settings.selectedProvider;
+      selectedProvider = settings.selectedProvider;
       const providerSettings = settings.providers[selectedProvider];
       const providerLabel = getProviderLabel(selectedProvider);
 
@@ -56,6 +63,7 @@ export class CommitMessageService {
       );
       throwIfAborted(signal);
       if (resolution.kind === "error") {
+        recordAiPreflightFailure("commit-message", selectedProvider, resolution.category);
         return createFailure(request.repoPath, resolution.message);
       }
 
@@ -109,7 +117,12 @@ export class CommitMessageService {
       const message = target === "stash" ? normalizedMessage.split(/\r?\n/, 1)[0]?.trim() ?? "" : normalizedMessage;
       throwIfAborted(signal);
       if (!message) {
+        reportAiEmptyResponse("commit-message", selectedProvider);
         return createFailure(request.repoPath, `${providerLabel} returned an empty ${target} message.`);
+      }
+
+      if (generation.retriedAfterLength) {
+        recordAiGenerationRecovery("commit-message", selectedProvider);
       }
 
       return {
@@ -124,6 +137,7 @@ export class CommitMessageService {
       if (signal?.aborted) {
         throw signal.reason ?? error;
       }
+      reportAiGenerationFailure("commit-message", selectedProvider, error);
       return createFailure(
         request.repoPath,
         error instanceof Error ? error.message : "Unable to generate commit message."
@@ -157,7 +171,7 @@ export async function resolveReasoningEffort(
 
 export type AiProviderResolution =
   | { kind: "ready"; provider: CommitMessageProvider }
-  | { kind: "error"; message: string };
+  | { kind: "error"; category: "authentication" | "configuration"; message: string };
 
 /**
  * Shared preflight for AI generation features: verifies the selected
@@ -176,20 +190,20 @@ export async function resolveAiProvider(
   const providerLabel = getProviderLabel(selectedProvider);
 
   if (!model.trim()) {
-    return { kind: "error", message: `${providerLabel} model is not configured.` };
+    return { kind: "error", category: "configuration", message: `${providerLabel} model is not configured.` };
   }
 
   const apiKey = isApiKeyProvider(selectedProvider)
     ? await settingsService.getApiKey(selectedProvider)
     : null;
   if (isApiKeyProvider(selectedProvider) && !apiKey) {
-    return { kind: "error", message: `${providerLabel} API key is not configured.` };
+    return { kind: "error", category: "configuration", message: `${providerLabel} API key is not configured.` };
   }
 
   if (isCliProvider(selectedProvider)) {
     const status = settings.cliStatus[selectedProvider];
     if (!status.detected || !status.authenticated) {
-      return { kind: "error", message: `${providerLabel} is not authenticated.` };
+      return { kind: "error", category: "authentication", message: `${providerLabel} is not authenticated.` };
     }
   }
 

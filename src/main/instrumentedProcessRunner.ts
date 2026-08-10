@@ -9,6 +9,13 @@ import type {
   ProcessRunOptions,
   ProcessRunner
 } from "./processRunner";
+import {
+  recordOperationOutcome,
+  reportOperationalFailure,
+  reportUnexpectedError,
+  type OperationalFailureCategory
+} from "./operationalErrorReporter";
+import { classifyGitOperationError } from "./gitOperationFailure";
 
 export interface InstrumentedProcessRunnerOptions {
   now?: () => number;
@@ -35,6 +42,7 @@ export class InstrumentedProcessRunner implements ProcessRunner {
     const commandKind = classifyPerformanceCommand(command, args);
     return this.measure(commandKind, async () => {
       const result = await this.delegate.run(command, args, options);
+      reportProcessResult(commandKind, result);
       return {
         result,
         outcome: processOutcome(result),
@@ -54,6 +62,7 @@ export class InstrumentedProcessRunner implements ProcessRunner {
     const commandKind = classifyPerformanceCommand(command, args);
     return this.measure(commandKind, async () => {
       const result = await this.delegate.runBinary!(command, args, options);
+      reportProcessResult(commandKind, result);
       return {
         result,
         outcome: processOutcome(result),
@@ -96,6 +105,7 @@ export class InstrumentedProcessRunner implements ProcessRunner {
         outputBytes: 0,
         queueDepth: depthAtStart
       });
+      reportRejectedProcess(commandKind, error);
       throw error;
     } finally {
       this.activeDepth -= 1;
@@ -129,4 +139,68 @@ function processOutcome(result: ProcessResult | BinaryProcessResult): Performanc
   if (result.terminationReason === "timedOut") return "timed-out";
   if (result.terminationReason === "aborted") return "cancelled";
   return result.exitCode === 0 ? "success" : "failure";
+}
+
+function reportProcessResult(
+  commandKind: PerformanceCommandKind,
+  result: ProcessResult | BinaryProcessResult
+): void {
+  const context = {
+    subsystem: "process" as const,
+    operation: "command" as const,
+    commandKind,
+    exitCode: result.exitCode
+  };
+  switch (result.terminationReason) {
+    case "aborted":
+      recordOperationOutcome({ ...context, outcome: "cancelled" });
+      return;
+    case "timedOut":
+      reportOperationalFailure({ ...context, category: "timeout" }, { issue: "warning" });
+      return;
+    case "outputLimit":
+      reportOperationalFailure({ ...context, category: "output-limit" }, { issue: "warning" });
+      return;
+    case "spawnFailed":
+      reportOperationalFailure({ ...context, category: "spawn-failed" }, { issue: "error" });
+      return;
+  }
+  if (result.exitCode !== 0) {
+    reportOperationalFailure({
+      ...context,
+      category: classifyProcessFailure(commandKind, result.stderr)
+    });
+  }
+}
+
+export function classifyProcessFailure(
+  commandKind: PerformanceCommandKind,
+  stderr: string
+): OperationalFailureCategory {
+  if (commandKind !== "git" && commandKind !== "github" && commandKind !== "lore") {
+    return "process-exit";
+  }
+  const kind = classifyGitOperationError(stderr);
+  if (kind === "process-failure") return "process-exit";
+  if (kind === "missing-author-identity" || kind === "branch-name-conflict") {
+    return "validation";
+  }
+  return kind;
+}
+
+function reportRejectedProcess(commandKind: PerformanceCommandKind, error: unknown): void {
+  const context = {
+    subsystem: "process" as const,
+    operation: "command" as const,
+    commandKind
+  };
+  if (error instanceof Error && error.name === "AbortError") {
+    recordOperationOutcome({ ...context, outcome: "cancelled" });
+    return;
+  }
+  if (error instanceof Error && error.name === "TimeoutError") {
+    reportOperationalFailure({ ...context, category: "timeout" }, { issue: "warning" });
+    return;
+  }
+  reportUnexpectedError(error, context);
 }

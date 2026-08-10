@@ -37,6 +37,7 @@ import type {
   GitHubViewer
 } from "../shared/types";
 import { GitHubHttpError, GitHubResponseBodyError, type GitHubApiClient } from "./githubClient";
+import { reportGitHubFailure } from "./githubOperationReporter";
 import { emptyGitHubIssueTemplates, parseGitHubIssueTemplate, parseGitHubIssueTemplateConfig } from "./githubIssueTemplates";
 import { buildIssueSearchPath, buildPullRequestSearchPath, buildWorkflowRunsPath, hasPullRequestSearchFilters } from "./githubQuery";
 import { runEffect, tryPromise } from "../shared/effectRuntime";
@@ -1192,7 +1193,7 @@ function classifyError(error: unknown, source: GitHubFailure["source"], mutation
   const kind: GitHubFailure["kind"] = cancelled ? "cancelled" : timeout ? "timeout" : rateLimited ? "rateLimited"
     : authentication ? "authentication" : authorization ? "authorization" : notFound ? "notFound"
     : validation ? "validation" : offline ? "offline" : transient ? "transient" : "unexpected";
-  return {
+  const failure: GitHubFailure = {
     kind,
     message: authorization && httpError?.headers.get("x-accepted-github-permissions")
       ? `${message} Required GitHub App permission: ${httpError.headers.get("x-accepted-github-permissions")}.`
@@ -1204,6 +1205,8 @@ function classifyError(error: unknown, source: GitHubFailure["source"], mutation
     source,
     rateLimit: getRateLimit(httpError)
   };
+  reportGitHubFailure(mutation ? "mutation" : "read", failure);
+  return failure;
 }
 
 function getRateLimit(error: GitHubHttpError | null): GitHubFailure["rateLimit"] {

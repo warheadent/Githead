@@ -1,4 +1,5 @@
 import type { GitHubConnectionStatus, GitHubFailure, GitHubRateLimit, GitHubRepository } from "../shared/types";
+import { reportGitHubFailure } from "./githubOperationReporter";
 import type { ProcessRunner } from "./processRunner";
 
 const GITHUB_API_BASE_URL = "https://api.github.com";
@@ -560,7 +561,7 @@ function connectionFailureFromError(error: unknown): GitHubFailure {
 function connectionFailure(kind: GitHubFailure["kind"], message: string, retryable: boolean, headers: Headers): GitHubFailure {
   const rateLimit = readRateLimit(headers);
   const retryAfterAt = readRetryAfter(headers, rateLimit?.resetAt ?? null);
-  return {
+  const failure: GitHubFailure = {
     kind,
     message,
     retryable,
@@ -569,6 +570,8 @@ function connectionFailure(kind: GitHubFailure["kind"], message: string, retryab
     source: "rest",
     rateLimit
   };
+  reportGitHubFailure("connection", failure);
+  return failure;
 }
 
 function readRateLimit(headers: Headers): GitHubRateLimit | null {
