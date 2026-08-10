@@ -1076,6 +1076,71 @@ describe("App", { timeout: 10_000 }, () => {
     expect(within(recents).queryByText(invalidRepo)).toBeNull();
   });
 
+  it("explains an unavailable repository and can remove it from the recovery dialog", async () => {
+    const user = userEvent.setup();
+    const invalidRepo = "D:\\MissingRepo";
+    const reason = "Selected folder is not a git repository.";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(invalidRepo));
+    vi.mocked(githead.getRepoSyncStatuses).mockResolvedValue([createRepoSyncStatus({
+      repoPath: invalidRepo,
+      isValid: false,
+      error: reason
+    })]);
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      repoPath: invalidRepo,
+      isValid: false,
+      validationErrors: [reason]
+    }));
+    vi.mocked(githead.removeRepoRecent).mockResolvedValue([]);
+
+    render(<App />);
+
+    const repairButton = await screen.findByRole("button", { name: `Repair repository location for ${invalidRepo}` });
+    await user.hover(repairButton);
+    expect((await screen.findByRole("tooltip")).textContent).toContain(reason);
+    await user.click(repairButton);
+
+    const dialog = await screen.findByRole("dialog", { name: "Repository Unavailable" });
+    expect(within(dialog).getByText(invalidRepo)).toBeTruthy();
+    expect(within(dialog).getByText(reason)).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: "Choose New Location" })).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: "Remove Repository" }));
+    await waitFor(() => expect(githead.removeRepoRecent).toHaveBeenCalledWith(invalidRepo));
+  });
+
+  it("replaces a moved repository after its new location passes validation", async () => {
+    const user = userEvent.setup();
+    const invalidRepo = "D:\\MissingRepo";
+    const replacementRepo = "D:\\Work\\FoundRepo";
+    const reason = "Selected folder is not a git repository.";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(invalidRepo));
+    vi.mocked(githead.chooseRepo).mockResolvedValue(replacementRepo);
+    vi.mocked(githead.getRepoSyncStatuses).mockImplementation(async (repoPaths) => repoPaths.map((requestedRepoPath) => createRepoSyncStatus({
+      repoPath: requestedRepoPath,
+      isValid: requestedRepoPath === replacementRepo,
+      error: requestedRepoPath === replacementRepo ? "" : reason
+    })));
+    vi.mocked(githead.replaceRepoRecent).mockResolvedValue(repositoryRecents(replacementRepo));
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
+      repoPath: requestedRepoPath,
+      isValid: requestedRepoPath === replacementRepo,
+      validationErrors: requestedRepoPath === replacementRepo ? [] : [reason]
+    }));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: `Repair repository location for ${invalidRepo}` }));
+    const dialog = await screen.findByRole("dialog", { name: "Repository Unavailable" });
+    await user.click(within(dialog).getByRole("button", { name: "Choose New Location" }));
+
+    await waitFor(() => expect(githead.replaceRepoRecent).toHaveBeenCalledWith({
+      repoPath: invalidRepo,
+      replacementRepoPath: replacementRepo
+    }));
+    await waitForRepositoryWorkspace();
+    expect(screen.getByRole("button", { name: `Switch to ${replacementRepo}` }).getAttribute("aria-current")).toBe("true");
+  });
+
   it("shows a safe.directory prompt for an initial recent repository blocked by dubious ownership", async () => {
     const blockedRepo = "D:\\Work\\Blocked";
     vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(blockedRepo));

@@ -325,6 +325,11 @@ export interface RepositoryRecentSelectionRequest {
   anchorPath?: string;
 }
 
+export interface RepositoryRecentReplacementRequest {
+  repoPath: string;
+  replacementRepoPath: string;
+}
+
 export interface RepositoryGroupsRequest {
   repoPaths: string[];
   activeRepoPath: string | null;
@@ -2250,6 +2255,7 @@ export interface GitheadApi {
   getRepoRecents(): Promise<RepositoryRecent[]>;
   getRepoSyncStatuses(repoPaths: string[]): Promise<RepoSyncStatus[]>;
   addRepoRecent(request: RepositoryRecentSelectionRequest): Promise<RepositoryRecent[]>;
+  replaceRepoRecent(request: RepositoryRecentReplacementRequest): Promise<RepositoryRecent[]>;
   removeRepoRecent(repoPath: string): Promise<RepositoryRecent[]>;
   reorderRepoRecents(repoPaths: string[]): Promise<RepositoryRecent[]>;
   getRepositoryGroups(request: RepositoryGroupsRequest): Promise<RepositoryGroup[]>;

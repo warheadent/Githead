@@ -1971,6 +1971,18 @@ describe("GitService", () => {
     expect(runner.calls).toHaveLength(1);
   });
 
+  it("explains when a recent repository folder no longer exists", async () => {
+    const runner = new FakeRunner([
+      failure("fatal: cannot change to 'D:\\Moved': No such file or directory")
+    ]);
+    const service = new GitService(runner);
+
+    await expect(service.getRepoSyncStatus("D:\\Moved")).resolves.toMatchObject({
+      isValid: false,
+      error: "Repository folder does not exist or is no longer available."
+    });
+  });
+
   it("reports no configured actions without a .githead folder", async () => {
     await withTempDir(async (dir) => {
       const runner = new FakeRunner(repoSummaryResults(dir));

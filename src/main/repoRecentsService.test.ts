@@ -124,6 +124,24 @@ describe("RepoRecentsService", () => {
       await expect(service.removeRecent(removePath)).resolves.toEqual([{ anchorPath: second, lastUsedPath: second }]);
     });
   });
+
+  it("replaces a moved repository in place and removes a duplicate replacement", async () => {
+    await withTempDir(async (dir) => {
+      const service = new RepoRecentsService(dir);
+      const first = path.join(dir, "First");
+      const moved = path.join(dir, "Moved");
+      const linked = path.join(dir, "Moved-feature");
+      const last = path.join(dir, "Last");
+      await service.addRecent(first, first);
+      await service.addRecent(moved, moved);
+      await service.addRecent(last, last);
+
+      await expect(service.replaceRecent(first, moved, linked)).resolves.toEqual([
+        { anchorPath: moved, lastUsedPath: linked },
+        { anchorPath: last, lastUsedPath: last }
+      ]);
+    });
+  });
 });
 
 function createGroup(main: string, linked: string): RepositoryGroup {

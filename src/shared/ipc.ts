@@ -19,6 +19,7 @@ export const IPC_CHANNELS = {
   getRepoRecents: "repo-recents:get",
   getRepoSyncStatuses: "repo-recents:sync-statuses",
   addRepoRecent: "repo-recents:add",
+  replaceRepoRecent: "repo-recents:replace",
   removeRepoRecent: "repo-recents:remove",
   reorderRepoRecents: "repo-recents:reorder",
   getRepositoryGroups: "repo-recents:groups",

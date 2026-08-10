@@ -97,6 +97,7 @@ import type {
   GitRenameRemoteRequest,
   GitRepositoryAccessCheckRequest,
   RepositoryGroupsRequest,
+  RepositoryRecentReplacementRequest,
   RepositoryRecentSelectionRequest,
   GitResetCommitRequest,
   RepoTrustRequest,
@@ -480,6 +481,20 @@ ipcMain.handle(IPC_CHANNELS.addRepoRecent, async (_event, request: RepositoryRec
     anchorPath = group?.anchorPath ?? request.repoPath;
   }
   return getRepoRecentsService().addRecent(anchorPath, request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.replaceRepoRecent, async (_event, request: RepositoryRecentReplacementRequest) => {
+  const [replacementStatus] = await vcsRouter.getRepoSyncStatuses([request.replacementRepoPath]);
+  if (!replacementStatus?.isValid) {
+    throw new Error(replacementStatus?.error || "The selected folder is not a valid repository.");
+  }
+  const [group] = await vcsRouter.getRepositoryGroups([request.replacementRepoPath]);
+  const replacementAnchorPath = group?.anchorPath ?? request.replacementRepoPath;
+  return getRepoRecentsService().replaceRecent(
+    request.repoPath,
+    replacementAnchorPath,
+    request.replacementRepoPath
+  );
 });
 
 ipcMain.handle(IPC_CHANNELS.removeRepoRecent, async (_event, repoPath: string) => {

@@ -51,6 +51,35 @@ export class RepoRecentsService {
     });
   }
 
+  async replaceRecent(repoPath: string, replacementAnchorPath: string, replacementLastUsedPath: string): Promise<RepositoryRecent[]> {
+    const normalizedPath = normalizeRepoPath(repoPath);
+    const normalizedAnchor = normalizeRepoPath(replacementAnchorPath);
+    const normalizedLastUsed = normalizeRepoPath(replacementLastUsedPath);
+    if (!normalizedPath || !normalizedAnchor || !normalizedLastUsed) return this.getRecents();
+
+    return this.enqueueMutation(async () => {
+      const recents = await this.readRecents();
+      const replacedKey = getRepoPathKey(normalizedPath);
+      const replacementKey = getRepoPathKey(normalizedAnchor);
+      const replacedIndex = recents.findIndex((recent) => getRepoPathKey(recent.anchorPath) === replacedKey);
+      if (replacedIndex < 0) return recents;
+
+      const replacementIndex = recents
+        .slice(0, replacedIndex)
+        .filter((recent) => getRepoPathKey(recent.anchorPath) !== replacementKey)
+        .length;
+      const next = recents.filter((recent, index) => (
+        index !== replacedIndex && getRepoPathKey(recent.anchorPath) !== replacementKey
+      ));
+      next.splice(replacementIndex, 0, {
+        anchorPath: normalizedAnchor,
+        lastUsedPath: normalizedLastUsed
+      });
+      await this.writeRecents(next);
+      return next;
+    });
+  }
+
   async reorderRecents(repoPaths: string[]): Promise<RepositoryRecent[]> {
     return this.enqueueMutation(async () => {
       const recents = await this.readRecents();

@@ -2991,7 +2991,7 @@ export class GitService {
       return {
         isValid: false,
         validationErrors: [
-          "Selected folder is not a git repository."
+          formatRepositoryValidationError(result.stderr)
         ],
         safeDirectory: null
       };
@@ -4694,6 +4694,18 @@ function createInvalidRepoSyncStatus(repoPath: string, error: string): RepoSyncS
     behind: 0,
     error
   };
+}
+
+function formatRepositoryValidationError(stderr: string): string {
+  const normalizedError = stderr.toLocaleLowerCase();
+  if (
+    normalizedError.includes("cannot change to")
+    && (normalizedError.includes("no such file or directory") || normalizedError.includes("not a directory"))
+  ) {
+    return "Repository folder does not exist or is no longer available.";
+  }
+
+  return "Selected folder is not a git repository.";
 }
 
 function parseBranches(text: string, currentBranch: string | null): GitBranch[] {
