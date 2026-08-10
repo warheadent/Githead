@@ -1357,12 +1357,27 @@ textarea,
   padding: 12px;
 }
 
-.commit-plan-inbox {
+.commit-plan-inbox-sticky {
   position: sticky;
   z-index: 1;
   top: 0;
-  overflow: hidden;
   margin-bottom: 12px;
+}
+
+.commit-plan-inbox-sticky::before {
+  position: absolute;
+  z-index: -1;
+  top: -12px;
+  right: -12px;
+  bottom: 0;
+  left: -12px;
+  background: var(--card);
+  content: "";
+  pointer-events: none;
+}
+
+.commit-plan-inbox {
+  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--background);

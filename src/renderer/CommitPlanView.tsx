@@ -241,38 +241,40 @@ export function CommitPlanView({
       {error ? <div className="commit-plan-error" role="alert">{error}</div> : null}
 
       <div data-workspace-scroll-key="commit-plan" className="commit-plan-scroll">
-        <section className="commit-plan-inbox" aria-labelledby={`${inboxId}-title`}>
-          <header className="commit-plan-inbox-header">
-            <div className="commit-plan-inbox-copy"><h3 id={`${inboxId}-title`}>{inboxTitle}</h3></div>
-            <Badge variant={inboxCount > 0 ? "secondary" : "outline"}>{inboxCount}</Badge>
-            <Button type="button" variant="ghost" size="icon-xs" aria-label={inboxCollapsed ? `Show ${inboxTitle.toLowerCase()}` : `Hide ${inboxTitle.toLowerCase()}`} aria-expanded={!inboxCollapsed} aria-controls={inboxId} onClick={() => setInboxCollapsed((current) => !current)}>
-              <ChevronDown className={inboxCollapsed ? "commit-plan-inbox-chevron is-collapsed" : "commit-plan-inbox-chevron"} />
-            </Button>
-          </header>
-          {!inboxCollapsed ? (
-            <div id={inboxId} className="commit-plan-inbox-content">
-              {inboxCount > 0 ? (
-                <div className="commit-plan-files" role="list">
-                  {plan ? inboxChanges.map((change) => (
-                    <CommitPlanChangeRow
-                      key={change.id}
-                      change={change}
-                      file={fileByPath.get(change.path)}
-                      selectedPath={selectedPath}
-                      disabled={disabled}
-                      groups={plan.groups}
-                      onSelectFile={onSelectFile}
-                      onMove={(targetGroupId) => moveChange(change.id, null, targetGroupId)}
-                    />
-                  )) : availablePaths.map((path) => {
-                    const file = fileByPath.get(path);
-                    return file ? <div className={`commit-plan-file commit-plan-inbox-file ${selectedPath === path ? "is-selected" : ""}`} role="listitem" key={path}><CommitPlanFileDetails file={file} onSelect={() => onSelectFile(file)} /></div> : null;
-                  })}
-                </div>
-              ) : <p className="commit-plan-inbox-empty">{plan ? "Every eligible change is assigned to a planned commit." : "No eligible changed files."}</p>}
-            </div>
-          ) : null}
-        </section>
+        <div className="commit-plan-inbox-sticky">
+          <section className="commit-plan-inbox" aria-labelledby={`${inboxId}-title`}>
+            <header className="commit-plan-inbox-header">
+              <div className="commit-plan-inbox-copy"><h3 id={`${inboxId}-title`}>{inboxTitle}</h3></div>
+              <Badge variant={inboxCount > 0 ? "secondary" : "outline"}>{inboxCount}</Badge>
+              <Button type="button" variant="ghost" size="icon-xs" aria-label={inboxCollapsed ? `Show ${inboxTitle.toLowerCase()}` : `Hide ${inboxTitle.toLowerCase()}`} aria-expanded={!inboxCollapsed} aria-controls={inboxId} onClick={() => setInboxCollapsed((current) => !current)}>
+                <ChevronDown className={inboxCollapsed ? "commit-plan-inbox-chevron is-collapsed" : "commit-plan-inbox-chevron"} />
+              </Button>
+            </header>
+            {!inboxCollapsed ? (
+              <div id={inboxId} className="commit-plan-inbox-content">
+                {inboxCount > 0 ? (
+                  <div className="commit-plan-files" role="list">
+                    {plan ? inboxChanges.map((change) => (
+                      <CommitPlanChangeRow
+                        key={change.id}
+                        change={change}
+                        file={fileByPath.get(change.path)}
+                        selectedPath={selectedPath}
+                        disabled={disabled}
+                        groups={plan.groups}
+                        onSelectFile={onSelectFile}
+                        onMove={(targetGroupId) => moveChange(change.id, null, targetGroupId)}
+                      />
+                    )) : availablePaths.map((path) => {
+                      const file = fileByPath.get(path);
+                      return file ? <div className={`commit-plan-file commit-plan-inbox-file ${selectedPath === path ? "is-selected" : ""}`} role="listitem" key={path}><CommitPlanFileDetails file={file} onSelect={() => onSelectFile(file)} /></div> : null;
+                    })}
+                  </div>
+                ) : <p className="commit-plan-inbox-empty">{plan ? "Every eligible change is assigned to a planned commit." : "No eligible changed files."}</p>}
+              </div>
+            ) : null}
+          </section>
+        </div>
 
         <MotionSwap
           className="commit-plan-state-swap"
