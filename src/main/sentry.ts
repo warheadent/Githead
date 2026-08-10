@@ -2,7 +2,6 @@ import {
   addBreadcrumb,
   captureException,
   captureMessage,
-  getClient,
   getCurrentScope,
   init,
   metrics,
@@ -16,25 +15,15 @@ declare const __SENTRY_ENVIRONMENT__: string;
 declare const __SENTRY_RELEASE__: string;
 
 let telemetryEnabled = false;
+let initialized = false;
+let available = false;
 
-export function setSentryTelemetryEnabled(enabled: boolean): void {
-  if (enabled === telemetryEnabled) return;
-  telemetryEnabled = enabled;
-  if (!enabled) {
-    configureOperationalErrorReporter(null);
-    getCurrentScope().clearBreadcrumbs();
-    const client = getClient();
-    if (client) {
-      client.getOptions().enabled = false;
-      void client.close(0);
-    }
-    return;
-  }
+export function initializeSentry(): boolean {
+  if (initialized) return available;
+  initialized = true;
 
   const dsn = process.env.SENTRY_DSN?.trim() || (typeof __SENTRY_DSN__ === "string" ? __SENTRY_DSN__ : "");
-  if (!dsn) {
-    return;
-  }
+  if (!dsn) return false;
 
   init({
     dsn,
@@ -50,6 +39,20 @@ export function setSentryTelemetryEnabled(enabled: boolean): void {
     includeLocalVariables: false,
     beforeSend: (event) => telemetryEnabled ? event : null
   });
+  available = true;
+  return true;
+}
+
+export function setSentryTelemetryEnabled(enabled: boolean): void {
+  if (enabled === telemetryEnabled) return;
+  telemetryEnabled = enabled;
+  if (!enabled) {
+    configureOperationalErrorReporter(null);
+    getCurrentScope().clearBreadcrumbs();
+    return;
+  }
+
+  if (!initializeSentry()) return;
 
   configureOperationalErrorReporter({
     addBreadcrumb,

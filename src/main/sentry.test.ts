@@ -1,11 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 const sentry = vi.hoisted(() => {
-  const options = { enabled: true };
-  const client = {
-    close: vi.fn().mockResolvedValue(true),
-    getOptions: vi.fn(() => options)
-  };
   const currentScope = { clearBreadcrumbs: vi.fn() };
   const scope = {
     setFingerprint: vi.fn(),
@@ -16,13 +11,10 @@ const sentry = vi.hoisted(() => {
     addBreadcrumb: vi.fn(),
     captureException: vi.fn(),
     captureMessage: vi.fn(),
-    client,
     currentScope,
-    getClient: vi.fn(() => client),
     getCurrentScope: vi.fn(() => currentScope),
     init: vi.fn(),
     metrics: { count: vi.fn() },
-    options,
     withScope: vi.fn((callback: (value: typeof scope) => void) => callback(scope))
   };
 });
@@ -36,22 +28,23 @@ vi.mock("electron", () => ({
 }));
 
 import { reportOperationalFailure } from "./operationalErrorReporter";
-import { setSentryTelemetryEnabled } from "./sentry";
+import { initializeSentry, setSentryTelemetryEnabled } from "./sentry";
 
 afterEach(() => {
   setSentryTelemetryEnabled(false);
   delete process.env.SENTRY_DSN;
   vi.clearAllMocks();
-  sentry.options.enabled = true;
 });
 
 describe("Sentry privacy preference", () => {
   it("starts reporting when enabled and stops the active client when disabled", () => {
     process.env.SENTRY_DSN = "https://public@example.test/1";
 
+    initializeSentry();
+    expect(sentry.init).toHaveBeenCalledOnce();
+
     setSentryTelemetryEnabled(true);
 
-    expect(sentry.init).toHaveBeenCalledOnce();
     const options = sentry.init.mock.calls[0]?.[0] as {
       beforeSend: (event: { message: string }) => { message: string } | null;
       sendDefaultPii: boolean;
@@ -70,8 +63,6 @@ describe("Sentry privacy preference", () => {
 
     setSentryTelemetryEnabled(false);
 
-    expect(sentry.options.enabled).toBe(false);
-    expect(sentry.client.close).toHaveBeenCalledWith(0);
     expect(sentry.currentScope.clearBreadcrumbs).toHaveBeenCalledOnce();
     expect(options.beforeSend({ message: "blocked" })).toBeNull();
     reportOperationalFailure({
@@ -80,5 +71,9 @@ describe("Sentry privacy preference", () => {
       category: "unexpected"
     });
     expect(sentry.metrics.count).toHaveBeenCalledOnce();
+
+    setSentryTelemetryEnabled(true);
+    expect(sentry.init).toHaveBeenCalledOnce();
+    expect(options.beforeSend({ message: "allowed again" })).toEqual({ message: "allowed again" });
   });
 });
