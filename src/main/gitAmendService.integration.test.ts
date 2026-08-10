@@ -10,7 +10,7 @@ import { NodeProcessRunner, type ProcessResult } from "./processRunner";
 const TEMP_DIRECTORY_REMOVE_OPTIONS = {
   recursive: true,
   force: true,
-  maxRetries: 10,
+  maxRetries: 50,
   retryDelay: 100
 } as const;
 
