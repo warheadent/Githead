@@ -228,6 +228,8 @@ export interface GitHubPullRequestDetail {
   comments: GitHubCommentDetail[];
   reviews: GitHubReviewDetail[];
   files: GitHubPullRequestFileDetail[];
+  additions: number;
+  deletions: number;
   checks: GitHubCheckDetail[];
   commits: GitHubPullRequestCommitDetail[];
   commitCount: number;

@@ -875,6 +875,8 @@ export function createPullRequestDetail(overrides: Partial<GitHubPullRequestDeta
     comments: [],
     reviews: [],
     files: [{ path: "src/review.ts", previousPath: null, status: "modified", additions: 5, deletions: 2, patch: "@@ -1 +1 @@\n-old\n+new", url: "" }],
+    additions: 5,
+    deletions: 2,
     checks: [{ id: "1", name: "CI", status: "completed", conclusion: "success", detailsUrl: "https://github.com/openai/githead/actions/runs/1", startedAt: "2026-05-30T10:00:00Z", completedAt: "2026-05-30T10:02:00Z" }],
     commits: [{ sha: "a".repeat(40), shortSha: "aaaaaaa", message: "feat: review console", author: "Taylor", authoredAt: "2026-05-30T09:00:00Z", url: "https://github.com/openai/githead/commit/aaa" }],
     commitCount: 1,

@@ -148,6 +148,8 @@ interface GitHubApiPullRequest {
   mergeable?: boolean | null;
   mergeable_state?: string | null;
   commits?: number | null;
+  additions?: number | null;
+  deletions?: number | null;
   requested_reviewers?: unknown[];
   html_url?: string | null;
 }
@@ -456,6 +458,7 @@ export class GitHubService {
     const mergeableState = normalizeText(pullRequest.mergeable_state, "unknown").toLowerCase();
     const mergeStatus = getMergeStatus(displayState, mergeable, mergeableState, reviewStatus, checks);
     const comparison = asRecord(comparisonResponse?.payload);
+    const files = asArray(filesResponse.payload).map(mapPullRequestFile);
 
     return {
       number,
@@ -481,7 +484,9 @@ export class GitHubService {
       requestedReviewers,
       comments,
       reviews,
-      files: asArray(filesResponse.payload).map(mapPullRequestFile),
+      files,
+      additions: finiteNumber(pullRequest.additions, files.reduce((total, file) => total + file.additions, 0)),
+      deletions: finiteNumber(pullRequest.deletions, files.reduce((total, file) => total + file.deletions, 0)),
       checks,
       commits: asArray(commitsResponse.payload).map(mapPullRequestCommit),
       commitCount: finiteNumber(pullRequest.commits, asArray(commitsResponse.payload).length),

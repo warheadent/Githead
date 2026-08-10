@@ -117,6 +117,7 @@ describe("GitHubService", () => {
       {
         number: 24, title: "Review console", state: "open", body: "Description", user: { login: "taylor", avatar_url: "avatar", html_url: "author-url" },
         created_at: "created", updated_at: "updated", html_url: "pr-url", draft: false, merged_at: null, mergeable: true, mergeable_state: "clean", commits: 2,
+        additions: 18, deletions: 7,
         head: { ref: "feature/review", sha: "a".repeat(40), repo: { full_name: "fork/githead" } },
         base: { ref: "main", sha: "b".repeat(40), repo: { full_name: "openai/githead" } },
         requested_reviewers: [{ login: "neon" }]
@@ -142,6 +143,8 @@ describe("GitHubService", () => {
       canMerge: true,
       reviewStatus: "approved",
       commitCount: 2,
+      additions: 18,
+      deletions: 7,
       branchRelationship: "ahead",
       aheadBy: 3,
       behindBy: 1,

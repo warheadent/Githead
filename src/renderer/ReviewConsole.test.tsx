@@ -31,6 +31,20 @@ function renderConsole(overrides: Partial<React.ComponentProps<typeof ReviewCons
 }
 
 describe("ReviewConsole", () => {
+  it("shows GitHub-style added and removed line totals in pull request details", async () => {
+    vi.mocked(githead.getGitHubPullRequestDetail).mockResolvedValue({
+      ok: true,
+      data: createPullRequestDetail({ number: 24, title: "Review console", additions: 18, deletions: 7 }),
+      rateLimit: null
+    });
+    renderConsole();
+
+    const drawer = await screen.findByRole("region", { name: "Review console" });
+    expect(within(drawer).getByRole("group", { name: "Line changes" })).toBeTruthy();
+    expect(within(drawer).getByLabelText("18 lines added").textContent).toBe("+18");
+    expect(within(drawer).getByLabelText("7 lines removed").textContent).toBe("−7");
+  });
+
   it("supports tab keyboard navigation and Escape without trapping focus", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getGitHubPullRequestDetail).mockResolvedValue({ ok: true, data: createPullRequestDetail({ number: 24, title: "Review console" }), rateLimit: null });

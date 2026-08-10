@@ -4884,6 +4884,18 @@ textarea,
   font-size: 0.76rem;
 }
 
+.review-console-meta {
+  flex-wrap: wrap;
+  row-gap: 5px;
+}
+
+.review-console-line-stats {
+  display: inline-flex;
+  gap: 8px;
+  font-family: var(--font-code);
+  font-weight: 700;
+}
+
 .review-console-branches {
   flex-wrap: wrap;
 }

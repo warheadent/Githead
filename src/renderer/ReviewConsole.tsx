@@ -150,6 +150,15 @@ export function ReviewConsole({
             <span>{authorLogin}</span>
             <span aria-hidden="true">·</span>
             <span>Updated {formatDateTime(updatedAt)}</span>
+            {pullRequestDetail ? (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="review-console-line-stats" role="group" aria-label="Line changes">
+                  <span className="is-add" aria-label={`${pullRequestDetail.additions} lines added`}>+{pullRequestDetail.additions}</span>
+                  <span className="is-delete" aria-label={`${pullRequestDetail.deletions} lines removed`}>−{pullRequestDetail.deletions}</span>
+                </span>
+              </>
+            ) : null}
           </div>
           {pullRequestDetail ? (
             <div className="review-console-branches" aria-label="Pull request branches">
