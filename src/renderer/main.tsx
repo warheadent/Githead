@@ -1,19 +1,12 @@
 import React, { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { init as initializeSentry } from "@sentry/electron/renderer";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { MotionConfig } from "motion/react";
 import { App } from "./App";
 import { reportRendererFailure } from "./operationalErrorReporter";
+import { setRendererTelemetryEnabled } from "./sentry";
+import { subscribeToTelemetryPreference } from "./telemetryPreference";
 import "./styles.css";
-
-declare const __SENTRY_ENABLED__: boolean;
-
-if (__SENTRY_ENABLED__) {
-  initializeSentry({
-    beforeBreadcrumb: (breadcrumb) => breadcrumb.category?.startsWith("githead.") ? breadcrumb : null
-  });
-}
 
 const app = document.querySelector<HTMLDivElement>("#app");
 
@@ -30,16 +23,28 @@ function handleReactError(
   console.error(`React ${kind} error.`, error);
 }
 
-createRoot(app, {
-  onCaughtError: (error) => handleReactError(error, "react-caught", "warning"),
-  onRecoverableError: (error) => handleReactError(error, "react-recoverable", "warning"),
-  onUncaughtError: (error) => handleReactError(error, "react-uncaught", "error")
-}).render(
-  <StrictMode>
-    <MotionConfig reducedMotion="user" transition={{ duration: 0.12, ease: "easeOut" }}>
-      <TooltipProvider>
-        <App />
-      </TooltipProvider>
-    </MotionConfig>
-  </StrictMode>
-);
+async function startRenderer(appRoot: HTMLDivElement): Promise<void> {
+  try {
+    const settings = await window.githead.getAppSettings();
+    setRendererTelemetryEnabled(settings.privacy.shareAnonymousDiagnostics);
+  } catch {
+    setRendererTelemetryEnabled(false);
+  }
+  subscribeToTelemetryPreference(setRendererTelemetryEnabled);
+
+  createRoot(appRoot, {
+    onCaughtError: (error) => handleReactError(error, "react-caught", "warning"),
+    onRecoverableError: (error) => handleReactError(error, "react-recoverable", "warning"),
+    onUncaughtError: (error) => handleReactError(error, "react-uncaught", "error")
+  }).render(
+    <StrictMode>
+      <MotionConfig reducedMotion="user" transition={{ duration: 0.12, ease: "easeOut" }}>
+        <TooltipProvider>
+          <App />
+        </TooltipProvider>
+      </MotionConfig>
+    </StrictMode>
+  );
+}
+
+void startRenderer(app);

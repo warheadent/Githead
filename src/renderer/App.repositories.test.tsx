@@ -480,7 +480,8 @@ describe("App", { timeout: 10_000 }, () => {
       zoomFactor: 1,
       statusFileViewMode: "list",
       wrapDiffLines: false,
-      gitBehaviors: { tagPushBehavior: "all" }
+      gitBehaviors: { tagPushBehavior: "all" },
+      privacy: { shareAnonymousDiagnostics: true }
     });
 
     render(<App />);
@@ -524,7 +525,8 @@ describe("App", { timeout: 10_000 }, () => {
       zoomFactor: 1,
       statusFileViewMode: "list",
       wrapDiffLines: false,
-      gitBehaviors: { tagPushBehavior: "all" }
+      gitBehaviors: { tagPushBehavior: "all" },
+      privacy: { shareAnonymousDiagnostics: true }
     });
     vi.mocked(githead.getRepositorySyncSettings).mockResolvedValue({
       repoPath,

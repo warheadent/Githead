@@ -42,7 +42,8 @@ describe("AppSettingsService", () => {
         zoomFactor: DEFAULT_ZOOM_FACTOR,
         statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE,
         wrapDiffLines: DEFAULT_WRAP_DIFF_LINES,
-        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR }
+        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR },
+        privacy: { shareAnonymousDiagnostics: true }
       });
     });
   });
@@ -178,6 +179,45 @@ describe("AppSettingsService", () => {
     });
   });
 
+  it("saves, reloads, and preserves the anonymous diagnostics preference", async () => {
+    await withTempDir(async (dir) => {
+      const service = new AppSettingsService(dir);
+      await expect(service.saveSettings({
+        autoFetchIntervalMinutes: 10,
+        colorTheme: "githead",
+        appearanceMode: "system",
+        zoomFactor: 1,
+        privacy: { shareAnonymousDiagnostics: false }
+      })).resolves.toMatchObject({
+        privacy: { shareAnonymousDiagnostics: false }
+      });
+
+      await expect(new AppSettingsService(dir).getSettings()).resolves.toMatchObject({
+        privacy: { shareAnonymousDiagnostics: false }
+      });
+      await expect(service.saveSettings({
+        autoFetchIntervalMinutes: 20,
+        colorTheme: "orchid",
+        appearanceMode: "light",
+        zoomFactor: 1
+      })).resolves.toMatchObject({
+        privacy: { shareAnonymousDiagnostics: false }
+      });
+    });
+  });
+
+  it("rejects an invalid anonymous diagnostics preference", async () => {
+    await withTempDir(async (dir) => {
+      await expect(new AppSettingsService(dir).saveSettings({
+        autoFetchIntervalMinutes: 10,
+        colorTheme: "githead",
+        appearanceMode: "system",
+        zoomFactor: 1,
+        privacy: { shareAnonymousDiagnostics: "no" as unknown as boolean }
+      })).rejects.toThrow("Anonymous diagnostics preference must be a Boolean value.");
+    });
+  });
+
   it("rejects an invalid tag push behavior when saving", async () => {
     await withTempDir(async (dir) => {
       await expect(new AppSettingsService(dir).saveSettings({
@@ -213,7 +253,8 @@ describe("AppSettingsService", () => {
         zoomFactor: 1.25,
         statusFileViewMode: "list",
         wrapDiffLines: true,
-        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR }
+        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR },
+        privacy: { shareAnonymousDiagnostics: true }
       });
 
       await expect(new AppSettingsService(dir).getSettings()).resolves.toEqual({
@@ -225,7 +266,8 @@ describe("AppSettingsService", () => {
         zoomFactor: 1.25,
         statusFileViewMode: "list",
         wrapDiffLines: true,
-        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR }
+        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR },
+        privacy: { shareAnonymousDiagnostics: true }
       });
     });
   });
@@ -253,7 +295,8 @@ describe("AppSettingsService", () => {
         zoomFactor: 1,
         statusFileViewMode: "list",
         wrapDiffLines: false,
-        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR }
+        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR },
+        privacy: { shareAnonymousDiagnostics: true }
       });
     });
   });
@@ -299,7 +342,8 @@ describe("AppSettingsService", () => {
         zoomFactor: DEFAULT_ZOOM_FACTOR,
         statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE,
         wrapDiffLines: DEFAULT_WRAP_DIFF_LINES,
-        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR }
+        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR },
+        privacy: { shareAnonymousDiagnostics: true }
       });
 
       await fs.writeFile(settingsPath, JSON.stringify({
@@ -315,7 +359,8 @@ describe("AppSettingsService", () => {
         zoomFactor: DEFAULT_ZOOM_FACTOR,
         statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE,
         wrapDiffLines: DEFAULT_WRAP_DIFF_LINES,
-        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR }
+        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR },
+        privacy: { shareAnonymousDiagnostics: true }
       });
 
       await fs.writeFile(settingsPath, JSON.stringify({
@@ -330,7 +375,8 @@ describe("AppSettingsService", () => {
         zoomFactor: DEFAULT_ZOOM_FACTOR,
         statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE,
         wrapDiffLines: DEFAULT_WRAP_DIFF_LINES,
-        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR }
+        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR },
+        privacy: { shareAnonymousDiagnostics: true }
       });
     });
   });
@@ -351,7 +397,8 @@ describe("AppSettingsService", () => {
         zoomFactor: DEFAULT_ZOOM_FACTOR,
         statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE,
         wrapDiffLines: DEFAULT_WRAP_DIFF_LINES,
-        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR }
+        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR },
+        privacy: { shareAnonymousDiagnostics: true }
       });
     });
   });
@@ -387,7 +434,8 @@ describe("AppSettingsService", () => {
         zoomFactor: DEFAULT_ZOOM_FACTOR,
         statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE,
         wrapDiffLines: DEFAULT_WRAP_DIFF_LINES,
-        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR }
+        gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR },
+        privacy: { shareAnonymousDiagnostics: true }
       });
       await expect(service.saveSettings({
         autoFetchIntervalMinutes: 10,

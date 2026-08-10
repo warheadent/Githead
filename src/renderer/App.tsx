@@ -114,6 +114,7 @@ import {
   type RepositoryActionManagerDraft
 } from "./RepositoryActionsDialog";
 import { SettingsDialog as RedesignedSettingsDialog, type SettingsCategory, type SettingsDraft as SettingsDialogDraft } from "./SettingsDialog";
+import { publishTelemetryPreference } from "./telemetryPreference";
 import { RepositorySettingsDialog } from "./RepositorySettingsDialog";
 import { ReferencePicker, type ReferencePickerOption } from "./ReferencePicker";
 import { GitIdentityFields } from "./GitIdentityFields";
@@ -210,7 +211,7 @@ import type {
   RepositoryGroup,
   StatusFileViewMode
 } from "../shared/types";
-import { AI_COMMIT_MESSAGE_PROVIDERS, DEFAULT_COMMIT_PLAN_GRANULARITY, DEFAULT_REMOTE_CHECK_LEASE_SECONDS, DEFAULT_TAG_PUSH_BEHAVIOR, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
+import { AI_COMMIT_MESSAGE_PROVIDERS, DEFAULT_COMMIT_PLAN_GRANULARITY, DEFAULT_REMOTE_CHECK_LEASE_SECONDS, DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS, DEFAULT_TAG_PUSH_BEHAVIOR, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
 import { isMarkdownPath } from "../shared/filePreview";
 import { parseCommitSubject } from "../shared/commitSubject";
 import { parseGitHubReferences } from "../shared/githubReference";
@@ -682,6 +683,7 @@ const emptySettingsDraft: SettingsDraft = {
   requireUpToDateUpstreamBeforeCommit: false,
   remoteCheckLeaseSeconds: DEFAULT_REMOTE_CHECK_LEASE_SECONDS,
   allowCherryPickingContainedCommits: false,
+  shareAnonymousDiagnostics: DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS,
   gitIdentityName: "",
   gitIdentityEmail: "",
   gitIdentityScope: "repository"
@@ -2078,6 +2080,7 @@ export function App(): ReactNode {
   const loadAppSettings = useCallback(async (): Promise<void> => {
     try {
       const appSettings = await window.githead.getAppSettings();
+      publishTelemetryPreference(appSettings.privacy.shareAnonymousDiagnostics);
       updateState({
         appSettings
       });
@@ -2093,7 +2096,8 @@ export function App(): ReactNode {
           zoomFactor: 1,
           statusFileViewMode: "list",
           wrapDiffLines: false,
-          gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR }
+          gitBehaviors: { tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR },
+          privacy: { shareAnonymousDiagnostics: DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS }
         },
         lastOperationResult: {
           repoPath: current.repoPath,
@@ -5360,6 +5364,7 @@ export function App(): ReactNode {
         requireUpToDateUpstreamBeforeCommit: appSettings?.gitBehaviors?.requireUpToDateUpstreamBeforeCommit ?? false,
         remoteCheckLeaseSeconds: appSettings?.gitBehaviors?.remoteCheckLeaseSeconds ?? DEFAULT_REMOTE_CHECK_LEASE_SECONDS,
         allowCherryPickingContainedCommits: appSettings?.gitBehaviors?.allowCherryPickingContainedCommits ?? false,
+        shareAnonymousDiagnostics: appSettings?.privacy.shareAnonymousDiagnostics ?? DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS,
         gitIdentityName: gitIdentity?.global.name ?? "",
         gitIdentityEmail: gitIdentity?.global.email ?? "",
         gitIdentityScope: "global"
@@ -5466,9 +5471,11 @@ export function App(): ReactNode {
             requireUpToDateUpstreamBeforeCommit: draft.requireUpToDateUpstreamBeforeCommit,
             remoteCheckLeaseSeconds: draft.remoteCheckLeaseSeconds,
             allowCherryPickingContainedCommits: draft.allowCherryPickingContainedCommits
-          }
+          },
+          privacy: { shareAnonymousDiagnostics: draft.shareAnonymousDiagnostics }
         });
         if (!isSaveCurrent()) return;
+        publishTelemetryPreference(appSettings.privacy.shareAnonymousDiagnostics);
       }
       if (!isSaveCurrent()) return;
       updateState({
@@ -13820,7 +13827,8 @@ function hasAppSettingsChanges(draft: SettingsDraft, settings: AppSettings | nul
     || draft.tagPushBehavior !== (settings.gitBehaviors?.tagPushBehavior ?? DEFAULT_TAG_PUSH_BEHAVIOR)
     || draft.requireUpToDateUpstreamBeforeCommit !== (settings.gitBehaviors?.requireUpToDateUpstreamBeforeCommit ?? false)
     || draft.remoteCheckLeaseSeconds !== (settings.gitBehaviors?.remoteCheckLeaseSeconds ?? DEFAULT_REMOTE_CHECK_LEASE_SECONDS)
-    || draft.allowCherryPickingContainedCommits !== (settings.gitBehaviors?.allowCherryPickingContainedCommits ?? false);
+    || draft.allowCherryPickingContainedCommits !== (settings.gitBehaviors?.allowCherryPickingContainedCommits ?? false)
+    || draft.shareAnonymousDiagnostics !== settings.privacy.shareAnonymousDiagnostics;
 }
 
 function hasGitIdentityChanges(draft: SettingsDraft, settings: GitIdentitySettings | null): boolean {

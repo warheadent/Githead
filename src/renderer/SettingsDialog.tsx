@@ -13,6 +13,7 @@ import {
   Plug,
   RefreshCw,
   Save,
+  ShieldCheck,
   SlidersHorizontal,
   Sun
 } from "lucide-react";
@@ -81,12 +82,13 @@ export interface SettingsDraft {
   requireUpToDateUpstreamBeforeCommit: boolean;
   remoteCheckLeaseSeconds: RemoteCheckLeaseSeconds;
   allowCherryPickingContainedCommits: boolean;
+  shareAnonymousDiagnostics: boolean;
   gitIdentityName: string;
   gitIdentityEmail: string;
   gitIdentityScope: GitIdentityScope;
 }
 
-export type SettingsCategory = "appearance" | "git-identity" | "git-behaviors" | "sync" | "integrations" | "ai" | "diagnostics";
+export type SettingsCategory = "appearance" | "git-identity" | "git-behaviors" | "sync" | "integrations" | "ai" | "privacy" | "diagnostics";
 
 const categories = [
   { id: "appearance", label: "Appearance", icon: Palette },
@@ -95,6 +97,7 @@ const categories = [
   { id: "sync", label: "Sync", icon: RefreshCw },
   { id: "integrations", label: "Integrations", icon: Plug },
   { id: "ai", label: "AI", icon: Bot },
+  { id: "privacy", label: "Privacy", icon: ShieldCheck },
   { id: "diagnostics", label: "Diagnostics", icon: Gauge }
 ] as const;
 
@@ -413,6 +416,32 @@ export function SettingsDialog({
                     <AiGenerationSettingsFields draft={draft} disabled={saving} enabled={open} idPrefix="ai" onDraftChange={onDraftChange} />
                   </div>
                 </SettingsPanel>
+                <SettingsPanel value="privacy" title="Privacy" description="Control diagnostic data Githead sends outside this device.">
+                  <SettingsCard title="Diagnostics and usage" description="Choose whether to help improve Githead by sharing anonymous diagnostic data.">
+                    <div className="flex max-w-2xl items-start gap-3 rounded-md border p-3">
+                      <input
+                        id="share-anonymous-diagnostics"
+                        type="checkbox"
+                        className="mt-1 shrink-0"
+                        checked={draft.shareAnonymousDiagnostics}
+                        disabled={saving}
+                        onChange={(event) => onDraftChange({
+                          ...draft,
+                          shareAnonymousDiagnostics: event.currentTarget.checked
+                        })}
+                      />
+                      <span>
+                        <Label htmlFor="share-anonymous-diagnostics">Share anonymous diagnostics</Label>
+                        <span className="mt-1 block text-sm font-normal normal-case text-muted-foreground">
+                          Send bounded error reports, operation outcomes, and related diagnostic breadcrumbs to Sentry. Turn this off to stop Githead analytics and tracking.
+                        </span>
+                      </span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Performance diagnostics remain available on demand and stay on this device.
+                    </p>
+                  </SettingsCard>
+                </SettingsPanel>
                 <SettingsPanel value="diagnostics" title="Diagnostics" description="Inspect bounded performance metrics on demand.">
                   <SettingsCard title="Performance diagnostics" description="Githead collects numeric process, command, and refresh summaries only while the diagnostics dialog is open.">
                     <div>
@@ -584,7 +613,7 @@ function serializeSettingsDraft(draft: SettingsDraft): string { return JSON.stri
 function formatZoomFactor(zoomFactor: number): string { return `${Math.round(zoomFactor * 100)}%`; }
 
 function getDirtyCategories(baseline: string, draft: SettingsDraft): Record<SettingsCategory, boolean> {
-  if (!baseline) return { appearance: false, "git-identity": false, "git-behaviors": false, sync: false, integrations: false, ai: false, diagnostics: false };
+  if (!baseline) return { appearance: false, "git-identity": false, "git-behaviors": false, sync: false, integrations: false, ai: false, privacy: false, diagnostics: false };
   const saved = JSON.parse(baseline) as SettingsDraft;
   return {
     appearance: saved.colorTheme !== draft.colorTheme || saved.appearanceMode !== draft.appearanceMode || saved.uiFont !== draft.uiFont || saved.codeFont !== draft.codeFont || saved.zoomFactor !== draft.zoomFactor,
@@ -596,6 +625,7 @@ function getDirtyCategories(baseline: string, draft: SettingsDraft): Record<Sett
     sync: saved.autoFetchIntervalMinutes !== draft.autoFetchIntervalMinutes,
     integrations: false,
     ai: JSON.stringify({ selectedProvider: saved.selectedProvider, commitPlanGranularity: saved.commitPlanGranularity, providerModels: saved.providerModels, commitPlanModels: saved.commitPlanModels, commitPlanReasoningEfforts: saved.commitPlanReasoningEfforts, prDescriptionModels: saved.prDescriptionModels, reasoningEfforts: saved.reasoningEfforts, prDescriptionReasoningEfforts: saved.prDescriptionReasoningEfforts, apiKeys: saved.apiKeys, clearApiKeys: saved.clearApiKeys, commitMessagePrompt: saved.commitMessagePrompt, prDescriptionPrompt: saved.prDescriptionPrompt, sourceControlWritingStyle: saved.sourceControlWritingStyle }) !== JSON.stringify({ selectedProvider: draft.selectedProvider, commitPlanGranularity: draft.commitPlanGranularity, providerModels: draft.providerModels, commitPlanModels: draft.commitPlanModels, commitPlanReasoningEfforts: draft.commitPlanReasoningEfforts, prDescriptionModels: draft.prDescriptionModels, reasoningEfforts: draft.reasoningEfforts, prDescriptionReasoningEfforts: draft.prDescriptionReasoningEfforts, apiKeys: draft.apiKeys, clearApiKeys: draft.clearApiKeys, commitMessagePrompt: draft.commitMessagePrompt, prDescriptionPrompt: draft.prDescriptionPrompt, sourceControlWritingStyle: draft.sourceControlWritingStyle }),
+    privacy: saved.shareAnonymousDiagnostics !== draft.shareAnonymousDiagnostics,
     diagnostics: false
   };
 }

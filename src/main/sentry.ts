@@ -2,6 +2,8 @@ import {
   addBreadcrumb,
   captureException,
   captureMessage,
+  getClient,
+  getCurrentScope,
   init,
   metrics,
   withScope
@@ -13,8 +15,23 @@ declare const __SENTRY_DSN__: string;
 declare const __SENTRY_ENVIRONMENT__: string;
 declare const __SENTRY_RELEASE__: string;
 
-export function initializeSentry(): void {
-  const dsn = process.env.SENTRY_DSN?.trim() || __SENTRY_DSN__;
+let telemetryEnabled = false;
+
+export function setSentryTelemetryEnabled(enabled: boolean): void {
+  if (enabled === telemetryEnabled) return;
+  telemetryEnabled = enabled;
+  if (!enabled) {
+    configureOperationalErrorReporter(null);
+    getCurrentScope().clearBreadcrumbs();
+    const client = getClient();
+    if (client) {
+      client.getOptions().enabled = false;
+      void client.close(0);
+    }
+    return;
+  }
+
+  const dsn = process.env.SENTRY_DSN?.trim() || (typeof __SENTRY_DSN__ === "string" ? __SENTRY_DSN__ : "");
   if (!dsn) {
     return;
   }
@@ -23,14 +40,15 @@ export function initializeSentry(): void {
     dsn,
     environment:
       process.env.SENTRY_ENVIRONMENT?.trim() ||
-      __SENTRY_ENVIRONMENT__ ||
+      (typeof __SENTRY_ENVIRONMENT__ === "string" ? __SENTRY_ENVIRONMENT__ : "") ||
       (app.isPackaged ? "production" : "development"),
-    release: process.env.SENTRY_RELEASE?.trim() || __SENTRY_RELEASE__ || `githead@${app.getVersion()}`,
+    release: process.env.SENTRY_RELEASE?.trim() || (typeof __SENTRY_RELEASE__ === "string" ? __SENTRY_RELEASE__ : "") || `githead@${app.getVersion()}`,
     sendDefaultPii: false,
     tracesSampleRate: 0,
     attachScreenshot: false,
     enableRendererProfiling: false,
-    includeLocalVariables: false
+    includeLocalVariables: false,
+    beforeSend: (event) => telemetryEnabled ? event : null
   });
 
   configureOperationalErrorReporter({

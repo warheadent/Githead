@@ -89,7 +89,7 @@ const nextIssueAt = new Map<string, number>();
 const capturedUnexpectedErrors = new WeakSet<object>();
 let sink: OperationalErrorSink | null = null;
 
-export function configureOperationalErrorReporter(nextSink: OperationalErrorSink): void {
+export function configureOperationalErrorReporter(nextSink: OperationalErrorSink | null): void {
   sink = nextSink;
 }
 

@@ -169,9 +169,7 @@ import {
 import { AppUpdateService } from "./updateService";
 import { VcsRouter } from "./vcsRouter";
 import { MIN_WINDOW_BOUNDS, WindowStateService } from "./windowStateService";
-import { initializeSentry } from "./sentry";
-
-initializeSentry();
+import { setSentryTelemetryEnabled } from "./sentry";
 
 const performanceDiagnostics = new PerformanceDiagnostics({ appMetricsSource: app });
 const performanceDiagnosticsSessions = new PerformanceDiagnosticsSessionRegistry(performanceDiagnostics);
@@ -329,6 +327,8 @@ function getDisplayWorkAreas(): Electron.Rectangle[] {
 }
 
 app.whenReady().then(async () => {
+  const appSettings = await getAppSettingsService().getSettings();
+  setSentryTelemetryEnabled(appSettings.privacy.shareAnonymousDiagnostics);
   await createWindow();
   void getAppUpdateService().configure();
 
@@ -1091,7 +1091,9 @@ ipcMain.handle(IPC_CHANNELS.getAppSettings, async () => {
 });
 
 ipcMain.handle(IPC_CHANNELS.saveAppSettings, async (_event, request: AppSettingsSaveRequest) => {
-  return getAppSettingsService().saveSettings(request);
+  const settings = await getAppSettingsService().saveSettings(request);
+  setSentryTelemetryEnabled(settings.privacy.shareAnonymousDiagnostics);
+  return settings;
 });
 
 ipcMain.handle(IPC_CHANNELS.setWindowZoomFactor, (event, zoomFactor: number) => {

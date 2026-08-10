@@ -267,7 +267,7 @@ describe("App", { timeout: 10_000 }, () => {
 
   it("keeps a 10,000-file status tree viewport-proportional during file selection", async () => {
     vi.mocked(githead.getAppSettings).mockResolvedValue({
-      autoFetchIntervalMinutes: 10, colorTheme: "githead", appearanceMode: "system", uiFont: "inter", codeFont: "system-mono", zoomFactor: 1, statusFileViewMode: "tree", wrapDiffLines: false, gitBehaviors: { tagPushBehavior: "all" }
+      autoFetchIntervalMinutes: 10, colorTheme: "githead", appearanceMode: "system", uiFont: "inter", codeFont: "system-mono", zoomFactor: 1, statusFileViewMode: "tree", wrapDiffLines: false, gitBehaviors: { tagPushBehavior: "all" }, privacy: { shareAnonymousDiagnostics: true }
     });
     const files = Array.from({ length: 10_000 }, (_, index) => createStatusFile(
       `generated/file-${index.toString().padStart(5, "0")}.ts`,
@@ -1313,7 +1313,8 @@ describe("App", { timeout: 10_000 }, () => {
       gitBehaviors: {
         tagPushBehavior: "all",
         requireUpToDateUpstreamBeforeCommit: true
-      }
+      },
+      privacy: { shareAnonymousDiagnostics: true }
     });
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       files: [createStatusFile("src/safe.ts", { indexStatus: "M", isStaged: true })]
@@ -1347,7 +1348,8 @@ describe("App", { timeout: 10_000 }, () => {
       gitBehaviors: {
         tagPushBehavior: "all",
         requireUpToDateUpstreamBeforeCommit: true
-      }
+      },
+      privacy: { shareAnonymousDiagnostics: true }
     });
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       files: [createStatusFile("src/safe.ts", { indexStatus: "M", isStaged: true })]

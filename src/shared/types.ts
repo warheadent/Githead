@@ -1839,6 +1839,12 @@ export interface GitBehaviorSettings {
   remoteCheckLeaseSeconds?: RemoteCheckLeaseSeconds;
 }
 
+export interface PrivacySettings {
+  shareAnonymousDiagnostics: boolean;
+}
+
+export const DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS = true;
+
 export const APP_ZOOM_FACTORS = [0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2] as const;
 
 export function isAppZoomFactor(value: unknown): value is number {
@@ -1855,6 +1861,7 @@ export interface AppSettings {
   statusFileViewMode: StatusFileViewMode;
   wrapDiffLines: boolean;
   gitBehaviors: GitBehaviorSettings;
+  privacy: PrivacySettings;
 }
 
 export interface AppSettingsSaveRequest {
@@ -1867,6 +1874,7 @@ export interface AppSettingsSaveRequest {
   statusFileViewMode?: StatusFileViewMode;
   wrapDiffLines?: boolean;
   gitBehaviors?: GitBehaviorSettings;
+  privacy?: PrivacySettings;
 }
 
 export interface GenerateCommitMessageRequest {

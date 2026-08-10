@@ -62,7 +62,8 @@ describe("App", { timeout: 10_000 }, () => {
       zoomFactor: 1,
       statusFileViewMode: "list",
       wrapDiffLines: false,
-      gitBehaviors: { tagPushBehavior: "all" }
+      gitBehaviors: { tagPushBehavior: "all" },
+      privacy: { shareAnonymousDiagnostics: true }
     });
     await waitForRepositoryWorkspace();
   });
@@ -923,7 +924,8 @@ describe("App", { timeout: 10_000 }, () => {
       zoomFactor: 1,
       statusFileViewMode: "list",
       wrapDiffLines: true,
-      gitBehaviors: { tagPushBehavior: "all" }
+      gitBehaviors: { tagPushBehavior: "all" },
+      privacy: { shareAnonymousDiagnostics: true }
     });
     vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
     vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash, { files: [file] }));
@@ -965,7 +967,8 @@ describe("App", { timeout: 10_000 }, () => {
       zoomFactor: 1,
       statusFileViewMode: "list",
       wrapDiffLines: false,
-      gitBehaviors: { tagPushBehavior: "all", allowCherryPickingContainedCommits: true }
+      gitBehaviors: { tagPushBehavior: "all", allowCherryPickingContainedCommits: true },
+      privacy: { shareAnonymousDiagnostics: true }
     });
     vi.mocked(githead.getIntegrationPreview).mockResolvedValue({
       outcome: "ready",
@@ -1319,7 +1322,7 @@ describe("App", { timeout: 10_000 }, () => {
   it("renders a shared tree view and stages all eligible files in a folder", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getAppSettings).mockResolvedValue({
-      autoFetchIntervalMinutes: 10, colorTheme: "githead", appearanceMode: "system", uiFont: "inter", codeFont: "system-mono", zoomFactor: 1, statusFileViewMode: "tree", wrapDiffLines: false, gitBehaviors: { tagPushBehavior: "all" }
+      autoFetchIntervalMinutes: 10, colorTheme: "githead", appearanceMode: "system", uiFont: "inter", codeFont: "system-mono", zoomFactor: 1, statusFileViewMode: "tree", wrapDiffLines: false, gitBehaviors: { tagPushBehavior: "all" }, privacy: { shareAnonymousDiagnostics: true }
     });
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [
       createStatusFile("src/App.tsx", { isUnstaged: true, worktreeStatus: "M" }),
@@ -1502,7 +1505,8 @@ describe("App", { timeout: 10_000 }, () => {
       zoomFactor: 1,
       statusFileViewMode: "list",
       wrapDiffLines: true,
-      gitBehaviors: { tagPushBehavior: "all" }
+      gitBehaviors: { tagPushBehavior: "all" },
+      privacy: { shareAnonymousDiagnostics: true }
     }));
 
     await user.click(wrapButton);

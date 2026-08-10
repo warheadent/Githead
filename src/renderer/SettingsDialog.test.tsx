@@ -30,6 +30,7 @@ const savedDraft: SettingsDraft = {
   requireUpToDateUpstreamBeforeCommit: false,
   remoteCheckLeaseSeconds: 120,
   allowCherryPickingContainedCommits: false,
+  shareAnonymousDiagnostics: true,
   gitIdentityName: "Test User",
   gitIdentityEmail: "test@example.com",
   gitIdentityScope: "repository"
@@ -89,6 +90,35 @@ describe("SettingsDialog footer status", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open performance diagnostics" }));
 
     expect(onOpenPerformanceDiagnostics).toHaveBeenCalledOnce();
+  });
+
+  it("shows and edits the anonymous diagnostics preference in Privacy", () => {
+    const onDraftChange = vi.fn();
+    render(
+      <SettingsDialog
+        open
+        initialCategory="privacy"
+        draft={savedDraft}
+        aiSettings={null}
+        saving={false}
+        error=""
+        onOpenChange={vi.fn()}
+        onDraftChange={onDraftChange}
+        onSave={vi.fn()}
+        onOpenPerformanceDiagnostics={vi.fn()}
+      />,
+      { wrapper: TooltipProvider }
+    );
+
+    expect(screen.getByRole("tab", { name: "Privacy", selected: true })).toBeTruthy();
+    expect(screen.getByText("Control diagnostic data Githead sends outside this device.")).toBeTruthy();
+    const checkbox = screen.getByRole("checkbox", { name: "Share anonymous diagnostics" }) as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+    expect(screen.getByText(/Turn this off to stop Githead analytics and tracking/)).toBeTruthy();
+    expect(screen.getByText(/stay on this device/)).toBeTruthy();
+
+    fireEvent.click(checkbox);
+    expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({ shareAnonymousDiagnostics: false }));
   });
 
   it("always shows app-wide GitHub connection details and recovery actions in Integrations", () => {

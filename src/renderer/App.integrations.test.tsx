@@ -1043,7 +1043,8 @@ describe("App", { timeout: 10_000 }, () => {
       zoomFactor: 1,
       statusFileViewMode: "list",
       wrapDiffLines: true,
-      gitBehaviors: { tagPushBehavior: "all" }
+      gitBehaviors: { tagPushBehavior: "all" },
+      privacy: { shareAnonymousDiagnostics: true }
     });
     vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
     vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash, {

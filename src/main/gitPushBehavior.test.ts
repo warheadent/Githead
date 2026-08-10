@@ -13,7 +13,8 @@ describe("snapshotGitPushExecutionOptions", () => {
       zoomFactor: 1,
       statusFileViewMode: "list",
       wrapDiffLines: false,
-      gitBehaviors: { tagPushBehavior: "follow" }
+      gitBehaviors: { tagPushBehavior: "follow" },
+      privacy: { shareAnonymousDiagnostics: true }
     };
     const controller = new AbortController();
 

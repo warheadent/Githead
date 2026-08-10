@@ -5,6 +5,7 @@ import {
   type SeverityLevel
 } from "@sentry/electron/renderer";
 import { createReportableError } from "../shared/reportableError";
+import { isRendererTelemetryEnabled } from "./sentry";
 
 export type RendererFailureKind = "react-caught" | "react-recoverable" | "react-uncaught";
 
@@ -13,6 +14,7 @@ export function reportRendererFailure(
   kind: RendererFailureKind,
   level: SeverityLevel
 ): void {
+  if (!isRendererTelemetryEnabled()) return;
   try {
     const attributes = { subsystem: "renderer", operation: "react-render", category: kind };
     metrics.count("githead.operation.failure", 1, { attributes });

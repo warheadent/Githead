@@ -217,7 +217,8 @@ export function createGitheadMock(): GitheadApi {
     zoomFactor: 1,
     statusFileViewMode: "list",
     wrapDiffLines: false,
-    gitBehaviors: { tagPushBehavior: "all" }
+    gitBehaviors: { tagPushBehavior: "all" },
+    privacy: { shareAnonymousDiagnostics: true }
   };
   const gitIdentity: GitIdentitySettings = {
     scope: "repository",

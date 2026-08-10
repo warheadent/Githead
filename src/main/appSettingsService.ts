@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { APP_APPEARANCE_MODES, APP_CODE_FONTS, APP_COLOR_THEMES, APP_UI_FONTS, DEFAULT_TAG_PUSH_BEHAVIOR, REMOTE_CHECK_LEASE_SECONDS, STATUS_FILE_VIEW_MODES, TAG_PUSH_BEHAVIORS, isAppZoomFactor, type AppAppearanceMode, type AppCodeFont, type AppColorTheme, type AppSettings, type AppSettingsSaveRequest, type AppUiFont, type GitBehaviorSettings, type RemoteCheckLeaseSeconds, type StatusFileViewMode, type TagPushBehavior } from "../shared/types";
+import { APP_APPEARANCE_MODES, APP_CODE_FONTS, APP_COLOR_THEMES, APP_UI_FONTS, DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS, DEFAULT_TAG_PUSH_BEHAVIOR, REMOTE_CHECK_LEASE_SECONDS, STATUS_FILE_VIEW_MODES, TAG_PUSH_BEHAVIORS, isAppZoomFactor, type AppAppearanceMode, type AppCodeFont, type AppColorTheme, type AppSettings, type AppSettingsSaveRequest, type AppUiFont, type GitBehaviorSettings, type PrivacySettings, type RemoteCheckLeaseSeconds, type StatusFileViewMode, type TagPushBehavior } from "../shared/types";
 import {
   normalizeAutoFetchIntervalForSave,
   parseStoredAutoFetchInterval
@@ -18,6 +18,7 @@ interface StoredAppSettings {
   statusFileViewMode?: unknown;
   wrapDiffLines?: unknown;
   gitBehaviors?: unknown;
+  privacy?: unknown;
 }
 
 export const DEFAULT_COLOR_THEME: AppColorTheme = "githead";
@@ -48,7 +49,8 @@ export class AppSettingsService {
       zoomFactor: parseStoredZoomFactor(stored.zoomFactor),
       statusFileViewMode: parseStoredStatusFileViewMode(stored.statusFileViewMode),
       wrapDiffLines: parseStoredWrapDiffLines(stored.wrapDiffLines),
-      gitBehaviors: parseStoredGitBehaviors(stored.gitBehaviors)
+      gitBehaviors: parseStoredGitBehaviors(stored.gitBehaviors),
+      privacy: parseStoredPrivacySettings(stored.privacy)
     };
   }
 
@@ -65,6 +67,9 @@ export class AppSettingsService {
     const gitBehaviors = request.gitBehaviors === undefined
       ? existing.gitBehaviors
       : normalizeGitBehaviorsForSave(request.gitBehaviors);
+    const privacy = request.privacy === undefined
+      ? existing.privacy
+      : normalizePrivacySettingsForSave(request.privacy);
 
     await fs.mkdir(path.dirname(this.settingsPath), {
       recursive: true
@@ -78,7 +83,8 @@ export class AppSettingsService {
       zoomFactor,
       statusFileViewMode,
       wrapDiffLines,
-      gitBehaviors
+      gitBehaviors,
+      privacy
     } satisfies AppSettings, null, 2)}\n`, "utf8");
 
     return this.getSettings();
@@ -93,6 +99,25 @@ export class AppSettingsService {
       return {};
     }
   }
+}
+
+function parseStoredPrivacySettings(value: unknown): PrivacySettings {
+  if (!value || typeof value !== "object") {
+    return { shareAnonymousDiagnostics: DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS };
+  }
+  const shareAnonymousDiagnostics = (value as { shareAnonymousDiagnostics?: unknown }).shareAnonymousDiagnostics;
+  return {
+    shareAnonymousDiagnostics: typeof shareAnonymousDiagnostics === "boolean"
+      ? shareAnonymousDiagnostics
+      : DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS
+  };
+}
+
+function normalizePrivacySettingsForSave(value: PrivacySettings): PrivacySettings {
+  if (!value || typeof value.shareAnonymousDiagnostics !== "boolean") {
+    throw new Error("Anonymous diagnostics preference must be a Boolean value.");
+  }
+  return { shareAnonymousDiagnostics: value.shareAnonymousDiagnostics };
 }
 
 function parseStoredGitBehaviors(value: unknown): GitBehaviorSettings {

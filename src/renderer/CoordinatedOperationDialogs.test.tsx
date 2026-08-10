@@ -41,6 +41,7 @@ const settingsDraft: SettingsDraft = {
   requireUpToDateUpstreamBeforeCommit: false,
   remoteCheckLeaseSeconds: 120,
   allowCherryPickingContainedCommits: false,
+  shareAnonymousDiagnostics: true,
   gitIdentityName: "Test User",
   gitIdentityEmail: "test@example.com",
   gitIdentityScope: "repository"

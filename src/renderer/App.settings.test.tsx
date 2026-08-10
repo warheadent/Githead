@@ -983,7 +983,8 @@ describe("App", { timeout: 10_000 }, () => {
           requireUpToDateUpstreamBeforeCommit: false,
           remoteCheckLeaseSeconds: 120,
           allowCherryPickingContainedCommits: false
-        }
+        },
+        privacy: { shareAnonymousDiagnostics: true }
       });
     });
   });
@@ -1015,8 +1016,36 @@ describe("App", { timeout: 10_000 }, () => {
         requireUpToDateUpstreamBeforeCommit: true,
         remoteCheckLeaseSeconds: 300,
         allowCherryPickingContainedCommits: true
-      }
+      },
+      privacy: { shareAnonymousDiagnostics: true }
     }));
+  });
+
+  it("saves the Privacy preference and publishes it to the current renderer", async () => {
+    const user = userEvent.setup();
+    const observedPreferences: boolean[] = [];
+    const handlePreference = (event: Event): void => {
+      if (event instanceof CustomEvent && typeof event.detail === "boolean") {
+        observedPreferences.push(event.detail);
+      }
+    };
+    window.addEventListener("githead:telemetry-preference-changed", handlePreference);
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("tab", { name: "Privacy" }));
+    const checkbox = screen.getByRole("checkbox", { name: "Share anonymous diagnostics" }) as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+    await user.click(checkbox);
+    expect(screen.getByRole("status").textContent).toContain("You have unsaved changes.");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(githead.saveAppSettings).toHaveBeenCalledWith(expect.objectContaining({
+      privacy: { shareAnonymousDiagnostics: false }
+    })));
+    expect(observedPreferences).toContain(false);
+    window.removeEventListener("githead:telemetry-preference-changed", handlePreference);
   });
 
   it("recovers an unregistered settings save and does not start later save phases", async () => {
@@ -1173,7 +1202,8 @@ describe("App", { timeout: 10_000 }, () => {
         requireUpToDateUpstreamBeforeCommit: false,
         remoteCheckLeaseSeconds: 120,
         allowCherryPickingContainedCommits: false
-      }
+      },
+      privacy: { shareAnonymousDiagnostics: true }
     }));
   });
 
