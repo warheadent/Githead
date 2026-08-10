@@ -227,6 +227,7 @@ import { ConflictResolutionDialog } from "./ConflictResolutionDialog";
 import { emptyPushToBranchDialog, type PushToBranchDialogState } from "./pushToBranchState";
 import { gitHubQueryStore, useGitHubQueries } from "./useGitHubQueries";
 import { GitHubQueryToolbar } from "./GitHubQueryToolbar";
+import { CreateIssueDialog, type CreateIssueDraft } from "./CreateIssueDialog";
 import { WorkflowRunConsole } from "./WorkflowRunConsole";
 import { DEFAULT_ISSUE_QUERY, DEFAULT_PULL_REQUEST_QUERY, DEFAULT_WORKFLOW_QUERY, filterLoadedWorkflowRuns, sortLoadedWorkflowRuns } from "./githubViewQuery";
 import { useGitHubHistoryInsights } from "./useGitHubHistoryInsights";
@@ -925,7 +926,16 @@ export function App(): ReactNode {
   const githubRepository = state.summary?.isValid && state.summary.githubRepository
     ? { repoPath: state.repoPath, githubFullName: state.summary.githubRepository.fullName }
     : null;
-  const github = useGitHubQueries(githubRepository, { workflows: workflowQuery, pullRequests: pullRequestQuery, issues: issueQuery });
+  const activeGitHubResource = state.activeView === "workflows"
+    ? "workflowRuns"
+    : state.activeView === "pullRequests" || state.activeView === "issues"
+      ? state.activeView
+      : null;
+  const github = useGitHubQueries(
+    githubRepository,
+    { workflows: workflowQuery, pullRequests: pullRequestQuery, issues: issueQuery },
+    activeGitHubResource
+  );
   const stashWorkspace = useGitStashes(
     state.repoPath,
     Boolean(state.summary?.isValid && state.summary.capabilities.stashes),
@@ -7121,6 +7131,7 @@ export function App(): ReactNode {
                 <>
                   <PersistentWorkspaceTabsContent panelKey="workflows" active={state.activeView === "workflows"} value="workflows" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
                     <WorkflowRunsView
+                      active={state.activeView === "workflows"}
                       summary={state.summary}
                       workflowRuns={github.workflows.data ?? []}
                       loading={github.workflows.status === "loading"}
@@ -7150,6 +7161,7 @@ export function App(): ReactNode {
 
                   <PersistentWorkspaceTabsContent panelKey="pullRequests" active={state.activeView === "pullRequests"} value="pullRequests" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
                     <PullRequestsView
+                      active={state.activeView === "pullRequests"}
                       summary={state.summary}
                       pullRequests={github.pullRequests.data ?? []}
                       openCount={github.counts.data?.pullRequests ?? null}
@@ -7185,6 +7197,7 @@ export function App(): ReactNode {
 
                   <PersistentWorkspaceTabsContent panelKey="issues" active={state.activeView === "issues"} value="issues" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
                     <IssuesView
+                      active={state.activeView === "issues"}
                       summary={state.summary}
                       issues={github.issues.data ?? []}
                       openCount={github.counts.data?.issues ?? null}
@@ -10821,6 +10834,7 @@ function HistoryView({
 }
 
 function WorkflowRunsView({
+  active,
   summary,
   workflowRuns,
   loading,
@@ -10844,6 +10858,7 @@ function WorkflowRunsView({
   onReviewAccess,
   onCheckRemote
 }: {
+  active: boolean;
   summary: RepoSummary | null;
   workflowRuns: GitHubWorkflowRun[];
   loading: boolean;
@@ -10897,6 +10912,7 @@ function WorkflowRunsView({
   return (
     <GitHubDetailWorkspace persistent listDefaultSize="38%" open={selectedRun !== null} emptyDrawer={<WorkflowRunEmptyDetails />} drawer={selectedRun && repository ? (
       <WorkflowRunConsole
+        active={active}
         repoPath={summary?.repoPath ?? ""}
         githubFullName={repository.fullName}
         run={selectedRun}
@@ -11013,6 +11029,7 @@ function GitHubDetailWorkspace({ open, drawer, emptyDrawer, persistent = false, 
 }
 
 function PullRequestsView({
+  active,
   summary,
   pullRequests,
   openCount,
@@ -11038,6 +11055,7 @@ function PullRequestsView({
   onReviewAccess,
   onCheckRemote
 }: {
+  active: boolean;
   summary: RepoSummary | null;
   pullRequests: GitHubPullRequest[];
   openCount: number | null;
@@ -11092,6 +11110,7 @@ function PullRequestsView({
     <GitHubDetailWorkspace persistent listDefaultSize="38%" open={selectedPullRequest !== null} emptyDrawer={<PullRequestEmptyDetails />} drawer={selectedPullRequest && repository ? (
       <Suspense fallback={<LoadingState label="Loading review console" className="h-full" />}>
         <ReviewConsole
+          active={active}
           repoPath={summary?.repoPath ?? ""}
           githubFullName={repository.fullName}
           selection={{ itemType: "pullRequest", item: selectedPullRequest }}
@@ -11169,6 +11188,7 @@ function PullRequestEmptyDetails(): ReactNode {
 }
 
 function IssuesView({
+  active,
   summary,
   issues,
   openCount,
@@ -11192,6 +11212,7 @@ function IssuesView({
   onReviewAccess,
   onCheckRemote
 }: {
+  active: boolean;
   summary: RepoSummary | null;
   issues: GitHubIssue[];
   openCount: number | null;
@@ -11217,7 +11238,16 @@ function IssuesView({
 }): ReactNode {
   const repository = summary?.githubRepository ?? null;
   const [selectedIssue, setSelectedIssue] = useState<GitHubIssue | null>(null);
+  const [createIssueDialog, setCreateIssueDialog] = useState<CreateIssueDialogState>(EMPTY_CREATE_ISSUE_DIALOG);
   const selectedTitleRef = useRef<HTMLButtonElement | null>(null);
+  const createIssueOperationRef = useRef<string | null>(null);
+  const createIssueGenerationRef = useRef(0);
+  const abandonCreateIssueMutation = useCallback((): void => {
+    createIssueGenerationRef.current += 1;
+    const operationId = createIssueOperationRef.current;
+    createIssueOperationRef.current = null;
+    if (operationId) void window.githead.cancelGitOperation({ operationId });
+  }, []);
   const filtered = Object.keys(query).some((key) => !["sort", "direction"].includes(key)) || query.sort !== "updated" || query.direction !== "desc";
   const countLabel = loaded ? (filtered && totalCount !== null ? `${totalCount} matching` : formatLoadedCount(issues.length, openCount, "open issue", "open issues")) : "-";
   const activeFilterCount = Object.entries(query).filter(([key, value]) => !["search", "sort", "direction"].includes(key) && value !== undefined && value !== "").length;
@@ -11231,16 +11261,73 @@ function IssuesView({
   useEffect(() => {
     setSelectedIssue(null);
     selectedTitleRef.current = null;
-  }, [summary?.repoPath]);
+    setCreateIssueDialog(EMPTY_CREATE_ISSUE_DIALOG);
+    return abandonCreateIssueMutation;
+  }, [abandonCreateIssueMutation, summary?.repoPath]);
   const closeDetail = (): void => {
     setSelectedIssue(null);
     requestAnimationFrame(() => selectedTitleRef.current?.focus());
   };
+  const closeCreateIssueDialog = (): void => {
+    abandonCreateIssueMutation();
+    setCreateIssueDialog(EMPTY_CREATE_ISSUE_DIALOG);
+  };
+  const submitCreateIssue = async (draft: CreateIssueDraft): Promise<void> => {
+    if (!repository || !summary?.repoPath || createIssueDialog.busy || (createIssueDialog.outcomeUnknown && !createIssueDialog.unknownOutcomeReviewed)) return;
+
+    const repoPath = summary.repoPath;
+    const operationId = createIssueOperationId();
+    const generation = createIssueGenerationRef.current + 1;
+    createIssueGenerationRef.current = generation;
+    createIssueOperationRef.current = operationId;
+    setCreateIssueDialog((current) => ({ ...current, busy: true, error: "", outcomeUnknown: false, unknownOutcomeReviewed: true }));
+
+    try {
+      const result = await window.githead.createGitHubIssue({
+        repoPath,
+        title: draft.title,
+        body: draft.body,
+        ...(draft.labels.length ? { labels: draft.labels } : {}),
+        ...(draft.assignees.length ? { assignees: draft.assignees } : {}),
+        operationId
+      });
+      if (createIssueOperationRef.current !== operationId || createIssueGenerationRef.current !== generation) return;
+      createIssueOperationRef.current = null;
+      if (!result.ok) {
+        const outcomeUnknown = result.error.outcomeUnknown;
+        setCreateIssueDialog((current) => ({
+          ...current,
+          busy: false,
+          error: outcomeUnknown
+            ? `${result.error.message} Check GitHub before retrying; the issue may have been created.`
+            : result.error.message,
+          outcomeUnknown,
+          unknownOutcomeReviewed: !outcomeUnknown
+        }));
+        return;
+      }
+      setCreateIssueDialog(EMPTY_CREATE_ISSUE_DIALOG);
+      onRefresh();
+    } catch (error) {
+      if (createIssueOperationRef.current !== operationId || createIssueGenerationRef.current !== generation) return;
+      createIssueOperationRef.current = null;
+      const message = error instanceof Error ? error.message : "Unable to create the issue.";
+      setCreateIssueDialog((current) => ({
+        ...current,
+        busy: false,
+        error: `${message} Check GitHub before retrying; the issue may have been created.`,
+        outcomeUnknown: true,
+        unknownOutcomeReviewed: false
+      }));
+    }
+  };
 
   return (
+    <>
     <GitHubDetailWorkspace persistent listDefaultSize="38%" open={selectedIssue !== null} emptyDrawer={<IssueEmptyDetails />} drawer={selectedIssue && repository ? (
       <Suspense fallback={<LoadingState label="Loading review console" className="h-full" />}>
         <ReviewConsole
+          active={active}
           repoPath={summary?.repoPath ?? ""}
           githubFullName={repository.fullName}
           selection={{ itemType: "issue", item: selectedIssue }}
@@ -11252,7 +11339,11 @@ function IssuesView({
       </Suspense>
     ) : null}>
     <section className="github-view issues-grid" aria-label="Issues">
-      <GitHubSelectorHeader repositoryName={repository?.fullName ?? "-"} countLabel={countLabel} />
+      <GitHubSelectorHeader repositoryName={repository?.fullName ?? "-"} countLabel={countLabel} actions={
+        <Button type="button" size="sm" disabled={!repository} onClick={() => setCreateIssueDialog({ ...EMPTY_CREATE_ISSUE_DIALOG, open: true })}>
+          <Plus />New issue
+        </Button>
+      } />
       <GitHubQueryToolbar compact activeFilterCount={activeFilterCount} refreshDisabled={!repository} refreshing={loading || busy} onRefresh={onRefresh} view="issues" search={query.search ?? ""} preset={preset} presets={[{ value: "all", label: "All open" }, { value: "authored", label: "Authored by me", disabled: !viewerLogin }, { value: "assigned", label: "Assigned to me", disabled: !viewerLogin }, { value: "unassigned", label: "Unassigned" }, { value: "custom", label: "Custom" }]} sort={`${query.sort}-${query.direction}`} sortOptions={[{ value: "updated-desc", label: "Recently updated" }, { value: "created-desc", label: "Newest" }, { value: "created-asc", label: "Oldest" }]} viewerAvailable={Boolean(viewerLogin)} status={loading || busy ? "Loading issues" : countLabel} onSearchChange={(value) => { onPresetChange("custom"); onQueryChange({ ...query, search: value || undefined }); }} onPresetChange={applyPreset} onSortChange={(value) => { const [sort, direction] = value.split("-") as ["updated" | "created", "asc" | "desc"]; onPresetChange("custom"); onQueryChange({ ...query, sort, direction }); }} onClear={() => applyPreset("all")}>
         <label className="github-query-field"><span>Label</span><input value={query.label ?? ""} onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, label: event.target.value || undefined }); }} /></label>
       </GitHubQueryToolbar>
@@ -11285,7 +11376,49 @@ function IssuesView({
       </div>
     </section>
     </GitHubDetailWorkspace>
+    <CreateIssueDialog
+      open={createIssueDialog.open}
+      repoPath={summary?.repoPath ?? ""}
+      repositoryName={repository?.fullName ?? ""}
+      repositoryUrl={repository?.webUrl ?? ""}
+      busy={createIssueDialog.busy}
+      error={createIssueDialog.error}
+      outcomeUnknown={createIssueDialog.outcomeUnknown}
+      unknownOutcomeReviewed={createIssueDialog.unknownOutcomeReviewed}
+      onOpenChange={(open) => { if (!open) closeCreateIssueDialog(); }}
+      onOpenExternalUrl={onOpenExternalUrl}
+      onClearError={() => setCreateIssueDialog((current) => ({ ...current, error: "" }))}
+      onReviewUnknownOutcome={() => {
+        if (repository) onOpenExternalUrl(`${repository.webUrl}/issues`);
+        setCreateIssueDialog((current) => ({ ...current, unknownOutcomeReviewed: true }));
+      }}
+      onSubmit={(draft) => { void submitCreateIssue(draft); }}
+    />
+    </>
   );
+}
+
+interface CreateIssueDialogState {
+  open: boolean;
+  busy: boolean;
+  error: string;
+  outcomeUnknown: boolean;
+  unknownOutcomeReviewed: boolean;
+}
+
+const EMPTY_CREATE_ISSUE_DIALOG: CreateIssueDialogState = {
+  open: false,
+  busy: false,
+  error: "",
+  outcomeUnknown: false,
+  unknownOutcomeReviewed: true
+};
+
+function createIssueOperationId(): string {
+  const suffix = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return `issue-create-${suffix}`;
 }
 
 function IssueRow({
@@ -11316,13 +11449,14 @@ function IssueEmptyDetails(): ReactNode {
   return <GitHubSelectionEmptyDetails itemType="issue" />;
 }
 
-function GitHubSelectorHeader({ repositoryName, countLabel }: { repositoryName: string; countLabel: string }): ReactNode {
+function GitHubSelectorHeader({ repositoryName, countLabel, actions }: { repositoryName: string; countLabel: string; actions?: ReactNode }): ReactNode {
   return <div className="github-view-header github-selector-header">
     <div className="min-w-0">
       <p className="eyebrow">GitHub</p>
       <TooltipTarget content={repositoryName}><h2 className="truncate text-sm font-semibold">{repositoryName}</h2></TooltipTarget>
       <p className="github-secondary-text">{countLabel}</p>
     </div>
+    {actions ? <div className="github-view-actions">{actions}</div> : null}
   </div>;
 }
 

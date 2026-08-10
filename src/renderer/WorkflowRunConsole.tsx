@@ -31,6 +31,7 @@ export function WorkflowRunConsole({
   repoPath,
   githubFullName,
   run,
+  active = true,
   onClose,
   onOpenExternalUrl,
   onRunChanged
@@ -38,12 +39,13 @@ export function WorkflowRunConsole({
   repoPath: string;
   githubFullName: string;
   run: GitHubWorkflowRun;
+  active?: boolean;
   onClose: () => void;
   onOpenExternalUrl: (url: string) => void;
   onRunChanged: () => void;
 }): ReactNode {
   const repository = useMemo(() => ({ repoPath, githubFullName }), [repoPath, githubFullName]);
-  const detail = useGitHubWorkflowRunDetail(repository, run.id);
+  const detail = useGitHubWorkflowRunDetail(repository, run.id, active);
   const current = detail.data ?? run;
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
   const [confirmCancel, setConfirmCancel] = useState(false);

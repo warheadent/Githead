@@ -13,6 +13,7 @@ import type {
   CancelGitOperationRequest,
   GetGitOperationStatesRequest,
   CoordinatedRequest,
+  CreateIssueRequest,
   CreatePullRequestRequest,
   ExternalUrlRequest,
   GeneratePrDescriptionRequest,
@@ -174,6 +175,10 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubOpenCounts, request) as ReturnType<GitheadApi["getGitHubOpenCounts"]>,
   getGitHubIssues: (request: GitHubIssuesRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubIssues, request) as ReturnType<GitheadApi["getGitHubIssues"]>,
+  getGitHubIssueTemplates: (request: GitHubRepositoryRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getGitHubIssueTemplates, request) as ReturnType<GitheadApi["getGitHubIssueTemplates"]>,
+  createGitHubIssue: (request: CoordinatedRequest<CreateIssueRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.createGitHubIssue, request) as ReturnType<GitheadApi["createGitHubIssue"]>,
   getGitHubPullRequests: (request: GitHubPullRequestsRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubPullRequests, request) as ReturnType<GitheadApi["getGitHubPullRequests"]>,
   getGitHubPullRequestDetail: (request: GitHubPullRequestDetailRequest) =>

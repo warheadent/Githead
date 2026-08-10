@@ -18,6 +18,7 @@ import type {
   GetGitOperationStatesRequest,
   CoordinatedRequest,
   CancelGitHubRequest,
+  CreateIssueRequest,
   CreatePullRequestRequest,
   ExternalUrlRequest,
   GeneratePrDescriptionRequest,
@@ -573,6 +574,8 @@ ipcMain.handle(IPC_CHANNELS.getGitHubOpenCounts, (event, request: GitHubReposito
   handleGitHubRead(event, request, (signal) => getGitHubService().getOpenCounts(request, signal)));
 ipcMain.handle(IPC_CHANNELS.getGitHubIssues, (event, request: GitHubIssuesRequest) =>
   handleGitHubRead(event, request, (signal) => getGitHubService().getIssues(request, signal)));
+ipcMain.handle(IPC_CHANNELS.getGitHubIssueTemplates, (event, request: GitHubRepositoryRequest) =>
+  handleGitHubRead(event, request, (signal) => getGitHubService().getIssueTemplates(request, signal)));
 ipcMain.handle(IPC_CHANNELS.getGitHubPullRequests, (event, request: GitHubPullRequestsRequest) =>
   handleGitHubRead(event, request, (signal) => getGitHubService().getPullRequests(request, signal)));
 ipcMain.handle(IPC_CHANNELS.getGitHubPullRequestDetail, (event, request: GitHubPullRequestDetailRequest) =>
@@ -584,6 +587,8 @@ ipcMain.handle(IPC_CHANNELS.getGitHubHistoryInsights, (event, request: GitHubHis
 
 ipcMain.handle(IPC_CHANNELS.createGitHubPullRequest, (event, request: CoordinatedRequest<CreatePullRequestRequest>) =>
   handleGitHubMutation(event, request, (signal) => getGitHubService().createPullRequest(request, signal)));
+ipcMain.handle(IPC_CHANNELS.createGitHubIssue, (event, request: CoordinatedRequest<CreateIssueRequest>) =>
+  handleGitHubMutation(event, request, (signal) => getGitHubService().createIssue(request, signal)));
 ipcMain.handle(IPC_CHANNELS.rerunGitHubWorkflowRun, (event, request: CoordinatedRequest<GitHubWorkflowRunRequest>) =>
   handleGitHubMutation(event, request, (signal) => getGitHubService().rerunWorkflowRun(request, signal)));
 ipcMain.handle(IPC_CHANNELS.cancelGitHubWorkflowRun, (event, request: CoordinatedRequest<GitHubWorkflowRunRequest>) =>

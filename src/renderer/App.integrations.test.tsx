@@ -481,6 +481,113 @@ describe("App", { timeout: 10_000 }, () => {
     expect(await screen.findByRole("tabpanel", { name: "Integrations" })).toBeTruthy();
   });
 
+  it("creates an issue from the Issues view and refreshes GitHub data", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
+    vi.mocked(githead.getGitHubIssues).mockResolvedValue({ ok: true, data: { items: [], page: 1, nextPage: null, totalCount: 0 }, rateLimit: null });
+
+    render(<App />);
+    await user.click(await screen.findByRole("tab", { name: /Issues/ }));
+    await waitFor(() => expect(githead.getGitHubIssues).toHaveBeenCalled());
+    const issueLoadsBeforeCreate = vi.mocked(githead.getGitHubIssues).mock.calls.length;
+    const countLoadsBeforeCreate = vi.mocked(githead.getGitHubOpenCounts).mock.calls.length;
+
+    await user.click(screen.getByRole("button", { name: "New issue" }));
+    const dialog = screen.getByRole("dialog", { name: "New issue" });
+    await user.type(within(dialog).getByLabelText("Title"), "Renderer fails after reconnect");
+    await user.type(within(dialog).getByLabelText("Description"), "Steps to reproduce");
+    await user.click(within(dialog).getByRole("button", { name: "Create issue" }));
+
+    await waitFor(() => expect(githead.createGitHubIssue).toHaveBeenCalledWith({
+      repoPath,
+      title: "Renderer fails after reconnect",
+      body: "Steps to reproduce",
+      operationId: expect.stringMatching(/^issue-create-/)
+    }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "New issue" })).toBeNull());
+    await waitFor(() => expect(vi.mocked(githead.getGitHubIssues).mock.calls.length).toBeGreaterThan(issueLoadsBeforeCreate));
+    await waitFor(() => expect(vi.mocked(githead.getGitHubOpenCounts).mock.calls.length).toBeGreaterThan(countLoadsBeforeCreate));
+  });
+
+  it("builds the issue dialog from a repository Issue Form", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
+    vi.mocked(githead.getGitHubIssueTemplates).mockResolvedValue({ ok: true, rateLimit: null, data: {
+      blankIssuesEnabled: false,
+      contactLinks: [],
+      templates: [{
+        filename: "bug.yml",
+        kind: "form",
+        name: "Bug report",
+        description: "Report a reproducible problem",
+        title: "[Bug] ",
+        labels: ["bug"],
+        assignees: ["octocat"],
+        body: "",
+        unsupportedFeatures: [],
+        fields: [
+          { kind: "markdown", value: "Thanks for helping us improve Githead." },
+          { kind: "input", id: "version", label: "Githead version", description: "", placeholder: "0.46.0", defaultValue: "", required: true },
+          { kind: "dropdown", id: "severity", label: "Severity", description: "", options: ["Low", "High"], multiple: false, required: true },
+          { kind: "checkboxes", id: "terms", label: "Confirmation", description: "", options: [{ label: "I searched existing issues", required: true }] }
+        ]
+      }]
+    } });
+
+    render(<App />);
+    await user.click(await screen.findByRole("tab", { name: /Issues/ }));
+    await user.click(await screen.findByRole("button", { name: "New issue" }));
+    const dialog = screen.getByRole("dialog", { name: "New issue" });
+    await user.click(await within(dialog).findByRole("button", { name: /Bug report/ }));
+
+    const titleInput = within(dialog).getByLabelText("Title") as HTMLInputElement;
+    expect(titleInput.value).toBe("[Bug] ");
+    await user.type(titleInput, "Reconnect fails");
+    await user.type(within(dialog).getByLabelText(/Githead version/), "0.46.0");
+    await user.selectOptions(within(dialog).getByLabelText(/Severity/), "High");
+    await user.click(within(dialog).getByRole("checkbox", { name: /I searched existing issues/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Create issue" }));
+
+    await waitFor(() => expect(githead.createGitHubIssue).toHaveBeenCalledWith({
+      repoPath,
+      title: "[Bug] Reconnect fails",
+      body: "### Githead version\n\n0.46.0\n\n### Severity\n\nHigh\n\n### Confirmation\n\n- [x] I searched existing issues",
+      labels: ["bug"],
+      assignees: ["octocat"],
+      operationId: expect.stringMatching(/^issue-create-/)
+    }));
+  });
+
+  it("requires GitHub review before retrying issue creation with an unknown outcome", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
+    vi.mocked(githead.createGitHubIssue).mockResolvedValue({
+      ok: false,
+      error: {
+        kind: "timeout",
+        message: "Operation timed out.",
+        retryable: false,
+        retryAfterAt: null,
+        outcomeUnknown: true,
+        source: "combined",
+        rateLimit: null
+      }
+    });
+
+    render(<App />);
+    await user.click(await screen.findByRole("tab", { name: /Issues/ }));
+    await user.click(await screen.findByRole("button", { name: "New issue" }));
+    const dialog = screen.getByRole("dialog", { name: "New issue" });
+    await user.type(within(dialog).getByLabelText("Title"), "Possibly created issue");
+    await user.click(within(dialog).getByRole("button", { name: "Create issue" }));
+
+    expect(await within(dialog).findByText("Operation timed out. Check GitHub before retrying; the issue may have been created.")).toBeTruthy();
+    expect((within(dialog).getByRole("button", { name: "Create issue" }) as HTMLButtonElement).disabled).toBe(true);
+    await user.click(within(dialog).getByRole("button", { name: "Open Issues" }));
+    expect(githead.openExternalUrl).toHaveBeenCalledWith({ url: "https://github.com/openai/githead/issues" });
+    expect((within(dialog).getByRole("button", { name: "Create issue" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("loads open issues from GitHub when the Issues tab opens", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());

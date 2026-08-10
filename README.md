@@ -18,7 +18,7 @@ Githead is in early development. Use standard backups and repository safeguards 
 - **Worktrees:** Group linked Git worktrees. Create worktrees and remove clean worktrees that are not active.
 - **Remotes:** Add, rename, edit, inspect, and remove Git remotes.
 - **Submodules:** Inspect submodule states. Open, initialize, update, synchronize, and clone submodules.
-- **GitHub:** View and filter workflow runs, pull requests, and issues. Create or check out pull requests.
+- **GitHub:** View and filter workflow runs, pull requests, and issues. Create issues from repository Issue Forms, classic templates, or a blank form. Create and check out pull requests.
 - **AI text generation:** Generate commit messages and pull request text from repository changes. Global and repository-specific settings are available.
 - **Custom actions:** Add repository commands to the Actions menu. Githead runs them from the repository root.
 - **Live updates:** Githead monitors the active repository and updates the interface after file changes.

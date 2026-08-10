@@ -694,6 +694,42 @@ export interface GitHubWorkflowRunsRequest extends GitHubPageRequest { query?: G
 export interface GitHubPullRequestsRequest extends GitHubPageRequest { query?: GitHubPullRequestQuery | undefined }
 export interface GitHubIssuesRequest extends GitHubPageRequest { query?: GitHubIssueQuery | undefined }
 
+export interface GitHubIssueTemplateOption {
+  label: string;
+  required: boolean;
+}
+
+export type GitHubIssueTemplateField =
+  | { kind: "markdown"; value: string }
+  | { kind: "input" | "textarea"; id: string; label: string; description: string; placeholder: string; defaultValue: string; required: boolean; render?: string }
+  | { kind: "dropdown"; id: string; label: string; description: string; options: string[]; multiple: boolean; required: boolean }
+  | { kind: "checkboxes"; id: string; label: string; description: string; options: GitHubIssueTemplateOption[] };
+
+export interface GitHubIssueTemplate {
+  filename: string;
+  kind: "form" | "markdown";
+  name: string;
+  description: string;
+  title: string;
+  labels: string[];
+  assignees: string[];
+  body: string;
+  fields: GitHubIssueTemplateField[];
+  unsupportedFeatures: string[];
+}
+
+export interface GitHubIssueTemplateContactLink {
+  name: string;
+  url: string;
+  description: string;
+}
+
+export interface GitHubIssueTemplates {
+  templates: GitHubIssueTemplate[];
+  blankIssuesEnabled: boolean;
+  contactLinks: GitHubIssueTemplateContactLink[];
+}
+
 export interface GitHubWorkflowRunRequest extends GitHubRepositoryRequest {
   runId: string;
 }
@@ -786,6 +822,20 @@ export interface CreatePullRequestResult {
   url: string;
   title: string;
   draft: boolean;
+}
+
+export interface CreateIssueRequest {
+  repoPath: string;
+  title: string;
+  body: string;
+  labels?: string[];
+  assignees?: string[];
+}
+
+export interface CreateIssueResult {
+  number: number;
+  url: string;
+  title: string;
 }
 
 export interface RepositoryReadRequest {
@@ -2192,6 +2242,8 @@ export interface GitheadApi {
   getGitHubViewer(request: GitHubRepositoryRequest): Promise<GitHubOperationResult<GitHubViewer>>;
   getGitHubOpenCounts(request: GitHubRepositoryRequest): Promise<GitHubOperationResult<GitHubOpenCounts>>;
   getGitHubIssues(request: GitHubIssuesRequest): Promise<GitHubOperationResult<GitHubPage<GitHubIssue>>>;
+  getGitHubIssueTemplates(request: GitHubRepositoryRequest): Promise<GitHubOperationResult<GitHubIssueTemplates>>;
+  createGitHubIssue(request: CoordinatedRequest<CreateIssueRequest>): Promise<GitHubOperationResult<CreateIssueResult>>;
   getGitHubPullRequests(request: GitHubPullRequestsRequest): Promise<GitHubOperationResult<GitHubPage<GitHubPullRequest>>>;
   getGitHubPullRequestDetail(request: GitHubPullRequestDetailRequest): Promise<GitHubOperationResult<GitHubPullRequestDetail>>;
   getGitHubIssueDetail(request: GitHubIssueDetailRequest): Promise<GitHubOperationResult<GitHubIssueDetail>>;

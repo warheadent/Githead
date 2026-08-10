@@ -106,6 +106,48 @@ describe("GitHubService", () => {
     }], page: 1, nextPage: null, totalCount: 1 } });
   });
 
+  it("loads and parses repository issue templates and chooser configuration", async () => {
+    const encode = (value: string): string => Buffer.from(value).toString("base64");
+    const client = new FakeClient([
+      [
+        { name: "config.yml", path: ".github/ISSUE_TEMPLATE/config.yml", type: "file" },
+        { name: "bug.yml", path: ".github/ISSUE_TEMPLATE/bug.yml", type: "file" },
+        { name: "feature.md", path: ".github/ISSUE_TEMPLATE/feature.md", type: "file" },
+        { name: "README.txt", path: ".github/ISSUE_TEMPLATE/README.txt", type: "file" }
+      ],
+      { encoding: "base64", content: encode("blank_issues_enabled: false\n") },
+      { encoding: "base64", content: encode("name: Bug report\ndescription: Report a bug\nbody:\n  - type: input\n    id: version\n    attributes:\n      label: Version\n") },
+      { encoding: "base64", content: encode("---\nname: Feature request\nabout: Suggest a feature\n---\nDescribe it.\n") }
+    ]);
+
+    const result = await new GitHubService(provider(repository), client).getIssueTemplates({ repoPath: "D:\\Repo" });
+
+    expect(result).toMatchObject({ ok: true, data: {
+      blankIssuesEnabled: false,
+      templates: [
+        { filename: "bug.yml", kind: "form", name: "Bug report" },
+        { filename: "feature.md", kind: "markdown", name: "Feature request", body: "Describe it.\n" }
+      ]
+    } });
+    expect(client.calls.map((call) => call.path)).toEqual([
+      "/repos/openai/githead/contents/.github/ISSUE_TEMPLATE",
+      "/repos/openai/githead/contents/.github/ISSUE_TEMPLATE/config.yml",
+      "/repos/openai/githead/contents/.github/ISSUE_TEMPLATE/bug.yml",
+      "/repos/openai/githead/contents/.github/ISSUE_TEMPLATE/feature.md"
+    ]);
+  });
+
+  it("falls back to blank issue creation when a repository has no template directory", async () => {
+    const client = new FakeClient([], async () => {
+      throw new GitHubHttpError("Not Found", 404, new Headers(), {});
+    });
+    await expect(new GitHubService(provider(repository), client).getIssueTemplates({ repoPath: "D:\\Repo" })).resolves.toEqual({
+      ok: true,
+      rateLimit: null,
+      data: { templates: [], blankIssuesEnabled: true, contactLinks: [] }
+    });
+  });
+
   it("normalizes pull requests and sums comment counts", async () => {
     const client = new FakeClient([[{ number: 11, title: "PR", state: "open", user: { login: "taylor" }, head: { ref: "feature", repo: { full_name: "openai/githead" } }, base: { ref: "main" }, labels: ["ui"], comments: 2, review_comments: 5, draft: true, updated_at: "now", html_url: "pr-url" }]]);
     const result = await new GitHubService(provider(repository), client).getPullRequests({ repoPath: "D:\\Repo" });
@@ -245,6 +287,63 @@ describe("GitHubService", () => {
     expect(client.invalidated).toEqual([repository]);
     await service.getOpenCounts({ repoPath: "D:\\Repo" });
     expect(client.calls.filter((call) => call.path.startsWith("/search"))).toHaveLength(2);
+  });
+
+  it("creates an issue and invalidates cached issue counts", async () => {
+    const client = new FakeClient([
+      { items: [], total_count: 0 },
+      { number: 44, title: "New issue", html_url: "issue-url" },
+      { total_count: 1 },
+      { total_count: 3 }
+    ]);
+    const service = new GitHubService(provider(repository), client);
+    const controller = new AbortController();
+    await service.getIssues({ repoPath: "D:\\Repo" });
+
+    const result = await service.createIssue(
+      { repoPath: "D:\\Repo", title: "  New issue  ", body: "Steps to reproduce", labels: ["bug"], assignees: ["octocat"] },
+      controller.signal
+    );
+
+    expect(result).toEqual({ ok: true, rateLimit: null, data: { number: 44, title: "New issue", url: "issue-url" } });
+    expect(client.calls[1]).toMatchObject({
+      path: "/repos/openai/githead/issues",
+      request: {
+        method: "POST",
+        body: { title: "New issue", body: "Steps to reproduce", labels: ["bug"], assignees: ["octocat"] },
+        signal: controller.signal
+      }
+    });
+    expect(client.invalidated).toEqual([repository]);
+
+    await service.getOpenCounts({ repoPath: "D:\\Repo" });
+    expect(client.calls.filter((call) => call.path.startsWith("/search"))).toHaveLength(3);
+  });
+
+  it("rejects an empty issue title before transport", async () => {
+    const client = new FakeClient([]);
+    const result = await new GitHubService(provider(repository), client).createIssue({ repoPath: "D:\\Repo", title: "   ", body: "body" });
+    expect(result).toMatchObject({ ok: false, error: { kind: "unexpected", message: "Issue title is required.", outcomeUnknown: false } });
+    expect(client.calls).toHaveLength(0);
+  });
+
+  it("marks a 201 issue response without an issue number as outcome unknown", async () => {
+    const client = new FakeClient([{
+      payload: { title: "New issue", html_url: "issue-url" },
+      headers: {},
+      status: 201
+    }]);
+
+    const result = await new GitHubService(provider(repository), client).createIssue({ repoPath: "D:\\Repo", title: "New issue", body: "body" });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        kind: "unexpected",
+        outcomeUnknown: true,
+        retryable: false
+      }
+    });
   });
 
   it("marks a malformed 201 pull-request response body as outcome unknown", async () => {

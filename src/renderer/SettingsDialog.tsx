@@ -541,7 +541,7 @@ function GitHubIntegrationSettings({
 
     <div className="grid gap-1 text-xs leading-relaxed text-muted-foreground">
       <p>Private repositories require the Githead GitHub App to be installed for that repository.</p>
-      <p>Githead requests read access to Actions, Contents, and Issues, plus read and write access to Pull requests. Creating a pull request is the current GitHub write operation.</p>
+      <p>Githead requests read access to Actions and Contents, plus read and write access to Pull requests. Creating issues also requires Issues write access; review GitHub App access if GitHub rejects creation.</p>
     </div>
   </SettingsCard>;
 }

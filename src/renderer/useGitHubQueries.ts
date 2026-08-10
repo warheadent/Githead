@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { GitHubFailure, GitHubIssue, GitHubIssueDetail, GitHubIssueQuery, GitHubOpenCounts, GitHubPage, GitHubPullRequest, GitHubPullRequestDetail, GitHubPullRequestQuery, GitHubViewer, GitHubWorkflowRun, GitHubWorkflowRunDetail, GitHubWorkflowRunQuery } from "../shared/types";
 import { createGitHubQueryStore, getGitHubQueryKey, type GitHubQueryDescriptor, type GitHubQueryParams, type GitHubQuerySnapshot, type GitHubRepositoryScope, type GitHubResource } from "./githubQueryStore";
+import { useGitHubAutoRefresh } from "./useGitHubAutoRefresh";
+
+const GITHUB_LIST_REFRESH_INTERVAL_MS = 30_000;
+const MAX_GITHUB_LIST_REFRESH_INTERVAL_MS = 60_000;
+const GITHUB_DETAIL_REFRESH_INTERVAL_MS = 30_000;
+const ACTIVE_WORKFLOW_REFRESH_INTERVAL_MS = 5_000;
 
 type ResourceData = {
   workflowRuns: GitHubPage<GitHubWorkflowRun>;
@@ -74,7 +80,8 @@ export function getGitHubDetailDescriptor(
 
 export function useGitHubDetail<T extends GitHubPullRequestDetail | GitHubIssueDetail>(
   repository: GitHubRepositoryScope | null,
-  selection: GitHubDetailSelection | null
+  selection: GitHubDetailSelection | null,
+  autoRefresh = false
 ): GitHubQuerySnapshot<T> & { refresh: () => Promise<void> } {
   const stableRepository = useMemo(() => repository ? { repoPath: repository.repoPath, githubFullName: repository.githubFullName } : null,
     [repository?.repoPath, repository?.githubFullName]);
@@ -94,12 +101,20 @@ export function useGitHubDetail<T extends GitHubPullRequestDetail | GitHubIssueD
     await gitHubQueryStore.refresh<T>(value);
   }, [key]);
 
+  useGitHubAutoRefresh({
+    enabled: autoRefresh && Boolean(value),
+    intervalMs: GITHUB_DETAIL_REFRESH_INTERVAL_MS,
+    refreshing: snapshot.status === "loading" || snapshot.status === "refreshing",
+    refresh
+  });
+
   return { ...snapshot, refresh };
 }
 
 export function useGitHubWorkflowRunDetail(
   repository: GitHubRepositoryScope | null,
-  runId: string | null
+  runId: string | null,
+  autoRefresh = false
 ): GitHubQuerySnapshot<GitHubWorkflowRunDetail> & { refresh: () => Promise<void> } {
   const stableRepository = useMemo(() => repository ? { repoPath: repository.repoPath, githubFullName: repository.githubFullName } : null,
     [repository?.repoPath, repository?.githubFullName]);
@@ -122,10 +137,23 @@ export function useGitHubWorkflowRunDetail(
     await gitHubQueryStore.refresh<GitHubWorkflowRunDetail>(value);
   }, [key]);
 
+  useGitHubAutoRefresh({
+    enabled: autoRefresh && Boolean(value),
+    intervalMs: snapshot.data?.status === "completed"
+      ? GITHUB_DETAIL_REFRESH_INTERVAL_MS
+      : ACTIVE_WORKFLOW_REFRESH_INTERVAL_MS,
+    refreshing: snapshot.status === "loading" || snapshot.status === "refreshing",
+    refresh
+  });
+
   return { ...snapshot, refresh };
 }
 
-export function useGitHubQueries(repository: GitHubRepositoryScope | null, queries?: { workflows?: GitHubWorkflowRunQuery; pullRequests?: GitHubPullRequestQuery; issues?: GitHubIssueQuery }) {
+export function useGitHubQueries(
+  repository: GitHubRepositoryScope | null,
+  queries?: { workflows?: GitHubWorkflowRunQuery; pullRequests?: GitHubPullRequestQuery; issues?: GitHubIssueQuery },
+  activeResource: PagedResource | null = null
+) {
   const stableRepository = useMemo(() => repository ? { repoPath: repository.repoPath, githubFullName: repository.githubFullName } : null,
     [repository?.repoPath, repository?.githubFullName]);
   const descriptors = useMemo(() => ({ openCounts: descriptor(stableRepository, "openCounts"), viewer: descriptor(stableRepository, "viewer") }), [stableRepository]);
@@ -151,6 +179,23 @@ export function useGitHubQueries(repository: GitHubRepositoryScope | null, queri
   const invalidate = useCallback((resource?: GitHubResource, params?: GitHubQueryParams) => {
     if (stableRepository) gitHubQueryStore.invalidate({ repository: stableRepository, ...(resource ? { resource } : {}), ...(params ? { params } : {}) });
   }, [stableRepository]);
+  const activeQuery = activeResource ? { workflowRuns: workflows, pullRequests, issues }[activeResource] : null;
+  const autoRefresh = useCallback(async () => {
+    if (!stableRepository || !activeQuery) return;
+    const openCounts = { repository: stableRepository, resource: "openCounts" as const, params: {} };
+    await Promise.allSettled([
+      activeQuery.refresh(),
+      gitHubQueryStore.refresh<ResourceData["openCounts"]>(openCounts)
+    ]);
+  }, [activeQuery?.refresh, stableRepository]);
+  useGitHubAutoRefresh({
+    enabled: Boolean(stableRepository && activeQuery),
+    intervalMs: activeQuery?.status === "error" || counts.status === "error"
+      ? MAX_GITHUB_LIST_REFRESH_INTERVAL_MS
+      : GITHUB_LIST_REFRESH_INTERVAL_MS,
+    refreshing: activeQuery?.status === "loading" || activeQuery?.status === "refreshing",
+    refresh: autoRefresh
+  });
   return { workflows, counts, pullRequests, issues, viewer, ensure, refresh, invalidate,
     loadMore: (resource: "workflowRuns" | "pullRequests" | "issues") => ({ workflowRuns: workflows, pullRequests, issues }[resource].loadMore()) };
 }

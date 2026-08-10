@@ -50,6 +50,7 @@ interface ReviewConsoleProps {
   repoPath: string;
   githubFullName: string;
   selection: ReviewConsoleSelection;
+  active?: boolean;
   onClose: () => void;
   onCheckout: (pullRequest: GitHubPullRequest) => void;
   onOpenExternalUrl: (url: string) => void;
@@ -65,13 +66,14 @@ export function ReviewConsole({
   repoPath,
   githubFullName,
   selection,
+  active = true,
   onClose,
   onCheckout,
   onOpenExternalUrl,
   onMerged
 }: ReviewConsoleProps): ReactNode {
   const itemSelection: GitHubDetailSelection = { itemType: selection.itemType, number: selection.item.number };
-  const detail = useGitHubDetail<GitHubPullRequestDetail | GitHubIssueDetail>({ repoPath, githubFullName }, itemSelection);
+  const detail = useGitHubDetail<GitHubPullRequestDetail | GitHubIssueDetail>({ repoPath, githubFullName }, itemSelection, active);
   const [activeTab, setActiveTab] = useState("overview");
   const [comment, setComment] = useState("");
   const [mutation, setMutation] = useState<MutationState>(IDLE_MUTATION);

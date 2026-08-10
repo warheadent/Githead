@@ -149,7 +149,8 @@
   },
   "dependencies": {
     "@sentry/electron": "^7.16.0",
-    "electron-updater": "^6.8.9"
+    "electron-updater": "^6.8.9",
+    "yaml": "^2.9.0"
   },
   "allowScripts": {
     "@sentry/cli@2.58.6": true,

@@ -331,6 +331,12 @@ export function createGitheadMock(): GitheadApi {
     getGitHubViewer: vi.fn().mockResolvedValue({ ok: true, data: { login: "viewer", authenticated: true }, rateLimit: null }),
     getGitHubOpenCounts: vi.fn().mockResolvedValue({ ok: true, data: createOpenCounts(), rateLimit: null }),
     getGitHubIssues: vi.fn().mockResolvedValue({ ok: true, data: { items: [], page: 1, nextPage: null, totalCount: null }, rateLimit: null }),
+    getGitHubIssueTemplates: vi.fn().mockResolvedValue({ ok: true, data: { templates: [], blankIssuesEnabled: true, contactLinks: [] }, rateLimit: null }),
+    createGitHubIssue: vi.fn().mockResolvedValue({ ok: true, data: {
+      number: 12,
+      url: "https://github.com/openai/githead/issues/12",
+      title: "New issue"
+    }, rateLimit: null }),
     getGitHubPullRequests: vi.fn().mockResolvedValue({ ok: true, data: { items: [], page: 1, nextPage: null, totalCount: null }, rateLimit: null }),
     getGitHubPullRequestDetail: vi.fn().mockImplementation(async ({ number }) => ({ ok: true, data: createPullRequestDetail({ number }), rateLimit: null })),
     getGitHubIssueDetail: vi.fn().mockImplementation(async ({ number }) => ({ ok: true, data: createIssueDetail({ number }), rateLimit: null })),

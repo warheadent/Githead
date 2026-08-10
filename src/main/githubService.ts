@@ -1,10 +1,13 @@
 import { Effect } from "effect";
 import type {
+  CreateIssueRequest,
+  CreateIssueResult,
   CreatePullRequestRequest,
   CreatePullRequestResult,
   GitHubIssue,
   GitHubIssueDetail,
   GitHubIssueDetailRequest,
+  GitHubIssueTemplates,
   GitHubItemCommentRequest,
   GitHubIssuesRequest,
   GitHubHistoryInsights,
@@ -34,6 +37,7 @@ import type {
   GitHubViewer
 } from "../shared/types";
 import { GitHubHttpError, GitHubResponseBodyError, type GitHubApiClient } from "./githubClient";
+import { emptyGitHubIssueTemplates, parseGitHubIssueTemplate, parseGitHubIssueTemplateConfig } from "./githubIssueTemplates";
 import { buildIssueSearchPath, buildPullRequestSearchPath, buildWorkflowRunsPath, hasPullRequestSearchFilters } from "./githubQuery";
 import { runEffect, tryPromise } from "../shared/effectRuntime";
 
@@ -118,6 +122,14 @@ interface GitHubApiSearchResponse extends GitHubApiErrorResponse {
 
 interface GitHubApiViewer { login?: string | null }
 
+interface GitHubApiContentEntry {
+  name?: string;
+  path?: string;
+  type?: string;
+  encoding?: string;
+  content?: string;
+}
+
 interface GitHubApiPullRequest {
   number?: number;
   title?: string | null;
@@ -189,6 +201,9 @@ export class GitHubService {
   async getIssues(request: GitHubIssuesRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubPage<GitHubIssue>>> {
     return this.read(() => this.getIssuesData(request, signal));
   }
+  async getIssueTemplates(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubIssueTemplates>> {
+    return this.read(() => this.getIssueTemplatesData(request, signal));
+  }
   async getPullRequests(request: GitHubPullRequestsRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubPage<GitHubPullRequest>>> {
     return this.read(() => this.getPullRequestsData(request, signal));
   }
@@ -212,6 +227,9 @@ export class GitHubService {
   }
   async createPullRequest(request: CreatePullRequestRequest, signal?: AbortSignal): Promise<GitHubOperationResult<CreatePullRequestResult>> {
     return this.mutate(() => this.createPullRequestData(request, signal));
+  }
+  async createIssue(request: CreateIssueRequest, signal?: AbortSignal): Promise<GitHubOperationResult<CreateIssueResult>> {
+    return this.mutate(() => this.createIssueData(request, signal));
   }
 
   private read<T>(operation: () => Promise<T>): Promise<GitHubOperationResult<T>> {
@@ -368,6 +386,47 @@ export class GitHubService {
     });
     if (page === 1 && Number.isFinite(response.total_count)) this.observeCount(repository, "issues", Number(response.total_count));
     return { items: issues, page, nextPage: page * ISSUE_LIMIT < Number(response.total_count ?? 0) ? page + 1 : null, totalCount: Number.isFinite(response.total_count) ? Number(response.total_count) : null };
+  }
+
+  private async getIssueTemplatesData(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubIssueTemplates> {
+    const repository = await this.getRepository(request.repoPath);
+    const directoryPath = `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/contents/.github/ISSUE_TEMPLATE`;
+    let entries: GitHubApiContentEntry[];
+    try {
+      const { payload } = await this.client.requestJson<unknown>(repository, directoryPath, {
+        cache: { mode: "conditional", maxAgeMs: 60_000 },
+        ...(signal ? { signal } : {})
+      });
+      entries = Array.isArray(payload) ? payload.filter(isRecord) as GitHubApiContentEntry[] : [];
+    } catch (error) {
+      if (error instanceof GitHubHttpError && error.status === 404) return emptyGitHubIssueTemplates();
+      throw error;
+    }
+
+    const files = entries
+      .filter((entry) => entry.type === "file" && typeof entry.name === "string" && typeof entry.path === "string")
+      .filter((entry) => /\.(?:md|ya?ml)$/i.test(entry.name ?? ""))
+      .slice(0, 50);
+    const loaded = await Promise.all(files.map(async (entry) => {
+      signal?.throwIfAborted();
+      const path = String(entry.path).split("/").map(encodePath).join("/");
+      const { payload } = await this.client.requestJson<GitHubApiContentEntry>(
+        repository,
+        `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/contents/${path}`,
+        { cache: { mode: "conditional", maxAgeMs: 60_000 }, ...(signal ? { signal } : {}) }
+      );
+      if (payload.encoding !== "base64" || typeof payload.content !== "string") return null;
+      return { name: String(entry.name), source: Buffer.from(payload.content.replace(/\s/g, ""), "base64").toString("utf8") };
+    }));
+
+    const configFile = loaded.find((file) => file && /^config\.ya?ml$/i.test(file.name));
+    const config = configFile ? parseGitHubIssueTemplateConfig(configFile.source) : { blankIssuesEnabled: true, contactLinks: [] };
+    const templates = loaded.flatMap((file) => {
+      if (!file) return [];
+      const template = parseGitHubIssueTemplate(file.name, file.source);
+      return template ? [template] : [];
+    }).sort((left, right) => left.filename.localeCompare(right.filename));
+    return { templates, ...config };
   }
 
   private async getPullRequestsData(request: GitHubPullRequestsRequest, signal?: AbortSignal): Promise<GitHubPage<GitHubPullRequest>> {
@@ -658,6 +717,41 @@ export class GitHubService {
       url: normalizeText(typeof response.html_url === "string" ? response.html_url : null, repository.webUrl),
       title: normalizeText(typeof response.title === "string" ? response.title : null, request.title),
       draft: response.draft === true
+    };
+  }
+
+  private async createIssueData(request: CreateIssueRequest, signal?: AbortSignal): Promise<CreateIssueResult> {
+    const title = request.title.trim();
+    if (!title) throw new Error("Issue title is required.");
+    signal?.throwIfAborted();
+    const repository = await this.getRepository(request.repoPath);
+    signal?.throwIfAborted();
+    const { payload: response } = await this.client.requestJson<unknown>(
+      repository,
+      `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/issues`,
+      {
+        method: "POST",
+        body: {
+          title,
+          body: request.body,
+          ...(request.labels?.length ? { labels: request.labels } : {}),
+          ...(request.assignees?.length ? { assignees: request.assignees } : {})
+        },
+        ...(signal ? { signal } : {})
+      }
+    );
+    signal?.throwIfAborted();
+
+    if (!isRecord(response) || !Number.isFinite(response.number)) {
+      throw new GitHubMutationResponseError("GitHub returned an unexpected response while creating the issue.");
+    }
+
+    this.client.invalidateRepository(repository);
+    this.clearObservedCount(repository, "issues");
+    return {
+      number: Number(response.number),
+      url: normalizeText(typeof response.html_url === "string" ? response.html_url : null, `${repository.webUrl}/issues/${Number(response.number)}`),
+      title: normalizeText(typeof response.title === "string" ? response.title : null, title)
     };
   }
 
