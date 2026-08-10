@@ -109,6 +109,20 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.closeWindow).toHaveBeenCalledTimes(1);
   });
 
+  it("dismisses a window control tooltip when its action is clicked", async () => {
+    render(<App />);
+
+    await waitForRepositoryWorkspace();
+    const minimizeButton = screen.getByRole("button", { name: "Minimize window" });
+    fireEvent.focus(minimizeButton);
+    expect((await screen.findByRole("tooltip")).textContent).toContain("Minimize window");
+
+    fireEvent.click(minimizeButton);
+
+    await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull());
+    expect(githead.minimizeWindow).toHaveBeenCalledTimes(1);
+  });
+
   it("renders a compact repository heading with the add action", async () => {
     const user = userEvent.setup();
 

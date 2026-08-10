@@ -7873,6 +7873,11 @@ function WindowControlButton({
     setOpen(false);
   };
 
+  const handleClick = (): void => {
+    closeTooltip();
+    onClick();
+  };
+
   return (
     <Tooltip open={open} onOpenChange={setOpen}>
       <TooltipTrigger asChild>
@@ -7883,7 +7888,7 @@ function WindowControlButton({
           className={destructive ? "window-control window-control-close" : "window-control"}
           aria-label={label}
           onBlur={closeTooltip}
-          onClick={onClick}
+          onClick={handleClick}
           onMouseLeave={closeTooltip}
           onPointerLeave={closeTooltip}
         >
