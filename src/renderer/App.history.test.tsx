@@ -304,6 +304,58 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.getByText("Select a repository to continue.")).toBeTruthy();
   });
 
+  it("preloads the first 20 commits while idle and refreshes the full history after opening the tab", async () => {
+    const user = userEvent.setup();
+    const preloadedHistory = Array.from({ length: 20 }, (_, index) => createCommit({
+      hash: index.toString(16).padStart(40, "0"),
+      shortHash: index.toString(16).padStart(7, "0"),
+      subject: `feat: preloaded history ${index}`
+    }));
+    const fullHistory = [
+      ...preloadedHistory,
+      ...Array.from({ length: 5 }, (_, index) => createCommit({
+        hash: (index + 20).toString(16).padStart(40, "0"),
+        shortHash: (index + 20).toString(16).padStart(7, "0"),
+        subject: `feat: lazy history ${index}`
+      }))
+    ];
+    const pendingFullHistory = defer<GitCommitGraphRow[]>();
+    let idleCallback: IdleRequestCallback | null = null;
+    vi.stubGlobal("requestIdleCallback", vi.fn((callback: IdleRequestCallback) => {
+      idleCallback = callback;
+      return 1;
+    }));
+    vi.stubGlobal("cancelIdleCallback", vi.fn());
+    vi.mocked(githead.getCommitHistory).mockImplementation(async ({ limit }) => {
+      if (limit === 20) return preloadedHistory;
+      return pendingFullHistory.promise;
+    });
+    vi.mocked(githead.getCommitDetails).mockImplementation(async ({ hash }) => createCommitDetails(hash));
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await waitFor(() => expect(idleCallback).not.toBeNull());
+    act(() => {
+      idleCallback?.({ didTimeout: false, timeRemaining: () => 50 });
+    });
+    await waitFor(() => expect(githead.getCommitHistory).toHaveBeenCalledWith(expect.objectContaining({
+      limit: 20,
+      scope: "current"
+    })));
+    await flushRendererAsync();
+
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+
+    const preloadedRow = screen.getByRole("option", { name: /preloaded history 0/ });
+    expect(preloadedRow.getAttribute("aria-setsize")).toBe("20");
+    expect(screen.getByText("Refreshing commit history")).toBeTruthy();
+    expect(githead.getCommitHistory).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 200 }));
+    expect(githead.getCommitDetails).toHaveBeenCalledWith(expect.objectContaining({ hash: preloadedHistory[0]!.hash }));
+
+    pendingFullHistory.resolve(fullHistory);
+    await waitFor(() => expect(screen.getByRole("option", { name: /preloaded history 0/ }).getAttribute("aria-setsize")).toBe("25"));
+  });
+
   it("styles conventional commit subjects in history and details while falling back to raw subjects", async () => {
     const user = userEvent.setup();
     const conventionalCommit = createCommit({
