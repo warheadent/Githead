@@ -269,6 +269,7 @@ export class CodexCliCommitMessageProvider implements CommitMessageProvider {
   constructor(private readonly runner: ProcessRunner) {}
 
   async generate(input: CommitMessageProviderInput): Promise<CommitMessageProviderResult> {
+    const env = createCliProcessEnv();
     const invocation = createCliInvocation("codex", [
       "exec",
       "--model",
@@ -281,10 +282,10 @@ export class CodexCliCommitMessageProvider implements CommitMessageProvider {
       "--ephemeral",
       "--skip-git-repo-check",
       "-"
-    ]);
+    ], { env, workingDirectory: input.repoPath });
     const result = await this.runner.run(invocation.command, invocation.args, {
       cwd: input.repoPath,
-      env: createCliProcessEnv(),
+      env,
       stdin: createCliPrompt(input),
       timeoutMs: CLI_TIMEOUT_MS,
       ...(input.signal ? { signal: input.signal } : {})
@@ -303,6 +304,7 @@ export class ClaudeCodeCommitMessageProvider implements CommitMessageProvider {
   constructor(private readonly runner: ProcessRunner) {}
 
   async generate(input: CommitMessageProviderInput): Promise<CommitMessageProviderResult> {
+    const env = createCliProcessEnv();
     const invocation = createCliInvocation("claude", [
       "-p",
       "--model",
@@ -319,10 +321,10 @@ export class ClaudeCodeCommitMessageProvider implements CommitMessageProvider {
       "default",
       "--input-format",
       "text"
-    ]);
+    ], { env, workingDirectory: input.repoPath });
     const result = await this.runner.run(invocation.command, invocation.args, {
       cwd: input.repoPath,
-      env: createCliProcessEnv(),
+      env,
       stdin: createCliPrompt(input),
       timeoutMs: CLI_TIMEOUT_MS,
       ...(input.signal ? { signal: input.signal } : {})

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { planGitPush } from "./gitPushPlan";
+import { planGitPush, validateGitPushRemoteName } from "./gitPushPlan";
 
 describe("planGitPush", () => {
   it("plans an explicit branch push followed by all tags by default policy", () => {
@@ -36,5 +36,13 @@ describe("planGitPush", () => {
         args: ["push", "--set-upstream", "origin", "feature/x"]
       }
     ]);
+  });
+
+  it("rejects option-like remote names before building push arguments", () => {
+    expect(validateGitPushRemoteName("--mirror")).toEqual({
+      error: "Push remote names cannot start with a dash."
+    });
+    expect(() => planGitPush({ remoteName: "--repo=evil" }, "all"))
+      .toThrow("Push remote names cannot start with a dash.");
   });
 });

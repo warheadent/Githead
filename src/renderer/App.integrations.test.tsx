@@ -1474,9 +1474,9 @@ describe("App", { timeout: 10_000 }, () => {
 
   it("does not jump to the Activity Log when action trust is declined", async () => {
     const user = userEvent.setup();
-    vi.mocked(githead.getRepoTrust).mockResolvedValue({
-      trusted: false
-    });
+    vi.mocked(githead.getRepoTrust)
+      .mockResolvedValueOnce({ trusted: true })
+      .mockResolvedValue({ trusted: false });
 
     render(<App />);
 
@@ -1602,6 +1602,7 @@ describe("App", { timeout: 10_000 }, () => {
       expect(githead.runConfiguredAction).toHaveBeenCalledWith({
         repoPath,
         name: "Build",
+        expectedAction: action,
         operationId: expect.any(String)
       });
     });
@@ -1627,7 +1628,10 @@ describe("App", { timeout: 10_000 }, () => {
         error: ""
       }
     }));
-    vi.mocked(githead.getRepoTrust).mockReturnValue(pendingTrust.promise);
+    vi.mocked(githead.getRepoTrust)
+      .mockResolvedValueOnce({ trusted: true })
+      .mockReturnValueOnce(pendingTrust.promise)
+      .mockResolvedValue({ trusted: true });
 
     render(<App />);
 

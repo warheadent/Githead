@@ -78,7 +78,7 @@ export class AiCliStatusService {
     const env = createCliProcessEnv();
     const versionInvocation = createCliInvocation(command, [
       "--version"
-    ]);
+    ], { env });
     const runner = this.runner;
     return Effect.gen(function*() {
       const version = yield* runProcessEffect(runner, versionInvocation.command, versionInvocation.args, {
@@ -94,7 +94,7 @@ export class AiCliStatusService {
         };
       }
 
-      const authInvocation = createCliInvocation(command, authArgs);
+      const authInvocation = createCliInvocation(command, authArgs, { env });
       const auth = yield* runProcessEffect(runner, authInvocation.command, authInvocation.args, {
         env,
         timeoutMs: CLI_STATUS_TIMEOUT_MS

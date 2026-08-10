@@ -135,7 +135,7 @@ import { formatRevertCommitMessage } from "../shared/revertCommitMessage";
 import { GitOperationRecoveryService } from "./gitOperationRecovery";
 import { GitAmendService } from "./gitAmendService";
 import { createIntegrationRunId, GitIntegrationService } from "./gitIntegrationService";
-import { planGitPush, type GitPushCommandPlan, type ValidatedGitPushTarget } from "./gitPushPlan";
+import { planGitPush, validateGitPushRemoteName, type GitPushCommandPlan, type ValidatedGitPushTarget } from "./gitPushPlan";
 
 export const GIT_ACTION_COMMANDS: Record<GitAction, string[]> = {
   fetch: [
@@ -683,12 +683,13 @@ export class GitService {
       throw new Error(validation.validationErrors.join(" "));
     }
 
+    const scope = request.scope === "all" ? "all" : "current";
+    const noLazyFetchEnv = scope === "all" ? { ...process.env, GIT_NO_LAZY_FETCH: "1" } : undefined;
     const headResult = await this.runGit(request.repoPath, [
       "rev-parse",
       "--verify",
       "HEAD"
-    ]);
-    const scope = request.scope === "all" ? "all" : "current";
+    ], undefined, undefined, noLazyFetchEnv);
     if (headResult.exitCode !== 0 && scope === "current") {
       return [];
     }
@@ -701,7 +702,7 @@ export class GitService {
         "refs/heads",
         "refs/remotes",
         "refs/tags"
-      ]);
+      ], undefined, undefined, noLazyFetchEnv);
       if (refsResult.exitCode !== 0) {
         throw new Error(refsResult.stderr.trim() || refsResult.error || "Unable to read repository refs.");
       }
@@ -728,7 +729,7 @@ export class GitService {
       "--decorate=full",
       "--pretty=format:%x1f%H%x1f%h%x1f%D%x1f%s%x1f%an%x1f%ae%x1f%aI%x1f%ar%x1f%P%x1e",
       ...revisions
-    ]);
+    ], undefined, undefined, noLazyFetchEnv);
 
     if (result.exitCode !== 0) {
       throw new Error(result.stderr.trim() || result.error || "Unable to read commit history.");
@@ -2763,6 +2764,15 @@ export class GitService {
         message: "Configured action not found."
       });
     }
+    if (!areConfiguredActionsEqual(configuredAction, request.expectedAction)) {
+      return this.createImmediateFailure({
+        runId,
+        action: requestedName,
+        repoPath: request.repoPath,
+        startedAt,
+        message: "Configured action changed after it was displayed. Refresh the repository and review the current command before running it."
+      });
+    }
 
     const shellCommand = getShellCommand(configuredAction);
     const displayCommand = `${shellCommand.command} ${shellCommand.args.map(formatCommandArgument).join(" ")}`;
@@ -3107,13 +3117,9 @@ export class GitService {
   }
 
   private async validateRemoteName(repoPath: string, remoteName: string): Promise<{ remoteName: string } | { error: string }> {
-    const trimmedRemoteName = remoteName.trim();
-
-    if (!trimmedRemoteName) {
-      return {
-        error: "Select a remote."
-      };
-    }
+    const validatedRemote = validateGitPushRemoteName(remoteName);
+    if ("error" in validatedRemote) return validatedRemote;
+    const { remoteName: trimmedRemoteName } = validatedRemote;
 
     const result = await this.runGit(repoPath, [
       "remote"
@@ -3363,6 +3369,8 @@ export class GitService {
         "diff",
         "--no-index",
         "--no-color",
+        "--no-ext-diff",
+        "--no-textconv",
         "--",
         "/dev/null",
         filePath
@@ -3716,7 +3724,7 @@ export class GitService {
       return { error: `The configured push remote '${remoteName}' no longer exists.` };
     }
 
-    return { remoteName };
+    return validateGitPushRemoteName(remoteName);
   }
 
   private async executePushPlan(
@@ -4017,6 +4025,14 @@ function normalizeSafeDirectoryPath(repoPath: string): { path: string } | { erro
   return {
     path: path.normalize(path.resolve(trimmedRepoPath)).replace(/\\/g, "/")
   };
+}
+
+function areConfiguredActionsEqual(left: GitConfiguredAction, right: GitConfiguredAction | undefined): boolean {
+  if (!right) return false;
+  return getActionKey(left.name) === getActionKey(right.name)
+    && left.description === right.description
+    && left.command === right.command
+    && left.shell === right.shell;
 }
 
 function createRunOptions(

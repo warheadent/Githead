@@ -17,6 +17,17 @@ export interface GitPushCommandPlan {
   phases: readonly GitPushCommandPhase[];
 }
 
+export type ValidatedGitPushRemoteName = { remoteName: string } | { error: string };
+
+export function validateGitPushRemoteName(remoteName: string): ValidatedGitPushRemoteName {
+  const trimmedRemoteName = remoteName.trim();
+  if (!trimmedRemoteName) return { error: "Select a remote." };
+  if (trimmedRemoteName.startsWith("-")) {
+    return { error: "Push remote names cannot start with a dash." };
+  }
+  return { remoteName: trimmedRemoteName };
+}
+
 /**
  * Converts validated push policy into process commands. The renderer never
  * supplies this policy, and execution remains responsible for cancellation,
@@ -26,11 +37,14 @@ export function planGitPush(
   target: ValidatedGitPushTarget,
   tagPushBehavior: TagPushBehavior
 ): GitPushCommandPlan {
+  const validatedRemote = validateGitPushRemoteName(target.remoteName);
+  if ("error" in validatedRemote) throw new Error(validatedRemote.error);
+  const { remoteName } = validatedRemote;
   const branchArgs = [
     "push",
     ...(tagPushBehavior === "follow" ? ["--follow-tags"] : []),
     ...(target.setUpstream ? ["--set-upstream"] : []),
-    target.remoteName,
+    remoteName,
     ...(target.refspec ? [target.refspec] : [])
   ];
   const phases: GitPushCommandPhase[] = [{ kind: "branch", args: branchArgs }];
@@ -38,12 +52,12 @@ export function planGitPush(
   if (tagPushBehavior === "all") {
     phases.push({
       kind: "tags",
-      args: ["push", target.remoteName, "--tags"]
+      args: ["push", remoteName, "--tags"]
     });
   }
 
   return {
-    remoteName: target.remoteName,
+    remoteName,
     tagPushBehavior,
     phases
   };

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, safeStorage, screen, shell } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { IPC_CHANNELS } from "../shared/ipc";
 import { DEFAULT_REMOTE_CHECK_LEASE_SECONDS, PERFORMANCE_REFRESH_KINDS } from "../shared/types";
 import type {
@@ -79,7 +80,7 @@ import type {
   GitHubIssuesRequest,
   GitHubHistoryInsightsRequest,
   GitHubConnectionRequest,
-  GitHubDeviceFlow,
+  GitHubDeviceFlowPollRequest,
   GitHubRepositoryRequest,
   GitIdentitySaveRequest,
   GitIgnorePathRequest,
@@ -161,6 +162,7 @@ import { RepoRecentsService } from "./repoRecentsService";
 import { RepositorySyncSettingsService } from "./repositorySyncSettingsService";
 import { RepoTrustService } from "./repoTrustService";
 import { RepoWatchService, type RepoWatchTarget } from "./repoWatchService";
+import { isAllowedRendererNavigation } from "./rendererNavigation";
 import {
   RepositoryOperationCoordinator,
   repositoryOperationOwnerId,
@@ -260,8 +262,17 @@ async function createWindow(): Promise<void> {
     };
   });
 
+  const rendererEntryUrl = process.env.VITE_DEV_SERVER_URL
+    ?? pathToFileURL(path.join(__dirname, "..", "..", "renderer", "index.html")).href;
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (isAllowedRendererNavigation(url, rendererEntryUrl)) return;
+    event.preventDefault();
+    const parsed = normalizeExternalUrl(url);
+    if ("url" in parsed) void shell.openExternal(parsed.url);
+  });
+
   if (process.env.VITE_DEV_SERVER_URL) {
-    void mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
+    void mainWindow.loadURL(rendererEntryUrl);
   } else {
     void mainWindow.loadFile(path.join(__dirname, "..", "..", "renderer", "index.html"));
   }
@@ -409,18 +420,24 @@ ipcMain.handle(IPC_CHANNELS.chooseWorktreeParent, async (_event, defaultPath?: s
 
 ipcMain.handle(IPC_CHANNELS.getRepoSummary, (event, request: RepoSummaryReadRequest) =>
   handleRead(event, request, async (signal) =>
-    processRunner.runWithSignal(signal, async () =>
-      (await vcsRouter.serviceForRepo(request.repoPath)).getRepoSummary(request.repoPath))));
+    processRunner.runWithSignal(signal, async () => {
+      await assertTrustedRepo(request.repoPath);
+      return (await vcsRouter.serviceForRepo(request.repoPath)).getRepoSummary(request.repoPath);
+    })));
 
 ipcMain.handle(IPC_CHANNELS.getRepoIdentity, (event, request: RepoSectionRequest) =>
   handleRead(event, request, (signal) => processRunner.runWithSignal(signal, async () =>
     (await vcsRouter.serviceForRepo(request.repoPath)).getRepoIdentity(request))));
 ipcMain.handle(IPC_CHANNELS.getRepoStatus, (event, request: RepoSectionRequest) =>
-  handleRead(event, request, (signal) => processRunner.runWithSignal(signal, async () =>
-    (await vcsRouter.serviceForRepo(request.repoPath)).getRepoStatus(request))));
+  handleRead(event, request, (signal) => processRunner.runWithSignal(signal, async () => {
+    await assertTrustedRepo(request.repoPath);
+    return (await vcsRouter.serviceForRepo(request.repoPath)).getRepoStatus(request);
+  })));
 ipcMain.handle(IPC_CHANNELS.getRepoMetadata, (event, request: RepoSectionRequest) =>
-  handleRead(event, request, (signal) => processRunner.runWithSignal(signal, async () =>
-    (await vcsRouter.serviceForRepo(request.repoPath)).getRepoMetadata(request))));
+  handleRead(event, request, (signal) => processRunner.runWithSignal(signal, async () => {
+    await assertTrustedRepo(request.repoPath);
+    return (await vcsRouter.serviceForRepo(request.repoPath)).getRepoMetadata(request);
+  })));
 
 ipcMain.handle(IPC_CHANNELS.getRepositoryOperationState, async (_event, repoPath: string) => {
   return (await vcsRouter.serviceForRepo(repoPath)).getRepositoryOperationState(repoPath);
@@ -446,7 +463,7 @@ ipcMain.handle(IPC_CHANNELS.cancelGitOperation, (event, request: CancelGitOperat
 
 ipcMain.handle(IPC_CHANNELS.watchRepoChanges, async (_event, repoPath: string) => {
   const targets: RepoWatchTarget[] = [{ path: repoPath, recursive: true, kind: "content" }];
-  if (await vcsRouter.resolveKind(repoPath) === "git") {
+  if (await isTrustedRepo(repoPath) && await vcsRouter.resolveKind(repoPath) === "git") {
     try {
       const admin = await gitService.getWorktreeAdminPaths(repoPath);
       targets.push({ path: admin.gitDir, recursive: false, kind: "metadata" });
@@ -470,13 +487,14 @@ ipcMain.handle(IPC_CHANNELS.getRepoRecents, async () => {
 });
 
 ipcMain.handle(IPC_CHANNELS.getRepoSyncStatuses, async (_event, repoPaths: string[]) => {
-  return vcsRouter.getRepoSyncStatuses(repoPaths);
+  const trusted = await Promise.all(repoPaths.map((repoPath) => isTrustedRepo(repoPath)));
+  return vcsRouter.getRepoSyncStatuses(repoPaths.filter((_repoPath, index) => trusted[index]));
 });
 
 ipcMain.handle(IPC_CHANNELS.addRepoRecent, async (_event, request: RepositoryRecentSelectionRequest) => {
   let anchorPath = request.anchorPath;
   if (!anchorPath) {
-    const [group] = await vcsRouter.getRepositoryGroups([request.repoPath]);
+    const [group] = await vcsRouter.getRepositoryGroups([request.repoPath], isTrustedRepo);
     anchorPath = group?.anchorPath ?? request.repoPath;
   }
   return getRepoRecentsService().addRecent(anchorPath, request.repoPath);
@@ -491,19 +509,36 @@ ipcMain.handle(IPC_CHANNELS.reorderRepoRecents, async (_event, repoPaths: string
 });
 
 ipcMain.handle(IPC_CHANNELS.getRepositoryGroups, async (_event, request: RepositoryGroupsRequest) => {
-  const groups = await vcsRouter.getRepositoryGroups(request.repoPaths);
+  const groups = await vcsRouter.getRepositoryGroups(request.repoPaths, isTrustedRepo);
   return getRepoRecentsService().reconcileGroups(groups, request.activeRepoPath);
 });
 
 ipcMain.handle(IPC_CHANNELS.getRepoTrust, async (_event, request: RepoTrustRequest) => {
+  const trustPath = await vcsRouter.resolveTrustPath(request.repoPath);
   return {
-    trusted: await getRepoTrustService().isTrusted(request.repoPath)
+    trusted: await getRepoTrustService().isTrusted(trustPath)
   };
 });
 
 ipcMain.handle(IPC_CHANNELS.addRepoTrust, async (_event, request: RepoTrustRequest) => {
+  const trustPath = await vcsRouter.resolveTrustPath(request.repoPath);
+  if (await getRepoTrustService().isTrusted(trustPath)) return { trusted: true };
+  const options: Electron.MessageBoxOptions = {
+    type: "warning",
+    title: "Confirm Workspace Trust",
+    message: "Do you trust this workspace?",
+    detail: `${trustPath}\n\nGit operations in a trusted workspace may execute hooks, helpers, filters, or local configuration.`,
+    buttons: ["Trust Workspace", "Cancel"],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true
+  };
+  const confirmation = mainWindow
+    ? await dialog.showMessageBox(mainWindow, options)
+    : await dialog.showMessageBox(options);
+  if (confirmation.response !== 0) return { trusted: false };
   return {
-    trusted: await getRepoTrustService().trustRepo(request.repoPath)
+    trusted: await getRepoTrustService().trustRepo(trustPath)
   };
 });
 
@@ -559,9 +594,22 @@ ipcMain.handle(IPC_CHANNELS.getGitHubConnection, async (_event, request: GitHubC
   const repository = request.repoPath ? await gitService.getGitHubRepository(request.repoPath) : null;
   return getGitHubClient().getConnectionStatus(repository);
 });
-ipcMain.handle(IPC_CHANNELS.beginGitHubDeviceFlow, () => getGitHubAuthService().beginDeviceFlow());
-ipcMain.handle(IPC_CHANNELS.pollGitHubDeviceFlow, async (_event, flow: GitHubDeviceFlow) => {
-  const result = await getGitHubAuthService().pollDeviceFlow(flow);
+const githubDeviceFlowOwners = new Set<number>();
+
+ipcMain.handle(IPC_CHANNELS.beginGitHubDeviceFlow, (event) => {
+  const ownerId = event.sender.id;
+  if (!githubDeviceFlowOwners.has(ownerId)) {
+    githubDeviceFlowOwners.add(ownerId);
+    event.sender.once("destroyed", () => {
+      getGitHubAuthService().cancelDeviceFlowsForOwner(ownerId);
+      githubDeviceFlowOwners.delete(ownerId);
+    });
+  }
+  return getGitHubAuthService().beginDeviceFlow(ownerId);
+});
+ipcMain.handle(IPC_CHANNELS.pollGitHubDeviceFlow, async (event, request: GitHubDeviceFlowPollRequest) => {
+  const flowId = typeof request?.flowId === "string" ? request.flowId : "";
+  const result = await getGitHubAuthService().pollDeviceFlow(event.sender.id, flowId);
   if (result.state === "connected") getGitHubClient().resetAuthentication();
   return result;
 });
@@ -608,8 +656,10 @@ ipcMain.handle(IPC_CHANNELS.mergeGitHubPullRequest, (event, request: Coordinated
 
 ipcMain.handle(IPC_CHANNELS.getCommitHistory, (event, request: GitCommitHistoryRequest) =>
   handleRead(event, request, async (signal) =>
-    processRunner.runWithSignal(signal, async () =>
-      (await vcsRouter.serviceForRepo(request.repoPath)).getCommitHistory(request))));
+    processRunner.runWithSignal(signal, async () => {
+      await assertTrustedRepo(request.repoPath);
+      return (await vcsRouter.serviceForRepo(request.repoPath)).getCommitHistory(request);
+    })));
 
 ipcMain.handle(IPC_CHANNELS.getCommitDetails, (event, request: GitCommitDetailsRequest) =>
   handleRead(event, request, async (signal) =>
@@ -1072,6 +1122,17 @@ ipcMain.handle(IPC_CHANNELS.createWorktree, async (event, request: CoordinatedRe
 });
 
 ipcMain.handle(IPC_CHANNELS.checkWorktreeRemoval, async (_event, request: GitWorktreeRequest) => {
+  const trustFailure = await requireTrustedRepo(request.repoPath);
+  if (trustFailure) {
+    return {
+      repoPath: request.repoPath,
+      worktreePath: request.worktreePath,
+      canRemove: false,
+      canForceRemove: false,
+      isClean: false,
+      reason: trustFailure.stderr
+    };
+  }
   return (await vcsRouter.serviceForRepo(request.repoPath)).checkWorktreeRemoval(request);
 });
 
@@ -1101,7 +1162,7 @@ ipcMain.handle(IPC_CHANNELS.setWindowZoomFactor, (event, zoomFactor: number) => 
 });
 
 ipcMain.handle(IPC_CHANNELS.generateCommitMessage, async (event, request: CoordinatedRequest<GenerateCommitMessageRequest>) => {
-  return runExclusiveGitOperation(
+  return runTrustedExclusiveGitOperation(
     (signal) => getCommitMessageService().generateCommitMessage(request, signal),
     repositoryOperationOptions(event, request.operationId, request.repoPath)
   );
@@ -1140,14 +1201,14 @@ ipcMain.handle(IPC_CHANNELS.removeRemote, async (event, request: CoordinatedRequ
 });
 
 ipcMain.handle(IPC_CHANNELS.generatePrTitle, async (event, request: CoordinatedRequest<GeneratePrTitleRequest>) => {
-  return runExclusiveGitOperation(
+  return runTrustedExclusiveGitOperation(
     (signal) => getPrDescriptionService().generatePrTitle(request, signal),
     repositoryOperationOptions(event, request.operationId, request.repoPath)
   );
 });
 
 ipcMain.handle(IPC_CHANNELS.generatePrDescription, async (event, request: CoordinatedRequest<GeneratePrDescriptionRequest>) => {
-  return runExclusiveGitOperation(
+  return runTrustedExclusiveGitOperation(
     (signal) => getPrDescriptionService().generatePrDescription(request, signal),
     repositoryOperationOptions(event, request.operationId, request.repoPath)
   );
@@ -1300,8 +1361,7 @@ ipcMain.handle(IPC_CHANNELS.runGitAction, async (event, request: CoordinatedRequ
 });
 
 ipcMain.handle(IPC_CHANNELS.generateCommitPlan, async (event, request: CoordinatedRequest<GenerateCommitPlanRequest>) => {
-  return runExclusiveRepositoryOperation<GenerateCommitPlanResult>(
-    repositoryOperationOptions(event, request.operationId, request.repoPath),
+  return runTrustedExclusiveRepositoryOperation<GenerateCommitPlanResult>(
     async (signal) => {
       if ((await vcsRouter.resolveKind(request.repoPath)) !== "git") {
         return createCommitPlanFailure(request.repoPath, "Commit plans are available only for Git repositories.");
@@ -1309,13 +1369,15 @@ ipcMain.handle(IPC_CHANNELS.generateCommitPlan, async (event, request: Coordinat
       const planPromise = getCommitPlanService().generateCommitPlan(request, signal);
       const settings = await getAppSettingsService().getSettings();
       const shouldWarmLease = settings.gitBehaviors?.requireUpToDateUpstreamBeforeCommit === true
-        && await getRepoTrustService().isTrusted(request.repoPath);
+        && await isTrustedRepo(request.repoPath);
       const warmLeasePromise = shouldWarmLease
         ? gitService.warmRemoteCheckLease(request.repoPath, remoteCheckLeaseDurationMs(settings)).catch(() => undefined)
         : Promise.resolve();
       const [plan] = await Promise.all([planPromise, warmLeasePromise]);
       return plan;
     },
+    repositoryOperationOptions(event, request.operationId, request.repoPath),
+    (failure) => createCommitPlanFailure(request.repoPath, failure.stderr),
     () => createCommitPlanFailure(request.repoPath, "Another operation is already running for this repository.")
   );
 });
@@ -1358,9 +1420,10 @@ ipcMain.handle(IPC_CHANNELS.resolveRepositoryOperation, async (event, request: C
 });
 
 ipcMain.handle(IPC_CHANNELS.saveConflictResolution, async (event, request: CoordinatedRequest<GitConflictResolutionSaveRequest>) => {
-  return runExclusiveRepositoryOperation<GitConflictResolutionSaveResult>(
-    repositoryOperationOptions(event, request.operationId, request.repoPath),
+  return runTrustedExclusiveRepositoryOperation<GitConflictResolutionSaveResult>(
     async () => (await vcsRouter.serviceForRepo(request.repoPath)).saveConflictResolution(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath),
+    (failure): GitConflictResolutionSaveResult => ({ ...failure, outcome: "failed", state: null }),
     (): GitConflictResolutionSaveResult => ({
       repoPath: request.repoPath,
       exitCode: -1,
@@ -1391,21 +1454,21 @@ ipcMain.handle(IPC_CHANNELS.runConfiguredAction, async (event, request: Coordina
 });
 
 ipcMain.handle(IPC_CHANNELS.updateSubmodules, async (event, request: CoordinatedRequest<GitSubmoduleRequest>) => {
-  return runExclusiveGitOperation(
+  return runTrustedExclusiveGitOperation(
     () => gitService.updateSubmodules(request),
     repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS)
   );
 });
 
 ipcMain.handle(IPC_CHANNELS.syncSubmodules, async (event, request: CoordinatedRequest<GitSubmoduleRequest>) => {
-  return runExclusiveGitOperation(
+  return runTrustedExclusiveGitOperation(
     () => gitService.syncSubmodules(request),
     repositoryOperationOptions(event, request.operationId, request.repoPath)
   );
 });
 
 ipcMain.handle(IPC_CHANNELS.saveConfiguredActions, async (event, request: CoordinatedRequest<GitConfiguredActionSaveRequest>) => {
-  return runExclusiveGitOperation(
+  return runTrustedExclusiveGitOperation(
     async () => (await vcsRouter.serviceForRepo(request.repoPath)).saveConfiguredActions(request),
     repositoryOperationOptions(event, request.operationId, request.repoPath)
   );
@@ -1696,13 +1759,24 @@ function getRepositoryOperationOwnerId(event: Electron.IpcMainInvokeEvent): stri
   return repositoryOperationOwnerId(event.sender.id, event.processId, event.frameId);
 }
 
+async function isTrustedRepo(repoPath: string): Promise<boolean> {
+  const trustPath = await vcsRouter.resolveTrustPath(repoPath);
+  return getRepoTrustService().isTrusted(trustPath);
+}
+
+async function assertTrustedRepo(repoPath: string): Promise<void> {
+  const failure = await requireTrustedRepo(repoPath);
+  if (failure) throw new Error(failure.stderr);
+}
+
 async function requireTrustedRepo(repoPath: string): Promise<GitOperationResult | null> {
-  if (await getRepoTrustService().isTrusted(repoPath)) {
+  const trustPath = await vcsRouter.resolveTrustPath(repoPath);
+  if (await getRepoTrustService().isTrusted(trustPath)) {
     return null;
   }
 
   return createOperationFailure(
-    repoPath,
+    trustPath,
     "Do you trust this workspace? This is the first time Githead will run Git operations here that may execute configured hooks or local Git configuration."
   );
 }

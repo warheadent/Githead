@@ -360,7 +360,9 @@ describe("App", { timeout: 10_000 }, () => {
     vi.useFakeTimers();
     const pendingTrust = defer<{ trusted: boolean }>();
     const pendingStage = defer<GitOperationResult>();
-    vi.mocked(githead.getRepoTrust).mockReturnValueOnce(pendingTrust.promise);
+    vi.mocked(githead.getRepoTrust)
+      .mockResolvedValueOnce({ trusted: true })
+      .mockReturnValueOnce(pendingTrust.promise);
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       files: [
         createStatusFile("src/race.ts", {
@@ -453,9 +455,9 @@ describe("App", { timeout: 10_000 }, () => {
 
   it("skips untrusted repositories during auto-fetch without prompting", async () => {
     vi.useFakeTimers();
-    vi.mocked(githead.getRepoTrust).mockResolvedValue({
-      trusted: false
-    });
+    vi.mocked(githead.getRepoTrust)
+      .mockResolvedValueOnce({ trusted: true })
+      .mockResolvedValue({ trusted: false });
 
     render(<App />);
     await flushRendererAsync();

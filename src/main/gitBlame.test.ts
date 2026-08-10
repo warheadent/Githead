@@ -43,5 +43,6 @@ describe("gitBlame", () => {
     const result = await readGitFileBlame({ run: vi.fn(), runBinary } as ProcessRunner, "D:\\Repo", hash, "a.txt");
     expect(result).toMatchObject({ kind: "text", byteLength: 6, lines: [{ text: "hello", finalLine: 1 }] });
     expect(runBinary.mock.calls[1]?.[1]).toEqual(expect.arrayContaining(["blame", "--line-porcelain", hash, "--", "a.txt"]));
+    expect(runBinary.mock.calls[1]?.[1]).toContain("--no-textconv");
   });
 });

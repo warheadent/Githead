@@ -2,7 +2,7 @@ import type { RepositoryGroup, RepoSyncStatus, VcsKind } from "../shared/types";
 import { getRepoPathKey, normalizeRepoPath } from "./repoPath";
 import { mapRepoSyncStatuses } from "./repoSyncStatus";
 import { mapWithConcurrency } from "./asyncMap";
-import { detectVcsKinds } from "./vcsDetect";
+import { detectVcsKinds, findVcsRoot } from "./vcsDetect";
 import type { VcsService } from "./vcsService";
 
 /**
@@ -44,6 +44,10 @@ export class VcsRouter {
     return kind;
   }
 
+  async resolveTrustPath(repoPath: string): Promise<string> {
+    return (await findVcsRoot(repoPath))?.rootPath ?? repoPath;
+  }
+
   async getRepoSyncStatuses(repoPaths: string[]): Promise<RepoSyncStatus[]> {
     return mapRepoSyncStatuses(
       repoPaths,
@@ -51,10 +55,13 @@ export class VcsRouter {
     );
   }
 
-  async getRepositoryGroups(repoPaths: string[]): Promise<RepositoryGroup[]> {
+  async getRepositoryGroups(
+    repoPaths: string[],
+    canInspect: (repoPath: string) => boolean | Promise<boolean> = () => true
+  ): Promise<RepositoryGroup[]> {
     const resolved = await mapWithConcurrency(repoPaths, 4, async (repoPath) => {
       const kind = await this.resolveKind(repoPath);
-      if (kind === "lore") {
+      if (kind === "lore" || !(await canInspect(repoPath))) {
         return { repoPath, kind, commonDir: null, worktrees: [], error: "" };
       }
       try {

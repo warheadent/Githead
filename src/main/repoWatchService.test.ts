@@ -99,7 +99,9 @@ describe("RepoWatchService", () => {
 
   it.each([
     [null, "filesystem-unknown"],
-    [".git\\refs\\heads\\main", "filesystem-metadata"]
+    [".git\\refs\\heads\\main", "filesystem-metadata"],
+    [".githead\\actions.toml", "filesystem-metadata"],
+    [".githead\\actions.local.toml", "filesystem-metadata"]
   ] as const)("falls back to broad invalidation for %s", async (filename, reason) => {
     const fixture = createWatchFixture();
     fixture.service.watchRepo(repoPath);

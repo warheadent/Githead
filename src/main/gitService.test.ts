@@ -820,6 +820,23 @@ describe("GitService", () => {
     expect(runner.calls.at(-1)?.args).toEqual(["-C", "D:\\Repo", "push", "origin"]);
   });
 
+  it("rejects an option-like configured ordinary push remote", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ...ordinaryPushPreflight("--mirror")
+    ]);
+    const result = await new GitService(runner).runGitAction({
+      repoPath: "D:\\Repo",
+      action: "push"
+    });
+
+    expect(result).toMatchObject({
+      exitCode: -1,
+      stderr: "Push remote names cannot start with a dash."
+    });
+    expect(runner.calls.some((call) => call.args.includes("push"))).toBe(false);
+  });
+
   it("reports partial success when an ordinary tag push fails", async () => {
     const runner = new FakeRunner([
       ok("true\n"),
@@ -1280,6 +1297,25 @@ describe("GitService", () => {
     expect(result.exitCode).toBe(-1);
     expect(result.stderr).toBe("Remote is invalid.");
     expect(runner.calls).toHaveLength(4);
+  });
+
+  it("rejects option-like publish remotes before running git push", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      ok("feature/x\n"),
+      ok("")
+    ]);
+    const result = await new GitService(runner).publishBranch({
+      repoPath: "D:\\Repo",
+      branchName: "feature/x",
+      remoteName: "--receive-pack=./evil.sh"
+    });
+
+    expect(result).toMatchObject({
+      exitCode: -1,
+      stderr: "Push remote names cannot start with a dash."
+    });
+    expect(runner.calls.some((call) => call.args.includes("push"))).toBe(false);
   });
 
   it("rejects publishing when the current branch changed", async () => {
@@ -2160,7 +2196,13 @@ describe("GitService", () => {
 
       const result = await service.runConfiguredAction({
         repoPath: path.join(dir, "subdir"),
-        name: "build"
+        name: "build",
+        expectedAction: {
+          name: "Build",
+          description: "",
+          command: "npm run build",
+          shell
+        }
       });
 
       expect(result).toMatchObject({
@@ -2176,6 +2218,38 @@ describe("GitService", () => {
           timeoutMs: 30 * 60_000
         })
       });
+    });
+  });
+
+  it("refuses to run an action whose command changed after it was displayed", async () => {
+    await withTempDir(async (dir) => {
+      const githeadDir = path.join(dir, ".githead");
+      await fs.mkdir(githeadDir);
+      await fs.writeFile(path.join(githeadDir, "actions.toml"), [
+        "[[actions]]",
+        "name = \"Build\"",
+        "description = \"Current command\"",
+        "command = \"npm run compromised\"",
+        "shell = \"bash\"",
+        ""
+      ].join("\n"), "utf8");
+      const runner = new FakeRunner([ok("true\n"), ok(`${dir}\n`)]);
+      const service = new GitService(runner);
+
+      const result = await service.runConfiguredAction({
+        repoPath: dir,
+        name: "Build",
+        expectedAction: {
+          name: "Build",
+          description: "Previous command",
+          command: "npm run build",
+          shell: "bash"
+        }
+      });
+
+      expect(result.exitCode).toBe(-1);
+      expect(result.stderr).toContain("changed after it was displayed");
+      expect(runner.calls).toHaveLength(2);
     });
   });
 
@@ -2318,6 +2392,7 @@ describe("GitService", () => {
       "--tags"
     ]));
     expect(runner.calls.at(-1)?.args).not.toContain("--all");
+    expect(runner.calls.at(-1)?.options?.env?.GIT_NO_LAZY_FETCH).toBe("1");
     expect(history[0]).toMatchObject({
       hash: remoteOid,
       refs: [{ name: "origin/feature", kind: "remote" }]
@@ -4078,6 +4153,8 @@ describe("GitService", () => {
         "diff",
         "--no-index",
         "--no-color",
+        "--no-ext-diff",
+        "--no-textconv",
         "--",
         "/dev/null",
         "new.ts"

@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vite-plus/test";
-import { detectVcsKinds } from "./vcsDetect";
+import { detectVcsKinds, findVcsRoot } from "./vcsDetect";
 
 async function withTempDir<T>(callback: (dir: string) => Promise<T>): Promise<T> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "githead-vcs-detect-"));
@@ -72,6 +72,10 @@ describe("detectVcsKinds", () => {
       await expect(detectVcsKinds(nested)).resolves.toEqual([
         "lore"
       ]);
+      await expect(findVcsRoot(nested)).resolves.toEqual({
+        rootPath: dir,
+        kinds: ["lore"]
+      });
     });
   });
 

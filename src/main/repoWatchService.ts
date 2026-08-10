@@ -225,6 +225,17 @@ function isInternalVcsWatchEvent(filename: string | Buffer | null): boolean {
 function classifyWatchReason(filename: string | Buffer | null): RepoChangedReason {
   if (!filename) return "filesystem-unknown";
   const normalized = filename.toString().replaceAll("\\", "/").toLocaleLowerCase();
+  if (
+    normalized === ".githead/actions.toml" ||
+    normalized === ".githead/actions.local.toml" ||
+    normalized.endsWith("/.githead/actions.toml") ||
+    normalized.endsWith("/.githead/actions.local.toml")
+  ) {
+    // Repository Actions are displayed from the metadata snapshot, but are
+    // resolved again when they run. Force a full snapshot refresh so the
+    // command the user sees is always the command the main process resolves.
+    return "filesystem-metadata";
+  }
   return normalized === ".git" || normalized.startsWith(".git/") || normalized.includes("/.git/")
     ? "filesystem-metadata"
     : "filesystem";

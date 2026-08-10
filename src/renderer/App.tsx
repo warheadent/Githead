@@ -1099,6 +1099,74 @@ export function App(): ReactNode {
     return promise;
   }, []);
 
+  const createTrustFailure = useCallback((repoPath: string): GitOperationResult => ({
+    repoPath,
+    exitCode: -1,
+    stdout: "",
+    stderr: `${TRUST_WORKSPACE_TITLE} ${TRUST_WORKSPACE_DESCRIPTION}`
+  }), []);
+
+  const ensureTrustedRepo = useCallback(async (
+    expectedRepoPath?: string,
+    isRequestCurrent: () => boolean = () => true,
+    requireActiveRepository = true
+  ): Promise<boolean> => {
+    const repoPath = expectedRepoPath ?? stateRef.current.repoPath;
+    const requestIsCurrent = (): boolean => isRequestCurrent()
+      && (!requireActiveRepository || isSameRepoPath(repoPath, stateRef.current.repoPath));
+    if (!repoPath.trim() || !requestIsCurrent()) {
+      return false;
+    }
+
+    try {
+      const existingTrust = await window.githead.getRepoTrust({ repoPath });
+      if (!requestIsCurrent()) {
+        return false;
+      }
+      if (existingTrust.trusted) {
+        return true;
+      }
+
+      if (!(await confirmWorkspaceTrust(repoPath))) {
+        if (requestIsCurrent()) {
+          updateState({
+            lastOperationResult: createTrustFailure(repoPath)
+          });
+        }
+        return false;
+      }
+
+      if (!requestIsCurrent()) {
+        return false;
+      }
+
+      const nextTrust: RepoTrustResult = await window.githead.addRepoTrust({ repoPath });
+      if (!requestIsCurrent()) {
+        return false;
+      }
+      if (nextTrust.trusted) {
+        return true;
+      }
+
+      updateState({
+        lastOperationResult: createTrustFailure(repoPath)
+      });
+      return false;
+    } catch (error) {
+      if (requestIsCurrent()) {
+        updateState({
+          lastOperationResult: {
+            repoPath,
+            exitCode: -1,
+            stdout: "",
+            stderr: error instanceof Error ? error.message : "Unable to update repository trust."
+          }
+        });
+      }
+      return false;
+    }
+  }, [confirmWorkspaceTrust, createTrustFailure, updateState]);
+
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
@@ -1388,11 +1456,15 @@ export function App(): ReactNode {
     return true;
   }, [loadCommitDetails, updateState]);
 
-  const changeHistoryScope = useCallback((scope: CommitHistoryScope): void => {
-    const current = stateRef.current;
+  const changeHistoryScope = useCallback(async (scope: CommitHistoryScope): Promise<void> => {
+    let current = stateRef.current;
     if (current.historyScope === scope || current.summary?.kind !== "git") {
       return;
     }
+    const repoPath = current.repoPath;
+    if (scope === "all" && !(await ensureTrustedRepo(repoPath))) return;
+    current = stateRef.current;
+    if (!isSameRepoPath(repoPath, current.repoPath) || current.historyScope === scope || current.summary?.kind !== "git") return;
 
     cancelRepositoryRead("commit-details", requestIds.current.commitDetails);
     cancelRepositoryRead("commit-file-diff", requestIds.current.commitFileDiff);
@@ -1413,7 +1485,7 @@ export function App(): ReactNode {
       commitFileDiffError: ""
     });
     void loadCommitHistory(false);
-  }, [loadCommitHistory, updateState]);
+  }, [ensureTrustedRepo, loadCommitHistory, updateState]);
 
   const loadSelectedDiff = useCallback(async (selectionOverride?: FileSelection): Promise<void> => {
     const selection = selectionOverride ?? stateRef.current.selection;
@@ -1608,6 +1680,9 @@ export function App(): ReactNode {
 
     try {
       if (options.statusOnly) {
+        if (!(await ensureTrustedRepo(repoPath, () => (
+          requestId === requestIds.current.repo && isSameRepoPath(repoPath, stateRef.current.repoPath)
+        )))) return;
         const status = await window.githead.getRepoStatus({ repoPath, generation: requestId, requestId: repositoryReadRequestId("status", requestId) });
         if (requestId !== requestIds.current.repo || !isSameRepoPath(status.repoPath, stateRef.current.repoPath)) return;
         acknowledgedFileStatusGenerationRef.current = Math.max(acknowledgedFileStatusGenerationRef.current, fileStatusGeneration);
@@ -1627,6 +1702,9 @@ export function App(): ReactNode {
         : createSummaryFromIdentity(identity);
       updateState((current) => ({ ...current, summary: identitySummary, showSetup: !identity.isValid, setupError: identity.validationErrors.join(" ") }));
       if (!identity.isValid) return;
+      if (!(await ensureTrustedRepo(identity.repoPath, () => (
+        requestId === requestIds.current.repo && isSameRepoPath(repoPath, stateRef.current.repoPath)
+      ), false))) return;
 
       const [statusResult, metadataResult] = await Promise.allSettled([
         window.githead.getRepoStatus({ repoPath, generation: requestId, requestId: repositoryReadRequestId("status", requestId) }),
@@ -1758,7 +1836,7 @@ export function App(): ReactNode {
     if (latest.activeView === "history" && latest.historyRoute.kind === "repository") {
       await loadCommitHistory(true);
     }
-  }, [loadCommitHistory, loadRepoSyncStatuses, updateState]);
+  }, [ensureTrustedRepo, loadCommitHistory, loadRepoSyncStatuses, updateState]);
 
   runRepoRefreshRef.current = runRepoRefresh;
 
@@ -2721,74 +2799,6 @@ export function App(): ReactNode {
     }
   }, [updateState]);
 
-  const createTrustFailure = useCallback((repoPath: string): GitOperationResult => ({
-    repoPath,
-    exitCode: -1,
-    stdout: "",
-    stderr: `${TRUST_WORKSPACE_TITLE} ${TRUST_WORKSPACE_DESCRIPTION}`
-  }), []);
-
-  const ensureTrustedRepo = useCallback(async (
-    expectedRepoPath?: string,
-    isRequestCurrent: () => boolean = () => true,
-    requireActiveRepository = true
-  ): Promise<boolean> => {
-    const repoPath = expectedRepoPath ?? stateRef.current.repoPath;
-    const requestIsCurrent = (): boolean => isRequestCurrent()
-      && (!requireActiveRepository || isSameRepoPath(repoPath, stateRef.current.repoPath));
-    if (!repoPath.trim() || !requestIsCurrent()) {
-      return false;
-    }
-
-    try {
-      const existingTrust = await window.githead.getRepoTrust({ repoPath });
-      if (!requestIsCurrent()) {
-        return false;
-      }
-      if (existingTrust.trusted) {
-        return true;
-      }
-
-      if (!(await confirmWorkspaceTrust(repoPath))) {
-        if (requestIsCurrent()) {
-          updateState({
-            lastOperationResult: createTrustFailure(repoPath)
-          });
-        }
-        return false;
-      }
-
-      if (!requestIsCurrent()) {
-        return false;
-      }
-
-      const nextTrust: RepoTrustResult = await window.githead.addRepoTrust({ repoPath });
-      if (!requestIsCurrent()) {
-        return false;
-      }
-      if (nextTrust.trusted) {
-        return true;
-      }
-
-      updateState({
-        lastOperationResult: createTrustFailure(repoPath)
-      });
-      return false;
-    } catch (error) {
-      if (requestIsCurrent()) {
-        updateState({
-          lastOperationResult: {
-            repoPath,
-            exitCode: -1,
-            stdout: "",
-            stderr: error instanceof Error ? error.message : "Unable to update repository trust."
-          }
-        });
-      }
-      return false;
-    }
-  }, [confirmWorkspaceTrust, createTrustFailure, updateState]);
-
   const saveRepositoryGitIdentity = useCallback(async (
     request: Parameters<typeof window.githead.saveGitIdentity>[0]
   ): Promise<GitIdentitySettings> => {
@@ -3095,6 +3105,7 @@ export function App(): ReactNode {
       const lastResult = await window.githead.runConfiguredAction({
         repoPath,
         name: action.name,
+        expectedAction: action,
         operationId: invocation.operationId
       });
       if (!invocationIsTracked()) return;
@@ -3290,6 +3301,9 @@ export function App(): ReactNode {
       });
       return;
     }
+    if (!(await ensureTrustedRepo(current.repoPath)) || !isInvocationCurrent(current.repoPath, (latest) => (
+      latest.actionManager.savingTarget === null
+    ))) return;
 
     const saveToken = ++actionManagerSaveTokenRef.current;
     const operation = createActiveOperation(
@@ -3348,7 +3362,7 @@ export function App(): ReactNode {
         }
       }));
     }
-  }, [createActiveOperation, finishActiveOperation, isActiveOperationCurrent, refreshRepo, updateState]);
+  }, [createActiveOperation, ensureTrustedRepo, finishActiveOperation, isActiveOperationCurrent, isInvocationCurrent, refreshRepo, updateState]);
 
   const runRepoOperation = useCallback(async (
     label: string,
@@ -3658,6 +3672,8 @@ export function App(): ReactNode {
 
   const openWorktreeRemoval = useCallback(async (worktree: GitWorktree): Promise<void> => {
     const repoPath = stateRef.current.repoPath;
+    if (!(await ensureTrustedRepo(repoPath))) return;
+    if (!isSameRepoPath(repoPath, stateRef.current.repoPath)) return;
     updateState({ worktreeRemoveTarget: worktree, worktreeRemovalCheck: null, worktreeRemovalChecking: true });
     try {
       const check = await window.githead.checkWorktreeRemoval({ repoPath, worktreePath: worktree.path });
@@ -3671,7 +3687,7 @@ export function App(): ReactNode {
         });
       }
     }
-  }, [updateState]);
+  }, [ensureTrustedRepo, updateState]);
 
   const closeWorktreeRemoval = useCallback((): void => {
     if (!isOperationRunning(stateRef.current)) updateState({ worktreeRemoveTarget: null, worktreeRemovalCheck: null, worktreeRemovalChecking: false });
@@ -5020,12 +5036,7 @@ export function App(): ReactNode {
     const current = stateRef.current;
     if (!current.summary?.isValid || current.summary.kind !== "git" || isOperationRunning(current)) return null;
     const repoPath = current.repoPath;
-    if (
-      current.appSettings?.gitBehaviors?.requireUpToDateUpstreamBeforeCommit === true
-      && (!(await ensureTrustedRepo(repoPath)) || !isSameRepoPath(repoPath, stateRef.current.repoPath))
-    ) {
-      return null;
-    }
+    if (!(await ensureTrustedRepo(repoPath)) || !isSameRepoPath(repoPath, stateRef.current.repoPath)) return null;
     let generated: GenerateCommitPlanResult | null = null;
     const operationResult = await runRepoOperation("Generating commit plan", undefined, async (operationId) => {
       generated = await window.githead.generateCommitPlan({ repoPath, paths, operationId });
@@ -5156,6 +5167,9 @@ export function App(): ReactNode {
     if (!current.summary?.isValid || isOperationRunning(current) || !canGenerateCommitMessage(current)) {
       return false;
     }
+    if (!(await ensureTrustedRepo(current.repoPath)) || !isSameRepoPath(current.repoPath, stateRef.current.repoPath)) {
+      return false;
+    }
 
     const activeOperation = createActiveOperation(
       "Generating commit message",
@@ -5214,7 +5228,7 @@ export function App(): ReactNode {
     } finally {
       finishActiveOperation(activeOperation.token);
     }
-  }, [appendOperationLog, createActiveOperation, finishActiveOperation, isActiveOperationCurrent, updateState]);
+  }, [appendOperationLog, createActiveOperation, ensureTrustedRepo, finishActiveOperation, isActiveOperationCurrent, updateState]);
 
   const generateStashMessage = useCallback(async (stashSelection: GitStashSelection): Promise<GitOperationResult> => {
     const current = stateRef.current;
@@ -5226,6 +5240,9 @@ export function App(): ReactNode {
     });
     if (!current.summary?.isValid || isOperationRunning(current)) return failure("Another repository operation is in progress.");
     if (!canUseSelectedAiProvider(current.aiSettings)) return failure(getStashGenerateMessageTitle(current));
+    if (!(await ensureTrustedRepo(current.repoPath)) || !isSameRepoPath(current.repoPath, stateRef.current.repoPath)) {
+      return failure("Repository trust is required before generating a stash message.");
+    }
 
     const activeOperation = createActiveOperation("Generating stash message", current.repoPath, "repo-operation");
     updateState({ activeOperation, runningOperation: "Generating stash message", lastOperationResult: null });
@@ -5252,7 +5269,7 @@ export function App(): ReactNode {
     } finally {
       finishActiveOperation(activeOperation.token);
     }
-  }, [appendOperationLog, createActiveOperation, finishActiveOperation, isActiveOperationCurrent, updateState]);
+  }, [appendOperationLog, createActiveOperation, ensureTrustedRepo, finishActiveOperation, isActiveOperationCurrent, updateState]);
 
   const loadGitHubConnection = useCallback(async (): Promise<void> => {
     const generation = ++githubConnectionGenerationRef.current;
@@ -5284,7 +5301,7 @@ export function App(): ReactNode {
       while (githubConnectionGenerationRef.current === generation) {
         await waitForMilliseconds(flow.intervalSeconds * 1_000);
         if (githubConnectionGenerationRef.current !== generation) return;
-        const result = await window.githead.pollGitHubDeviceFlow(flow);
+        const result = await window.githead.pollGitHubDeviceFlow({ flowId: flow.flowId });
         if (githubConnectionGenerationRef.current !== generation) return;
         if (result.state === "pending") {
           flow = { ...flow, intervalSeconds: result.intervalSeconds };
@@ -5716,13 +5733,16 @@ export function App(): ReactNode {
   }, [runRepoOperation, selectRepositoryOperationConflict]);
 
   const saveRepositoryOperationConflict = useCallback(async (request: GitConflictResolutionSaveRequest): Promise<string | null> => {
+    if (!(await ensureTrustedRepo(request.repoPath))) {
+      return "Repository trust is required before saving and staging a conflict resolution.";
+    }
     const result = await runRepoOperation(`Resolving ${request.path}`, undefined, (operationId) =>
       window.githead.saveConflictResolution({ ...request, operationId }));
     if (!result || result.exitCode !== 0) {
       return getOperationFailureMessage(result, "Unable to save and stage the conflict resolution.");
     }
     return null;
-  }, [runRepoOperation]);
+  }, [ensureTrustedRepo, runRepoOperation]);
 
   const selectCommit = useCallback((hash: string): void => {
     if (!hash || hash === stateRef.current.selectedCommitHash) {
@@ -6426,16 +6446,20 @@ export function App(): ReactNode {
   }, [runRepoOperation, stageFiles, switchRepo, unstageFiles]);
 
   const updateSubmodules = useCallback(async (path?: string): Promise<void> => {
+    const repoPath = stateRef.current.repoPath;
+    if (!(await ensureTrustedRepo(repoPath)) || !isSameRepoPath(repoPath, stateRef.current.repoPath)) return;
     await runRepoOperation(path ? `Updating submodule ${path}` : "Updating submodules", undefined, (operationId) =>
-      window.githead.updateSubmodules({ repoPath: stateRef.current.repoPath, ...(path ? { path } : {}), operationId })
+      window.githead.updateSubmodules({ repoPath, ...(path ? { path } : {}), operationId })
     );
-  }, [runRepoOperation]);
+  }, [ensureTrustedRepo, runRepoOperation]);
 
   const syncSubmodules = useCallback(async (): Promise<void> => {
+    const repoPath = stateRef.current.repoPath;
+    if (!(await ensureTrustedRepo(repoPath)) || !isSameRepoPath(repoPath, stateRef.current.repoPath)) return;
     await runRepoOperation("Synchronizing submodule URLs", undefined, (operationId) =>
-      window.githead.syncSubmodules({ repoPath: stateRef.current.repoPath, operationId })
+      window.githead.syncSubmodules({ repoPath, operationId })
     );
-  }, [runRepoOperation]);
+  }, [ensureTrustedRepo, runRepoOperation]);
 
   const checkForAppUpdates = useCallback(async (): Promise<void> => {
     try {
@@ -9374,7 +9398,7 @@ function AppUpdateReleaseNotesPopover({ state }: { state: AppUpdateState }): Rea
         ) : releaseNotes.body ? (
           <div className="app-update-release-notes-body selectable-text">
             <OptionalFeatureBoundary name="release notes">
-              <BasicMarkdown>{releaseNotes.body}</BasicMarkdown>
+              <BasicMarkdown externalLinks>{releaseNotes.body}</BasicMarkdown>
             </OptionalFeatureBoundary>
           </div>
         ) : (

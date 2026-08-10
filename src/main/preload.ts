@@ -66,7 +66,7 @@ import type {
   GitHubIssuesRequest,
   GitHubHistoryInsightsRequest,
   GitHubConnectionRequest,
-  GitHubDeviceFlow,
+  GitHubDeviceFlowPollRequest,
   GitHubRepositoryRequest,
   GitIdentitySaveRequest,
   GitIgnorePathRequest,
@@ -201,8 +201,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubConnection, request) as ReturnType<GitheadApi["getGitHubConnection"]>,
   beginGitHubDeviceFlow: () =>
     ipcRenderer.invoke(IPC_CHANNELS.beginGitHubDeviceFlow) as ReturnType<GitheadApi["beginGitHubDeviceFlow"]>,
-  pollGitHubDeviceFlow: (flow: GitHubDeviceFlow) =>
-    ipcRenderer.invoke(IPC_CHANNELS.pollGitHubDeviceFlow, flow) as ReturnType<GitheadApi["pollGitHubDeviceFlow"]>,
+  pollGitHubDeviceFlow: (request: GitHubDeviceFlowPollRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.pollGitHubDeviceFlow, request) as ReturnType<GitheadApi["pollGitHubDeviceFlow"]>,
   disconnectGitHub: () =>
     ipcRenderer.invoke(IPC_CHANNELS.disconnectGitHub) as ReturnType<GitheadApi["disconnectGitHub"]>,
   getCommitHistory: (request: GitCommitHistoryRequest) =>

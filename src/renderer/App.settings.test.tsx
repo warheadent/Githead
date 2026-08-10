@@ -1084,7 +1084,9 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await screen.findByRole("button", { name: "Settings" });
+    vi.mocked(githead.getRepoTrust).mockClear();
+    await user.click(screen.getByRole("button", { name: "Settings" }));
     const name = screen.getByLabelText("Name");
     await user.type(name, "Global Identity");
     await user.type(screen.getByLabelText("Email"), "global@example.test");

@@ -211,11 +211,12 @@ export class LoreService implements VcsService {
   }
 
   async getRepoIdentity(request: RepoSectionRequest): Promise<RepoIdentitySection> {
-    const validation = await this.validateRepo(request.repoPath);
-    if (!validation.isValid) return { repoPath: request.repoPath, generation: request.generation, kind: "lore", capabilities: loreCapabilities(), isValid: false, branch: null, hasHead: false, safeDirectory: null, validationErrors: [validation.error] };
-    const result = await this.runLore(validation.rootPath, ["status"]);
-    const status = parseLoreStatus(result.stdout);
-    return { repoPath: validation.rootPath, generation: request.generation, kind: "lore", capabilities: loreCapabilities(), isValid: true, branch: status.branch, hasHead: (status.revisionNumber ?? 0) > 0, safeDirectory: null, validationErrors: [] };
+    const rootPath = request.repoPath?.trim() ? await findLoreRoot(request.repoPath) : null;
+    if (!rootPath) return { repoPath: request.repoPath, generation: request.generation, kind: "lore", capabilities: loreCapabilities(), isValid: false, branch: null, hasHead: false, safeDirectory: null, validationErrors: [request.repoPath?.trim() ? "Selected folder is not a Lore repository." : "Repository path is empty."] };
+    // Identity discovery is the pre-trust path. The .lore marker is enough to
+    // locate the root; branch and revision data arrive from the trusted status
+    // and metadata reads that follow.
+    return { repoPath: rootPath, generation: request.generation, kind: "lore", capabilities: loreCapabilities(), isValid: true, branch: null, hasHead: false, safeDirectory: null, validationErrors: [] };
   }
 
   async getRepoStatus(request: RepoSectionRequest): Promise<RepoStatusSection> {

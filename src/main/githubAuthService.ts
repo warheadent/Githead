@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { GitHubDeviceFlow, GitHubDeviceFlowPollResult } from "../shared/types";
@@ -9,6 +10,7 @@ export { GITHUB_APP_CLIENT_ID, GITHUB_APP_INSTALL_URL, GITHUB_APP_SLUG };
 const DEVICE_CODE_URL = "https://github.com/login/device/code";
 const ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token";
 const REFRESH_WINDOW_MS = 5 * 60 * 1_000;
+const MAX_PENDING_DEVICE_FLOWS_PER_OWNER = 8;
 
 interface StoredGitHubCredential {
   version: 1;
@@ -38,10 +40,19 @@ interface DeviceCodeResponse {
   error_description?: string;
 }
 
+interface PendingDeviceFlow {
+  ownerId: number;
+  deviceCode: string;
+  expiresAt: number;
+  intervalSeconds: number;
+  cleanupTimer: NodeJS.Timeout;
+}
+
 export class GitHubAuthService {
   private readonly credentialPath: string;
   private credential: StoredGitHubCredential | null | undefined;
   private refreshInFlight: Promise<string | null> | undefined;
+  private readonly pendingDeviceFlows = new Map<string, PendingDeviceFlow>();
 
   constructor(
     userDataPath: string,
@@ -68,7 +79,7 @@ export class GitHubAuthService {
     }
   }
 
-  async beginDeviceFlow(): Promise<GitHubDeviceFlow> {
+  async beginDeviceFlow(ownerId: number): Promise<GitHubDeviceFlow> {
     this.requireSecureStorage();
     const response = await this.postForm<DeviceCodeResponse>(DEVICE_CODE_URL, {
       client_id: GITHUB_APP_CLIENT_ID
@@ -76,34 +87,54 @@ export class GitHubAuthService {
     const deviceCode = response.device_code?.trim();
     const userCode = response.user_code?.trim();
     const verificationUri = response.verification_uri?.trim();
-    if (!deviceCode || !userCode || !verificationUri || !Number.isFinite(response.expires_in)) {
+    const expiresInSeconds = Number(response.expires_in);
+    if (!deviceCode || !userCode || !verificationUri || !Number.isFinite(expiresInSeconds) || expiresInSeconds <= 0) {
       throw new Error(response.error_description?.trim() || "GitHub did not return a valid device authorization.");
     }
+    const flowId = randomUUID();
+    const expiresAt = this.now() + expiresInSeconds * 1_000;
+    const intervalSeconds = Math.max(1, Number(response.interval) || 5);
+    this.removeExpiredDeviceFlows();
+    const cleanupTimer = setTimeout(() => this.deleteDeviceFlow(flowId), expiresInSeconds * 1_000);
+    cleanupTimer.unref();
+    this.pendingDeviceFlows.set(flowId, { ownerId, deviceCode, expiresAt, intervalSeconds, cleanupTimer });
+    this.trimDeviceFlowsForOwner(ownerId);
     return {
-      deviceCode,
+      flowId,
       userCode,
       verificationUri,
-      expiresAt: new Date(this.now() + Number(response.expires_in) * 1_000).toISOString(),
-      intervalSeconds: Math.max(1, Number(response.interval) || 5)
+      expiresAt: new Date(expiresAt).toISOString(),
+      intervalSeconds
     };
   }
 
-  async pollDeviceFlow(flow: GitHubDeviceFlow): Promise<GitHubDeviceFlowPollResult> {
-    if (parseTimestamp(flow.expiresAt) !== null && parseTimestamp(flow.expiresAt)! <= this.now()) {
-      return { state: "error", message: "The GitHub connection code expired. Start again.", retryable: true };
+  async pollDeviceFlow(ownerId: number, flowId: string): Promise<GitHubDeviceFlowPollResult> {
+    const now = this.now();
+    const flow = this.pendingDeviceFlows.get(flowId);
+    if (!flow || flow.ownerId !== ownerId) return invalidDeviceFlowResult();
+    if (flow.expiresAt <= now) {
+      this.deleteDeviceFlow(flowId);
+      return expiredDeviceFlowResult();
     }
     const response = await this.postForm<TokenResponse>(ACCESS_TOKEN_URL, {
       client_id: GITHUB_APP_CLIENT_ID,
       device_code: flow.deviceCode,
       grant_type: "urn:ietf:params:oauth:grant-type:device_code"
     });
+    if (this.pendingDeviceFlows.get(flowId) !== flow) return invalidDeviceFlowResult();
+    if (flow.expiresAt <= this.now()) {
+      this.deleteDeviceFlow(flowId);
+      return expiredDeviceFlowResult();
+    }
     if (response.error === "authorization_pending") {
       return { state: "pending", intervalSeconds: flow.intervalSeconds };
     }
     if (response.error === "slow_down") {
-      return { state: "pending", intervalSeconds: Math.max(flow.intervalSeconds + 5, Number(response.interval) || 0) };
+      flow.intervalSeconds = Math.max(flow.intervalSeconds + 5, Number(response.interval) || 0);
+      return { state: "pending", intervalSeconds: flow.intervalSeconds };
     }
     if (response.error) {
+      this.deleteDeviceFlow(flowId);
       const retryable = response.error === "expired_token" || response.error === "incorrect_device_code";
       return {
         state: "error",
@@ -112,23 +143,35 @@ export class GitHubAuthService {
       };
     }
     if (!response.access_token?.trim()) {
+      this.deleteDeviceFlow(flowId);
       return { state: "error", message: "GitHub did not return an access token.", retryable: true };
     }
-    await this.saveTokenResponse(response);
-    return {
-      state: "connected",
-      connection: {
-        state: "authenticated",
-        source: "githubApp",
-        accountLogin: null,
-        repositoryAccess: "unknown",
-        message: "GitHub authorization completed.",
-        failure: null
-      }
-    };
+    try {
+      await this.saveTokenResponse(response);
+      return {
+        state: "connected",
+        connection: {
+          state: "authenticated",
+          source: "githubApp",
+          accountLogin: null,
+          repositoryAccess: "unknown",
+          message: "GitHub authorization completed.",
+          failure: null
+        }
+      };
+    } finally {
+      this.deleteDeviceFlow(flowId);
+    }
+  }
+
+  cancelDeviceFlowsForOwner(ownerId: number): void {
+    for (const [flowId, flow] of this.pendingDeviceFlows) {
+      if (flow.ownerId === ownerId) this.deleteDeviceFlow(flowId);
+    }
   }
 
   async disconnect(): Promise<void> {
+    for (const flowId of this.pendingDeviceFlows.keys()) this.deleteDeviceFlow(flowId);
     this.credential = null;
     this.refreshInFlight = undefined;
     try {
@@ -200,6 +243,29 @@ export class GitHubAuthService {
     }
   }
 
+  private removeExpiredDeviceFlows(): void {
+    const now = this.now();
+    for (const [flowId, flow] of this.pendingDeviceFlows) {
+      if (flow.expiresAt <= now) this.deleteDeviceFlow(flowId);
+    }
+  }
+
+  private trimDeviceFlowsForOwner(ownerId: number): void {
+    const flowIds = [...this.pendingDeviceFlows]
+      .filter(([, flow]) => flow.ownerId === ownerId)
+      .map(([flowId]) => flowId);
+    for (const flowId of flowIds.slice(0, -MAX_PENDING_DEVICE_FLOWS_PER_OWNER)) {
+      this.deleteDeviceFlow(flowId);
+    }
+  }
+
+  private deleteDeviceFlow(flowId: string): void {
+    const flow = this.pendingDeviceFlows.get(flowId);
+    if (!flow) return;
+    clearTimeout(flow.cleanupTimer);
+    this.pendingDeviceFlows.delete(flowId);
+  }
+
   private async postForm<T>(url: string, values: Record<string, string>): Promise<T> {
     const response = await this.fetchImpl(url, {
       method: "POST",
@@ -230,6 +296,14 @@ function formatOAuthError(error: string): string {
   if (error === "expired_token") return "The GitHub connection code expired. Start again.";
   if (error === "device_flow_disabled") return "Device flow is not enabled for the Githead GitHub App.";
   return `GitHub connection failed: ${error.replaceAll("_", " ")}.`;
+}
+
+function invalidDeviceFlowResult(): GitHubDeviceFlowPollResult {
+  return { state: "error", message: "The GitHub connection code is no longer active. Start again.", retryable: true };
+}
+
+function expiredDeviceFlowResult(): GitHubDeviceFlowPollResult {
+  return { state: "error", message: "The GitHub connection code expired. Start again.", retryable: true };
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

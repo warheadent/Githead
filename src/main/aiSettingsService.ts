@@ -393,7 +393,10 @@ function mergeRepositorySettings(global: AiSettings, stored: StoredRepositoryAiS
 
   return {
     ...global,
-    selectedProvider: sanitizeProvider(stored.selectedProvider) ?? global.selectedProvider,
+    // Provider selection is a global trust decision. Repository-owned settings
+    // may tune models and prompts, but must not silently switch generation to a
+    // local CLI process.
+    selectedProvider: global.selectedProvider,
     providers,
     commitPlanGranularity: stored.commitPlanGranularity === undefined
       ? global.commitPlanGranularity

@@ -605,6 +605,7 @@ export type GitRunRequest =
 export interface GitConfiguredActionRunRequest {
   repoPath: string;
   name: string;
+  expectedAction: GitConfiguredAction;
 }
 
 export interface GitConfiguredActionSaveRequest {
@@ -674,11 +675,15 @@ export interface GitHubConnectionRequest {
 }
 
 export interface GitHubDeviceFlow {
-  deviceCode: string;
+  flowId: string;
   userCode: string;
   verificationUri: string;
   expiresAt: string;
   intervalSeconds: number;
+}
+
+export interface GitHubDeviceFlowPollRequest {
+  flowId: string;
 }
 
 export type GitHubDeviceFlowPollResult =
@@ -2276,7 +2281,7 @@ export interface GitheadApi {
   cancelGitHubRequest(request: CancelGitHubRequest): Promise<void>;
   getGitHubConnection(request: GitHubConnectionRequest): Promise<GitHubConnectionStatus>;
   beginGitHubDeviceFlow(): Promise<GitHubDeviceFlow>;
-  pollGitHubDeviceFlow(flow: GitHubDeviceFlow): Promise<GitHubDeviceFlowPollResult>;
+  pollGitHubDeviceFlow(request: GitHubDeviceFlowPollRequest): Promise<GitHubDeviceFlowPollResult>;
   disconnectGitHub(): Promise<GitHubConnectionStatus>;
   getCommitHistory(request: GitCommitHistoryRequest): Promise<GitCommitGraphRow[]>;
   getCommitDetails(request: GitCommitDetailsRequest): Promise<GitCommitDetails>;

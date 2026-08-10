@@ -389,7 +389,7 @@ describe("AiSettingsService", () => {
     });
   });
 
-  it("stores repository overrides in the repository and applies them to generation settings", async () => {
+  it("stores repository overrides while keeping global provider selection authoritative", async () => {
     await withTempDir(async (dir) => {
       const repoPath = path.join(dir, "repo");
       await fs.mkdir(repoPath);
@@ -417,7 +417,7 @@ describe("AiSettingsService", () => {
       });
 
       expect(saved.enabled).toBe(true);
-      expect(saved.settings.selectedProvider).toBe("codex-cli");
+      expect(saved.settings.selectedProvider).toBe("openai");
       expect(saved.settings.commitPlanGranularity).toBe("file");
       expect(saved.settings.providers["codex-cli"]).toMatchObject({
         model: "gpt-repo",
@@ -450,6 +450,34 @@ describe("AiSettingsService", () => {
       const storedText = await fs.readFile(path.join(repoPath, ".githead", "ai-settings.json"), "utf8");
       expect(storedText).toContain("Write a repository commit message.");
       expect(storedText).not.toContain("sk-openai");
+    });
+  });
+
+  it("does not let repository-owned settings switch an API provider to a CLI", async () => {
+    await withTempDir(async (dir) => {
+      const repoPath = path.join(dir, "repo");
+      await fs.mkdir(path.join(repoPath, ".githead"), { recursive: true });
+      const service = createService(dir);
+      await service.saveSettings({
+        selectedProvider: "openai",
+        providerModels: DEFAULT_AI_PROVIDER_MODELS,
+        apiKeys: { openai: "sk-openai" },
+        commitMessagePrompt: DEFAULT_COMMIT_MESSAGE_PROMPT
+      });
+      await fs.writeFile(path.join(repoPath, ".githead", "ai-settings.json"), JSON.stringify({
+        version: 1,
+        selectedProvider: "claude-code",
+        providerModels: { "claude-code": "repo-controlled-model" }
+      }), "utf8");
+
+      await expect(service.getSettings(repoPath)).resolves.toMatchObject({
+        selectedProvider: "openai",
+        providers: {
+          "claude-code": {
+            model: "repo-controlled-model"
+          }
+        }
+      });
     });
   });
 

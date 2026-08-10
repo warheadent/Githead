@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import type { AiApiKeyProvider, AiCommitMessageProvider, AiSettings } from "../shared/types";
 import { CommitMessageService, type AiReasoningCapabilityResolver } from "./commitMessageService";
 import { DEFAULT_AI_PROVIDER_MODELS, type AiSettingsService } from "./aiSettingsService";
+import { createCliInvocation } from "./cliInvocation";
 import type { ProcessResult, ProcessRunOptions, ProcessRunner } from "./processRunner";
 
 class FakeAiSettingsService {
@@ -451,8 +452,7 @@ describe("CommitMessageService", () => {
       stdout: "feat: add generated commit messages"
     });
     const call = runner.calls[0];
-    expect(call?.command).toBe(process.platform === "win32" ? "cmd.exe" : "codex");
-    expect(call?.args).toEqual(createExpectedCliArgs("codex", [
+    const expectedInvocation = createCliInvocation("codex", [
       "exec",
       "--model",
       DEFAULT_AI_PROVIDER_MODELS["codex-cli"],
@@ -465,7 +465,12 @@ describe("CommitMessageService", () => {
       "--ephemeral",
       "--skip-git-repo-check",
       "-"
-    ]));
+    ], {
+      ...(call?.options?.env ? { env: call.options.env } : {}),
+      workingDirectory: "D:\\Repo"
+    });
+    expect(call?.command).toBe(expectedInvocation.command);
+    expect(call?.args).toEqual(expectedInvocation.args);
     expect(call?.options?.cwd).toBe("D:\\Repo");
     expect(call?.options?.stdin).toContain("Staged diff:");
     expect(call?.options?.timeoutMs).toBe(60_000);
@@ -482,8 +487,7 @@ describe("CommitMessageService", () => {
       repoPath: "D:\\Repo"
     });
     const call = runner.calls[0];
-    expect(call?.command).toBe(process.platform === "win32" ? "cmd.exe" : "claude");
-    expect(call?.args).toEqual(createExpectedCliArgs("claude", [
+    const expectedInvocation = createCliInvocation("claude", [
       "-p",
       "--model",
       DEFAULT_AI_PROVIDER_MODELS["claude-code"],
@@ -500,7 +504,12 @@ describe("CommitMessageService", () => {
       "default",
       "--input-format",
       "text"
-    ]));
+    ], {
+      ...(call?.options?.env ? { env: call.options.env } : {}),
+      workingDirectory: "D:\\Repo"
+    });
+    expect(call?.command).toBe(expectedInvocation.command);
+    expect(call?.args).toEqual(expectedInvocation.args);
     expect(call?.args).toContain("-p");
     expect(call?.args).toContain("--input-format");
     expect(call?.options?.stdin).toContain("Staged diff:");
@@ -658,15 +667,3 @@ describe("CommitMessageService", () => {
     });
   });
 });
-
-function createExpectedCliArgs(command: "codex" | "claude", args: string[]): string[] {
-  return process.platform === "win32"
-    ? [
-        "/d",
-        "/s",
-        "/c",
-        command,
-        ...args
-      ]
-    : args;
-}

@@ -992,11 +992,10 @@ describe("App", { timeout: 10_000 }, () => {
 
   it("prompts to trust a repository before committing and remembers the decision", async () => {
     const user = userEvent.setup();
-    vi.mocked(githead.getRepoTrust).mockResolvedValueOnce({
-      trusted: false
-    }).mockResolvedValue({
-      trusted: true
-    });
+    vi.mocked(githead.getRepoTrust)
+      .mockResolvedValueOnce({ trusted: true })
+      .mockResolvedValueOnce({ trusted: false })
+      .mockResolvedValue({ trusted: true });
     vi.mocked(githead.addRepoTrust).mockResolvedValue({
       trusted: true
     });
@@ -1033,9 +1032,9 @@ describe("App", { timeout: 10_000 }, () => {
 
   it("does not run risky git operations when repository trust is declined", async () => {
     const user = userEvent.setup();
-    vi.mocked(githead.getRepoTrust).mockResolvedValue({
-      trusted: false
-    });
+    vi.mocked(githead.getRepoTrust)
+      .mockResolvedValueOnce({ trusted: true })
+      .mockResolvedValue({ trusted: false });
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       files: [
         createStatusFile("src/renderer/App.tsx", {
@@ -1068,7 +1067,10 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.chooseRepo).mockReturnValue(pendingRepositoryChoice.promise);
     vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
     vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
-    vi.mocked(githead.getRepoTrust).mockResolvedValue({ trusted: false });
+    vi.mocked(githead.getRepoTrust)
+      .mockResolvedValueOnce({ trusted: true })
+      .mockResolvedValueOnce({ trusted: false })
+      .mockResolvedValue({ trusted: true });
     vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
       repoPath: requestedRepoPath,
       files: [createStatusFile("src/trust.ts", { indexStatus: "M", isStaged: true })]

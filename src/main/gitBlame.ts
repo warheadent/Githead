@@ -36,6 +36,7 @@ export async function readGitFileBlame(
     "--line-porcelain",
     "--root",
     "--no-progress",
+    "--no-textconv",
     hash,
     "--",
     filePath

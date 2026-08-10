@@ -94,4 +94,21 @@ describe("VcsRouter", () => {
     expect(groups[0]).toMatchObject({ anchorPath: "D:\\Repo", recentPaths: ["D:\\Repo-feature", "D:\\Repo"] });
     expect(groups[0]?.worktrees).toHaveLength(2);
   });
+
+  it("does not run Git worktree inspection for untrusted recent repositories", async () => {
+    const service = {
+      getWorktrees: vi.fn()
+    } as unknown as VcsService;
+    const router = new VcsRouter(service, service);
+    vi.spyOn(router, "resolveKind").mockResolvedValue("git");
+
+    await expect(router.getRepositoryGroups(["D:\\Untrusted"], () => false)).resolves.toEqual([
+      expect.objectContaining({
+        kind: "git",
+        anchorPath: "D:\\Untrusted",
+        worktrees: []
+      })
+    ]);
+    expect(service.getWorktrees).not.toHaveBeenCalled();
+  });
 });

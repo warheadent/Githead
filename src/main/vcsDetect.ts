@@ -13,6 +13,11 @@ import type { VcsKind } from "../shared/types";
  * found (not a repository).
  */
 export async function detectVcsKinds(repoPath: string): Promise<VcsKind[]> {
+  return (await findVcsRoot(repoPath))?.kinds ?? [];
+}
+
+/** Resolve the nearest repository root without invoking repository tools. */
+export async function findVcsRoot(repoPath: string): Promise<{ rootPath: string; kinds: VcsKind[] } | null> {
   const start = path.resolve(repoPath);
   let current = start;
 
@@ -30,12 +35,12 @@ export async function detectVcsKinds(repoPath: string): Promise<VcsKind[]> {
       kinds.push("lore");
     }
     if (kinds.length > 0) {
-      return kinds;
+      return { rootPath: current, kinds };
     }
 
     const parent = path.dirname(current);
     if (parent === current) {
-      return [];
+      return null;
     }
     current = parent;
   }
