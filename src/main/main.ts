@@ -133,6 +133,7 @@ import {
   runCoordinatedRepositoryOperationAfterPreflight
 } from "./coordinatedRepositoryOperation";
 import { deleteFiles, getStats, resolveRepoFilePath, showRepositoryInExplorer } from "./fileOperationService";
+import { GitExecutableService } from "./gitExecutableService";
 import { GitIdentityService } from "./gitIdentityService";
 import { GitOutputBatcher, runWithGitOutputSink } from "./gitOutputBatcher";
 import { snapshotGitPushExecutionOptions } from "./gitPushBehavior";
@@ -182,6 +183,7 @@ const processRunner = new CancellableProcessRunner(
   new InstrumentedProcessRunner(new NodeProcessRunner(), performanceDiagnostics)
 );
 const gitService = new GitService(processRunner);
+const gitExecutableService = new GitExecutableService(processRunner);
 const loreService = new LoreService(processRunner);
 const vcsRouter = new VcsRouter(gitService, loreService);
 const repositoryOperations = new RepositoryOperationCoordinator();
@@ -368,6 +370,10 @@ app.on("before-quit", () => {
   performanceDiagnosticsSessions.stopAll();
   appUpdateService?.stop();
   repoWatchService?.stopWatching();
+});
+
+ipcMain.handle(IPC_CHANNELS.getGitExecutableStatus, async () => {
+  return gitExecutableService.getStatus();
 });
 
 ipcMain.handle(IPC_CHANNELS.chooseRepo, async (_event, defaultPath?: string) => {

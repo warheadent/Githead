@@ -6,6 +6,10 @@ export const GIT_ACTIONS = [
 
 export type GitAction = (typeof GIT_ACTIONS)[number];
 
+export type GitExecutableStatus =
+  | { available: true; version: string }
+  | { available: false; reason: "not-found" | "unavailable" };
+
 export const GIT_CONFIGURED_ACTION_SHELLS = [
   "powershell",
   "cmd",
@@ -2241,6 +2245,7 @@ export interface PerformanceDiagnosticsSnapshot {
 }
 
 export interface GitheadApi {
+  getGitExecutableStatus(): Promise<GitExecutableStatus>;
   chooseRepo(defaultPath?: string): Promise<string | null>;
   chooseCloneParent(defaultPath?: string): Promise<string | null>;
   chooseWorktreeParent(defaultPath?: string): Promise<string | null>;

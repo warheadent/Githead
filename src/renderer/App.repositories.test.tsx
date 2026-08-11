@@ -1057,6 +1057,42 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.queryByDisplayValue("D:\\Githead")).toBeNull();
   });
 
+  it("stops repository startup and explains when Git is not installed", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getGitExecutableStatus).mockResolvedValue({
+      available: false,
+      reason: "not-found"
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Git is required" })).toBeTruthy();
+    expect(screen.getByText("Githead could not find Git on this computer. Install Git before opening or cloning repositories.")).toBeTruthy();
+    expect(githead.getRepoRecents).not.toHaveBeenCalled();
+    expect(githead.getRepoSummary).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Download Git" }));
+    expect(githead.openExternalUrl).toHaveBeenCalledWith({
+      url: "https://git-scm.com/downloads"
+    });
+  });
+
+  it("continues startup after Git becomes available", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getGitExecutableStatus)
+      .mockResolvedValueOnce({ available: false, reason: "not-found" })
+      .mockResolvedValueOnce({ available: true, version: "git version 2.51.0" });
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([]);
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Check Again" }));
+
+    expect(await screen.findByText("Select a repository to continue.")).toBeTruthy();
+    expect(githead.getGitExecutableStatus).toHaveBeenCalledTimes(2);
+    expect(githead.getRepoRecents).toHaveBeenCalledTimes(1);
+  });
+
   it("shows the setup screen when the initial recent repository is invalid", async () => {
     const invalidRepo = "D:\\MissingRepo";
     vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(invalidRepo));

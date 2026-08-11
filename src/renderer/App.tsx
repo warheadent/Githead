@@ -163,6 +163,7 @@ import type {
   GitFileHistoryEntry,
   GitFileBlameResult,
   GitFilePreviewSource,
+  GitExecutableStatus,
   GitForceWithLeaseOffer,
   GitImageSide,
   GitHubIssue,
@@ -378,6 +379,8 @@ interface CreatePrDialogState {
 
 interface AppState {
   startupStatus: "loading" | "ready";
+  gitExecutableStatus: GitExecutableStatus | null;
+  gitExecutableChecking: boolean;
   repoPath: string;
   repoRecents: string[];
   repositoryGroups: RepositoryGroup[];
@@ -793,6 +796,8 @@ const OPERATION_RECONCILE_INTERVAL_MS = 10_000;
 
 const initialState: AppState = {
   startupStatus: "loading",
+  gitExecutableStatus: null,
+  gitExecutableChecking: true,
   repoPath: "",
   repoRecents: [],
   repositoryGroups: [],
@@ -2306,6 +2311,22 @@ export function App(): ReactNode {
   }, [loadGitIdentity, loadRepositorySyncSettings]);
 
   const initializeApp = useCallback(async (): Promise<void> => {
+    updateState({ gitExecutableChecking: true });
+    const gitExecutableStatus = await window.githead.getGitExecutableStatus();
+    if (!gitExecutableStatus.available) {
+      updateState({
+        startupStatus: "ready",
+        gitExecutableStatus,
+        gitExecutableChecking: false
+      });
+      return;
+    }
+
+    updateState({
+      startupStatus: "loading",
+      gitExecutableStatus,
+      gitExecutableChecking: false
+    });
     await Promise.all([
       initializeRepository(),
       loadAppSettings()
@@ -2319,6 +2340,7 @@ export function App(): ReactNode {
     void initializeApp().catch((error: unknown) => {
       updateState({
         startupStatus: "ready",
+        gitExecutableChecking: false,
         showSetup: true,
         setupError: error instanceof Error ? error.message : "Unable to load recent repositories."
       });
@@ -2327,8 +2349,10 @@ export function App(): ReactNode {
   }, [initializeApp, loadAiSettings, updateState]);
 
   useEffect(() => {
-    void loadRepositoryGroups();
-  }, [loadRepositoryGroups, state.repoRecents.join("\0")]);
+    if (state.gitExecutableStatus?.available) {
+      void loadRepositoryGroups();
+    }
+  }, [loadRepositoryGroups, state.gitExecutableStatus, state.repoRecents.join("\0")]);
 
   useEffect(() => {
     if (!state.settingsOpen && state.appSettings) {
@@ -2337,9 +2361,13 @@ export function App(): ReactNode {
   }, [state.appSettings, state.settingsOpen]);
 
   useEffect(() => {
+    if (!state.gitExecutableStatus?.available) {
+      updateState({ gitIdentity: null, repositorySyncSettings: null });
+      return;
+    }
     void loadGitIdentity(state.repoPath);
     void loadRepositorySyncSettings(state.repoPath);
-  }, [loadGitIdentity, loadRepositorySyncSettings, state.repoPath]);
+  }, [loadGitIdentity, loadRepositorySyncSettings, state.gitExecutableStatus, state.repoPath, updateState]);
 
   useEffect(() => () => {
     if (stateRef.current.repoPath) {
@@ -6767,6 +6795,26 @@ export function App(): ReactNode {
     );
   }
 
+  if (state.gitExecutableStatus && !state.gitExecutableStatus.available) {
+    return (
+      <AppChrome
+        isMaximized={windowState.isMaximized}
+        onMinimize={minimizeWindow}
+        onToggleMaximize={toggleMaximizeWindow}
+        onClose={closeWindow}
+      >
+        <GitRequiredScreen
+          status={state.gitExecutableStatus}
+          checking={state.gitExecutableChecking}
+          onInstall={() => openExternalUrl("https://git-scm.com/downloads")}
+          onCheckAgain={() => {
+            void initializeApp();
+          }}
+        />
+      </AppChrome>
+    );
+  }
+
   if (state.showSetup) {
     return (
       <AppChrome
@@ -8018,6 +8066,51 @@ function WindowControlButton({
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
+  );
+}
+
+function GitRequiredScreen({
+  status,
+  checking,
+  onInstall,
+  onCheckAgain
+}: {
+  status: Extract<GitExecutableStatus, { available: false }>;
+  checking: boolean;
+  onInstall: () => void;
+  onCheckAgain: () => void;
+}): ReactNode {
+  const unavailable = status.reason === "unavailable";
+
+  return (
+    <section className="git-required-screen" aria-labelledby="git-required-title">
+      <div className="git-required-panel">
+        <div className="git-required-icon" aria-hidden="true">
+          <GitFork />
+        </div>
+        <div className="git-required-copy">
+          <p className="git-required-eyebrow">Required dependency</p>
+          <h1 id="git-required-title">{unavailable ? "Git could not be started" : "Git is required"}</h1>
+          <p>
+            {unavailable
+              ? "Githead found a Git command, but it did not run successfully. Reinstall Git or check your system PATH."
+              : "Githead could not find Git on this computer. Install Git before opening or cloning repositories."}
+          </p>
+          <p>After installation, check again. You do not need to restart Githead.</p>
+        </div>
+        <div className="git-required-actions">
+          <Button type="button" onClick={onInstall} disabled={checking}>
+            <Download />
+            Download Git
+            <ExternalLink />
+          </Button>
+          <Button type="button" variant="outline" onClick={onCheckAgain} disabled={checking}>
+            <RefreshCw className={checking ? "animate-spin" : undefined} />
+            {checking ? "Checking for Git" : "Check Again"}
+          </Button>
+        </div>
+      </div>
+    </section>
   );
 }
 

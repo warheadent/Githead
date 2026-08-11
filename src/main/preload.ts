@@ -109,6 +109,8 @@ import type {
 } from "../shared/types";
 
 const api: GitheadApi = {
+  getGitExecutableStatus: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.getGitExecutableStatus) as ReturnType<GitheadApi["getGitExecutableStatus"]>,
   chooseRepo: (defaultPath?: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.chooseRepo, defaultPath) as Promise<string | null>,
   chooseCloneParent: (defaultPath?: string) =>

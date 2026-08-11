@@ -1,4 +1,5 @@
 export const IPC_CHANNELS = {
+  getGitExecutableStatus: "git:executable-status",
   chooseRepo: "repo:choose",
   chooseCloneParent: "repo:clone-parent-choose",
   chooseWorktreeParent: "repo:worktree-parent-choose",

@@ -248,6 +248,10 @@ export function createGitheadMock(): GitheadApi {
   };
 
   return {
+    getGitExecutableStatus: vi.fn().mockResolvedValue({
+      available: true,
+      version: "git version 2.51.0"
+    }),
     chooseRepo: vi.fn().mockResolvedValue(null),
     chooseCloneParent: vi.fn().mockResolvedValue(null),
     chooseWorktreeParent: vi.fn().mockResolvedValue(null),
