@@ -55,6 +55,12 @@ Thumbs.db
 .agents/skills/*
 !.agents/skills/githead-actions/
 !.agents/skills/githead-actions/SKILL.md
+!.agents/skills/showcase-feature/
+!.agents/skills/showcase-feature/SKILL.md
+!.agents/skills/showcase-feature/agents/
+!.agents/skills/showcase-feature/agents/openai.yaml
+!.agents/skills/showcase-feature/references/
+!.agents/skills/showcase-feature/references/fixtures.md
 .claude/
 .codex/
 .junie/

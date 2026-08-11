@@ -1,0 +1,4 @@
+interface:
+  display_name: "Showcase Feature"
+  short_description: "Record verified Githead UI changes cleanly"
+  default_prompt: "Use $showcase-feature to record a clean demonstration of the completed Githead feature."
