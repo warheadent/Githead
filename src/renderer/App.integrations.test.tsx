@@ -1477,15 +1477,15 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getRepoTrust)
       .mockResolvedValueOnce({ trusted: true })
       .mockResolvedValue({ trusted: false });
+    vi.mocked(githead.addRepoTrust).mockResolvedValue({ trusted: false });
 
     render(<App />);
 
     await user.click(await screen.findByRole("tab", { name: "Commit History" }));
     await user.click(await screen.findByRole("button", { name: /^Push$/ }));
-    await user.click(await screen.findByRole("button", { name: "Cancel" }));
 
     await waitFor(() => {
-      expect(githead.getRepoTrust).toHaveBeenCalledWith({
+      expect(githead.addRepoTrust).toHaveBeenCalledWith({
         repoPath
       });
     });

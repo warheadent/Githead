@@ -174,6 +174,7 @@ import { AppUpdateService } from "./updateService";
 import { VcsRouter } from "./vcsRouter";
 import { MIN_WINDOW_BOUNDS, WindowStateService } from "./windowStateService";
 import { initializeSentry, setSentryTelemetryEnabled } from "./sentry";
+import { showWorkspaceTrustDialog } from "./workspaceTrustDialog";
 
 initializeSentry();
 
@@ -546,20 +547,20 @@ ipcMain.handle(IPC_CHANNELS.getRepoTrust, async (_event, request: RepoTrustReque
 ipcMain.handle(IPC_CHANNELS.addRepoTrust, async (_event, request: RepoTrustRequest) => {
   const trustPath = await vcsRouter.resolveTrustPath(request.repoPath);
   if (await getRepoTrustService().isTrusted(trustPath)) return { trusted: true };
-  const options: Electron.MessageBoxOptions = {
-    type: "warning",
-    title: "Confirm Workspace Trust",
-    message: "Do you trust this workspace?",
-    detail: `${trustPath}\n\nGit operations in a trusted workspace may execute hooks, helpers, filters, or local configuration.`,
-    buttons: ["Trust Workspace", "Cancel"],
-    defaultId: 1,
-    cancelId: 1,
-    noLink: true
-  };
-  const confirmation = mainWindow
-    ? await dialog.showMessageBox(mainWindow, options)
-    : await dialog.showMessageBox(options);
-  if (confirmation.response !== 0) return { trusted: false };
+  const settings = await getAppSettingsService().getSettings();
+  const trusted = await showWorkspaceTrustDialog({
+    parent: mainWindow,
+    context: {
+      repoPath: trustPath,
+      appearanceMode: settings.appearanceMode,
+      colorTheme: settings.colorTheme,
+      uiFont: settings.uiFont,
+      codeFont: settings.codeFont,
+      zoomFactor: settings.zoomFactor
+    },
+    ...(process.env.VITE_DEV_SERVER_URL ? { devServerUrl: process.env.VITE_DEV_SERVER_URL } : {})
+  });
+  if (!trusted) return { trusted: false };
   return {
     trusted: await getRepoTrustService().trustRepo(trustPath)
   };

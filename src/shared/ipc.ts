@@ -26,6 +26,7 @@ export const IPC_CHANNELS = {
   getRepositoryGroups: "repo-recents:groups",
   getRepoTrust: "repo-trust:get",
   addRepoTrust: "repo-trust:add",
+  workspaceTrustResponse: "workspace-trust:response",
   addSafeDirectory: "repo:safe-directory-add",
   getGitHubWorkflowRuns: "github:workflow-runs",
   getGitHubWorkflowRunDetail: "github:workflow-run-detail",

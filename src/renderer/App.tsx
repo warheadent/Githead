@@ -578,10 +578,9 @@ interface ActiveRendererOperation {
   cancelError: string;
 }
 
-interface PendingTrustConfirmation {
+interface PendingRepoTrustRequest {
   repoPath: string;
-  promise: Promise<boolean>;
-  resolve(trusted: boolean): void;
+  promise: Promise<RepoTrustResult>;
 }
 
 function createRendererOperationId(token: number): string {
@@ -789,8 +788,7 @@ const emptyStashComposer: StashComposerState = {
   paths: []
 };
 
-const TRUST_WORKSPACE_TITLE = "Do you trust this workspace?";
-const TRUST_WORKSPACE_DESCRIPTION = "This is the first time Githead will run Git operations here that may execute configured hooks or local Git configuration.";
+const REPOSITORY_TRUST_REQUIRED_MESSAGE = "Repository trust is required before Githead can run Git operations that may execute configured hooks or local Git configuration.";
 const OPERATION_RECONCILE_INITIAL_DELAY_MS = 3_000;
 const OPERATION_RECONCILE_INTERVAL_MS = 10_000;
 
@@ -1004,7 +1002,7 @@ export function App(): ReactNode {
       });
     }
   }));
-  const pendingTrustConfirmationRef = useRef<PendingTrustConfirmation | null>(null);
+  const pendingRepoTrustRequestRef = useRef<PendingRepoTrustRequest | null>(null);
   const repoRefreshInFlightRef = useRef(false);
   const autoFetchInFlightRef = useRef(false);
   const rendererOperationTokenRef = useRef(0);
@@ -1015,8 +1013,6 @@ export function App(): ReactNode {
   const startupStartedRef = useRef(false);
   const refreshDirtyFileStatusRef = useRef<() => Promise<void>>(async () => undefined);
   const windowFocusedRef = useRef(true);
-  const [trustDialogRepoPath, setTrustDialogRepoPath] = useState<string | null>(null);
-
   const updateState = useCallback((updater: AppStateUpdater): void => {
     const current = stateRef.current;
     const next = typeof updater === "function" ? updater(current) : {
@@ -1078,31 +1074,25 @@ export function App(): ReactNode {
     saveAppSettingsPreference({ wrapDiffLines }, "Unable to save the diff line wrap preference.");
   }, [saveAppSettingsPreference]);
 
-  const closeTrustDialog = useCallback((trusted: boolean): void => {
-    const pending = pendingTrustConfirmationRef.current;
-    pendingTrustConfirmationRef.current = null;
-    setTrustDialogRepoPath(null);
-    pending?.resolve(trusted);
-  }, []);
-
-  const confirmWorkspaceTrust = useCallback((repoPath: string): Promise<boolean> => {
-    const pending = pendingTrustConfirmationRef.current;
+  const requestRepoTrust = useCallback((repoPath: string): Promise<RepoTrustResult> => {
+    const pending = pendingRepoTrustRequestRef.current;
     if (pending) {
       return isSameRepoPath(pending.repoPath, repoPath)
         ? pending.promise
-        : Promise.resolve(false);
+        : Promise.resolve({ trusted: false });
     }
 
-    let resolvePending: (trusted: boolean) => void = () => undefined;
-    const promise = new Promise<boolean>((resolve) => {
-      resolvePending = resolve;
-    });
-    pendingTrustConfirmationRef.current = {
+    const promise = window.githead.addRepoTrust({ repoPath });
+    pendingRepoTrustRequestRef.current = {
       repoPath,
-      promise,
-      resolve: resolvePending
+      promise
     };
-    setTrustDialogRepoPath(repoPath);
+    const clearPending = (): void => {
+      if (pendingRepoTrustRequestRef.current?.promise === promise) {
+        pendingRepoTrustRequestRef.current = null;
+      }
+    };
+    void promise.then(clearPending, clearPending);
     return promise;
   }, []);
 
@@ -1110,7 +1100,7 @@ export function App(): ReactNode {
     repoPath,
     exitCode: -1,
     stdout: "",
-    stderr: `${TRUST_WORKSPACE_TITLE} ${TRUST_WORKSPACE_DESCRIPTION}`
+    stderr: REPOSITORY_TRUST_REQUIRED_MESSAGE
   }), []);
 
   const ensureTrustedRepo = useCallback(async (
@@ -1134,20 +1124,7 @@ export function App(): ReactNode {
         return true;
       }
 
-      if (!(await confirmWorkspaceTrust(repoPath))) {
-        if (requestIsCurrent()) {
-          updateState({
-            lastOperationResult: createTrustFailure(repoPath)
-          });
-        }
-        return false;
-      }
-
-      if (!requestIsCurrent()) {
-        return false;
-      }
-
-      const nextTrust: RepoTrustResult = await window.githead.addRepoTrust({ repoPath });
+      const nextTrust = await requestRepoTrust(repoPath);
       if (!requestIsCurrent()) {
         return false;
       }
@@ -1172,7 +1149,7 @@ export function App(): ReactNode {
       }
       return false;
     }
-  }, [confirmWorkspaceTrust, createTrustFailure, updateState]);
+  }, [createTrustFailure, requestRepoTrust, updateState]);
 
   useEffect(() => {
     stateRef.current = state;
@@ -1735,9 +1712,12 @@ export function App(): ReactNode {
 
     try {
       if (options.statusOnly) {
-        if (!(await ensureTrustedRepo(repoPath, () => (
-          requestId === requestIds.current.repo && isSameRepoPath(repoPath, stateRef.current.repoPath)
-        )))) return;
+        const trust = await window.githead.getRepoTrust({ repoPath });
+        if (
+          !trust.trusted ||
+          requestId !== requestIds.current.repo ||
+          !isSameRepoPath(repoPath, stateRef.current.repoPath)
+        ) return;
         const status = await window.githead.getRepoStatus({ repoPath, generation: requestId, requestId: repositoryReadRequestId("status", requestId) });
         if (requestId !== requestIds.current.repo || !isSameRepoPath(status.repoPath, stateRef.current.repoPath)) return;
         acknowledgedFileStatusGenerationRef.current = Math.max(acknowledgedFileStatusGenerationRef.current, fileStatusGeneration);
@@ -2048,11 +2028,6 @@ export function App(): ReactNode {
       void window.githead.setWindowZoomFactor(leaving.appSettings?.zoomFactor ?? 1).catch(() => undefined);
     }
 
-    const pendingTrust = pendingTrustConfirmationRef.current;
-    if (pendingTrust && !isSameRepoPath(pendingTrust.repoPath, nextRepoPath)) {
-      closeTrustDialog(false);
-    }
-
     const detachedOperation = leaving.activeOperation;
     if (
       detachedOperation?.cancellable &&
@@ -2151,7 +2126,7 @@ export function App(): ReactNode {
       addToRecents: options.addToRecents ?? false,
       ...(options.recentAnchorPath ? { recentAnchorPath: options.recentAnchorPath } : {})
     });
-  }, [closeTrustDialog, refreshRepo, repositoryRefreshCoordinator, updateState]);
+  }, [refreshRepo, repositoryRefreshCoordinator, updateState]);
 
   const initializeRepository = useCallback(async (): Promise<void> => {
     let repoRecents: Awaited<ReturnType<typeof window.githead.getRepoRecents>> = [];
@@ -2380,9 +2355,7 @@ export function App(): ReactNode {
     cancelRepositoryRead("file-history", requestIds.current.fileHistory);
     cancelRepositoryRead("file-history-diff", requestIds.current.fileHistoryDiff);
     cancelRepositoryRead("file-blame", requestIds.current.fileBlame);
-    const pendingTrust = pendingTrustConfirmationRef.current;
-    pendingTrustConfirmationRef.current = null;
-    pendingTrust?.resolve(false);
+    pendingRepoTrustRequestRef.current = null;
   }, [repositoryRefreshCoordinator]);
 
   const createActiveOperation = useCallback((
@@ -7940,16 +7913,6 @@ export function App(): ReactNode {
         }}
       />
 
-      <TrustWorkspaceDialog
-        open={trustDialogRepoPath !== null}
-        repoPath={trustDialogRepoPath ?? ""}
-        onCancel={() => {
-          closeTrustDialog(false);
-        }}
-        onTrust={() => {
-          closeTrustDialog(true);
-        }}
-      />
     </AppChrome>
   );
 }
@@ -13168,50 +13131,6 @@ function CreatePullRequestDialog({
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function TrustWorkspaceDialog({
-  open,
-  repoPath,
-  onCancel,
-  onTrust
-}: {
-  open: boolean;
-  repoPath: string;
-  onCancel: () => void;
-  onTrust: () => void;
-}): ReactNode {
-  return (
-    <Dialog open={open} onOpenChange={(nextOpen) => {
-      if (!nextOpen) {
-        onCancel();
-      }
-    }}>
-      <DialogContent className="sm:max-w-[500px]" showCloseButton={false}>
-        <DialogHeader>
-          <DialogTitle>{TRUST_WORKSPACE_TITLE}</DialogTitle>
-          <DialogDescription>
-            {TRUST_WORKSPACE_DESCRIPTION}
-          </DialogDescription>
-        </DialogHeader>
-
-        {repoPath.trim() ? (
-          <p className="rounded-md border bg-muted/50 px-3 py-2 text-sm font-medium text-muted-foreground">
-            {repoPath}
-          </p>
-        ) : null}
-
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button type="button" onClick={onTrust} autoFocus>
-            Trust Workspace
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

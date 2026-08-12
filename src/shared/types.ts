@@ -1834,6 +1834,21 @@ export const APP_UI_FONTS = ["system", "inter", "ibm-plex-sans", "roboto"] as co
 export type AppUiFont = (typeof APP_UI_FONTS)[number];
 export const APP_CODE_FONTS = ["system-mono", "jetbrains-mono", "fira-code", "source-code-pro", "ibm-plex-mono"] as const;
 export type AppCodeFont = (typeof APP_CODE_FONTS)[number];
+export type WorkspaceTrustResponse = "trust" | "cancel";
+
+export interface WorkspaceTrustDialogContext {
+  repoPath: string;
+  appearanceMode: AppAppearanceMode;
+  colorTheme: AppColorTheme;
+  uiFont: AppUiFont;
+  codeFont: AppCodeFont;
+  zoomFactor: number;
+}
+
+export interface WorkspaceTrustApi {
+  respond(response: WorkspaceTrustResponse): void;
+}
+
 export const STATUS_FILE_VIEW_MODES = ["list", "tree"] as const;
 export type StatusFileViewMode = (typeof STATUS_FILE_VIEW_MODES)[number];
 

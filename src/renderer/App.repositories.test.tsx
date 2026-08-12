@@ -468,7 +468,7 @@ describe("App", { timeout: 10_000 }, () => {
     await flushRendererAsync();
 
     expect(githead.runGitAction).not.toHaveBeenCalled();
-    expect(screen.queryByRole("dialog", { name: "Do you trust this workspace?" })).toBeNull();
+    expect(githead.addRepoTrust).not.toHaveBeenCalled();
   });
 
   it("does not auto-fetch when the interval is disabled", async () => {

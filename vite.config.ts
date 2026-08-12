@@ -28,7 +28,10 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: true,
     rollupOptions: {
-      input: "index.html"
+      input: {
+        app: path.resolve(__dirname, "index.html"),
+        "workspace-trust": path.resolve(__dirname, "workspace-trust.html")
+      }
     }
   },
   server: {

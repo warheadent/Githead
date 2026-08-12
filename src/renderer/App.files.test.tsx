@@ -990,7 +990,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect((submitButton as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it("prompts to trust a repository before committing and remembers the decision", async () => {
+  it("requests repository trust once before committing and remembers the decision", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoTrust)
       .mockResolvedValueOnce({ trusted: true })
@@ -1014,10 +1014,6 @@ describe("App", { timeout: 10_000 }, () => {
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: trust repo");
     await user.click(screen.getByRole("button", { name: /^Commit$/ }));
 
-    expect(await screen.findByRole("dialog", { name: "Do you trust this workspace?" })).toBeTruthy();
-    expect(screen.getByText("This is the first time Githead will run Git operations here that may execute configured hooks or local Git configuration.")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Trust Workspace" }));
-
     await waitFor(() => {
       expect(githead.addRepoTrust).toHaveBeenCalledWith({
         repoPath
@@ -1028,6 +1024,8 @@ describe("App", { timeout: 10_000 }, () => {
         operationId: expect.any(String)
       });
     });
+    expect(githead.addRepoTrust).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog", { name: "Do you trust this workspace?" })).toBeNull();
   });
 
   it("does not run risky git operations when repository trust is declined", async () => {
@@ -1035,6 +1033,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getRepoTrust)
       .mockResolvedValueOnce({ trusted: true })
       .mockResolvedValue({ trusted: false });
+    vi.mocked(githead.addRepoTrust).mockResolvedValue({ trusted: false });
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       files: [
         createStatusFile("src/renderer/App.tsx", {
@@ -1049,21 +1048,52 @@ describe("App", { timeout: 10_000 }, () => {
     await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: decline trust");
     await user.click(screen.getByRole("button", { name: /^Commit$/ }));
-    await user.click(await screen.findByRole("button", { name: "Cancel" }));
 
     await waitFor(() => {
-      expect(githead.getRepoTrust).toHaveBeenCalledWith({
+      expect(githead.addRepoTrust).toHaveBeenCalledWith({
         repoPath
       });
     });
-    expect(githead.addRepoTrust).not.toHaveBeenCalled();
     expect(githead.commitChanges).not.toHaveBeenCalled();
   });
 
-  it("cancels a repository trust prompt instead of retargeting it after a repository switch", async () => {
+  it("does not repeat a declined trust request during the modal focus refresh", async () => {
+    const user = userEvent.setup();
+    const pendingTrust = defer<{ trusted: boolean }>();
+    vi.mocked(githead.getRepoTrust)
+      .mockResolvedValueOnce({ trusted: true })
+      .mockResolvedValue({ trusted: false });
+    vi.mocked(githead.addRepoTrust).mockReturnValueOnce(pendingTrust.promise);
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/renderer/App.tsx", {
+          indexStatus: "A",
+          isStaged: true
+        })
+      ]
+    }));
+
+    render(<App />);
+
+    await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
+    await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: decline trust once");
+    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await waitFor(() => expect(githead.addRepoTrust).toHaveBeenCalledTimes(1));
+
+    fireEvent.blur(window);
+    fireEvent.focus(window);
+    pendingTrust.resolve({ trusted: false });
+    await flushRendererAsync();
+
+    expect(githead.addRepoTrust).toHaveBeenCalledTimes(1);
+    expect(githead.commitChanges).not.toHaveBeenCalled();
+  });
+
+  it("does not retarget a pending repository trust request after a repository switch", async () => {
     const user = userEvent.setup();
     const otherRepo = "D:\\Work\\Trust-B";
     const pendingRepositoryChoice = defer<string | null>();
+    const pendingTrust = defer<{ trusted: boolean }>();
     vi.mocked(githead.chooseRepo).mockReturnValue(pendingRepositoryChoice.promise);
     vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
     vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
@@ -1071,6 +1101,7 @@ describe("App", { timeout: 10_000 }, () => {
       .mockResolvedValueOnce({ trusted: true })
       .mockResolvedValueOnce({ trusted: false })
       .mockResolvedValue({ trusted: true });
+    vi.mocked(githead.addRepoTrust).mockReturnValueOnce(pendingTrust.promise);
     vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
       repoPath: requestedRepoPath,
       files: [createStatusFile("src/trust.ts", { indexStatus: "M", isStaged: true })]
@@ -1085,13 +1116,13 @@ describe("App", { timeout: 10_000 }, () => {
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: trust A");
     await user.click(screen.getByRole("button", { name: /^Commit$/ }));
 
-    const trustDialog = await screen.findByRole("dialog", { name: "Do you trust this workspace?" });
-    expect(within(trustDialog).getByText(repoPath)).toBeTruthy();
+    await waitFor(() => expect(githead.addRepoTrust).toHaveBeenCalledWith({ repoPath }));
     pendingRepositoryChoice.resolve(otherRepo);
 
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Do you trust this workspace?" })).toBeNull());
-    expect(screen.getByRole("button", { name: `Switch to ${otherRepo}` }).getAttribute("aria-current")).toBe("true");
-    expect(githead.addRepoTrust).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByRole("button", { name: `Switch to ${otherRepo}` }).getAttribute("aria-current")).toBe("true"));
+    pendingTrust.resolve({ trusted: true });
+    await flushRendererAsync();
+
     expect(githead.commitChanges).not.toHaveBeenCalled();
   });
 

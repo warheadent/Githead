@@ -25,7 +25,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, "src/main/main.ts"),
-        preload: path.resolve(__dirname, "src/main/preload.ts")
+        preload: path.resolve(__dirname, "src/main/preload.ts"),
+        "workspace-trust-preload": path.resolve(__dirname, "src/main/workspaceTrustPreload.ts")
       },
       external: (id) =>
         id === "electron" || id === "electron-updater" || id.startsWith("@sentry/") || nodeModules.has(id),
