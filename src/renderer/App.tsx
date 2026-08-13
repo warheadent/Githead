@@ -5006,6 +5006,20 @@ export function App(): ReactNode {
     });
   }, [loadGitIdentity, updateState]);
 
+  const commitStagedChanges = useCallback((
+    repoPath: string,
+    message: string,
+    operationId: string
+  ): Promise<GitOperationResult | GitCommitWithRemoteCheckResult> => {
+    const current = stateRef.current;
+    const requireRemoteCheck = isSameRepoPath(repoPath, current.repoPath)
+      && current.summary?.kind === "git"
+      && current.appSettings?.gitBehaviors?.requireUpToDateUpstreamBeforeCommit === true;
+    return requireRemoteCheck
+      ? window.githead.commitWithRemoteCheck({ repoPath, message, operationId })
+      : window.githead.commitChanges({ repoPath, message, operationId });
+  }, []);
+
   const commitChanges = useCallback(async (): Promise<GitOperationResult | null> => {
     const current = stateRef.current;
     if (!current.summary?.isValid || isOperationRunning(current) || !canCommit(current)) {
@@ -5025,9 +5039,7 @@ export function App(): ReactNode {
     const result = await runRepoOperation(
       requireRemoteCheck ? "Checking remote and committing changes" : "Committing changes",
       null,
-      (operationId) => requireRemoteCheck
-        ? window.githead.commitWithRemoteCheck({ repoPath, message, operationId })
-        : window.githead.commitChanges({ repoPath, message, operationId }),
+      (operationId) => commitStagedChanges(repoPath, message, operationId),
       { successFeedback: { action: "commit", surface: "commit-panel" } }
     ) as GitOperationResult | GitCommitWithRemoteCheckResult | null;
 
@@ -5055,7 +5067,7 @@ export function App(): ReactNode {
       });
     }
     return result;
-  }, [ensureTrustedRepo, isInvocationCurrent, openGitIdentityPrompt, runRepoOperation, updateState]);
+  }, [commitStagedChanges, ensureTrustedRepo, isInvocationCurrent, openGitIdentityPrompt, runRepoOperation, updateState]);
 
   const openAmendDialog = useCallback((source: GitAmendEntryPoint, commitHash?: string): void => {
     const current = stateRef.current;
@@ -5670,12 +5682,10 @@ export function App(): ReactNode {
         return;
       }
 
-      const result = await runRepoOperation("Committing changes", null, (operationId) =>
-        window.githead.commitChanges({
-          repoPath,
-          message: retryMessage,
-          operationId
-        })
+      const result = await runRepoOperation(
+        "Committing changes",
+        null,
+        (operationId) => commitStagedChanges(repoPath, retryMessage, operationId)
       );
 
       if (result?.exitCode === 0) {
@@ -5697,7 +5707,7 @@ export function App(): ReactNode {
     } finally {
       finishActiveOperation(operation.token);
     }
-  }, [createActiveOperation, ensureTrustedRepo, finishActiveOperation, isActiveOperationCurrent, isInvocationCurrent, runRepoOperation, updateState]);
+  }, [commitStagedChanges, createActiveOperation, ensureTrustedRepo, finishActiveOperation, isActiveOperationCurrent, isInvocationCurrent, runRepoOperation, updateState]);
 
   const openExternalUrl = useCallback((url: string): void => {
     void window.githead.openExternalUrl({

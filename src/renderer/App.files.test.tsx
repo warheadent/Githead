@@ -1367,6 +1367,69 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.commitChanges).not.toHaveBeenCalled();
   });
 
+  it("keeps the optional upstream safety check when retrying after Git identity is saved", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getAppSettings).mockResolvedValue({
+      autoFetchIntervalMinutes: 10,
+      colorTheme: "githead",
+      appearanceMode: "system",
+      uiFont: "inter",
+      codeFont: "system-mono",
+      zoomFactor: 1,
+      statusFileViewMode: "list",
+      wrapDiffLines: false,
+      gitBehaviors: {
+        tagPushBehavior: "all",
+        requireUpToDateUpstreamBeforeCommit: true
+      },
+      privacy: { shareAnonymousDiagnostics: true }
+    });
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [createStatusFile("src/safe-identity.ts", { indexStatus: "M", isStaged: true })]
+    }));
+    vi.mocked(githead.commitWithRemoteCheck)
+      .mockResolvedValueOnce({
+        repoPath,
+        exitCode: 1,
+        stdout: "",
+        stderr: "Author identity unknown",
+        errorKind: "missing-author-identity",
+        outcome: "commit-failed",
+        commitCreated: false,
+        branchName: "main",
+        ahead: 0,
+        behind: 0
+      })
+      .mockResolvedValueOnce({
+        repoPath,
+        exitCode: 0,
+        stdout: "[main abc123] fix: safe identity retry\n",
+        stderr: "",
+        outcome: "committed",
+        commitCreated: true,
+        branchName: "main",
+        ahead: 0,
+        behind: 0
+      });
+
+    render(<App />);
+
+    await screen.findByRole("option", { name: /src\/safe-identity\.ts/ });
+    await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "fix: safe identity retry");
+    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.type(await screen.findByLabelText("Name"), "Taylor");
+    await user.type(screen.getByLabelText("Email"), "taylor@example.test");
+    await user.click(screen.getByRole("button", { name: "Save and Retry Commit" }));
+
+    await waitFor(() => expect(githead.commitWithRemoteCheck).toHaveBeenCalledTimes(2));
+    expect(githead.commitWithRemoteCheck).toHaveBeenLastCalledWith({
+      repoPath,
+      message: "fix: safe identity retry",
+      operationId: expect.any(String)
+    });
+    expect(githead.commitChanges).not.toHaveBeenCalled();
+  });
+
   it("keeps the staged commit ready when the optional upstream check finds remote commits", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getAppSettings).mockResolvedValue({
