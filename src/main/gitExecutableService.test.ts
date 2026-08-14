@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { GitExecutableService } from "./gitExecutableService";
 import type { ProcessResult, ProcessRunOptions, ProcessRunner } from "./processRunner";
 
@@ -28,11 +28,31 @@ describe("GitExecutableService", () => {
     expect(runner.calls).toEqual([{
       command: "git",
       args: ["--version"],
-      options: {
+      options: expect.objectContaining({
         timeoutMs: 2_000,
         maxOutputBytes: 4 * 1024
-      }
+      })
     }]);
+  });
+
+  it("stops waiting when the process runner does not settle", async () => {
+    vi.useFakeTimers();
+    try {
+      const run = vi.fn<ProcessRunner["run"]>(() => new Promise(() => {}));
+      const status = new GitExecutableService({ run }).getStatus();
+
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      await expect(status).resolves.toEqual({
+        available: false,
+        reason: "unavailable"
+      });
+      const options = run.mock.calls[0]?.[2];
+      expect(options?.signal?.aborted).toBe(true);
+      expect(options?.signal?.reason).toMatchObject({ name: "TimeoutError" });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("reports Git as not found when the executable cannot be spawned", async () => {

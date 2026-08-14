@@ -965,6 +965,7 @@ export function App(): ReactNode {
   const codeFont = state.settingsOpen ? state.settingsDraft.codeFont : state.appSettings?.codeFont ?? "system-mono";
   useFontPreferences(uiFont, codeFont);
   const stateRef = useRef(state);
+  stateRef.current = state;
   const githubConnectionGenerationRef = useRef(0);
   const appSettingsSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const appSettingsPreferenceSaveId = useRef(0);
@@ -1010,17 +1011,25 @@ export function App(): ReactNode {
   const configuredActionRunIdRef = useRef(0);
   const fileStatusGenerationRef = useRef(0);
   const acknowledgedFileStatusGenerationRef = useRef(0);
-  const startupStartedRef = useRef(false);
+  const startupAttemptRef = useRef(0);
   const refreshDirtyFileStatusRef = useRef<() => Promise<void>>(async () => undefined);
   const windowFocusedRef = useRef(true);
   const updateState = useCallback((updater: AppStateUpdater): void => {
-    const current = stateRef.current;
-    const next = typeof updater === "function" ? updater(current) : {
-      ...current,
+    const base = stateRef.current;
+    const optimistic = typeof updater === "function" ? updater(base) : {
+      ...base,
       ...updater
     };
-    stateRef.current = next;
-    setState(next);
+    stateRef.current = optimistic;
+    setState((current) => {
+      const next = current === base
+        ? optimistic
+        : typeof updater === "function"
+          ? updater(current)
+          : { ...current, ...updater };
+      stateRef.current = next;
+      return next;
+    });
   }, []);
 
   useEffect(() => {
@@ -2128,23 +2137,27 @@ export function App(): ReactNode {
     });
   }, [refreshRepo, repositoryRefreshCoordinator, updateState]);
 
-  const initializeRepository = useCallback(async (): Promise<void> => {
+  const initializeRepository = useCallback(async (startupAttempt: number): Promise<void> => {
     let repoRecents: Awaited<ReturnType<typeof window.githead.getRepoRecents>> = [];
 
     try {
       repoRecents = await window.githead.getRepoRecents();
     } catch (error) {
-      updateState((current) => ({
-        ...current,
-        lastOperationResult: {
-          repoPath: current.repoPath,
-          exitCode: -1,
-          stdout: "",
-          stderr: error instanceof Error ? error.message : "Unable to load recent repositories."
-        }
-      }));
+      if (startupAttempt === startupAttemptRef.current) {
+        updateState((current) => ({
+          ...current,
+          lastOperationResult: {
+            repoPath: current.repoPath,
+            exitCode: -1,
+            stdout: "",
+            stderr: error instanceof Error ? error.message : "Unable to load recent repositories."
+          }
+        }));
+      }
       throw error;
     }
+
+    if (startupAttempt !== startupAttemptRef.current) return;
 
     updateState((current) => ({
       ...current,
@@ -2185,14 +2198,16 @@ export function App(): ReactNode {
     }
   }, [updateState]);
 
-  const loadAppSettings = useCallback(async (): Promise<void> => {
+  const loadAppSettings = useCallback(async (startupAttempt: number): Promise<void> => {
     try {
       const appSettings = await window.githead.getAppSettings();
+      if (startupAttempt !== startupAttemptRef.current) return;
       publishTelemetryPreference(appSettings.privacy.shareAnonymousDiagnostics);
       updateState({
         appSettings
       });
     } catch (error) {
+      if (startupAttempt !== startupAttemptRef.current) return;
       updateState((current) => ({
         ...current,
         appSettings: {
@@ -2286,42 +2301,50 @@ export function App(): ReactNode {
   }, [loadGitIdentity, loadRepositorySyncSettings]);
 
   const initializeApp = useCallback(async (): Promise<void> => {
+    const startupAttempt = startupAttemptRef.current + 1;
+    startupAttemptRef.current = startupAttempt;
     updateState({ gitExecutableChecking: true });
-    const gitExecutableStatus = await window.githead.getGitExecutableStatus();
-    if (!gitExecutableStatus.available) {
+    try {
+      const gitExecutableStatus = await window.githead.getGitExecutableStatus();
+      if (startupAttempt !== startupAttemptRef.current) return;
+      if (!gitExecutableStatus.available) {
+        updateState({
+          startupStatus: "ready",
+          gitExecutableStatus,
+          gitExecutableChecking: false
+        });
+        return;
+      }
+
       updateState({
-        startupStatus: "ready",
+        startupStatus: "loading",
         gitExecutableStatus,
         gitExecutableChecking: false
       });
-      return;
-    }
-
-    updateState({
-      startupStatus: "loading",
-      gitExecutableStatus,
-      gitExecutableChecking: false
-    });
-    await Promise.all([
-      initializeRepository(),
-      loadAppSettings()
-    ]);
-    updateState({ startupStatus: "ready" });
-  }, [initializeRepository, loadAppSettings, updateState]);
-
-  useEffect(() => {
-    if (startupStartedRef.current) return;
-    startupStartedRef.current = true;
-    void initializeApp().catch((error: unknown) => {
+      await Promise.all([
+        initializeRepository(startupAttempt),
+        loadAppSettings(startupAttempt)
+      ]);
+      if (startupAttempt !== startupAttemptRef.current) return;
+      updateState({ startupStatus: "ready" });
+    } catch (error) {
+      if (startupAttempt !== startupAttemptRef.current) return;
       updateState({
         startupStatus: "ready",
         gitExecutableChecking: false,
         showSetup: true,
         setupError: error instanceof Error ? error.message : "Unable to load recent repositories."
       });
-    });
+    }
+  }, [initializeRepository, loadAppSettings, updateState]);
+
+  useEffect(() => {
+    void initializeApp();
     void loadAiSettings();
-  }, [initializeApp, loadAiSettings, updateState]);
+    return () => {
+      startupAttemptRef.current += 1;
+    };
+  }, [initializeApp, loadAiSettings]);
 
   useEffect(() => {
     if (state.gitExecutableStatus?.available) {

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { StrictMode } from "react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
@@ -28,6 +29,16 @@ import {
 import { App } from "./App";
 
 describe("App", { timeout: 10_000 }, () => {
+  it("completes startup when Strict Mode replays effects", async () => {
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>
+    );
+
+    await waitForRepositoryWorkspace();
+  });
+
   it("shows the startup screen instead of setup while recent repositories load", async () => {
     const pendingRecents = defer<RepositoryRecent[]>();
     vi.mocked(githead.getRepoRecents).mockReturnValue(pendingRecents.promise);
