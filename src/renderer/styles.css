@@ -332,7 +332,7 @@
   }
 
   body {
-    min-width: 860px;
+    min-width: 0;
     margin: 0;
     overflow: hidden;
     background: var(--background);
@@ -739,8 +739,210 @@ textarea,
 }
 
 .app-content {
+  position: relative;
   min-height: 0;
   overflow: hidden;
+}
+
+.app-workspace-shell {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.repository-panel-scrim,
+.repository-drawer-toggle {
+  display: none;
+}
+
+@media (max-width: 839px) {
+  .repository-drawer-toggle {
+    -webkit-app-region: no-drag;
+    display: grid;
+    width: 30px;
+    height: 30px;
+    flex: 0 0 auto;
+    place-items: center;
+    border: 0;
+    border-radius: 5px;
+    color: var(--muted-foreground);
+    background: transparent;
+  }
+
+  .repository-drawer-toggle:hover,
+  .repository-drawer-toggle:focus-visible {
+    color: var(--foreground);
+    background: var(--accent);
+  }
+
+  .repository-drawer-toggle svg {
+    width: 17px;
+    height: 17px;
+  }
+
+  .repository-panel-scrim {
+    position: absolute;
+    z-index: 39;
+    inset: 0;
+    display: block;
+    border: 0;
+    background: color-mix(in oklch, var(--background) 38%, transparent);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 140ms ease;
+  }
+
+  .app-workspace > [data-panel][data-layout-panel="repository"] {
+    position: absolute !important;
+    z-index: 40;
+    inset: 0 auto 0 0;
+    width: min(360px, calc(100% - 44px)) !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    flex: none !important;
+    transform: translateX(-100%);
+    visibility: hidden;
+    box-shadow: 14px 0 32px color-mix(in oklch, var(--background) 52%, transparent);
+    transition: transform 160ms ease, visibility 0s linear 160ms;
+  }
+
+  .repository-panel-shell {
+    width: 100%;
+    height: 100%;
+    min-width: 0 !important;
+  }
+
+  .app-workspace-shell[data-repository-panel-open="true"] .repository-panel-scrim {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .app-workspace-shell[data-repository-panel-open="true"]
+    .app-workspace
+    > [data-panel][data-layout-panel="repository"] {
+    transform: translateX(0);
+    visibility: visible;
+    transition-delay: 0s;
+  }
+
+  .app-workspace-resize-handle {
+    display: none;
+  }
+
+  .app-workspace > [data-panel][data-layout-panel="workspace"] {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    flex: 1 1 100% !important;
+  }
+
+  .main-workspace-panel {
+    width: 100%;
+    height: 100%;
+    min-width: 0 !important;
+  }
+
+  .app-workspace-main {
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+  }
+
+  .action-bar {
+    flex: 0 0 auto;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .action-bar-actions {
+    width: 100%;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    padding-bottom: 3px;
+    overflow-x: auto;
+  }
+
+  .workspace-tabs {
+    min-height: 320px;
+    flex: 0 0 320px;
+  }
+
+  .workspace-tabs-bar {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .commit-panel {
+    flex: 0 0 auto;
+    padding: 12px;
+  }
+
+  .status-workspace {
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    overscroll-behavior-x: contain;
+  }
+
+  .status-workspace > [data-panel][data-status-panel="files"] {
+    width: 300px !important;
+    min-width: 300px !important;
+    max-width: none !important;
+    flex: 0 0 300px !important;
+  }
+
+  .status-workspace > [data-panel][data-status-panel="diff"] {
+    width: min(420px, 100vw) !important;
+    min-width: min(420px, 100vw) !important;
+    max-width: none !important;
+    flex: 0 0 min(420px, 100vw) !important;
+  }
+
+  .status-workspace-resize-handle {
+    flex: 0 0 1px;
+  }
+}
+
+@media (max-width: 839px) and (prefers-reduced-motion: reduce) {
+  .repository-panel-scrim,
+  .app-workspace > [data-panel][data-layout-panel="repository"] {
+    transition: none;
+  }
+}
+
+@media (max-height: 479px) {
+  .settings-dialog-header {
+    gap: 0;
+    padding: 10px 40px 10px 16px;
+  }
+
+  .settings-dialog-header > .eyebrow,
+  .settings-dialog-header > [data-slot="dialog-description"] {
+    display: none;
+  }
+
+  .settings-dialog .settings-category-nav {
+    padding: 8px 12px;
+  }
+
+  .settings-dialog .settings-category-nav select {
+    height: 36px;
+  }
+
+  .settings-dialog-footer {
+    min-height: 0;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+
+  .settings-dialog-actions {
+    flex-direction: row;
+    justify-content: flex-end;
+  }
 }
 
 .startup-screen {
@@ -1802,6 +2004,9 @@ textarea,
 }
 
 .reference-picker-content {
+  display: flex;
+  max-height: var(--radix-popover-content-available-height);
+  flex-direction: column;
   width: min(320px, var(--radix-popover-content-available-width));
   padding: 0;
   overflow: hidden;
@@ -1809,6 +2014,7 @@ textarea,
 
 .reference-picker-search {
   position: relative;
+  flex: 0 0 auto;
   padding: 10px 12px 8px;
 }
 
@@ -1829,6 +2035,8 @@ textarea,
 }
 
 .reference-picker-list {
+  min-height: 0;
+  flex: 1 1 240px;
   max-height: 240px;
   padding: 0 6px 6px;
   overflow-y: auto;
@@ -2316,6 +2524,7 @@ textarea,
 }
 
 .reference-picker-actions {
+  flex: 0 0 auto;
   border-top: 1px solid var(--border);
   padding: 6px;
 }
@@ -4903,6 +5112,7 @@ textarea,
 }
 
 .review-console-workspace {
+  container-type: inline-size;
   height: 100%;
   min-height: 0;
   background: var(--card);
@@ -4933,6 +5143,29 @@ textarea,
   border-color: color-mix(in oklch, var(--border) 75%, var(--foreground));
   background: var(--card);
   box-shadow: 0 3px 10px color-mix(in oklch, var(--background) 55%, transparent);
+}
+
+@container (max-width: 700px) {
+  .review-console-workspace[data-detail-open="false"] > .review-console-resize-handle,
+  .review-console-workspace[data-detail-open="false"] > [data-panel][data-review-panel="drawer"],
+  .review-console-workspace[data-detail-open="true"] > [data-panel][data-review-panel="list"],
+  .review-console-workspace[data-detail-open="true"] > .review-console-resize-handle {
+    display: none !important;
+  }
+
+  .review-console-workspace[data-detail-open="false"] > [data-panel][data-review-panel="list"],
+  .review-console-workspace[data-detail-open="true"] > [data-panel][data-review-panel="drawer"] {
+    width: 100% !important;
+    min-width: 0;
+    max-width: none !important;
+    flex: 1 1 100% !important;
+  }
+
+  .review-console-list-panel,
+  .review-console-drawer-panel {
+    width: 100%;
+    min-width: 0;
+  }
 }
 
 .github-row.is-selected,

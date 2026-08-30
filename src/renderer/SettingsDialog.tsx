@@ -228,17 +228,17 @@ export function SettingsDialog({
         if (!nextOpen) requestClose();
       }}>
         <DialogContent
-          className="h-[min(780px,calc(100vh-2rem))] max-h-[min(780px,calc(100vh-2rem))] overflow-clip p-0 sm:max-w-[880px]"
+          className="settings-dialog h-[min(780px,calc(100vh-2rem))] max-h-[min(780px,calc(100vh-2rem))] overflow-clip p-0 sm:max-w-[880px]"
           aria-busy={saving}
         >
-          <form className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]" onSubmit={(event) => {
+          <form className="settings-dialog-form grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]" onSubmit={(event) => {
             if (saving) {
               event.preventDefault();
               return;
             }
             onSave(event);
           }}>
-            <DialogHeader className="border-b px-6 py-5 pr-14">
+            <DialogHeader className="settings-dialog-header border-b px-6 py-5 pr-14">
               <p className="eyebrow">Preferences</p>
               <DialogTitle>Settings</DialogTitle>
               <DialogDescription>Configure Githead for the way you work.</DialogDescription>
@@ -454,14 +454,14 @@ export function SettingsDialog({
                 </SettingsPanel>
             </SettingsCategoryLayout>
 
-            <div className="flex min-h-16 flex-col gap-3 border-t bg-background px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="settings-dialog-footer flex min-h-16 flex-col gap-3 border-t bg-background px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
               <MotionSwap
                 item={footerStatus}
                 className="relative min-h-5 min-w-0 text-sm"
                 presenceClassName=""
                 initialY={-2}
               />
-              <DialogFooter className="shrink-0">
+              <DialogFooter className="settings-dialog-actions shrink-0">
                 <Button type="button" variant="outline" onClick={requestClose}>{saving ? "Cancel operation" : "Cancel"}</Button>
                 <Button type="submit" disabled={saving || !dirty}>{saving ? <Loader2 className="animate-spin" /> : <Save />}{saving ? "Saving…" : "Save"}</Button>
               </DialogFooter>

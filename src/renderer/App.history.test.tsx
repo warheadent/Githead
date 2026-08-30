@@ -433,6 +433,64 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.getByText("Add MeshBites Shader")).toBeTruthy();
   });
 
+  it("aligns the commit graph after hidden columns", async () => {
+    const storageKey = "githead.column-layout.history";
+    window.localStorage.setItem(storageKey, JSON.stringify({
+      version: 2,
+      order: ["description", "graph", "date", "author", "commit", "references", "pullRequest", "checks"],
+      widths: { graph: 82, description: 360 },
+      visibility: { graph: true, description: false }
+    }));
+    const user = userEvent.setup();
+    const commit = createCommit({
+      hash: "c".repeat(40),
+      shortHash: "ccccccc",
+      subject: "fix: align visible history columns"
+    });
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash));
+
+    try {
+      render(<App />);
+      await waitForRepositoryWorkspace();
+      await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+
+      expect(await screen.findByTestId("commit-graph-svg")).toBeTruthy();
+      expect(screen.getByRole("region", { name: "Commit list" }).style.getPropertyValue("--history-graph-offset")).toBe("12px");
+    } finally {
+      window.localStorage.removeItem(storageKey);
+    }
+  });
+
+  it("does not render the commit graph overlay when its column is hidden", async () => {
+    const storageKey = "githead.column-layout.history";
+    window.localStorage.setItem(storageKey, JSON.stringify({
+      version: 2,
+      order: ["graph", "description", "date", "author", "commit", "references", "pullRequest", "checks"],
+      widths: { graph: 82, description: 360 },
+      visibility: { graph: false, description: true }
+    }));
+    const user = userEvent.setup();
+    const commit = createCommit({
+      hash: "d".repeat(40),
+      shortHash: "ddddddd",
+      subject: "fix: hide history graph"
+    });
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash));
+
+    try {
+      render(<App />);
+      await waitForRepositoryWorkspace();
+      await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+
+      expect(await screen.findByRole("option", { name: /hide history graph/ })).toBeTruthy();
+      expect(screen.queryByTestId("commit-graph-svg")).toBeNull();
+    } finally {
+      window.localStorage.removeItem(storageKey);
+    }
+  });
+
   it("switches between current and all commit history with an accessible scope control", async () => {
     const user = userEvent.setup();
     const currentCommit = createCommit({

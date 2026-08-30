@@ -29,9 +29,9 @@ export function SettingsCategoryLayout<T extends string>({
     value={activeCategory}
     orientation="vertical"
     onValueChange={(value) => onCategoryChange(value as T)}
-    className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-0 md:grid-cols-[240px_minmax(0,1fr)] md:grid-rows-1"
+    className="settings-category-layout grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-0 md:grid-cols-[240px_minmax(0,1fr)] md:grid-rows-1"
   >
-    <div className="border-b p-3 md:border-r md:border-b-0 md:p-4">
+    <div className="settings-category-nav border-b p-3 md:border-r md:border-b-0 md:p-4">
       <Label htmlFor="settings-category" className="sr-only">Settings category</Label>
       <select
         id="settings-category"
@@ -64,7 +64,7 @@ export function SettingsCategoryLayout<T extends string>({
         ))}
       </TabsList>
     </div>
-    <div className="min-h-0 overflow-hidden">{children}</div>
+    <div className="settings-category-panels min-h-0 overflow-hidden">{children}</div>
   </Tabs>;
 }
 

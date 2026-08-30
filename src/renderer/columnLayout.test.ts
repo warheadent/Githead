@@ -29,6 +29,25 @@ describe("column layout", () => {
     });
   });
 
+  it("restores a default-visible column when saved visibility hides every column", () => {
+    expect(normalizeColumnLayout({
+      version: 2,
+      order: ["date", "name", "author"],
+      widths: {},
+      visibility: { name: false, date: false, author: false }
+    }, columns).visibility).toEqual({ name: true, date: false, author: false });
+  });
+
+  it("never clamps a column below its dynamic minimum width", () => {
+    const wideColumns = [
+      { id: "wide", label: "Wide", defaultWidth: 1_100, minWidth: 1_000 }
+    ] as const satisfies readonly ColumnDefinition<string>[];
+
+    expect(normalizeColumnLayout({ version: 2, order: ["wide"], widths: { wide: 1_100 } }, wideColumns).widths).toEqual({
+      wide: 1_000
+    });
+  });
+
   it("moves a column to the target position", () => {
     expect(reorderColumn(["a", "b", "c"], "a", "c")).toEqual(["b", "c", "a"]);
     expect(reorderColumn(["a", "b", "c"], "c", "a")).toEqual(["c", "a", "b"]);

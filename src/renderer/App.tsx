@@ -919,6 +919,7 @@ export function App(): ReactNode {
   const [performanceDiagnosticsOpen, setPerformanceDiagnosticsOpen] = useState(false);
   const [conflictResolverPath, setConflictResolverPath] = useState<string | null>(null);
   const [statusWorkspaceMode, setStatusWorkspaceMode] = useState<"files" | "plan">("files");
+  const [repositoryPanelOpen, setRepositoryPanelOpen] = useState(false);
   const [workingTreeChangeVersion, setWorkingTreeChangeVersion] = useState(0);
   const [stashComposer, setStashComposer] = useState<StashComposerState>(emptyStashComposer);
   const [repositorySettingsPath, setRepositorySettingsPath] = useState("");
@@ -6921,95 +6922,121 @@ export function App(): ReactNode {
       onMinimize={minimizeWindow}
       onToggleMaximize={toggleMaximizeWindow}
       onClose={closeWindow}
+      repositoryPanelOpen={repositoryPanelOpen}
+      onToggleRepositoryPanel={() => setRepositoryPanelOpen((open) => !open)}
     >
-      <ResizablePanelGroup orientation="horizontal" className="h-full min-h-0">
-        <ResizablePanel defaultSize="27%" minSize="292px" maxSize="460px" className="min-w-[292px]">
-          <RepositoryPanel
-            repoPath={state.repoPath}
-            repoRecents={state.repoRecents}
-            repositoryGroups={state.repositoryGroups}
-            repoSyncStatuses={state.repoSyncStatuses}
-            summary={state.summary}
-            upstreamError={state.upstreamError}
-            running={running || repositoryOperationActive}
-            appUpdate={state.appUpdate}
-            clonePanelOpen={state.clonePanelOpen}
-            cloneDraft={state.cloneDraft}
-            cloneError={state.cloneError}
-            cloneRunning={state.cloneRunning}
-            cloneCheckRunning={state.cloneCheckRunning}
-            cloneCheckStatus={state.cloneCheckStatus}
-            cloneCheckMessage={state.cloneCheckMessage}
-            cloneBranches={state.cloneBranches}
-            cancelStatus={cloneCancellation?.cancelStatus ?? "idle"}
-            cancelError={cloneCancellation?.cancelError ?? ""}
-            onClonePanelOpenChange={setClonePanelOpen}
-            onChooseRepo={() => {
-              void chooseRepo();
-            }}
-            onSelectRecent={(repoPath) => {
-              void selectRecentRepo(repoPath);
-            }}
-            onRemoveRecent={(repoPath) => {
-              void removeRecentRepo(repoPath);
-            }}
-            onRecoverRecent={recoverRecentRepo}
-            onReorderRepositories={(repoPaths) => {
-              void reorderRepositories(repoPaths);
-            }}
-            onShowInExplorer={(repoPath) => {
-              void showRecentRepositoryInExplorer(repoPath);
-            }}
-            onOpenRepositorySettings={setRepositorySettingsPath}
-            onAddWorktree={openWorktreeDialog}
-            onRemoveWorktree={(worktree) => { void openWorktreeRemoval(worktree); }}
-            onSwitchBranch={(branchName) => {
-              void switchBranch(branchName);
-            }}
-            onCheckoutRemoteBranch={checkoutRemoteBranch}
-            onOpenBranchDialog={openBranchDialog}
-            onOpenBranchManager={openBranchManager}
-            onOpenMerge={() => setIntegrationDialog({ kind: "merge" })}
-            onOpenRebase={() => setIntegrationDialog({ kind: "rebase" })}
-            onChangeUpstream={(upstream) => {
-              void setBranchUpstream(upstream);
-            }}
-            onOpenRemoteManager={openRemoteManager}
-            onOpenExternalUrl={openExternalUrl}
-            onOpenSettings={() => openSettingsDialog()}
-            onCloneDraftChange={updateCloneDraft}
-            onCloneSourceChange={(draft) => {
-              updateCloneDraft(draft);
-              resetCloneCheckState();
-            }}
-            onChooseCloneParent={() => {
-              void chooseCloneParent();
-            }}
-            onCheckRepositoryAccess={() => {
-              void checkRepositoryAccess();
-            }}
-            onClone={(event) => {
-              event.preventDefault();
-              void cloneRepository();
-            }}
-            onCancelOperation={() => {
-              if (cloneCancellationRequestTarget) void cancelRunningOperation(cloneCancellationRequestTarget);
-            }}
-            onCheckForUpdates={() => {
-              void checkForAppUpdates();
-            }}
-            onDownloadUpdate={() => {
-              void downloadAppUpdate();
-            }}
-            onInstallUpdate={() => {
-              void installAppUpdate();
-            }}
-          />
-        </ResizablePanel>
-        <ResizableHandle />
-        <ResizablePanel minSize="520px">
-          <section className="flex h-full min-w-0 flex-col overflow-hidden">
-            <ActionBar
+      <div className="app-workspace-shell" data-repository-panel-open={repositoryPanelOpen ? "true" : "false"}>
+        <button
+          type="button"
+          className="repository-panel-scrim"
+          aria-label="Close repositories"
+          aria-hidden={!repositoryPanelOpen}
+          tabIndex={repositoryPanelOpen ? 0 : -1}
+          onClick={() => setRepositoryPanelOpen(false)}
+        />
+        <ResizablePanelGroup orientation="horizontal" className="app-workspace h-full min-h-0">
+          <ResizablePanel
+            defaultSize="27%"
+            minSize="292px"
+            maxSize="460px"
+            className="repository-panel-shell min-w-[292px]"
+            data-layout-panel="repository"
+            id="repository-panel"
+          >
+            <RepositoryPanel
+              repoPath={state.repoPath}
+              repoRecents={state.repoRecents}
+              repositoryGroups={state.repositoryGroups}
+              repoSyncStatuses={state.repoSyncStatuses}
+              summary={state.summary}
+              upstreamError={state.upstreamError}
+              running={running || repositoryOperationActive}
+              appUpdate={state.appUpdate}
+              clonePanelOpen={state.clonePanelOpen}
+              cloneDraft={state.cloneDraft}
+              cloneError={state.cloneError}
+              cloneRunning={state.cloneRunning}
+              cloneCheckRunning={state.cloneCheckRunning}
+              cloneCheckStatus={state.cloneCheckStatus}
+              cloneCheckMessage={state.cloneCheckMessage}
+              cloneBranches={state.cloneBranches}
+              cancelStatus={cloneCancellation?.cancelStatus ?? "idle"}
+              cancelError={cloneCancellation?.cancelError ?? ""}
+              onClonePanelOpenChange={setClonePanelOpen}
+              onChooseRepo={() => {
+                setRepositoryPanelOpen(false);
+                void chooseRepo();
+              }}
+              onSelectRecent={(repoPath) => {
+                setRepositoryPanelOpen(false);
+                void selectRecentRepo(repoPath);
+              }}
+              onRemoveRecent={(repoPath) => {
+                void removeRecentRepo(repoPath);
+              }}
+              onRecoverRecent={recoverRecentRepo}
+              onReorderRepositories={(repoPaths) => {
+                void reorderRepositories(repoPaths);
+              }}
+              onShowInExplorer={(repoPath) => {
+                void showRecentRepositoryInExplorer(repoPath);
+              }}
+              onOpenRepositorySettings={(repoPath) => {
+                setRepositoryPanelOpen(false);
+                setRepositorySettingsPath(repoPath);
+              }}
+              onAddWorktree={openWorktreeDialog}
+              onRemoveWorktree={(worktree) => { void openWorktreeRemoval(worktree); }}
+              onSwitchBranch={(branchName) => {
+                void switchBranch(branchName);
+              }}
+              onCheckoutRemoteBranch={checkoutRemoteBranch}
+              onOpenBranchDialog={openBranchDialog}
+              onOpenBranchManager={openBranchManager}
+              onOpenMerge={() => setIntegrationDialog({ kind: "merge" })}
+              onOpenRebase={() => setIntegrationDialog({ kind: "rebase" })}
+              onChangeUpstream={(upstream) => {
+                void setBranchUpstream(upstream);
+              }}
+              onOpenRemoteManager={openRemoteManager}
+              onOpenExternalUrl={openExternalUrl}
+              onOpenSettings={() => {
+                setRepositoryPanelOpen(false);
+                openSettingsDialog();
+              }}
+              onCloneDraftChange={updateCloneDraft}
+              onCloneSourceChange={(draft) => {
+                updateCloneDraft(draft);
+                resetCloneCheckState();
+              }}
+              onChooseCloneParent={() => {
+                void chooseCloneParent();
+              }}
+              onCheckRepositoryAccess={() => {
+                void checkRepositoryAccess();
+              }}
+              onClone={(event) => {
+                event.preventDefault();
+                void cloneRepository();
+              }}
+              onCancelOperation={() => {
+                if (cloneCancellationRequestTarget) void cancelRunningOperation(cloneCancellationRequestTarget);
+              }}
+              onCheckForUpdates={() => {
+                void checkForAppUpdates();
+              }}
+              onDownloadUpdate={() => {
+                void downloadAppUpdate();
+              }}
+              onInstallUpdate={() => {
+                void installAppUpdate();
+              }}
+            />
+          </ResizablePanel>
+          <ResizableHandle className="app-workspace-resize-handle" />
+          <ResizablePanel minSize="520px" className="main-workspace-panel" data-layout-panel="workspace">
+            <section className="app-workspace-main flex h-full min-w-0 flex-col overflow-hidden">
+              <ActionBar
               heading={actionHeading}
               summary={state.summary}
               runningAction={state.runningAction}
@@ -7066,7 +7093,7 @@ export function App(): ReactNode {
                 onValueChange={(value) => {
                   setWorkspaceView(value as WorkspaceView);
                 }}
-                className="flex min-h-0 flex-1 flex-col"
+                className="workspace-tabs flex min-h-0 flex-1 flex-col"
               >
               <div className="workspace-tabs-bar border-b bg-card px-6 pt-2">
                 <TabsList variant="line" className="h-9 w-max min-w-full bg-transparent p-0">
@@ -7485,9 +7512,10 @@ export function App(): ReactNode {
                 }}
               />
             ) : null}
-          </section>
-        </ResizablePanel>
-      </ResizablePanelGroup>
+            </section>
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </div>
 
       <GenerateWithContextDialog
         open={state.generateContextDialog.open}
@@ -7970,17 +7998,21 @@ export function App(): ReactNode {
 interface AppChromeProps {
   children: ReactNode;
   isMaximized: boolean;
+  repositoryPanelOpen?: boolean;
   onMinimize(): void;
   onToggleMaximize(): void;
   onClose(): void;
+  onToggleRepositoryPanel?(): void;
 }
 
 function AppChrome({
   children,
   isMaximized,
+  repositoryPanelOpen = false,
   onMinimize,
   onToggleMaximize,
-  onClose
+  onClose,
+  onToggleRepositoryPanel
 }: AppChromeProps): ReactNode {
   return (
     <TooltipProvider>
@@ -7989,6 +8021,18 @@ function AppChrome({
           <div className="window-title">
             <div className="window-title-mark" aria-hidden="true">G</div>
             <span>Githead</span>
+            {onToggleRepositoryPanel ? (
+              <button
+                type="button"
+                className="repository-drawer-toggle"
+                aria-label={repositoryPanelOpen ? "Hide repositories" : "Show repositories"}
+                aria-expanded={repositoryPanelOpen}
+                aria-controls="repository-panel"
+                onClick={onToggleRepositoryPanel}
+              >
+                {repositoryPanelOpen ? <X /> : <List />}
+              </button>
+            ) : null}
           </div>
           <WindowControls
             isMaximized={isMaximized}
@@ -9789,13 +9833,13 @@ function ActionBar({
   const actionsMenuDisabled = !summary?.isValid;
 
   return (
-    <header className="flex items-center justify-between gap-5 border-b bg-card px-6 py-4">
+    <header className="action-bar flex items-center justify-between gap-5 border-b bg-card px-6 py-4">
       <div className="min-w-0">
         <p className="eyebrow">Sync</p>
         <h2 className="truncate text-base font-semibold">{heading}</h2>
         {cancelError ? <p className="mt-1 max-w-xl text-xs text-destructive" role="alert">{cancelError}</p> : null}
       </div>
-      <div className="flex flex-wrap justify-end gap-2" role="group" aria-label="Git actions">
+      <div className="action-bar-actions flex flex-wrap justify-end gap-2" role="group" aria-label="Git actions">
         {cancellable ? (
           <Button type="button" variant="destructive" disabled={cancelStatus === "canceling"} onClick={onCancel}>
             {cancelStatus === "canceling" ? <Loader2 className="animate-spin" /> : <X />}
@@ -10051,8 +10095,8 @@ function StatusView({
   );
 
   return (
-    <ResizablePanelGroup orientation="horizontal" className="h-full min-h-0 bg-background">
-      <ResizablePanel defaultSize="38%" minSize="300px" className="min-w-[300px]">
+    <ResizablePanelGroup orientation="horizontal" className="status-workspace h-full min-h-0 bg-background">
+      <ResizablePanel defaultSize="38%" minSize="300px" className="min-w-[300px]" data-status-panel="files">
         <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] border-r bg-card">
           <div className="flex min-h-10 items-center justify-between gap-3 border-b px-4 py-1.5">
             {(summary?.submodules?.length ?? 0) > 0 ? (
@@ -10191,8 +10235,8 @@ function StatusView({
           )}
         </div>
       </ResizablePanel>
-      <ResizableHandle />
-      <ResizablePanel minSize="240px">
+      <ResizableHandle className="status-workspace-resize-handle" />
+      <ResizablePanel minSize="240px" data-status-panel="diff">
         <DiffPanel
           title={selection?.path ?? "Select a file"}
           eyebrow={selection ? `${capitalize(selection.side)} diff` : "Diff"}
@@ -11032,9 +11076,11 @@ function HistoryView({
     ? commitDetails?.files.find((file) => file.path === selectedCommitFilePath) ?? null
     : null;
   const showHistoryScope = summary?.isValid && summary.kind === "git";
+  const graphVisible = columnLayout.layout.visibility.graph;
   const graphColumnIndex = columnLayout.layout.order.indexOf("graph");
   const graphOffset = 12 + columnLayout.layout.order
     .slice(0, graphColumnIndex)
+    .filter((id) => columnLayout.layout.visibility[id])
     .reduce((total, id) => total + columnLayout.layout.widths[id] + 10, 0);
   const historyStyle = {
     ...columnLayout.style,
@@ -11102,14 +11148,14 @@ function HistoryView({
                   selectedKey={selectedCommitHash}
                   className="history-list"
                   multiSelectable={false}
-                  renderOverlay={(range) => (
+                  renderOverlay={(range) => graphVisible ? (
                     <CommitGraphSvg
                       layout={graphLayout}
                       selectedCommitHash={selectedCommitHash}
                       visibleStartRow={range.start}
                       visibleEndRow={range.end}
                     />
-                  )}
+                  ) : null}
                   renderItem={(commit, _index, virtualRowProps) => (
                     <HistoryRow
                       commit={commit}
@@ -11357,14 +11403,24 @@ function WorkflowRunEmptyDetails(): ReactNode {
 function GitHubDetailWorkspace({ open, drawer, emptyDrawer, persistent = false, listDefaultSize = "40%", children }: { open: boolean; drawer: ReactNode; emptyDrawer?: ReactNode; persistent?: boolean; listDefaultSize?: string; children: ReactNode }): ReactNode {
   const showDrawer = open || persistent;
   return (
-    <ResizablePanelGroup orientation="horizontal" className="review-console-workspace">
-      <ResizablePanel defaultSize={showDrawer ? listDefaultSize : "100%"} minSize="280px" className="review-console-list-panel">
+    <ResizablePanelGroup orientation="horizontal" className="review-console-workspace" data-detail-open={open ? "true" : "false"}>
+      <ResizablePanel
+        defaultSize={showDrawer ? listDefaultSize : "100%"}
+        minSize="280px"
+        className="review-console-list-panel"
+        data-review-panel="list"
+      >
         {children}
       </ResizablePanel>
       {showDrawer ? (
         <>
           <ResizableHandle withHandle className="review-console-resize-handle" aria-label="Resize review console" />
-          <ResizablePanel defaultSize={listDefaultSize === "38%" ? "62%" : "60%"} minSize="420px" className="review-console-drawer-panel">
+          <ResizablePanel
+            defaultSize={listDefaultSize === "38%" ? "62%" : "60%"}
+            minSize="420px"
+            className="review-console-drawer-panel"
+            data-review-panel="drawer"
+          >
             {open ? drawer : emptyDrawer}
           </ResizablePanel>
         </>
@@ -12548,7 +12604,7 @@ function CommitPanel({
     : primaryCommitAction === "push" ? "push" : "commit";
 
   return (
-    <section className="grid min-h-0 gap-2.5 border-t bg-card px-6 py-4" aria-label="Commit staged files">
+    <section className="commit-panel grid min-h-0 gap-2.5 border-t bg-card px-6 py-4" aria-label="Commit staged files">
       <p className="eyebrow">Commit</p>
       <Textarea
         id="commit-message"

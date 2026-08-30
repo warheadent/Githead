@@ -67,6 +67,10 @@ export function normalizeColumnLayout<Id extends string>(
     const savedVisibility = value?.visibility?.[column.id];
     visibility[column.id] = typeof savedVisibility === "boolean" ? savedVisibility : column.defaultVisible !== false;
   }
+  if (ids.length > 0 && !Object.values(visibility).some(Boolean)) {
+    const fallback = columns.find((column) => column.defaultVisible !== false) ?? columns[0];
+    if (fallback) visibility[fallback.id] = true;
+  }
   return { order, widths, visibility };
 }
 
@@ -78,8 +82,12 @@ export function reorderColumn<Id extends string>(order: readonly Id[], source: I
   return next;
 }
 
+function getMaxWidth<Id extends string>(column: ColumnDefinition<Id>): number {
+  return Math.max(column.minWidth, column.maxWidth ?? 900);
+}
+
 function clampWidth<Id extends string>(width: number, column: ColumnDefinition<Id>): number {
-  return Math.round(Math.min(column.maxWidth ?? 900, Math.max(column.minWidth, width)));
+  return Math.round(Math.min(getMaxWidth(column), Math.max(column.minWidth, width)));
 }
 
 function loadLayout<Id extends string>(storageKey: string, columns: readonly ColumnDefinition<Id>[]): ColumnLayout<Id> {
@@ -235,6 +243,7 @@ export function AdjustableColumnHeader<Id extends string>({
   const resizeWithKeyboard = (event: KeyboardEvent<HTMLSpanElement>, id: Id): void => {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
+    event.stopPropagation();
     const delta = (event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? 1 : WIDTH_STEP);
     controller.commitWidth(id, controller.layout.widths[id] + delta);
   };
@@ -286,7 +295,7 @@ export function AdjustableColumnHeader<Id extends string>({
               aria-describedby={`${labelPrefix}-${id}`}
               aria-orientation="vertical"
               aria-valuemin={column.minWidth}
-              aria-valuemax={column.maxWidth ?? 900}
+              aria-valuemax={getMaxWidth(column)}
               aria-valuenow={controller.layout.widths[id]}
               onPointerDown={(event) => startResize(event, id)}
               onPointerMove={updateResize}
