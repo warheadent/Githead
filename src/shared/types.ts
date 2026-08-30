@@ -1947,6 +1947,19 @@ export interface GenerateCommitPlanResult {
   retriedAfterLength?: boolean;
 }
 
+export interface CommitPlanValidationRequest extends RepositoryReadRequest {
+  repoPath: string;
+  paths: string[];
+  granularity: CommitPlanGranularity;
+  changes: CommitPlanChange[];
+}
+
+export interface CommitPlanValidationResult {
+  repoPath: string;
+  valid: boolean;
+  stderr: string;
+}
+
 export interface GeneratePrDescriptionRequest {
   repoPath: string;
   /** Remote-qualified base ref, e.g. "origin/main". */
@@ -2379,6 +2392,7 @@ export interface GitheadApi {
   setWindowZoomFactor(zoomFactor: number): Promise<void>;
   generateCommitMessage(request: CoordinatedRequest<GenerateCommitMessageRequest>): Promise<GitOperationResult>;
   generateCommitPlan(request: CoordinatedRequest<GenerateCommitPlanRequest>): Promise<GenerateCommitPlanResult>;
+  validateCommitPlan(request: CommitPlanValidationRequest): Promise<CommitPlanValidationResult>;
   generatePrTitle(request: CoordinatedRequest<GeneratePrTitleRequest>): Promise<GitOperationResult>;
   generatePrDescription(request: CoordinatedRequest<GeneratePrDescriptionRequest>): Promise<GitOperationResult>;
   openExternalUrl(request: ExternalUrlRequest): Promise<void>;

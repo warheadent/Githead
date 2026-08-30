@@ -1,5 +1,8 @@
 import type {
   AiCommitMessageProvider,
+  CommitPlanChange,
+  CommitPlanValidationRequest,
+  CommitPlanValidationResult,
   GenerateCommitPlanRequest,
   GenerateCommitPlanResult
 } from "../shared/types";
@@ -136,6 +139,55 @@ export class CommitPlanService {
       );
     }
   }
+
+  async validateCommitPlan(
+    request: CommitPlanValidationRequest,
+    signal?: AbortSignal
+  ): Promise<CommitPlanValidationResult> {
+    try {
+      throwIfAborted(signal);
+      const paths = [...new Set(request.paths.map((path) => path.trim()).filter(Boolean))];
+      if (
+        paths.length === 0 ||
+        paths.length > MAX_COMMIT_PLAN_PATHS ||
+        request.changes.length === 0 ||
+        request.changes.length > MAX_COMMIT_PLAN_CHANGES
+      ) {
+        return validationResult(request.repoPath, false);
+      }
+
+      const service = await this.resolveService(request.repoPath);
+      const diffs = await mapWithConcurrency(paths, DIFF_READ_CONCURRENCY, (path) => service.getFileDiff({
+        repoPath: request.repoPath,
+        path,
+        side: "unstaged"
+      }));
+      throwIfAborted(signal);
+      const currentChanges = createCommitPlanChanges(diffs, request.granularity).map(toPublicCommitPlanChange);
+      return validationResult(request.repoPath, haveSameCommitPlanChanges(request.changes, currentChanges));
+    } catch (error) {
+      if (signal?.aborted) throw signal.reason ?? error;
+      return validationResult(
+        request.repoPath,
+        false,
+        error instanceof Error ? error.message : "Unable to validate the commit plan."
+      );
+    }
+  }
+}
+
+function haveSameCommitPlanChanges(left: CommitPlanChange[], right: CommitPlanChange[]): boolean {
+  if (left.length !== right.length) return false;
+  const identities = (changes: CommitPlanChange[]): string[] => changes
+    .map((change) => `${change.path}\0${change.kind}\0${change.fingerprint}`)
+    .sort();
+  const leftIdentities = identities(left);
+  const rightIdentities = identities(right);
+  return leftIdentities.every((identity, index) => identity === rightIdentities[index]);
+}
+
+function validationResult(repoPath: string, valid: boolean, stderr = ""): CommitPlanValidationResult {
+  return { repoPath, valid, stderr };
 }
 
 function createDiffContext(changes: PreparedCommitPlanChange[]): string {

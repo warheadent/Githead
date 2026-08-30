@@ -120,6 +120,7 @@ export const IPC_CHANNELS = {
   setWindowZoomFactor: "window:zoom-factor:set",
   generateCommitMessage: "ai:commit-message:generate",
   generateCommitPlan: "ai:commit-plan:generate",
+  validateCommitPlan: "ai:commit-plan:validate",
   generatePrTitle: "ai:pr-title:generate",
   generatePrDescription: "ai:pr-description:generate",
   openExternalUrl: "external-url:open",

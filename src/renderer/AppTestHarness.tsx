@@ -489,6 +489,7 @@ export function createGitheadMock(): GitheadApi {
       plan: { groups: [], unassignedPaths: [] },
       stderr: ""
     }),
+    validateCommitPlan: vi.fn().mockResolvedValue({ repoPath, valid: true, stderr: "" }),
     generatePrTitle: vi.fn().mockResolvedValue(okOperation),
     generatePrDescription: vi.fn().mockResolvedValue(okOperation),
     openExternalUrl: vi.fn().mockResolvedValue(undefined),

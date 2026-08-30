@@ -52,6 +52,7 @@ import type {
   GenerateCommitMessageRequest,
   GenerateCommitPlanRequest,
   GenerateCommitPlanResult,
+  CommitPlanValidationRequest,
   GitCommitRequest,
   GitCommitAndPushResult,
   GitCommitWithRemoteCheckResult,
@@ -1405,6 +1406,19 @@ ipcMain.handle(IPC_CHANNELS.generateCommitPlan, async (event, request: Coordinat
     () => createCommitPlanFailure(request.repoPath, "Another operation is already running for this repository.")
   );
 });
+
+ipcMain.handle(IPC_CHANNELS.validateCommitPlan, (event, request: CommitPlanValidationRequest) =>
+  handleRead(event, request, (signal) => processRunner.runWithSignal(signal, async () => {
+    await assertTrustedRepo(request.repoPath);
+    if ((await vcsRouter.resolveKind(request.repoPath)) !== "git") {
+      return {
+        repoPath: request.repoPath,
+        valid: false,
+        stderr: "Commit plans are available only for Git repositories."
+      };
+    }
+    return getCommitPlanService().validateCommitPlan(request, signal);
+  })));
 
 ipcMain.handle(IPC_CHANNELS.getPullRecovery, async (_event, repoPath: string) => {
   return (await vcsRouter.serviceForRepo(repoPath)).getPullRecovery(repoPath);

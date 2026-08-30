@@ -45,7 +45,8 @@ afterEach(() => {
 function renderView(
   onGenerate = vi.fn().mockResolvedValue(generated),
   onQuickCommit = vi.fn().mockResolvedValue(committed),
-  viewFiles = files
+  viewFiles = files,
+  onValidatePlan = vi.fn().mockResolvedValue({ repoPath: "D:/repo", valid: true, stderr: "" })
 ): ReturnType<typeof render> {
   return render(
     <CommitPlanView
@@ -59,6 +60,7 @@ function renderView(
       generateTitle="Generate"
       onSelectFile={vi.fn()}
       onGenerate={onGenerate}
+      onValidatePlan={onValidatePlan}
       onQuickCommit={onQuickCommit}
     />
   );
@@ -101,8 +103,9 @@ describe("CommitPlanView motion", () => {
     ], "First hunk\n\nEarly change");
   });
 
-  it("marks a generated plan stale after a monitored working-tree change", async () => {
+  it("keeps a generated plan usable when monitored hunks are unchanged", async () => {
     const onGenerate = vi.fn().mockResolvedValue(generated);
+    const onValidatePlan = vi.fn().mockResolvedValue({ repoPath: "D:/repo", valid: true, stderr: "" });
     const view = render(
       <CommitPlanView
         repoPath="D:/repo"
@@ -116,6 +119,7 @@ describe("CommitPlanView motion", () => {
         repositoryChangeVersion={0}
         onSelectFile={vi.fn()}
         onGenerate={onGenerate}
+        onValidatePlan={onValidatePlan}
         onQuickCommit={vi.fn().mockResolvedValue(committed)}
       />
     );
@@ -134,12 +138,114 @@ describe("CommitPlanView motion", () => {
         repositoryChangeVersion={1}
         onSelectFile={vi.fn()}
         onGenerate={onGenerate}
+        onValidatePlan={onValidatePlan}
+        onQuickCommit={vi.fn().mockResolvedValue(committed)}
+      />
+    );
+
+    await waitFor(() => expect(onValidatePlan).toHaveBeenCalledWith({
+      repoPath: "D:/repo",
+      paths: ["src/a.ts", "src/b.ts"],
+      granularity: "file",
+      changes: plan.changes
+    }));
+    expect(screen.queryByText("The working tree changed. Generate the commit plan again.")).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Quick Commit" }).every((button) => !button.hasAttribute("disabled"))).toBe(true);
+  });
+
+  it("marks a generated plan stale when monitored hunks changed", async () => {
+    const onValidatePlan = vi.fn().mockResolvedValue({ repoPath: "D:/repo", valid: false, stderr: "" });
+    const view = renderView(vi.fn().mockResolvedValue(generated), vi.fn().mockResolvedValue(committed), files, onValidatePlan);
+    await generatePlan();
+
+    view.rerender(
+      <CommitPlanView
+        repoPath="D:/repo"
+        files={files}
+        stagedCount={0}
+        selectedPath={null}
+        disabled={false}
+        supported
+        canGenerate
+        generateTitle="Generate"
+        repositoryChangeVersion={1}
+        onSelectFile={vi.fn()}
+        onGenerate={vi.fn().mockResolvedValue(generated)}
+        onValidatePlan={onValidatePlan}
         onQuickCommit={vi.fn().mockResolvedValue(committed)}
       />
     );
 
     expect(await screen.findByText("The working tree changed. Generate the commit plan again.")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Quick Commit" }).every((button) => button.hasAttribute("disabled"))).toBe(true);
+  });
+
+  it("revalidates a plan when the repository changes during generation", async () => {
+    let resolveGeneration: ((result: GenerateCommitPlanResult) => void) | undefined;
+    const onGenerate = vi.fn().mockImplementation(() => new Promise<GenerateCommitPlanResult>((resolve) => {
+      resolveGeneration = resolve;
+    }));
+    const onValidatePlan = vi.fn().mockResolvedValue({ repoPath: "D:/repo", valid: true, stderr: "" });
+    const props = {
+      repoPath: "D:/repo",
+      files,
+      stagedCount: 0,
+      selectedPath: null,
+      disabled: false,
+      supported: true,
+      canGenerate: true,
+      generateTitle: "Generate",
+      onSelectFile: vi.fn(),
+      onGenerate,
+      onValidatePlan,
+      onQuickCommit: vi.fn().mockResolvedValue(committed)
+    };
+    const view = render(<CommitPlanView {...props} repositoryChangeVersion={0} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    await waitFor(() => expect(onGenerate).toHaveBeenCalled());
+    view.rerender(<CommitPlanView {...props} repositoryChangeVersion={1} />);
+    await act(async () => { resolveGeneration?.(generated); });
+
+    await waitFor(() => expect(onValidatePlan).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("The working tree changed. Generate the commit plan again.")).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Quick Commit" }).every((button) => !button.hasAttribute("disabled"))).toBe(true);
+  });
+
+  it("ignores an older stale validation after a newer validation succeeds", async () => {
+    let resolveFirst: ((result: { repoPath: string; valid: boolean; stderr: string }) => void) | undefined;
+    let resolveSecond: ((result: { repoPath: string; valid: boolean; stderr: string }) => void) | undefined;
+    const onValidatePlan = vi.fn()
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve; }));
+    const onGenerate = vi.fn().mockResolvedValue(generated);
+    const props = {
+      repoPath: "D:/repo",
+      files,
+      stagedCount: 0,
+      selectedPath: null,
+      disabled: false,
+      supported: true,
+      canGenerate: true,
+      generateTitle: "Generate",
+      onSelectFile: vi.fn(),
+      onGenerate,
+      onValidatePlan,
+      onQuickCommit: vi.fn().mockResolvedValue(committed)
+    };
+    const view = render(<CommitPlanView {...props} repositoryChangeVersion={0} />);
+    await generatePlan();
+
+    view.rerender(<CommitPlanView {...props} repositoryChangeVersion={1} />);
+    await waitFor(() => expect(onValidatePlan).toHaveBeenCalledTimes(1));
+    view.rerender(<CommitPlanView {...props} repositoryChangeVersion={2} />);
+    await waitFor(() => expect(onValidatePlan).toHaveBeenCalledTimes(2));
+
+    await act(async () => { resolveSecond?.({ repoPath: "D:/repo", valid: true, stderr: "" }); });
+    await act(async () => { resolveFirst?.({ repoPath: "D:/repo", valid: false, stderr: "" }); });
+
+    expect(screen.queryByText("The working tree changed. Generate the commit plan again.")).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Quick Commit" }).every((button) => !button.hasAttribute("disabled"))).toBe(true);
   });
 
   it("shows eligible changed files in the persistent files-to-plan inbox", () => {
@@ -177,6 +283,7 @@ describe("CommitPlanView motion", () => {
         generateTitle="Generate"
         onSelectFile={vi.fn()}
         onGenerate={onGenerate}
+        onValidatePlan={vi.fn().mockResolvedValue({ repoPath: "D:/repo", valid: true, stderr: "" })}
         onQuickCommit={vi.fn().mockResolvedValue(committed)}
       />
     );

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { AiSettings, GitFileDiff } from "../shared/types";
 import type { AiSettingsService } from "./aiSettingsService";
+import { createCommitPlanChanges, toPublicCommitPlanChange } from "./commitPlanChanges";
 import { CommitPlanService } from "./commitPlanService";
 
 const settings: AiSettings = {
@@ -23,6 +24,55 @@ const settings: AiSettings = {
 };
 
 describe("CommitPlanService", () => {
+  it("validates an unchanged hunk snapshot and rejects changed or added hunks", async () => {
+    let diff: GitFileDiff = {
+      path: "src/a.ts",
+      side: "unstaged",
+      kind: "text",
+      text: "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-old\n+new\n"
+    };
+    const settingsService = {
+      getSettings: async () => settings,
+      getApiKey: async () => "sk-test"
+    } as unknown as AiSettingsService;
+    const service = new CommitPlanService(
+      async () => ({ getFileDiff: async () => diff, getCommitHistory: async () => [] }),
+      settingsService
+    );
+    const generated = await service.validateCommitPlan({
+      repoPath: "D:\\Repo",
+      paths: ["src/a.ts"],
+      granularity: "hunk",
+      changes: [{
+        id: "change-1",
+        path: "src/a.ts",
+        kind: "hunk",
+        label: "@@ -1 +1 @@",
+        fingerprint: ""
+      }]
+    });
+    const currentChanges = createCommitPlanChanges([diff], "hunk").map(toPublicCommitPlanChange);
+
+    expect(generated.valid).toBe(false);
+    await expect(service.validateCommitPlan({
+      repoPath: "D:\\Repo",
+      paths: ["src/a.ts"],
+      granularity: "hunk",
+      changes: currentChanges
+    })).resolves.toMatchObject({ valid: true });
+
+    diff = {
+      ...diff,
+      text: "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-old\n+new\n@@ -10 +10 @@\n-before\n+after\n"
+    };
+    await expect(service.validateCommitPlan({
+      repoPath: "D:\\Repo",
+      paths: ["src/a.ts"],
+      granularity: "hunk",
+      changes: currentChanges
+    })).resolves.toMatchObject({ valid: false });
+  });
+
   it("creates hunk planning units when the hunk setting is active", async () => {
     const fetchImpl = async (): Promise<Response> => new Response(JSON.stringify({
       choices: [{ message: { content: '{"groups":[{"message":"feat: first hunk","changeIds":["change-1"]},{"message":"fix: second hunk","changeIds":["change-2"]}]}' } }]

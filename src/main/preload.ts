@@ -42,6 +42,7 @@ import type {
   GitCommitHistoryRequest,
   GenerateCommitMessageRequest,
   GenerateCommitPlanRequest,
+  CommitPlanValidationRequest,
   GitCommitRequest,
   GitUndoCommitRequest,
   GitQuickCommitRequest,
@@ -350,6 +351,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.generateCommitMessage, request) as ReturnType<GitheadApi["generateCommitMessage"]>,
   generateCommitPlan: (request: CoordinatedRequest<GenerateCommitPlanRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.generateCommitPlan, request) as ReturnType<GitheadApi["generateCommitPlan"]>,
+  validateCommitPlan: (request: CommitPlanValidationRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.validateCommitPlan, request) as ReturnType<GitheadApi["validateCommitPlan"]>,
   generatePrTitle: (request: CoordinatedRequest<GeneratePrTitleRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.generatePrTitle, request) as ReturnType<GitheadApi["generatePrTitle"]>,
   generatePrDescription: (request: CoordinatedRequest<GeneratePrDescriptionRequest>) =>

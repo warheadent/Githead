@@ -141,6 +141,8 @@ import type {
   AppUiFont,
   AppUpdateState,
   CommitHistoryScope,
+  CommitPlanValidationRequest,
+  CommitPlanValidationResult,
   GenerateCommitPlanResult,
   GitBranch,
   GitAction,
@@ -509,7 +511,7 @@ const REPOSITORY_REFRESH_PRIORITIES: Record<RepositoryRefreshReason, number> = {
   user: 4
 };
 
-type RepositoryReadKind = "summary" | "identity" | "status" | "metadata" | "history" | "commit-details" | "commit-file-diff" | "file-history" | "file-history-diff" | "file-blame" | "diff" | "diff-freshness" | "file-preview";
+type RepositoryReadKind = "summary" | "identity" | "status" | "metadata" | "history" | "commit-details" | "commit-file-diff" | "file-history" | "file-history-diff" | "file-blame" | "diff" | "diff-freshness" | "file-preview" | "commit-plan-validation";
 
 function repositoryReadRequestId(kind: RepositoryReadKind, generation: number): string {
   return `${kind}:${generation}`;
@@ -536,6 +538,7 @@ interface RequestIds {
   fileBlame: number;
   identity: number;
   remoteConfigs: number;
+  commitPlanValidation: number;
 }
 
 interface ConfiguredActionRun {
@@ -982,7 +985,8 @@ export function App(): ReactNode {
     fileHistoryDiff: 0,
     fileBlame: 0,
     identity: 0,
-    remoteConfigs: 0
+    remoteConfigs: 0,
+    commitPlanValidation: 0
   });
   const repositorySnapshots = useRef(new RepositorySnapshotCache());
   const lastRepositoryRefreshRef = useRef<{ repoPath: string; succeeded: boolean } | null>(null);
@@ -2055,6 +2059,7 @@ export function App(): ReactNode {
     cancelRepositoryRead("file-history", requestIds.current.fileHistory);
     cancelRepositoryRead("file-history-diff", requestIds.current.fileHistoryDiff);
     cancelRepositoryRead("file-blame", requestIds.current.fileBlame);
+    cancelRepositoryRead("commit-plan-validation", requestIds.current.commitPlanValidation);
     requestIds.current.diff += 1;
     requestIds.current.diffFreshness += 1;
     requestIds.current.history += 1;
@@ -2378,6 +2383,7 @@ export function App(): ReactNode {
     cancelRepositoryRead("file-history", requestIds.current.fileHistory);
     cancelRepositoryRead("file-history-diff", requestIds.current.fileHistoryDiff);
     cancelRepositoryRead("file-blame", requestIds.current.fileBlame);
+    cancelRepositoryRead("commit-plan-validation", requestIds.current.commitPlanValidation);
     pendingRepoTrustRequestRef.current = null;
   }, [repositoryRefreshCoordinator]);
 
@@ -5172,6 +5178,16 @@ export function App(): ReactNode {
     return operationResult ? generated : null;
   }, [ensureTrustedRepo, runRepoOperation]);
 
+  const validateCommitPlan = useCallback(async (request: CommitPlanValidationRequest): Promise<CommitPlanValidationResult> => {
+    cancelRepositoryRead("commit-plan-validation", requestIds.current.commitPlanValidation);
+    const generation = requestIds.current.commitPlanValidation + 1;
+    requestIds.current.commitPlanValidation = generation;
+    return window.githead.validateCommitPlan({
+      ...request,
+      requestId: repositoryReadRequestId("commit-plan-validation", generation)
+    });
+  }, []);
+
   const quickCommitPlannedFiles = useCallback(async (changes: GitQuickCommitChange[], message: string): Promise<GitOperationResult | null> => {
     const current = stateRef.current;
     if (!current.summary?.isValid || current.summary.kind !== "git" || isOperationRunning(current)) return null;
@@ -7163,6 +7179,7 @@ export function App(): ReactNode {
                   generatePlanTitle={getCommitPlanGenerateTitle(state)}
                   repositoryChangeVersion={workingTreeChangeVersion}
                   onGeneratePlan={generateCommitPlan}
+                  onValidatePlan={validateCommitPlan}
                   onQuickCommit={quickCommitPlannedFiles}
                   composer={stashComposer.open ? (
                     <StashComposerDialog
@@ -9984,6 +10001,7 @@ function StatusView({
   generatePlanTitle,
   repositoryChangeVersion,
   onGeneratePlan,
+  onValidatePlan,
   onQuickCommit,
   composer
 }: {
@@ -10015,6 +10033,7 @@ function StatusView({
   generatePlanTitle: string;
   repositoryChangeVersion: number;
   onGeneratePlan: (paths: string[]) => Promise<GenerateCommitPlanResult | null>;
+  onValidatePlan: (request: CommitPlanValidationRequest) => Promise<CommitPlanValidationResult>;
   onQuickCommit: (changes: GitQuickCommitChange[], message: string) => Promise<GitOperationResult | null>;
   composer?: ReactNode;
 }): ReactNode {
@@ -10076,6 +10095,7 @@ function StatusView({
               repositoryChangeVersion={repositoryChangeVersion}
               onSelectFile={(file) => onSelectFile(file, "unstaged", { extendRange: false, selectAll: false, toggle: false })}
               onGenerate={onGeneratePlan}
+              onValidatePlan={onValidatePlan}
               onQuickCommit={onQuickCommit}
             />
           ) : (
