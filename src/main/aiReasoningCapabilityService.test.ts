@@ -64,9 +64,10 @@ describe("AiReasoningCapabilityService", () => {
     }));
   });
 
-  it("uses static capabilities for the default OpenRouter model when lookup fails", async () => {
+  it("uses exact static capabilities without remote or CLI lookup", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockRejectedValue(new Error("offline"));
-    const service = new AiReasoningCapabilityService(createSettingsService(), fetchImpl);
+    const runner: ProcessRunner = { run: vi.fn() };
+    const service = new AiReasoningCapabilityService(createSettingsService(), fetchImpl, runner);
 
     await expect(service.getCapabilities({
       provider: "openrouter",
@@ -75,6 +76,8 @@ describe("AiReasoningCapabilityService", () => {
       status: "supported",
       supportedEfforts: ["low", "medium", "high", "xhigh", "max"]
     });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(runner.run).not.toHaveBeenCalled();
   });
 
   it("uses static capabilities for the default Codex CLI model", async () => {
@@ -160,7 +163,7 @@ describe("AiReasoningCapabilityService", () => {
     expect(runner.run).toHaveBeenCalledTimes(1);
   });
 
-  it("filters Claude model efforts through the installed CLI", async () => {
+  it("does not probe Claude CLI for a model with exact static capabilities", async () => {
     const runner: ProcessRunner = {
       run: vi.fn(async () => ({
         exitCode: 0,
@@ -172,8 +175,9 @@ describe("AiReasoningCapabilityService", () => {
 
     await expect(service.getCapabilities({ provider: "claude-code", model: "opus" })).resolves.toEqual({
       status: "supported",
-      supportedEfforts: ["low", "medium", "high", "xhigh"]
+      supportedEfforts: ["low", "medium", "high", "xhigh", "max"]
     });
+    expect(runner.run).not.toHaveBeenCalled();
   });
 
   it("deduplicates in-flight lookups and caches successful results", async () => {
@@ -197,15 +201,59 @@ describe("AiReasoningCapabilityService", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
-  it("returns unknown on lookup failure and does not cache it", async () => {
-    const fetchImpl = vi.fn<typeof fetch>().mockRejectedValue(new Error("offline"));
+  it("lets one caller cancel without stopping a shared lookup", async () => {
+    let releaseLookup!: (response: Response) => void;
+    const lookupResponse = new Promise<Response>((resolve) => {
+      releaseLookup = resolve;
+    });
+    let markLookupStarted!: () => void;
+    const lookupStarted = new Promise<void>((resolve) => {
+      markLookupStarted = resolve;
+    });
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async () => {
+      markLookupStarted();
+      return lookupResponse;
+    });
     const service = new AiReasoningCapabilityService(createSettingsService(), fetchImpl);
+    const request = { provider: "openrouter" as const, model: "vendor/cancellable" };
+    const controller = new AbortController();
+    const abortReason = new DOMException("Capability lookup cancelled.", "AbortError");
+    let cancellation: unknown;
+
+    const cancelledCaller = service.getCapabilities(request, controller.signal);
+    void cancelledCaller.catch((error: unknown) => {
+      cancellation = error;
+    });
+    await lookupStarted;
+    const sharedCaller = service.getCapabilities(request);
+    controller.abort(abortReason);
+    await Promise.resolve();
+    await Promise.resolve();
+    const cancellationBeforeLookupFinished = cancellation;
+
+    releaseLookup(new Response(JSON.stringify({
+      data: [{ id: "vendor/cancellable", reasoning: { supported_efforts: ["high"] } }]
+    })));
+
+    await expect(sharedCaller).resolves.toEqual({ status: "supported", supportedEfforts: ["high"] });
+    expect(cancellationBeforeLookupFinished).toBe(abortReason);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("briefly caches unknown results before trying the lookup again", async () => {
+    let now = 1_000;
+    const fetchImpl = vi.fn<typeof fetch>().mockRejectedValue(new Error("offline"));
+    const service = new AiReasoningCapabilityService(createSettingsService(), fetchImpl, undefined, () => now);
     const request = { provider: "openrouter" as const, model: "vendor/custom" };
 
     await expect(service.getCapabilities(request)).resolves.toEqual({
       status: "unknown",
       supportedEfforts: []
     });
+    await service.getCapabilities(request);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+    now += 31_000;
     await service.getCapabilities(request);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
@@ -240,6 +288,7 @@ describe("AiReasoningCapabilityService", () => {
     expect(clearTimeout).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
 
+    await vi.advanceTimersByTimeAsync(30_001);
     bodyRead = new Promise<void>((resolve) => {
       markBodyRead = resolve;
     });

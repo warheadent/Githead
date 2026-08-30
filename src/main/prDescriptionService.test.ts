@@ -7,12 +7,19 @@ import { PrDescriptionService } from "./prDescriptionService";
 import type { AiReasoningCapabilityResolver } from "./commitMessageService";
 
 class FakeAiSettingsService {
+  generationSettingsCalls = 0;
+
   constructor(
     private readonly settings: AiSettings,
     private readonly apiKeys: Partial<Record<AiApiKeyProvider, string>>
   ) {}
 
   async getSettings(): Promise<AiSettings> {
+    return this.settings;
+  }
+
+  async getGenerationSettings(): Promise<AiSettings> {
+    this.generationSettingsCalls += 1;
     return this.settings;
   }
 
@@ -165,7 +172,7 @@ function createService(params: {
   response?: unknown;
   runner?: ProcessRunner;
   reasoningCapabilities?: AiReasoningCapabilityResolver;
-}): { service: PrDescriptionService; calls: FetchCall[]; gitService: FakeGitService; runner: ProcessRunner } {
+}): { service: PrDescriptionService; calls: FetchCall[]; gitService: FakeGitService; runner: ProcessRunner; settingsService: FakeAiSettingsService } {
   const provider = params.provider ?? "openrouter";
   const fetchState = createFetch(params.response ?? {
     choices: [
@@ -178,18 +185,19 @@ function createService(params: {
   });
   const gitService = new FakeGitService(params.context ?? createRangeContext());
   const runner = params.runner ?? new FakeProcessRunner();
+  const settingsService = new FakeAiSettingsService(
+    params.settings ?? createSettings(provider),
+    {
+      openrouter: "sk-or-key",
+      openai: "sk-openai",
+      anthropic: "sk-ant"
+    }
+  );
 
   return {
     service: new PrDescriptionService(
       gitService as unknown as GitService,
-      new FakeAiSettingsService(
-        params.settings ?? createSettings(provider),
-        {
-          openrouter: "sk-or-key",
-          openai: "sk-openai",
-          anthropic: "sk-ant"
-        }
-      ) as unknown as AiSettingsService,
+      settingsService as unknown as AiSettingsService,
       fetchState.fetch,
       runner,
       params.reasoningCapabilities ?? {
@@ -201,11 +209,30 @@ function createService(params: {
     ),
     calls: fetchState.calls,
     gitService,
-    runner
+    runner,
+    settingsService
   };
 }
 
 describe("PrDescriptionService", () => {
+  it("uses the generation settings path for titles and descriptions", async () => {
+    const { service, settingsService } = createService({});
+
+    await expect(service.generatePrTitle({
+      repoPath: "D:\\Repo",
+      baseRef: "origin/main",
+      headRef: "feature/pr-dialog"
+    })).resolves.toMatchObject({ exitCode: 0 });
+    await expect(service.generatePrDescription({
+      repoPath: "D:\\Repo",
+      baseRef: "origin/main",
+      headRef: "feature/pr-dialog",
+      title: "Improve generation"
+    })).resolves.toMatchObject({ exitCode: 0 });
+
+    expect(settingsService.generationSettingsCalls).toBe(2);
+  });
+
   it("does not convert title cancellation into a failed operation result", async () => {
     const { service } = createService({});
     const controller = new AbortController();

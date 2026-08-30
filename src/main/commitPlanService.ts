@@ -4,7 +4,8 @@ import type {
   CommitPlanValidationRequest,
   CommitPlanValidationResult,
   GenerateCommitPlanRequest,
-  GenerateCommitPlanResult
+  GenerateCommitPlanResult,
+  GitFileDiff
 } from "../shared/types";
 import {
   recordAiGenerationRecovery,
@@ -31,7 +32,7 @@ import { mapWithConcurrency } from "./asyncMap";
 import type { ProcessRunner } from "./processRunner";
 import type { VcsService } from "./vcsService";
 
-type CommitPlanSource = Pick<VcsService, "getFileDiff" | "getCommitHistory">;
+type CommitPlanSource = Pick<VcsService, "getFileDiff" | "getCommitHistory" | "getCommitPlanDiffs">;
 type Fetch = typeof fetch;
 
 const DIFF_READ_CONCURRENCY = 4;
@@ -56,7 +57,7 @@ export class CommitPlanService {
         return failure(request.repoPath, `Commit plans support up to ${MAX_COMMIT_PLAN_PATHS} files.`);
       }
 
-      const settings = await this.settingsService.getSettings(request.repoPath);
+      const settings = await this.settingsService.getGenerationSettings(request.repoPath);
       throwIfAborted(signal);
       selectedProvider = settings.selectedProvider;
       const providerSettings = settings.providers[selectedProvider];
@@ -76,11 +77,7 @@ export class CommitPlanService {
 
       const service = await this.resolveService(request.repoPath);
       const [diffs, recentCommits] = await Promise.all([
-        mapWithConcurrency(paths, DIFF_READ_CONCURRENCY, (path) => service.getFileDiff({
-          repoPath: request.repoPath,
-          path,
-          side: "unstaged"
-        })),
+        readCommitPlanDiffs(service, request.repoPath, paths, signal),
         settings.sourceControlWritingStyle.mode === "repo_conventions"
           ? service.getCommitHistory({ repoPath: request.repoPath, limit: 12, scope: "all" }).catch(() => [])
           : Promise.resolve([])
@@ -99,7 +96,8 @@ export class CommitPlanService {
         this.reasoningCapabilities,
         selectedProvider,
         model,
-        providerSettings.commitPlanReasoningEffort
+        providerSettings.commitPlanReasoningEffort,
+        signal
       );
       throwIfAborted(signal);
       const generation = await generateCompleteText(resolution.provider, {
@@ -157,11 +155,7 @@ export class CommitPlanService {
       }
 
       const service = await this.resolveService(request.repoPath);
-      const diffs = await mapWithConcurrency(paths, DIFF_READ_CONCURRENCY, (path) => service.getFileDiff({
-        repoPath: request.repoPath,
-        path,
-        side: "unstaged"
-      }));
+      const diffs = await readCommitPlanDiffs(service, request.repoPath, paths, signal);
       throwIfAborted(signal);
       const currentChanges = createCommitPlanChanges(diffs, request.granularity).map(toPublicCommitPlanChange);
       return validationResult(request.repoPath, haveSameCommitPlanChanges(request.changes, currentChanges));
@@ -184,6 +178,26 @@ function haveSameCommitPlanChanges(left: CommitPlanChange[], right: CommitPlanCh
   const leftIdentities = identities(left);
   const rightIdentities = identities(right);
   return leftIdentities.every((identity, index) => identity === rightIdentities[index]);
+}
+
+function readCommitPlanDiffs(
+  service: CommitPlanSource,
+  repoPath: string,
+  paths: string[],
+  signal?: AbortSignal
+): Promise<GitFileDiff[]> {
+  if (service.getCommitPlanDiffs) {
+    return service.getCommitPlanDiffs({
+      repoPath,
+      paths,
+      ...(signal ? { signal } : {})
+    });
+  }
+  return mapWithConcurrency(paths, DIFF_READ_CONCURRENCY, (path) => service.getFileDiff({
+    repoPath,
+    path,
+    side: "unstaged"
+  }));
 }
 
 function validationResult(repoPath: string, valid: boolean, stderr = ""): CommitPlanValidationResult {

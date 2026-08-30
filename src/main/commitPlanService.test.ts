@@ -33,6 +33,7 @@ describe("CommitPlanService", () => {
     };
     const settingsService = {
       getSettings: async () => settings,
+      getGenerationSettings: async () => settings,
       getApiKey: async () => "sk-test"
     } as unknown as AiSettingsService;
     const service = new CommitPlanService(
@@ -96,8 +97,13 @@ describe("CommitPlanService", () => {
         ""
       ].join("\n")
     };
+    let generationSettingsCalls = 0;
     const settingsService = {
       getSettings: async () => ({ ...settings, commitPlanGranularity: "hunk" as const }),
+      getGenerationSettings: async () => {
+        generationSettingsCalls += 1;
+        return { ...settings, commitPlanGranularity: "hunk" as const };
+      },
       getApiKey: async () => "sk-test"
     } as unknown as AiSettingsService;
     const service = new CommitPlanService(
@@ -113,6 +119,7 @@ describe("CommitPlanService", () => {
       changes: [{ kind: "hunk", path: "src/a.ts" }, { kind: "hunk", path: "src/a.ts" }],
       groups: [{ changeIds: ["change-1"] }, { changeIds: ["change-2"] }]
     });
+    expect(generationSettingsCalls).toBe(1);
   });
 
   it("uses the separate commit plan model and reasoning effort", async () => {
@@ -130,6 +137,7 @@ describe("CommitPlanService", () => {
     };
     const settingsService = {
       getSettings: async () => settings,
+      getGenerationSettings: async () => settings,
       getApiKey: async () => "sk-test"
     } as unknown as AiSettingsService;
     const service = new CommitPlanService(
@@ -151,5 +159,86 @@ describe("CommitPlanService", () => {
     expect(body.model).toBe("openrouter/plan");
     expect(body.reasoning).toEqual({ effort: "high" });
     expect(body.max_tokens).toBe(16_384);
+  });
+
+  it("uses a bulk working-tree snapshot when the source provides one", async () => {
+    let bulkReads = 0;
+    let individualReads = 0;
+    const diffs: GitFileDiff[] = ["src/a.ts", "src/b.ts"].map((path) => ({
+      path,
+      side: "unstaged",
+      kind: "text",
+      text: `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-old\n+new\n`
+    }));
+    const source = {
+      getCommitPlanDiffs: async () => {
+        bulkReads += 1;
+        return diffs;
+      },
+      getFileDiff: async () => {
+        individualReads += 1;
+        throw new Error("Individual diff reads should not run.");
+      },
+      getCommitHistory: async () => []
+    };
+    const settingsService = {
+      getSettings: async () => settings,
+      getGenerationSettings: async () => settings,
+      getApiKey: async () => "sk-test"
+    } as unknown as AiSettingsService;
+    const fetchImpl = async (): Promise<Response> => new Response(JSON.stringify({
+      choices: [{ message: { content: '{"groups":[{"message":"feat: plan changes","changeIds":["change-1","change-2"]}]}' } }]
+    }), { status: 200 });
+    const service = new CommitPlanService(
+      async () => source,
+      settingsService,
+      fetchImpl as typeof fetch
+    );
+
+    await expect(service.generateCommitPlan({
+      repoPath: "D:\\Repo",
+      paths: ["src/a.ts", "src/b.ts"]
+    })).resolves.toMatchObject({ exitCode: 0 });
+
+    expect(bulkReads).toBe(1);
+    expect(individualReads).toBe(0);
+  });
+
+  it("uses a bulk working-tree snapshot when validating a plan", async () => {
+    let bulkReads = 0;
+    let individualReads = 0;
+    const diffs: GitFileDiff[] = ["src/a.ts", "src/b.ts"].map((path) => ({
+      path,
+      side: "unstaged",
+      kind: "text",
+      text: `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-old\n+new\n`
+    }));
+    const source = {
+      getCommitPlanDiffs: async () => {
+        bulkReads += 1;
+        return diffs;
+      },
+      getFileDiff: async () => {
+        individualReads += 1;
+        throw new Error("Individual diff reads should not run.");
+      },
+      getCommitHistory: async () => []
+    };
+    const settingsService = {
+      getSettings: async () => settings,
+      getGenerationSettings: async () => settings,
+      getApiKey: async () => "sk-test"
+    } as unknown as AiSettingsService;
+    const service = new CommitPlanService(async () => source, settingsService);
+
+    await expect(service.validateCommitPlan({
+      repoPath: "D:\\Repo",
+      paths: ["src/a.ts", "src/b.ts"],
+      granularity: "file",
+      changes: createCommitPlanChanges(diffs, "file").map(toPublicCommitPlanChange)
+    })).resolves.toMatchObject({ valid: true });
+
+    expect(bulkReads).toBe(1);
+    expect(individualReads).toBe(0);
   });
 });

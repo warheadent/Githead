@@ -16,6 +16,7 @@ const ANTHROPIC_MODELS_URL = "https://api.anthropic.com/v1/models";
 const ANTHROPIC_VERSION = "2023-06-01";
 const LOOKUP_TIMEOUT_MS = 5_000;
 const CACHE_TTL_MS = 15 * 60_000;
+const UNKNOWN_CACHE_TTL_MS = 30_000;
 const CLI_LOOKUP_TIMEOUT_MS = 5_000;
 
 type Fetch = typeof fetch;
@@ -121,10 +122,19 @@ export class AiReasoningCapabilityService {
     private readonly now: () => number = Date.now
   ) {}
 
-  async getCapabilities(request: GetAiReasoningCapabilitiesRequest): Promise<AiReasoningCapabilities> {
+  async getCapabilities(
+    request: GetAiReasoningCapabilitiesRequest,
+    signal?: AbortSignal
+  ): Promise<AiReasoningCapabilities> {
+    throwIfAborted(signal);
     const model = request.model.trim();
     if (!model) {
       return unknown();
+    }
+
+    const staticCapabilities = STATIC_CAPABILITIES[request.provider]?.[model.toLowerCase()];
+    if (staticCapabilities) {
+      return staticCapabilities;
     }
 
     const key = `${request.provider}:${model.toLowerCase()}`;
@@ -135,24 +145,22 @@ export class AiReasoningCapabilityService {
 
     const existing = this.inFlight.get(key);
     if (existing) {
-      return existing;
+      return awaitWithAbort(existing, signal);
     }
 
     const lookup = this.resolveCapabilities(request.provider, model)
       .then((value) => {
-        if (value.status !== "unknown") {
-          this.cache.set(key, {
-            value,
-            expiresAt: this.now() + CACHE_TTL_MS
-          });
-        }
+        this.cache.set(key, {
+          value,
+          expiresAt: this.now() + (value.status === "unknown" ? UNKNOWN_CACHE_TTL_MS : CACHE_TTL_MS)
+        });
         return value;
       })
       .finally(() => {
         this.inFlight.delete(key);
       });
     this.inFlight.set(key, lookup);
-    return lookup;
+    return awaitWithAbort(lookup, signal);
   }
 
   private async resolveCapabilities(
@@ -294,6 +302,38 @@ export class AiReasoningCapabilityService {
   private async getOptionalApiKey(provider: AiCommitMessageProvider): Promise<string | null> {
     return isApiKeyProvider(provider) ? this.settingsService.getApiKey(provider) : null;
   }
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw signal.reason ?? new DOMException("Operation was cancelled.", "AbortError");
+  }
+}
+
+function awaitWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) {
+    return promise;
+  }
+  if (signal.aborted) {
+    return Promise.reject(signal.reason ?? new DOMException("Operation was cancelled.", "AbortError"));
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      reject(signal.reason ?? new DOMException("Operation was cancelled.", "AbortError"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    void promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      }
+    );
+  });
 }
 
 function fromEffortStrings(values: string[] | null | undefined): AiReasoningCapabilities {

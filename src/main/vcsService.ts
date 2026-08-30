@@ -9,6 +9,8 @@ import type { GitService } from "./gitService";
  * Methods listed here that a backend cannot support (e.g. hunk staging or tags
  * on Lore) must still be implemented, returning a structured "not supported"
  * failure. The renderer normally hides them via {@link RepoCapabilities}.
+ * `getCommitPlanDiffs` is an optional read optimization; callers retain a
+ * per-file fallback for backends that do not provide it.
  */
 export type VcsService = Pick<
   GitService,
@@ -79,4 +81,4 @@ export type VcsService = Pick<
   | "runGitAction"
   | "runConfiguredAction"
   | "saveConfiguredActions"
->;
+> & Partial<Pick<GitService, "getCommitPlanDiffs">>;

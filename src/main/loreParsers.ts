@@ -79,7 +79,8 @@ export function parseLoreStatus(stdout: string): LoreStatus {
     const fileMatch = FILE_PATTERN.exec(line);
     if (fileMatch?.groups && section) {
       const status = fileMatch.groups.status ?? "";
-      const filePath = (fileMatch.groups.path ?? "").trim();
+      const parsedPath = parseStatusPath(status, (fileMatch.groups.path ?? "").trim());
+      const filePath = parsedPath.path;
       // Lore lists directories (trailing "/") alongside files; skip them so the
       // status reflects files only, like git.
       if (!filePath || filePath.endsWith("/")) {
@@ -87,6 +88,7 @@ export function parseLoreStatus(stdout: string): LoreStatus {
       }
 
       const entry = byPath.get(filePath) ?? emptyStatusFile(filePath);
+      if (parsedPath.originalPath) entry.originalPath = parsedPath.originalPath;
       if (section === "staged") {
         entry.indexStatus = status;
         entry.isStaged = true;
@@ -110,6 +112,17 @@ export function parseLoreStatus(stdout: string): LoreStatus {
       ...byPath.values()
     ]
   };
+}
+
+function parseStatusPath(status: string, value: string): { path: string; originalPath?: string } {
+  if (status !== "V" && status !== "C") return { path: value };
+  const separator = value.indexOf(" -> ");
+  if (separator <= 0 || separator + 4 >= value.length) return { path: value };
+  const originalPath = value.slice(0, separator).trim();
+  const filePath = value.slice(separator + 4).trim();
+  return originalPath && filePath
+    ? { path: filePath, originalPath }
+    : { path: value };
 }
 
 export function parseLoreHistory(stdout: string): LoreRevision[] {

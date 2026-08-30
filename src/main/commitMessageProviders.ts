@@ -7,7 +7,7 @@ import type { AiReasoningEffort } from "../shared/types";
 const OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions";
 const OPENROUTER_PREFERRED_SERVICE_TIER = "flex";
 const OPENROUTER_FALLBACK_SERVICE_TIER = "default";
-const OPENROUTER_MAX_FLEX_ATTEMPTS = 2;
+const OPENROUTER_MAX_FLEX_ATTEMPTS = 1;
 const OPENROUTER_SITE_URL = "https://github.com/warheadent/Githead#readme";
 const OPENROUTER_SITE_TITLE = "Githead";
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";

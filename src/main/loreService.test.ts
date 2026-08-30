@@ -97,6 +97,55 @@ Creator   : Test User <test@example.com>
 Committer : Test User <test@example.com>
 `;
 
+describe("Lore AI context", () => {
+  it("limits the staged diff to paths staged for commit", async () => {
+    await withLoreRepo(async (repoPath) => {
+      let targetsText: string | undefined;
+      const runner: ProcessRunner = {
+        run: vi.fn(async (_command: string, args: string[]) => {
+          if (args.includes("status")) return ok(STATUS_MIXED);
+          const targetsIndex = args.indexOf("--targets");
+          if (targetsIndex >= 0) {
+            targetsText = await fs.readFile(args[targetsIndex + 1] ?? "", "utf8");
+          }
+          return ok(`Diff hello.txt\n--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-old\n+new\n`);
+        })
+      };
+
+      const result = await new LoreService(runner).getStagedDiff(repoPath);
+
+      expect(result.exitCode).toBe(0);
+      expect(targetsText).toBe("hello.txt\n");
+      expect(result.stdout).toContain("+++ b/hello.txt");
+    });
+  });
+
+  it("targets destination paths for staged moves and copies", async () => {
+    await withLoreRepo(async (repoPath) => {
+      let targetsText: string | undefined;
+      const runner: ProcessRunner = {
+        run: vi.fn(async (_command: string, args: string[]) => {
+          if (args.includes("status")) {
+            return ok(`On branch main revision 1 -> abc123
+Changes staged for commit:
+V src/old.ts -> src/new.ts
+C templates/base.ts -> src/copied.ts
+`);
+          }
+          const targetsIndex = args.indexOf("--targets");
+          targetsText = await fs.readFile(args[targetsIndex + 1] ?? "", "utf8");
+          return ok("moved and copied");
+        })
+      };
+
+      const result = await new LoreService(runner).getStagedDiff(repoPath);
+
+      expect(result.exitCode).toBe(0);
+      expect(targetsText).toBe("src/new.ts\nsrc/copied.ts\n");
+    });
+  });
+});
+
 describe("Lore remote management", () => {
   it("exposes the configured endpoint for inspection but rejects mutations", async () => {
     await withLoreRepo(async (repoPath) => {

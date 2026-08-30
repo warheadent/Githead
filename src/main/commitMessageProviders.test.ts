@@ -176,10 +176,9 @@ describe("commit message provider cancellation", () => {
 });
 
 describe("OpenRouter Flex fallback", () => {
-  it("uses the default tier after two temporary Flex failures", async () => {
+  it("uses the default tier after the first temporary Flex failure", async () => {
     const fetchImpl = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(createResponse(429, "Flex capacity is unavailable."))
-      .mockResolvedValueOnce(createResponse(503, "Flex service is unavailable."))
       .mockResolvedValueOnce(createResponse(200, undefined, "feat: use the default tier"));
     const provider = new OpenRouterCommitMessageProvider("test-key", fetchImpl);
 
@@ -187,21 +186,8 @@ describe("OpenRouter Flex fallback", () => {
       text: "feat: use the default tier",
       finishReason: "complete"
     });
-    expect(fetchImpl).toHaveBeenCalledTimes(3);
-    expect(getServiceTiers(fetchImpl)).toEqual(["flex", "flex", "default"]);
-  });
-
-  it("returns a successful second Flex attempt without using the default tier", async () => {
-    const fetchImpl = vi.fn<typeof fetch>()
-      .mockResolvedValueOnce(createResponse(429, "Flex capacity is unavailable."))
-      .mockResolvedValueOnce(createResponse(200, undefined, "fix: retry Flex generation"));
-    const provider = new OpenRouterCommitMessageProvider("test-key", fetchImpl);
-
-    await expect(provider.generate(providerInput)).resolves.toEqual({
-      text: "fix: retry Flex generation",
-      finishReason: "complete"
-    });
-    expect(getServiceTiers(fetchImpl)).toEqual(["flex", "flex"]);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(getServiceTiers(fetchImpl)).toEqual(["flex", "default"]);
   });
 
   it("does not retry a permanent OpenRouter failure", async () => {

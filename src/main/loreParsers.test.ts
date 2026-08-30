@@ -117,6 +117,35 @@ describe("parseLoreStatus", () => {
     });
   });
 
+  it("uses destination paths for staged moves and copies", () => {
+    const status = parseLoreStatus(`On branch main revision 1 -> abc123
+Changes staged for commit:
+V src/old.ts -> src/new.ts
+C templates/base.ts -> src/copied.ts
+`);
+
+    expect(status.files).toEqual([
+      {
+        path: "src/new.ts",
+        originalPath: "src/old.ts",
+        indexStatus: "V",
+        worktreeStatus: "",
+        isStaged: true,
+        isUnstaged: false,
+        isConflicted: false
+      },
+      {
+        path: "src/copied.ts",
+        originalPath: "templates/base.ts",
+        indexStatus: "C",
+        worktreeStatus: "",
+        isStaged: true,
+        isUnstaged: false,
+        isConflicted: false
+      }
+    ]);
+  });
+
   it("drops directory entries (trailing slash) from status", () => {
     const status = parseLoreStatus(`On branch main revision 1 -> abc123
 Untracked files:

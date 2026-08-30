@@ -2,9 +2,10 @@ import { describe, expect, it } from "vite-plus/test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { ProcessResult, ProcessRunOptions, ProcessRunner } from "./processRunner";
+import type { BinaryProcessResult, ProcessResult, ProcessRunOptions, ProcessRunner } from "./processRunner";
 import { NodeProcessRunner } from "./processRunner";
 import { createTerminalColorEnv, GitService, parsePorcelainStatus, parseWorktrees } from "./gitService";
+import { createCommitPlanChanges } from "./commitPlanChanges";
 
 interface RunnerCall {
   command: string;
@@ -55,6 +56,15 @@ class FakeRunner implements ProcessRunner {
     }
 
     return result;
+  }
+}
+
+class BinaryCapableFakeRunner extends FakeRunner {
+  binaryCalls = 0;
+
+  async runBinary(): Promise<BinaryProcessResult> {
+    this.binaryCalls += 1;
+    throw new Error("Commit-plan context must not load image preview bytes.");
   }
 }
 
@@ -3238,6 +3248,38 @@ describe("GitService", () => {
     ]);
   });
 
+  it("keeps binary commit-plan fingerprints valid without loading image previews", async () => {
+    const rawDiff = "diff --git a/assets/logo.png b/assets/logo.png\nnew file mode 100644\nindex 0000000..1234567\nBinary files /dev/null and b/assets/logo.png differ\n";
+    const change = createCommitPlanChanges([{
+      path: "assets/logo.png",
+      side: "unstaged",
+      kind: "binary",
+      text: rawDiff
+    }], "file")[0]!;
+    const runner = new BinaryCapableFakeRunner([
+      ok("true\n"),
+      ok(),
+      ok("true\n"),
+      ok("? assets/logo.png\0"),
+      { exitCode: 1, stdout: rawDiff, stderr: "" },
+      ok("true\n"),
+      ok("? assets/logo.png\0"),
+      ok(),
+      ok("true\n"),
+      ok("[main abc123] update logo\n")
+    ]);
+    const service = new GitService(runner);
+
+    const result = await service.quickCommitFiles({
+      repoPath: "D:\\Repo",
+      changes: [{ path: change.path, kind: change.kind, fingerprint: change.fingerprint }],
+      message: "feat: update logo"
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(runner.binaryCalls).toBe(0);
+  });
+
   it("reads structured stash entries", async () => {
     const runner = new FakeRunner([
       ok("true\n"),
@@ -4138,6 +4180,125 @@ describe("GitService", () => {
       "--",
       "a.ts"
     ]);
+  });
+
+  it("reads commit-plan diffs with one repository validation and one File Status call", async () => {
+    const runner = new BinaryCapableFakeRunner([
+      ok("true\n"),
+      ok([
+        trackedRecord(" M", "src/a.ts"),
+        trackedRecord(" M", "src/b.ts"),
+        "? assets/logo.png",
+        ""
+      ].join("\0")),
+      ok("diff --git a/src/a.ts b/src/a.ts\n+first\n"),
+      ok("diff --git a/src/b.ts b/src/b.ts\n+second\n"),
+      {
+        exitCode: 1,
+        stdout: "diff --git a/assets/logo.png b/assets/logo.png\nnew file mode 100644\nindex 0000000..1234567\nBinary files /dev/null and b/assets/logo.png differ\n",
+        stderr: ""
+      }
+    ]);
+    const service = new GitService(runner);
+
+    const diffs = await service.getCommitPlanDiffs({
+      repoPath: "D:\\Repo",
+      paths: ["src/a.ts", "src/b.ts", "assets/logo.png"]
+    });
+
+    expect(diffs).toMatchObject([
+      { path: "src/a.ts", kind: "text" },
+      { path: "src/b.ts", kind: "text" },
+      { path: "assets/logo.png", kind: "binary" }
+    ]);
+    expect(runner.calls.filter((call) => call.args.includes("--is-inside-work-tree"))).toHaveLength(1);
+    expect(runner.calls.filter((call) => call.args.includes("status"))).toHaveLength(1);
+    expect(runner.calls).toHaveLength(5);
+    expect(runner.binaryCalls).toBe(0);
+  });
+
+  it("batches long commit-plan status pathspecs and keeps untracked files", async () => {
+    const paths = Array.from({ length: 80 }, (_, index) =>
+      `generated/${String(index).padStart(3, "0")}-${"nested-path-".repeat(14)}file.ts`);
+    const statusCalls: string[][] = [];
+    const runner: ProcessRunner = {
+      async run(_command, args) {
+        if (args.includes("--is-inside-work-tree")) return ok("true\n");
+        if (args.includes("status")) {
+          const separator = args.indexOf("--");
+          const batch = args.slice(separator + 1);
+          statusCalls.push(batch);
+          return ok(batch.map((filePath) => `? ${filePath}`).join("\0"));
+        }
+        return {
+          exitCode: 1,
+          stdout: "diff --git a/file.ts b/file.ts\n+new\n",
+          stderr: ""
+        };
+      }
+    };
+    const service = new GitService(runner);
+
+    const diffs = await service.getCommitPlanDiffs({ repoPath: "D:\\Repo", paths });
+
+    expect(statusCalls.length).toBeGreaterThan(1);
+    expect(statusCalls.flat()).toEqual(paths);
+    expect(statusCalls.every((batch) => batch.reduce((total, filePath) => total + (filePath.length * 2) + 3, 0)
+      <= 12_000)).toBe(true);
+    expect(diffs).toHaveLength(paths.length);
+    expect(diffs.every((diff) => diff.kind === "text")).toBe(true);
+  });
+
+  it("fails commit-plan collection when File Status fails", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      { exitCode: 1, stdout: "", stderr: "status unavailable" }
+    ]);
+    const service = new GitService(runner);
+
+    await expect(service.getCommitPlanDiffs({ repoPath: "D:\\Repo", paths: ["new.ts"] }))
+      .rejects.toThrow("status unavailable");
+    expect(runner.calls).toHaveLength(2);
+  });
+
+  it("cancels active commit-plan diff processes and stops scheduling paths", async () => {
+    const controller = new AbortController();
+    const cancellation = new DOMException("Operation was cancelled.", "AbortError");
+    let diffCalls = 0;
+    let resolveStarted!: () => void;
+    const started = new Promise<void>((resolve) => { resolveStarted = resolve; });
+    const runner: ProcessRunner = {
+      async run(_command, args, options) {
+        if (args.includes("--is-inside-work-tree")) return ok("true\n");
+        if (args.includes("status")) {
+          return ok(Array.from({ length: 5 }, (_, index) => trackedRecord(" M", `src/${index}.ts`)).join("\0"));
+        }
+        diffCalls += 1;
+        if (diffCalls === 4) resolveStarted();
+        return new Promise<ProcessResult>((resolve) => {
+          const finish = () => resolve({
+            exitCode: -1,
+            stdout: "",
+            stderr: "",
+            terminationReason: "aborted"
+          });
+          if (options?.signal?.aborted) finish();
+          else options?.signal?.addEventListener("abort", finish, { once: true });
+        });
+      }
+    };
+    const service = new GitService(runner);
+    const result = service.getCommitPlanDiffs({
+      repoPath: "D:\\Repo",
+      paths: Array.from({ length: 5 }, (_, index) => `src/${index}.ts`),
+      signal: controller.signal
+    });
+    await started;
+
+    controller.abort(cancellation);
+
+    await expect(result).rejects.toBe(cancellation);
+    expect(diffCalls).toBe(4);
   });
 
   it("uses no-index diff for untracked files and treats exit code 1 as a diff", async () => {

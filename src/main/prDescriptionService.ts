@@ -41,7 +41,7 @@ export class PrDescriptionService {
     let selectedProvider: AiCommitMessageProvider | undefined;
     try {
       throwIfAborted(signal);
-      const settings = await this.settingsService.getSettings(request.repoPath);
+      const settings = await this.settingsService.getGenerationSettings(request.repoPath);
       throwIfAborted(signal);
       selectedProvider = settings.selectedProvider;
       const providerSettings = settings.providers[selectedProvider];
@@ -74,7 +74,8 @@ export class PrDescriptionService {
         this.reasoningCapabilities,
         selectedProvider,
         model,
-        providerSettings.reasoningEffort
+        providerSettings.reasoningEffort,
+        signal
       );
       throwIfAborted(signal);
       const generation = await generateCompleteText(resolution.provider, {
@@ -127,7 +128,7 @@ export class PrDescriptionService {
     let selectedProvider: AiCommitMessageProvider | undefined;
     try {
       throwIfAborted(signal);
-      const settings = await this.settingsService.getSettings(request.repoPath);
+      const settings = await this.settingsService.getGenerationSettings(request.repoPath);
       throwIfAborted(signal);
       selectedProvider = settings.selectedProvider;
       const providerSettings = settings.providers[selectedProvider];
@@ -160,7 +161,8 @@ export class PrDescriptionService {
         this.reasoningCapabilities,
         selectedProvider,
         model,
-        providerSettings.prDescriptionReasoningEffort
+        providerSettings.prDescriptionReasoningEffort,
+        signal
       );
       throwIfAborted(signal);
       const generation = await generateCompleteText(resolution.provider, {

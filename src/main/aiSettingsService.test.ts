@@ -58,6 +58,40 @@ function createService(dir: string, secretStorage: SecretStorage = new FakeSecre
 }
 
 describe("AiSettingsService", () => {
+  it("loads API generation settings without checking CLI status", async () => {
+    await withTempDir(async (dir) => {
+      let cliStatusChecks = 0;
+      const service = new AiSettingsService(dir, new FakeSecretStorage(), async () => {
+        cliStatusChecks += 1;
+        return cliStatus;
+      });
+
+      await expect(service.getGenerationSettings()).resolves.toMatchObject({
+        selectedProvider: "openrouter"
+      });
+      expect(cliStatusChecks).toBe(0);
+    });
+  });
+
+  it("checks CLI status when the selected generation provider is a CLI", async () => {
+    await withTempDir(async (dir) => {
+      await fs.writeFile(path.join(dir, "ai-settings.json"), JSON.stringify({
+        selectedProvider: "codex-cli"
+      }), "utf8");
+      let cliStatusChecks = 0;
+      const service = new AiSettingsService(dir, new FakeSecretStorage(), async () => {
+        cliStatusChecks += 1;
+        return cliStatus;
+      });
+
+      await expect(service.getGenerationSettings()).resolves.toMatchObject({
+        selectedProvider: "codex-cli",
+        cliStatus
+      });
+      expect(cliStatusChecks).toBe(1);
+    });
+  });
+
   it("uses provider defaults when no settings are stored", async () => {
     await withTempDir(async (dir) => {
       const service = createService(dir);

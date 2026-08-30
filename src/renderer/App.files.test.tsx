@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
+  createCommit,
   createOperationResult,
   createStatusFile,
   createSummary,
@@ -26,6 +27,23 @@ import {
   type GitCommitAndPushResult,
 } from "./AppTestHarness";
 import { App } from "./App";
+
+function installHistoryPreloadProbe(): () => void {
+  let callback: IdleRequestCallback | null = null;
+  vi.stubGlobal("requestIdleCallback", vi.fn((nextCallback: IdleRequestCallback) => {
+    callback = nextCallback;
+    return 1;
+  }));
+  vi.stubGlobal("cancelIdleCallback", vi.fn());
+
+  return () => {
+    const scheduledCallback = callback;
+    if (!scheduledCallback) throw new Error("Expected a history preload callback to be scheduled.");
+    act(() => {
+      scheduledCallback({ didTimeout: false, timeRemaining: () => 50 });
+    });
+  };
+}
 
 describe("App", { timeout: 10_000 }, () => {
   it("stages multiple ctrl-selected unstaged files through the preload API", async () => {
@@ -883,6 +901,122 @@ describe("App", { timeout: 10_000 }, () => {
     expect((screen.getByPlaceholderText("Summarize staged changes...") as HTMLTextAreaElement).value).toBe("feat: add generated context menu");
   });
 
+  it("keeps a newer draft and offers a late generated message as a suggestion", async () => {
+    const user = userEvent.setup();
+    const pendingGeneration = defer<Awaited<ReturnType<typeof githead.generateCommitMessage>>>();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/renderer/App.tsx", {
+          indexStatus: "A",
+          isStaged: true
+        })
+      ]
+    }));
+    vi.mocked(githead.generateCommitMessage).mockReturnValue(pendingGeneration.promise);
+
+    render(<App />);
+
+    const commitPanel = await screen.findByLabelText("Commit staged files");
+    const message = within(commitPanel).getByPlaceholderText("Summarize staged changes...") as HTMLTextAreaElement;
+    await user.click(within(commitPanel).getByRole("button", { name: /^Generate$/ }));
+    await user.type(message, "fix: keep my draft");
+
+    pendingGeneration.resolve({
+      repoPath,
+      exitCode: 0,
+      stdout: "feat: use generated draft",
+      stderr: ""
+    });
+
+    const suggestion = await within(commitPanel).findByRole("status", { name: "Generated commit message suggestion" });
+    expect(message.value).toBe("fix: keep my draft");
+    expect(suggestion.textContent).toContain("feat: use generated draft");
+    expect(within(suggestion).getByRole("button", { name: "Replace" })).toBeTruthy();
+    expect(within(suggestion).getByRole("button", { name: "Dismiss" })).toBeTruthy();
+
+    await user.click(within(suggestion).getByRole("button", { name: "Replace" }));
+    expect(message.value).toBe("feat: use generated draft");
+    expect(within(commitPanel).queryByRole("status", { name: "Generated commit message suggestion" })).toBeNull();
+  });
+
+  it("offers a generated message for review when staged changes change during generation", async () => {
+    const user = userEvent.setup();
+    const pendingGeneration = defer<Awaited<ReturnType<typeof githead.generateCommitMessage>>>();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [createStatusFile("src/context.ts", { indexStatus: "M", isStaged: true })]
+    }));
+    vi.mocked(githead.generateCommitMessage).mockReturnValue(pendingGeneration.promise);
+
+    render(<App />);
+
+    const commitPanel = await screen.findByLabelText("Commit staged files");
+    const message = within(commitPanel).getByPlaceholderText("Summarize staged changes...") as HTMLTextAreaElement;
+    await user.type(message, "fix: keep current context");
+    await user.click(within(commitPanel).getByRole("button", { name: /^Generate$/ }));
+    act(() => emitRepoChanged());
+
+    pendingGeneration.resolve({
+      repoPath,
+      exitCode: 0,
+      stdout: "fix: generated from old context",
+      stderr: ""
+    });
+
+    const suggestion = await within(commitPanel).findByRole("status", { name: "Generated commit message suggestion" });
+    expect(message.value).toBe("fix: keep current context");
+    expect(suggestion.textContent).toContain("Staged changes changed while this message was being generated.");
+  });
+
+  it("shows accessible progress on the primary Generate button", async () => {
+    const user = userEvent.setup();
+    const pendingGeneration = defer<Awaited<ReturnType<typeof githead.generateCommitMessage>>>();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [createStatusFile("src/progress.ts", { indexStatus: "M", isStaged: true })]
+    }));
+    vi.mocked(githead.generateCommitMessage).mockReturnValue(pendingGeneration.promise);
+
+    render(<App />);
+
+    const commitPanel = await screen.findByLabelText("Commit staged files");
+    await user.click(within(commitPanel).getByRole("button", { name: /^Generate$/ }));
+
+    const generatingButton = await within(commitPanel).findByRole("button", { name: "Generating…" });
+    expect((generatingButton as HTMLButtonElement).disabled).toBe(true);
+    expect(generatingButton.getAttribute("aria-busy")).toBe("true");
+    expect(generatingButton.querySelector(".animate-spin")).toBeTruthy();
+    expect(within(commitPanel).getByRole("status", { name: "Commit message generation status" }).textContent).toBe("Generating commit message.");
+
+    pendingGeneration.resolve({ repoPath, exitCode: 0, stdout: "fix: show progress", stderr: "" });
+    await waitFor(() => expect(within(commitPanel).getByRole("button", { name: /^Generate$/ })).toBeTruthy());
+  });
+
+  it("stops commit message generation without reporting cancellation as a failure", async () => {
+    const user = userEvent.setup();
+    const pendingGeneration = defer<Awaited<ReturnType<typeof githead.generateCommitMessage>>>();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [createStatusFile("src/cancel.ts", { indexStatus: "M", isStaged: true })]
+    }));
+    vi.mocked(githead.generateCommitMessage).mockReturnValue(pendingGeneration.promise);
+
+    render(<App />);
+
+    const commitPanel = await screen.findByLabelText("Commit staged files");
+    await user.click(within(commitPanel).getByRole("button", { name: /^Generate$/ }));
+    await user.click(await screen.findByRole("button", { name: "Stop" }));
+
+    const operationId = vi.mocked(githead.generateCommitMessage).mock.calls[0]?.[0].operationId;
+    await waitFor(() => expect(githead.cancelGitOperation).toHaveBeenCalledWith({ operationId }));
+    expect((screen.getByRole("button", { name: "Stopping…" }) as HTMLButtonElement).disabled).toBe(true);
+
+    pendingGeneration.resolve({ repoPath, exitCode: -1, stdout: "", stderr: "Operation was cancelled." });
+    await waitFor(() => expect(within(commitPanel).getByRole("button", { name: /^Generate$/ })).toBeTruthy());
+    expect(within(commitPanel).queryByRole("alert")).toBeNull();
+
+    await user.click(screen.getByRole("tab", { name: /^Activity Log/ }));
+    expect(screen.queryByText(/Operation was cancelled/)).toBeNull();
+    expect(screen.queryByText(/Generating commit message exited with code/)).toBeNull();
+  });
+
   it("opens Generate with Context and sends trimmed context with the request", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
@@ -920,6 +1054,35 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => {
       expect(screen.queryByRole("dialog", { name: "Generate with Context" })).toBeNull();
     });
+  });
+
+  it("stops Generate with Context and closes the dialog after one action", async () => {
+    const user = userEvent.setup();
+    const pendingGeneration = defer<Awaited<ReturnType<typeof githead.generateCommitMessage>>>();
+    const pendingCancellation = defer<Awaited<ReturnType<typeof githead.cancelGitOperation>>>();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [createStatusFile("src/context.ts", { indexStatus: "M", isStaged: true })]
+    }));
+    vi.mocked(githead.generateCommitMessage).mockReturnValue(pendingGeneration.promise);
+    vi.mocked(githead.cancelGitOperation).mockReturnValue(pendingCancellation.promise);
+
+    render(<App />);
+
+    const commitPanel = await screen.findByLabelText("Commit staged files");
+    await user.click(within(commitPanel).getByRole("button", { name: "More generate actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Generate with Context" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Generate with Context" });
+    await user.type(within(dialog).getByLabelText("Change Context"), "Explain the behavior");
+    await user.click(within(dialog).getByRole("button", { name: /^Generate$/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Stop" }));
+
+    expect((within(dialog).getByRole("button", { name: "Stopping…" }) as HTMLButtonElement).disabled).toBe(true);
+    pendingCancellation.resolve({ accepted: true, state: "cancelling" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Generate with Context" })).toBeNull());
+
+    pendingGeneration.resolve({ repoPath, exitCode: -1, stdout: "", stderr: "Operation was cancelled." });
+    await waitFor(() => expect(within(commitPanel).getByRole("button", { name: /^Generate$/ })).toBeTruthy());
   });
 
   it("keeps Generate with Context open when generation fails", async () => {
@@ -988,6 +1151,189 @@ describe("App", { timeout: 10_000 }, () => {
 
     await user.type(within(dialog).getByLabelText("Change Context"), "why");
     expect((submitButton as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("keeps repository status and history cached after commit plan generation succeeds", async () => {
+    const user = userEvent.setup();
+    const runHistoryPreload = installHistoryPreloadProbe();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [createStatusFile("src/plan.ts", { worktreeStatus: "M", isUnstaged: true })]
+    }));
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([createCommit({
+      hash: "a".repeat(40),
+      shortHash: "aaaaaaa",
+      subject: "Existing history"
+    })]);
+    vi.mocked(githead.generateCommitPlan).mockResolvedValue({
+      repoPath,
+      exitCode: 0,
+      plan: {
+        granularity: "file",
+        changes: [{
+          id: "change-1",
+          path: "src/plan.ts",
+          kind: "file",
+          label: "Whole file",
+          fingerprint: "b".repeat(64)
+        }],
+        groups: [{
+          id: "group-1",
+          message: "feat: keep generation read-only",
+          rationale: "Keeps cached repository views intact.",
+          changeIds: ["change-1"]
+        }],
+        unassignedChangeIds: []
+      },
+      stderr: ""
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("tab", { name: /Commit History/ }));
+    expect(await screen.findByText("Existing history")).toBeTruthy();
+    expect(githead.getCommitHistory).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("tab", { name: /File Status/ }));
+    await user.click(await screen.findByRole("button", { name: "Commit plan view" }));
+
+    vi.mocked(githead.getRepoIdentity).mockClear();
+    vi.mocked(githead.getRepoStatus).mockClear();
+    vi.mocked(githead.getRepoMetadata).mockClear();
+    await user.click(screen.getByRole("button", { name: "Generate" }));
+    expect(await screen.findByDisplayValue("feat: keep generation read-only")).toBeTruthy();
+    await flushRendererAsync();
+
+    expect(githead.getRepoIdentity).not.toHaveBeenCalled();
+    expect(githead.getRepoStatus).not.toHaveBeenCalled();
+    expect(githead.getRepoMetadata).not.toHaveBeenCalled();
+
+    runHistoryPreload();
+    await flushRendererAsync();
+    expect(githead.getCommitHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps repository status and history cached after commit plan generation fails", async () => {
+    const user = userEvent.setup();
+    const runHistoryPreload = installHistoryPreloadProbe();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [createStatusFile("src/failed-plan.ts", { worktreeStatus: "M", isUnstaged: true })]
+    }));
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([createCommit({
+      hash: "c".repeat(40),
+      shortHash: "ccccccc",
+      subject: "Cached history"
+    })]);
+    vi.mocked(githead.generateCommitPlan).mockResolvedValue({
+      repoPath,
+      exitCode: 1,
+      plan: null,
+      stderr: "Provider unavailable."
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("tab", { name: /Commit History/ }));
+    expect(await screen.findByText("Cached history")).toBeTruthy();
+    await user.click(screen.getByRole("tab", { name: /File Status/ }));
+    await user.click(await screen.findByRole("button", { name: "Commit plan view" }));
+
+    vi.mocked(githead.getRepoIdentity).mockClear();
+    vi.mocked(githead.getRepoStatus).mockClear();
+    vi.mocked(githead.getRepoMetadata).mockClear();
+    await user.click(screen.getByRole("button", { name: "Generate" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Provider unavailable.");
+    await flushRendererAsync();
+
+    expect(githead.getRepoIdentity).not.toHaveBeenCalled();
+    expect(githead.getRepoStatus).not.toHaveBeenCalled();
+    expect(githead.getRepoMetadata).not.toHaveBeenCalled();
+    runHistoryPreload();
+    await flushRendererAsync();
+    expect(githead.getCommitHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps repository state cached and treats accepted commit plan cancellation as neutral", async () => {
+    const user = userEvent.setup();
+    const runHistoryPreload = installHistoryPreloadProbe();
+    const pendingGeneration = defer<Awaited<ReturnType<typeof githead.generateCommitPlan>>>();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [createStatusFile("src/cancelled-plan.ts", { worktreeStatus: "M", isUnstaged: true })]
+    }));
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([createCommit({
+      hash: "d".repeat(40),
+      shortHash: "ddddddd",
+      subject: "Still cached"
+    })]);
+    vi.mocked(githead.generateCommitPlan).mockReturnValue(pendingGeneration.promise);
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("tab", { name: /Commit History/ }));
+    expect(await screen.findByText("Still cached")).toBeTruthy();
+    await user.click(screen.getByRole("tab", { name: /File Status/ }));
+    await user.click(await screen.findByRole("button", { name: "Commit plan view" }));
+
+    vi.mocked(githead.getRepoIdentity).mockClear();
+    vi.mocked(githead.getRepoStatus).mockClear();
+    vi.mocked(githead.getRepoMetadata).mockClear();
+    await user.click(screen.getByRole("button", { name: "Generate" }));
+    await user.click(await screen.findByRole("button", { name: "Cancel" }));
+
+    const operationId = vi.mocked(githead.generateCommitPlan).mock.calls[0]?.[0].operationId;
+    await waitFor(() => expect(githead.cancelGitOperation).toHaveBeenCalledWith({ operationId }));
+    pendingGeneration.resolve({
+      repoPath,
+      exitCode: -1,
+      plan: null,
+      stderr: "Operation was cancelled."
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Generate" })).toBeTruthy());
+    await flushRendererAsync();
+
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(githead.getRepoIdentity).not.toHaveBeenCalled();
+    expect(githead.getRepoStatus).not.toHaveBeenCalled();
+    expect(githead.getRepoMetadata).not.toHaveBeenCalled();
+    runHistoryPreload();
+    await flushRendererAsync();
+    expect(githead.getCommitHistory).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("tab", { name: /^Activity Log/ }));
+    expect(screen.queryByText(/Operation was cancelled/)).toBeNull();
+    expect(screen.queryByText(/Generating commit plan exited with code/)).toBeNull();
+  });
+
+  it("starts only one commit plan generation when concurrent trust checks resolve", async () => {
+    const user = userEvent.setup();
+    const pendingTrust = defer<{ trusted: boolean }>();
+    const pendingGeneration = defer<Awaited<ReturnType<typeof githead.generateCommitPlan>>>();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [createStatusFile("src/concurrent-plan.ts", { worktreeStatus: "M", isUnstaged: true })]
+    }));
+    vi.mocked(githead.generateCommitPlan).mockReturnValue(pendingGeneration.promise);
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Commit plan view" }));
+    vi.mocked(githead.getRepoTrust).mockClear();
+    vi.mocked(githead.getRepoTrust).mockReturnValue(pendingTrust.promise);
+
+    const generateButton = screen.getByRole("button", { name: "Generate" });
+    act(() => {
+      generateButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      generateButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await waitFor(() => expect(githead.getRepoTrust).toHaveBeenCalledTimes(2));
+
+    pendingTrust.resolve({ trusted: true });
+    await flushRendererAsync();
+
+    expect(githead.generateCommitPlan).toHaveBeenCalledTimes(1);
+    const operationId = vi.mocked(githead.generateCommitPlan).mock.calls[0]?.[0].operationId;
+    await user.click(await screen.findByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(githead.cancelGitOperation).toHaveBeenCalledWith({ operationId }));
+
+    pendingGeneration.resolve({ repoPath, exitCode: -1, plan: null, stderr: "Operation was cancelled." });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Generate" })).toBeTruthy());
   });
 
   it("requests repository trust once before committing and remembers the decision", async () => {

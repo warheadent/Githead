@@ -32,6 +32,35 @@ function result(exitCode: number): ProcessResult {
 }
 
 describe("AiCliStatusService", () => {
+  it("coalesces concurrent status refreshes", async () => {
+    let releaseChecks!: () => void;
+    const checksReleased = new Promise<void>((resolve) => {
+      releaseChecks = resolve;
+    });
+    let markInitialChecksStarted!: () => void;
+    const initialChecksStarted = new Promise<void>((resolve) => {
+      markInitialChecksStarted = resolve;
+    });
+    const runner: ProcessRunner = {
+      run: async () => {
+        calls += 1;
+        if (calls === 2) markInitialChecksStarted();
+        await checksReleased;
+        return result(-1);
+      }
+    };
+    let calls = 0;
+    const service = new AiCliStatusService(runner);
+
+    const first = service.getStatus();
+    await initialChecksStarted;
+    const second = service.getStatus();
+    releaseChecks();
+
+    await Promise.all([first, second]);
+    expect(calls).toBe(2);
+  });
+
   it("detects missing executables", async () => {
     const runner = new FakeProcessRunner([
       result(-1),

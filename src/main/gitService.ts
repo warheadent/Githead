@@ -208,6 +208,12 @@ export interface GitBranchRangeContext {
   log: GitOperationResult;
 }
 
+export interface GitCommitPlanDiffRequest {
+  repoPath: string;
+  paths: string[];
+  signal?: AbortSignal;
+}
+
 interface PullRecoverySnapshot {
   branchName: string;
   oldUpstreamOid: string;
@@ -242,6 +248,9 @@ const emptySummary = (
 });
 
 const DIFF_TEXT_LIMIT = 250_000;
+// Keep status pathspec arguments well below CreateProcessW's command-line
+// limit. The cost estimate allows room for quoting and the fixed Git args.
+const GIT_STATUS_PATHSPEC_CHARACTER_BUDGET = 12_000;
 const REPOSITORY_ACCESS_CHECK_TIMEOUT_MS = 30_000;
 
 export class GitService {
@@ -592,6 +601,61 @@ export class GitService {
     return (normalized.kind === "binary" || (normalized.kind === "text" && isGitLfsPointerDiff(normalized.text))) && isPreviewableImagePath(request.path) && this.runner.runBinary
       ? await this.getWorkingImageDiff(request)
       : normalized;
+  }
+
+  /**
+   * Reads the working-tree diffs used to build a commit plan without repeating
+   * repository validation, File Status, or image preview work for every path.
+   */
+  async getCommitPlanDiffs(request: GitCommitPlanDiffRequest): Promise<GitFileDiff[]> {
+    request.signal?.throwIfAborted();
+    const pathsResult = sanitizeRepoPaths(request.paths);
+    if ("error" in pathsResult) {
+      return sanitizePaths(request.paths).map((filePath) => ({
+        path: filePath,
+        side: "unstaged" as const,
+        kind: "error" as const,
+        text: pathsResult.error
+      }));
+    }
+
+    const validation = await this.validateRepo(request.repoPath);
+    request.signal?.throwIfAborted();
+    if (!validation.isValid) {
+      const text = validation.validationErrors.join(" ");
+      return pathsResult.paths.map((filePath) => ({
+        path: filePath,
+        side: "unstaged" as const,
+        kind: "error" as const,
+        text
+      }));
+    }
+
+    const statuses = await this.getStatusFiles(request.repoPath, pathsResult.paths, request.signal);
+    request.signal?.throwIfAborted();
+    return mapWithConcurrency(pathsResult.paths, 4, async (filePath, index) => {
+      request.signal?.throwIfAborted();
+      const status = statuses[index];
+      const result = await this.getCommitPlanDiffResult(request.repoPath, filePath, status, request.signal);
+      request.signal?.throwIfAborted();
+      const normalized = normalizeDiffResult({
+        repoPath: request.repoPath,
+        path: filePath,
+        side: "unstaged"
+      }, result);
+      if (normalized.kind === "empty" && status?.submodule && (status.submodule.trackedChanges || status.submodule.untrackedChanges)) {
+        return {
+          path: filePath,
+          side: "unstaged" as const,
+          kind: "text" as const,
+          text: "This submodule contains internal working-tree changes. Open the submodule repository to inspect, stage, or commit them."
+        };
+      }
+      if (normalized.kind === "binary" && result.stdout.trim()) {
+        return { ...normalized, text: result.stdout };
+      }
+      return normalized;
+    });
   }
 
   async getStashes(request: GitStashListRequest): Promise<GitStashEntry[]> {
@@ -1549,11 +1613,7 @@ export class GitService {
       if ("error" in pathResult) return pathResult;
     }
 
-    const diffs = await mapWithConcurrency(paths, 4, (filePath) => this.getFileDiff({
-      repoPath,
-      path: filePath,
-      side: "unstaged"
-    }));
+    const diffs = await this.getCommitPlanDiffs({ repoPath, paths });
     const diffByPath = new Map(diffs.map((diff) => [diff.path, diff]));
     const resolvedHunks: PreparedCommitPlanChange[] = [];
     const filePaths: string[] = [];
@@ -3335,12 +3395,14 @@ export class GitService {
     return readGitFileBlame(this.runner, request.repoPath, hashResult.hash, pathResult.path);
   }
 
-  private runGitStatus(repoPath: string, args: string[]): Promise<ProcessResult> {
-    return this.runGit(repoPath, [
+  private runGitStatus(repoPath: string, args: string[], signal?: AbortSignal): Promise<ProcessResult> {
+    return this.runner.run("git", [
+      "-C",
+      repoPath,
       "--no-optional-locks",
       "status",
       ...args
-    ]);
+    ], signal ? { signal } : undefined);
   }
 
   private async runGitStatusWithRetry(repoPath: string, args: string[]): Promise<ProcessResult> {
@@ -3393,6 +3455,46 @@ export class GitService {
       "--",
       filePath
     ]);
+  }
+
+  private getCommitPlanDiffResult(
+    repoPath: string,
+    filePath: string,
+    status: GitStatusFile | undefined,
+    signal?: AbortSignal
+  ): Promise<ProcessResult> {
+    const options: ProcessRunOptions = {
+      maxOutputBytes: DIFF_TEXT_LIMIT,
+      outputMode: "truncate",
+      ...(signal ? { signal } : {})
+    };
+    if (status?.indexStatus === "?") {
+      return this.runner.run("git", [
+        "diff",
+        "--no-index",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--",
+        "/dev/null",
+        filePath
+      ], { ...options, cwd: repoPath }).then((result) => ({
+        ...result,
+        exitCode: result.exitCode === 1 ? 0 : result.exitCode
+      }));
+    }
+
+    return this.runner.run("git", [
+      "-C",
+      repoPath,
+      "diff",
+      "--submodule=short",
+      "--no-color",
+      "--no-ext-diff",
+      "--no-textconv",
+      "--",
+      filePath
+    ], options);
   }
 
   private async getWorkingImageDiff(request: GitFileDiffRequest): Promise<GitFileDiff> {
@@ -3509,19 +3611,24 @@ export class GitService {
     };
   }
 
-  private async getStatusFiles(repoPath: string, filePaths: string[]): Promise<Array<GitStatusFile | undefined>> {
-    const statusResult = await this.runGitStatus(repoPath, [
+  private async getStatusFiles(repoPath: string, filePaths: string[], signal?: AbortSignal): Promise<Array<GitStatusFile | undefined>> {
+    const pathBatches = chunkGitStatusPaths(filePaths);
+    const statusResults = await mapWithConcurrency(pathBatches, 4, (paths) => this.runGitStatus(repoPath, [
       "--porcelain=v2",
       "-z",
       "--untracked-files=all",
       "--",
-      ...filePaths
-    ]);
+      ...paths
+    ], signal));
+    signal?.throwIfAborted();
+    const failed = statusResults.find((result) => result.exitCode !== 0);
+    if (failed) {
+      throw new Error(failed.stderr.trim() || failed.error || "Unable to read repository file status.");
+    }
 
-    const filesByPath = new Map(parsePorcelainStatus(statusResult.stdout).files.map((file) => [
-      file.path,
-      file
-    ]));
+    const filesByPath = new Map(statusResults.flatMap((result) =>
+      parsePorcelainStatus(result.stdout).files.map((file) => [file.path, file] as const)
+    ));
     return filePaths.map((filePath) => filesByPath.get(filePath));
   }
 
@@ -4122,6 +4229,25 @@ function parseRepositoryAccessRefs(stdout: string): { branches: string[]; defaul
 
 function sanitizePaths(paths: string[]): string[] {
   return [...new Set(paths.map((path) => path.trim()).filter((path) => path.length > 0))];
+}
+
+function chunkGitStatusPaths(paths: string[]): string[][] {
+  const batches: string[][] = [];
+  let batch: string[] = [];
+  let estimatedCharacters = 0;
+
+  for (const filePath of paths) {
+    const pathCharacters = (filePath.length * 2) + 3;
+    if (batch.length > 0 && estimatedCharacters + pathCharacters > GIT_STATUS_PATHSPEC_CHARACTER_BUDGET) {
+      batches.push(batch);
+      batch = [];
+      estimatedCharacters = 0;
+    }
+    batch.push(filePath);
+    estimatedCharacters += pathCharacters;
+  }
+  if (batch.length > 0) batches.push(batch);
+  return batches;
 }
 
 function dedupeQuickCommitChanges(changes: GitQuickCommitChange[]): GitQuickCommitChange[] {
@@ -4981,7 +5107,7 @@ function normalizeDiffResult(request: GitFileDiffRequest, result: ProcessResult)
     };
   }
 
-  const truncated = result.stdout.length > DIFF_TEXT_LIMIT;
+  const truncated = Boolean(result.stdoutTruncated) || result.stdout.length > DIFF_TEXT_LIMIT;
   return {
     path: request.path,
     side: request.side,

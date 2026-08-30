@@ -432,6 +432,7 @@ interface AppState {
   diffLoading: boolean;
   diffChanged: boolean;
   commitMessage: string;
+  commitMessageSuggestion: CommitMessageSuggestion | null;
   commitPushSafetyNotice: CommitPushSafetyNotice | null;
   commitMessageGenerationError: string;
   generateContextDialog: GenerateContextDialogState;
@@ -490,6 +491,11 @@ interface AppState {
 interface CommitPushSafetyNotice {
   message: string;
   undoRequest: GitUndoCommitRequest | null;
+}
+
+interface CommitMessageSuggestion {
+  message: string;
+  reason: "draft-changed" | "repository-changed";
 }
 
 type AppStateUpdater = Partial<AppState> | ((state: AppState) => AppState);
@@ -848,6 +854,7 @@ const initialState: AppState = {
   diffLoading: false,
   diffChanged: false,
   commitMessage: "",
+  commitMessageSuggestion: null,
   commitPushSafetyNotice: null,
   commitMessageGenerationError: "",
   generateContextDialog: emptyGenerateContextDialog,
@@ -2116,6 +2123,7 @@ export function App(): ReactNode {
       pullRecoveryError: "",
       repositoryOperationError: "",
       commitPushSafetyNotice: null,
+      commitMessageSuggestion: null,
       commitMessageGenerationError: "",
       repositorySyncSettings: null,
       gitIdentity: null,
@@ -5080,6 +5088,7 @@ export function App(): ReactNode {
     if (result.exitCode === 0) {
       updateState({
         commitMessage: "",
+        commitMessageSuggestion: null,
         commitPushSafetyNotice: null
       });
       return result;
@@ -5166,18 +5175,59 @@ export function App(): ReactNode {
     if (!current.summary?.isValid || current.summary.kind !== "git" || isOperationRunning(current)) return null;
     const repoPath = current.repoPath;
     if (!(await ensureTrustedRepo(repoPath)) || !isSameRepoPath(repoPath, stateRef.current.repoPath)) return null;
-    let generated: GenerateCommitPlanResult | null = null;
-    const operationResult = await runRepoOperation("Generating commit plan", undefined, async (operationId) => {
-      generated = await window.githead.generateCommitPlan({ repoPath, paths, operationId });
-      return {
+    if (isOperationRunning(stateRef.current)) return null;
+    const activeOperation = createActiveOperation("Generating commit plan", repoPath, "repo-operation");
+    updateState({
+      activeOperation,
+      runningOperation: "Generating commit plan",
+      lastOperationResult: null
+    });
+
+    try {
+      const generated = await window.githead.generateCommitPlan({
+        repoPath,
+        paths,
+        operationId: activeOperation.operationId
+      });
+      if (!isActiveOperationCurrent(activeOperation.token) || !isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        return null;
+      }
+      if (stateRef.current.activeOperation?.cancelStatus === "canceling") {
+        updateState({ lastOperationResult: null });
+        return null;
+      }
+
+      const operationResult: GitOperationResult = {
         repoPath,
         exitCode: generated.exitCode,
         stdout: "",
         stderr: generated.stderr
       };
-    });
-    return operationResult ? generated : null;
-  }, [ensureTrustedRepo, runRepoOperation]);
+      updateState({ lastOperationResult: operationResult });
+      appendOperationLog("Generating commit plan", operationResult);
+      return generated;
+    } catch (error) {
+      if (!isActiveOperationCurrent(activeOperation.token) || !isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        return null;
+      }
+      if (stateRef.current.activeOperation?.cancelStatus === "canceling") {
+        updateState({ lastOperationResult: null });
+        return null;
+      }
+
+      const operationResult: GitOperationResult = {
+        repoPath,
+        exitCode: -1,
+        stdout: "",
+        stderr: error instanceof Error ? error.message : "Unable to generate a commit plan."
+      };
+      updateState({ lastOperationResult: operationResult });
+      appendOperationLog("Generating commit plan", operationResult);
+      return null;
+    } finally {
+      finishActiveOperation(activeOperation.token);
+    }
+  }, [appendOperationLog, createActiveOperation, ensureTrustedRepo, finishActiveOperation, isActiveOperationCurrent, updateState]);
 
   const validateCommitPlan = useCallback(async (request: CommitPlanValidationRequest): Promise<CommitPlanValidationResult> => {
     cancelRepositoryRead("commit-plan-validation", requestIds.current.commitPlanValidation);
@@ -5263,7 +5313,7 @@ export function App(): ReactNode {
     if (!result || !isSameRepoPath(repoPath, stateRef.current.repoPath)) return;
 
     if (result.exitCode === 0) {
-      updateState({ commitMessage: "", commitPushSafetyNotice: null });
+      updateState({ commitMessage: "", commitMessageSuggestion: null, commitPushSafetyNotice: null });
       return;
     }
     if (result.errorKind === "missing-author-identity") {
@@ -5279,7 +5329,7 @@ export function App(): ReactNode {
         }
       : null;
     updateState({
-      ...(result.push?.branchSucceeded ? { commitMessage: "" } : {}),
+      ...(result.push?.branchSucceeded ? { commitMessage: "", commitMessageSuggestion: null } : {}),
       commitPushSafetyNotice: result.push?.partialSuccess
         ? null
         : {
@@ -5317,10 +5367,13 @@ export function App(): ReactNode {
       current.repoPath,
       "repo-operation"
     );
+    const startingCommitMessage = stateRef.current.commitMessage;
+    const startingFileStatusGeneration = fileStatusGenerationRef.current;
     updateState({
       activeOperation,
       runningOperation: "Generating commit message",
       lastOperationResult: null,
+      commitMessageSuggestion: null,
       commitMessageGenerationError: ""
     });
 
@@ -5334,19 +5387,37 @@ export function App(): ReactNode {
       if (!isActiveOperationCurrent(activeOperation.token)) {
         return false;
       }
-      const generatedMessage = result.exitCode === 0 ? result.stdout.trim() : stateRef.current.commitMessage;
-      updateState({
+      if (stateRef.current.activeOperation?.cancelStatus === "canceling") {
+        updateState({
+          lastOperationResult: null,
+          commitMessageGenerationError: ""
+        });
+        return false;
+      }
+      const generatedMessage = result.exitCode === 0 ? result.stdout.trim() : "";
+      const repositoryChanged = fileStatusGenerationRef.current !== startingFileStatusGeneration;
+      updateState((latest) => ({
+        ...latest,
         lastOperationResult: result.exitCode === 0
           ? {
               ...result,
               stdout: "Commit message generated."
             }
           : result,
-        commitMessage: generatedMessage,
+        ...(result.exitCode === 0 && latest.commitMessage === startingCommitMessage && !repositoryChanged
+          ? { commitMessage: generatedMessage, commitMessageSuggestion: null }
+          : result.exitCode === 0
+            ? {
+                commitMessageSuggestion: {
+                  message: generatedMessage,
+                  reason: repositoryChanged ? "repository-changed" : "draft-changed"
+                }
+              }
+            : {}),
         commitMessageGenerationError: result.exitCode === 0
           ? ""
           : result.stderr.trim() || "Unable to generate a commit message."
-      });
+      }));
       appendOperationLog("Generating commit message", result);
       return result.exitCode === 0;
     } catch (error) {
@@ -5358,6 +5429,13 @@ export function App(): ReactNode {
       };
 
       if (!isActiveOperationCurrent(activeOperation.token)) {
+        return false;
+      }
+      if (stateRef.current.activeOperation?.cancelStatus === "canceling") {
+        updateState({
+          lastOperationResult: null,
+          commitMessageGenerationError: ""
+        });
         return false;
       }
       updateState({
@@ -5730,7 +5808,8 @@ export function App(): ReactNode {
 
       if (result?.exitCode === 0) {
         updateState({
-          commitMessage: ""
+          commitMessage: "",
+          commitMessageSuggestion: null
         });
       }
     } catch (error) {
@@ -6658,7 +6737,7 @@ export function App(): ReactNode {
 
   const cancelRunningOperation = useCallback(async (
     requestedTarget?: RendererCancellationTarget,
-    onMissing?: () => void
+    onCancelledOrMissing?: () => void
   ): Promise<void> => {
     const current = stateRef.current;
     const active = current.activeOperation?.cancellable ? current.activeOperation : null;
@@ -6701,12 +6780,13 @@ export function App(): ReactNode {
     try {
       const result = await window.githead.cancelGitOperation({ operationId: target.operationId });
       if (result.accepted) {
+        onCancelledOrMissing?.();
         return;
       }
 
       if (result.state === "not-found") {
         recoverMissingOperations([target.operationId]);
-        onMissing?.();
+        onCancelledOrMissing?.();
         return;
       }
 
@@ -7046,6 +7126,8 @@ export function App(): ReactNode {
               cancellable={Boolean(cancellationTarget)}
               cancelStatus={cancellationTarget?.cancelStatus ?? "idle"}
               cancelError={cancellationTarget?.cancelError ?? ""}
+              cancelLabel={state.runningOperation === "Generating commit message" ? "Stop" : "Cancel"}
+              cancelingLabel={state.runningOperation === "Generating commit message" ? "Stopping…" : "Cancelling"}
               showCreatePullRequest={shouldShowCreatePullRequest(state.summary, historyInsights.data.currentBranchPullRequests, historyInsights.loaded)}
               branchPullRequests={historyInsights.data.currentBranchPullRequests}
               pullRecovery={state.pullRecovery}
@@ -7466,8 +7548,10 @@ export function App(): ReactNode {
             {state.activeView === "status" && statusWorkspaceMode === "files" && !repositoryOperationActive ? (
               <CommitPanel
                 commitMessage={state.commitMessage}
+                commitMessageSuggestion={state.commitMessageSuggestion}
                 commitPushSafetyNotice={state.commitPushSafetyNotice}
                 generationError={state.commitMessageGenerationError}
+                generating={state.runningOperation === "Generating commit message"}
                 disabled={disableUnrelatedMutations}
                 primaryCommitAction={primaryCommitAction}
                 pushableCommitCount={getPushableCommitCount(state.summary)}
@@ -7510,6 +7594,18 @@ export function App(): ReactNode {
                     commitMessageGenerationError: ""
                   });
                 }}
+                onApplyCommitMessageSuggestion={() => {
+                  const suggestion = stateRef.current.commitMessageSuggestion;
+                  if (!suggestion) return;
+                  updateState({
+                    commitMessage: suggestion.message,
+                    commitMessageSuggestion: null,
+                    commitMessageGenerationError: ""
+                  });
+                }}
+                onDismissCommitMessageSuggestion={() => {
+                  updateState({ commitMessageSuggestion: null });
+                }}
               />
             ) : null}
             </section>
@@ -7521,6 +7617,9 @@ export function App(): ReactNode {
         open={state.generateContextDialog.open}
         context={state.generateContextDialog.context}
         generating={state.runningOperation === "Generating commit message"}
+        cancelStatus={state.runningOperation === "Generating commit message"
+          ? state.activeOperation?.cancelStatus ?? "idle"
+          : "idle"}
         error={state.commitMessageGenerationError}
         onOpenChange={(open) => {
           if (!open) {
@@ -7529,10 +7628,10 @@ export function App(): ReactNode {
             }));
           }
         }}
-          onContextChange={(context) => {
-            updateState({
-              commitMessageGenerationError: "",
-              generateContextDialog: {
+        onContextChange={(context) => {
+          updateState({
+            commitMessageGenerationError: "",
+            generateContextDialog: {
               ...stateRef.current.generateContextDialog,
               context
             }
@@ -9774,6 +9873,8 @@ function ActionBar({
   cancellable,
   cancelStatus,
   cancelError,
+  cancelLabel,
+  cancelingLabel,
   showCreatePullRequest,
   branchPullRequests,
   pullRecovery,
@@ -9794,6 +9895,8 @@ function ActionBar({
   cancellable: boolean;
   cancelStatus: OperationCancelStatus;
   cancelError: string;
+  cancelLabel: string;
+  cancelingLabel: string;
   showCreatePullRequest: boolean;
   branchPullRequests: GitHubPullRequestAssociation[];
   pullRecovery: GitPullRecovery | null;
@@ -9843,7 +9946,7 @@ function ActionBar({
         {cancellable ? (
           <Button type="button" variant="destructive" disabled={cancelStatus === "canceling"} onClick={onCancel}>
             {cancelStatus === "canceling" ? <Loader2 className="animate-spin" /> : <X />}
-            {cancelStatus === "canceling" ? "Cancelling" : cancelStatus === "error" ? "Retry Cancel" : "Cancel"}
+            {cancelStatus === "canceling" ? cancelingLabel : cancelStatus === "error" ? `Retry ${cancelLabel}` : cancelLabel}
           </Button>
         ) : null}
         <DropdownMenu>
@@ -12547,8 +12650,10 @@ function CommitFileRow({
 
 function CommitPanel({
   commitMessage,
+  commitMessageSuggestion,
   commitPushSafetyNotice,
   generationError,
+  generating,
   disabled,
   primaryCommitAction,
   pushableCommitCount,
@@ -12566,11 +12671,15 @@ function CommitPanel({
   onOpenAmend,
   onGenerateMessage,
   onOpenGenerateWithContext,
-  onCommitMessageChange
+  onCommitMessageChange,
+  onApplyCommitMessageSuggestion,
+  onDismissCommitMessageSuggestion
 }: {
   commitMessage: string;
+  commitMessageSuggestion: CommitMessageSuggestion | null;
   commitPushSafetyNotice: CommitPushSafetyNotice | null;
   generationError: string;
+  generating: boolean;
   disabled: boolean;
   primaryCommitAction: "commit" | "push" | null;
   pushableCommitCount: number;
@@ -12589,6 +12698,8 @@ function CommitPanel({
   onGenerateMessage: () => void;
   onOpenGenerateWithContext: () => void;
   onCommitMessageChange: (message: string) => void;
+  onApplyCommitMessageSuggestion: () => void;
+  onDismissCommitMessageSuggestion: () => void;
 }): ReactNode {
   const commitDisabled = disabled
     || primaryCommitAction === null
@@ -12604,8 +12715,17 @@ function CommitPanel({
     : primaryCommitAction === "push" ? "push" : "commit";
 
   return (
-    <section className="commit-panel grid min-h-0 gap-2.5 border-t bg-card px-6 py-4" aria-label="Commit staged files">
+    <section
+      className="commit-panel grid min-h-0 gap-2.5 border-t bg-card px-6 py-4"
+      aria-label="Commit staged files"
+      aria-busy={generating}
+    >
       <p className="eyebrow">Commit</p>
+      {generating || commitMessageSuggestion ? (
+        <p className="sr-only" role="status" aria-live="polite" aria-label="Commit message generation status">
+          {generating ? "Generating commit message." : "Generated commit message is ready for review."}
+        </p>
+      ) : null}
       <Textarea
         id="commit-message"
         value={commitMessage}
@@ -12613,6 +12733,32 @@ function CommitPanel({
         placeholder="Summarize staged changes..."
         onChange={(event) => onCommitMessageChange(event.target.value)}
       />
+      {commitMessageSuggestion ? (
+        <div
+          className="grid gap-2 rounded-md border border-primary/25 bg-primary/5 px-3 py-2.5"
+          role="status"
+          aria-label="Generated commit message suggestion"
+        >
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <Sparkles className="size-4 text-primary" aria-hidden="true" />
+            Generated suggestion
+          </div>
+          <p className="selectable-text text-sm leading-5">{commitMessageSuggestion.message}</p>
+          <p className="text-xs text-muted-foreground">
+            {commitMessageSuggestion.reason === "repository-changed"
+              ? "Staged changes changed while this message was being generated. Review it before replacing your draft."
+              : "Your draft changed while this message was being generated. Review it before replacing your draft."}
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" size="sm" onClick={onDismissCommitMessageSuggestion}>
+              Dismiss
+            </Button>
+            <Button type="button" variant="secondary" size="sm" onClick={onApplyCommitMessageSuggestion}>
+              {commitMessage.trim() ? "Replace" : "Apply"}
+            </Button>
+          </div>
+        </div>
+      ) : null}
       {generationError ? (
         <p className="text-sm text-destructive" role="alert">{generationError}</p>
       ) : null}
@@ -12634,13 +12780,14 @@ function CommitPanel({
             type="button"
             variant="secondary"
             disabled={generateDisabled}
+            aria-busy={generating}
             tooltip="Generate commit message"
             disabledTooltip={generateTitle}
             onClick={onGenerateMessage}
             className="rounded-r-none"
           >
-            <Sparkles />
-            Generate
+            {generating ? <Loader2 className="animate-spin" /> : <Sparkles />}
+            {generating ? "Generating…" : "Generate"}
           </TooltipButton>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -12734,6 +12881,7 @@ function GenerateWithContextDialog({
   open,
   context,
   generating,
+  cancelStatus,
   error,
   onOpenChange,
   onContextChange,
@@ -12742,6 +12890,7 @@ function GenerateWithContextDialog({
   open: boolean;
   context: string;
   generating: boolean;
+  cancelStatus: OperationCancelStatus;
   error: string;
   onOpenChange: (open: boolean) => void;
   onContextChange: (context: string) => void;
@@ -12749,7 +12898,7 @@ function GenerateWithContextDialog({
 }): ReactNode {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[460px]">
+      <DialogContent className="sm:max-w-[460px]" aria-busy={generating}>
         <form className="grid gap-4" onSubmit={onGenerate}>
           <DialogHeader>
             <DialogTitle>Generate with Context</DialogTitle>
@@ -12774,12 +12923,18 @@ function GenerateWithContextDialog({
           {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
 
           <DialogFooter>
-            <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
-              Cancel
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={cancelStatus === "canceling"}
+              onClick={() => onOpenChange(false)}
+            >
+              {cancelStatus === "canceling" ? <Loader2 className="animate-spin" /> : null}
+              {cancelStatus === "canceling" ? "Stopping…" : generating ? "Stop" : "Cancel"}
             </Button>
             <Button type="submit" disabled={generating || context.trim().length === 0}>
-              <Sparkles />
-              Generate
+              {generating ? <Loader2 className="animate-spin" /> : <Sparkles />}
+              {generating ? "Generating…" : "Generate"}
             </Button>
           </DialogFooter>
         </form>

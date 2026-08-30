@@ -29,7 +29,7 @@ type ChangeDiffProvider = Pick<VcsService, "getStagedDiff"> & Partial<Pick<VcsSe
 type Fetch = typeof fetch;
 
 export interface AiReasoningCapabilityResolver {
-  getCapabilities(request: GetAiReasoningCapabilitiesRequest): Promise<{
+  getCapabilities(request: GetAiReasoningCapabilitiesRequest, signal?: AbortSignal): Promise<{
     status: "supported" | "unsupported" | "unknown";
     supportedEfforts: AiReasoningEffort[];
   }>;
@@ -48,7 +48,7 @@ export class CommitMessageService {
     let selectedProvider: AiCommitMessageProvider | undefined;
     try {
       throwIfAborted(signal);
-      const settings = await this.settingsService.getSettings(request.repoPath);
+      const settings = await this.settingsService.getGenerationSettings(request.repoPath);
       throwIfAborted(signal);
       selectedProvider = settings.selectedProvider;
       const providerSettings = settings.providers[selectedProvider];
@@ -95,7 +95,8 @@ export class CommitMessageService {
         this.reasoningCapabilities,
         selectedProvider,
         providerSettings.model,
-        providerSettings.reasoningEffort
+        providerSettings.reasoningEffort,
+        signal
       );
       throwIfAborted(signal);
       const generation = await generateCompleteText(resolution.provider, {
@@ -158,12 +159,13 @@ export async function resolveReasoningEffort(
   resolver: AiReasoningCapabilityResolver | undefined,
   provider: AiCommitMessageProvider,
   model: string,
-  effort: AiReasoningEffort
+  effort: AiReasoningEffort,
+  signal?: AbortSignal
 ): Promise<AiReasoningEffort | undefined> {
   if (!resolver) {
     return undefined;
   }
-  const capabilities = await resolver.getCapabilities({ provider, model });
+  const capabilities = await resolver.getCapabilities({ provider, model }, signal);
   return capabilities.status === "supported" && capabilities.supportedEfforts.includes(effort)
     ? effort
     : undefined;

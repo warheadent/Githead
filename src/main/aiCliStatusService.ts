@@ -16,6 +16,7 @@ export class AiCliStatusService {
         status: Record<AiCliProvider, AiCliProviderStatus>;
       }
     | null = null;
+  private inFlight: Promise<Record<AiCliProvider, AiCliProviderStatus>> | null = null;
 
   constructor(
     private readonly runner: ProcessRunner,
@@ -27,21 +28,28 @@ export class AiCliStatusService {
     if (this.cached && now - this.cached.checkedAt < CLI_STATUS_CACHE_MS) {
       return this.cached.status;
     }
+    if (this.inFlight) {
+      return this.inFlight;
+    }
 
-    const [codex, claude] = await runEffect(Effect.all([
+    const refresh = runEffect(Effect.all([
       this.checkCodex(),
       this.checkClaude()
-    ], { concurrency: "unbounded" }));
-    const status = {
-      "codex-cli": codex,
-      "claude-code": claude
-    };
-    this.cached = {
-      checkedAt: now,
-      status
-    };
-
-    return status;
+    ], { concurrency: "unbounded" })).then(([codex, claude]) => {
+      const status = {
+        "codex-cli": codex,
+        "claude-code": claude
+      };
+      this.cached = {
+        checkedAt: now,
+        status
+      };
+      return status;
+    });
+    this.inFlight = refresh.finally(() => {
+      this.inFlight = null;
+    });
+    return this.inFlight;
   }
 
   private checkCodex(): Effect.Effect<AiCliProviderStatus, unknown> {

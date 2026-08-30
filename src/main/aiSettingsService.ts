@@ -122,6 +122,16 @@ export class AiSettingsService {
     return stored ? mergeRepositorySettings(globalSettings, stored) : globalSettings;
   }
 
+  async getGenerationSettings(repoPath?: string): Promise<AiSettings> {
+    const globalSettings = await this.getGlobalSettings(true);
+    if (!repoPath) {
+      return globalSettings;
+    }
+
+    const stored = await this.readRepositorySettings(repoPath);
+    return stored ? mergeRepositorySettings(globalSettings, stored) : globalSettings;
+  }
+
   async getRepositorySettings(repoPath: string): Promise<RepositoryAiSettings> {
     const globalSettings = await this.getGlobalSettings();
     const stored = await this.readRepositorySettings(repoPath);
@@ -194,14 +204,24 @@ export class AiSettingsService {
     return this.getRepositorySettings(repoPath);
   }
 
-  private async getGlobalSettings(): Promise<AiSettings> {
-    const [
-      stored,
-      cliStatus
-    ] = await runEffect(Effect.all([
-      tryPromise(() => this.readStoredSettings()),
-      tryPromise(() => this.getCliStatus())
-    ], { concurrency: "unbounded" }));
+  private async getGlobalSettings(forGeneration = false): Promise<AiSettings> {
+    let stored: StoredAiSettings;
+    let cliStatus: Record<AiCliProvider, AiCliProviderStatus>;
+    if (forGeneration) {
+      stored = await this.readStoredSettings();
+      const selectedProvider = sanitizeProvider(stored.selectedProvider) ?? "openrouter";
+      cliStatus = isCliProvider(selectedProvider)
+        ? await this.getCliStatus()
+        : unavailableCliStatus;
+    } else {
+      [
+        stored,
+        cliStatus
+      ] = await runEffect(Effect.all([
+        tryPromise(() => this.readStoredSettings()),
+        tryPromise(() => this.getCliStatus())
+      ], { concurrency: "unbounded" }));
+    }
 
     const encryptedApiKeys = getStoredEncryptedApiKeys(stored);
 

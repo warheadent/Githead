@@ -1391,15 +1391,7 @@ ipcMain.handle(IPC_CHANNELS.generateCommitPlan, async (event, request: Coordinat
       if ((await vcsRouter.resolveKind(request.repoPath)) !== "git") {
         return createCommitPlanFailure(request.repoPath, "Commit plans are available only for Git repositories.");
       }
-      const planPromise = getCommitPlanService().generateCommitPlan(request, signal);
-      const settings = await getAppSettingsService().getSettings();
-      const shouldWarmLease = settings.gitBehaviors?.requireUpToDateUpstreamBeforeCommit === true
-        && await isTrustedRepo(request.repoPath);
-      const warmLeasePromise = shouldWarmLease
-        ? gitService.warmRemoteCheckLease(request.repoPath, remoteCheckLeaseDurationMs(settings)).catch(() => undefined)
-        : Promise.resolve();
-      const [plan] = await Promise.all([planPromise, warmLeasePromise]);
-      return plan;
+      return getCommitPlanService().generateCommitPlan(request, signal);
     },
     repositoryOperationOptions(event, request.operationId, request.repoPath),
     (failure) => createCommitPlanFailure(request.repoPath, failure.stderr),

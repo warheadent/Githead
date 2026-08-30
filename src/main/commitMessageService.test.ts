@@ -6,12 +6,19 @@ import { createCliInvocation } from "./cliInvocation";
 import type { ProcessResult, ProcessRunOptions, ProcessRunner } from "./processRunner";
 
 class FakeAiSettingsService {
+  generationSettingsCalls = 0;
+
   constructor(
     private readonly settings: AiSettings,
     private readonly apiKeys: Partial<Record<AiApiKeyProvider, string>>
   ) {}
 
   async getSettings(): Promise<AiSettings> {
+    return this.settings;
+  }
+
+  async getGenerationSettings(): Promise<AiSettings> {
+    this.generationSettingsCalls += 1;
     return this.settings;
   }
 
@@ -168,7 +175,7 @@ function createService(params: {
   responseOk?: boolean;
   runner?: ProcessRunner;
   reasoningCapabilities?: AiReasoningCapabilityResolver;
-}): { service: CommitMessageService; calls: FetchCall[]; runner: ProcessRunner } {
+}): { service: CommitMessageService; calls: FetchCall[]; runner: ProcessRunner; settingsService: FakeAiSettingsService } {
   const provider = params.provider ?? "openrouter";
   const fetchState = createFetch(params.response ?? {
     choices: [
@@ -183,18 +190,19 @@ function createService(params: {
     ...(params.responses ? { payloads: params.responses } : {})
   });
   const runner = params.runner ?? new FakeProcessRunner();
+  const settingsService = new FakeAiSettingsService(
+    params.settings ?? createSettings(provider),
+    params.apiKeys ?? {
+      openrouter: "sk-or-key",
+      openai: "sk-openai",
+      anthropic: "sk-ant"
+    }
+  );
 
   return {
     service: new CommitMessageService(
       () => new FakeGitService(params.diff ?? "diff --git a/a.ts b/a.ts\n+added\n"),
-      new FakeAiSettingsService(
-        params.settings ?? createSettings(provider),
-        params.apiKeys ?? {
-          openrouter: "sk-or-key",
-          openai: "sk-openai",
-          anthropic: "sk-ant"
-        }
-      ) as unknown as AiSettingsService,
+      settingsService as unknown as AiSettingsService,
       fetchState.fetch,
       runner,
       params.reasoningCapabilities ?? {
@@ -205,11 +213,39 @@ function createService(params: {
       }
     ),
     calls: fetchState.calls,
-    runner
+    runner,
+    settingsService
   };
 }
 
 describe("CommitMessageService", () => {
+  it("passes cancellation to reasoning capability lookup", async () => {
+    const controller = new AbortController();
+    let receivedSignal: AbortSignal | undefined;
+    const { service } = createService({
+      reasoningCapabilities: {
+        getCapabilities: async (_request, signal?: AbortSignal) => {
+          receivedSignal = signal;
+          return { status: "supported", supportedEfforts: ["low"] };
+        }
+      }
+    });
+
+    await expect(service.generateCommitMessage({ repoPath: "D:\\Repo" }, controller.signal))
+      .resolves.toMatchObject({ exitCode: 0 });
+
+    expect(receivedSignal).toBe(controller.signal);
+  });
+
+  it("uses the generation settings path", async () => {
+    const { service, settingsService } = createService({});
+
+    await expect(service.generateCommitMessage({ repoPath: "D:\\Repo" }))
+      .resolves.toMatchObject({ exitCode: 0 });
+
+    expect(settingsService.generationSettingsCalls).toBe(1);
+  });
+
   it("does not convert cancellation into a failed operation result", async () => {
     const { service } = createService({});
     const controller = new AbortController();

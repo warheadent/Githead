@@ -544,15 +544,31 @@ export class LoreService implements VcsService {
       return this.failure(repoPath, validation.error);
     }
 
-    const result = await this.runLore(validation.rootPath, [
-      "diff"
-    ]);
-    return {
-      repoPath,
-      exitCode: result.exitCode,
-      stdout: normalizeLoreDiff(result.stdout),
-      stderr: result.stderr
-    };
+    const stagedPaths = validation.status.files
+      .filter((file) => file.isStaged)
+      .map((file) => file.path);
+    if (stagedPaths.length === 0) {
+      return { repoPath, exitCode: 0, stdout: "", stderr: "" };
+    }
+
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "githead-lore-targets-"));
+    const targetsPath = path.join(tempDir, "staged-paths.txt");
+    try {
+      await fs.writeFile(targetsPath, `${stagedPaths.join("\n")}\n`, "utf8");
+      const result = await this.runLore(validation.rootPath, [
+        "diff",
+        "--targets",
+        targetsPath
+      ]);
+      return {
+        repoPath,
+        exitCode: result.exitCode,
+        stdout: normalizeLoreDiff(result.stdout),
+        stderr: result.stderr
+      };
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+    }
   }
 
   // --- Mutating operations (Stage 3) -------------------------------------
@@ -1131,14 +1147,15 @@ export class LoreService implements VcsService {
   }
 
   private async validateRepo(repoPath: string): Promise<
-    | { isValid: true; error: ""; rootPath: string }
-    | { isValid: false; error: string; rootPath: null }
+    | { isValid: true; error: ""; rootPath: string; status: ReturnType<typeof parseLoreStatus> }
+    | { isValid: false; error: string; rootPath: null; status: null }
   > {
     if (!repoPath?.trim()) {
       return {
         isValid: false,
         error: "Repository path is empty.",
-        rootPath: null
+        rootPath: null,
+        status: null
       };
     }
 
@@ -1147,7 +1164,8 @@ export class LoreService implements VcsService {
       return {
         isValid: false,
         error: "Selected folder is not a Lore repository.",
-        rootPath: null
+        rootPath: null,
+        status: null
       };
     }
 
@@ -1158,14 +1176,16 @@ export class LoreService implements VcsService {
       return {
         isValid: false,
         error: status.stderr.trim() || "Unable to read Lore repository status.",
-        rootPath: null
+        rootPath: null,
+        status: null
       };
     }
 
     return {
       isValid: true,
       error: "",
-      rootPath
+      rootPath,
+      status: parseLoreStatus(status.stdout)
     };
   }
 
