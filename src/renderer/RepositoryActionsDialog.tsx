@@ -479,7 +479,7 @@ function FilePanel({
                   <div className="grid gap-2">
                     <Label htmlFor={`${target}-action-${selectedAction.id}-name`}>Name</Label>
                     <Input ref={nameInputRef} id={`${target}-action-${selectedAction.id}-name`} value={selectedAction.name} disabled={disabled} aria-invalid={validation.actionId === selectedAction.id && validation.field === "name"} onChange={(event) => onDraftChange(target, selectedIndex, { name: event.target.value })} />
-                    <p className="text-xs text-muted-foreground">Displayed in the repository Actions menu.</p>
+                    <p className="text-xs text-muted-foreground">Displayed in the repository Actions menu. Use &gt; to create nested menus.</p>
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor={`${target}-action-${selectedAction.id}-command`}>Command</Label>

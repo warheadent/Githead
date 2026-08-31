@@ -163,6 +163,16 @@ shell = "powershell" # powershell | cmd | bash
 
 The `description` field is optional. Githead shows the description in a tooltip.
 
+Use `>` in an action name to place it in a nested menu. Githead trims whitespace around each menu segment and supports deeper paths such as `Release > Windows > Package`.
+
+```toml
+[[actions]]
+name = "Packaging > Package for Windows"
+description = "Build an unpacked Windows application bundle."
+command = "npm run package:win:dir"
+shell = "powershell"
+```
+
 Use **Manage Repository Actions** to create, edit, remove, and reorder actions. You can manage shared actions and local actions.
 
 Githead reads local actions from `.githead/actions.local.toml` after it reads shared actions. A local action replaces a shared action with the same name.

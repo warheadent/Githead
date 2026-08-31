@@ -1,11 +1,11 @@
 [[actions]]
-name = "Package Windows (unpacked)"
+name = "Packaging > Package for Windows"
 description = "Build an unpacked Windows application bundle for local testing."
 command = "npm run package:win:dir"
 shell = "powershell"
 
 [[actions]]
-name = "Package and Launch Windows (unpacked)"
+name = "Packaging > Package and Launch for Windows"
 description = "Build the unpacked Windows application and launch it when packaging succeeds."
 command = "npm run package:win:dir; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; Start-Process -FilePath '.\\release\\win-unpacked\\Githead.exe'"
 shell = "powershell"

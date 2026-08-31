@@ -32,6 +32,8 @@ Each action is a `[[actions]]` TOML table with these fields:
 - `command`: required, non-empty, and valid for the selected shell.
 - `shell`: required; use `powershell`, `cmd`, or `bash`.
 
+Use `>` between name segments to create nested Actions menus. Githead trims whitespace around each segment and supports paths at any depth, such as `Packaging > Windows > Package`. A name with an empty segment, such as `Packaging > > Package`, remains a regular flat action name.
+
 Create the `.githead` directory at the repository root when it is absent. The two action files can contain zero or more action tables. An absent or empty file defines no actions.
 
 Use repository-relative commands because Githead runs each action from the repository root.

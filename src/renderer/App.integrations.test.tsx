@@ -1609,6 +1609,39 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.getByRole("tab", { name: /^Activity Log/ }).getAttribute("aria-selected")).toBe("true");
   });
 
+  it("renders and runs configured repository actions from nested menus", async () => {
+    const user = userEvent.setup();
+    const action = {
+      name: "Packaging > Package and Launch",
+      description: "Build and launch the Windows application",
+      command: "npm run package:win:launch",
+      shell: "powershell" as const
+    };
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      actionsConfig: {
+        hasGitheadDir: true,
+        actions: [action],
+        error: ""
+      }
+    }));
+    vi.mocked(githead.runConfiguredAction).mockResolvedValue(createRunResult(action.name));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Repository actions" }));
+    await user.hover(await screen.findByRole("menuitem", { name: "Packaging" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Package and Launch" }));
+
+    await waitFor(() => {
+      expect(githead.runConfiguredAction).toHaveBeenCalledWith({
+        repoPath,
+        name: action.name,
+        expectedAction: action,
+        operationId: expect.any(String)
+      });
+    });
+  });
+
   it("does not retarget a configured action when the repository changes during trust lookup", async () => {
     const user = userEvent.setup();
     const otherRepo = "D:\\Work\\Other";

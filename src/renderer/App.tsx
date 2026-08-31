@@ -90,6 +90,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -258,6 +261,7 @@ import {
   usePersistentWorkspacePanelState
 } from "./workspacePanelState";
 import { getAheadBehindCounts, getPrimaryCommitAction, getPullableCommitCount, getPushableCommitCount, hasStagedChanges, hasUnpushedCommits } from "./commitActions";
+import { buildConfiguredActionMenu, type ConfiguredActionMenuEntry } from "./configuredActionMenu";
 import { buildCommitGraphLayout, COMMIT_GRAPH_ROW_HEIGHT, type CommitGraphLayout } from "./commitGraph";
 import { createLinePatch, isTechnicalFileHeader, type DiffRow, type DiffRowGroup } from "./diffParser";
 import { createDiffProcessingSession, type ProcessedDiff } from "./diffProcessingClient";
@@ -9969,20 +9973,10 @@ function ActionBar({
                 {actionsConfigError}
               </DropdownMenuItem>
             ) : hasConfiguredActions ? (
-              configuredActions.map((action) => {
-                const item = (
-                  <DropdownMenuItem onSelect={() => onRunConfiguredAction(action)}>
-                    <Workflow />
-                    {action.name}
-                  </DropdownMenuItem>
-                );
-                return action.description ? (
-                  <Tooltip key={action.name}>
-                    <TooltipTrigger asChild>{item}</TooltipTrigger>
-                    <TooltipContent side="left">{action.description}</TooltipContent>
-                  </Tooltip>
-                ) : <Fragment key={action.name}>{item}</Fragment>;
-              })
+              <ConfiguredActionMenuItems
+                entries={buildConfiguredActionMenu(configuredActions)}
+                onRunConfiguredAction={onRunConfiguredAction}
+              />
             ) : (
               <DropdownMenuItem disabled>
                 No configured actions
@@ -10116,6 +10110,43 @@ function ActionBar({
       </div>
     </header>
   );
+}
+
+function ConfiguredActionMenuItems({
+  entries,
+  onRunConfiguredAction
+}: {
+  entries: ConfiguredActionMenuEntry[];
+  onRunConfiguredAction: (action: GitConfiguredAction) => void;
+}): ReactNode {
+  return entries.map((entry) => {
+    if (entry.type === "group") {
+      return (
+        <DropdownMenuSub key={entry.key}>
+          <DropdownMenuSubTrigger>
+            <Workflow />
+            {entry.label}
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            <ConfiguredActionMenuItems entries={entry.entries} onRunConfiguredAction={onRunConfiguredAction} />
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+      );
+    }
+
+    const item = (
+      <DropdownMenuItem onSelect={() => onRunConfiguredAction(entry.action)}>
+        <Workflow />
+        {entry.label}
+      </DropdownMenuItem>
+    );
+    return entry.action.description ? (
+      <Tooltip key={entry.key}>
+        <TooltipTrigger asChild>{item}</TooltipTrigger>
+        <TooltipContent side="left">{entry.action.description}</TooltipContent>
+      </Tooltip>
+    ) : <Fragment key={entry.key}>{item}</Fragment>;
+  });
 }
 
 function StatusView({
