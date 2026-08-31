@@ -939,6 +939,34 @@ describe("App", { timeout: 10_000 }, () => {
     expect(within(commitPanel).queryByRole("status", { name: "Generated commit message suggestion" })).toBeNull();
   });
 
+  it("applies a generated message when a filesystem event leaves staged changes unchanged", async () => {
+    const user = userEvent.setup();
+    const pendingGeneration = defer<Awaited<ReturnType<typeof githead.generateCommitMessage>>>();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [createStatusFile("src/context.ts", { indexStatus: "M", isStaged: true })]
+    }));
+    vi.mocked(githead.generateCommitMessage).mockReturnValue(pendingGeneration.promise);
+
+    render(<App />);
+
+    const commitPanel = await screen.findByLabelText("Commit staged files");
+    const message = within(commitPanel).getByPlaceholderText("Summarize staged changes...") as HTMLTextAreaElement;
+    await user.type(message, "fix: keep current context");
+    await user.click(within(commitPanel).getByRole("button", { name: /^Generate$/ }));
+    act(() => emitRepoChanged());
+
+    pendingGeneration.resolve({
+      repoPath,
+      exitCode: 0,
+      stdout: "fix: generated from old context",
+      stderr: "",
+      sourceChanged: false
+    });
+
+    await waitFor(() => expect(message.value).toBe("fix: generated from old context"));
+    expect(within(commitPanel).queryByRole("status", { name: "Generated commit message suggestion" })).toBeNull();
+  });
+
   it("offers a generated message for review when staged changes change during generation", async () => {
     const user = userEvent.setup();
     const pendingGeneration = defer<Awaited<ReturnType<typeof githead.generateCommitMessage>>>();
@@ -959,7 +987,8 @@ describe("App", { timeout: 10_000 }, () => {
       repoPath,
       exitCode: 0,
       stdout: "fix: generated from old context",
-      stderr: ""
+      stderr: "",
+      sourceChanged: true
     });
 
     const suggestion = await within(commitPanel).findByRole("status", { name: "Generated commit message suggestion" });

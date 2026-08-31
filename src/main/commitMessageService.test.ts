@@ -28,13 +28,19 @@ class FakeAiSettingsService {
 }
 
 class FakeGitService {
-  constructor(private readonly stdout: string, private readonly exitCode = 0) {}
+  private readCount = 0;
+
+  constructor(private readonly stdout: string | string[], private readonly exitCode = 0) {}
 
   async getStagedDiff(repoPath: string) {
+    const stdout = Array.isArray(this.stdout)
+      ? this.stdout[Math.min(this.readCount, this.stdout.length - 1)] ?? ""
+      : this.stdout;
+    this.readCount += 1;
     return {
       repoPath,
       exitCode: this.exitCode,
-      stdout: this.stdout,
+      stdout,
       stderr: this.exitCode === 0 ? "" : "fatal: failed"
     };
   }
@@ -168,7 +174,7 @@ function createFetch(
 function createService(params: {
   provider?: AiCommitMessageProvider;
   settings?: AiSettings;
-  diff?: string;
+  diff?: string | string[];
   apiKeys?: Partial<Record<AiApiKeyProvider, string>>;
   response?: unknown;
   responses?: unknown[];
@@ -219,6 +225,20 @@ function createService(params: {
 }
 
 describe("CommitMessageService", () => {
+  it("reports whether the staged diff changed during commit message generation", async () => {
+    const unchanged = createService({
+      diff: ["diff --git a/a.ts b/a.ts\n+added\n", "diff --git a/a.ts b/a.ts\n+added\n"]
+    });
+    const changed = createService({
+      diff: ["diff --git a/a.ts b/a.ts\n+before\n", "diff --git a/a.ts b/a.ts\n+after\n"]
+    });
+
+    await expect(unchanged.service.generateCommitMessage({ repoPath: "D:\\Repo" }))
+      .resolves.toMatchObject({ exitCode: 0, sourceChanged: false });
+    await expect(changed.service.generateCommitMessage({ repoPath: "D:\\Repo" }))
+      .resolves.toMatchObject({ exitCode: 0, sourceChanged: true });
+  });
+
   it("passes cancellation to reasoning capability lookup", async () => {
     const controller = new AbortController();
     let receivedSignal: AbortSignal | undefined;

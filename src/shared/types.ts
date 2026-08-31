@@ -1912,6 +1912,10 @@ export interface GenerateCommitMessageRequest {
   stashSelection?: GitStashSelection;
 }
 
+export interface GenerateCommitMessageResult extends GitOperationResult {
+  sourceChanged?: boolean;
+}
+
 export interface CommitPlanChange {
   id: string;
   path: string;
@@ -2390,7 +2394,7 @@ export interface GitheadApi {
   getAppSettings(): Promise<AppSettings>;
   saveAppSettings(request: AppSettingsSaveRequest): Promise<AppSettings>;
   setWindowZoomFactor(zoomFactor: number): Promise<void>;
-  generateCommitMessage(request: CoordinatedRequest<GenerateCommitMessageRequest>): Promise<GitOperationResult>;
+  generateCommitMessage(request: CoordinatedRequest<GenerateCommitMessageRequest>): Promise<GenerateCommitMessageResult>;
   generateCommitPlan(request: CoordinatedRequest<GenerateCommitPlanRequest>): Promise<GenerateCommitPlanResult>;
   validateCommitPlan(request: CommitPlanValidationRequest): Promise<CommitPlanValidationResult>;
   generatePrTitle(request: CoordinatedRequest<GeneratePrTitleRequest>): Promise<GitOperationResult>;

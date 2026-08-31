@@ -5368,7 +5368,6 @@ export function App(): ReactNode {
       "repo-operation"
     );
     const startingCommitMessage = stateRef.current.commitMessage;
-    const startingFileStatusGeneration = fileStatusGenerationRef.current;
     updateState({
       activeOperation,
       runningOperation: "Generating commit message",
@@ -5395,7 +5394,7 @@ export function App(): ReactNode {
         return false;
       }
       const generatedMessage = result.exitCode === 0 ? result.stdout.trim() : "";
-      const repositoryChanged = fileStatusGenerationRef.current !== startingFileStatusGeneration;
+      const repositoryChanged = result.sourceChanged === true;
       updateState((latest) => ({
         ...latest,
         lastOperationResult: result.exitCode === 0

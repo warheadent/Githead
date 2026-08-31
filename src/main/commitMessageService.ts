@@ -1,4 +1,4 @@
-import type { AiApiKeyProvider, AiCommitMessageProvider, AiReasoningEffort, AiSettings, GenerateCommitMessageRequest, GetAiReasoningCapabilitiesRequest, GitOperationResult } from "../shared/types";
+import type { AiApiKeyProvider, AiCommitMessageProvider, AiReasoningEffort, AiSettings, GenerateCommitMessageRequest, GenerateCommitMessageResult, GetAiReasoningCapabilitiesRequest, GitOperationResult } from "../shared/types";
 import {
   recordAiGenerationRecovery,
   recordAiPreflightFailure,
@@ -44,7 +44,7 @@ export class CommitMessageService {
     private readonly reasoningCapabilities?: AiReasoningCapabilityResolver
   ) {}
 
-  async generateCommitMessage(request: GenerateCommitMessageRequest, signal?: AbortSignal): Promise<GitOperationResult> {
+  async generateCommitMessage(request: GenerateCommitMessageRequest, signal?: AbortSignal): Promise<GenerateCommitMessageResult> {
     let selectedProvider: AiCommitMessageProvider | undefined;
     try {
       throwIfAborted(signal);
@@ -126,10 +126,15 @@ export class CommitMessageService {
         recordAiGenerationRecovery("commit-message", selectedProvider);
       }
 
+      const sourceChanged = target === "commit"
+        ? await hasStagedDiffChanged(service, request.repoPath, diff, signal)
+        : undefined;
+
       return {
         repoPath: request.repoPath,
         exitCode: 0,
         stdout: message,
+        ...(sourceChanged === undefined ? {} : { sourceChanged }),
         stderr: generation.retriedAfterLength
           ? "The first generation reached its output limit. Githead retried with a larger limit."
           : ""
@@ -144,6 +149,23 @@ export class CommitMessageService {
         error instanceof Error ? error.message : "Unable to generate commit message."
       );
     }
+  }
+}
+
+async function hasStagedDiffChanged(
+  service: ChangeDiffProvider,
+  repoPath: string,
+  startingDiff: string,
+  signal?: AbortSignal
+): Promise<boolean> {
+  throwIfAborted(signal);
+  try {
+    const latestDiff = await service.getStagedDiff(repoPath);
+    throwIfAborted(signal);
+    return latestDiff.exitCode !== 0 || latestDiff.stdout.trim() !== startingDiff;
+  } catch (error) {
+    if (signal?.aborted) throw signal.reason ?? error;
+    return true;
   }
 }
 
