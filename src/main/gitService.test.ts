@@ -298,9 +298,9 @@ describe("GitService", () => {
     }]);
   });
 
-  it("loads working, staged, and commit Markdown preview versions", async () => {
+  it("loads working MDX plus staged and commit Markdown preview versions", async () => {
     await withTempDir(async (dir) => {
-      await fs.writeFile(path.join(dir, "README.md"), "# Working\n", "utf8");
+      await fs.writeFile(path.join(dir, "README.mdx"), "# Working MDX\n", "utf8");
       const runner = new FakeRunner([
         ok("true\n"), ok(`${dir}\n`),
         ok("true\n"), ok("# Staged\n"),
@@ -308,8 +308,8 @@ describe("GitService", () => {
       ]);
       const service = new GitService(runner);
 
-      await expect(service.getFilePreview({ repoPath: dir, path: "README.md", source: { kind: "working" } }))
-        .resolves.toEqual({ path: "README.md", text: "# Working\n" });
+      await expect(service.getFilePreview({ repoPath: dir, path: "README.mdx", source: { kind: "working" } }))
+        .resolves.toEqual({ path: "README.mdx", text: "# Working MDX\n" });
       await expect(service.getFilePreview({ repoPath: dir, path: "README.md", source: { kind: "staged" } }))
         .resolves.toEqual({ path: "README.md", text: "# Staged\n" });
       await expect(service.getFilePreview({ repoPath: dir, path: "README.md", source: { kind: "commit", hash: oid } }))

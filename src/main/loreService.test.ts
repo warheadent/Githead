@@ -177,9 +177,9 @@ hello.txt
 `;
 
 describe("LoreService", () => {
-  it("loads working and historical Markdown preview versions", async () => {
+  it("loads working and historical MDX preview versions", async () => {
     await withLoreRepo(async (dir) => {
-      await fs.writeFile(path.join(dir, "README.md"), "# Working Lore\n", "utf8");
+      await fs.writeFile(path.join(dir, "README.mdx"), "# Working Lore\n", "utf8");
       const revision = "7154881d5d929c4487cdee9d65fd7b9c6edb6de8994f819c80ac4191a8f08af4";
       const runner = new FakeRunner([
         ok("On branch main"),
@@ -195,16 +195,16 @@ describe("LoreService", () => {
       });
       const service = new LoreService(runner);
 
-      await expect(service.getFilePreview({ repoPath: dir, path: "README.md", source: { kind: "staged" } }))
-        .resolves.toEqual({ path: "README.md", text: "# Working Lore\n" });
+      await expect(service.getFilePreview({ repoPath: dir, path: "README.mdx", source: { kind: "staged" } }))
+        .resolves.toEqual({ path: "README.mdx", text: "# Working Lore\n" });
 
-      const historical = await service.getFilePreview({ repoPath: dir, path: "README.md", source: { kind: "commit", hash: revision } });
+      const historical = await service.getFilePreview({ repoPath: dir, path: "README.mdx", source: { kind: "commit", hash: revision } });
       const outputIndex = runner.calls[2]?.args.indexOf("--output") ?? -1;
       const outputPath = runner.calls[2]?.args[outputIndex + 1];
       expect(outputPath).toBeTruthy();
-      expect(historical).toEqual({ path: "README.md", text: "# Historical Lore\n" });
+      expect(historical).toEqual({ path: "README.mdx", text: "# Historical Lore\n" });
       expect(runner.calls[2]?.args).toEqual([
-        "--repository", dir, "-P", "file", "write", "--path", "README.md", "--revision", revision, "--output", outputPath
+        "--repository", dir, "-P", "file", "write", "--path", "README.mdx", "--revision", revision, "--output", outputPath
       ]);
     });
   });

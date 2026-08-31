@@ -1010,9 +1010,9 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.queryByText("Unsafe HTML table")).toBeNull();
   });
 
-  it("uses the staged source for .markdown files and hides preview for deleted targets", async () => {
+  it("uses the staged source for .mdx files and hides preview for deleted targets", async () => {
     const user = userEvent.setup();
-    const staged = createStatusFile("docs/guide.markdown", { isStaged: true, indexStatus: "M" });
+    const staged = createStatusFile("docs/guide.mdx", { isStaged: true, indexStatus: "M" });
     const deleted = createStatusFile("deleted.md", { isUnstaged: true, worktreeStatus: "D" });
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [staged, deleted] }));
     vi.mocked(githead.getFileDiff).mockImplementation(async ({ path, side }) => createTextDiff(path, "value", side));
@@ -1020,7 +1020,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("option", { name: /docs\/guide\.markdown/ }));
+    await user.click(await screen.findByRole("option", { name: /docs\/guide\.mdx/ }));
     await user.click(await screen.findByRole("button", { name: "Preview" }));
     await waitFor(() => expect(githead.getFilePreview).toHaveBeenCalledWith(expect.objectContaining({
       path: staged.path,
