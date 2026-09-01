@@ -161,7 +161,7 @@ export class GitOperationRecoveryService {
     }
     if (next) {
       const operationStillActive = result.exitCode === 0 && !stderr.trim()
-        ? "Git returned successfully, but a fresh repository read shows that the operation is still active."
+        ? "Git reported success, but a fresh repository read shows that the operation is still active."
         : stderr;
       return operationResult(request.repoPath, result.exitCode, result.stdout, operationStillActive, "active", next);
     }

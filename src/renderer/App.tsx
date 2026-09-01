@@ -8252,7 +8252,7 @@ function GitRequiredScreen({
           <h1 id="git-required-title">{unavailable ? "Git could not be started" : "Git is required"}</h1>
           <p>
             {unavailable
-              ? "Githead found a Git command, but it did not run successfully. Reinstall Git or check your system PATH."
+              ? "Githead found Git, but the command failed. Reinstall Git or check your system PATH."
               : "Githead could not find Git on this computer. Install Git before opening or cloning repositories."}
           </p>
           <p>After installation, check again. You do not need to restart Githead.</p>
@@ -9181,7 +9181,7 @@ function CloneRepositoryForm({
             searchPlaceholder="Search or enter a branch..."
             emptyMessage="No branches found."
             triggerIcon={<GitBranchIcon />}
-            customValueLabel={(query) => `Use branch “${query}”`}
+            customValueLabel={(query) => `Use branch "${query}"`}
             onValueChange={(branchName) => onCloneDraftChange({ ...cloneDraft, branchName })}
           />
         </div>
@@ -13127,7 +13127,7 @@ function ResetCommitFileDialog({
           <DialogHeader>
             <DialogTitle>Confirm reset file contents</DialogTitle>
             <DialogDescription>
-              Please confirm that you want to reset the following files to the state they were in at this commit: {state.hash}
+              Reset these files to their contents at commit {state.hash}?
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-2">

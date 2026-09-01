@@ -54,14 +54,14 @@ describe("ReferencePicker", () => {
         options={[]}
         ariaLabel="Choose clone branch"
         searchPlaceholder="Search or enter a branch..."
-        customValueLabel={(query) => `Use branch “${query}”`}
+        customValueLabel={(query) => `Use branch "${query}"`}
         onValueChange={onValueChange}
       />
     );
 
     await user.click(screen.getByRole("button", { name: "Choose clone branch" }));
     await user.type(screen.getByRole("combobox", { name: "Search or enter a branch..." }), "release");
-    await user.click(screen.getByRole("button", { name: "Use branch “release”" }));
+    await user.click(screen.getByRole("button", { name: 'Use branch "release"' }));
 
     expect(onValueChange).toHaveBeenCalledWith("release");
   });

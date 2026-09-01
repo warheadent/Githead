@@ -240,10 +240,10 @@ function MergePreview({
           <div className="grid gap-2">
             <Label htmlFor="merge-mode">Merge behavior</Label>
             <select id="merge-mode" className="h-9 rounded-md border bg-background px-3 text-sm" value={mode} disabled={busy} onChange={(event) => onModeChange(event.target.value as GitMergeMode)}>
-              <option value="normal">Default — follow this repository’s Git settings</option>
-              <option value="ff-only">Fast-forward only — stop if histories diverged</option>
+              <option value="normal">Default, use this repository's Git settings</option>
+              <option value="ff-only">Fast-forward only, stop if histories diverged</option>
               <option value="no-ff">Always create a merge commit</option>
-              <option value="squash">Squash — stage one combined change</option>
+              <option value="squash">Squash, stage one combined change</option>
             </select>
             {mode === "squash" ? <p className="text-xs text-muted-foreground">This stages the combined changes without creating a commit. Finish in the existing commit composer.</p> : null}
           </div>
@@ -387,8 +387,8 @@ function CommitPreview({ preview }: { preview: GitIntegrationPreview }): ReactNo
 
 function createRefOptions(branches: GitBranch[], remotes: GitRemoteBranch[], currentBranch: string | null): Array<{ value: string; label: string }> {
   return [
-    ...branches.filter((branch) => branch.name !== currentBranch).map((branch) => ({ value: refValue({ kind: "local", name: branch.name }), label: `${branch.name} — local${branch.worktreePath ? " (open in another worktree)" : ""}` })),
-    ...remotes.map((branch) => ({ value: refValue({ kind: "remote", name: branch.name }), label: `${branch.name} — fetched remote` }))
+    ...branches.filter((branch) => branch.name !== currentBranch).map((branch) => ({ value: refValue({ kind: "local", name: branch.name }), label: `${branch.name}, local${branch.worktreePath ? ", open in another worktree" : ""}` })),
+    ...remotes.map((branch) => ({ value: refValue({ kind: "remote", name: branch.name }), label: `${branch.name}, fetched remote` }))
   ];
 }
 

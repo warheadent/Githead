@@ -22,8 +22,8 @@ const template: GitHubIssueTemplate = {
 
 describe("GitHub Issue Form answers", () => {
   it("validates required fields and required checkbox options", () => {
-    expect(validateIssueForm(template, {})).toBe("Complete “Version”.");
-    expect(validateIssueForm(template, { version: "1.0", severity: "High" })).toBe("Confirm “I searched existing issues”.");
+    expect(validateIssueForm(template, {})).toBe('Complete "Version".');
+    expect(validateIssueForm(template, { version: "1.0", severity: "High" })).toBe('Confirm "I searched existing issues".');
     expect(validateIssueForm(template, { version: "1.0", severity: "High", terms: ["I searched existing issues"] })).toBe("");
   });
 

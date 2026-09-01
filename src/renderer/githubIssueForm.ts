@@ -17,12 +17,12 @@ export function validateIssueForm(template: GitHubIssueTemplate, answers: GitHub
   for (const field of template.fields) {
     if (field.kind === "markdown") continue;
     const answer = answers[field.id];
-    if ((field.kind === "input" || field.kind === "textarea") && field.required && !stringAnswer(answer).trim()) return `Complete “${field.label}”.`;
-    if (field.kind === "dropdown" && field.required && listAnswer(answer).length === 0 && !stringAnswer(answer)) return `Choose an option for “${field.label}”.`;
+    if ((field.kind === "input" || field.kind === "textarea") && field.required && !stringAnswer(answer).trim()) return `Complete "${field.label}".`;
+    if (field.kind === "dropdown" && field.required && listAnswer(answer).length === 0 && !stringAnswer(answer)) return `Choose an option for "${field.label}".`;
     if (field.kind === "checkboxes") {
       const selected = listAnswer(answer);
       const missing = field.options.find((option) => option.required && !selected.includes(option.label));
-      if (missing) return `Confirm “${missing.label}”.`;
+      if (missing) return `Confirm "${missing.label}".`;
     }
   }
   return "";

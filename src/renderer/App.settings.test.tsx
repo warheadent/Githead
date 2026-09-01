@@ -96,7 +96,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
     await user.click(screen.getByRole("button", { name: "Choose branch" }));
     await user.type(screen.getByRole("combobox", { name: "Search or enter a branch..." }), "main");
-    await user.click(screen.getByRole("button", { name: "Use branch “main”" }));
+    await user.click(screen.getByRole("button", { name: 'Use branch "main"' }));
     await user.type(screen.getByLabelText("Depth"), "1");
     await user.click(screen.getByRole("button", { name: "Clone Repository" }));
 
@@ -169,7 +169,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.type(screen.getByLabelText("Repository URL or path"), "git@github.com:openai/repo.git");
     await user.click(screen.getByRole("button", { name: "Choose branch" }));
     await user.type(screen.getByRole("combobox", { name: "Search or enter a branch..." }), "release");
-    await user.click(screen.getByRole("button", { name: "Use branch “release”" }));
+    await user.click(screen.getByRole("button", { name: 'Use branch "release"' }));
     await user.click(screen.getByRole("button", { name: "Check" }));
 
     expect(await screen.findByText("Repository is accessible.")).toBeTruthy();

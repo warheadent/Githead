@@ -377,7 +377,7 @@ export class GitIntegrationService {
           : { ok: true, outcome: "staged", message: "Squash changes are staged. Review them in File Status, then create the commit in the commit composer." };
       }
       if (merge.alreadyUpToDate && fresh.headOid === preview.headOid) return { ok: true, outcome: "no-op", message: "Already up to date." };
-      if (!fresh.headOid || fresh.headOid === preview.headOid) return invalid("Git returned successfully, but a fresh HEAD read did not confirm the merge.");
+      if (!fresh.headOid || fresh.headOid === preview.headOid) return invalid("Git reported success, but a fresh HEAD read did not confirm the merge.");
       return { ok: true, outcome: "completed", message: `Merged ${merge.source.name} into ${preview.currentBranch}.` };
     }
     if (request.kind === "cherry-pick") {
@@ -387,14 +387,14 @@ export class GitIntegrationService {
           ? { ok: true, outcome: "no-op", message: "The selected commits produced no working-tree changes." }
           : { ok: true, outcome: "staged", message: "The selected commits are applied without new commits. Review and commit the staged changes when ready." };
       }
-      if (!fresh.headOid || fresh.headOid === preview.headOid) return invalid("Git returned successfully, but a fresh HEAD read did not confirm new commits.");
+      if (!fresh.headOid || fresh.headOid === preview.headOid) return invalid("Git reported success, but a fresh HEAD read did not confirm new commits.");
       return { ok: true, outcome: "completed", message: `Cherry-picked ${request.commitOids.length} ${request.commitOids.length === 1 ? "commit" : "commits"}.` };
     }
     if (fresh.branch !== preview.currentBranch) return invalid("Git finished, but the rebased branch is no longer checked out.");
-    if (!fresh.headOid) return invalid("Git returned successfully, but the rebased HEAD could not be read.");
+    if (!fresh.headOid) return invalid("Git reported success, but Githead could not read the rebased HEAD.");
     const base = preview as GitRebasePreview;
     const ancestor = await this.runGit(request.repoPath, ["merge-base", "--is-ancestor", base.newBaseOid, fresh.headOid]);
-    if (ancestor.exitCode !== 0) return invalid("Git returned successfully, but the selected new base is not an ancestor of the fresh HEAD.");
+    if (ancestor.exitCode !== 0) return invalid("Git reported success, but the selected new base is not an ancestor of the fresh HEAD.");
     return fresh.headOid === preview.headOid
       ? { ok: true, outcome: "no-op", message: "Already up to date; no commits needed replaying." }
       : { ok: true, outcome: "completed", message: `Rebased ${preview.currentBranch} onto ${base.newBase.name}. No push was performed.` };
