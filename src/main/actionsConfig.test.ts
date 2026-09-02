@@ -170,6 +170,47 @@ describe("actionsConfig", () => {
     });
   });
 
+  it("reads and saves actions bound to Pull", async () => {
+    const repoRoot = await createTempRepoRoot();
+    const githeadDir = path.join(repoRoot, ".githead");
+    await fs.mkdir(githeadDir);
+    await fs.writeFile(path.join(githeadDir, "actions.toml"), [
+      "[[actions]]", "name = \"Install\"", "command = \"npm install\"",
+      "shell = \"bash\"", "bind_to_pull = true", ""
+    ].join("\n"), "utf8");
+
+    const config = await readActionsConfig(repoRoot);
+    expect(config.actions).toEqual([{
+      name: "Install",
+      description: "",
+      command: "npm install",
+      shell: "bash",
+      bindToPull: true
+    }]);
+
+    const result = await saveActionsConfigFile(repoRoot, {
+      repoPath: repoRoot,
+      target: "shared",
+      actions: config.shared.actions
+    });
+    expect(result.exitCode).toBe(0);
+    expect(await fs.readFile(path.join(githeadDir, "actions.toml"), "utf8")).toContain("bind_to_pull = true");
+  });
+
+  it("rejects non-boolean bind_to_pull values", async () => {
+    const repoRoot = await createTempRepoRoot();
+    const githeadDir = path.join(repoRoot, ".githead");
+    await fs.mkdir(githeadDir);
+    await fs.writeFile(path.join(githeadDir, "actions.toml"), [
+      "[[actions]]", "name = \"Install\"", "command = \"npm install\"",
+      "shell = \"bash\"", "bind_to_pull = \"yes\"", ""
+    ].join("\n"), "utf8");
+
+    await expect(readActionsConfig(repoRoot)).resolves.toMatchObject({
+      error: 'actions.toml: Action "Install" has an invalid bind_to_pull value.'
+    });
+  });
+
   it("blocks structured saves for commented or unknown-field files", async () => {
     const repoRoot = await createTempRepoRoot();
     const githeadDir = path.join(repoRoot, ".githead");

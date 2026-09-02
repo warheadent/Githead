@@ -4139,7 +4139,8 @@ function areConfiguredActionsEqual(left: GitConfiguredAction, right: GitConfigur
   return getActionKey(left.name) === getActionKey(right.name)
     && left.description === right.description
     && left.command === right.command
-    && left.shell === right.shell;
+    && left.shell === right.shell
+    && Boolean(left.bindToPull) === Boolean(right.bindToPull);
 }
 
 function createRunOptions(

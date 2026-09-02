@@ -436,6 +436,7 @@ function FilePanel({
                           <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                             <span>{action.shell}</span>
                             {overridden ? <><span aria-hidden="true">·</span><span>Overrides shared</span></> : null}
+                            {action.bindToPull ? <><span aria-hidden="true">·</span><span>Bound to Pull</span></> : null}
                           </span>
                         </span>
                       </button>
@@ -464,6 +465,7 @@ function FilePanel({
                   <div className="flex items-center gap-2">
                     <h3 className="truncate text-sm font-semibold">{selectedAction.name.trim() || "Untitled action"}</h3>
                     {target === "local" && overrideNames.has(getRepositoryActionKey(selectedAction.name)) ? <Badge variant="secondary">Overrides Shared</Badge> : null}
+                    {selectedAction.bindToPull ? <Badge variant="secondary">Bound to Pull</Badge> : null}
                   </div>
                   <p className="text-xs text-muted-foreground">Action {selectedIndex + 1} of {actions.length}</p>
                 </div>
@@ -496,6 +498,19 @@ function FilePanel({
                       <Textarea id={`${target}-action-${selectedAction.id}-description`} value={selectedAction.description} disabled={disabled} className="min-h-16 resize-y" onChange={(event) => onDraftChange(target, selectedIndex, { description: event.target.value })} />
                     </div>
                   </div>
+                  <label className="flex items-start gap-3 rounded-md border p-3">
+                    <input
+                      type="checkbox"
+                      className="mt-1 size-4 shrink-0"
+                      checked={Boolean(selectedAction.bindToPull)}
+                      disabled={disabled}
+                      onChange={(event) => onDraftChange(target, selectedIndex, { bindToPull: event.target.checked })}
+                    />
+                    <span>
+                      <span className="block text-sm font-medium">Bind to Pull</span>
+                      <span className="block text-xs text-muted-foreground">Add this action to the Pull menu. Githead runs it only after Git Pull succeeds.</span>
+                    </span>
+                  </label>
                   {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
                 </div>
               </div>
@@ -541,7 +556,7 @@ function ActionShellSelect({ id, value, disabled, onValueChange }: { id: string;
 }
 
 function serializeActions(actions: GitConfiguredAction[]): string {
-  return JSON.stringify(actions.map(({ name, description, command, shell }) => ({ name, description, command, shell })));
+  return JSON.stringify(actions.map(({ name, description, command, shell, bindToPull }) => ({ name, description, command, shell, bindToPull: Boolean(bindToPull) })));
 }
 
 function findAvailableSelection(selectedId: string | null, actions: RepositoryActionDraft[]): string | null {

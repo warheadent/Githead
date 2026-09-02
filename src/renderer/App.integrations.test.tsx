@@ -697,6 +697,61 @@ describe("App", { timeout: 10_000 }, () => {
 
     expect(await screen.findByRole("button", { name: /^Pull$/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Pull \(0\)$/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Pull with action" })).toBeNull();
+  });
+
+  it("runs a Pull-bound action after Git Pull succeeds", async () => {
+    const user = userEvent.setup();
+    const action = {
+      name: "Install dependencies",
+      description: "Refresh local dependencies",
+      command: "npm install",
+      shell: "bash" as const,
+      bindToPull: true
+    };
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      actionsConfig: { actions: [action] }
+    }));
+    vi.mocked(githead.runGitAction).mockResolvedValue(createRunResult("pull"));
+    vi.mocked(githead.runConfiguredAction).mockResolvedValue(createRunResult(action.name));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Pull with action" }));
+    await user.click(await screen.findByRole("menuitem", { name: action.name }));
+
+    await waitFor(() => expect(githead.runConfiguredAction).toHaveBeenCalledWith({
+      repoPath,
+      name: action.name,
+      expectedAction: action,
+      operationId: expect.any(String)
+    }));
+    expect(vi.mocked(githead.runGitAction).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(githead.runConfiguredAction).mock.invocationCallOrder[0]!
+    );
+  });
+
+  it("does not run a Pull-bound action when Git Pull fails", async () => {
+    const user = userEvent.setup();
+    const action = {
+      name: "Install dependencies",
+      description: "",
+      command: "npm install",
+      shell: "bash" as const,
+      bindToPull: true
+    };
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      actionsConfig: { actions: [action] }
+    }));
+    vi.mocked(githead.runGitAction).mockResolvedValue(createRunResult("pull", { exitCode: 1 }));
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Pull with action" }));
+    await user.click(await screen.findByRole("menuitem", { name: action.name }));
+
+    await waitFor(() => expect(githead.runGitAction).toHaveBeenCalled());
+    expect(githead.runConfiguredAction).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -1506,6 +1561,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.type(screen.getByLabelText("Name"), "Build");
     await user.type(screen.getByLabelText(/Description/), " Compile the application ");
     await user.type(screen.getByLabelText("Command"), "npm run build");
+    await user.click(screen.getByRole("checkbox", { name: /Bind to Pull/ }));
     await user.click(screen.getByRole("button", { name: "Save Shared" }));
 
     await waitFor(() => {
@@ -1517,7 +1573,8 @@ describe("App", { timeout: 10_000 }, () => {
             name: "Build",
             description: "Compile the application",
             command: "npm run build",
-            shell: "powershell"
+            shell: "powershell",
+            bindToPull: true
           }
         ],
         operationId: expect.any(String)

@@ -23,6 +23,7 @@ export interface GitConfiguredAction {
   description: string;
   command: string;
   shell: GitConfiguredActionShell;
+  bindToPull?: boolean;
 }
 
 export type GitConfiguredActionFile = "shared" | "local";

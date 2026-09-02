@@ -3197,7 +3197,10 @@ export function App(): ReactNode {
     state.repositorySyncSettings?.enabled
   ]);
 
-  const runConfiguredAction = useCallback(async (action: GitConfiguredAction): Promise<void> => {
+  const runConfiguredAction = useCallback(async (
+    action: GitConfiguredAction,
+    options: { preserveActivityLog?: boolean } = {}
+  ): Promise<void> => {
     const current = stateRef.current;
     if (!current.summary?.isValid) {
       return;
@@ -3219,7 +3222,7 @@ export function App(): ReactNode {
       cancelStatus: "idle",
       cancelError: ""
     };
-    if (!hasProcessRunInFlight(current)) activityLogStore.clear();
+    if (!options.preserveActivityLog && !hasProcessRunInFlight(current)) activityLogStore.clear();
     updateState((latest) => ({
       ...latest,
       configuredActionRuns: [...latest.configuredActionRuns, invocation],
@@ -3278,6 +3281,13 @@ export function App(): ReactNode {
       }
     }
   }, [activityLogStore, appendSystemLine, ensureTrustedRepo, isInvocationCurrent, refreshRepo, updateState]);
+
+  const runPullWithConfiguredAction = useCallback(async (action: GitConfiguredAction): Promise<void> => {
+    const result = await runAction("pull", undefined, "action-bar");
+    if (result?.exitCode === 0) {
+      await runConfiguredAction(action, { preserveActivityLog: true });
+    }
+  }, [runAction, runConfiguredAction]);
 
   const openActionManager = useCallback((): void => {
     const current = stateRef.current;
@@ -7146,6 +7156,9 @@ export function App(): ReactNode {
               onRunConfiguredAction={(action) => {
                 void runConfiguredAction(action);
               }}
+              onPullWithAction={(action) => {
+                void runPullWithConfiguredAction(action);
+              }}
               onManageActions={openActionManager}
               onCreatePullRequest={openCreatePrDialog}
               onCancel={() => {
@@ -9884,6 +9897,7 @@ function ActionBar({
   onRunAction,
   onOpenPushToBranch,
   onRunConfiguredAction,
+  onPullWithAction,
   onManageActions,
   onCreatePullRequest,
   onCancel,
@@ -9906,6 +9920,7 @@ function ActionBar({
   onRunAction: (action: GitAction) => void;
   onOpenPushToBranch: () => void;
   onRunConfiguredAction: (action: GitConfiguredAction) => void;
+  onPullWithAction: (action: GitConfiguredAction) => void;
   onManageActions: () => void;
   onCreatePullRequest: () => void;
   onCancel: () => void;
@@ -9935,6 +9950,10 @@ function ActionBar({
   const configuredActions = actionsConfig?.actions ?? [];
   const actionsConfigError = actionsConfig?.error.trim() ?? "";
   const hasConfiguredActions = configuredActions.length > 0;
+  const pullBoundActions = !usesSync && !pullRecovery
+    ? configuredActions.filter((action) => action.bindToPull)
+    : [];
+  const showPullMenu = pullBoundActions.length > 0;
   const runningConfiguredAction = configuredActionRuns.length > 0;
   const actionsMenuDisabled = !summary?.isValid;
 
@@ -10008,29 +10027,54 @@ function ActionBar({
             </OperationButtonFeedback>
           </Button>
         ) : null}
-        <Button
-          type="button"
-          variant={runningAction === "pull" ? "secondary" : "outline"}
-          disabled={disabled}
-          onClick={() => onRunAction("pull")}
-          aria-label={pullAriaLabel}
-          className="min-w-24"
-        >
-          <OperationButtonFeedback
-            action="pull"
-            event={feedbackEvent}
-            successLabel={usesSync ? "Synced" : "Pulled"}
-            surface="action-bar"
+        <div className="flex items-stretch">
+          <Button
+            type="button"
+            variant={runningAction === "pull" ? "secondary" : "outline"}
+            disabled={disabled}
+            onClick={() => onRunAction("pull")}
+            aria-label={pullAriaLabel}
+            className={`min-w-24 ${showPullMenu ? "rounded-r-none" : ""}`}
           >
-            {runningAction === "pull" ? <Loader2 className="animate-spin" /> : pullRecovery ? <ShieldAlert /> : <Download />}
-            {pullLabel}
-            {!pullRecovery && !usesSync && pullableCommitCount > 0 ? (
-              <SyncCountChip title={formatCommitCountLabel(pullableCommitCount, "behind")}>
-                {pullableCommitCount}
-              </SyncCountChip>
-            ) : null}
-          </OperationButtonFeedback>
-        </Button>
+            <OperationButtonFeedback
+              action="pull"
+              event={feedbackEvent}
+              successLabel={usesSync ? "Synced" : "Pulled"}
+              surface="action-bar"
+            >
+              {runningAction === "pull" ? <Loader2 className="animate-spin" /> : pullRecovery ? <ShieldAlert /> : <Download />}
+              {pullLabel}
+              {!pullRecovery && !usesSync && pullableCommitCount > 0 ? (
+                <SyncCountChip title={formatCommitCountLabel(pullableCommitCount, "behind")}>
+                  {pullableCommitCount}
+                </SyncCountChip>
+              ) : null}
+            </OperationButtonFeedback>
+          </Button>
+          {showPullMenu ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant={runningAction === "pull" ? "secondary" : "outline"}
+                  disabled={disabled}
+                  aria-label="Pull with action"
+                  className="rounded-l-none border-l-border px-2"
+                >
+                  <ChevronDown />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {pullBoundActions.map((action) => (
+                  <DropdownMenuItem key={getRepositoryActionKey(action.name)} onSelect={() => onPullWithAction(action)}>
+                    <Workflow />
+                    {action.name}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+        </div>
         <div className="flex items-stretch">
           <Button
             type="button"
@@ -13619,7 +13663,8 @@ function createRepositoryActionDraft(action: GitConfiguredAction): RepositoryAct
     name: action.name,
     description: action.description,
     command: action.command,
-    shell: action.shell
+    shell: action.shell,
+    bindToPull: Boolean(action.bindToPull)
   };
 }
 
@@ -13628,7 +13673,8 @@ function createEmptyRepositoryActionDraft(): RepositoryActionDraft {
     name: "",
     description: "",
     command: "",
-    shell: "powershell"
+    shell: "powershell",
+    bindToPull: false
   });
 }
 
@@ -13637,7 +13683,8 @@ function stripRepositoryActionDrafts(actions: RepositoryActionDraft[]): GitConfi
     name: action.name.trim(),
     description: action.description.trim(),
     command: action.command.trim(),
-    shell: action.shell
+    shell: action.shell,
+    ...(action.bindToPull ? { bindToPull: true } : {})
   }));
 }
 

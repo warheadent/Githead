@@ -240,7 +240,9 @@ function parseActionsFile(
       };
     }
 
-    const unknownActionKeys = Object.keys(rawAction).filter((key) => key !== "name" && key !== "description" && key !== "command" && key !== "shell");
+    const unknownActionKeys = Object.keys(rawAction).filter((key) => (
+      key !== "name" && key !== "description" && key !== "command" && key !== "shell" && key !== "bind_to_pull"
+    ));
     if (unknownActionKeys.length > 0) {
       blockedReason ||= `${fileName} contains action fields Githead does not manage.`;
     }
@@ -303,11 +305,16 @@ function parseActionTable(
     return { error: `Action "${name}" has an invalid description.` };
   }
 
+  if (rawAction.bind_to_pull !== undefined && typeof rawAction.bind_to_pull !== "boolean") {
+    return { error: `Action "${name}" has an invalid bind_to_pull value.` };
+  }
+
   return {
     name,
     description: typeof rawAction.description === "string" ? rawAction.description.trim() : "",
     command,
-    shell
+    shell,
+    ...(rawAction.bind_to_pull === true ? { bindToPull: true } : {})
   };
 }
 
@@ -338,6 +345,7 @@ function formatActionsFile(actions: GitConfiguredAction[]): string {
     ...(action.description.trim() ? [`description = ${formatTomlString(action.description.trim())}`] : []),
     `command = ${formatTomlString(action.command.trim())}`,
     `shell = ${formatTomlString(action.shell)}`,
+    ...(action.bindToPull ? ["bind_to_pull = true"] : []),
     ""
   ].join("\n")).join("\n")}`;
 }

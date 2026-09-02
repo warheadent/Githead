@@ -31,6 +31,7 @@ Each action is a `[[actions]]` TOML table with these fields:
 - `description`: optional string shown in the tooltip.
 - `command`: required, non-empty, and valid for the selected shell.
 - `shell`: required; use `powershell`, `cmd`, or `bash`.
+- `bind_to_pull`: optional boolean. Set it to `true` to show the action in the Pull dropdown. Githead runs it only after Git Pull succeeds.
 
 Use `>` between name segments to create nested Actions menus. Githead trims whitespace around each segment and supports paths at any depth, such as `Packaging > Windows > Package`. A name with an empty segment, such as `Packaging > > Package`, remains a regular flat action name.
 
@@ -38,7 +39,7 @@ Create the `.githead` directory at the repository root when it is absent. The tw
 
 Use repository-relative commands because Githead runs each action from the repository root.
 
-When you edit an existing file, preserve its comments, order, and fields that are outside the request. Githead reads comments and unknown fields, but its action manager makes these files read-only. For files that users must edit through the action manager, use only the four managed fields and omit comments.
+When you edit an existing file, preserve its comments, order, and fields that are outside the request. Githead reads comments and unknown fields, but its action manager makes these files read-only. For files that users must edit through the action manager, use only the five managed fields and omit comments.
 
 Use this minimal form for a new action:
 
@@ -75,6 +76,7 @@ Configured actions use Githead's workspace trust prompt and Activity Log flow.
 - `name`, `command`, and `shell` must be strings with content after trimming. `description`, when present, must be a string.
 - Action names must be unique within one file after trimming and case-insensitive comparison.
 - The supported shell values are exactly `powershell`, `cmd`, and `bash`.
+- `bind_to_pull`, when present, must be a boolean. Missing or `false` keeps the action out of the Pull dropdown.
 - Githead reads the shared file first and the local file second. A matching local name replaces the shared action in place. A new local name appends after all shared actions.
 - A parse or validation error in either file prevents Githead from producing the effective action list until the error is fixed.
 - Comments and unknown fields remain readable, but they prevent edits through Githead's action manager. Manual edits must preserve this content.
