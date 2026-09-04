@@ -283,6 +283,61 @@ describe("App", { timeout: 10_000 }, () => {
     });
   });
 
+  it("stages all 10,000 selected files without repeatedly scanning their paths", async () => {
+    let pathReads = 0;
+    const files = Array.from({ length: 10_000 }, (_, index) => {
+      const path = `generated/file-${index.toString().padStart(5, "0")}.ts`;
+      const file = createStatusFile(path, { isUnstaged: true, worktreeStatus: "M" });
+      Object.defineProperty(file, "path", { enumerable: true, get: () => { pathReads += 1; return path; } });
+      return file;
+    });
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files }));
+    render(<App />);
+
+    const list = await screen.findByRole("listbox", { name: "Unstaged files" });
+    const first = within(list).getAllByRole("option")[0]!;
+    fireEvent.click(first);
+    fireEvent.keyDown(first, { key: "a", ctrlKey: true });
+    const stage = screen.getByRole("button", { name: /^Stage$/ });
+
+    pathReads = 0;
+    fireEvent.click(stage);
+    expect(pathReads).toBeLessThan(files.length * 100);
+
+    await waitFor(() => {
+      const request = vi.mocked(githead.stageFiles).mock.calls.at(-1)?.[0];
+      expect(request?.paths).toEqual(files.map((file) => file.path));
+    });
+  });
+
+  it.each(["Stage", "Stage All"])("%s excludes submodules that cannot be staged", async (buttonName) => {
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/change.ts", { isUnstaged: true, worktreeStatus: "M" }),
+        createStatusFile("vendor/submodule", {
+          isUnstaged: true,
+          worktreeStatus: "M",
+          submodule: {
+            commitChanged: false, trackedChanges: true, untrackedChanges: false,
+            initialized: true, canStage: false, canUnstage: false
+          }
+        })
+      ]
+    }));
+    render(<App />);
+
+    const first = await screen.findByRole("option", { name: /src\/change.ts/ });
+    fireEvent.click(first);
+    fireEvent.keyDown(first, { key: "a", ctrlKey: true });
+    fireEvent.click(screen.getByRole("button", { name: buttonName }));
+
+    await waitFor(() => {
+      expect(githead.stageFiles).toHaveBeenCalledWith({
+        repoPath, paths: ["src/change.ts"], operationId: expect.any(String)
+      });
+    });
+  });
+
   it("keeps a 10,000-file status tree viewport-proportional during file selection", async () => {
     vi.mocked(githead.getAppSettings).mockResolvedValue({
       autoFetchIntervalMinutes: 10, colorTheme: "githead", appearanceMode: "system", uiFont: "inter", codeFont: "system-mono", zoomFactor: 1, statusFileViewMode: "tree", wrapDiffLines: false, gitBehaviors: { tagPushBehavior: "all" }, privacy: { shareAnonymousDiagnostics: true }
