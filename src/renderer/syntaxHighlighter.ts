@@ -127,7 +127,11 @@ export function highlightDiffRows(filePath: string, rows: readonly DiffRow[]): H
     return highlightedRows;
   }
 
-  const oldRowIndexes = collectCodeRowIndexes(rows, "old");
+  // Old-side highlighting is only displayed on deleted rows. Context rows use
+  // the new stream, so an addition-only hunk needs just one highlighting pass.
+  const oldRowIndexes = rows.some((row) => row.kind === "delete")
+    ? collectCodeRowIndexes(rows, "old")
+    : [];
   const newRowIndexes = collectCodeRowIndexes(rows, "new");
   const oldLines = highlightCodeLines(language, oldRowIndexes.map((rowIndex) => rows[rowIndex]?.text ?? ""));
   const newLines = highlightCodeLines(language, newRowIndexes.map((rowIndex) => rows[rowIndex]?.text ?? ""));

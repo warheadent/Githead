@@ -45,6 +45,21 @@ describe("detectDiffLanguage", () => {
 });
 
 describe("highlightDiffRows", () => {
+  it("only tokenizes the displayed new stream when a hunk has no deletions", () => {
+    const rows = parseUnifiedDiff("@@ -1,2 +1,3 @@\n /**\n+ * added\n  */");
+    const highlightSpy = vi.spyOn(hljs, "highlight");
+
+    try {
+      const result = highlightDiffRows("example.ts", rows);
+
+      expect(result.slice(1).every((row) => row.value.includes("hljs-comment"))).toBe(true);
+      expect(highlightSpy).toHaveBeenCalledTimes(1);
+      expect(highlightSpy.mock.calls[0]?.[0]).toBe("/**\n * added\n */");
+    } finally {
+      highlightSpy.mockRestore();
+    }
+  });
+
   it("highlights supported code lines", () => {
     const rows = parseUnifiedDiff("@@ -0,0 +1 @@\n+const value = 1;");
     const result = highlightDiffRows("src/app.ts", rows);
