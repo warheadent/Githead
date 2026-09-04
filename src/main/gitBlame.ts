@@ -33,7 +33,7 @@ export async function readGitFileBlame(
   const result = await runner.runBinary("git", [
     "-C", repoPath,
     "blame",
-    "--line-porcelain",
+    "--porcelain",
     "--root",
     "--no-progress",
     "--no-textconv",
@@ -52,6 +52,7 @@ export async function readGitFileBlame(
 export function parseGitBlame(text: string): { lines: GitBlameLine[]; commits: GitBlameCommit[] } {
   const lines: GitBlameLine[] = [];
   const commits = new Map<string, GitBlameCommit>();
+  const metadataByCommit = new Map<string, Map<string, string>>();
   const input = text.split(/\r?\n/);
   for (let index = 0; index < input.length;) {
     const header = /^([0-9a-f^]{7,64}) (\d+) (\d+)(?: (\d+))?$/.exec(input[index] ?? "");
@@ -60,14 +61,18 @@ export function parseGitBlame(text: string): { lines: GitBlameLine[]; commits: G
     const originalLine = Number(header[2]);
     const finalLine = Number(header[3]);
     index += 1;
-    const metadata = new Map<string, string>();
-    let boundary = false;
+    // Compact porcelain omits repeated metadata. A later group can update the
+    // filename when the same commit contributes lines from another path.
+    let metadata = metadataByCommit.get(hash);
+    if (!metadata) {
+      metadata = new Map<string, string>();
+      metadataByCommit.set(hash, metadata);
+    }
     let content = "";
     while (index < input.length) {
       const value = input[index] ?? "";
       index += 1;
       if (value.startsWith("\t")) { content = value.slice(1); break; }
-      if (value === "boundary") { boundary = true; continue; }
       const space = value.indexOf(" ");
       metadata.set(space === -1 ? value : value.slice(0, space), space === -1 ? "" : value.slice(space + 1));
     }
@@ -88,7 +93,7 @@ export function parseGitBlame(text: string): { lines: GitBlameLine[]; commits: G
       commitHash: hash,
       originalPath: metadata.get("filename") ?? "",
       text: content,
-      boundary
+      boundary: metadata.has("boundary")
     });
   }
   return { lines, commits: [...commits.values()] };
