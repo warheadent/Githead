@@ -7292,9 +7292,7 @@ export function App(): ReactNode {
                     void loadSelectedDiff();
                   }}
                   onDownloadImage={() => { void downloadStatusLfsPreview(); }}
-                  onApplyHunk={(patch) => {
-                    void applySelectedHunk(patch);
-                  }}
+                  onApplyHunk={applySelectedHunk}
                   onContextAction={(file, side, kind, paths) => {
                     void runContextFileOperation(file, side, kind, paths);
                   }}
@@ -10270,6 +10268,16 @@ function StatusView({
     !selectedFile?.isConflicted &&
     (summary?.capabilities.hunkStaging ?? true)
   );
+  const selectedSide = selection?.side;
+  const hunkAction = useMemo<DiffHunkAction | undefined>(() => (
+    canApplyHunks && selectedSide
+      ? {
+          side: selectedSide,
+          disabled: disabled || diffChanged,
+          onApply: onApplyHunk
+        }
+      : undefined
+  ), [canApplyHunks, diffChanged, disabled, onApplyHunk, selectedSide]);
 
   return (
     <ResizablePanelGroup orientation="horizontal" className="status-workspace h-full min-h-0 bg-background">
@@ -10427,11 +10435,7 @@ function StatusView({
           previewSource={selection && selectedFile && !selectedFile.submodule && isMarkdownPath(selection.path) && !isDeletedOnSide(selectedFile, selection.side)
             ? { kind: selection.side === "staged" ? "staged" : "working" }
             : undefined}
-          hunkAction={canApplyHunks && selection ? {
-            side: selection.side,
-            disabled: disabled || diffChanged,
-            onApply: onApplyHunk
-          } : undefined}
+          hunkAction={hunkAction}
           onRefresh={selection ? onRefreshDiff : undefined}
           refreshDisabled={disabled}
           changed={diffChanged}
@@ -10970,7 +10974,7 @@ interface DiffHunkAction {
   onApply: (patch: string) => void;
 }
 
-function DiffRows({
+const DiffRows = memo(function DiffRows({
   filePath,
   text,
   truncated,
@@ -11086,7 +11090,7 @@ function DiffRows({
       })}
     </div>
   );
-}
+});
 
 interface DiffLineAction {
   label: string;
