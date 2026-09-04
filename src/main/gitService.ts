@@ -2139,14 +2139,24 @@ export class GitService {
     } catch {
       return [];
     }
-    const [statusResult, gitlinksResult] = await runEffect(Effect.all([
-      this.runGitEffect(repoPath, ["submodule", "status", "--recursive"]),
-      this.runGitEffect(repoPath, ["ls-files", "--stage", "-z"])
-    ], { concurrency: "unbounded" }));
     const configured = parseSubmoduleConfig(configText);
-    const statuses = parseSubmoduleStatuses(statusResult.stdout);
-    const recordedCommits = parseGitlinkCommits(gitlinksResult.stdout);
     const paths = new Set([...configured.values()].map((entry) => entry.path).filter(Boolean));
+    const [statusResult, recordedCommits] = await Promise.all([
+      this.runGit(repoPath, ["submodule", "status", "--recursive"]),
+      this.getRecordedSubmoduleCommits(repoPath, [...paths])
+    ]);
+    const statuses = parseSubmoduleStatuses(statusResult.stdout);
+    // Literal directory pathspecs already cover descendants. Query only paths
+    // outside the configured trees when recursive status discovers more entries.
+    const discoveredPaths = [...statuses.keys()].filter((submodulePath) => {
+      for (let ancestor = submodulePath; ancestor; ancestor = ancestor.slice(0, Math.max(0, ancestor.lastIndexOf("/")))) {
+        if (paths.has(ancestor)) return false;
+      }
+      return true;
+    });
+    for (const [submodulePath, commit] of await this.getRecordedSubmoduleCommits(repoPath, discoveredPaths)) {
+      recordedCommits.set(submodulePath, commit);
+    }
     for (const submodulePath of statuses.keys()) paths.add(submodulePath);
     const submodules: GitSubmodule[] = [];
     for (const submodulePath of paths) {
@@ -2164,6 +2174,15 @@ export class GitService {
       });
     }
     return submodules.sort((left, right) => left.path.localeCompare(right.path));
+  }
+
+  private async getRecordedSubmoduleCommits(repoPath: string, paths: string[]): Promise<Map<string, string>> {
+    const results = await mapWithConcurrency(chunkGitStatusPaths(paths), 4, (batch) => this.runGit(repoPath, [
+      "--literal-pathspecs", "ls-files", "--stage", "-z", "--", ...batch
+    ]));
+    const failed = results.find((result) => result.exitCode !== 0 || result.exceededLimit);
+    if (failed) throw new Error(failed.stderr.trim() || failed.error || "Unable to read recorded submodule commits.");
+    return new Map(results.flatMap((result) => [...parseGitlinkCommits(result.stdout)]));
   }
 
   async renameBranch(request: GitRenameBranchRequest): Promise<GitOperationResult> {
