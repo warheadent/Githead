@@ -12,6 +12,8 @@ export interface ActivityLogBlock {
   rawText: string;
   html: string;
   converter: AnsiUp | null;
+  containsTerminalHyperlink: boolean;
+  terminalHyperlinkTail: string;
 }
 
 export interface ActivityLogState {
@@ -26,6 +28,7 @@ export const ACTIVITY_LOG_MAX_RAW_CHARS = 2_000_000;
 export const ACTIVITY_LOG_MAX_BLOCKS = 3_000;
 
 const TRIM_NOTICE_TEXT = "... older output trimmed ...\n";
+const TERMINAL_HYPERLINK_PREFIX = "\u001B]8;";
 
 export function createActivityLogState(): ActivityLogState {
   return {
@@ -126,13 +129,19 @@ function appendActivityLogChunk(
   if (canAppendToLast) {
     const converter = lastBlock.converter ?? createAnsiConverter();
     const rawText = `${lastBlock.rawText}${chunk.text}`;
-    const rendered = hasTerminalHyperlink(rawText) ? renderAnsiBlock(rawText) : null;
+    // Keep the boundary separately: slicing or searching the accumulated raw
+    // string forces V8 to flatten it again on every incoming chunk.
+    const boundaryText = `${lastBlock.terminalHyperlinkTail}${chunk.text}`;
+    const containsTerminalHyperlink = lastBlock.containsTerminalHyperlink || hasTerminalHyperlink(boundaryText);
+    const rendered = containsTerminalHyperlink ? renderAnsiBlock(rawText) : null;
     const html = rendered?.html ?? `${lastBlock.html}${converter.ansi_to_html(chunk.text)}`;
     blocks[blocks.length - 1] = {
       ...lastBlock,
       rawText,
       html,
-      converter: rendered?.converter ?? converter
+      converter: rendered?.converter ?? converter,
+      containsTerminalHyperlink,
+      terminalHyperlinkTail: boundaryText.slice(-(TERMINAL_HYPERLINK_PREFIX.length - 1))
     };
 
     return trimActivityLog({
@@ -151,8 +160,7 @@ function appendActivityLogChunk(
     runId: chunk.runId,
     action: chunk.action,
     rawText: chunk.text,
-    html: rendered.html,
-    converter: rendered.converter
+    ...rendered
   };
 
   return trimActivityLog({
@@ -219,8 +227,7 @@ function trimActivityLog(state: ActivityLogState): ActivityLogState {
         {
           ...block,
           rawText,
-          html: rendered.html,
-          converter: rendered.converter
+          ...rendered
         },
         ...blocks.slice(removeIndex + 1)
       ];
@@ -254,7 +261,9 @@ function trimActivityLog(state: ActivityLogState): ActivityLogState {
     action: "Activity Log",
     rawText: TRIM_NOTICE_TEXT,
     html: escapeHtml(TRIM_NOTICE_TEXT),
-    converter: null
+    converter: null,
+    containsTerminalHyperlink: false,
+    terminalHyperlinkTail: ""
   };
 
   nextBlockId += 1;
@@ -301,17 +310,20 @@ function createAnsiConverter(): AnsiUp {
   return converter;
 }
 
-function renderAnsiBlock(rawText: string): { html: string; converter: AnsiUp } {
+function renderAnsiBlock(rawText: string): Pick<ActivityLogBlock, "html" | "converter" | "containsTerminalHyperlink" | "terminalHyperlinkTail"> {
   const converter = createAnsiConverter();
-  const text = hasTerminalHyperlink(rawText) ? stripTerminalHyperlinks(rawText) : rawText;
+  const containsTerminalHyperlink = hasTerminalHyperlink(rawText);
+  const text = containsTerminalHyperlink ? stripTerminalHyperlinks(rawText) : rawText;
   return {
     html: converter.ansi_to_html(text),
-    converter
+    converter,
+    containsTerminalHyperlink,
+    terminalHyperlinkTail: rawText.slice(-(TERMINAL_HYPERLINK_PREFIX.length - 1))
   };
 }
 
 function hasTerminalHyperlink(text: string): boolean {
-  return text.includes("\u001B]8;");
+  return text.includes(TERMINAL_HYPERLINK_PREFIX);
 }
 
 function stripTerminalHyperlinks(text: string): string {

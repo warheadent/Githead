@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import type { GitOutputEvent } from "../shared/types";
 import {
   ACTIVITY_LOG_MAX_BLOCKS,
@@ -22,6 +22,45 @@ function output(overrides: Partial<GitOutputEvent> = {}): GitOutputEvent {
 }
 
 describe("activityLog", () => {
+  it("scans only incoming text and the split-prefix boundary for terminal hyperlinks", () => {
+    let state = createActivityLogState();
+    const text = "build output\n".repeat(100);
+    const includes = String.prototype.includes;
+    let scannedChars = 0;
+    const scanSpy = vi.spyOn(String.prototype, "includes").mockImplementation(function (this: string, search, position) {
+      if (search === "\u001B]8;") scannedChars += this.length;
+      return includes.call(this, search, position);
+    });
+
+    try {
+      for (let index = 0; index < 20; index += 1) {
+        state = appendActivityLogEvent(state, output({ text }));
+      }
+    } finally {
+      scanSpy.mockRestore();
+    }
+
+    expect(state.blocks[0]?.rawText).toBe(text.repeat(20));
+    expect(state.blocks[0]?.html).toBe(text.repeat(20));
+    expect(scannedChars).toBeLessThanOrEqual(20 * (text.length + 3));
+  });
+
+  it("preserves hyperlink filtering at every chunk boundary", () => {
+    const text = "before \u001B]8;;https://example.test\u0007link\u001B]8;;\u0007 after";
+    const expected = appendActivityLogEvent(createActivityLogState(), output({ text }));
+
+    for (let split = 1; split < text.length; split += 1) {
+      let state = appendActivityLogEvent(createActivityLogState(), output({ text: text.slice(0, split) }));
+      state = appendActivityLogEvent(state, output({ text: text.slice(split) }));
+      expect(state.blocks[0]?.html).toBe(expected.blocks[0]?.html);
+      expect(state.blocks[0]?.rawText).toBe(text);
+    }
+
+    let state = createActivityLogState();
+    for (const character of text) state = appendActivityLogEvent(state, output({ text: character }));
+    expect(state.blocks[0]?.html).toBe(expected.blocks[0]?.html);
+  });
+
   it("groups adjacent stream chunks and labels raw output once", () => {
     let state = createActivityLogState();
 

@@ -27,6 +27,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json && tsc --noEmit -p tsconfig.tests.json",
     "test": "vp test",
     "test:perf": "vp test src/main/performanceDiagnostics.test.ts src/main/performanceContracts.test.ts src/main/instrumentedProcessRunner.test.ts scripts/verify-package.test.mjs --run",
+    "bench:perf": "vp test bench src/renderer/performance.bench.ts --run",
     "build": "vp run build:main && vp build",
     "check": "vp check && vp run typecheck && vp test",
     "package:verify": "node scripts/verify-package.mjs",
