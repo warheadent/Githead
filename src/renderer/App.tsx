@@ -10258,8 +10258,12 @@ function StatusView({
 }): ReactNode {
   const stagedSelectionPaths = selection?.side === "staged" ? getSelectionPaths(selection) : [];
   const unstagedSelectionPaths = selection?.side === "unstaged" ? getSelectionPaths(selection) : [];
+  const stageableUnstagedPaths = useMemo(
+    () => new Set(unstagedFiles.filter(canStageStatusFile).map((file) => file.path)),
+    [unstagedFiles]
+  );
   const selectedFile = selection
-    ? getFilesForSide(summary, selection.side).find((file) => file.path === selection.path) ?? null
+    ? (selection.side === "staged" ? stagedFiles : unstagedFiles).find((file) => file.path === selection.path) ?? null
     : null;
   const canApplyHunks = Boolean(
     selection &&
@@ -10389,8 +10393,8 @@ function StatusView({
                       type="button"
                       variant="outline"
                       size="sm"
-                      disabled={disabled || !unstagedFiles.some(canStageStatusFile)}
-                      onClick={() => onStageFiles(unstagedFiles.filter(canStageStatusFile).map((file) => file.path))}
+                      disabled={disabled || stageableUnstagedPaths.size === 0}
+                      onClick={() => onStageFiles([...stageableUnstagedPaths])}
                     >
                       Stage All
                     </Button>
@@ -10398,11 +10402,11 @@ function StatusView({
                       type="button"
                       variant="outline"
                       size="sm"
-                      disabled={disabled || unstagedSelectionPaths.length === 0 || !unstagedSelectionPaths.some((path) => unstagedFiles.find((file) => file.path === path && canStageStatusFile(file)))}
+                      disabled={disabled || !unstagedSelectionPaths.some((path) => stageableUnstagedPaths.has(path))}
                       onClick={() => {
                         if (selection?.side === "unstaged" && unstagedSelectionPaths.length > 0) {
                           onStageFiles(
-                            unstagedSelectionPaths.filter((path) => unstagedFiles.find((file) => file.path === path && canStageStatusFile(file))),
+                            unstagedSelectionPaths.filter((path) => stageableUnstagedPaths.has(path)),
                             createFileSelection("staged", unstagedSelectionPaths, selection.path, selection.anchorPath)
                           );
                         }
