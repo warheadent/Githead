@@ -12843,157 +12843,159 @@ function CommitPanel({
       aria-label="Commit staged files"
       aria-busy={generating}
     >
-      <p className="eyebrow">Commit</p>
+      <label className="commit-message-label" htmlFor="commit-message">Commit message</label>
       {generating || commitMessageSuggestion ? (
         <p className="sr-only" role="status" aria-live="polite" aria-label="Commit message generation status">
           {generating ? "Generating commit message." : "Generated commit message is ready for review."}
         </p>
       ) : null}
-      <Textarea
-        id="commit-message"
-        value={commitMessage}
-        rows={3}
-        placeholder="Summarize staged changes..."
-        onChange={(event) => onCommitMessageChange(event.target.value)}
-      />
-      {commitMessageSuggestion ? (
-        <div
-          className="grid gap-2 rounded-md border border-primary/25 bg-primary/5 px-3 py-2.5"
-          role="status"
-          aria-label="Generated commit message suggestion"
-        >
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <Sparkles className="size-4 text-primary" aria-hidden="true" />
-            Generated suggestion
-          </div>
-          <p className="selectable-text text-sm leading-5">{commitMessageSuggestion.message}</p>
-          <p className="text-xs text-muted-foreground">
-            {commitMessageSuggestion.reason === "repository-changed"
-              ? "Staged changes changed while this message was being generated. Review it before replacing your draft."
-              : "Your draft changed while this message was being generated. Review it before replacing your draft."}
-          </p>
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" size="sm" onClick={onDismissCommitMessageSuggestion}>
-              Dismiss
-            </Button>
-            <Button type="button" variant="secondary" size="sm" onClick={onApplyCommitMessageSuggestion}>
-              {commitMessage.trim() ? "Replace" : "Apply"}
-            </Button>
-          </div>
-        </div>
-      ) : null}
-      {generationError ? (
-        <p className="text-sm text-destructive" role="alert">{generationError}</p>
-      ) : null}
-      {commitPushSafetyNotice ? (
-        <div className="flex items-start gap-3 rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm" role="alert">
-          <ShieldAlert className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-300" />
-          <p className="min-w-0 flex-1 leading-5">{commitPushSafetyNotice.message}</p>
-          {commitPushSafetyNotice.undoRequest ? (
-            <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={onUndoFailedCommitPush} className="shrink-0">
-              <RotateCcw />
-              Undo commit
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
-      <div className="flex flex-wrap justify-end gap-2">
-        <div className="flex items-stretch">
-          <TooltipButton
-            type="button"
-            variant="secondary"
-            disabled={generateDisabled}
-            aria-busy={generating}
-            tooltip="Generate commit message"
-            disabledTooltip={generateTitle}
-            onClick={onGenerateMessage}
-            className="rounded-r-none"
+      <div className="commit-compose-box">
+        <Textarea
+          id="commit-message"
+          value={commitMessage}
+          rows={3}
+          placeholder="Summarize staged changes..."
+          onChange={(event) => onCommitMessageChange(event.target.value)}
+        />
+        {commitMessageSuggestion ? (
+          <div
+            className="grid gap-2 rounded-md border border-primary/25 bg-primary/5 px-3 py-2.5"
+            role="status"
+            aria-label="Generated commit message suggestion"
           >
-            {generating ? <Loader2 className="animate-spin" /> : <Sparkles />}
-            {generating ? "Generating…" : "Generate"}
-          </TooltipButton>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <TooltipButton
-                type="button"
-                variant="secondary"
-                disabled={generateDisabled}
-                aria-label="More generate actions"
-                tooltip="More commit message generation options"
-                disabledTooltip={generateTitle}
-                className="rounded-l-none border-l-secondary-foreground/20 px-2"
-              >
-                <ChevronDown />
-              </TooltipButton>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" side="top">
-              <DropdownMenuItem onSelect={onOpenGenerateWithContext}>
-                <Sparkles />
-                Generate with Context
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-        <div className="flex items-stretch">
-          <Button
-            type="button"
-            disabled={commitDisabled}
-            onClick={onCommit}
-            aria-label={primaryActionAriaLabel}
-            className={primaryCommitAction === "commit" || showAmendAction ? "rounded-r-none" : ""}
-          >
-            <OperationButtonFeedback
-              action={feedbackAction}
-              event={feedbackEvent}
-              successLabel={feedbackAction === "push" ? "Pushed" : "Committed"}
-              surface="commit-panel"
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Sparkles className="size-4 text-primary" aria-hidden="true" />
+              Generated suggestion
+            </div>
+            <p className="selectable-text text-sm leading-5">{commitMessageSuggestion.message}</p>
+            <p className="text-xs text-muted-foreground">
+              {commitMessageSuggestion.reason === "repository-changed"
+                ? "Staged changes changed while this message was being generated. Review it before replacing your draft."
+                : "Your draft changed while this message was being generated. Review it before replacing your draft."}
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" size="sm" onClick={onDismissCommitMessageSuggestion}>
+                Dismiss
+              </Button>
+              <Button type="button" variant="secondary" size="sm" onClick={onApplyCommitMessageSuggestion}>
+                {commitMessage.trim() ? "Replace" : "Apply"}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+        {generationError ? (
+          <p className="text-sm text-destructive" role="alert">{generationError}</p>
+        ) : null}
+        {commitPushSafetyNotice ? (
+          <div className="flex items-start gap-3 rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm" role="alert">
+            <ShieldAlert className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-300" />
+            <p className="min-w-0 flex-1 leading-5">{commitPushSafetyNotice.message}</p>
+            {commitPushSafetyNotice.undoRequest ? (
+              <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={onUndoFailedCommitPush} className="shrink-0">
+                <RotateCcw />
+                Undo commit
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+        <div className="commit-compose-actions">
+          <div className="flex items-stretch">
+            <TooltipButton
+              type="button"
+              variant="ghost"
+              disabled={generateDisabled}
+              aria-busy={generating}
+              tooltip="Generate commit message"
+              disabledTooltip={generateTitle}
+              onClick={onGenerateMessage}
+              className="commit-generate-button rounded-r-none"
             >
-              {primaryCommitAction === "push" ? <Upload /> : <CheckCircle2 />}
-              {primaryActionLabel}
-              {primaryCommitAction === "push" && pushableCommitCount > 0 ? (
-                <SyncCountChip title={formatCommitCountLabel(pushableCommitCount, "ahead")}>
-                  {pushableCommitCount}
-                </SyncCountChip>
-              ) : null}
-            </OperationButtonFeedback>
-          </Button>
-          {primaryCommitAction === "commit" || showAmendAction ? (
+              {generating ? <Loader2 className="animate-spin" /> : <Sparkles />}
+              {generating ? "Generating…" : "Generate"}
+            </TooltipButton>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button
+                <TooltipButton
                   type="button"
-                  disabled={!showAmendAction && (disabled || !commitAllowed)}
-                  aria-label="More commit actions"
-                  data-amend-composer-trigger
-                  className="rounded-l-none border-l-primary-foreground/25 px-2"
+                  variant="ghost"
+                  disabled={generateDisabled}
+                  aria-label="More generate actions"
+                  tooltip="More commit message generation options"
+                  disabledTooltip={generateTitle}
+                  className="commit-generate-button rounded-l-none px-2"
                 >
                   <ChevronDown />
-                </Button>
+                </TooltipButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" side="top">
-                <DropdownMenuItem disabled={disabled || !commitAllowed} onSelect={onCommitAndPush}>
-                  <Upload />
-                  Commit &amp; Push
+                <DropdownMenuItem onSelect={onOpenGenerateWithContext}>
+                  <Sparkles />
+                  Generate with Context
                 </DropdownMenuItem>
-                {showAmendAction ? <DropdownMenuSeparator /> : null}
-                {showAmendAction ? (
-                  <TooltipTarget
-                    content={!canAmend ? "This repository has no commit to amend." : amendDisabled ? amendDisabledReason ?? "Wait for the current Git operation to finish." : undefined}
-                    contentProps={{ side: "left", sideOffset: 8 }}
-                  >
-                    <DropdownMenuItem
-                      disabled={!canAmend || amendDisabled}
-                      className={!canAmend || amendDisabled ? "data-[disabled]:pointer-events-auto" : undefined}
-                      onSelect={onOpenAmend}
-                    >
-                      <GitCommitHorizontal />
-                      Amend last commit…
-                    </DropdownMenuItem>
-                  </TooltipTarget>
-                ) : null}
               </DropdownMenuContent>
             </DropdownMenu>
-          ) : null}
+          </div>
+          <div className="flex items-stretch">
+            <Button
+              type="button"
+              disabled={commitDisabled}
+              onClick={onCommit}
+              aria-label={primaryActionAriaLabel}
+              className={primaryCommitAction === "commit" || showAmendAction ? "rounded-r-none" : ""}
+            >
+              <OperationButtonFeedback
+                action={feedbackAction}
+                event={feedbackEvent}
+                successLabel={feedbackAction === "push" ? "Pushed" : "Committed"}
+                surface="commit-panel"
+              >
+                {primaryCommitAction === "push" ? <Upload /> : <CheckCircle2 />}
+                {primaryActionLabel}
+                {primaryCommitAction === "push" && pushableCommitCount > 0 ? (
+                  <SyncCountChip title={formatCommitCountLabel(pushableCommitCount, "ahead")}>
+                    {pushableCommitCount}
+                  </SyncCountChip>
+                ) : null}
+              </OperationButtonFeedback>
+            </Button>
+            {primaryCommitAction === "commit" || showAmendAction ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    disabled={!showAmendAction && (disabled || !commitAllowed)}
+                    aria-label="More commit actions"
+                    data-amend-composer-trigger
+                    className="rounded-l-none border-l-primary-foreground/25 px-2"
+                  >
+                    <ChevronDown />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" side="top">
+                  <DropdownMenuItem disabled={disabled || !commitAllowed} onSelect={onCommitAndPush}>
+                    <Upload />
+                    Commit &amp; Push
+                  </DropdownMenuItem>
+                  {showAmendAction ? <DropdownMenuSeparator /> : null}
+                  {showAmendAction ? (
+                    <TooltipTarget
+                      content={!canAmend ? "This repository has no commit to amend." : amendDisabled ? amendDisabledReason ?? "Wait for the current Git operation to finish." : undefined}
+                      contentProps={{ side: "left", sideOffset: 8 }}
+                    >
+                      <DropdownMenuItem
+                        disabled={!canAmend || amendDisabled}
+                        className={!canAmend || amendDisabled ? "data-[disabled]:pointer-events-auto" : undefined}
+                        onSelect={onOpenAmend}
+                      >
+                        <GitCommitHorizontal />
+                        Amend last commit…
+                      </DropdownMenuItem>
+                    </TooltipTarget>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+          </div>
         </div>
       </div>
     </section>

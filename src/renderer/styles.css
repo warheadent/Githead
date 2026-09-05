@@ -4716,9 +4716,59 @@ textarea,
   white-space: nowrap;
 }
 
+.commit-message-label {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.commit-compose-box {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  border: 1px solid var(--input);
+  border-radius: 12px;
+  background: var(--background);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 3%);
+}
+
+.commit-compose-box:focus-within {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--ring) 20%, transparent);
+}
+
 #commit-message {
-  min-height: 118px;
+  min-height: 90px;
+  max-height: 240px;
   resize: none;
+  border: 0;
+  border-radius: 12px 12px 0 0;
+  padding: 14px 16px;
+  background: transparent;
+  font-size: 14px;
+  line-height: 1.6;
+  box-shadow: none;
+}
+
+.commit-compose-box > [role] {
+  margin: 0 12px 12px;
+}
+
+.commit-compose-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+}
+
+.commit-compose-actions > :last-child {
+  margin-left: auto;
+}
+
+.commit-generate-button {
+  color: var(--muted-foreground);
 }
 
 .activity-log-view {

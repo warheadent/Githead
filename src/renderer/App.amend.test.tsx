@@ -183,7 +183,7 @@ describe("App amend entry points", { timeout: 10_000 }, () => {
     await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("button", { name: "More commit actions" }));
     await user.click(screen.getByRole("menuitem", { name: "Amend last commit…" }));
-    fireEvent.change(await screen.findByLabelText("Commit message"), { target: { value: "new message" } });
+    fireEvent.change(within(await screen.findByRole("dialog", { name: "Amend last commit" })).getByLabelText("Commit message"), { target: { value: "new message" } });
     await user.click(screen.getByRole("button", { name: "Amend last commit" }));
 
     expect(await screen.findByText(/The commit was amended, but Githead could not refresh every view/)).toBeTruthy();
