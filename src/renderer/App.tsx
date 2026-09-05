@@ -223,7 +223,7 @@ import type {
 } from "../shared/types";
 import { AI_COMMIT_MESSAGE_PROVIDERS, DEFAULT_COMMIT_PLAN_GRANULARITY, DEFAULT_REMOTE_CHECK_LEASE_SECONDS, DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS, DEFAULT_TAG_PUSH_BEHAVIOR, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
 import { isMarkdownPath } from "../shared/filePreview";
-import { parseCommitSubject } from "../shared/commitSubject";
+import { parseCommitSubject, type ParsedCommitSubject } from "../shared/commitSubject";
 import { parseGitHubReferences } from "../shared/githubReference";
 import { getRepositoryWebUrl } from "../shared/remoteWebUrl";
 import { ActivityLogPanel } from "./ActivityLogPanel";
@@ -12495,16 +12495,22 @@ function HistoryCheckState({ association, compact = false }: { association: GitH
   );
 }
 
+function CommitTypeBadge({ type, label }: Pick<ParsedCommitSubject, "type" | "label">): ReactNode {
+  return <span className={`commit-type-badge type-${type}`}>{label}</span>;
+}
+
 function CommitSubject({
   subject,
   className,
   scopeClassName,
-  descriptionClassName
+  descriptionClassName,
+  showType = true
 }: {
   subject: string;
   className: string;
   scopeClassName: string;
   descriptionClassName: string;
+  showType?: boolean;
 }): ReactNode {
   const displaySubject = subject || "(no subject)";
   const parsedSubject = subject ? parseCommitSubject(subject) : null;
@@ -12514,7 +12520,7 @@ function CommitSubject({
 
   return (
     <span className={`${className} is-conventional`}>
-      <span className={`commit-type-badge type-${parsedSubject.type}`}>{parsedSubject.label}</span>
+      {showType ? <CommitTypeBadge {...parsedSubject} /> : null}
       {parsedSubject.scope ? <span className={scopeClassName}>{parsedSubject.scope}:</span> : null}
       <span className={descriptionClassName}>{parsedSubject.description}</span>
     </span>
@@ -12568,6 +12574,7 @@ function CommitDetailsPanel({
     fileCount = `${details.files.length} ${details.files.length === 1 ? "file" : "files"}`;
     const totals = details.files.reduce((sum, file) => ({ additions: sum.additions + file.additions, deletions: sum.deletions + file.deletions }), { additions: 0, deletions: 0 });
     changeSummary = <span className="commit-change-summary"><span className="good">+{totals.additions}</span><span className="bad">−{totals.deletions}</span></span>;
+    const parsedSubject = parseCommitSubject(details.subject);
     const references = parseGitHubReferences(`${details.subject}\n${details.body}`, repository);
     meta = (
       <div className="commit-meta-card selectable-text">
@@ -12578,6 +12585,7 @@ function CommitDetailsPanel({
               className="commit-title-subject"
               scopeClassName="commit-title-scope"
               descriptionClassName="commit-title-description"
+              showType={false}
             />
           </h2>
         </TooltipTarget>
@@ -12587,6 +12595,7 @@ function CommitDetailsPanel({
           <TooltipButton type="button" variant="ghost" size="xs" disabled={disabled} className="commit-copy-hash" aria-label="Copy commit SHA" tooltip="Copy full commit SHA" onClick={() => { void onCopyCommit(details); }}>
             <Clipboard />{details.shortHash}
           </TooltipButton>
+          {parsedSubject ? <CommitTypeBadge {...parsedSubject} /> : null}
         </div>
         <details key={details.hash} className="commit-expanded-details">
           <summary>Commit details</summary>

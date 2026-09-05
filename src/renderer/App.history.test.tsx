@@ -461,7 +461,9 @@ describe("App", { timeout: 10_000 }, () => {
       conventionalCommit,
       rawCommit
     ]);
-    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(conventionalCommit.hash));
+    vi.mocked(githead.getCommitDetails).mockImplementation(async ({ hash }) => createCommitDetails(hash,
+      hash === rawCommit.hash ? { subject: rawCommit.subject } : {}
+    ));
 
     render(<App />);
 
@@ -470,11 +472,15 @@ describe("App", { timeout: 10_000 }, () => {
 
     await waitFor(() => expect(screen.getAllByText("Feature")).toHaveLength(2));
     const historyBadge = screen.getAllByText("Feature").find((badge) => badge.closest(".history-row"));
-    const detailBadge = screen.getAllByText("Feature").find((badge) => badge.closest(".commit-title"));
+    const detailBadge = screen.getAllByText("Feature").find((badge) => badge.closest(".commit-summary-meta"));
     expect(historyBadge?.className).toContain("commit-type-badge");
     expect(historyBadge?.className).toContain("type-feat");
     expect(detailBadge?.className).toContain("commit-type-badge");
     expect(detailBadge?.className).toContain("type-feat");
+    expect(detailBadge?.closest(".commit-title")).toBeNull();
+    const metadata = detailBadge?.closest(".commit-summary-meta");
+    expect(metadata?.lastElementChild).toBe(detailBadge);
+    expect(metadata?.querySelector(".commit-copy-hash")).toBeTruthy();
     expect(screen.queryByText("v1.2.3")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Show all 2 references" }));
     expect(await screen.findByText("v1.2.3")).toBeTruthy();
@@ -495,6 +501,10 @@ describe("App", { timeout: 10_000 }, () => {
     expect(detailDescription).toBeTruthy();
     expect(historyDescription?.closest(".history-subject-tooltip")?.getAttribute("data-slot")).toBe("tooltip-trigger");
     expect(screen.getByText("Add MeshBites Shader")).toBeTruthy();
+    await user.click(screen.getByRole("option", { name: /Add MeshBites Shader/ }));
+    const detailsPanel = screen.getByRole("region", { name: "Commit details" });
+    await within(detailsPanel).findByRole("heading", { name: "Add MeshBites Shader" });
+    expect(detailsPanel.querySelector(".commit-type-badge")).toBeNull();
   });
 
   it("keeps table headings and rows together when either scrolls horizontally", async () => {
@@ -979,7 +989,7 @@ describe("App", { timeout: 10_000 }, () => {
     });
     const parentDescription = await screen.findByText("parent commit");
     expect(parentDescription.closest(".commit-title")).toBeTruthy();
-    expect(screen.getByText("Fix").closest(".commit-title")).toBeTruthy();
+    expect(screen.getByText("Fix").closest(".commit-summary-meta")).toBeTruthy();
     expect(screen.getAllByText("ui:").some((scope) => scope.closest(".commit-title"))).toBe(true);
   });
 
