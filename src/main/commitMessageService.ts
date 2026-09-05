@@ -5,7 +5,8 @@ import {
   reportAiEmptyResponse,
   reportAiGenerationFailure
 } from "./aiOperationReporter";
-import { getProviderLabel, isApiKeyProvider, isCliProvider, type AiSettingsService } from "./aiSettingsService";
+import type { AiSettingsService } from "./aiSettingsService";
+import { getAiProviderLabel, isApiKeyProvider, isCliProvider } from "../shared/aiProvider";
 import {
   AnthropicCommitMessageProvider,
   ClaudeCodeCommitMessageProvider,
@@ -52,7 +53,7 @@ export class CommitMessageService {
       throwIfAborted(signal);
       selectedProvider = settings.selectedProvider;
       const providerSettings = settings.providers[selectedProvider];
-      const providerLabel = getProviderLabel(selectedProvider);
+      const providerLabel = getAiProviderLabel(selectedProvider);
 
       const resolution = await resolveAiProvider(
         settings,
@@ -211,7 +212,7 @@ export async function resolveAiProvider(
   runner?: ProcessRunner
 ): Promise<AiProviderResolution> {
   const selectedProvider = settings.selectedProvider;
-  const providerLabel = getProviderLabel(selectedProvider);
+  const providerLabel = getAiProviderLabel(selectedProvider);
 
   if (!model.trim()) {
     return { kind: "error", category: "configuration", message: `${providerLabel} model is not configured.` };
@@ -265,7 +266,7 @@ function createProvider(
 
 function requireApiKey(provider: AiApiKeyProvider, apiKey: string | null): string {
   if (!apiKey) {
-    throw new Error(`${getProviderLabel(provider)} API key is not configured.`);
+    throw new Error(`${getAiProviderLabel(provider)} API key is not configured.`);
   }
 
   return apiKey;

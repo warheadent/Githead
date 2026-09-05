@@ -1,12 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Effect } from "effect";
+import { getAiProviderLabel, isApiKeyProvider, isCliProvider } from "../shared/aiProvider";
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import { DEFAULT_PR_DESCRIPTION_PROMPT } from "../shared/prDescriptionPrompt";
 import { DEFAULT_SOURCE_CONTROL_WRITING_STYLE } from "../shared/sourceControlWritingStyle";
 import {
   AI_API_KEY_PROVIDERS,
-  AI_CLI_PROVIDERS,
   AI_COMMIT_MESSAGE_PROVIDERS,
   AI_REASONING_EFFORTS,
   DEFAULT_COMMIT_PLAN_GRANULARITY,
@@ -182,7 +182,7 @@ export class AiSettingsService {
       providerModels: createSavedProviderModels(request.providerModels),
       commitPlanModels: createSavedOptionalModels(request.commitPlanModels),
       ...(commitPlanReasoningEfforts ? { commitPlanReasoningEfforts } : {}),
-      prDescriptionModels: createSavedPrDescriptionModels(request.prDescriptionModels),
+      prDescriptionModels: createSavedOptionalModels(request.prDescriptionModels),
       reasoningEfforts: createSavedReasoningEfforts(request.reasoningEfforts),
       prDescriptionReasoningEfforts: createSavedReasoningEfforts(request.prDescriptionReasoningEfforts),
       commitMessagePrompt,
@@ -257,7 +257,7 @@ export class AiSettingsService {
     const providerModels = createSavedProviderModels(request.providerModels);
     const selectedModel = providerModels[selectedProvider];
     if (!selectedModel) {
-      throw new Error(`Enter ${getProviderArticle(selectedProvider)} ${getProviderLabel(selectedProvider)} model.`);
+      throw new Error(`Enter ${getProviderArticle(selectedProvider)} ${getAiProviderLabel(selectedProvider)} model.`);
     }
 
     const existing = await this.readStoredSettings();
@@ -281,10 +281,10 @@ export class AiSettingsService {
     }
 
     if (isApiKeyProvider(selectedProvider) && !encryptedApiKeys[selectedProvider]) {
-      throw new Error(`Enter ${getProviderArticle(selectedProvider)} ${getProviderLabel(selectedProvider)} API key.`);
+      throw new Error(`Enter ${getProviderArticle(selectedProvider)} ${getAiProviderLabel(selectedProvider)} API key.`);
     }
 
-    const prDescriptionModels = createSavedPrDescriptionModels(
+    const prDescriptionModels = createSavedOptionalModels(
       request.prDescriptionModels ?? existing.prDescriptionModels
     );
     const commitPlanModels = createSavedOptionalModels(
@@ -521,7 +521,7 @@ function createSavedReasoningEfforts(
   }, {} as Record<AiCommitMessageProvider, AiReasoningEffort>);
 }
 
-function createSavedPrDescriptionModels(
+function createSavedOptionalModels(
   models: Partial<Record<AiCommitMessageProvider, string>> | undefined
 ): Partial<Record<AiCommitMessageProvider, string>> {
   return AI_COMMIT_MESSAGE_PROVIDERS.reduce((saved, provider) => {
@@ -531,12 +531,6 @@ function createSavedPrDescriptionModels(
     }
     return saved;
   }, {} as Partial<Record<AiCommitMessageProvider, string>>);
-}
-
-function createSavedOptionalModels(
-  models: Partial<Record<AiCommitMessageProvider, string>> | undefined
-): Partial<Record<AiCommitMessageProvider, string>> {
-  return createSavedPrDescriptionModels(models);
 }
 
 function createSavedProviderModels(
@@ -577,29 +571,6 @@ function sanitizeProvider(value: string | undefined): AiCommitMessageProvider | 
   return AI_COMMIT_MESSAGE_PROVIDERS.includes(value as AiCommitMessageProvider)
     ? value as AiCommitMessageProvider
     : null;
-}
-
-export function isApiKeyProvider(provider: AiCommitMessageProvider): provider is AiApiKeyProvider {
-  return AI_API_KEY_PROVIDERS.includes(provider as AiApiKeyProvider);
-}
-
-export function isCliProvider(provider: AiCommitMessageProvider): provider is AiCliProvider {
-  return AI_CLI_PROVIDERS.includes(provider as AiCliProvider);
-}
-
-export function getProviderLabel(provider: AiCommitMessageProvider): string {
-  switch (provider) {
-    case "openrouter":
-      return "OpenRouter";
-    case "openai":
-      return "OpenAI";
-    case "codex-cli":
-      return "Codex CLI";
-    case "anthropic":
-      return "Anthropic";
-    case "claude-code":
-      return "Claude Code";
-  }
 }
 
 function getProviderArticle(provider: AiCommitMessageProvider): "a" | "an" {

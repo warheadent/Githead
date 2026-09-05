@@ -5,7 +5,8 @@ import {
   reportAiEmptyResponse,
   reportAiGenerationFailure
 } from "./aiOperationReporter";
-import { getProviderLabel, type AiSettingsService } from "./aiSettingsService";
+import type { AiSettingsService } from "./aiSettingsService";
+import { getAiProviderLabel } from "../shared/aiProvider";
 import { normalizeGeneratedMessage } from "./commitMessagePromptBuilder";
 import { generateCompleteText } from "./commitMessageProviders";
 import { resolveAiProvider, resolveReasoningEffort, type AiReasoningCapabilityResolver } from "./commitMessageService";
@@ -45,7 +46,7 @@ export class PrDescriptionService {
       throwIfAborted(signal);
       selectedProvider = settings.selectedProvider;
       const providerSettings = settings.providers[selectedProvider];
-      const providerLabel = getProviderLabel(selectedProvider);
+      const providerLabel = getAiProviderLabel(selectedProvider);
       const model = providerSettings.model;
 
       const resolution = await resolveAiProvider(
@@ -132,7 +133,7 @@ export class PrDescriptionService {
       throwIfAborted(signal);
       selectedProvider = settings.selectedProvider;
       const providerSettings = settings.providers[selectedProvider];
-      const providerLabel = getProviderLabel(selectedProvider);
+      const providerLabel = getAiProviderLabel(selectedProvider);
       const model = providerSettings.prDescriptionModel.trim() || providerSettings.model;
 
       const resolution = await resolveAiProvider(

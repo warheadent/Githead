@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import type {
   GitCherryPickPreview,
   GitCommitChangedFile,
@@ -582,9 +582,4 @@ function dedupeFiles(files: GitIntegrationFile[]): GitIntegrationFile[] {
 
 function commitParentCount(commit: GitIntegrationCommit): number {
   return commit.parentOids.length;
-}
-
-// Keep this exported for deterministic activity-log tests without exposing raw Git arguments over IPC.
-export function createIntegrationRunId(): string {
-  return randomUUID();
 }

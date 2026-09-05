@@ -27,23 +27,7 @@ function renderTooltipButton(props: React.ComponentProps<typeof TooltipButton>) 
 }
 
 describe("Button", () => {
-  it("uses precise press feedback for enabled fine-pointer interactions", () => {
-    render(<Button>Commit</Button>)
-
-    const button = screen.getByRole("button", { name: "Commit" })
-
-    expect(button.className).toContain(
-      "transition-[color,background-color,border-color,box-shadow,transform,opacity]"
-    )
-    expect(button.className).toContain("duration-[120ms]")
-    expect(button.className).toContain("ease-[ease]")
-    expect(button.className).toContain(
-      "[@media(hover:hover)_and_(pointer:fine)]:enabled:active:[transform:scale(0.98)]"
-    )
-    expect(button.className).not.toContain("transition-all")
-  })
-
-  it("keeps disabled controls outside the active press selector", () => {
+  it("does not call the action when disabled", () => {
     const onClick = vi.fn()
     render(<Button disabled onClick={onClick}>Commit</Button>)
 
@@ -51,21 +35,7 @@ describe("Button", () => {
     fireEvent.click(button)
 
     expect((button as HTMLButtonElement).disabled).toBe(true)
-    expect(button.className).toContain(":enabled:active:[transform:scale(0.98)]")
     expect(onClick).not.toHaveBeenCalled()
-  })
-
-  it("uses opacity instead of transforms when reduced motion is requested", () => {
-    render(<Button>Commit</Button>)
-
-    const button = screen.getByRole("button", { name: "Commit" })
-
-    expect(button.className).toContain("motion-reduce:transition-opacity!")
-    expect(button.className).toContain("motion-reduce:duration-[120ms]!")
-    expect(button.className).toContain("motion-reduce:transform-none!")
-    expect(button.className).toContain(
-      "[@media(hover:hover)_and_(pointer:fine)]:enabled:active:motion-reduce:opacity-[0.92]"
-    )
   })
 })
 

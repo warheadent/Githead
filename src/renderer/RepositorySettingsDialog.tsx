@@ -22,7 +22,7 @@ import { AI_COMMIT_MESSAGE_PROVIDERS } from "../shared/types";
 import { DEFAULT_COMMIT_PLAN_GRANULARITY } from "../shared/types";
 import { DEFAULT_SOURCE_CONTROL_WRITING_STYLE } from "../shared/sourceControlWritingStyle";
 import { AiGenerationSettingsFields, type AiGenerationSettingsDraft } from "./AiGenerationSettingsFields";
-import { getAiProviderLabel } from "./aiProvider";
+import { getAiProviderLabel } from "../shared/aiProvider";
 import { GitIdentityFields } from "./GitIdentityFields";
 import { LoadingState } from "./LoadingState";
 import { SettingsCard, SettingsCategoryLayout, SettingsPanel } from "./SettingsCategoryLayout";

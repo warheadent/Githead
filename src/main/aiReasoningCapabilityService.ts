@@ -5,7 +5,8 @@ import {
   type AiReasoningEffort,
   type GetAiReasoningCapabilitiesRequest
 } from "../shared/types";
-import { isApiKeyProvider, type AiSettingsService } from "./aiSettingsService";
+import type { AiSettingsService } from "./aiSettingsService";
+import { isApiKeyProvider } from "../shared/aiProvider";
 import { createCliProcessEnv } from "./cliEnvironment";
 import { createCliInvocation } from "./cliInvocation";
 import { fetchJsonWithTimeout } from "./fetchJsonWithTimeout";

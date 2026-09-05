@@ -5,16 +5,6 @@ export const DEFAULT_PULL_REQUEST_QUERY: GitHubPullRequestQuery = Object.freeze(
 export const DEFAULT_ISSUE_QUERY: GitHubIssueQuery = Object.freeze({ sort: "updated", direction: "desc" });
 
 export function normalizeText(value: string | undefined): string | undefined { const next = value?.trim(); return next || undefined; }
-export function normalizeWorkflowQuery(query: GitHubWorkflowRunQuery): GitHubWorkflowRunQuery {
-  return { ...(normalizeText(query.branch) ? { branch: normalizeText(query.branch) } : {}), ...(normalizeText(query.event) ? { event: normalizeText(query.event) } : {}), ...(query.status ? { status: query.status } : {}), sortDirection: query.sortDirection };
-}
-export function normalizePullRequestQuery(query: GitHubPullRequestQuery): GitHubPullRequestQuery {
-  return compact({ ...query, search: normalizeText(query.search), author: normalizeText(query.author), assignee: normalizeText(query.assignee), reviewRequested: normalizeText(query.reviewRequested), label: normalizeText(query.label), sourceBranch: normalizeText(query.sourceBranch) });
-}
-export function normalizeIssueQuery(query: GitHubIssueQuery): GitHubIssueQuery {
-  return compact({ ...query, search: normalizeText(query.search), author: normalizeText(query.author), assignee: normalizeText(query.assignee), label: normalizeText(query.label) });
-}
-function compact<T extends object>(value: T): T { return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined && item !== "")) as T; }
 
 export function filterLoadedWorkflowRuns(runs: GitHubWorkflowRun[], search: string): GitHubWorkflowRun[] {
   const needle = search.trim().toLocaleLowerCase();

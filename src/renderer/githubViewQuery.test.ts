@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterLoadedWorkflowRuns, normalizePullRequestQuery, sortLoadedWorkflowRuns } from "./githubViewQuery";
+import { filterLoadedWorkflowRuns, sortLoadedWorkflowRuns } from "./githubViewQuery";
 
 const run = (id: string, name: string, startedAt: string) => ({
   id,
@@ -21,9 +21,6 @@ const run = (id: string, name: string, startedAt: string) => ({
 });
 
 describe("GitHub view queries", () => {
-  it("normalizes whitespace without changing case", () => {
-    expect(normalizePullRequestQuery({ search: "  Fix Repo  ", label: " Needs Review ", sort: "updated", direction: "desc" })).toEqual({ search: "Fix Repo", label: "Needs Review", sort: "updated", direction: "desc" });
-  });
   it("filters loaded workflow fields case-insensitively", () => {
     const runs = [run("123", "Release Build", "2026-01-01")];
     expect(filterLoadedWorkflowRuns(runs, "release")).toHaveLength(1);

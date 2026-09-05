@@ -51,7 +51,7 @@ import type {
 import { AI_COMMIT_MESSAGE_PROVIDERS, APP_ZOOM_FACTORS, REMOTE_CHECK_LEASE_SECONDS } from "../shared/types";
 import { COLOR_THEME_OPTIONS } from "./themes";
 import { CODE_FONT_OPTIONS, UI_FONT_OPTIONS, type FontOption } from "./fonts";
-import { getAiProviderLabel, getCliStatusMessage, isCliProvider } from "./aiProvider";
+import { getAiProviderLabel, getCliStatusMessage, isCliProvider } from "../shared/aiProvider";
 import { GitIdentityFields } from "./GitIdentityFields";
 import { AiGenerationSettingsFields } from "./AiGenerationSettingsFields";
 import { MotionSwap } from "./motion";

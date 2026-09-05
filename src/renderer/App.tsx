@@ -122,7 +122,7 @@ import { publishTelemetryPreference } from "./telemetryPreference";
 import { RepositorySettingsDialog } from "./RepositorySettingsDialog";
 import { ReferencePicker, type ReferencePickerOption } from "./ReferencePicker";
 import { GitIdentityFields } from "./GitIdentityFields";
-import { getAiProviderLabel, isApiKeyProvider, isCliProvider } from "./aiProvider";
+import { getAiProviderLabel, isApiKeyProvider, isCliProvider } from "../shared/aiProvider";
 import {
   Tooltip,
   TooltipContent,

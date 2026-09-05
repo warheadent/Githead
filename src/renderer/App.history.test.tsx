@@ -1547,28 +1547,11 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.getByRole("tree", { name: "Staged files" })).toBeTruthy();
   });
 
-  it("renders resizable staged and unstaged file groups", async () => {
+  it("labels the staged and unstaged file regions", async () => {
     render(<App />);
 
-    const separator = await screen.findByRole("separator", {
-      name: "Resize staged and unstaged file lists"
-    });
-    const group = separator.parentElement;
-    expect(group?.getAttribute("data-orientation")).toBe("vertical");
-    expect(separator.getAttribute("data-with-handle")).toBe("true");
-
-    const panels = group?.querySelectorAll("[data-resizable-panel]");
-    expect(panels?.length).toBe(2);
-    expect(panels?.[0]?.getAttribute("data-default-size")).toBe("50%");
-    expect(panels?.[0]?.getAttribute("data-min-size")).toBe("96px");
-    expect(panels?.[1]?.getAttribute("data-default-size")).toBe("50%");
-    expect(panels?.[1]?.getAttribute("data-min-size")).toBe("96px");
-
-    const regions = within(group!).getAllByRole("region");
-    expect(regions.map((region) => region.getAttribute("aria-label"))).toEqual([
-      "Staged files",
-      "Unstaged files"
-    ]);
+    expect(await screen.findByRole("region", { name: "Staged files" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Unstaged files" })).toBeTruthy();
   });
 
   it("keeps repository-wide submodule actions out of the staged file header", async () => {

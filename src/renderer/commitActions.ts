@@ -38,16 +38,12 @@ export function getPullableCommitCount(summary: RepoSummary | null): number {
   return getAheadBehindCounts(summary)?.behind ?? 0;
 }
 
-export function canPush(summary: RepoSummary | null): boolean {
-  return hasUnpushedCommits(summary);
-}
-
 export function getPrimaryCommitAction(summary: RepoSummary | null): PrimaryCommitAction | null {
   if (hasStagedChanges(summary)) {
     return "commit";
   }
 
-  if (canPush(summary)) {
+  if (hasUnpushedCommits(summary)) {
     return "push";
   }
 

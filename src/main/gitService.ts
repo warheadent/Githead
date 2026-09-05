@@ -134,7 +134,7 @@ import { GIT_STASH_LIST_FORMAT, isGitStashRef, parseGitStashFiles, parseGitStash
 import { formatRevertCommitMessage } from "../shared/revertCommitMessage";
 import { GitOperationRecoveryService } from "./gitOperationRecovery";
 import { GitAmendService } from "./gitAmendService";
-import { createIntegrationRunId, GitIntegrationService } from "./gitIntegrationService";
+import { GitIntegrationService } from "./gitIntegrationService";
 import { planGitPush, validateGitPushRemoteName, type GitPushCommandPlan, type ValidatedGitPushTarget } from "./gitPushPlan";
 
 export const GIT_ACTION_COMMANDS: Record<GitAction, string[]> = {
@@ -1816,7 +1816,7 @@ export class GitService {
         forceWithLease: null
       };
     }
-    const runId = createIntegrationRunId();
+    const runId = randomUUID();
     const action = request.kind;
     const startedAt = new Date().toISOString();
     if (request.kind === "rebase" && await this.readPullRecovery(request.repoPath)) {

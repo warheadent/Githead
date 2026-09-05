@@ -1,5 +1,5 @@
-import type { AiApiKeyProvider, AiCliProvider, AiCommitMessageProvider, AiSettings } from "../shared/types";
-import { AI_API_KEY_PROVIDERS, AI_CLI_PROVIDERS } from "../shared/types";
+import type { AiApiKeyProvider, AiCliProvider, AiCommitMessageProvider, AiSettings } from "./types";
+import { AI_API_KEY_PROVIDERS, AI_CLI_PROVIDERS } from "./types";
 
 export function isApiKeyProvider(provider: AiCommitMessageProvider): provider is AiApiKeyProvider {
   return AI_API_KEY_PROVIDERS.includes(provider as AiApiKeyProvider);

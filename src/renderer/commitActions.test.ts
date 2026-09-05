@@ -2,7 +2,6 @@ import { describe, expect, it } from "vite-plus/test";
 import type { RepoSummary } from "../shared/types";
 import { gitCapabilities } from "../shared/types";
 import {
-  canPush,
   getAheadBehindCounts,
   getPrimaryCommitAction,
   getPullableCommitCount,
@@ -92,7 +91,7 @@ describe("commit action helpers", () => {
       behind: 0
     };
 
-    expect(canPush(summary)).toBe(true);
+    expect(hasUnpushedCommits(summary)).toBe(true);
     expect(getPushableCommitCount(summary)).toBe(2);
     expect(getPrimaryCommitAction(summary)).toBe("push");
   });
