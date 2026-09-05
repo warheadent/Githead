@@ -109,8 +109,27 @@ function saveLayout<Id extends string>(storageKey: string, layout: ColumnLayout<
   }
 }
 
-function getTemplate<Id extends string>(layout: ColumnLayout<Id>): string {
-  return layout.order.filter((id) => layout.visibility[id]).map((id) => `${layout.widths[id]}px`).join(" ");
+export function getRenderedColumnWidths<Id extends string>(
+  layout: ColumnLayout<Id>,
+  availableWidth: number,
+  fillColumn?: Id
+): Record<Id, number> {
+  const widths = { ...layout.widths };
+  if (fillColumn && layout.visibility[fillColumn]) {
+    const usedWidth = layout.order.filter((id) => layout.visibility[id])
+      .reduce((total, id) => total + widths[id], 0);
+    widths[fillColumn] += Math.max(0, availableWidth - usedWidth);
+  }
+  return widths;
+}
+
+function getLayoutStyle<Id extends string>(layout: ColumnLayout<Id>, availableWidth: number, fillColumn?: Id): CSSProperties {
+  const widths = getRenderedColumnWidths(layout, availableWidth, fillColumn);
+  const style: Record<string, string> = {
+    "--data-grid-columns": layout.order.filter((id) => layout.visibility[id]).map((id) => `${widths[id]}px`).join(" ")
+  };
+  for (const id of layout.order) style[`--data-grid-width-${id}`] = `${widths[id]}px`;
+  return style as CSSProperties;
 }
 
 export interface PersistentColumnLayout<Id extends string> {
@@ -129,11 +148,27 @@ export interface PersistentColumnLayout<Id extends string> {
 
 export function usePersistentColumnLayout<Id extends string>(
   storageKey: string,
-  columns: readonly ColumnDefinition<Id>[]
+  columns: readonly ColumnDefinition<Id>[],
+  sizing?: { fillColumn: Id; gap: number; padding: number }
 ): PersistentColumnLayout<Id> {
   const columnsById = useMemo(() => new Map(columns.map((column) => [column.id, column])), [columns]);
   const [layout, setLayout] = useState<ColumnLayout<Id>>(() => loadLayout(storageKey, columns));
   const containerRef = useRef<HTMLElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+  const fillColumn = sizing?.fillColumn;
+  const gap = sizing?.gap ?? 0;
+  const padding = sizing?.padding ?? 0;
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !fillColumn) return;
+    setContainerWidth(container.clientWidth);
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => setContainerWidth(container.clientWidth));
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [fillColumn]);
+  const visibleCount = layout.order.filter((id) => layout.visibility[id]).length;
+  const availableWidth = containerWidth - padding - Math.max(0, visibleCount - 1) * gap;
 
   useEffect(() => {
     setLayout((current) => normalizeColumnLayout({ version: STORAGE_VERSION, ...current }, columns));
@@ -144,8 +179,9 @@ export function usePersistentColumnLayout<Id extends string>(
   }, [layout, storageKey]);
 
   const applyPreview = useCallback((next: ColumnLayout<Id>) => {
-    containerRef.current?.style.setProperty("--data-grid-columns", getTemplate(next));
-  }, []);
+    const style = getLayoutStyle(next, availableWidth, fillColumn);
+    for (const [name, value] of Object.entries(style)) containerRef.current?.style.setProperty(name, String(value));
+  }, [availableWidth, fillColumn]);
 
   const previewWidth = useCallback((id: Id, width: number): number => {
     const column = columnsById.get(id);
@@ -196,7 +232,7 @@ export function usePersistentColumnLayout<Id extends string>(
     layout,
     visibleOrder,
     containerRef,
-    style: { "--data-grid-columns": getTemplate(layout) } as CSSProperties,
+    style: getLayoutStyle(layout, availableWidth, fillColumn),
     previewWidth,
     commitWidth,
     resetWidth,
@@ -221,11 +257,16 @@ export function AdjustableColumnHeader<Id extends string>({
   const draggedId = useRef<Id | null>(null);
   const resize = useRef<{ id: Id; startX: number; startWidth: number; width: number } | null>(null);
 
+  const renderedWidth = (id: Id): number => {
+    const width = Number.parseFloat(String(controller.style[`--data-grid-width-${id}` as keyof CSSProperties] ?? ""));
+    return Number.isFinite(width) ? width : controller.layout.widths[id];
+  };
+
   const startResize = (event: PointerEvent<HTMLSpanElement>, id: Id): void => {
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
-    resize.current = { id, startX: event.clientX, startWidth: controller.layout.widths[id], width: controller.layout.widths[id] };
+    resize.current = { id, startX: event.clientX, startWidth: renderedWidth(id), width: renderedWidth(id) };
   };
 
   const updateResize = (event: PointerEvent<HTMLSpanElement>): void => {
@@ -245,7 +286,7 @@ export function AdjustableColumnHeader<Id extends string>({
     event.preventDefault();
     event.stopPropagation();
     const delta = (event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? 1 : WIDTH_STEP);
-    controller.commitWidth(id, controller.layout.widths[id] + delta);
+    controller.commitWidth(id, renderedWidth(id) + delta);
   };
 
   return (
@@ -295,8 +336,8 @@ export function AdjustableColumnHeader<Id extends string>({
               aria-describedby={`${labelPrefix}-${id}`}
               aria-orientation="vertical"
               aria-valuemin={column.minWidth}
-              aria-valuemax={getMaxWidth(column)}
-              aria-valuenow={controller.layout.widths[id]}
+              aria-valuemax={Math.max(getMaxWidth(column), renderedWidth(id))}
+              aria-valuenow={renderedWidth(id)}
               onPointerDown={(event) => startResize(event, id)}
               onPointerMove={updateResize}
               onPointerUp={finishResize}

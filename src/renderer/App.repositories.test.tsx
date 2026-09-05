@@ -1236,16 +1236,16 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
-    await user.click(screen.getByRole("button", { name: "All" }));
+    await user.click(screen.getByRole("button", { name: "All branches" }));
     await screen.findByText(`all history for ${repoPath}`);
 
     await user.click(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
     await screen.findByText(`current history for ${otherRepo}`);
-    expect(screen.getByRole("button", { name: "Current" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Current branch" }).getAttribute("aria-pressed")).toBe("true");
 
     await user.click(screen.getByRole("button", { name: `Switch to ${repoPath}` }));
     await screen.findByText(`all history for ${repoPath}`);
-    expect(screen.getByRole("button", { name: "All" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "All branches" }).getAttribute("aria-pressed")).toBe("true");
     await waitFor(() => expect(githead.getCommitHistory).toHaveBeenLastCalledWith(expect.objectContaining({
       repoPath,
       scope: "all"

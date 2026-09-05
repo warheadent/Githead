@@ -18,13 +18,18 @@
   --font-code: "Cascadia Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --radius: 0.5rem;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --success: oklch(0.46 0.12 155);
   --background: oklch(0.975 0.005 255);
   --foreground: oklch(0.21 0.018 255);
   --card: oklch(1 0 0);
   --card-foreground: var(--foreground);
   --popover: oklch(1 0 0);
   --popover-foreground: var(--foreground);
-  --primary: oklch(0.44 0.105 158);
+  --primary: oklch(0.46 0.14 255);
   --primary-foreground: oklch(0.985 0.004 255);
   --secondary: oklch(0.94 0.008 255);
   --secondary-foreground: oklch(0.22 0.018 255);
@@ -33,13 +38,13 @@
   --accent: oklch(0.92 0.013 255);
   --accent-foreground: oklch(0.22 0.018 255);
   --destructive: oklch(0.55 0.19 27);
-  --border: oklch(0.86 0.014 255);
+  --border: oklch(0.91 0.008 255);
   --input: oklch(0.86 0.014 255);
-  --ring: oklch(0.55 0.105 225);
+  --ring: var(--primary);
   --scrollbar-thumb: color-mix(in oklch, var(--muted-foreground) 48%, transparent);
   --scrollbar-thumb-hover: color-mix(in oklch, var(--muted-foreground) 68%, transparent);
   --scrollbar-thumb-active: color-mix(in oklch, var(--foreground) 72%, transparent);
-  --sidebar: oklch(0.94 0.01 255);
+  --sidebar: oklch(0.96 0.006 255);
   --sidebar-foreground: var(--foreground);
   --diff-code: oklch(0.985 0.003 255);
   --diff-file-border: oklch(0.48 0.03 255);
@@ -103,13 +108,14 @@
 
 .dark {
   color-scheme: dark;
+  --success: oklch(0.73 0.13 155);
   --background: oklch(0.17 0.017 255);
   --foreground: oklch(0.92 0.01 255);
   --card: oklch(0.21 0.018 255);
   --card-foreground: var(--foreground);
   --popover: oklch(0.23 0.02 255);
   --popover-foreground: var(--foreground);
-  --primary: oklch(0.57 0.12 158);
+  --primary: oklch(0.57 0.14 255);
   --primary-foreground: oklch(0.99 0.004 255);
   --secondary: oklch(0.28 0.021 255);
   --secondary-foreground: var(--foreground);
@@ -118,9 +124,9 @@
   --accent: oklch(0.31 0.025 255);
   --accent-foreground: var(--foreground);
   --destructive: oklch(0.7 0.17 27);
-  --border: oklch(0.34 0.025 255);
+  --border: oklch(0.29 0.018 255);
   --input: oklch(0.34 0.025 255);
-  --ring: oklch(0.64 0.1 225);
+  --ring: oklch(0.7 0.12 255);
   --sidebar: oklch(0.16 0.018 255);
   --sidebar-foreground: var(--foreground);
   --diff-code: oklch(0.145 0.016 255);
@@ -195,9 +201,9 @@
   --muted: oklch(0.94 0.018 var(--theme-hue));
   --muted-foreground: oklch(0.46 0.035 var(--theme-hue));
   --accent: oklch(0.91 0.045 var(--theme-accent-hue));
-  --border: oklch(0.84 0.035 var(--theme-hue));
-  --input: var(--border);
-  --ring: oklch(0.56 var(--theme-chroma) var(--theme-accent-hue));
+  --border: oklch(0.9 0.018 var(--theme-hue));
+  --input: color-mix(in oklch, var(--foreground) 28%, var(--card));
+  --ring: var(--primary);
   --sidebar: oklch(0.925 0.028 var(--theme-hue));
   --diff-code: oklch(0.982 0.008 var(--theme-hue));
   --diff-file-border: oklch(0.5 0.055 var(--theme-hue));
@@ -227,9 +233,9 @@
   --muted: oklch(0.27 0.038 var(--theme-hue));
   --muted-foreground: oklch(0.7 0.045 var(--theme-hue));
   --accent: oklch(0.31 0.06 var(--theme-accent-hue));
-  --border: oklch(0.36 0.052 var(--theme-hue));
-  --input: var(--border);
-  --ring: oklch(0.68 var(--theme-chroma) var(--theme-accent-hue));
+  --border: oklch(0.3 0.028 var(--theme-hue));
+  --input: color-mix(in oklch, var(--foreground) 28%, var(--card));
+  --ring: var(--primary);
   --sidebar: oklch(0.145 0.032 var(--theme-hue));
   --diff-code: oklch(0.135 0.025 var(--theme-hue));
   --diff-file-border: oklch(0.62 0.065 var(--theme-hue));
@@ -338,6 +344,8 @@
     background: var(--background);
     color: var(--foreground);
     font-family: var(--font-ui);
+    font-size: 0.875rem;
+    line-height: 1.5;
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-tap-highlight-color: transparent;
@@ -354,10 +362,10 @@
   label,
   .eyebrow {
     color: var(--muted-foreground);
-    font-size: 0.76rem;
-    font-weight: 700;
+    font-size: 0.75rem;
+    font-weight: 500;
     letter-spacing: 0;
-    text-transform: uppercase;
+    text-transform: none;
   }
 
   dd {
@@ -423,7 +431,7 @@
   padding: 0.65rem 0.75rem;
   color: var(--foreground);
   background: var(--muted);
-  font-size: 0.86rem;
+  font-size: 0.875rem;
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -491,7 +499,7 @@
 
 .appearance-mode-options label:has(input:checked) {
   border-color: var(--primary);
-  background: color-mix(in oklch, var(--primary) 10%, var(--card));
+  background: color-mix(in oklab, var(--primary) 10%, var(--card));
   color: var(--foreground);
 }
 
@@ -690,10 +698,10 @@ textarea,
   display: inline-flex;
   min-width: 0;
   align-items: center;
-  gap: 9px;
-  padding: 0 12px;
+  gap: var(--space-2);
+  padding: 0 var(--space-4);
   color: var(--foreground);
-  font-size: 0.86rem;
+  font-size: 0.875rem;
   font-weight: 700;
 }
 
@@ -707,7 +715,7 @@ textarea,
   border-radius: 5px;
   background: color-mix(in oklch, var(--primary) 17%, transparent);
   color: var(--primary);
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   font-weight: 800;
   line-height: 1;
 }
@@ -1311,7 +1319,7 @@ textarea,
   font-size: 0.74rem;
   font-weight: 750;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .git-required-actions {
@@ -1419,7 +1427,7 @@ textarea,
 
 .setup-panel p,
 .setup-clone-form p {
-  font-size: 0.86rem;
+  font-size: 0.875rem;
 }
 
 .setup-clone-form {
@@ -1447,10 +1455,10 @@ textarea,
 .repo-add-title {
   margin: 2px 8px 6px;
   color: var(--muted-foreground);
-  font-size: 0.76rem;
-  font-weight: 700;
+  font-size: 0.75rem;
+  font-weight: 500;
   letter-spacing: 0;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .repo-add-option {
@@ -1470,14 +1478,14 @@ textarea,
   min-height: 20px;
   color: var(--destructive) !important;
   overflow-wrap: anywhere;
-  font-size: 0.86rem;
+  font-size: 0.875rem;
 }
 
 .setup-success {
   min-height: 20px;
   color: var(--primary) !important;
   overflow-wrap: anywhere;
-  font-size: 0.86rem;
+  font-size: 0.875rem;
 }
 
 .setup-safe-directory {
@@ -1548,15 +1556,15 @@ textarea,
   gap: 0;
   margin: 0;
   overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .repo-facts div {
   display: grid;
   gap: 4px;
-  padding: 13px 14px;
+  padding: var(--space-3) var(--space-2);
 }
 
 .repo-facts div + div {
@@ -1845,7 +1853,7 @@ textarea,
   grid-column: 1 / -1;
   margin: 0;
   color: var(--destructive);
-  font-size: 0.78rem;
+  font-size: 0.75rem;
 }
 
 .repo-branch-actions {
@@ -1882,7 +1890,7 @@ textarea,
 .app-update-version,
 .app-update-message {
   margin: 0;
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   line-height: 1.35;
 }
 
@@ -2193,7 +2201,7 @@ textarea,
 
 .stash-file-panel-header h3 {
   overflow: hidden;
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2334,7 +2342,7 @@ textarea,
   gap: 8px;
   min-height: 32px;
   padding: 6px 10px;
-  font-size: 0.76rem;
+  font-size: 0.75rem;
 }
 
 .stash-composer-file + .stash-composer-file {
@@ -2484,7 +2492,7 @@ textarea,
 
 .stash-file-row span {
   overflow: hidden;
-  font-size: 0.76rem;
+  font-size: 0.75rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2510,7 +2518,7 @@ textarea,
   max-width: 110px;
   overflow: hidden;
   color: var(--muted-foreground);
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2537,7 +2545,7 @@ textarea,
   max-width: 120px;
   margin-left: auto;
   color: var(--muted-foreground);
-  font-size: 0.78rem;
+  font-size: 0.75rem;
 }
 
 .repo-recents {
@@ -2555,15 +2563,15 @@ textarea,
 .repo-recents-label {
   margin: 0;
   color: var(--muted-foreground);
-  font-size: 0.76rem;
-  font-weight: 700;
+  font-size: 0.75rem;
+  font-weight: 500;
   letter-spacing: 0;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .repo-recents-list {
   display: grid;
-  gap: 6px;
+  gap: var(--space-1);
 }
 
 .repo-group {
@@ -2580,7 +2588,8 @@ textarea,
 }
 
 .repo-group.is-active {
-  border-color: color-mix(in oklch, var(--primary) 45%, var(--border));
+  border-color: color-mix(in oklch, var(--primary) 24%, var(--border));
+  background: color-mix(in oklab, var(--primary) 8%, var(--card));
 }
 
 .repo-group.is-dragging { opacity: 0.56; }
@@ -2741,7 +2750,8 @@ textarea,
 }
 
 .repo-recent-row.is-active {
-  border-color: color-mix(in oklch, var(--primary) 45%, var(--border));
+  border-color: color-mix(in oklch, var(--primary) 24%, var(--border));
+  background: color-mix(in oklab, var(--primary) 8%, var(--card));
   background: color-mix(in oklch, var(--primary) 12%, transparent);
 }
 
@@ -2921,12 +2931,12 @@ textarea,
   max-width: 17rem;
   overflow-wrap: anywhere;
   color: var(--muted-foreground);
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   line-height: 1.35;
 }
 
 .good {
-  color: var(--primary);
+  color: var(--success);
 }
 
 .bad {
@@ -2972,7 +2982,7 @@ textarea,
 
 .file-list,
 .commit-file-list {
-  padding: 6px;
+  padding: var(--space-2);
 }
 
 .file-row {
@@ -2997,8 +3007,8 @@ textarea,
 
 .file-row.is-selected,
 .commit-file-row.is-selected {
-  border-color: var(--ring);
-  background: color-mix(in oklch, var(--ring) 18%, transparent);
+  border-color: color-mix(in oklch, var(--primary) 28%, transparent);
+  background: color-mix(in oklab, var(--primary) 10%, var(--card));
 }
 
 .status-chip {
@@ -3064,7 +3074,7 @@ textarea,
 }
 
 .status-chip-added {
-  --status-chip-bg: var(--primary);
+  --status-chip-bg: oklch(0.46 0.12 155);
 }
 
 .status-chip-untracked {
@@ -3094,6 +3104,8 @@ textarea,
 }
 
 .file-path {
+  font-family: var(--font-code);
+  font-size: 0.8125rem;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3366,7 +3378,7 @@ textarea,
   align-items: center;
   width: 100cqw;
   min-height: 32px;
-  border-left: 4px solid var(--diff-hunk-border);
+  border-left: 2px solid var(--diff-hunk-border);
   border-bottom: 1px solid var(--diff-hunk-group-border);
   background: var(--diff-hunk-bg);
   color: var(--diff-hunk-text);
@@ -3748,7 +3760,7 @@ textarea,
 
 .diff-code .hljs-addition,
 .conflict-code-text .hljs-addition {
-  color: var(--primary);
+  color: var(--success);
 }
 
 .history-table-header,
@@ -3760,17 +3772,19 @@ textarea,
 }
 
 .history-table-header {
+  overflow: hidden;
   z-index: 3;
   min-height: 30px;
   border-bottom: 1px solid var(--border);
   padding: 0 12px;
   color: var(--muted-foreground);
-  font-size: 0.76rem;
+  font-size: 0.75rem;
   font-weight: 700;
   background: var(--card);
 }
 
 .history-list-shell {
+  min-width: 0;
   display: flex;
   min-height: 0;
   flex-direction: column;
@@ -3794,22 +3808,18 @@ textarea,
 }
 
 .history-scope-toolbar {
+  min-width: 0;
   display: flex;
-  min-height: 36px;
+  min-height: 44px;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 8px;
   border-bottom: 1px solid var(--border);
-  padding: 4px 12px;
-}
-
-.history-scope-label {
-  color: var(--muted-foreground);
-  font-size: 0.76rem;
-  font-weight: 700;
+  padding: 8px 12px;
 }
 
 .history-scope-control {
+  margin-right: auto;
   display: inline-flex;
   align-items: center;
   gap: 2px;
@@ -3817,6 +3827,16 @@ textarea,
   border-radius: 7px;
   padding: 2px;
   background: var(--muted);
+}
+
+.history-scope-control button {
+  color: var(--muted-foreground);
+}
+
+.history-scope-control button[aria-pressed="true"] {
+  color: var(--foreground);
+  background: var(--card);
+  box-shadow: 0 1px 2px var(--border);
 }
 
 .history-description,
@@ -3836,8 +3856,9 @@ textarea,
 .commit-reference-link { color: var(--primary); cursor: pointer; }
 
 .history-row.is-selected {
-  color: var(--primary-foreground);
-  background: var(--primary);
+  color: var(--foreground);
+  background: color-mix(in oklab, var(--primary) 12%, var(--card));
+  box-shadow: inset 3px 0 var(--primary);
 }
 
 .history-rows {
@@ -3923,17 +3944,23 @@ textarea,
   gap: 8px;
 }
 
-.history-subject,
-.commit-title-subject {
+.history-subject-tooltip {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.history-subject {
+  display: block;
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.history-subject.is-conventional,
-.commit-title-subject.is-conventional {
-  display: inline-flex;
+.history-subject.is-conventional {
+  display: flex;
   flex: 1 1 auto;
   align-items: center;
   gap: 7px;
@@ -3942,19 +3969,16 @@ textarea,
 .commit-type-badge {
   --commit-type-color: var(--muted-foreground);
   display: inline-flex;
-  max-width: 112px;
   flex: 0 0 auto;
   align-items: center;
-  overflow: hidden;
   border: 1px solid color-mix(in oklch, var(--commit-type-color) 56%, transparent);
-  border-radius: 999px;
-  padding: 1px 9px;
+  border-radius: 4px;
+  padding: 1px 5px;
   color: var(--commit-type-color);
   background: color-mix(in oklch, var(--commit-type-color) 18%, transparent);
-  font-size: 0.75rem;
-  font-weight: 800;
+  font-size: 0.6875rem;
+  font-weight: 500;
   line-height: 1.35;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -3993,6 +4017,13 @@ textarea,
   --commit-type-color: oklch(0.66 0.12 330);
 }
 
+.history-date,
+.history-author,
+.history-hash {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
 .history-scope,
 .commit-title-scope {
   flex: 0 0 auto;
@@ -4008,22 +4039,22 @@ textarea,
   white-space: nowrap;
 }
 
-.history-row.is-selected .commit-type-badge {
-  border-color: color-mix(in oklch, var(--primary-foreground) 70%, transparent);
-  color: var(--primary-foreground);
-  background: color-mix(in oklch, var(--primary-foreground) 18%, transparent);
-}
-
-.history-row.is-selected .history-scope {
-  color: color-mix(in oklch, var(--primary-foreground) 78%, transparent);
-}
-
 .history-refs {
   display: inline-flex;
-  max-width: 45%;
+  max-width: 38%;
   flex: 0 1 auto;
+  align-items: center;
   gap: 4px;
   overflow: hidden;
+}
+
+.history-refs.is-compact {
+  flex-shrink: 0;
+}
+
+.history-refs.is-compact > .ref-badge {
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .history-row > .history-refs {
@@ -4076,13 +4107,13 @@ textarea,
 }
 
 .commit-details-panel {
-  --commit-meta-max-height: clamp(132px, 36vh, 260px);
   --commit-files-min-height: 128px;
-  grid-template-rows: minmax(0, var(--commit-meta-max-height)) auto minmax(var(--commit-files-min-height), 1fr);
+  grid-template-rows: minmax(0, auto) auto minmax(var(--commit-files-min-height), 1fr);
 }
 
 .commit-meta-scroll {
   min-height: 0;
+  max-height: clamp(132px, 30vh, 240px);
   overflow: auto;
 }
 
@@ -4092,22 +4123,103 @@ textarea,
 
 .commit-meta-card {
   display: grid;
-  gap: 10px;
-  padding: 14px 16px;
+  gap: 12px;
+  padding: 16px;
 }
 
 .commit-title {
   min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
 }
 
-.commit-title-subject {
-  display: block;
-}
-
+.commit-title-subject,
 .commit-title-subject.is-conventional {
+  display: block;
+  white-space: normal;
+}
+
+.commit-title-scope {
+  margin-right: 6px;
+}
+
+.commit-title-description {
+  white-space: normal;
+  overflow: visible;
+}
+
+.commit-summary-meta {
   display: flex;
-  max-width: 100%;
-  vertical-align: bottom;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.commit-copy-hash {
+  font-family: var(--font-code);
+  color: var(--foreground);
+}
+
+.commit-expanded-details {
+  font-size: 0.75rem;
+}
+
+.commit-expanded-details > summary {
+  width: fit-content;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.commit-expanded-details[open] > summary {
+  margin-bottom: 12px;
+}
+
+.commit-expanded-details > summary:focus-visible,
+.history-ref-overflow:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.history-ref-overflow {
+  flex: none;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: var(--muted);
+  color: var(--foreground);
+  font-size: 0.6875rem;
+  cursor: pointer;
+}
+
+.history-reference-popover {
+  width: min(360px, calc(100vw - 32px));
+  padding: 12px;
+}
+
+.history-reference-popover ul {
+  display: grid;
+  gap: 8px;
+  max-height: 240px;
+  overflow: auto;
+  margin-top: 12px;
+  font-size: 0.75rem;
+}
+
+.history-reference-popover li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  overflow-wrap: anywhere;
+}
+
+.history-reference-popover li > span:first-child {
+  min-width: 0;
+  font-family: var(--font-code);
+}
+
+.history-reference-popover li > span:last-child {
+  flex: none;
 }
 
 .commit-facts {
@@ -4208,10 +4320,11 @@ textarea,
 
 .commit-file-row {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) auto;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
   align-items: center;
+  gap: 8px;
   width: 100%;
-  min-height: 34px;
+  min-height: 48px;
   border: 1px solid transparent;
   border-radius: 4px;
   padding: 4px 8px;
@@ -4219,9 +4332,43 @@ textarea,
   text-align: left;
 }
 
-.commit-file-stats {
+.commit-file-name {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.commit-file-basename,
+.commit-file-directory {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commit-file-basename {
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.commit-file-directory {
   color: var(--muted-foreground);
-  font-size: 0.8rem;
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+}
+
+.commit-file-stats,
+.commit-change-summary {
+  display: inline-flex;
+  flex: none;
+  gap: 8px;
+  font-family: var(--font-code);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.commit-file-stats > span {
+  min-width: 3ch;
+  text-align: right;
 }
 
 .commit-action-form {
@@ -4334,7 +4481,7 @@ textarea,
   border-bottom: 1px solid var(--border);
   padding: 0 var(--github-cell-x-padding);
   color: var(--muted-foreground);
-  font-size: 0.76rem;
+  font-size: 0.75rem;
   font-weight: 700;
   background: var(--card);
 }
@@ -4497,7 +4644,7 @@ textarea,
 
 .github-secondary-text {
   color: var(--muted-foreground);
-  font-size: 0.78rem;
+  font-size: 0.75rem;
 }
 
 .github-issue-number {
@@ -4731,7 +4878,7 @@ textarea,
   overflow: hidden;
   padding: 0 9px 0 10px;
   color: var(--muted-foreground);
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   font-weight: 400;
   text-transform: none;
   white-space: nowrap;
@@ -5233,7 +5380,7 @@ textarea,
   gap: 8px;
   margin-top: 8px;
   color: var(--muted-foreground);
-  font-size: 0.76rem;
+  font-size: 0.75rem;
 }
 
 .review-console-meta {
@@ -5567,7 +5714,7 @@ textarea,
 }
 
 .review-console-composer > label {
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   font-weight: 700;
 }
 
@@ -5755,7 +5902,7 @@ textarea,
 }
 
 .review-console-file-list > button[aria-selected="true"] {
-  background: color-mix(in oklch, var(--primary) 12%, var(--card));
+  background: color-mix(in oklab, var(--primary) 12%, var(--card));
   box-shadow: inset 3px 0 0 var(--primary);
 }
 
@@ -5895,7 +6042,7 @@ textarea,
 
 .review-console-check-row strong {
   overflow: hidden;
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -6304,7 +6451,7 @@ textarea,
   margin-top: 2px;
   overflow: hidden;
   color: var(--muted-foreground);
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -6377,7 +6524,7 @@ textarea,
   font-size: 0.68rem;
   font-weight: 700;
   line-height: 1;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .activity-log-block[data-stream="stdout"] .activity-log-stream-label {
@@ -6413,7 +6560,7 @@ textarea,
   color: var(--terminal-notice);
   background: color-mix(in oklch, var(--terminal-notice) 10%, transparent);
   font-family: var(--font-ui);
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   font-weight: 700;
   white-space: normal;
 }
