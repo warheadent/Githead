@@ -116,6 +116,29 @@ describe("unrelated tasks during Git operations", { timeout: 20_000 }, () => {
     await fetch.finish();
   });
 
+  it("keeps submodule navigation blocked without blocking ordinary file opening during fetch", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [
+      createStatusFile("sample.txt", { isUnstaged: true, worktreeStatus: "M" }),
+      createStatusFile("modules/sample", {
+        isUnstaged: true, worktreeStatus: "M",
+        submodule: { commitChanged: false, trackedChanges: true, untrackedChanges: false,
+          initialized: true, canStage: false, canUnstage: false }
+      })
+    ] }));
+    const fetch = await startFetch();
+    fireEvent.contextMenu(await screen.findByText("modules/sample"));
+    expect(screen.getByRole("menuitem", { name: "Open Submodule" }).hasAttribute("data-disabled")).toBe(true);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open Submodule" }));
+    expect(githead.cancelGitOperation).not.toHaveBeenCalled();
+    await user.keyboard("{Escape}");
+    fireEvent.contextMenu(screen.getByText("sample.txt"));
+    await user.click(screen.getByRole("menuitem", { name: "Open" }));
+    await waitFor(() => expect(githead.openFile).toHaveBeenCalledWith({ repoPath, path: "sample.txt" }));
+    expect(githead.cancelGitOperation).not.toHaveBeenCalled();
+    await fetch.finish();
+  });
+
   it("copies commit hashes and permits historical file inspection during fetch", async () => {
     const user = userEvent.setup();
     const commit = createCommit({ hash: "a".repeat(40), subject: "Inspect this commit" });

@@ -6651,6 +6651,7 @@ export function App(): ReactNode {
     }
     if (kind === "open") {
       if (file.submodule) {
+        if (isOperationRunning(stateRef.current)) return;
         await switchRepo(`${repoPath.replace(/[\\/]+$/, "")}/${file.path}`, { addToRecents: true });
         return;
       }
@@ -10760,7 +10761,7 @@ function FileRow({
         </button>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-52">
-        <ContextMenuItem disabled={deleted} onSelect={() => onContextAction(file, side, "open")}>
+        <ContextMenuItem disabled={deleted || (Boolean(file.submodule) && disabled)} onSelect={() => onContextAction(file, side, "open")}>
           <ExternalLink />
           {file.submodule ? "Open Submodule" : "Open"}
         </ContextMenuItem>
