@@ -333,6 +333,7 @@ interface RepositoryActionManagerState {
   open: boolean;
   draft: RepositoryActionManagerDraft;
   savingTarget: GitConfiguredActionFile | null;
+  concurrentSaveOperation: ActiveRendererOperation | null;
   error: string;
 }
 
@@ -725,6 +726,7 @@ const emptyActionManager: RepositoryActionManagerState = {
     local: []
   },
   savingTarget: null,
+  concurrentSaveOperation: null,
   error: ""
 };
 
@@ -1027,6 +1029,9 @@ export function App(): ReactNode {
   const autoFetchInFlightRef = useRef(false);
   const rendererOperationTokenRef = useRef(0);
   const actionManagerSaveTokenRef = useRef(0);
+  const [remoteMutationRunning, setRemoteMutationRunning] = useState(false);
+  const [branchMutationRunning, setBranchMutationRunning] = useState(false);
+  const settingsSaveTokenRef = useRef(0);
   const configuredActionRunIdRef = useRef(0);
   const fileStatusGenerationRef = useRef(0);
   const acknowledgedFileStatusGenerationRef = useRef(0);
@@ -2046,6 +2051,9 @@ export function App(): ReactNode {
       void window.githead.setWindowZoomFactor(leaving.appSettings?.zoomFactor ?? 1).catch(() => undefined);
     }
 
+    if (changingRepositories && leaving.actionManager.concurrentSaveOperation) {
+      void window.githead.cancelGitOperation({ operationId: leaving.actionManager.concurrentSaveOperation.operationId }).catch(() => undefined);
+    }
     const detachedOperation = leaving.activeOperation;
     if (
       detachedOperation?.cancellable &&
@@ -2447,6 +2455,13 @@ export function App(): ReactNode {
         next = clearActiveRendererOperation(next, active);
       }
 
+      const actionSave = next.actionManager.concurrentSaveOperation;
+      if (actionSave && missingIds.has(actionSave.operationId)) {
+        refreshCurrentRepository ||= belongsToCurrentRepository(actionSave.repoPath);
+        next = { ...next, actionManager: { ...next.actionManager, savingTarget: null, concurrentSaveOperation: null,
+          error: "The action save ended before its result arrived. Review the saved file before retrying." } };
+      }
+
       const configuredActionRuns = next.configuredActionRuns.filter((run) => {
         const missing = missingIds.has(run.operationId);
         if (missing) {
@@ -2473,6 +2488,7 @@ export function App(): ReactNode {
 
   const coordinatedOperationKey = [
     ...(state.activeOperation?.coordinated ? [state.activeOperation.operationId] : []),
+    ...(state.actionManager.concurrentSaveOperation ? [state.actionManager.concurrentSaveOperation.operationId] : []),
     ...state.configuredActionRuns.map((run) => run.operationId)
   ].join("\0");
 
@@ -3285,20 +3301,36 @@ export function App(): ReactNode {
         open: true,
         draft: createRepositoryActionManagerDraft(current.summary),
         savingTarget: null,
+        concurrentSaveOperation: null,
         error: ""
       }
     });
   }, [updateState]);
 
   const closeActionManager = useCallback((): void => {
-    if (stateRef.current.actionManager.savingTarget) {
+    const manager = stateRef.current.actionManager;
+    if (manager.savingTarget) {
+      const operation = manager.concurrentSaveOperation;
+      if (operation && operation.cancelStatus !== "canceling") {
+        updateState({ actionManager: { ...manager, concurrentSaveOperation: { ...operation, cancelStatus: "canceling" } } });
+        void window.githead.cancelGitOperation({ operationId: operation.operationId }).then((result) => {
+          if (!result.accepted) {
+            if (result.state === "not-found") recoverMissingOperations([operation.operationId]);
+            else throw new Error("This window cannot cancel the action save.");
+          }
+        }).catch((error: unknown) => {
+          updateState((latest) => latest.actionManager.concurrentSaveOperation?.token === operation.token
+            ? { ...latest, actionManager: { ...latest.actionManager, error: error instanceof Error ? error.message : "Unable to cancel action save.", concurrentSaveOperation: { ...operation, cancelStatus: "error" } } }
+            : latest);
+        });
+      }
       return;
     }
 
     updateState({
       actionManager: emptyActionManager
     });
-  }, [updateState]);
+  }, [recoverMissingOperations, updateState]);
 
   const updateActionManagerDraft = useCallback((
     target: GitConfiguredActionFile,
@@ -3410,7 +3442,7 @@ export function App(): ReactNode {
 
   const saveRepositoryActions = useCallback(async (target: GitConfiguredActionFile): Promise<void> => {
     const current = stateRef.current;
-    if (!current.summary?.isValid || isOperationRunning(current) || current.actionManager.savingTarget) {
+    if (!current.summary?.isValid || current.actionManager.savingTarget) {
       return;
     }
 
@@ -3425,9 +3457,15 @@ export function App(): ReactNode {
       });
       return;
     }
-    if (!(await ensureTrustedRepo(current.repoPath)) || !isInvocationCurrent(current.repoPath, (latest) => (
-      latest.actionManager.savingTarget === null
-    ))) return;
+    if (!(await ensureTrustedRepo(current.repoPath)) || !isSameRepoPath(current.repoPath, stateRef.current.repoPath)
+      || stateRef.current.actionManager.savingTarget || !stateRef.current.actionManager.open) return;
+    const latest = stateRef.current;
+    const concurrent = isOperationRunning(latest);
+    if (concurrent && !(latest.summary?.kind === "git" && latest.activeOperation?.kind === "action"
+      && (latest.runningAction === "fetch" || latest.runningAction === "push"))) {
+      updateState({ actionManager: { ...latest.actionManager, error: "Wait for the current operation to finish before saving action files. Your changes are kept in this editor." } });
+      return;
+    }
 
     const saveToken = ++actionManagerSaveTokenRef.current;
     const operation = createActiveOperation(
@@ -3437,13 +3475,26 @@ export function App(): ReactNode {
     );
 
     updateState({
-      activeOperation: operation,
+      ...(!concurrent ? { activeOperation: operation } : {}),
       actionManager: {
         ...current.actionManager,
         savingTarget: target,
+        concurrentSaveOperation: concurrent ? operation : null,
         error: ""
       }
     });
+
+    const isSaveCurrent = (): boolean => saveToken === actionManagerSaveTokenRef.current
+      && isSameRepoPath(current.repoPath, stateRef.current.repoPath)
+      && (concurrent ? stateRef.current.actionManager.savingTarget === target : isActiveOperationCurrent(operation.token));
+    const finishSave = (updater: (state: AppState) => AppState): void => {
+      if (!isSaveCurrent()) return;
+      if (!concurrent) finishActiveOperation(operation.token, updater);
+      else updateState((latest) => {
+        const next = updater(latest);
+        return { ...next, actionManager: { ...next.actionManager, savingTarget: null, concurrentSaveOperation: null } };
+      });
+    };
 
     try {
       const result = await window.githead.saveConfiguredActions({
@@ -3452,11 +3503,11 @@ export function App(): ReactNode {
         actions,
         operationId: operation.operationId
       });
-      if (saveToken !== actionManagerSaveTokenRef.current || !isActiveOperationCurrent(operation.token)) {
+      if (!isSaveCurrent()) {
         return;
       }
       if (result.exitCode !== 0) {
-        finishActiveOperation(operation.token, (latest) => ({
+        finishSave((latest) => ({
           ...latest,
           actionManager: {
             ...latest.actionManager,
@@ -3466,7 +3517,7 @@ export function App(): ReactNode {
         return;
       }
 
-      finishActiveOperation(operation.token, (latest) => ({
+      finishSave((latest) => ({
         ...latest,
         actionManager: {
           ...latest.actionManager,
@@ -3475,10 +3526,10 @@ export function App(): ReactNode {
       }));
       void refreshRepo({ reason: "operation" });
     } catch (error) {
-      if (saveToken !== actionManagerSaveTokenRef.current || !isActiveOperationCurrent(operation.token)) {
+      if (!isSaveCurrent()) {
         return;
       }
-      finishActiveOperation(operation.token, (latest) => ({
+      finishSave((latest) => ({
         ...latest,
         actionManager: {
           ...latest.actionManager,
@@ -3486,7 +3537,25 @@ export function App(): ReactNode {
         }
       }));
     }
-  }, [createActiveOperation, ensureTrustedRepo, finishActiveOperation, isActiveOperationCurrent, isInvocationCurrent, refreshRepo, updateState]);
+  }, [createActiveOperation, ensureTrustedRepo, finishActiveOperation, isActiveOperationCurrent, refreshRepo, updateState]);
+
+  const runIndependentOperation = useCallback(async (
+    label: string,
+    operation: (operationId: string) => Promise<GitOperationResult>
+  ): Promise<GitOperationResult> => {
+    const repoPath = stateRef.current.repoPath;
+    let result: GitOperationResult;
+    try {
+      result = await operation(createRendererOperationId(++rendererOperationTokenRef.current));
+    } catch (error) {
+      result = { repoPath, exitCode: -1, stdout: "", stderr: error instanceof Error ? error.message : `${label} failed.` };
+    }
+    appendOperationLog(label, result);
+    if (isSameRepoPath(repoPath, stateRef.current.repoPath) && !isOperationRunning(stateRef.current)) {
+      updateState({ lastOperationResult: result });
+    }
+    return result;
+  }, [appendOperationLog, updateState]);
 
   const runRepoOperation = useCallback(async (
     label: string,
@@ -3903,7 +3972,7 @@ export function App(): ReactNode {
 
   const openRemoteManager = useCallback((): void => {
     const current = stateRef.current;
-    if (!current.summary?.isValid || !current.summary.capabilities.manageRemotes || isOperationRunning(current)) {
+    if (!current.summary?.isValid || !current.summary.capabilities.manageRemotes) {
       return;
     }
     updateState((latest) => ({
@@ -3918,9 +3987,6 @@ export function App(): ReactNode {
   }, [loadRemoteConfigs, updateState]);
 
   const closeRemoteManager = useCallback((): void => {
-    if (isOperationRunning(stateRef.current)) {
-      return;
-    }
     requestIds.current.remoteConfigs += 1;
     updateState({ remoteManager: emptyRemoteManager });
   }, [updateState]);
@@ -3936,30 +4002,27 @@ export function App(): ReactNode {
     if (stateRef.current.repoPath !== repoPath || !stateRef.current.remoteManager.open) {
       return "The active repository changed. Reopen Manage Remotes and try again.";
     }
-    const result = await runRepoOperation(label, undefined, (operationId) => operation(repoPath, operationId));
-    if (!result) {
-      return "Another repository operation is already running.";
+    setRemoteMutationRunning(true);
+    try {
+      const result = await runRepoOperation(label, undefined, (operationId) => operation(repoPath, operationId));
+      if (!result) {
+        return "Another repository operation is already running.";
+      }
+      if (result.exitCode !== 0) {
+        return result.stderr || `${label} failed.`;
+      }
+      if (stateRef.current.repoPath === repoPath && stateRef.current.remoteManager.open) {
+        await loadRemoteConfigs(repoPath);
+      }
+      return null;
+    } finally {
+      setRemoteMutationRunning(false);
     }
-    if (result.exitCode !== 0) {
-      return result.stderr || `${label} failed.`;
-    }
-    if (stateRef.current.repoPath === repoPath && stateRef.current.remoteManager.open) {
-      await loadRemoteConfigs(repoPath);
-    }
-    return null;
   }, [ensureTrustedRepo, loadRemoteConfigs, runRepoOperation]);
 
   const showRecentRepositoryInExplorer = useCallback(async (repoPath: string): Promise<void> => {
-    await runRepoOperation(
-      "Showing repository in Explorer",
-      undefined,
-      () => window.githead.showRepositoryInExplorer(repoPath),
-      {
-        requireValidRepo: false,
-        cancellable: false
-      }
-    );
-  }, [runRepoOperation]);
+    await runIndependentOperation("Showing repository in Explorer", () => window.githead.showRepositoryInExplorer(repoPath));
+  }, [runIndependentOperation]);
 
   const openBranchDialog = useCallback((): void => {
     const current = stateRef.current;
@@ -3989,12 +4052,12 @@ export function App(): ReactNode {
 
   const openBranchManager = useCallback((): void => {
     const current = stateRef.current;
-    if (!current.summary?.isValid || isOperationRunning(current)) return;
+    if (!current.summary?.isValid) return;
     updateState({ branchManagerOpen: true });
   }, [updateState]);
 
   const closeBranchManager = useCallback((): void => {
-    if (!isOperationRunning(stateRef.current)) updateState({ branchManagerOpen: false });
+    updateState({ branchManagerOpen: false });
   }, [updateState]);
 
   const runBranchOperation = useCallback(async (action: "rename" | "remove", label: string, branchName: string, operation: (repoPath: string, operationId: string) => Promise<GitOperationResult>): Promise<string | null> => {
@@ -4004,13 +4067,18 @@ export function App(): ReactNode {
     const latest = stateRef.current;
     if (latest.repoPath !== repoPath || !latest.branchManagerOpen) return "The active repository changed. Reopen Manage Branches and try again.";
     if (action === "remove" && latest.summary?.branch === branchName) return "Switch to another branch before removing this branch.";
-    const result = await runRepoOperation(label, undefined, (operationId) => operation(repoPath, operationId));
-    if (!result) return "Another repository operation is already running.";
-    if (result.exitCode === 0) return null;
-    if (action === "remove" && /not fully merged/i.test(result.stderr)) {
-      return "This branch has commits that haven’t been merged. Merge them into another branch before deleting it.";
+    setBranchMutationRunning(true);
+    try {
+      const result = await runRepoOperation(label, undefined, (operationId) => operation(repoPath, operationId));
+      if (!result) return "Another repository operation is already running.";
+      if (result.exitCode === 0) return null;
+      if (action === "remove" && /not fully merged/i.test(result.stderr)) {
+        return "This branch has commits that haven’t been merged. Merge them into another branch before deleting it.";
+      }
+      return result.stderr.trim() || `${label} failed.`;
+    } finally {
+      setBranchMutationRunning(false);
     }
-    return result.stderr.trim() || `${label} failed.`;
   }, [ensureTrustedRepo, runRepoOperation]);
 
   const closePublishDialog = useCallback((): void => {
@@ -5629,19 +5697,26 @@ export function App(): ReactNode {
 
     const draft = initial.settingsDraft;
     const repoPath = initial.repoPath;
+    const concurrent = isOperationRunning(initial);
+    const saveToken = ++settingsSaveTokenRef.current;
+    if (concurrent && hasGitIdentityChanges(draft, initial.gitIdentity)) {
+      updateState({ settingsError: "Wait for the current operation to finish before changing Git identity." });
+      return;
+    }
     // Settings can remain in renderer-only preflight and preference writes for
     // their full lifetime, so the repository coordinator cannot track them.
     const operation = createActiveOperation("Saving settings", repoPath, "settings-save", {
       coordinated: false
     });
     updateState({
-      activeOperation: operation,
+      ...(!concurrent ? { activeOperation: operation } : {}),
       settingsError: "",
       settingsSaving: true
     });
 
     const isSaveCurrent = (): boolean => (
-      isActiveOperationCurrent(operation.token) &&
+      saveToken === settingsSaveTokenRef.current &&
+      (concurrent ? stateRef.current.settingsSaving : isActiveOperationCurrent(operation.token)) &&
       isSameRepoPath(repoPath, stateRef.current.repoPath)
     );
 
@@ -5721,7 +5796,9 @@ export function App(): ReactNode {
         settingsError: error instanceof Error ? error.message : "Unable to save settings."
       });
     } finally {
-      finishActiveOperation(operation.token);
+      if (concurrent) {
+        if (isSaveCurrent()) updateState({ settingsSaving: false });
+      } else finishActiveOperation(operation.token);
     }
   }, [createActiveOperation, finishActiveOperation, isActiveOperationCurrent, updateState]);
 
@@ -6089,40 +6166,11 @@ export function App(): ReactNode {
   }, [updateState]);
 
   const copyCommitShaToClipboard = useCallback(async (commit: Pick<GitCommitGraphRow, "hash">): Promise<void> => {
-    const current = stateRef.current;
-    if (!current.summary?.isValid || isOperationRunning(current)) {
-      return;
-    }
-    const repoPath = current.repoPath;
-
-    try {
-      const lastOperationResult = await window.githead.copyCommitShaToClipboard({
-        repoPath,
-        hash: commit.hash
-      });
-      if (!isSameRepoPath(repoPath, stateRef.current.repoPath)) {
-        return;
-      }
-      updateState({
-        lastOperationResult
-      });
-      appendOperationLog("Copying commit SHA", lastOperationResult);
-    } catch (error) {
-      if (!isSameRepoPath(repoPath, stateRef.current.repoPath)) {
-        return;
-      }
-      const lastOperationResult: GitOperationResult = {
-        repoPath,
-        exitCode: -1,
-        stdout: "",
-        stderr: error instanceof Error ? error.message : "Copying commit SHA failed."
-      };
-      updateState({
-        lastOperationResult
-      });
-      appendOperationLog("Copying commit SHA", lastOperationResult);
-    }
-  }, [appendOperationLog, updateState]);
+    await runIndependentOperation("Copying commit SHA", () => window.githead.copyCommitShaToClipboard({
+      repoPath: stateRef.current.repoPath,
+      hash: commit.hash
+    }));
+  }, [runIndependentOperation]);
 
   const runCommitContextAction = useCallback((commit: GitCommitGraphRow, action: CommitContextActionKind): void => {
     if (commit.hash !== stateRef.current.selectedCommitHash) {
@@ -6184,18 +6232,17 @@ export function App(): ReactNode {
     }
 
     if (action === "open-current") {
-      void runRepoOperation("Opening current file version", undefined, () =>
+      void runIndependentOperation("Opening current file version", () =>
         window.githead.openFile({
           repoPath,
           path: file.path
-        }),
-        { cancellable: false }
+        })
       );
       return;
     }
 
     if (action === "open-selected") {
-      void runRepoOperation("Opening selected file version", undefined, (operationId) =>
+      void runIndependentOperation("Opening selected file version", (operationId) =>
         window.githead.openCommitFileVersion({
           repoPath,
           hash,
@@ -6206,14 +6253,13 @@ export function App(): ReactNode {
       return;
     }
 
-    void runRepoOperation("Copying path", undefined, () =>
+    void runIndependentOperation("Copying path", () =>
       window.githead.copyPathToClipboard({
         repoPath,
         path: file.path
-      }),
-      { cancellable: false }
+      })
     );
-  }, [loadFileBlame, loadFileHistory, openResetCommitFileDialog, runRepoOperation, selectCommitFile]);
+  }, [loadFileBlame, loadFileHistory, openResetCommitFileDialog, runIndependentOperation, selectCommitFile]);
 
   const createTag = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
@@ -6608,32 +6654,29 @@ export function App(): ReactNode {
         await switchRepo(`${repoPath.replace(/[\\/]+$/, "")}/${file.path}`, { addToRecents: true });
         return;
       }
-      await runRepoOperation("Opening file", undefined, () =>
+      await runIndependentOperation("Opening file", () =>
         window.githead.openFile({
           repoPath,
           path: file.path
-        }),
-        { cancellable: false }
+        })
       );
       return;
     }
     if (kind === "show") {
-      await runRepoOperation("Showing file in Explorer", undefined, () =>
+      await runIndependentOperation("Showing file in Explorer", () =>
         window.githead.showInExplorer({
           repoPath,
           path: file.path
-        }),
-        { cancellable: false }
+        })
       );
       return;
     }
     if (kind === "copy") {
-      await runRepoOperation("Copying path", undefined, () =>
+      await runIndependentOperation("Copying path", () =>
         window.githead.copyPathToClipboard({
           repoPath,
           path: file.path
-        }),
-        { cancellable: false }
+        })
       );
       return;
     }
@@ -6666,7 +6709,7 @@ export function App(): ReactNode {
         operationId
       })
     );
-  }, [runRepoOperation, stageFiles, switchRepo, unstageFiles]);
+  }, [runIndependentOperation, runRepoOperation, stageFiles, switchRepo, unstageFiles]);
 
   const updateSubmodules = useCallback(async (path?: string): Promise<void> => {
     const repoPath = stateRef.current.repoPath;
@@ -7727,12 +7770,14 @@ export function App(): ReactNode {
         repoPath={state.repoPath}
         remotes={state.remoteManager.remotes}
         loading={state.remoteManager.loading}
-        busy={running}
+        busy={remoteMutationRunning}
+        mutationBlocked={running || repositoryOperationActive}
         loadError={state.remoteManager.error}
         hasGitHubOrigin={Boolean(state.summary?.githubRepository)}
         onOpenChange={(open) => {
           if (!open) {
-            requestModalClose(["repo-operation"], closeRemoteManager);
+            if (remoteMutationRunning) requestModalClose(["repo-operation"], closeRemoteManager);
+            else closeRemoteManager();
           }
         }}
         onReload={() => {
@@ -7768,8 +7813,14 @@ export function App(): ReactNode {
         kind={state.summary?.kind ?? "git"}
         capabilities={state.summary?.capabilities ?? gitCapabilities()}
         branches={state.summary?.branches ?? []}
-        busy={running}
-        onOpenChange={(open) => { if (!open) requestModalClose(["repo-operation"], closeBranchManager); }}
+        busy={branchMutationRunning}
+        mutationBlocked={running || repositoryOperationActive}
+        onOpenChange={(open) => {
+          if (!open) {
+            if (branchMutationRunning) requestModalClose(["repo-operation"], closeBranchManager);
+            else closeBranchManager();
+          }
+        }}
         onRename={(branchName, newBranchName) => runBranchOperation("rename", `Renaming branch ${branchName}`, branchName, (repoPath, operationId) => window.githead.renameBranch({ repoPath, branchName, newBranchName, operationId }))}
         onRemove={(branchName, force) => runBranchOperation("remove", `${force ? "Force deleting" : "Removing"} branch ${branchName}`, branchName, (repoPath, operationId) => window.githead.deleteBranch({ repoPath, branchName, force, operationId }))}
       />
@@ -8510,7 +8561,7 @@ function RepositoryList({
   }, [repoPath, repoPaths]);
 
   const moveRepository = useCallback((fromRepoPath: string, toRepoPath: string, position: RepositoryDropPosition): void => {
-    if (disabled || isSameRepoPath(fromRepoPath, toRepoPath)) {
+    if (isSameRepoPath(fromRepoPath, toRepoPath)) {
       return;
     }
 
@@ -8518,13 +8569,9 @@ function RepositoryList({
     if (!areRepoPathListsEqual(repoPaths, next)) {
       onReorder(next);
     }
-  }, [disabled, onReorder, repoPaths]);
+  }, [onReorder, repoPaths]);
 
   const moveRepositoryByKeyboard = useCallback((moveRepoPathValue: string, direction: RepositoryMoveDirection): void => {
-    if (disabled) {
-      return;
-    }
-
     const index = repoPaths.findIndex((candidate) => isSameRepoPath(candidate, moveRepoPathValue));
     const targetIndex = direction === "up" ? index - 1 : index + 1;
     if (index < 0 || targetIndex < 0 || targetIndex >= repoPaths.length) {
@@ -8539,14 +8586,9 @@ function RepositoryList({
 
     next.splice(targetIndex, 0, moved);
     onReorder(next);
-  }, [disabled, onReorder, repoPaths]);
+  }, [onReorder, repoPaths]);
 
   const startDrag = (event: DragEvent<HTMLButtonElement>, dragRepoPath: string): void => {
-    if (disabled) {
-      event.preventDefault();
-      return;
-    }
-
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", dragRepoPath);
     draggedRepoPathRef.current = dragRepoPath;
@@ -8554,10 +8596,6 @@ function RepositoryList({
   };
 
   const startPointerDrag = (dragRepoPath: string): void => {
-    if (disabled) {
-      return;
-    }
-
     draggedRepoPathRef.current = dragRepoPath;
     setDraggedRepoPath(dragRepoPath);
   };
@@ -8575,7 +8613,7 @@ function RepositoryList({
 
   const updateDropTarget = (event: DragEvent<HTMLElement>, targetRepoPath: string, targetElement: HTMLElement): void => {
     const sourceRepoPath = draggedRepoPathRef.current ?? draggedRepoPath ?? event.dataTransfer.getData("text/plain");
-    if (disabled || !sourceRepoPath || isSameRepoPath(sourceRepoPath, targetRepoPath)) {
+    if (!sourceRepoPath || isSameRepoPath(sourceRepoPath, targetRepoPath)) {
       return;
     }
 
@@ -8824,16 +8862,16 @@ function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled,
   };
   return <motion.div ref={rowRef} layout="position" layoutDependency={layoutDependency} transition={{ layout: { duration: 0.12, ease: "easeOut" } }} className={rowClassName} data-repo-path={group.anchorPath}>
     <ContextMenu><ContextMenuTrigger asChild><div className="repo-group-heading">
-      <button type="button" className="repo-recent-drag-handle" draggable={!disabled} disabled={disabled} onDragStart={(event) => onDragStart(event, group.anchorPath)} onMouseDown={() => onPointerDragStart(group.anchorPath)} onDragEnd={onDragEnd} onKeyDown={handleKeyDown} aria-label={`Reorder ${group.anchorPath}`}><GripVertical /></button>
-      <button type="button" className="repo-group-toggle" disabled={disabled} onClick={onToggle} aria-expanded={expanded} aria-controls={worktreeListId} aria-label={`${expanded ? "Collapse" : "Expand"} worktrees for ${displayName}`}><ChevronRight className="repo-group-chevron" /></button>
+      <button type="button" className="repo-recent-drag-handle" draggable onDragStart={(event) => onDragStart(event, group.anchorPath)} onMouseDown={() => onPointerDragStart(group.anchorPath)} onDragEnd={onDragEnd} onKeyDown={handleKeyDown} aria-label={`Reorder ${group.anchorPath}`}><GripVertical /></button>
+      <button type="button" className="repo-group-toggle" onClick={onToggle} aria-expanded={expanded} aria-controls={worktreeListId} aria-label={`${expanded ? "Collapse" : "Expand"} worktrees for ${displayName}`}><ChevronRight className="repo-group-chevron" /></button>
       <button type="button" className="repo-group-main" disabled={disabled || navigationActive || navigationUnavailable || Boolean(unavailableReason)} onClick={() => onSelect(group.lastUsedPath)} aria-current={navigationActive ? "true" : undefined} aria-label={`Switch to ${group.anchorPath}`}><RecentRepositoryVcsIcon kind={group.kind} /><span className="repo-recent-title">{displayName}</span></button>
       {unavailableReason ? <RepositoryUnavailableButton repoPath={group.anchorPath} reason={unavailableReason} disabled={disabled} onClick={() => onRecover(unavailableReason)} /> : null}
-    </div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{group.anchorPath}</ContextMenuLabel><ContextMenuSeparator /><ContextMenuItem disabled={disabled || navigationUnavailable} onSelect={() => onOpenRepositorySettings(group.lastUsedPath)}><Settings />Repository Settings…</ContextMenuItem><ContextMenuItem disabled={navigationUnavailable} onSelect={() => onShowInExplorer(group.anchorPath)}><MapPinned />Show in Explorer</ContextMenuItem><ContextMenuSeparator /><ContextMenuItem variant="destructive" disabled={disabled} onSelect={onRemove}><Trash2 />Remove Repository</ContextMenuItem></ContextMenuContent></ContextMenu>
+    </div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{group.anchorPath}</ContextMenuLabel><ContextMenuSeparator /><ContextMenuItem disabled={navigationUnavailable} onSelect={() => onOpenRepositorySettings(group.lastUsedPath)}><Settings />Repository Settings…</ContextMenuItem><ContextMenuItem disabled={navigationUnavailable} onSelect={() => onShowInExplorer(group.anchorPath)}><MapPinned />Show in Explorer</ContextMenuItem><ContextMenuSeparator /><ContextMenuItem variant="destructive" onSelect={onRemove}><Trash2 />Remove Repository</ContextMenuItem></ContextMenuContent></ContextMenu>
     <MotionPresence present={expanded} id={worktreeListId} className="repo-worktree-list" initialY={-2}>{worktrees.map((worktree) => {
       const workspaceActive = isSameRepoPath(worktree.path, activeRepoPath);
       const unavailable = worktree.isBare || worktree.prunable;
       const status = syncStatuses[getRepoPathKey(worktree.path)] ?? null;
-      return <ContextMenu key={getRepoPathKey(worktree.path)}><ContextMenuTrigger asChild><div className={`repo-worktree-row ${workspaceActive ? "is-active" : ""}`}><button type="button" className="repo-worktree-main" disabled={disabled || workspaceActive || unavailable} onClick={() => onSelect(worktree.path)} aria-current={workspaceActive ? "true" : undefined}><GitBranchIcon /><span className="min-w-0 flex-1"><span className="repo-worktree-branch">{worktree.branch ?? (worktree.isDetached ? "Detached HEAD" : getRepoDisplayName(worktree.path))}</span><span className="repo-worktree-path">{getRepoDisplayName(worktree.path)}</span></span>{worktree.isMain ? <Badge variant="outline">Main</Badge> : null}{worktree.locked ? <Badge variant="outline">Locked</Badge> : null}{worktree.prunable ? <Badge variant="destructive">Missing</Badge> : null}<RepoSyncStatusChips status={status} /></button></div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{worktree.path}</ContextMenuLabel><ContextMenuSeparator /><ContextMenuItem disabled={disabled || unavailable} onSelect={() => onOpenRepositorySettings(worktree.path)}><Settings />Repository Settings…</ContextMenuItem><ContextMenuItem disabled={unavailable} onSelect={() => onShowInExplorer(worktree.path)}><MapPinned />Show in Explorer</ContextMenuItem>{!worktree.isMain && !workspaceActive && onRemoveWorktree ? <ContextMenuItem disabled={disabled || unavailable || worktree.locked} onSelect={() => onRemoveWorktree(worktree)}><Trash2 />Remove Worktree…</ContextMenuItem> : null}</ContextMenuContent></ContextMenu>;
+      return <ContextMenu key={getRepoPathKey(worktree.path)}><ContextMenuTrigger asChild><div className={`repo-worktree-row ${workspaceActive ? "is-active" : ""}`}><button type="button" className="repo-worktree-main" disabled={disabled || workspaceActive || unavailable} onClick={() => onSelect(worktree.path)} aria-current={workspaceActive ? "true" : undefined}><GitBranchIcon /><span className="min-w-0 flex-1"><span className="repo-worktree-branch">{worktree.branch ?? (worktree.isDetached ? "Detached HEAD" : getRepoDisplayName(worktree.path))}</span><span className="repo-worktree-path">{getRepoDisplayName(worktree.path)}</span></span>{worktree.isMain ? <Badge variant="outline">Main</Badge> : null}{worktree.locked ? <Badge variant="outline">Locked</Badge> : null}{worktree.prunable ? <Badge variant="destructive">Missing</Badge> : null}<RepoSyncStatusChips status={status} /></button></div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{worktree.path}</ContextMenuLabel><ContextMenuSeparator /><ContextMenuItem disabled={unavailable} onSelect={() => onOpenRepositorySettings(worktree.path)}><Settings />Repository Settings…</ContextMenuItem><ContextMenuItem disabled={unavailable} onSelect={() => onShowInExplorer(worktree.path)}><MapPinned />Show in Explorer</ContextMenuItem>{!worktree.isMain && !workspaceActive && onRemoveWorktree ? <ContextMenuItem disabled={disabled || unavailable || worktree.locked} onSelect={() => onRemoveWorktree(worktree)}><Trash2 />Remove Worktree…</ContextMenuItem> : null}</ContextMenuContent></ContextMenu>;
     })}{group.error ? <p className="px-3 py-2 text-xs text-destructive">{group.error}</p> : null}</MotionPresence>
   </motion.div>;
 }
@@ -8892,7 +8930,7 @@ function RecentRepositoryRow({
             <button
               type="button"
               className="repo-recent-drag-handle"
-              draggable={!disabled}
+              draggable
               onDragStart={(event) => {
                 onDragStart(event, repoPath);
               }}
@@ -8901,7 +8939,6 @@ function RecentRepositoryRow({
               }}
               onDragEnd={onDragEnd}
               onKeyDown={handleKeyDown}
-              disabled={disabled}
               aria-label={`Reorder ${repoPath}`}
             >
               <GripVertical />
@@ -8931,16 +8968,16 @@ function RecentRepositoryRow({
           <ContextMenuLabel className="repo-recent-menu-path">{repoPath}</ContextMenuLabel>
         </TooltipTarget>
         <ContextMenuSeparator />
-        <ContextMenuItem disabled={disabled} onSelect={() => onOpenRepositorySettings(repoPath)}>
+        <ContextMenuItem onSelect={() => onOpenRepositorySettings(repoPath)}>
           <Settings />
           Repository Settings…
         </ContextMenuItem>
-        <ContextMenuItem disabled={disabled} onSelect={() => onShowInExplorer(repoPath)}>
+        <ContextMenuItem onSelect={() => onShowInExplorer(repoPath)}>
           <MapPinned />
           Show in Explorer
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem variant="destructive" disabled={disabled} onSelect={() => onRemove(repoPath)}>
+        <ContextMenuItem variant="destructive" onSelect={() => onRemove(repoPath)}>
           <Trash2 />
           Remove Repository
         </ContextMenuItem>
@@ -9496,7 +9533,7 @@ function RepositoryPanel({
           <RemoteFact
             remotes={remotes}
             repositoryUrl={repositoryUrl}
-            disabled={running || !summary?.isValid}
+            disabled={!summary?.isValid}
             onOpen={onOpenExternalUrl}
             onManage={onOpenRemoteManager}
           />
@@ -9512,7 +9549,7 @@ function RepositoryPanel({
           onDownload={onDownloadUpdate}
           onInstall={onInstallUpdate}
         />
-        <Button type="button" variant="secondary" onClick={onOpenSettings} disabled={running}>
+        <Button type="button" variant="secondary" onClick={onOpenSettings}>
           <Settings />
           Settings
         </Button>
@@ -9624,6 +9661,7 @@ function BranchFact({
           ]}
         />
         <span className="repo-branch-actions">
+          <TooltipButton type="button" variant="outline" size="icon-xs" onClick={onManageBranches} aria-label="Manage branches" tooltip="Manage branches"><Settings /></TooltipButton>
           <TooltipButton
             type="button"
             variant="outline"
@@ -10722,15 +10760,15 @@ function FileRow({
         </button>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-52">
-        <ContextMenuItem disabled={disabled || deleted} onSelect={() => onContextAction(file, side, "open")}>
+        <ContextMenuItem disabled={deleted} onSelect={() => onContextAction(file, side, "open")}>
           <ExternalLink />
           {file.submodule ? "Open Submodule" : "Open"}
         </ContextMenuItem>
-        <ContextMenuItem disabled={disabled} onSelect={() => onContextAction(file, side, "show")}>
+        <ContextMenuItem onSelect={() => onContextAction(file, side, "show")}>
           <MapPinned />
           Show in Explorer
         </ContextMenuItem>
-        <ContextMenuItem disabled={disabled} onSelect={() => onContextAction(file, side, "copy")}>
+        <ContextMenuItem onSelect={() => onContextAction(file, side, "copy")}>
           <Clipboard />
           Copy Path
         </ContextMenuItem>
@@ -12592,7 +12630,7 @@ function CommitDetailsPanel({
         <div className="commit-summary-meta">
           <TooltipTarget content={details.authorEmail}><span>{details.authorName}</span></TooltipTarget>
           <time dateTime={details.authorDate}>{formatDate(details.authorDate)}</time>
-          <TooltipButton type="button" variant="ghost" size="xs" disabled={disabled} className="commit-copy-hash" aria-label="Copy commit SHA" tooltip="Copy full commit SHA" onClick={() => { void onCopyCommit(details); }}>
+          <TooltipButton type="button" variant="ghost" size="xs" className="commit-copy-hash" aria-label="Copy commit SHA" tooltip="Copy full commit SHA" onClick={() => { void onCopyCommit(details); }}>
             <Clipboard />{details.shortHash}
           </TooltipButton>
           {parsedSubject ? <CommitTypeBadge {...parsedSubject} /> : null}
@@ -12741,11 +12779,11 @@ function CommitFileRow({
         </button>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-56">
-        <ContextMenuItem disabled={disabled || !fileHistoryEnabled} onSelect={() => onContextAction(file, "log")}>
+        <ContextMenuItem disabled={!fileHistoryEnabled} onSelect={() => onContextAction(file, "log")}>
           <History />
           Log Selected
         </ContextMenuItem>
-        <ContextMenuItem disabled={disabled || !blameEnabled || file.status === "D"} onSelect={() => onContextAction(file, "blame")}>
+        <ContextMenuItem disabled={!blameEnabled || file.status === "D"} onSelect={() => onContextAction(file, "blame")}>
           <GitFork />
           Blame Selected
         </ContextMenuItem>
@@ -12754,15 +12792,15 @@ function CommitFileRow({
           <RotateCcw />
           Reset to Commit
         </ContextMenuItem>
-        <ContextMenuItem disabled={disabled} onSelect={() => onContextAction(file, "open-current")}>
+        <ContextMenuItem onSelect={() => onContextAction(file, "open-current")}>
           <ExternalLink />
           Open Current Version
         </ContextMenuItem>
-        <ContextMenuItem disabled={disabled} onSelect={() => onContextAction(file, "open-selected")}>
+        <ContextMenuItem onSelect={() => onContextAction(file, "open-selected")}>
           <FileCode2 />
           Open Selected Version
         </ContextMenuItem>
-        <ContextMenuItem disabled={disabled} onSelect={() => onContextAction(file, "copy")}>
+        <ContextMenuItem onSelect={() => onContextAction(file, "copy")}>
           <Clipboard />
           Copy Path to Clipboard
         </ContextMenuItem>

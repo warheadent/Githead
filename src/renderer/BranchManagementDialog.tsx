@@ -18,13 +18,14 @@ export interface BranchManagementDialogProps {
   capabilities: RepoCapabilities;
   branches: GitBranch[];
   busy: boolean;
+  mutationBlocked?: boolean;
   onOpenChange: (open: boolean) => void;
   onRename: (branchName: string, newBranchName: string) => Promise<string | null>;
   onRemove: (branchName: string, force: boolean) => Promise<string | null>;
 }
 
 export function BranchManagementDialog(props: BranchManagementDialogProps): ReactNode {
-  const { open, repoPath, kind, capabilities, branches, busy, onOpenChange, onRename, onRemove } = props;
+  const { open, repoPath, kind, capabilities, branches, busy, mutationBlocked = false, onOpenChange, onRename, onRemove } = props;
   const [mode, setMode] = useState<Mode>({ kind: "list" });
   const [query, setQuery] = useState("");
   const [name, setName] = useState("");
@@ -55,7 +56,7 @@ export function BranchManagementDialog(props: BranchManagementDialogProps): Reac
   };
   const submit = (event: FormEvent): void => {
     event.preventDefault();
-    if (busy || mode.kind === "list") return;
+    if (busy || mutationBlocked || mode.kind === "list") return;
     if (mode.kind === "rename") {
       const nextName = name.trim();
       if (!nextName) return setError("Enter a branch name.");
@@ -87,7 +88,7 @@ export function BranchManagementDialog(props: BranchManagementDialogProps): Reac
       </div> : <form className="grid gap-5" onSubmit={submit}>
         {mode.kind === "rename" ? <div className="grid gap-2"><Label htmlFor="branch-new-name">New name</Label><Input id="branch-new-name" value={name} onChange={(event) => setName(event.target.value)} disabled={busy} autoFocus aria-invalid={Boolean(error)} /><p className="text-xs text-muted-foreground">Rename {mode.branch.name}. Remote branches are not changed.</p></div> : <><div className="rounded-md border border-destructive/40 bg-destructive/5 p-4"><p className="font-medium">{archive ? "Archive" : forceDelete ? "Force delete" : "Delete"} {mode.branch.name}?</p><p className="mt-1 text-sm text-muted-foreground">{archive ? "The branch will be archived and hidden from normal Lore branch lists." : forceDelete ? "The local branch will be deleted even if it contains unmerged commits. This cannot be undone. Its remote branch will not be changed." : "Only the local branch will be deleted. Its remote branch will not be changed, and unmerged work will be preserved."}</p></div>{!archive ? <label className="flex items-start gap-3 rounded-md border p-3"><input type="checkbox" className="mt-1" checked={forceDelete} onChange={(event) => setForceDelete(event.target.checked)} disabled={busy} /><span><span className="block font-medium">Force delete</span><span className="block text-sm text-muted-foreground">Delete this branch even when it has commits that haven’t been merged.</span></span></label> : null}</>}
         {error ? <p className="error-text" role="alert">{error}</p> : null}
-        <DialogFooter><Button type="button" variant="outline" onClick={busy ? () => onOpenChange(false) : back}>{busy ? "Cancel operation" : "Back"}</Button><Button type="submit" variant={mode.kind === "remove" ? "destructive" : "default"} disabled={busy}>{busy ? <Loader2 className="animate-spin" /> : null}{mode.kind === "rename" ? "Rename Branch" : `${archive ? "Archive" : forceDelete ? "Force Delete" : "Delete"} Branch`}</Button></DialogFooter>
+        <DialogFooter><Button type="button" variant="outline" onClick={busy ? () => onOpenChange(false) : back}>{busy ? "Cancel operation" : "Back"}</Button><Button type="submit" variant={mode.kind === "remove" ? "destructive" : "default"} disabled={busy || mutationBlocked}>{busy ? <Loader2 className="animate-spin" /> : null}{mode.kind === "rename" ? "Rename Branch" : `${archive ? "Archive" : forceDelete ? "Force Delete" : "Delete"} Branch`}</Button></DialogFooter>
       </form> }} className="branch-management-mode-swap relative" presenceClassName="" initialY={-2} />
     </DialogContent>
   </Dialog>;

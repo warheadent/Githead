@@ -29,6 +29,7 @@ export interface RemoteManagementDialogProps {
   remotes: GitRemoteConfig[];
   loading: boolean;
   busy: boolean;
+  mutationBlocked?: boolean;
   loadError: string;
   hasGitHubOrigin: boolean;
   onOpenChange: (open: boolean) => void;
@@ -46,6 +47,7 @@ export function RemoteManagementDialog({
   remotes,
   loading,
   busy,
+  mutationBlocked = false,
   loadError,
   hasGitHubOrigin,
   onOpenChange,
@@ -108,7 +110,7 @@ export function RemoteManagementDialog({
 
   const submit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    if (busy) {
+    if (busy || mutationBlocked) {
       return;
     }
     if (mode.kind === "add") {
@@ -240,7 +242,7 @@ export function RemoteManagementDialog({
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={busy ? () => onOpenChange(false) : returnToList}>{busy ? "Cancel operation" : "Back"}</Button>
-              <Button type="submit" variant={mode.kind === "remove" ? "destructive" : "default"} disabled={busy}>
+              <Button type="submit" variant={mode.kind === "remove" ? "destructive" : "default"} disabled={busy || mutationBlocked}>
                 {busy ? <Loader2 className="animate-spin" /> : null}
                 {mode.kind === "add" ? "Add Remote" : mode.kind === "rename" ? "Rename Remote" : mode.kind === "edit" ? "Save URL" : "Remove Remote"}
               </Button>
