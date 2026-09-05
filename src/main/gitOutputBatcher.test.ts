@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { IPC_CHANNELS } from "../shared/ipc";
 import type { GitOutputEvent } from "../shared/types";
-import { GitOutputBatcher, runWithGitOutputSink, type GitOutputTarget } from "./gitOutputBatcher";
+import { GitOutputBatcher, runWithGitOutputSink, runWithRepositoryGitOutput, type GitOutputTarget } from "./gitOutputBatcher";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -203,3 +203,27 @@ function output(overrides: Partial<GitOutputEvent> = {}): GitOutputEvent {
     ...overrides
   };
 }
+
+
+it("delivers explicit completion after all output with its originating repository", async () => {
+  const target = createTarget();
+  const batcher = createBatcher();
+  await runWithRepositoryGitOutput(batcher.createSink(target.target), "/repo/a", async (write) => {
+    write(output({ stream: "stderr", text: "normal progress" }));
+    return { repoPath: "/repo/a", exitCode: 0, stdout: "", stderr: "normal progress" };
+  });
+  expect(target.send.mock.calls.map((call) => call[1])).toEqual([
+    expect.objectContaining({ repoPath: "/repo/a", text: "normal progress", stream: "stderr" }),
+    expect.objectContaining({ repoPath: "/repo/a", text: "", exitCode: 0, stream: "system" })
+  ]);
+});
+
+it("completes a partial stream as failed when the operation throws", async () => {
+  const target = createTarget();
+  const batcher = createBatcher();
+  await expect(runWithRepositoryGitOutput(batcher.createSink(target.target), "/repo/a", async (write) => {
+    write(output({ text: "partial" }));
+    throw new Error("disconnected");
+  })).rejects.toThrow("disconnected");
+  expect(target.send.mock.calls.at(-1)?.[1]).toMatchObject({ text: "", exitCode: -1 });
+});

@@ -1,3 +1,4 @@
+import { AnsiUp } from "ansi_up";
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { GitOutputEvent } from "../shared/types";
 import {
@@ -22,27 +23,24 @@ function output(overrides: Partial<GitOutputEvent> = {}): GitOutputEvent {
 }
 
 describe("activityLog", () => {
-  it("scans only incoming text and the split-prefix boundary for terminal hyperlinks", () => {
+  it("converts only incoming text, including hyperlinks and output beyond the retention limit", () => {
     let state = createActivityLogState();
-    const text = "build output\n".repeat(100);
-    const includes = String.prototype.includes;
-    let scannedChars = 0;
-    const scanSpy = vi.spyOn(String.prototype, "includes").mockImplementation(function (this: string, search, position) {
-      if (search === "\u001B]8;") scannedChars += this.length;
-      return includes.call(this, search, position);
+    const text = "\u001b]8;;https://example.test\u0007link\u001b]8;;\u0007\n" + "build output\n".repeat(100);
+    const convert = AnsiUp.prototype.ansi_to_html;
+    let convertedChars = 0;
+    const spy = vi.spyOn(AnsiUp.prototype, "ansi_to_html").mockImplementation(function (this: AnsiUp, chunk) {
+      convertedChars += chunk.length;
+      return convert.call(this, chunk);
     });
-
     try {
-      for (let index = 0; index < 20; index += 1) {
-        state = appendActivityLogEvent(state, output({ text }));
-      }
+      for (let index = 0; index < 2_000; index++) state = appendActivityLogEvent(state, output({ text }));
     } finally {
-      scanSpy.mockRestore();
+      spy.mockRestore();
     }
-
-    expect(state.blocks[0]?.rawText).toBe(text.repeat(20));
-    expect(state.blocks[0]?.html).toBe(text.repeat(20));
-    expect(scannedChars).toBeLessThanOrEqual(20 * (text.length + 3));
+    expect(state.trimmed).toBe(true);
+    expect(state.blocks.at(-1)?.html).not.toContain("<a ");
+    expect(getActivityLogRawText(state)).toContain("build output");
+    expect(convertedChars).toBeLessThanOrEqual(2_000 * text.length);
   });
 
   it("preserves hyperlink filtering at every chunk boundary", () => {
@@ -156,7 +154,8 @@ describe("activityLog", () => {
 
     for (let index = 0; index < ACTIVITY_LOG_MAX_BLOCKS + 1; index += 1) {
       state = appendActivityLogEvent(state, output({
-        runId: `run-${index}`,
+        runId: "run-many-blocks",
+        stream: index % 2 ? "stderr" : "stdout",
         text: `${index}\n`
       }));
     }
@@ -193,4 +192,50 @@ describe("activityLog", () => {
     expect(state.rawTextLength).toBeLessThanOrEqual(ACTIVITY_LOG_MAX_RAW_CHARS);
     expect(getActivityLogRawText(state)).toContain("tail\n");
   });
+});
+
+it("bounds segments and preserves ANSI state across interleaved streams and trimming", () => {
+  let state = createActivityLogState();
+  state = appendActivityLogEvent(state, output({ text: "\u001b[31m" + "a".repeat(ACTIVITY_LOG_MAX_RAW_CHARS) }));
+  state = appendActivityLogEvent(state, output({ stream: "stderr", text: "progress\n" }));
+  state = appendActivityLogEvent(state, output({ text: "red tail\u001b[0m\n" }));
+  expect(state.blocks.every((block) => block.rawText.length <= 4096)).toBe(true);
+  expect(state.blocks.at(-1)?.html).toContain("ansi-red-fg");
+  expect(state.blocks.at(-1)?.html).toContain("red tail");
+  expect(state.rawTextLength).toBeLessThanOrEqual(ACTIVITY_LOG_MAX_RAW_CHARS);
+});
+
+it("does not add stream labels or newlines at segment boundaries", () => {
+  const text = "long line ".repeat(2000);
+  const state = appendActivityLogEvent(createActivityLogState(), output({ text }));
+  expect(state.blocks.length).toBeGreaterThan(1);
+  expect(getActivityLogRawText(state)).toBe(`[stdout] ${text}`);
+});
+
+it.each(["\u0007", "\u001b\\"])("filters hyperlinks split at every boundary with terminator %j", (end) => {
+  const text = `before \u001b]8;;https://example.test${end}label\u001b]8;;${end} after`;
+  for (let split = 1; split < text.length; split++) {
+    let state = appendActivityLogEvent(createActivityLogState(), output({ text: text.slice(0, split) }));
+    state = appendActivityLogEvent(state, output({ text: text.slice(split) }));
+    expect(state.blocks.map((block) => block.html).join("")).toBe("before label after");
+  }
+});
+
+it("records quiet completion and bounds recent command history", () => {
+  let state = createActivityLogState();
+  for (let index = 0; index < 120; index++) {
+    state = appendActivityLogEvent(state, output({ runId: `run-${index}`, text: "", exitCode: index % 2 }));
+  }
+  expect(state.runs).toHaveLength(100);
+  expect(state.runs[0]?.id).toBe("run-20");
+  expect(state.runs.at(-1)?.exitCode).toBe(1);
+  expect(state.runs.at(-1)?.endedAt).toBe(output().timestamp);
+});
+
+it("bounds incomplete terminal control sequences and resumes after their terminator", () => {
+  let state = appendActivityLogEvent(createActivityLogState(), output({ text: "\u001b[" }));
+  for (let index = 0; index < 100; index++) state = appendActivityLogEvent(state, output({ text: "1".repeat(4096) }));
+  expect([...state.parsers.values()].every((parser) => parser.ansiPending.length <= 256)).toBe(true);
+  state = appendActivityLogEvent(state, output({ text: "mvisible\n" }));
+  expect(state.blocks.at(-1)?.html).toContain("visible");
 });

@@ -1,5 +1,6 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, safeStorage, screen, shell } from "electron";
 import fs from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { IPC_CHANNELS } from "../shared/ipc";
@@ -136,7 +137,7 @@ import {
 import { deleteFiles, getStats, resolveRepoFilePath, showRepositoryInExplorer } from "./fileOperationService";
 import { GitExecutableService } from "./gitExecutableService";
 import { GitIdentityService } from "./gitIdentityService";
-import { GitOutputBatcher, runWithGitOutputSink } from "./gitOutputBatcher";
+import { GitOutputBatcher, runWithRepositoryGitOutput } from "./gitOutputBatcher";
 import { snapshotGitPushExecutionOptions } from "./gitPushBehavior";
 import { GitService } from "./gitService";
 import { DefaultGitHubClient, type GitHubClient } from "./githubClient";
@@ -805,7 +806,7 @@ ipcMain.handle(IPC_CHANNELS.commitChanges, async (event, request: CoordinatedReq
 
 ipcMain.handle(IPC_CHANNELS.commitWithRemoteCheck, async (event, request: CoordinatedRequest<GitCommitRequest>) => {
   return runTrustedExclusiveRepositoryOperation(
-    async () => withOwnedGitOutput(event, async (onOutput) => {
+    async () => withOwnedGitOutput(event, request.repoPath, async (onOutput) => {
       const settings = await getAppSettingsService().getSettings();
       return gitService.commitWithRemoteCheck(request, onOutput, remoteCheckLeaseDurationMs(settings));
     }),
@@ -834,7 +835,7 @@ ipcMain.handle(IPC_CHANNELS.commitWithRemoteCheck, async (event, request: Coordi
 
 ipcMain.handle(IPC_CHANNELS.commitAndPush, async (event, request: CoordinatedRequest<GitCommitRequest>) => {
   return runTrustedExclusiveRepositoryOperation(
-    async (signal) => withOwnedGitOutput(event, async (onOutput) => {
+    async (signal) => withOwnedGitOutput(event, request.repoPath, async (onOutput) => {
       const settings = await getAppSettingsService().getSettings();
       const pushOptions = await snapshotGitPushExecutionOptions(
         () => Promise.resolve(settings),
@@ -885,7 +886,7 @@ ipcMain.handle(IPC_CHANNELS.getAmendPreview, async (_event, request: GitAmendPre
 
 ipcMain.handle(IPC_CHANNELS.amendLastCommit, async (event, request: CoordinatedRequest<GitAmendExecuteRequest>) => {
   return runTrustedExclusiveRepositoryOperation(
-    async () => withOwnedGitOutput(event, (onOutput) => gitService.amendLastCommit(request, onOutput)),
+    async () => withOwnedGitOutput(event, request.repoPath, (onOutput) => gitService.amendLastCommit(request, onOutput)),
     repositoryOperationOptions(event, request.operationId, request.repoPath, LOCAL_OPERATION_TIMEOUT_MS, true),
     (failure): GitAmendResult => ({
       ...failure,
@@ -911,7 +912,7 @@ ipcMain.handle(IPC_CHANNELS.amendLastCommit, async (event, request: CoordinatedR
 
 ipcMain.handle(IPC_CHANNELS.restoreAmendRecovery, async (event, request: CoordinatedRequest<GitAmendRestoreRequest>) => {
   return runTrustedExclusiveRepositoryOperation(
-    async () => withOwnedGitOutput(event, (onOutput) => gitService.restoreAmendRecovery(request, onOutput)),
+    async () => withOwnedGitOutput(event, request.repoPath, (onOutput) => gitService.restoreAmendRecovery(request, onOutput)),
     repositoryOperationOptions(event, request.operationId, request.repoPath, LOCAL_OPERATION_TIMEOUT_MS, true),
     (failure): GitAmendRestoreResult => ({
       ...failure,
@@ -960,7 +961,7 @@ ipcMain.handle(IPC_CHANNELS.getIntegrationPreview, async (_event, request: GitIn
 
 ipcMain.handle(IPC_CHANNELS.runIntegration, async (event, request: CoordinatedRequest<GitIntegrationExecuteRequest>) => {
   return runTrustedExclusiveRepositoryOperation(
-    async () => withOwnedGitOutput(event, (onOutput) => gitService.runIntegration(request, onOutput)),
+    async () => withOwnedGitOutput(event, request.repoPath, (onOutput) => gitService.runIntegration(request, onOutput)),
     repositoryOperationOptions(event, request.operationId, request.repoPath),
     (failure) => createIntegrationFailure(request, failure.stderr),
     () => createIntegrationFailure(request, "Another Git command is already running for this repository or a linked worktree.")
@@ -969,7 +970,7 @@ ipcMain.handle(IPC_CHANNELS.runIntegration, async (event, request: CoordinatedRe
 
 ipcMain.handle(IPC_CHANNELS.pushWithForceLease, async (event, request: CoordinatedRequest<GitForceWithLeaseRequest>) => {
   return runTrustedExclusiveGitOperation(
-    async () => withOwnedGitOutput(event, (onOutput) => gitService.pushWithForceLease(request, onOutput)),
+    async () => withOwnedGitOutput(event, request.repoPath, (onOutput) => gitService.pushWithForceLease(request, onOutput)),
     repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS)
   );
 });
@@ -1011,7 +1012,7 @@ ipcMain.handle(IPC_CHANNELS.setBranchUpstream, async (event, request: Coordinate
 
 ipcMain.handle(IPC_CHANNELS.publishBranch, async (event, request: CoordinatedRequest<GitPublishBranchRequest>) => {
   return runTrustedExclusiveGitOperation(
-    async (signal) => withOwnedGitOutput(event, async (onOutput) => {
+    async (signal) => withOwnedGitOutput(event, request.repoPath, async (onOutput) => {
       const pushOptions = await snapshotGitPushExecutionOptions(
         () => getAppSettingsService().getSettings(),
         signal
@@ -1052,7 +1053,7 @@ ipcMain.handle(IPC_CHANNELS.saveAiSettings, async (_event, request: AiSettingsSa
 
 ipcMain.handle(IPC_CHANNELS.quickCommitFiles, async (event, request: CoordinatedRequest<GitQuickCommitRequest>) => {
   return runTrustedExclusiveRepositoryOperation(
-    async () => withOwnedGitOutput(event, async (onOutput) => {
+    async () => withOwnedGitOutput(event, request.repoPath, async (onOutput) => {
       if ((await vcsRouter.resolveKind(request.repoPath)) !== "git") {
         return createOperationFailure(request.repoPath, "Quick Commit is available only for Git repositories.");
       }
@@ -1363,7 +1364,7 @@ ipcMain.handle(IPC_CHANNELS.checkRepositoryAccess, async (event, request: Coordi
 
 ipcMain.handle(IPC_CHANNELS.runGitAction, async (event, request: CoordinatedRequest<GitRunRequest>) => {
   return runTrustedExclusiveRepositoryOperation(
-    async (signal) => withOwnedGitOutput(event, async (onOutput) => {
+    async (signal) => withOwnedGitOutput(event, request.repoPath, async (onOutput) => {
       const service = await vcsRouter.serviceForRepo(request.repoPath);
       if (request.action !== "push") {
         return service.runGitAction(request, onOutput);
@@ -1468,7 +1469,7 @@ ipcMain.handle(IPC_CHANNELS.saveConflictResolution, async (event, request: Coord
 ipcMain.handle(IPC_CHANNELS.runConfiguredAction, async (event, request: CoordinatedRequest<GitConfiguredActionRunRequest>) => {
   const actionName = request.name.trim() || "Actions";
   return runTrustedExclusiveRepositoryOperation(
-    async () => withOwnedGitOutput(event, async (onOutput) => {
+    async () => withOwnedGitOutput(event, request.repoPath, async (onOutput) => {
       const service = await vcsRouter.serviceForRepo(request.repoPath);
       return service.runConfiguredAction(request, onOutput);
     }),
@@ -1604,11 +1605,12 @@ function runExclusiveGitOperation(
   );
 }
 
-async function withOwnedGitOutput<T>(
+async function withOwnedGitOutput<T extends GitOperationResult>(
   event: Electron.IpcMainInvokeEvent,
+  repoPath: string,
   operation: (onOutput: (output: GitOutputEvent) => void) => Promise<T>
 ): Promise<T> {
-  return runWithGitOutputSink(gitOutputBatcher.createSink(event.sender), operation);
+  return runWithRepositoryGitOutput(gitOutputBatcher.createSink(event.sender), repoPath, operation);
 }
 
 function runTrustedExclusiveGitOperation(
@@ -1684,14 +1686,14 @@ function reportRepositoryOperationRejection(error: unknown): void {
 }
 
 function createGitRunFailure(
-  runId: string,
+  runIdPrefix: string,
   action: GitRunResult["action"],
   repoPath: string,
   stderr: string
 ): GitRunResult {
   const now = new Date().toISOString();
   return {
-    runId,
+    runId: `${runIdPrefix}-${randomUUID()}`,
     action,
     repoPath,
     exitCode: -1,

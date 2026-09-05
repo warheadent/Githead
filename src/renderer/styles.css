@@ -6839,3 +6839,55 @@ textarea,
   margin-top: 0.125rem;
   accent-color: var(--primary);
 }
+
+/* Log segments use measured heights so wrapping does not disable virtualization. */
+.activity-log-virtual-space {
+  position: relative;
+  min-width: 100%;
+}
+
+.activity-log-virtual-row {
+  position: absolute;
+  left: 0;
+  width: max-content;
+  min-width: 100%;
+}
+
+.activity-log-output.is-wrapped .activity-log-virtual-row {
+  width: 100%;
+}
+
+.activity-log-output {
+  overflow-anchor: none;
+  padding: 0;
+}
+
+.activity-log-line {
+  line-height: 24px;
+}
+
+.activity-log-run-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 4px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--muted);
+  color: var(--foreground);
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  white-space: normal;
+}
+
+.activity-log-run-header time {
+  color: var(--muted-foreground);
+}
+
+.activity-log-run-outcome {
+  margin-left: auto;
+}
+
+.activity-log-run-outcome[data-failed="true"] {
+  color: var(--destructive);
+}

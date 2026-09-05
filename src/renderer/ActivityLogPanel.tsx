@@ -10,7 +10,7 @@ export const ActivityLogPanel = memo(function ActivityLogPanel({
 }: {
   store: ActivityLogStore;
   operationStatus: string | null;
-  onCopyRawLog: () => void;
+  onCopyRawLog: (runId?: string) => void | Promise<void>;
 }): ReactNode {
   const log = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const statusLabel = operationStatus ?? (hasActivityLogOutput(log) ? "Output Available" : "Empty");

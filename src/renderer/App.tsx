@@ -1181,32 +1181,23 @@ export function App(): ReactNode {
   }, [state]);
 
   useEffect(() => {
-    activityLogStore.setViewing(state.activeView === "activity");
-  }, [activityLogStore, state.activeView]);
+    activityLogStore.setRepository(state.repoPath, state.activeView === "activity");
+  }, [activityLogStore, state.activeView, state.repoPath]);
+
+  useEffect(() => {
+    if (state.lastResult) activityLogStore.completeRun(state.lastResult);
+  }, [activityLogStore, state.lastResult]);
 
   const appendLog = useCallback((event: GitOutputEvent): void => {
-    activityLogStore.append(event);
+    activityLogStore.append({ ...event, repoPath: event.repoPath ?? stateRef.current.repoPath });
   }, [activityLogStore]);
-
-  const appendSystemLine = useCallback((
-    text: string,
-    source: { runId?: string; action?: string } = {}
-  ): void => {
-    appendLog({
-      runId: source.runId ?? "renderer",
-      action: source.action ?? stateRef.current.runningAction ?? "fetch",
-      stream: "system",
-      text: `${text}\n`,
-      timestamp: new Date().toISOString()
-    });
-  }, [appendLog]);
 
   const appendOperationLog = useCallback((label: string, result: GitOperationResult): void => {
     activityLogStore.appendOperationResult(label, result);
   }, [activityLogStore]);
 
-  const copyActivityLogRawText = useCallback(async (): Promise<void> => {
-    const text = activityLogStore.getRawText();
+  const copyActivityLogRawText = useCallback(async (runId?: string): Promise<void> => {
+    const text = activityLogStore.getRawText(runId);
     if (text.trim().length === 0) {
       return;
     }
@@ -2981,7 +2972,6 @@ export function App(): ReactNode {
 
     let completedResult: GitRunResult | null = null;
     const operation = createActiveOperation(capitalize(action), repoPath, "action");
-    if (!hasProcessRunInFlight(latestBeforeStart)) activityLogStore.clear();
     updateState((latest) => ({
       ...latest,
       activeOperation: operation,
@@ -3000,7 +2990,7 @@ export function App(): ReactNode {
       if (!isActiveOperationCurrent(operation.token)) {
         return completedResult;
       }
-      activityLogStore.markOperationOutcome(lastResult.exitCode !== 0);
+      activityLogStore.completeRun(lastResult);
       updateState({
         lastResult,
         operationButtonFeedback: createOperationButtonFeedbackEvent(
@@ -3023,7 +3013,7 @@ export function App(): ReactNode {
       }
       const message = error instanceof Error ? error.message : "Git command failed.";
       const rendererResult: GitRunResult = {
-        runId: "renderer-error",
+        runId: operation.operationId,
         action,
         repoPath: stateRef.current.repoPath,
         exitCode: -1,
@@ -3033,7 +3023,7 @@ export function App(): ReactNode {
         endedAt: new Date().toISOString()
       };
       completedResult = rendererResult;
-      activityLogStore.markOperationOutcome(true);
+      activityLogStore.completeRun(rendererResult);
       updateState((latest) => ({
         ...latest,
         lastResult: {
@@ -3048,7 +3038,6 @@ export function App(): ReactNode {
           "error"
         )
       }));
-      appendSystemLine(message);
     } finally {
       finishActiveOperation(operation.token, invalidateHistory);
       if (isSameRepoPath(repoPath, stateRef.current.repoPath)) {
@@ -3071,7 +3060,7 @@ export function App(): ReactNode {
       }
     }
     return isSameRepoPath(repoPath, stateRef.current.repoPath) ? completedResult : null;
-  }, [activityLogStore, appendSystemLine, createActiveOperation, ensureTrustedRepo, finishActiveOperation, isActiveOperationCurrent, refreshRepo, updateState]);
+  }, [activityLogStore, createActiveOperation, ensureTrustedRepo, finishActiveOperation, isActiveOperationCurrent, refreshRepo, updateState]);
 
   const runAutomaticFetch = useCallback(async (): Promise<void> => {
     if (autoFetchInFlightRef.current) {
@@ -3198,8 +3187,7 @@ export function App(): ReactNode {
   ]);
 
   const runConfiguredAction = useCallback(async (
-    action: GitConfiguredAction,
-    options: { preserveActivityLog?: boolean } = {}
+    action: GitConfiguredAction
   ): Promise<void> => {
     const current = stateRef.current;
     if (!current.summary?.isValid) {
@@ -3222,7 +3210,6 @@ export function App(): ReactNode {
       cancelStatus: "idle",
       cancelError: ""
     };
-    if (!options.preserveActivityLog && !hasProcessRunInFlight(current)) activityLogStore.clear();
     updateState((latest) => ({
       ...latest,
       configuredActionRuns: [...latest.configuredActionRuns, invocation],
@@ -3240,6 +3227,7 @@ export function App(): ReactNode {
         expectedAction: action,
         operationId: invocation.operationId
       });
+      activityLogStore.completeRun(lastResult);
       if (!invocationIsTracked()) return;
       updateState((latest) => isSameRepoPath(repoPath, latest.repoPath) ? {
         ...latest,
@@ -3248,23 +3236,18 @@ export function App(): ReactNode {
     } catch (error) {
       if (!invocationIsTracked()) return;
       const message = error instanceof Error ? error.message : "Configured action failed.";
-      updateState((latest) => isSameRepoPath(repoPath, latest.repoPath) ? {
-        ...latest,
-        lastResult: {
-          runId: "renderer-error",
-          action: action.name,
-          repoPath,
-          exitCode: -1,
-          stdout: "",
-          stderr: message,
-          startedAt: new Date().toISOString(),
-          endedAt: new Date().toISOString()
-        }
-      } : latest);
-      appendSystemLine(message, {
-        runId: `renderer-${invocation.id}`,
-        action: action.name
-      });
+      const lastResult: GitRunResult = {
+        runId: invocation.operationId,
+        action: action.name,
+        repoPath,
+        exitCode: -1,
+        stdout: "",
+        stderr: message,
+        startedAt: new Date().toISOString(),
+        endedAt: new Date().toISOString()
+      };
+      activityLogStore.completeRun(lastResult);
+      updateState((latest) => isSameRepoPath(repoPath, latest.repoPath) ? { ...latest, lastResult } : latest);
     } finally {
       const completionIsTracked = invocationIsTracked();
       if (completionIsTracked) {
@@ -3280,12 +3263,12 @@ export function App(): ReactNode {
         }
       }
     }
-  }, [activityLogStore, appendSystemLine, ensureTrustedRepo, isInvocationCurrent, refreshRepo, updateState]);
+  }, [activityLogStore, ensureTrustedRepo, isInvocationCurrent, refreshRepo, updateState]);
 
   const runPullWithConfiguredAction = useCallback(async (action: GitConfiguredAction): Promise<void> => {
     const result = await runAction("pull", undefined, "action-bar");
     if (result?.exitCode === 0) {
-      await runConfiguredAction(action, { preserveActivityLog: true });
+      await runConfiguredAction(action);
     }
   }, [runAction, runConfiguredAction]);
 
@@ -4262,7 +4245,6 @@ export function App(): ReactNode {
 
     let completedResult: GitRunResult | null = null;
     const activeOperation = createActiveOperation("Publish", current.repoPath, "action");
-    if (!hasProcessRunInFlight(current)) activityLogStore.clear();
     updateState({
       activeOperation,
       runningAction: "publish",
@@ -4287,7 +4269,7 @@ export function App(): ReactNode {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to publish branch.";
       completedResult = {
-        runId: "renderer-error",
+        runId: activeOperation.operationId,
         action: "publish",
         repoPath: current.repoPath,
         exitCode: -1,
@@ -4302,7 +4284,6 @@ export function App(): ReactNode {
       updateState({
         lastResult: completedResult
       });
-      appendSystemLine(message);
     } finally {
       finishActiveOperation(activeOperation.token, invalidateHistory);
       if (isSameRepoPath(current.repoPath, stateRef.current.repoPath)) {
@@ -4322,7 +4303,7 @@ export function App(): ReactNode {
     updateState({
       publishError: completedResult?.stderr.trim() || "Unable to publish branch."
     });
-  }, [activityLogStore, appendSystemLine, createActiveOperation, ensureTrustedRepo, finishActiveOperation, isActiveOperationCurrent, isInvocationCurrent, refreshRepo, updateState]);
+  }, [activityLogStore, createActiveOperation, ensureTrustedRepo, finishActiveOperation, isActiveOperationCurrent, isInvocationCurrent, refreshRepo, updateState]);
 
   const pushToBranch = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
@@ -4722,7 +4703,6 @@ export function App(): ReactNode {
         repoPath,
         "pr-push"
       );
-      if (!hasProcessRunInFlight(current)) activityLogStore.clear();
       updateState((latest) => ({
         ...latest,
         activeOperation: pushOperation,
@@ -4760,8 +4740,8 @@ export function App(): ReactNode {
           return;
         }
         const message = error instanceof Error ? error.message : "Unable to push branch.";
-        appendSystemLine(message);
-        finishActiveOperation(pushOperation.token, invalidateHistory);
+        activityLogStore.appendOperationResult(needsPublish ? "Publish" : "Push", { repoPath, exitCode: -1, stdout: "", stderr: message });
+          finishActiveOperation(pushOperation.token, invalidateHistory);
         void refreshRepo({ reason: "operation" });
         setDialogError(message);
         return;
@@ -4871,7 +4851,7 @@ export function App(): ReactNode {
         }
       }));
     }
-  }, [activityLogStore, appendSystemLine, createActiveOperation, ensureTrustedRepo, finishActiveOperation, github, isActiveOperationCurrent, isInvocationCurrent, refreshRepo, updateState]);
+  }, [activityLogStore, createActiveOperation, ensureTrustedRepo, finishActiveOperation, github, isActiveOperationCurrent, isInvocationCurrent, refreshRepo, updateState]);
 
   const createBranch = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
@@ -14554,10 +14534,6 @@ function getAmendDisabledReason(state: AppState): string | null {
     return "Wait for the current Git operation to finish.";
   }
   return null;
-}
-
-function hasProcessRunInFlight(state: AppState): boolean {
-  return Boolean(state.runningAction || state.runningOperation || state.configuredActionRuns.length > 0);
 }
 
 type AppUpdateAction = "check" | "download" | "install" | "none";

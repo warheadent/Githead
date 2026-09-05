@@ -1,16 +1,16 @@
-import { ArrowDown, Clipboard, Eraser, WrapText } from "lucide-react";
-import { memo, useCallback, useEffect, useRef, useState, type ReactNode, type UIEvent } from "react";
+import { Clipboard, Eraser, WrapText } from "lucide-react";
+import { useState, type ReactNode } from "react";
 import { Button, TooltipButton } from "@/components/ui/button";
-import type { ActivityLogBlock, ActivityLogState } from "./activityLog";
+import type { ActivityLogState } from "./activityLog";
 import { hasActivityLogOutput } from "./activityLog";
-import { MotionPresence } from "./motion";
+import { ActivityLogOutput } from "./ActivityLogOutput";
 import { usePersistentWorkspacePanelState } from "./workspacePanelState";
 
 interface ActivityLogViewProps {
   log: ActivityLogState;
   statusLabel: string;
   onClearLog: () => void;
-  onCopyRawLog: () => void;
+  onCopyRawLog: (runId?: string) => void | Promise<void>;
 }
 
 export function ActivityLogView({
@@ -19,37 +19,20 @@ export function ActivityLogView({
   onClearLog,
   onCopyRawLog
 }: ActivityLogViewProps): ReactNode {
-  const outputRef = useRef<HTMLDivElement | null>(null);
   const [wrapLines, setWrapLines] = usePersistentWorkspacePanelState("activity-wrap-lines", false);
-  const [stickToBottom, setStickToBottom] = useState(true);
+  const [copyStatus, setCopyStatus] = useState("");
   const hasOutput = hasActivityLogOutput(log);
   const hasRawText = log.rawTextLength > 0;
   const title = hasOutput ? "Output Available" : "Empty";
   const showStatus = statusLabel !== title;
-
-  useEffect(() => {
-    if (!stickToBottom || !outputRef.current) {
-      return;
+  const copy = async (runId?: string): Promise<void> => {
+    try {
+      await onCopyRawLog(runId);
+      setCopyStatus("Copied to clipboard.");
+    } catch {
+      setCopyStatus("Unable to copy output. Try again.");
     }
-
-    outputRef.current.scrollTop = outputRef.current.scrollHeight;
-  }, [log.version, stickToBottom]);
-
-  const handleScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
-    const target = event.currentTarget;
-    const distanceFromBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
-    setStickToBottom(distanceFromBottom <= 12);
-  }, []);
-
-  const jumpToLatest = useCallback(() => {
-    const output = outputRef.current;
-    if (!output) {
-      return;
-    }
-
-    output.scrollTop = output.scrollHeight;
-    setStickToBottom(true);
-  }, []);
+  };
 
   return (
     <section className="activity-log-view" aria-label="Activity log">
@@ -75,7 +58,7 @@ export function ActivityLogView({
               >
                 <WrapText />
           </TooltipButton>
-          <Button type="button" variant="secondary" disabled={!hasRawText} onClick={onCopyRawLog}>
+          <Button type="button" variant="secondary" disabled={!hasRawText} onClick={() => { void copy(); }}>
             <Clipboard />
             Copy Raw
           </Button>
@@ -85,64 +68,8 @@ export function ActivityLogView({
           </Button>
         </div>
       </div>
-      <div
-        ref={outputRef}
-        data-workspace-scroll-key="activity-output"
-        className={`log-output activity-log-output${wrapLines ? " is-wrapped" : ""}`}
-        role="log"
-        aria-live="polite"
-        aria-relevant="additions text"
-        onScroll={handleScroll}
-      >
-        {log.blocks.length > 0 ? (
-          <div className="activity-log-blocks" role="list">
-            {log.blocks.map((block) => (
-              <ActivityLogBlockView key={block.id} block={block} />
-            ))}
-          </div>
-        ) : (
-          <div className="activity-log-empty">No command output yet.</div>
-        )}
-      </div>
-      <MotionPresence
-        present={hasOutput && !stickToBottom}
-        className="activity-log-jump-presence"
-        initialY={4}
-        initialScale={0.97}
-      >
-        <Button type="button" className="activity-log-jump" size="sm" onClick={jumpToLatest}>
-          <ArrowDown />
-          Jump to latest
-        </Button>
-      </MotionPresence>
+      <span className="sr-only" role="status">{copyStatus}</span>
+      <ActivityLogOutput log={log} wrapLines={wrapLines} onCopyRun={(runId) => { void copy(runId); }} />
     </section>
   );
-}
-
-const ActivityLogBlockView = memo(function ActivityLogBlockView({ block }: { block: ActivityLogBlock }): ReactNode {
-  if (block.kind === "notice") {
-    return (
-      <div className="activity-log-block activity-log-notice" role="listitem">
-        <span className="activity-log-line" dangerouslySetInnerHTML={{ __html: block.html }} />
-      </div>
-    );
-  }
-
-  return (
-    <div className="activity-log-block" data-stream={block.stream} role="listitem">
-      <span className="activity-log-stream-label">{getStreamLabel(block)}</span>
-      <span
-        className="activity-log-line"
-        dangerouslySetInnerHTML={{ __html: `<span class="sr-only">Stream ${getStreamLabel(block)}. </span>${block.html || "&nbsp;"}` }}
-      />
-    </div>
-  );
-});
-
-function getStreamLabel(block: ActivityLogBlock): string {
-  if (block.stream === "system") {
-    return block.rawText.trimStart().startsWith(">") ? "cmd" : "sys";
-  }
-
-  return block.stream;
 }

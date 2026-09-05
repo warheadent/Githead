@@ -2089,6 +2089,8 @@ export interface GitOperationResult {
 }
 
 export interface GitRunResult {
+  /** Output was sent separately over IPC; do not replay buffered stdout/stderr. */
+  outputStreamed?: boolean;
   runId: string;
   action: string;
   repoPath: string;
@@ -2119,6 +2121,10 @@ export interface GitPushResultDetails {
 }
 
 export interface GitOutputEvent {
+  repoPath?: string;
+  startedAt?: string;
+  /** Present only when the operation completes, including completion without output. */
+  exitCode?: number;
   runId: string;
   action: string;
   stream: "stdout" | "stderr" | "system";

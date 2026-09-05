@@ -11,13 +11,33 @@ export interface ActivityLogBlock {
   action: string;
   rawText: string;
   html: string;
-  converter: AnsiUp | null;
-  containsTerminalHyperlink: boolean;
-  terminalHyperlinkTail: string;
+  /** Segmentation must not add stream labels or newlines to exported output. */
+  continuation: boolean;
+  sealed: boolean;
+}
+
+export interface ActivityLogRun {
+  id: string;
+  action: string;
+  repoPath: string;
+  startedAt: string;
+  endedAt: string | null;
+  exitCode: number | null;
+}
+
+interface StreamParser {
+  converter: AnsiUp;
+  hyperlinkPrefix: string;
+  inHyperlink: boolean;
+  hyperlinkEscape: boolean;
+  ansiPending: string;
+  discardAnsi: boolean;
 }
 
 export interface ActivityLogState {
   blocks: ActivityLogBlock[];
+  runs: ActivityLogRun[];
+  parsers: Map<string, StreamParser>;
   nextBlockId: number;
   rawTextLength: number;
   trimmed: boolean;
@@ -26,329 +46,207 @@ export interface ActivityLogState {
 
 export const ACTIVITY_LOG_MAX_RAW_CHARS = 2_000_000;
 export const ACTIVITY_LOG_MAX_BLOCKS = 3_000;
-
+export const ACTIVITY_LOG_MAX_RUNS = 100;
+export const ACTIVITY_LOG_SEGMENT_CHARS = 4_096;
 const TRIM_NOTICE_TEXT = "... older output trimmed ...\n";
 const TERMINAL_HYPERLINK_PREFIX = "\u001B]8;";
 
 export function createActivityLogState(): ActivityLogState {
-  return {
-    blocks: [],
-    nextBlockId: 1,
-    rawTextLength: 0,
-    trimmed: false,
-    version: 0
-  };
+  return { blocks: [], runs: [], parsers: new Map(), nextBlockId: 1, rawTextLength: 0, trimmed: false, version: 0 };
 }
 
 export function hasActivityLogOutput(state: ActivityLogState): boolean {
-  return state.blocks.some((block) => block.kind === "output" && block.rawText.trim().length > 0);
+  return state.runs.length > 0;
 }
 
 export function appendActivityLogEvent(state: ActivityLogState, event: GitOutputEvent): ActivityLogState {
-  return appendActivityLogChunk(state, {
-    runId: event.runId,
-    action: event.action,
-    stream: event.stream,
-    text: event.text
+  if (!event.text && event.exitCode === undefined) return state;
+  const previousRun = state.runs.find((run) => run.id === event.runId);
+  const run: ActivityLogRun = {
+    id: event.runId,
+    action: previousRun?.action ?? event.action,
+    repoPath: event.repoPath ?? previousRun?.repoPath ?? "",
+    startedAt: event.startedAt ?? previousRun?.startedAt ?? event.timestamp,
+    endedAt: event.exitCode === undefined ? previousRun?.endedAt ?? null : event.timestamp,
+    exitCode: event.exitCode ?? previousRun?.exitCode ?? null
+  };
+  const runs = previousRun ? state.runs.map((current) => current.id === run.id ? run : current) : [...state.runs, run];
+  const blocks = [...state.blocks];
+  const parsers = new Map(state.parsers);
+  const parserKey = JSON.stringify([event.runId, event.stream]);
+  let parser = parsers.get(parserKey);
+  if (!parser && event.text) {
+    const converter = new AnsiUp();
+    converter.escape_html = true;
+    converter.use_classes = true;
+    converter.url_allowlist = {};
+    parser = { converter, hyperlinkPrefix: "", inHyperlink: false, hyperlinkEscape: false, ansiPending: "", discardAnsi: false };
+    parsers.set(parserKey, parser);
+  }
+  if (parser) {
+    parsers.delete(parserKey);
+    parsers.set(parserKey, parser);
+  }
+  let nextBlockId = state.nextBlockId;
+  let offset = 0;
+  while (offset < event.text.length && parser) {
+    const last = blocks.at(-1);
+    const adjacent = last?.kind === "output" && last.runId === event.runId && last.stream === event.stream && last.action === event.action;
+    const append = adjacent && !last.sealed && last.rawText.length < ACTIVITY_LOG_SEGMENT_CHARS;
+    const remaining = ACTIVITY_LOG_SEGMENT_CHARS - (append ? last.rawText.length : 0);
+    let text = event.text.slice(offset, offset + remaining);
+    const sealed = text.length === remaining;
+    // Prefer complete lines when closing a segment. A single oversized line still has a hard cap.
+    if (sealed) {
+      const newline = text.lastIndexOf("\n");
+      if (newline >= 0) text = text.slice(0, newline + 1);
+    }
+    const html = parser.converter.ansi_to_html(completeAnsiSequences(parser, stripTerminalHyperlinks(parser, text)));
+    if (append) {
+      blocks[blocks.length - 1] = { ...last, rawText: last.rawText + text, html: last.html + html, sealed };
+    } else {
+      blocks.push({
+        id: nextBlockId++, kind: "output", runId: event.runId, action: event.action,
+        stream: event.stream, rawText: text, html, continuation: Boolean(adjacent), sealed
+      });
+    }
+    offset += text.length;
+  }
+  return trimActivityLog({
+    blocks, runs, parsers, nextBlockId, rawTextLength: state.rawTextLength + event.text.length,
+    trimmed: state.trimmed, version: state.version + 1
   });
 }
 
 export function appendActivityOperationResult(
   state: ActivityLogState,
   label: string,
-  result: GitOperationResult
+  result: GitOperationResult,
+  runId = `operation-${state.nextBlockId}-${state.version}`,
+  timestamp = new Date().toISOString()
 ): ActivityLogState {
-  let nextState = appendActivityLogChunk(state, {
-    runId: "operation",
-    action: label,
-    stream: "system",
-    text: `> ${label}\n`
-  });
-
-  if (result.stdout.trim().length > 0) {
-    nextState = appendActivityLogChunk(nextState, {
-      runId: "operation",
-      action: label,
-      stream: "stdout",
-      text: ensureTrailingNewline(result.stdout)
-    });
-  }
-
-  if (result.stderr.trim().length > 0) {
-    nextState = appendActivityLogChunk(nextState, {
-      runId: "operation",
-      action: label,
-      stream: "stderr",
-      text: ensureTrailingNewline(result.stderr)
-    });
-  }
-
-  return appendActivityLogChunk(nextState, {
-    runId: "operation",
-    action: label,
-    stream: "system",
-    text: `${label} exited with code ${result.exitCode}.\n\n`
+  const event = { runId, action: label, repoPath: result.repoPath, timestamp };
+  let next = appendActivityLogEvent(state, { ...event, stream: "system", text: `> ${label}\n` });
+  if (result.stdout.trim()) next = appendActivityLogEvent(next, { ...event, stream: "stdout", text: ensureTrailingNewline(result.stdout) });
+  if (result.stderr.trim()) next = appendActivityLogEvent(next, { ...event, stream: "stderr", text: ensureTrailingNewline(result.stderr) });
+  return appendActivityLogEvent(next, {
+    ...event, stream: "system", text: `${label} exited with code ${result.exitCode}.\n\n`, exitCode: result.exitCode
   });
 }
 
-export function getActivityLogRawText(state: ActivityLogState): string {
-  let previousText = "";
-
-  return state.blocks
-    .map((block) => {
-      const prefix = getRawPrefix(block);
-      const separator = previousText && !previousText.endsWith("\n") ? "\n" : "";
-      const text = `${separator}${prefix}${block.rawText}`;
-      previousText = block.rawText;
-      return text;
-    })
-    .join("");
-}
-
-function appendActivityLogChunk(
-  state: ActivityLogState,
-  chunk: {
-    runId: string;
-    action: string;
-    stream: ActivityLogStream;
-    text: string;
-  }
-): ActivityLogState {
-  if (!chunk.text) {
-    return state;
-  }
-
-  const blocks = [...state.blocks];
-  const lastBlock = blocks.at(-1);
-  const canAppendToLast =
-    lastBlock?.kind === "output" &&
-    lastBlock.stream === chunk.stream &&
-    lastBlock.runId === chunk.runId &&
-    lastBlock.action === chunk.action;
-
-  if (canAppendToLast) {
-    const converter = lastBlock.converter ?? createAnsiConverter();
-    const rawText = `${lastBlock.rawText}${chunk.text}`;
-    // Keep the boundary separately: slicing or searching the accumulated raw
-    // string forces V8 to flatten it again on every incoming chunk.
-    const boundaryText = `${lastBlock.terminalHyperlinkTail}${chunk.text}`;
-    const containsTerminalHyperlink = lastBlock.containsTerminalHyperlink || hasTerminalHyperlink(boundaryText);
-    const rendered = containsTerminalHyperlink ? renderAnsiBlock(rawText) : null;
-    const html = rendered?.html ?? `${lastBlock.html}${converter.ansi_to_html(chunk.text)}`;
-    blocks[blocks.length - 1] = {
-      ...lastBlock,
-      rawText,
-      html,
-      converter: rendered?.converter ?? converter,
-      containsTerminalHyperlink,
-      terminalHyperlinkTail: boundaryText.slice(-(TERMINAL_HYPERLINK_PREFIX.length - 1))
-    };
-
-    return trimActivityLog({
-      ...state,
-      blocks,
-      rawTextLength: state.rawTextLength + chunk.text.length,
-      version: state.version + 1
-    });
-  }
-
-  const rendered = renderAnsiBlock(chunk.text);
-  const block: ActivityLogBlock = {
-    id: state.nextBlockId,
-    kind: "output",
-    stream: chunk.stream,
-    runId: chunk.runId,
-    action: chunk.action,
-    rawText: chunk.text,
-    ...rendered
-  };
-
-  return trimActivityLog({
-    ...state,
-    blocks: [
-      ...blocks,
-      block
-    ],
-    nextBlockId: state.nextBlockId + 1,
-    rawTextLength: state.rawTextLength + chunk.text.length,
-    version: state.version + 1
-  });
+export function getActivityLogRawText(state: ActivityLogState, runId?: string): string {
+  let previous: ActivityLogBlock | undefined;
+  return state.blocks.filter((block) => !runId || block.runId === runId || block.kind === "notice").map((block) => {
+    const continuation = block.continuation && previous?.runId === block.runId && previous.stream === block.stream;
+    const prefix = continuation || block.kind === "notice" || block.stream === "system" ? "" : `[${block.stream}] `;
+    const separator = !continuation && previous && !previous.rawText.endsWith("\n") ? "\n" : "";
+    previous = block;
+    return `${separator}${prefix}${block.rawText}`;
+  }).join("");
 }
 
 function trimActivityLog(state: ActivityLogState): ActivityLogState {
-  let blocks = state.blocks;
-  let rawTextLength = state.rawTextLength;
-  let nextBlockId = state.nextBlockId;
-  let trimmed = state.trimmed;
-
-  while (countOutputBlocks(blocks) > ACTIVITY_LOG_MAX_BLOCKS) {
-    const result = removeOldestOutputBlock(blocks, rawTextLength);
-    if (!result) {
-      break;
-    }
-
-    blocks = result.blocks;
-    rawTextLength = result.rawTextLength;
+  let { blocks, runs, rawTextLength, nextBlockId, trimmed } = state;
+  if (runs.length > ACTIVITY_LOG_MAX_RUNS) {
+    runs = runs.slice(-ACTIVITY_LOG_MAX_RUNS);
+    const retained = new Set(runs.map((run) => run.id));
+    blocks = blocks.filter((block) => {
+      if (block.kind === "notice" || retained.has(block.runId)) return true;
+      rawTextLength -= block.rawText.length;
+      return false;
+    });
     trimmed = true;
   }
-
-  if (rawTextLength > ACTIVITY_LOG_MAX_RAW_CHARS) {
+  // Discard complete segments. Never slice and reparse the retained history.
+  let removeCount = blocks[0]?.kind === "notice" ? 1 : 0;
+  if (removeCount) rawTextLength -= TRIM_NOTICE_TEXT.length;
+  while (blocks.length - removeCount > ACTIVITY_LOG_MAX_BLOCKS || rawTextLength + (trimmed ? TRIM_NOTICE_TEXT.length : 0) > ACTIVITY_LOG_MAX_RAW_CHARS) {
+    const block = blocks[removeCount++];
+    if (!block) break;
+    rawTextLength -= block.rawText.length;
     trimmed = true;
-    const hasTrimNotice = blocks[0]?.kind === "notice";
-    const targetRawTextLength = ACTIVITY_LOG_MAX_RAW_CHARS - (hasTrimNotice ? 0 : TRIM_NOTICE_TEXT.length);
+  }
+  blocks = blocks.slice(removeCount);
+  if (trimmed) {
+    const notice = state.blocks[0]?.kind === "notice" ? state.blocks[0] : {
+      id: nextBlockId++, kind: "notice" as const, stream: "system" as const, runId: "trimmed", action: "Activity Log",
+      rawText: TRIM_NOTICE_TEXT, html: TRIM_NOTICE_TEXT, continuation: false, sealed: true
+    };
+    blocks.unshift(notice);
+    rawTextLength += TRIM_NOTICE_TEXT.length;
+  }
+  // Parser state also survives Clear. Bound this cache independently of visible history.
+  while (state.parsers.size > ACTIVITY_LOG_MAX_RUNS * 3) {
+    const oldest = state.parsers.keys().next().value;
+    if (oldest === undefined) break;
+    state.parsers.delete(oldest);
+  }
+  return { ...state, blocks, runs, rawTextLength, nextBlockId, trimmed };
+}
 
-    while (rawTextLength > targetRawTextLength) {
-      const removeIndex = blocks.findIndex((block) => block.kind === "output");
-      if (removeIndex === -1) {
-        break;
-      }
-
-      const block = blocks[removeIndex];
-      if (!block) {
-        break;
-      }
-
-      const excess = rawTextLength - targetRawTextLength;
-      if (block.rawText.length <= excess) {
-        const result = removeOldestOutputBlock(blocks, rawTextLength);
-        if (!result) {
-          break;
-        }
-
-        blocks = result.blocks;
-        rawTextLength = result.rawTextLength;
-        continue;
-      }
-
-      const rawText = block.rawText.slice(excess);
-      const rendered = renderAnsiBlock(rawText);
-      blocks = [
-        ...blocks.slice(0, removeIndex),
-        {
-          ...block,
-          rawText,
-          ...rendered
-        },
-        ...blocks.slice(removeIndex + 1)
-      ];
-      rawTextLength -= excess;
-      break;
+/** Incremental OSC 8 filtering. Even an unfinished URL retains only a few characters. */
+function stripTerminalHyperlinks(parser: StreamParser, text: string): string {
+  let output = "";
+  for (let index = 0; index < text.length; index += 1) {
+    if (!parser.inHyperlink && !parser.hyperlinkPrefix) {
+      const escape = text.indexOf("\u001B", index);
+      if (escape === -1) return output + text.slice(index);
+      output += text.slice(index, escape);
+      index = escape;
+    }
+    const character = text[index]!;
+    if (parser.inHyperlink) {
+      if (character === "\u0007" || (parser.hyperlinkEscape && character === "\\")) parser.inHyperlink = false;
+      parser.hyperlinkEscape = character === "\u001B";
+      continue;
+    }
+    parser.hyperlinkPrefix += character;
+    while (parser.hyperlinkPrefix && !TERMINAL_HYPERLINK_PREFIX.startsWith(parser.hyperlinkPrefix)) {
+      output += parser.hyperlinkPrefix[0];
+      parser.hyperlinkPrefix = parser.hyperlinkPrefix.slice(1);
+    }
+    if (parser.hyperlinkPrefix === TERMINAL_HYPERLINK_PREFIX) {
+      parser.hyperlinkPrefix = "";
+      parser.inHyperlink = true;
+      parser.hyperlinkEscape = false;
     }
   }
+  return output;
+}
 
-  if (!trimmed) {
-    return {
-      ...state,
-      blocks,
-      rawTextLength
-    };
+/** Never let the converter retain an unbounded, unfinished CSI sequence. */
+function completeAnsiSequences(parser: StreamParser, text: string): string {
+  let output = "";
+  for (let index = 0; index < text.length; index++) {
+    if (!parser.ansiPending) {
+      const escape = text.indexOf("\u001b", index);
+      if (escape === -1) return output + text.slice(index);
+      output += text.slice(index, escape);
+      parser.ansiPending = "\u001b";
+      index = escape;
+      continue;
+    }
+    const character = text[index]!;
+    if (parser.ansiPending.length === 1) {
+      if (character === "[") parser.ansiPending += character;
+      else { output += parser.ansiPending + character; parser.ansiPending = ""; }
+    } else if (character >= "@" && character <= "~") {
+      if (!parser.discardAnsi) output += parser.ansiPending + character;
+      parser.ansiPending = "";
+      parser.discardAnsi = false;
+    } else if (character < " " || character > "~") {
+      output += character;
+      parser.ansiPending = "";
+      parser.discardAnsi = false;
+    } else if (parser.ansiPending.length < 256) {
+      parser.ansiPending += character;
+    } else {
+      parser.discardAnsi = true;
+    }
   }
-
-  if (blocks[0]?.kind === "notice") {
-    return {
-      ...state,
-      blocks,
-      rawTextLength,
-      trimmed
-    };
-  }
-
-  const noticeBlock: ActivityLogBlock = {
-    id: nextBlockId,
-    kind: "notice",
-    stream: "system",
-    runId: "trimmed",
-    action: "Activity Log",
-    rawText: TRIM_NOTICE_TEXT,
-    html: escapeHtml(TRIM_NOTICE_TEXT),
-    converter: null,
-    containsTerminalHyperlink: false,
-    terminalHyperlinkTail: ""
-  };
-
-  nextBlockId += 1;
-
-  return {
-    ...state,
-    blocks: [
-      noticeBlock,
-      ...blocks
-    ],
-    nextBlockId,
-    rawTextLength: rawTextLength + TRIM_NOTICE_TEXT.length,
-    trimmed
-  };
-}
-
-function countOutputBlocks(blocks: ActivityLogBlock[]): number {
-  return blocks.filter((block) => block.kind === "output").length;
-}
-
-function removeOldestOutputBlock(
-  blocks: ActivityLogBlock[],
-  rawTextLength: number
-): { blocks: ActivityLogBlock[]; rawTextLength: number } | null {
-  const removeIndex = blocks.findIndex((block) => block.kind === "output");
-  if (removeIndex === -1) {
-    return null;
-  }
-
-  return {
-    blocks: [
-      ...blocks.slice(0, removeIndex),
-      ...blocks.slice(removeIndex + 1)
-    ],
-    rawTextLength: rawTextLength - (blocks[removeIndex]?.rawText.length ?? 0)
-  };
-}
-
-function createAnsiConverter(): AnsiUp {
-  const converter = new AnsiUp();
-  converter.escape_html = true;
-  converter.use_classes = true;
-  converter.url_allowlist = {};
-  return converter;
-}
-
-function renderAnsiBlock(rawText: string): Pick<ActivityLogBlock, "html" | "converter" | "containsTerminalHyperlink" | "terminalHyperlinkTail"> {
-  const converter = createAnsiConverter();
-  const containsTerminalHyperlink = hasTerminalHyperlink(rawText);
-  const text = containsTerminalHyperlink ? stripTerminalHyperlinks(rawText) : rawText;
-  return {
-    html: converter.ansi_to_html(text),
-    converter,
-    containsTerminalHyperlink,
-    terminalHyperlinkTail: rawText.slice(-(TERMINAL_HYPERLINK_PREFIX.length - 1))
-  };
-}
-
-function hasTerminalHyperlink(text: string): boolean {
-  return text.includes(TERMINAL_HYPERLINK_PREFIX);
-}
-
-function stripTerminalHyperlinks(text: string): string {
-  const bell = String.fromCharCode(0x07);
-  const escape = String.fromCharCode(0x1b);
-  return text.replace(new RegExp(`${escape}\\]8;[^${bell}]*(?:${bell}|${escape}\\\\)`, "g"), "");
-}
-
-function getRawPrefix(block: ActivityLogBlock): string {
-  if (block.kind === "notice" || block.stream === "system") {
-    return "";
-  }
-
-  return `[${block.stream}] `;
+  return output;
 }
 
 function ensureTrailingNewline(text: string): string {
   return text.endsWith("\n") ? text : `${text}\n`;
-}
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }

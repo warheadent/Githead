@@ -45,8 +45,33 @@ describe("repository-sized workloads", () => {
     }
     // Materialize retained output once, as when opening or copying a log after
     // a command. This does not measure DOM updates while the log is visible.
-    if (!getActivityLogRawText(state).endsWith(chunk) || !state.blocks[0]?.html.endsWith(chunk)) {
+    if (!getActivityLogRawText(state).endsWith(chunk) || !state.blocks.map((block) => block.html).join("").endsWith(chunk)) {
       throw new Error("Benchmark log output is incomplete.");
     }
   }, options);
+  bench("append 200 log chunks after reaching the retention limit", () => {
+    let state = appendActivityLogEvent(createActivityLogState(), {
+      runId: "benchmark", action: "build", stream: "stdout", text: "x".repeat(2_000_000), timestamp: "2026-01-01T00:00:00Z"
+    });
+    for (let index = 0; index < 200; index++) state = appendActivityLogEvent(state, {
+      runId: "benchmark", action: "build", stream: "stdout", text: chunk, timestamp: "2026-01-01T00:00:00Z"
+    });
+    if (!getActivityLogRawText(state).endsWith(chunk)) throw new Error("Latest output was lost.");
+  }, options);
+  bench("append 200 chunks containing terminal hyperlinks", () => {
+    let state = createActivityLogState();
+    const text = "\u001b]8;;https://example.test\u0007link\u001b]8;;\u0007\n" + chunk;
+    for (let index = 0; index < 200; index++) state = appendActivityLogEvent(state, {
+      runId: "benchmark", action: "build", stream: "stdout", text, timestamp: "2026-01-01T00:00:00Z"
+    });
+    if (!getActivityLogRawText(state).endsWith(chunk)) throw new Error("Latest output was lost.");
+  }, options);
+  bench("append 2,000 interleaved chunks from four runs", () => {
+    let state = createActivityLogState();
+    for (let index = 0; index < 2_000; index++) state = appendActivityLogEvent(state, {
+      runId: `run-${index % 4}`, action: "build", stream: index % 2 ? "stderr" : "stdout", text: "progress\n", timestamp: "2026-01-01T00:00:00Z"
+    });
+    if (!getActivityLogRawText(state).endsWith("progress\n")) throw new Error("Latest output was lost.");
+  }, options);
+
 });

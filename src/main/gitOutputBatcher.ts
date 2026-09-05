@@ -1,5 +1,5 @@
 import { IPC_CHANNELS } from "../shared/ipc";
-import type { GitOutputEvent } from "../shared/types";
+import type { GitOperationResult, GitOutputEvent } from "../shared/types";
 
 export interface GitOutputTarget {
   isDestroyed(): boolean;
@@ -20,6 +20,34 @@ export async function runWithGitOutputSink<T>(
   } finally {
     sink.flush();
   }
+}
+
+/** Attach repository identity and explicit outcomes without parsing command text. */
+export async function runWithRepositoryGitOutput<T extends GitOperationResult>(
+  sink: GitOutputSink,
+  repoPath: string,
+  operation: (write: GitOutputSink["write"]) => Promise<T>
+): Promise<T> {
+  return runWithGitOutputSink(sink, async (write) => {
+    const runs = new Map<string, GitOutputEvent>();
+    let exitCode = -1;
+    let startedAt: string | undefined;
+    let endedAt: string | undefined;
+    try {
+      const result = await operation((output) => {
+        if (!runs.has(output.runId)) runs.set(output.runId, output);
+        write({ ...output, repoPath });
+      });
+      exitCode = result.exitCode;
+      if ("startedAt" in result && typeof result.startedAt === "string") startedAt = result.startedAt;
+      if ("endedAt" in result && typeof result.endedAt === "string") endedAt = result.endedAt;
+      return { ...result, outputStreamed: runs.size > 0 };
+    } finally {
+      for (const first of runs.values()) {
+        write({ ...first, repoPath, stream: "system", text: "", startedAt: startedAt ?? first.timestamp, timestamp: endedAt ?? new Date().toISOString(), exitCode });
+      }
+    }
+  });
 }
 
 export interface GitOutputBatcherOptions {
@@ -80,6 +108,12 @@ export class GitOutputBatcher {
   }
 
   enqueue(event: GitOutputEvent, target?: GitOutputTarget): void {
+    if (event.exitCode !== undefined) {
+      if (target) this.flushTarget(target);
+      else this.flushBroadcast();
+      this.send({ target: target ?? null, event, sourceEventCount: 1 });
+      return;
+    }
     if (!event.text) {
       return;
     }
@@ -202,6 +236,7 @@ function canMerge(
   maxBatchChars: number
 ): boolean {
   return pending.target === (target ?? null)
+    && pending.event.repoPath === event.repoPath
     && pending.event.runId === event.runId
     && pending.event.action === event.action
     && pending.event.stream === event.stream
