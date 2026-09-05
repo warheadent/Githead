@@ -62,13 +62,13 @@
   --diff-notice-text: oklch(0.48 0.09 85);
   --diff-notice-bg: oklch(0.96 0.055 92);
   --diff-line-number-bg: oklch(1 0 0 / 0.56);
-  --syntax-comment: #6f7782;
-  --syntax-keyword: #8a3ffc;
-  --syntax-literal: #0f62fe;
-  --syntax-string: #0e7a4f;
-  --syntax-title: #a45c00;
-  --syntax-variable: #9f1853;
-  --syntax-meta: #546a7b;
+  --syntax-comment: oklch(0.56628 0.019529 256.330153);
+  --syntax-keyword: oklch(0.573656 0.257924 294.891285);
+  --syntax-literal: oklch(0.556534 0.242992 261.952883);
+  --syntax-string: oklch(0.512832 0.113081 159.423009);
+  --syntax-title: oklch(0.546648 0.126716 61.211522);
+  --syntax-variable: oklch(0.464869 0.172262 1.339378);
+  --syntax-meta: oklch(0.512965 0.037706 241.676818);
   --terminal-bg: oklch(0.985 0.003 255);
   --terminal-fg: oklch(0.21 0.018 255);
   --terminal-muted: oklch(0.49 0.025 255);
@@ -78,22 +78,22 @@
   --terminal-stdout: oklch(0.26 0.028 255);
   --terminal-stderr: oklch(0.58 0.16 32);
   --terminal-notice: oklch(0.48 0.09 85);
-  --ansi-black: #2f343c;
-  --ansi-red: #c93d31;
-  --ansi-green: #217a45;
-  --ansi-yellow: #a45c00;
-  --ansi-blue: #245fc7;
-  --ansi-magenta: #9b45b5;
-  --ansi-cyan: #0c7280;
-  --ansi-white: #d4d9e2;
-  --ansi-bright-black: #6f7782;
-  --ansi-bright-red: #e05243;
-  --ansi-bright-green: #0e8f52;
-  --ansi-bright-yellow: #c77a05;
-  --ansi-bright-blue: #3478f6;
-  --ansi-bright-magenta: #b65fd2;
-  --ansi-bright-cyan: #0e97a8;
-  --ansi-bright-white: #ffffff;
+  --ansi-black: oklch(0.323467 0.01583 259.801697);
+  --ansi-red: oklch(0.563588 0.178701 28.893287);
+  --ansi-green: oklch(0.514236 0.117412 152.74606);
+  --ansi-yellow: oklch(0.546648 0.126716 61.211522);
+  --ansi-blue: oklch(0.509035 0.173602 260.835194);
+  --ansi-magenta: oklch(0.548802 0.182668 317.614186);
+  --ansi-cyan: oklch(0.506906 0.085009 210.058922);
+  --ansi-white: oklch(0.884108 0.013486 262.376174);
+  --ansi-bright-black: oklch(0.56628 0.019529 256.330153);
+  --ansi-bright-red: oklch(0.627156 0.179914 29.144386);
+  --ansi-bright-green: oklch(0.572359 0.138286 154.890495);
+  --ansi-bright-yellow: oklch(0.64732 0.142287 66.630487);
+  --ansi-bright-blue: oklch(0.600412 0.201349 261.36796);
+  --ansi-bright-magenta: oklch(0.633117 0.18472 317.306961);
+  --ansi-bright-cyan: oklch(0.620084 0.104786 209.052478);
+  --ansi-bright-white: oklch(1 0 0);
 }
 
 :root[data-ui-font="system"] { --font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
@@ -145,13 +145,13 @@
   --diff-notice-text: oklch(0.82 0.1 88);
   --diff-notice-bg: oklch(0.28 0.06 88);
   --diff-line-number-bg: oklch(1 0 0 / 0.04);
-  --syntax-comment: #8b98a8;
-  --syntax-keyword: #c8a5ff;
-  --syntax-literal: #8cbcff;
-  --syntax-string: #8bdca8;
-  --syntax-title: #f2bd72;
-  --syntax-variable: #ff9cc3;
-  --syntax-meta: #a9b7c6;
+  --syntax-comment: oklch(0.674601 0.02801 253.640968);
+  --syntax-keyword: oklch(0.786229 0.129743 301.369216);
+  --syntax-literal: oklch(0.787091 0.108943 256.819356);
+  --syntax-string: oklch(0.828357 0.108623 155.099157);
+  --syntax-title: oklch(0.830531 0.111064 74.843097);
+  --syntax-variable: oklch(0.804587 0.126029 355.153431);
+  --syntax-meta: oklch(0.773324 0.026502 250.01637);
   --terminal-bg: oklch(0.125 0.016 255);
   --terminal-fg: oklch(0.93 0.01 255);
   --terminal-muted: oklch(0.68 0.025 255);
@@ -161,22 +161,22 @@
   --terminal-stdout: oklch(0.9 0.018 255);
   --terminal-stderr: oklch(0.77 0.14 36);
   --terminal-notice: oklch(0.82 0.1 88);
-  --ansi-black: #15191f;
-  --ansi-red: #ff6b5f;
-  --ansi-green: #78d68f;
-  --ansi-yellow: #f2bd72;
-  --ansi-blue: #8cbcff;
-  --ansi-magenta: #d8a5ff;
-  --ansi-cyan: #72d7e6;
-  --ansi-white: #d7dee8;
-  --ansi-bright-black: #8b98a8;
-  --ansi-bright-red: #ff8a80;
-  --ansi-bright-green: #9bebad;
-  --ansi-bright-yellow: #ffd58f;
-  --ansi-bright-blue: #acd0ff;
-  --ansi-bright-magenta: #e7c1ff;
-  --ansi-bright-cyan: #9ef1fb;
-  --ansi-bright-white: #ffffff;
+  --ansi-black: oklch(0.211983 0.013381 258.368576);
+  --ansi-red: oklch(0.709544 0.182961 27.315151);
+  --ansi-green: oklch(0.799637 0.1351 150.311268);
+  --ansi-yellow: oklch(0.830531 0.111064 74.843097);
+  --ansi-blue: oklch(0.787091 0.108943 256.819356);
+  --ansi-magenta: oklch(0.800877 0.134422 309.584202);
+  --ansi-cyan: oklch(0.823587 0.096609 208.071976);
+  --ansi-white: oklch(0.898202 0.015641 257.200264);
+  --ansi-bright-black: oklch(0.674601 0.02801 253.640968);
+  --ansi-bright-red: oklch(0.759375 0.143514 26.078452);
+  --ansi-bright-green: oklch(0.872258 0.116404 150.523735);
+  --ansi-bright-yellow: oklch(0.893625 0.099477 79.722403);
+  --ansi-bright-blue: oklch(0.847833 0.076464 255.24783);
+  --ansi-bright-magenta: oklch(0.863832 0.093196 312.093225);
+  --ansi-bright-cyan: oklch(0.908456 0.081594 205.467158);
+  --ansi-bright-white: oklch(1 0 0);
 }
 
 :root[data-theme="tidepool"] { --theme-hue: 225; --theme-accent-hue: 190; --theme-chroma: 0.13; }
@@ -1275,7 +1275,7 @@ textarea,
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--card);
-  box-shadow: 0 20px 60px color-mix(in oklch, black 12%, transparent);
+  box-shadow: 0 20px 60px color-mix(in oklch, oklch(0 0 0) 12%, transparent);
   text-align: center;
 }
 
@@ -1785,11 +1785,11 @@ textarea,
   margin-top: 11px;
 }
 
-.commit-plan-marker-1 { background: #a855f7; }
-.commit-plan-marker-2 { background: #f59e0b; }
-.commit-plan-marker-3 { background: #10b981; }
-.commit-plan-marker-4 { background: #f43f5e; }
-.commit-plan-marker-5 { background: #06b6d4; }
+.commit-plan-marker-1 { background: oklch(0.626846 0.232542 303.900435); }
+.commit-plan-marker-2 { background: oklch(0.76859 0.164659 70.08039); }
+.commit-plan-marker-3 { background: oklch(0.695873 0.149074 162.479602); }
+.commit-plan-marker-4 { background: oklch(0.645032 0.215403 16.4393); }
+.commit-plan-marker-5 { background: oklch(0.714837 0.125737 215.220903); }
 
 .commit-plan-files {
   display: grid;
@@ -3665,7 +3665,7 @@ textarea,
   border: 0;
   box-shadow: inset 0 0 0 1px var(--ring);
   outline: 0;
-  --tw-ring-shadow: 0 0 #0000;
+  --tw-ring-shadow: 0 0 oklch(0 0 0 / 0);
 }
 
 .diff-code.hljs,
@@ -3846,9 +3846,9 @@ textarea,
 .history-github-badge,
 .commit-reference-link { border: 1px solid var(--border); border-radius: 999px; padding: 1px 5px; background: var(--muted); color: inherit; font-size: .68rem; line-height: 1.1rem; }
 .history-check-state { width: 8px; height: 8px; border-radius: 50%; background: var(--muted-foreground); }
-.history-check-state.is-success { background: var(--success, #2da44e); }
+.history-check-state.is-success { background: var(--success, oklch(0.634342 0.161955 148.388422)); }
 .history-check-state.is-failure { background: var(--destructive); }
-.history-check-state.is-pending { background: var(--warning, #bf8700); }
+.history-check-state.is-pending { background: var(--warning, oklch(0.661874 0.137396 79.250394)); }
 .history-insights-error,
 .history-refresh-error { display: flex; min-height: 28px; align-items: center; justify-content: center; gap: 6px; color: var(--muted-foreground); font-size: .75rem; }
 .history-refresh-error { padding: 4px 10px; color: var(--destructive); }
@@ -4068,7 +4068,7 @@ textarea,
   gap: 3px;
   max-width: 160px;
   overflow: hidden;
-  border: 1px solid color-mix(in oklch, white 40%, transparent);
+  border: 1px solid color-mix(in oklch, oklch(1 0 0) 40%, transparent);
   border-radius: 4px;
   padding: 1px 6px;
   color: white;
