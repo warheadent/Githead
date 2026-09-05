@@ -1307,8 +1307,25 @@ describe("App", { timeout: 10_000 }, () => {
     expect(await screen.findByText("fast/identity")).toBeTruthy();
     expect(screen.queryByRole("option", { name: /src\/later\.ts/ })).toBeNull();
     pendingStatus.resolve({ repoPath, generation: 1, ahead: null, behind: null, files: [createStatusFile("src/later.ts", { isUnstaged: true, worktreeStatus: "M" })], operationState: null });
+    expect(await screen.findByRole("option", { name: /src\/later\.ts/ })).toBeTruthy();
     pendingMetadata.resolve({ repoPath, generation: 1, upstream: null, branches: [], remotes: [], remoteBranches: [], defaultRemoteBranch: null, commitsAheadOfDefaultBranch: null, githubRepository: null, actionsConfig: createActionsConfig() });
     expect(await screen.findByRole("option", { name: /src\/later\.ts/ })).toBeTruthy();
+  });
+
+  it("renders metadata while File Status is pending and preserves it when status arrives", async () => {
+    const pendingStatus = defer<Awaited<ReturnType<GitheadApi["getRepoStatus"]>>>();
+    vi.mocked(githead.getRepoStatus).mockReturnValue(pendingStatus.promise);
+    vi.mocked(githead.getRepoMetadata).mockResolvedValue({
+      repoPath, generation: 1, upstream: null, branches: [], remotes: [], remoteBranches: [],
+      defaultRemoteBranch: null, commitsAheadOfDefaultBranch: null,
+      githubRepository: { owner: "example", name: "repo", fullName: "example/repo", webUrl: "https://github.com/example/repo" },
+      actionsConfig: createActionsConfig()
+    });
+    render(<App />);
+    expect(await screen.findByRole("tab", { name: /Workflow Runs/ })).toBeTruthy();
+    pendingStatus.resolve({ repoPath, generation: 1, ahead: null, behind: null, files: [createStatusFile("src/later.ts", { isUnstaged: true, worktreeStatus: "M" })], operationState: null });
+    expect(await screen.findByRole("option", { name: /src\/later\.ts/ })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /Workflow Runs/ })).toBeTruthy();
   });
 
   it("ignores an unresolved diff from Repository A after switching to Repository B", async () => {

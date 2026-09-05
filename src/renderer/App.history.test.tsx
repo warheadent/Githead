@@ -321,56 +321,118 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.getByText("Select a repository to continue.")).toBeTruthy();
   });
 
-  it("preloads the first 20 commits while idle and refreshes the full history after opening the tab", async () => {
+  it("preloads the full history once and reuses it on the first tab open", async () => {
     const user = userEvent.setup();
-    const preloadedHistory = Array.from({ length: 20 }, (_, index) => createCommit({
+    const history = Array.from({ length: 25 }, (_, index) => createCommit({
       hash: index.toString(16).padStart(40, "0"),
-      shortHash: index.toString(16).padStart(7, "0"),
       subject: `feat: preloaded history ${index}`
     }));
-    const fullHistory = [
-      ...preloadedHistory,
-      ...Array.from({ length: 5 }, (_, index) => createCommit({
-        hash: (index + 20).toString(16).padStart(40, "0"),
-        shortHash: (index + 20).toString(16).padStart(7, "0"),
-        subject: `feat: lazy history ${index}`
-      }))
-    ];
-    const pendingFullHistory = defer<GitCommitGraphRow[]>();
     let idleCallback: IdleRequestCallback | null = null;
     vi.stubGlobal("requestIdleCallback", vi.fn((callback: IdleRequestCallback) => {
       idleCallback = callback;
       return 1;
     }));
     vi.stubGlobal("cancelIdleCallback", vi.fn());
-    vi.mocked(githead.getCommitHistory).mockImplementation(async ({ limit }) => {
-      if (limit === 20) return preloadedHistory;
-      return pendingFullHistory.promise;
-    });
+    vi.mocked(githead.getCommitHistory).mockResolvedValue(history);
     vi.mocked(githead.getCommitDetails).mockImplementation(async ({ hash }) => createCommitDetails(hash));
 
     render(<App />);
     await waitForRepositoryWorkspace();
     await waitFor(() => expect(idleCallback).not.toBeNull());
-    act(() => {
-      idleCallback?.({ didTimeout: false, timeRemaining: () => 50 });
-    });
-    await waitFor(() => expect(githead.getCommitHistory).toHaveBeenCalledWith(expect.objectContaining({
-      limit: 20,
-      scope: "current"
-    })));
+    act(() => idleCallback?.({ didTimeout: false, timeRemaining: () => 50 }));
     await flushRendererAsync();
+    expect(githead.getCommitHistory).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ limit: 200, scope: "current" }));
+    expect(githead.getCommitDetails).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    expect(screen.getByRole("option", { name: /preloaded history 0/ }).getAttribute("aria-setsize")).toBe("25");
+    expect(githead.getCommitHistory).toHaveBeenCalledTimes(1);
+    expect(githead.getCommitDetails).toHaveBeenCalledWith(expect.objectContaining({ hash: history[0]!.hash }));
 
-    const preloadedRow = screen.getByRole("option", { name: /preloaded history 0/ });
-    expect(preloadedRow.getAttribute("aria-setsize")).toBe("20");
-    expect(screen.getByText("Refreshing commit history")).toBeTruthy();
-    expect(githead.getCommitHistory).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 200 }));
-    expect(githead.getCommitDetails).toHaveBeenCalledWith(expect.objectContaining({ hash: preloadedHistory[0]!.hash }));
+    await user.click(screen.getByRole("tab", { name: /File Status/ }));
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    expect(githead.getCommitHistory).toHaveBeenCalledTimes(2);
+  });
 
-    pendingFullHistory.resolve(fullHistory);
-    await waitFor(() => expect(screen.getByRole("option", { name: /preloaded history 0/ }).getAttribute("aria-setsize")).toBe("25"));
+  it("finishes an in-flight preload after opening History without waiting for commit details", async () => {
+    const user = userEvent.setup();
+    const history = Array.from({ length: 25 }, (_, index) => createCommit({
+      hash: index.toString(16).padStart(40, "0"), subject: `feat: pending history ${index}`
+    }));
+    const pendingHistory = defer<GitCommitGraphRow[]>();
+    const pendingDetails = defer<Awaited<ReturnType<GitheadApi["getCommitDetails"]>>>();
+    let idleCallback: IdleRequestCallback | null = null;
+    vi.stubGlobal("requestIdleCallback", vi.fn((callback: IdleRequestCallback) => {
+      idleCallback = callback;
+      return 1;
+    }));
+    vi.stubGlobal("cancelIdleCallback", vi.fn());
+    vi.mocked(githead.getCommitHistory).mockReturnValue(pendingHistory.promise);
+    vi.mocked(githead.getCommitDetails).mockReturnValue(pendingDetails.promise);
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    act(() => idleCallback?.({ didTimeout: false, timeRemaining: () => 50 }));
+    await waitFor(() => expect(githead.getCommitHistory).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    pendingHistory.resolve(history);
+    expect((await screen.findByRole("option", { name: /pending history 0/ })).getAttribute("aria-setsize")).toBe("25");
+    expect(githead.getCommitHistory).toHaveBeenCalledTimes(1);
+    expect(githead.getCommitHistory).toHaveBeenCalledWith(expect.objectContaining({ limit: 200 }));
+    pendingDetails.resolve(createCommitDetails(history[0]!.hash));
+    await flushRendererAsync();
+  });
+
+  it.each([false, true])("invalidates an idle preload after repository metadata changes, pending=%s", async (pending) => {
+    const user = userEvent.setup();
+    const pendingHistory = defer<GitCommitGraphRow[]>();
+    const history = [createCommit({ subject: "feat: preloaded head" })];
+    let idleCallback: IdleRequestCallback | null = null;
+    vi.stubGlobal("requestIdleCallback", vi.fn((callback: IdleRequestCallback) => {
+      idleCallback = callback;
+      return 1;
+    }));
+    vi.stubGlobal("cancelIdleCallback", vi.fn());
+    vi.mocked(githead.getCommitHistory).mockReturnValueOnce(pendingHistory.promise)
+      .mockResolvedValue([createCommit({ subject: "feat: current head" })]);
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    act(() => idleCallback?.({ didTimeout: false, timeRemaining: () => 50 }));
+    await waitFor(() => expect(githead.getCommitHistory).toHaveBeenCalledTimes(1));
+    if (!pending) {
+      pendingHistory.resolve(history);
+      await flushRendererAsync();
+    }
+    emitRepoChanged({ reason: "filesystem-metadata" });
+    await waitFor(() => expect(githead.getRepoIdentity).toHaveBeenCalledTimes(2));
+    await flushRendererAsync();
+    if (pending) {
+      pendingHistory.resolve(history);
+      await flushRendererAsync();
+    }
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    expect(await screen.findByRole("option", { name: /current head/ })).toBeTruthy();
+    expect(githead.getCommitHistory).toHaveBeenCalledTimes(2);
+  });
+
+  it("refreshes active history while repository sections are still pending", async () => {
+    const user = userEvent.setup();
+    const pendingStatus = defer<Awaited<ReturnType<GitheadApi["getRepoStatus"]>>>();
+    const pendingMetadata = defer<Awaited<ReturnType<GitheadApi["getRepoMetadata"]>>>();
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await waitFor(() => expect(githead.getCommitHistory).toHaveBeenCalledTimes(1));
+    const status = await githead.getRepoStatus({ repoPath, generation: 2 });
+    const metadata = await githead.getRepoMetadata({ repoPath, generation: 2 });
+    vi.mocked(githead.getRepoStatus).mockReturnValue(pendingStatus.promise);
+    vi.mocked(githead.getRepoMetadata).mockReturnValue(pendingMetadata.promise);
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([createCommit({ subject: "feat: early history" })]);
+    emitRepoChanged({ reason: "filesystem-metadata" });
+    expect(await screen.findByRole("option", { name: /early history/ })).toBeTruthy();
+    pendingStatus.resolve(status);
+    pendingMetadata.resolve(metadata);
+    await flushRendererAsync();
+    expect(githead.getCommitHistory).toHaveBeenCalledTimes(2);
   });
 
   it("styles conventional commit subjects in history and details while falling back to raw subjects", async () => {

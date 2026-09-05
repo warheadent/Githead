@@ -815,8 +815,7 @@ export class GitService {
 
     const [
       metadataResult,
-      nameStatusResult,
-      numstatResult
+      filesResult
     ] = await runEffect(Effect.all([
       this.runGitEffect(request.repoPath, [
         "show",
@@ -830,17 +829,7 @@ export class GitService {
         "diff-tree",
         "--root",
         "--no-commit-id",
-        "--name-status",
-        "-r",
-        "-z",
-        "--find-renames",
-        "--find-copies",
-        hashResult.hash
-      ]),
-      this.runGitEffect(request.repoPath, [
-        "diff-tree",
-        "--root",
-        "--no-commit-id",
+        "--raw",
         "--numstat",
         "-r",
         "-z",
@@ -853,19 +842,13 @@ export class GitService {
     if (metadataResult.exitCode !== 0) {
       throw new Error(metadataResult.stderr.trim() || metadataResult.error || "Unable to read commit details.");
     }
-    if (nameStatusResult.exitCode !== 0) {
-      throw new Error(nameStatusResult.stderr.trim() || nameStatusResult.error || "Unable to read changed files.");
-    }
-    if (numstatResult.exitCode !== 0) {
-      throw new Error(numstatResult.stderr.trim() || numstatResult.error || "Unable to read file stats.");
+    if (filesResult.exitCode !== 0) {
+      throw new Error(filesResult.stderr.trim() || filesResult.error || "Unable to read changed files.");
     }
 
     return {
       ...parseCommitDetails(metadataResult.stdout),
-      files: mergeCommitFiles(
-        parseCommitNameStatus(nameStatusResult.stdout),
-        parseCommitNumstat(numstatResult.stdout)
-      )
+      files: parseCommitFiles(filesResult.stdout)
     };
   }
 
@@ -4674,12 +4657,15 @@ function parseCommitRefs(text: string): CommitRef[] {
     });
 }
 
-function parseCommitNameStatus(text: string): GitCommitChangedFile[] {
-  const tokens = text.split("\0").filter((token) => token.length > 0);
+function parseCommitFiles(text: string): GitCommitChangedFile[] {
+  const tokens = text.split("\0");
   const files: GitCommitChangedFile[] = [];
+  let index = 0;
 
-  for (let index = 0; index < tokens.length;) {
-    const status = tokens[index] ?? "";
+  // Git emits all raw records before numstat records. Consume path fields
+  // positionally because paths can contain tabs, newlines, or a leading colon.
+  while (tokens[index]?.startsWith(":")) {
+    const status = tokens[index]?.split(" ").at(-1) ?? "";
     index += 1;
 
     if (/^[RC]\d+/.test(status)) {
@@ -4700,13 +4686,13 @@ function parseCommitNameStatus(text: string): GitCommitChangedFile[] {
     index += 1;
     files.push({
       path: filePath,
-      status,
+      status: status[0] ?? status,
       additions: 0,
       deletions: 0
     });
   }
 
-  return files;
+  return mergeCommitFiles(files, parseCommitNumstat(tokens.slice(index).join("\0")));
 }
 
 function parseCommitNumstat(text: string): Map<string, Pick<GitCommitChangedFile, "additions" | "deletions">> {
@@ -4720,7 +4706,8 @@ function parseCommitNumstat(text: string): Map<string, Pick<GitCommitChangedFile
       continue;
     }
 
-    const [rawAdditions = "-", rawDeletions = "-", inlinePath = ""] = token.split("\t");
+    const [rawAdditions = "-", rawDeletions = "-", ...pathParts] = token.split("\t");
+    const inlinePath = pathParts.join("\t");
     let filePath = inlinePath;
     if (!filePath) {
       index += 1;

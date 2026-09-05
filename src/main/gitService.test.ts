@@ -2530,8 +2530,7 @@ describe("GitService", () => {
     const runner = new FakeRunner([
       ok("true\n"),
       ok(`${oid}\x1fad4f1df\x1fHEAD -> refs/heads/master\x1fSubject\x1fTaylor\x1ftaylor@example.test\x1f2026-05-26T21:42:20-07:00\x1fTaylor\x1ftaylor@example.test\x1f2026-05-26T21:42:20-07:00\x1f${"1".repeat(40)}\x1eBody text\n`),
-      ok(`M\0src/app.ts\0R100\0old.ts\0new.ts\0`),
-      ok(`12\t3\tsrc/app.ts\0`)
+      ok(`:100644 100644 ${oid} ${oid} M\0src/app.ts\0:100644 100644 ${oid} ${oid} R100\0old.ts\0new.ts\0${"12"}\t3\tsrc/app.ts\0`)
     ]);
     const service = new GitService(runner);
 
@@ -2540,6 +2539,7 @@ describe("GitService", () => {
       hash: oid
     });
 
+    expect(runner.calls.filter((call) => call.args.includes("diff-tree"))).toHaveLength(1);
     expect(details).toMatchObject({
       hash: oid,
       shortHash: "ad4f1df",
@@ -2562,6 +2562,61 @@ describe("GitService", () => {
           deletions: 0
         }
       ]
+    });
+  });
+
+  it("reads combined file stats from real Git for roots, renames, copies, binary files, and empty commits", async () => {
+    await withTempDir(async (repoPath) => {
+      const runner = new NodeProcessRunner();
+      const git = async (...args: string[]): Promise<string> => {
+        const result = await runner.run("git", ["-C", repoPath, ...args]);
+        expect(result.exitCode, result.stderr).toBe(0);
+        return result.stdout.trim();
+      };
+      await git("init");
+      await git("config", "user.name", "Githead Test");
+      await git("config", "user.email", "githead@example.test");
+      const unusualPath = process.platform === "win32" ? "spaced file.txt" : ":tab\tline\nfile.txt";
+      const original = Array.from({ length: 40 }, (_, index) => `source line ${index}\n`).join("");
+      await fs.writeFile(path.join(repoPath, "source.txt"), original);
+      await fs.writeFile(path.join(repoPath, "old.txt"), "rename content\n");
+      await fs.writeFile(path.join(repoPath, "deleted.txt"), "removed\n");
+      await fs.writeFile(path.join(repoPath, "binary.dat"), Buffer.from([0, 1, 2]));
+      await git("add", ".");
+      await git("commit", "-m", "Root");
+      const service = new GitService(runner);
+      const root = await service.getCommitDetails({ repoPath, hash: await git("rev-parse", "HEAD") });
+      expect(root.files).toHaveLength(4);
+      expect(root.files.every((file) => file.status === "A")).toBe(true);
+      expect(root.files.find((file) => file.path === "binary.dat")).toMatchObject({ additions: 0, deletions: 0 });
+
+      await fs.copyFile(path.join(repoPath, "source.txt"), path.join(repoPath, "copy.txt"));
+      await fs.appendFile(path.join(repoPath, "source.txt"), "new line\n");
+      await fs.rename(path.join(repoPath, "old.txt"), path.join(repoPath, unusualPath));
+      await fs.unlink(path.join(repoPath, "deleted.txt"));
+      await fs.writeFile(path.join(repoPath, "binary.dat"), Buffer.from([0, 3, 4]));
+      await fs.writeFile(path.join(repoPath, "added.txt"), "added\n");
+      await git("add", "-A");
+      await git("commit", "-m", "Changes");
+      const changed = await service.getCommitDetails({ repoPath, hash: await git("rev-parse", "HEAD") });
+      expect(changed.files).toEqual(expect.arrayContaining([
+        { path: "source.txt", status: "M", additions: 1, deletions: 0 },
+        { path: "copy.txt", originalPath: "source.txt", status: "C", additions: 0, deletions: 0 },
+        { path: unusualPath, originalPath: "old.txt", status: "R", additions: 0, deletions: 0 },
+        { path: "deleted.txt", status: "D", additions: 0, deletions: 1 },
+        { path: "binary.dat", status: "M", additions: 0, deletions: 0 },
+        { path: "added.txt", status: "A", additions: 1, deletions: 0 }
+      ]));
+      expect(changed.files).toHaveLength(6);
+      // Also exercise an inline numstat path with tabs and newlines.
+      await fs.appendFile(path.join(repoPath, unusualPath), "another line\n");
+      await git("add", "-A");
+      await git("commit", "-m", "Unusual path");
+      const unusual = await service.getCommitDetails({ repoPath, hash: await git("rev-parse", "HEAD") });
+      expect(unusual.files).toEqual([{ path: unusualPath, status: "M", additions: 1, deletions: 0 }]);
+      await git("commit", "--allow-empty", "-m", "Empty");
+      const empty = await service.getCommitDetails({ repoPath, hash: await git("rev-parse", "HEAD") });
+      expect(empty.files).toEqual([]);
     });
   });
 

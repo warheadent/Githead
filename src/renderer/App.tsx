@@ -215,6 +215,8 @@ import type {
   RepoIdentitySection,
   RepoTrustResult,
   RepoSummary,
+  RepoStatusSection,
+  RepoMetadataSection,
   RepositoryGroup,
   StatusFileViewMode
 } from "../shared/types";
@@ -295,7 +297,6 @@ const RemoteManagementDialog = lazy(() => import("./RemoteManagementDialog.js").
 const ReviewConsole = lazy(() => import("./ReviewConsole.js").then((module) => ({ default: module.ReviewConsole })));
 
 const HISTORY_LIMIT = 200;
-const HISTORY_PRELOAD_LIMIT = 20;
 
 type HistoryColumnId = "graph" | "description" | "date" | "author" | "commit" | "references" | "pullRequest" | "checks";
 
@@ -1000,6 +1001,7 @@ export function App(): ReactNode {
     remoteConfigs: 0,
     commitPlanValidation: 0
   });
+  const preloadedHistoryRequestId = useRef<number | null>(null);
   const repositorySnapshots = useRef(new RepositorySnapshotCache());
   const lastRepositoryRefreshRef = useRef<{ repoPath: string; succeeded: boolean } | null>(null);
   const runRepoRefreshRef = useRef<(
@@ -1356,7 +1358,7 @@ export function App(): ReactNode {
 
   const loadCommitHistory = useCallback(async (
     force: boolean,
-    limit = HISTORY_LIMIT
+    preload = false
   ): Promise<boolean> => {
     const current = stateRef.current;
     if (!current.summary?.isValid) {
@@ -1374,7 +1376,9 @@ export function App(): ReactNode {
 
     const repoPath = current.repoPath;
     const scope = current.historyScope;
+    const repoRequestId = requestIds.current.repo;
 
+    preloadedHistoryRequestId.current = null;
     cancelRepositoryRead("history", requestIds.current.history);
     const requestId = requestIds.current.history + 1;
     requestIds.current.history = requestId;
@@ -1388,7 +1392,7 @@ export function App(): ReactNode {
     try {
       const loadedHistory = await window.githead.getCommitHistory({
         repoPath,
-        limit,
+        limit: HISTORY_LIMIT,
         scope,
         requestId: repositoryReadRequestId("history", requestId)
       });
@@ -1398,6 +1402,7 @@ export function App(): ReactNode {
       }
 
       const latest = stateRef.current;
+      preloadedHistoryRequestId.current = preload && repoRequestId === requestIds.current.repo && latest.activeView !== "history" ? requestId : null;
       const history = reuseCommitHistoryRows(latest.history, loadedHistory);
       const selectedCommitHash = history.some((commit) => commit.hash === latest.selectedCommitHash)
         ? latest.selectedCommitHash
@@ -1459,16 +1464,6 @@ export function App(): ReactNode {
       await loadCommitDetails(commitHashToLoad);
     }
 
-    if (
-      limit < HISTORY_LIMIT &&
-      requestId === requestIds.current.history &&
-      stateRef.current.activeView === "history" &&
-      stateRef.current.historyRoute.kind === "repository"
-    ) {
-      queueMicrotask(() => {
-        void loadCommitHistory(true);
-      });
-    }
     return true;
   }, [loadCommitDetails, updateState]);
 
@@ -1496,7 +1491,7 @@ export function App(): ReactNode {
       ) {
         return;
       }
-      void loadCommitHistory(false, HISTORY_PRELOAD_LIMIT);
+      void loadCommitHistory(false, true);
     }, { timeout: 750 });
 
     return () => {
@@ -1700,6 +1695,7 @@ export function App(): ReactNode {
     options: AppRepositoryRefreshRequest,
     signal: AbortSignal
   ): Promise<void> => {
+    preloadedHistoryRequestId.current = null;
     const requestId = requestIds.current.repo + 1;
     requestIds.current.repo = requestId;
     const fileStatusGeneration = fileStatusGenerationRef.current;
@@ -1757,31 +1753,44 @@ export function App(): ReactNode {
         requestId === requestIds.current.repo && isSameRepoPath(repoPath, stateRef.current.repoPath)
       ), false))) return;
 
-      const [statusResult, metadataResult] = await Promise.allSettled([
-        window.githead.getRepoStatus({ repoPath, generation: requestId, requestId: repositoryReadRequestId("status", requestId) }),
-        window.githead.getRepoMetadata({ repoPath, generation: requestId, requestId: repositoryReadRequestId("metadata", requestId) })
-      ]);
-      if (requestId !== requestIds.current.repo || !isSameRepoPath(repoPath, stateRef.current.repoPath)) return;
-      const status = statusResult.status === "fulfilled" && statusResult.value.generation === requestId && isSameRepoPath(statusResult.value.repoPath, repoPath) ? statusResult.value : null;
-      const metadata = metadataResult.status === "fulfilled" && metadataResult.value.generation === requestId && isSameRepoPath(metadataResult.value.repoPath, repoPath) ? metadataResult.value : null;
-      const summary = { ...identitySummary, ...status, ...metadata };
+      const isRefreshCurrent = (): boolean => !signal.aborted
+        && requestId === requestIds.current.repo
+        && isSameRepoPath(repoPath, stateRef.current.repoPath);
+      if (!isRefreshCurrent()) return;
+      // History needs validated, trusted identity, but not status or metadata.
+      if (stateRef.current.activeView === "history" && stateRef.current.historyRoute.kind === "repository") {
+        void loadCommitHistory(true);
+      }
 
-      acknowledgedFileStatusGenerationRef.current = Math.max(
-        acknowledgedFileStatusGenerationRef.current,
-        fileStatusGeneration
-      );
-      refreshSucceeded = Boolean(status);
+      const applySection = (section: RepoStatusSection | RepoMetadataSection): boolean => {
+        if (!isRefreshCurrent() || section.generation !== requestId || !isSameRepoPath(section.repoPath, repoPath)) return false;
+        updateState((current) => {
+          const summary = { ...current.summary!, ...section };
+          return reconcileGitHubUiState(reconcileSelection({
+            ...current,
+            summary,
+            repoSyncStatuses: {
+              ...current.repoSyncStatuses,
+              [getRepoPathKey(repoPath)]: createRepoSyncStatusFromSummary(summary)
+            }
+          }), current.summary);
+        });
+        return true;
+      };
+      const [statusResult, metadataResult] = await Promise.allSettled([
+        window.githead.getRepoStatus({ repoPath, generation: requestId, requestId: repositoryReadRequestId("status", requestId) }).then((status) => {
+          if (!applySection(status)) return null;
+          acknowledgedFileStatusGenerationRef.current = Math.max(acknowledgedFileStatusGenerationRef.current, fileStatusGeneration);
+          refreshSucceeded = true;
+          return status;
+        }),
+        window.githead.getRepoMetadata({ repoPath, generation: requestId, requestId: repositoryReadRequestId("metadata", requestId) }).then((metadata) => applySection(metadata) ? metadata : null)
+      ]);
+      if (!isRefreshCurrent()) return;
+      const status = statusResult.status === "fulfilled" ? statusResult.value : null;
+      const metadata = metadataResult.status === "fulfilled" ? metadataResult.value : null;
+      const summary = stateRef.current.summary!;
       lastRepositoryRefreshRef.current = { repoPath, succeeded: Boolean(status && metadata) };
-      updateState((current) => reconcileGitHubUiState(reconcileSelection({
-        ...current,
-        summary,
-        repoSyncStatuses: {
-          ...current.repoSyncStatuses,
-          [getRepoPathKey(summary.repoPath)]: createRepoSyncStatusFromSummary(summary)
-        },
-        showSetup: !summary.isValid,
-        setupError: summary.isValid ? "" : summary.validationErrors.join(" ")
-      }), current.summary));
 
       if (!status || !metadata) {
         const error = statusResult.status === "rejected" ? statusResult.reason : metadataResult.status === "rejected" ? metadataResult.reason : null;
@@ -1878,15 +1887,6 @@ export function App(): ReactNode {
         }
       }
     }
-
-    if (requestId !== requestIds.current.repo || !isSameRepoPath(repoPath, stateRef.current.repoPath)) {
-      return;
-    }
-
-    const latest = stateRef.current;
-    if (latest.activeView === "history" && latest.historyRoute.kind === "repository") {
-      await loadCommitHistory(true);
-    }
   }, [ensureTrustedRepo, loadCommitHistory, loadRepoSyncStatuses, updateState]);
 
   runRepoRefreshRef.current = runRepoRefresh;
@@ -1961,6 +1961,7 @@ export function App(): ReactNode {
       if (event.reason === "filesystem") {
         void refreshDirtyFileStatus({ reason: "filesystem" });
       } else {
+        preloadedHistoryRequestId.current = null;
         void refreshRepo({ reason: "repository-change", silent: true });
         void loadRepositoryGroups();
       }
@@ -5868,7 +5869,10 @@ export function App(): ReactNode {
       ) {
         void loadCommitDetails(latest.selectedCommitHash);
       }
-      void loadCommitHistory(true);
+      // Consume an idle preload once. Reopening the tab still refreshes it.
+      const hasPreloadedHistory = latest.historyLoaded && preloadedHistoryRequestId.current === requestIds.current.history;
+      preloadedHistoryRequestId.current = null;
+      if (!hasPreloadedHistory) void loadCommitHistory(true);
     }
     if (view === "stashes") void stashWorkspace.refresh();
     if (view === "workflows") void github.ensure("workflowRuns");
