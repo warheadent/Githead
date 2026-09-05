@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeColumnLayout, reorderColumn, type ColumnDefinition } from "./columnLayout";
+import { getRenderedColumnWidths, normalizeColumnLayout, reorderColumn, type ColumnDefinition } from "./columnLayout";
 
 const columns = [
   { id: "name", label: "Name", defaultWidth: 200, minWidth: 100 },
@@ -46,6 +46,17 @@ describe("column layout", () => {
     expect(normalizeColumnLayout({ version: 2, order: ["wide"], widths: { wide: 1_100 } }, wideColumns).widths).toEqual({
       wide: 1_000
     });
+  });
+
+  it("fills spare space without changing saved widths or shrinking columns on narrow windows", () => {
+    const layout = normalizeColumnLayout(null, columns);
+    expect(getRenderedColumnWidths(layout, 600, "name")).toEqual({ name: 480, date: 120, author: 140 });
+    expect(getRenderedColumnWidths(layout, 250, "name")).toEqual(layout.widths);
+    expect(layout.widths.name).toBe(200);
+    layout.visibility.date = false;
+    expect(getRenderedColumnWidths(layout, 600, "name").name).toBe(600);
+    layout.visibility.name = false;
+    expect(getRenderedColumnWidths(layout, 600, "name")).toEqual(layout.widths);
   });
 
   it("moves a column to the target position", () => {

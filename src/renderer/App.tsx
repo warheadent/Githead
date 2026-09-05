@@ -5,6 +5,7 @@ import {
   ChevronRight,
   CircleDot,
   Clipboard,
+  CloudDownload,
   Copy,
   Download,
   ExternalLink,
@@ -6087,7 +6088,7 @@ export function App(): ReactNode {
     });
   }, [updateState]);
 
-  const copyCommitShaToClipboard = useCallback(async (commit: GitCommitGraphRow): Promise<void> => {
+  const copyCommitShaToClipboard = useCallback(async (commit: Pick<GitCommitGraphRow, "hash">): Promise<void> => {
     const current = stateRef.current;
     if (!current.summary?.isValid || isOperationRunning(current)) {
       return;
@@ -7424,6 +7425,7 @@ export function App(): ReactNode {
                   onHistoryScopeChange={changeHistoryScope}
                   onSelectCommit={selectCommit}
                   onSelectCommitFile={selectCommitFile}
+                  onCopyCommit={copyCommitShaToClipboard}
                   onCommitContextAction={runCommitContextAction}
                   currentHeadHash={getCurrentHistoryHeadSha(state.history, state.historyScope, state.summary?.branch ?? null)}
                   amendDisabledReason={getAmendDisabledReason(state)}
@@ -10004,7 +10006,7 @@ function ActionBar({
               successLabel="Fetched"
               surface="action-bar"
             >
-              {runningAction === "fetch" ? <Loader2 className="animate-spin" /> : <Download />}
+              {runningAction === "fetch" ? <Loader2 className="animate-spin" /> : <CloudDownload />}
               Fetch
             </OperationButtonFeedback>
           </Button>
@@ -11193,6 +11195,7 @@ function HistoryView({
   onSelectCommit,
   onSelectCommitFile,
   onCommitContextAction,
+  onCopyCommit,
   onCommitFileContextAction,
   onDownloadImage,
   onWrapLinesChange
@@ -11223,6 +11226,7 @@ function HistoryView({
   onHistoryScopeChange: (scope: CommitHistoryScope) => void;
   onSelectCommit: (hash: string) => void;
   onSelectCommitFile: (filePath: string) => void;
+  onCopyCommit: (commit: Pick<GitCommitGraphRow, "hash">) => Promise<void>;
   onCommitContextAction: (commit: GitCommitGraphRow, action: CommitContextActionKind) => void;
   onCommitFileContextAction: (file: GitCommitChangedFile, action: CommitFileContextActionKind) => void;
   onDownloadImage: () => void;
@@ -11233,37 +11237,43 @@ function HistoryView({
   const historyColumns = useMemo(() => [
     { id: "graph", label: "Graph", defaultWidth: Math.max(82, graphLayout.width), minWidth: graphLayout.width },
     { id: "description", label: "Description", defaultWidth: 360, minWidth: 180 },
-    { id: "date", label: "Date", defaultWidth: 150, minWidth: 90 },
+    { id: "date", label: "Date", defaultWidth: 112, minWidth: 90 },
     { id: "author", label: "Author", defaultWidth: 150, minWidth: 90 },
-    { id: "commit", label: "Commit", defaultWidth: 92, minWidth: 72 },
+    { id: "commit", label: "Commit", defaultWidth: 80, minWidth: 72 },
     { id: "references", label: "References", defaultWidth: 220, minWidth: 120, defaultVisible: false },
     { id: "pullRequest", label: "Pull request", defaultWidth: 120, minWidth: 92, defaultVisible: false },
     { id: "checks", label: "Checks", defaultWidth: 110, minWidth: 82, defaultVisible: false }
   ] as const satisfies readonly ColumnDefinition<HistoryColumnId>[], [graphLayout.width]);
-  const columnLayout = usePersistentColumnLayout("githead.column-layout.history", historyColumns);
+  const columnLayout = usePersistentColumnLayout("githead.column-layout.history", historyColumns, { fillColumn: "description", gap: 10, padding: 24 });
   const selectedCommitFile = selectedCommitFilePath
     ? commitDetails?.files.find((file) => file.path === selectedCommitFilePath) ?? null
     : null;
   const showHistoryScope = summary?.isValid && summary.kind === "git";
   const graphVisible = columnLayout.layout.visibility.graph;
   const graphColumnIndex = columnLayout.layout.order.indexOf("graph");
-  const graphOffset = 12 + columnLayout.layout.order
+  const graphOffset = ["12px", ...columnLayout.layout.order
     .slice(0, graphColumnIndex)
     .filter((id) => columnLayout.layout.visibility[id])
-    .reduce((total, id) => total + columnLayout.layout.widths[id] + 10, 0);
+    .map((id) => `var(--data-grid-width-${id}) + 10px`)].join(" + ");
   const historyStyle = {
     ...columnLayout.style,
-    "--history-graph-offset": `${graphOffset}px`
+    "--history-graph-offset": `calc(${graphOffset})`
   } as CSSProperties;
 
   return (
     <ResizablePanelGroup orientation="vertical" className="h-full min-h-0 bg-background">
       <ResizablePanel defaultSize="44%" minSize="180px">
-        <section ref={columnLayout.containerRef} style={historyStyle} className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] border-b bg-card" aria-label="Commit list">
+        <section ref={columnLayout.containerRef} style={historyStyle} className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] border-b bg-card" aria-label="Commit list" onScrollCapture={(event) => {
+          const source = event.target;
+          if (!(source instanceof HTMLElement)) return;
+          const targetClass = source.classList.contains("history-list") ? ".history-table-header"
+            : source.classList.contains("history-table-header") ? ".history-list" : null;
+          const target = targetClass ? event.currentTarget.querySelector<HTMLElement>(targetClass) : null;
+          if (target && target.scrollLeft !== source.scrollLeft) target.scrollLeft = source.scrollLeft;
+        }}>
           <div className="history-scope-toolbar">
             {showHistoryScope ? (
               <>
-              <span className="history-scope-label">Show</span>
               <div className="history-scope-control" role="group" aria-label="Commit history scope">
                 {(["current", "all"] as const).map((scope) => (
                   <Button
@@ -11274,7 +11284,7 @@ function HistoryView({
                     aria-pressed={historyScope === scope}
                     onClick={() => onHistoryScopeChange(scope)}
                   >
-                    {scope === "current" ? "Current" : "All"}
+                    {scope === "current" ? "Current branch" : "All branches"}
                   </Button>
                 ))}
               </div>
@@ -11354,6 +11364,7 @@ function HistoryView({
         <ResizablePanelGroup orientation="horizontal" className="h-full min-h-0">
           <ResizablePanel defaultSize="42%" minSize="300px" className="min-w-[300px]">
             <CommitDetailsPanel
+              onCopyCommit={onCopyCommit}
               details={commitDetails}
               loading={commitDetailsLoading}
               error={commitDetailsError}
@@ -12321,23 +12332,25 @@ const HistoryRow = memo(function HistoryRow({
         >
           <OrderedCells order={columnOrder} cells={{
             graph: <span className="history-graph-cell" aria-hidden="true" />,
-            description: <TooltipTarget content={commit.subject || undefined}>
-              <span className="history-description">
-                {!columnOrder.includes("references") ? <HistoryReferences commit={commit} /> : null}
-                <CommitSubject
-                  subject={commit.subject}
-                  className="history-subject"
-                  scopeClassName="history-scope"
-                  descriptionClassName="history-description-text"
-                />
-                {association && (!columnOrder.includes("pullRequest") || !columnOrder.includes("checks")) ? (
-                  <span className="history-github-badges">
-                    {!columnOrder.includes("pullRequest") ? <HistoryPullRequests association={association} onOpenExternalUrl={onOpenExternalUrl} /> : null}
-                    {!columnOrder.includes("checks") ? <HistoryCheckState association={association} compact /> : null}
-                  </span>
-                ) : null}
-              </span>
-            </TooltipTarget>,
+            description: <span className="history-description">
+              <TooltipTarget content={commit.subject || undefined}>
+                <span className="history-subject-tooltip">
+                  <CommitSubject
+                    subject={commit.subject}
+                    className="history-subject"
+                    scopeClassName="history-scope"
+                    descriptionClassName="history-description-text"
+                  />
+                </span>
+              </TooltipTarget>
+              {!columnOrder.includes("references") ? <HistoryReferences commit={commit} compact /> : null}
+              {association && (!columnOrder.includes("pullRequest") || !columnOrder.includes("checks")) ? (
+                <span className="history-github-badges">
+                  {!columnOrder.includes("pullRequest") ? <HistoryPullRequests association={association} onOpenExternalUrl={onOpenExternalUrl} /> : null}
+                  {!columnOrder.includes("checks") ? <HistoryCheckState association={association} compact /> : null}
+                </span>
+              ) : null}
+              </span>,
             date: <TooltipTarget content={formatDate(commit.authorDate)}>
               <span className="history-date">{commit.relativeDate || formatDate(commit.authorDate)}</span>
             </TooltipTarget>,
@@ -12403,16 +12416,32 @@ const HistoryRow = memo(function HistoryRow({
   );
 }, areHistoryRowPropsEqual);
 
-function HistoryReferences({ commit, showEmpty = false }: { commit: GitCommitGraphRow; showEmpty?: boolean }): ReactNode {
+function HistoryReferences({ commit, showEmpty = false, compact = false }: { commit: GitCommitGraphRow; showEmpty?: boolean; compact?: boolean }): ReactNode {
   if (commit.refs.length === 0) return showEmpty ? <span className="github-secondary-text">-</span> : null;
+  const visibleRefs = compact ? [commit.refs.find((ref) => ref.kind === "branch") ?? commit.refs[0]!] : commit.refs;
   return (
-    <span className="history-refs">
-      {commit.refs.map((ref) => (
-        <span key={`${commit.hash}:${ref.kind}:${ref.name}`} className={`ref-badge ${ref.kind}`}>
-          {ref.kind === "tag" ? <Tag aria-hidden="true" /> : null}
-          {ref.name}
-        </span>
+    <span className={`history-refs ${compact ? "is-compact" : ""}`}>
+      {visibleRefs.map((ref) => (
+        <TooltipTarget key={`${commit.hash}:${ref.kind}:${ref.name}`} content={ref.name}>
+          <span className={`ref-badge ${ref.kind}`}>
+            {ref.kind === "tag" ? <Tag aria-hidden="true" /> : null}
+            <span className="truncate">{ref.name}</span>
+          </span>
+        </TooltipTarget>
       ))}
+      {compact && commit.refs.length > 1 ? (
+        <Popover>
+          <PopoverTrigger asChild>
+            <button type="button" className="history-ref-overflow" aria-label={`Show all ${commit.refs.length} references`} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+              +{commit.refs.length - 1}
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="history-reference-popover" onClick={(event) => event.stopPropagation()}>
+            <p className="text-sm font-medium">References</p>
+            <ul>{commit.refs.map((ref) => <li key={`${ref.kind}:${ref.name}`}><span>{ref.name}</span><span className="text-muted-foreground">{ref.kind}</span></li>)}</ul>
+          </PopoverContent>
+        </Popover>
+      ) : null}
     </span>
   );
 }
@@ -12494,6 +12523,7 @@ function CommitSubject({
 
 function CommitDetailsPanel({
   details,
+  onCopyCommit,
   loading,
   error,
   repository,
@@ -12507,6 +12537,7 @@ function CommitDetailsPanel({
   onCommitFileContextAction
 }: {
   details: GitCommitDetails | null;
+  onCopyCommit: (commit: Pick<GitCommitGraphRow, "hash">) => Promise<void>;
   loading: boolean;
   error: string;
   repository: GitHubRepository | null;
@@ -12522,6 +12553,7 @@ function CommitDetailsPanel({
   let meta: ReactNode;
   let files: ReactNode;
   let fileCount = "No files";
+  let changeSummary: ReactNode = null;
 
   if (loading) {
     meta = <LoadingState label="Loading commit details" />;
@@ -12534,11 +12566,13 @@ function CommitDetailsPanel({
     files = null;
   } else {
     fileCount = `${details.files.length} ${details.files.length === 1 ? "file" : "files"}`;
+    const totals = details.files.reduce((sum, file) => ({ additions: sum.additions + file.additions, deletions: sum.deletions + file.deletions }), { additions: 0, deletions: 0 });
+    changeSummary = <span className="commit-change-summary"><span className="good">+{totals.additions}</span><span className="bad">−{totals.deletions}</span></span>;
     const references = parseGitHubReferences(`${details.subject}\n${details.body}`, repository);
     meta = (
       <div className="commit-meta-card selectable-text">
         <TooltipTarget content={details.subject || undefined}>
-          <h2 className="commit-title text-base font-semibold">
+          <h2 className="commit-title text-sm font-semibold">
             <CommitSubject
               subject={details.subject}
               className="commit-title-subject"
@@ -12547,26 +12581,32 @@ function CommitDetailsPanel({
             />
           </h2>
         </TooltipTarget>
-        <dl className="commit-facts">
-          <Fact label="Commit" value={details.hash} />
-          <Fact
-            label="Parents"
-            value={<ParentCommitLinks parents={details.parents} onSelectCommit={onSelectCommit} />}
-          />
-          <Fact label="Author" value={`${details.authorName} <${details.authorEmail}>`} />
-          <Fact label="Date" value={formatDate(details.authorDate)} />
-          {references.length > 0 ? (
-            <Fact label="References" value={
-              <span className="commit-reference-list">
-                {references.map((reference) => (
-                  <button key={`${reference.owner}/${reference.repository}#${reference.number}:${reference.kind}`} type="button" className="commit-reference-link" onClick={() => {
-                    if (reference.targetUrl) onOpenExternalUrl(reference.targetUrl);
-                  }}>{reference.displayText}</button>
-                ))}
-              </span>
-            } />
-          ) : null}
-        </dl>
+        <div className="commit-summary-meta">
+          <TooltipTarget content={details.authorEmail}><span>{details.authorName}</span></TooltipTarget>
+          <time dateTime={details.authorDate}>{formatDate(details.authorDate)}</time>
+          <TooltipButton type="button" variant="ghost" size="xs" disabled={disabled} className="commit-copy-hash" aria-label="Copy commit SHA" tooltip="Copy full commit SHA" onClick={() => { void onCopyCommit(details); }}>
+            <Clipboard />{details.shortHash}
+          </TooltipButton>
+        </div>
+        <details key={details.hash} className="commit-expanded-details">
+          <summary>Commit details</summary>
+          <dl className="commit-facts">
+            <Fact label="Commit" value={details.hash} />
+            <Fact label="Parents" value={<ParentCommitLinks parents={details.parents} onSelectCommit={onSelectCommit} />} />
+            <Fact label="Author" value={`${details.authorName} <${details.authorEmail}>`} />
+            {references.length > 0 ? (
+              <Fact label="References" value={
+                <span className="commit-reference-list">
+                  {references.map((reference) => (
+                    <button key={`${reference.owner}/${reference.repository}#${reference.number}:${reference.kind}`} type="button" className="commit-reference-link" onClick={() => {
+                      if (reference.targetUrl) onOpenExternalUrl(reference.targetUrl);
+                    }}>{reference.displayText}</button>
+                  ))}
+                </span>
+              } />
+            ) : null}
+          </dl>
+        </details>
         {details.body ? (
           <div className="commit-body">
             <OptionalFeatureBoundary name="commit message">
@@ -12599,7 +12639,8 @@ function CommitDetailsPanel({
       <div className="commit-meta-scroll border-b">{meta}</div>
       <div className="commit-file-list-header flex min-h-10 items-center justify-between gap-3 border-b px-4 text-sm">
         <span className="text-muted-foreground">{fileCount}</span>
-        <span className="text-muted-foreground">Sorted by file status</span>
+        <span className="sr-only">Sorted by file status</span>
+        {changeSummary}
       </div>
       <div className="commit-file-list" role="listbox" aria-label="Changed files">
         {files}
@@ -12659,6 +12700,9 @@ function CommitFileRow({
   onSelectCommitFile: (filePath: string) => void;
   onContextAction: (file: GitCommitChangedFile, action: CommitFileContextActionKind) => void;
 }): ReactNode {
+  const slashIndex = file.path.lastIndexOf("/");
+  const directory = file.path.slice(0, slashIndex + 1);
+  const filename = file.path.slice(slashIndex + 1);
   return (
     <ContextMenu>
       <ContextMenuTrigger
@@ -12674,13 +12718,17 @@ function CommitFileRow({
           className={`commit-file-row ${selected ? "is-selected" : ""}`}
           role="option"
           aria-selected={selected}
+          aria-label={`${getCommitFileStatusVisuals(file.status).label} ${file.originalPath ? `${file.originalPath} -> ` : ""}${file.path} +${file.additions} -${file.deletions}`}
           onClick={() => onSelectCommitFile(file.path)}
         >
           <CommitFileStatusBadge status={file.status} />
           <TooltipTarget content={file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}>
-            <span className="file-path">{file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}</span>
+            <span className="commit-file-name">
+              <span className="commit-file-basename">{filename}</span>
+              {directory || file.originalPath ? <span className="commit-file-directory">{file.originalPath ? `${file.originalPath} → ${directory || "."}` : directory}</span> : null}
+            </span>
           </TooltipTarget>
-          <span className="commit-file-stats">+{file.additions} -{file.deletions}</span>
+          <span className="commit-file-stats"><span className="good">+{file.additions}</span><span className="bad">−{file.deletions}</span></span>
         </button>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-56">

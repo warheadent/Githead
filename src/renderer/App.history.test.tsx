@@ -475,10 +475,12 @@ describe("App", { timeout: 10_000 }, () => {
     expect(historyBadge?.className).toContain("type-feat");
     expect(detailBadge?.className).toContain("commit-type-badge");
     expect(detailBadge?.className).toContain("type-feat");
-    const tagRefBadge = screen.getByText("v1.2.3").closest(".ref-badge");
+    expect(screen.queryByText("v1.2.3")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Show all 2 references" }));
+    expect(await screen.findByText("v1.2.3")).toBeTruthy();
+    expect(screen.getByText("tag")).toBeTruthy();
+    await user.keyboard("{Escape}");
     const branchRefBadge = screen.getAllByText("main").find((element) => element.closest(".ref-badge"))?.closest(".ref-badge");
-    expect(tagRefBadge?.className).toContain("tag");
-    expect(tagRefBadge?.querySelector("svg")).toBeTruthy();
     expect(branchRefBadge?.className).toContain("branch");
     expect(branchRefBadge?.querySelector("svg")).toBeNull();
     expect(screen.getByTestId("commit-graph-svg")).toBeTruthy();
@@ -491,8 +493,22 @@ describe("App", { timeout: 10_000 }, () => {
       element.className.includes("history-description-text")
     ));
     expect(detailDescription).toBeTruthy();
-    expect(historyDescription?.closest(".history-description")?.getAttribute("data-slot")).toBe("tooltip-trigger");
+    expect(historyDescription?.closest(".history-subject-tooltip")?.getAttribute("data-slot")).toBe("tooltip-trigger");
     expect(screen.getByText("Add MeshBites Shader")).toBeTruthy();
+  });
+
+  it("keeps table headings and rows together when either scrolls horizontally", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([createCommit()]);
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    const list = await screen.findByRole("listbox", { name: "Commit history" });
+    const header = screen.getByRole("region", { name: "Commit list" }).querySelector<HTMLElement>(".history-table-header")!;
+    fireEvent.scroll(list, { target: { scrollLeft: 100 } });
+    expect(header.scrollLeft).toBe(100);
+    fireEvent.scroll(header, { target: { scrollLeft: 40 } });
+    expect(list.scrollLeft).toBe(40);
   });
 
   it("aligns the commit graph after hidden columns", async () => {
@@ -518,7 +534,7 @@ describe("App", { timeout: 10_000 }, () => {
       await user.click(screen.getByRole("tab", { name: /Commit History/ }));
 
       expect(await screen.findByTestId("commit-graph-svg")).toBeTruthy();
-      expect(screen.getByRole("region", { name: "Commit list" }).style.getPropertyValue("--history-graph-offset")).toBe("12px");
+      expect(screen.getByRole("region", { name: "Commit list" }).style.getPropertyValue("--history-graph-offset")).toBe("calc(12px)");
     } finally {
       window.localStorage.removeItem(storageKey);
     }
@@ -577,8 +593,8 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
 
     const scopeControl = screen.getByRole("group", { name: "Commit history scope" });
-    const currentButton = within(scopeControl).getByRole("button", { name: "Current" });
-    const allButton = within(scopeControl).getByRole("button", { name: "All" });
+    const currentButton = within(scopeControl).getByRole("button", { name: "Current branch" });
+    const allButton = within(scopeControl).getByRole("button", { name: "All branches" });
     expect(currentButton.getAttribute("aria-pressed")).toBe("true");
     expect(allButton.getAttribute("aria-pressed")).toBe("false");
     await waitFor(() => expect(githead.getCommitHistory).toHaveBeenLastCalledWith(expect.objectContaining({ scope: "current" })));
@@ -619,9 +635,9 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
     await screen.findByRole("option", { name: /stable current history/ });
 
-    await user.click(screen.getByRole("button", { name: "All" }));
+    await user.click(screen.getByRole("button", { name: "All branches" }));
     expect(await screen.findByText("Loading commit history")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Current" }));
+    await user.click(screen.getByRole("button", { name: "Current branch" }));
     await screen.findByRole("option", { name: /stable current history/ });
     pendingAllHistory.resolve([staleRemoteCommit, currentCommit]);
     await flushRendererAsync();
@@ -645,7 +661,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
-    await user.click(screen.getByRole("button", { name: "All" }));
+    await user.click(screen.getByRole("button", { name: "All branches" }));
     await screen.findByRole("option", { name: /first remote/ });
     await user.click(screen.getByRole("button", { name: "Fetch" }));
 
@@ -676,7 +692,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
-    await user.click(screen.getByRole("button", { name: "All" }));
+    await user.click(screen.getByRole("button", { name: "All branches" }));
 
     await waitFor(() => expect(githead.getGitHubHistoryInsights).toHaveBeenLastCalledWith(expect.objectContaining({
       headSha: currentCommit.hash,
@@ -908,7 +924,23 @@ describe("App", { timeout: 10_000 }, () => {
     const fileHeader = screen.getByText("4 files").closest(".commit-file-list-header");
     expect(fileHeader).toBeTruthy();
     expect(fileHeader?.contains(fileList)).toBe(false);
+    expect(fileHeader?.textContent).toContain("+37");
+    expect(fileHeader?.textContent).toContain("−5");
     expect(fileHeader?.closest(".commit-meta-scroll")).toBeNull();
+  });
+
+  it("copies the full hash from the compact commit summary", async () => {
+    const user = userEvent.setup();
+    const commit = createCommit({ hash: "c".repeat(40), shortHash: "ccccccc" });
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash));
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    const copy = await screen.findByRole("button", { name: "Copy commit SHA" });
+    expect(screen.getByText("Commit details", { selector: "summary" }).parentElement?.hasAttribute("open")).toBe(false);
+    await user.click(copy);
+    await waitFor(() => expect(githead.copyCommitShaToClipboard).toHaveBeenCalledWith({ repoPath, hash: commit.hash }));
   });
 
   it("loads parent commit details when a parent hash is clicked", async () => {
@@ -931,6 +963,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(await screen.findByText("Commit details", { selector: "summary" }));
     const parentLink = await screen.findByRole("link", { name: parentHash.slice(0, 10) });
 
     expect(parentLink.getAttribute("data-slot")).toBe("tooltip-trigger");
