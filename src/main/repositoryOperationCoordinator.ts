@@ -7,6 +7,8 @@ export type CoordinatedOperationResult<T> =
 
 export interface RepositoryOperationOptions {
   operationId: string;
+  access?: "exclusive" | "remote-sync" | "actions-config" | "read";
+  resolveAccess?: (signal: AbortSignal) => Promise<NonNullable<RepositoryOperationOptions["access"]>>;
   ownerId: string;
   repoPath: string;
   timeoutMs: number;
@@ -30,6 +32,7 @@ interface ActiveOperation {
   operationId: string;
   ownerId: string;
   scopeKey: string;
+  access: NonNullable<RepositoryOperationOptions["access"]>;
   controller: AbortController;
   timeout?: NodeJS.Timeout;
   state: "running" | "cancelling";
@@ -43,7 +46,7 @@ const DEFAULT_ABORT_GRACE_MS = 1_000;
 const OPERATION_SCOPE_BUSY = Symbol("operation-scope-busy");
 
 export class RepositoryOperationCoordinator {
-  private readonly activeByScope = new Map<string, ActiveOperation>();
+  private readonly activeByScope = new Map<string, Set<ActiveOperation>>();
   private readonly activeById = new Map<string, ActiveOperation>();
   private readonly activeByOwner = new Map<string, Set<ActiveOperation>>();
 
@@ -59,7 +62,8 @@ export class RepositoryOperationCoordinator {
     }
 
     const scopeKey = repositoryOperationKey(options.repoPath);
-    if (this.activeByScope.has(scopeKey)) {
+    const access = options.access ?? "exclusive";
+    if (this.hasConflict(scopeKey, access)) {
       return { started: false };
     }
 
@@ -68,6 +72,7 @@ export class RepositoryOperationCoordinator {
       operationId: options.operationId,
       ownerId: options.ownerId,
       scopeKey,
+      access,
       controller,
       state: "running"
     };
@@ -79,7 +84,7 @@ export class RepositoryOperationCoordinator {
     }, options.timeoutMs);
     timeout.unref();
     active.timeout = timeout;
-    this.activeByScope.set(scopeKey, active);
+    this.addToScope(active);
     this.activeById.set(options.operationId, active);
     let ownerOperations = this.activeByOwner.get(options.ownerId);
     if (!ownerOperations) {
@@ -99,23 +104,28 @@ export class RepositoryOperationCoordinator {
     controller.signal.addEventListener("abort", onAbort, { once: true });
 
     const resolveScopePath = options.resolveScopePath;
+    const resolveAccess = options.resolveAccess;
     let operationPromise: Promise<T | typeof OPERATION_SCOPE_BUSY>;
     try {
-      operationPromise = resolveScopePath
+      operationPromise = resolveScopePath || resolveAccess
         ? Promise.resolve().then(async () => {
           controller.signal.throwIfAborted();
-          const resolvedScopeKey = repositoryOperationKey(await resolveScopePath(controller.signal));
+          if (resolveAccess) {
+            active.access = await resolveAccess(controller.signal);
+            controller.signal.throwIfAborted();
+            if (this.hasConflict(active.scopeKey, active.access, active)) return OPERATION_SCOPE_BUSY;
+          }
+          const resolvedScopeKey = resolveScopePath
+            ? repositoryOperationKey(await resolveScopePath(controller.signal))
+            : active.scopeKey;
           controller.signal.throwIfAborted();
           if (resolvedScopeKey !== active.scopeKey) {
-            const occupyingOperation = this.activeByScope.get(resolvedScopeKey);
-            if (occupyingOperation && occupyingOperation !== active) {
+            if (this.hasConflict(resolvedScopeKey, active.access)) {
               return OPERATION_SCOPE_BUSY;
             }
-            if (this.activeByScope.get(active.scopeKey) === active) {
-              this.activeByScope.delete(active.scopeKey);
-            }
+            this.removeFromScope(active);
             active.scopeKey = resolvedScopeKey;
-            this.activeByScope.set(resolvedScopeKey, active);
+            this.addToScope(active);
           }
           return operation(controller.signal);
         })
@@ -209,6 +219,27 @@ export class RepositoryOperationCoordinator {
     return this.activeByScope.has(repositoryOperationKey(repoPath));
   }
 
+  private hasConflict(scopeKey: string, access: ActiveOperation["access"], self?: ActiveOperation): boolean {
+    return [...this.activeByScope.get(scopeKey) ?? []].some((active) => {
+      if (active === self) return false;
+      if (access === "read" || active.access === "read") return false;
+      return !((access === "actions-config" && active.access === "remote-sync")
+        || (access === "remote-sync" && active.access === "actions-config"));
+    });
+  }
+
+  private addToScope(active: ActiveOperation): void {
+    const operations = this.activeByScope.get(active.scopeKey) ?? new Set<ActiveOperation>();
+    operations.add(active);
+    this.activeByScope.set(active.scopeKey, operations);
+  }
+
+  private removeFromScope(active: ActiveOperation): void {
+    const operations = this.activeByScope.get(active.scopeKey);
+    operations?.delete(active);
+    if (operations?.size === 0) this.activeByScope.delete(active.scopeKey);
+  }
+
   private requestAbort(active: ActiveOperation, reason: DOMException): void {
     if (active.state === "cancelling") {
       return;
@@ -221,9 +252,7 @@ export class RepositoryOperationCoordinator {
     if (active.timeout) {
       clearTimeout(active.timeout);
     }
-    if (this.activeByScope.get(active.scopeKey) === active) {
-      this.activeByScope.delete(active.scopeKey);
-    }
+    this.removeFromScope(active);
     if (this.activeById.get(active.operationId) === active) {
       this.activeById.delete(active.operationId);
     }

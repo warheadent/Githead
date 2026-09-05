@@ -7,6 +7,77 @@ import {
 } from "./repositoryOperationCoordinator";
 
 describe("RepositoryOperationCoordinator", () => {
+  it("allows action saves alongside fetch or push, but keeps both exclusive against working-tree mutations", async () => {
+    const coordinator = new RepositoryOperationCoordinator();
+    const repoPath = path.resolve("Repo");
+    let finishNetwork!: () => void;
+    let finishSave!: () => void;
+    const network = coordinator.run({ ...operationOptions("fetch", repoPath), access: "remote-sync" },
+      () => new Promise<void>((resolve) => { finishNetwork = resolve; }));
+    const save = coordinator.run({ ...operationOptions("save", repoPath), access: "actions-config" },
+      () => new Promise<void>((resolve) => { finishSave = resolve; }));
+    await expect(coordinator.run(operationOptions("checkout", repoPath), async () => "bad")).resolves.toEqual({ started: false });
+    await expect(coordinator.run({ ...operationOptions("save-again", repoPath), access: "actions-config" }, async () => "bad")).resolves.toEqual({ started: false });
+    finishNetwork();
+    await network;
+    expect(coordinator.isRunning(repoPath)).toBe(true);
+    await expect(coordinator.run(operationOptions("reset", repoPath), async () => "bad")).resolves.toEqual({ started: false });
+    finishSave();
+    await save;
+    await expect(coordinator.run(operationOptions("checkout-after", repoPath), async () => "ok")).resolves.toEqual({ started: true, value: "ok" });
+  });
+
+  it("permits snapshot reads during mutation and cancels each request by its own ID", async () => {
+    const coordinator = new RepositoryOperationCoordinator();
+    const repoPath = path.resolve("Repo");
+    let finishMutation!: () => void;
+    const mutation = coordinator.run(operationOptions("mutation", repoPath), () => new Promise<void>((resolve) => { finishMutation = resolve; }));
+    const read = coordinator.run({ ...operationOptions("read", repoPath), access: "read" }, (signal) => new Promise<void>((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(signal.reason));
+    }));
+    const rejected = expect(read).rejects.toMatchObject({ name: "AbortError" });
+    expect(coordinator.cancel("read", "owner-1").accepted).toBe(true);
+    await rejected;
+    expect(coordinator.getStates(["mutation"], "owner-1")).toEqual([{ operationId: "mutation", state: "running" }]);
+    finishMutation();
+    await mutation;
+    expect(coordinator.isRunning(repoPath)).toBe(false);
+  });
+
+  it("applies access conflicts after resolving linked worktree scopes", async () => {
+    const coordinator = new RepositoryOperationCoordinator();
+    const commonDir = path.resolve("Shared", ".git");
+    let finishSave!: () => void;
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => { started = resolve; });
+    const save = coordinator.run({ ...operationOptions("save", path.resolve("Worktree-A")), access: "actions-config", resolveScopePath: async () => commonDir }, () => new Promise<void>((resolve) => {
+      finishSave = resolve;
+      started();
+    }));
+    await ready;
+    await expect(coordinator.run({ ...operationOptions("fetch", path.resolve("Worktree-B")), access: "remote-sync", resolveScopePath: async () => commonDir }, async () => "ok")).resolves.toEqual({ started: true, value: "ok" });
+    await expect(coordinator.run({ ...operationOptions("checkout", path.resolve("Worktree-B")), resolveScopePath: async () => commonDir }, async () => "bad")).resolves.toEqual({ started: false });
+    finishSave();
+    await save;
+    expect(coordinator.isRunning(commonDir)).toBe(false);
+  });
+
+  it("registers cancellation before asynchronous access classification finishes", async () => {
+    const coordinator = new RepositoryOperationCoordinator(0);
+    const repoPath = path.resolve("Repo");
+    let finishAccess!: (access: "exclusive") => void;
+    const callback = vi.fn(async () => "must not run");
+    const pending = coordinator.run({ ...operationOptions("classify", repoPath), access: "remote-sync",
+      resolveAccess: () => new Promise((resolve) => { finishAccess = resolve; }) }, callback);
+    await Promise.resolve();
+    const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(coordinator.cancel("classify", "owner-1").accepted).toBe(true);
+    await rejected;
+    finishAccess("exclusive");
+    await vi.waitFor(() => expect(coordinator.isRunning(repoPath)).toBe(false));
+    expect(callback).not.toHaveBeenCalled();
+  });
+
   it("builds collision-safe owner IDs from the WebContents, process, and frame IDs", () => {
     expect(repositoryOperationOwnerId(1, 23, 4)).toBe("1:23:4");
     expect(repositoryOperationOwnerId(1, 23, 4)).not.toBe(repositoryOperationOwnerId(12, 3, 4));

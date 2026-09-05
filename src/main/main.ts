@@ -748,7 +748,7 @@ ipcMain.handle(IPC_CHANNELS.resetFilesToCommit, async (event, request: Coordinat
 
 ipcMain.handle(IPC_CHANNELS.openCommitFileVersion, async (event, request: CoordinatedRequest<GitCommitFileVersionRequest>) => {
   const prepared = await runExclusiveRepositoryOperation<PreparedCommitFileVersion>(
-    repositoryOperationOptions(event, request.operationId, request.repoPath),
+    { ...repositoryOperationOptions(event, request.operationId, request.repoPath), access: "read" },
     () => prepareCommitFileVersion(request),
     () => ({
       result: createOperationFailure(request.repoPath, "Another git command is already running for this repository.")
@@ -1375,7 +1375,12 @@ ipcMain.handle(IPC_CHANNELS.runGitAction, async (event, request: CoordinatedRequ
       );
       return service.runGitAction(request, onOutput, pushOptions);
     }),
-    repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS, request.action === "push"),
+    {
+      ...repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS, request.action === "push"),
+      access: request.action === "fetch" || request.action === "push" ? "remote-sync" : "exclusive",
+      resolveAccess: async () => (request.action === "fetch" || request.action === "push") && await vcsRouter.resolveKind(request.repoPath) === "git"
+        ? "remote-sync" : "exclusive"
+    },
     (failure) => createGitRunFailure("untrusted", request.action, request.repoPath, failure.stderr),
     () => createGitRunFailure(
       "busy",
@@ -1501,7 +1506,7 @@ ipcMain.handle(IPC_CHANNELS.syncSubmodules, async (event, request: CoordinatedRe
 ipcMain.handle(IPC_CHANNELS.saveConfiguredActions, async (event, request: CoordinatedRequest<GitConfiguredActionSaveRequest>) => {
   return runTrustedExclusiveGitOperation(
     async () => (await vcsRouter.serviceForRepo(request.repoPath)).saveConfiguredActions(request),
-    repositoryOperationOptions(event, request.operationId, request.repoPath)
+    { ...repositoryOperationOptions(event, request.operationId, request.repoPath), access: "actions-config" }
   );
 });
 
