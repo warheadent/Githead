@@ -4864,6 +4864,55 @@ textarea,
   color: var(--muted-foreground);
 }
 
+.commit-submit-group {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid color-mix(in oklch, var(--primary) 30%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--primary) 12%, var(--background));
+}
+
+.commit-submit-group > button {
+  height: 32px;
+  border-radius: 7px;
+  color: color-mix(in oklch, var(--foreground) 85%, var(--primary));
+  font-size: 13px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.commit-submit-group > button:enabled:hover {
+  background: color-mix(in oklch, var(--primary) 14%, transparent);
+}
+
+.commit-submit-group > button:disabled {
+  color: var(--muted-foreground);
+  opacity: 1;
+}
+
+.commit-submit-group > button:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.commit-submit-button {
+  padding-inline: 12px;
+  font-weight: 600;
+}
+
+.commit-submit-group:has(.commit-submit-menu) > .commit-submit-button {
+  border-radius: 7px 0 0 7px;
+}
+
+.commit-submit-group > .commit-submit-menu {
+  width: 32px;
+  border-left: 1px solid color-mix(in oklch, var(--primary) 25%, var(--border));
+  border-radius: 0 7px 7px 0;
+  padding-inline: 0;
+}
+
 .activity-log-view {
   display: grid;
   position: relative;

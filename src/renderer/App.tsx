@@ -12935,13 +12935,14 @@ function CommitPanel({
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-          <div className="flex items-stretch">
+          <div className="commit-submit-group">
             <Button
               type="button"
+              variant="ghost"
               disabled={commitDisabled}
               onClick={onCommit}
               aria-label={primaryActionAriaLabel}
-              className={primaryCommitAction === "commit" || showAmendAction ? "rounded-r-none" : ""}
+              className="commit-submit-button"
             >
               <OperationButtonFeedback
                 action={feedbackAction}
@@ -12963,10 +12964,11 @@ function CommitPanel({
                 <DropdownMenuTrigger asChild>
                   <Button
                     type="button"
+                    variant="ghost"
                     disabled={!showAmendAction && (disabled || !commitAllowed)}
                     aria-label="More commit actions"
                     data-amend-composer-trigger
-                    className="rounded-l-none border-l-primary-foreground/25 px-2"
+                    className="commit-submit-menu"
                   >
                     <ChevronDown />
                   </Button>
