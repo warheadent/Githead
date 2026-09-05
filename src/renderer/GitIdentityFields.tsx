@@ -32,7 +32,7 @@ export function GitIdentityFields({
   return (
     <fieldset className="grid max-w-xl gap-4" disabled={disabled}>
       <legend className="sr-only">Git Identity</legend>
-      <div className="grid gap-2">
+      <div className="settings-field grid gap-2">
         <Label htmlFor={`${idPrefix}-name`}>Name</Label>
         <Input
           id={`${idPrefix}-name`}
@@ -45,7 +45,7 @@ export function GitIdentityFields({
           onChange={(event) => onChange({ name: event.target.value })}
         />
       </div>
-      <div className="grid gap-2">
+      <div className="settings-field grid gap-2">
         <Label htmlFor={`${idPrefix}-email`}>Email</Label>
         <Input
           id={`${idPrefix}-email`}

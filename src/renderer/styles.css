@@ -919,6 +919,99 @@ textarea,
   }
 }
 
+.settings-panel {
+  container-type: inline-size;
+  scrollbar-gutter: stable;
+}
+
+.settings-card + .settings-card {
+  border-top: 1px solid var(--border);
+  padding-top: 24px;
+}
+
+.settings-card-heading > p {
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+.settings-card > fieldset {
+  max-width: none;
+}
+
+.settings-panel .settings-field {
+  min-width: 0;
+  max-width: none;
+  align-items: center;
+  gap: 8px 20px;
+}
+
+.settings-panel :is(select, input[data-slot="input"]) {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  border-radius: 6px;
+  background-color: var(--card);
+  font-size: 14px;
+  box-shadow: none;
+}
+
+.settings-panel select:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.settings-panel [data-slot="label"] {
+  line-height: 1.4;
+}
+
+.settings-toggle {
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: flex-start;
+  gap: 20px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.settings-toggle > :is(label, span) {
+  flex: 1;
+  cursor: pointer;
+}
+
+.settings-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin-top: 3px;
+  flex-shrink: 0;
+  accent-color: var(--primary);
+}
+
+.settings-toggle:has(input:disabled) {
+  opacity: 0.5;
+}
+
+.settings-toggle input:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+.settings-override {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  padding: 16px;
+}
+
+@container (min-width: 520px) {
+  .settings-panel .settings-field {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 240px);
+  }
+
+  .settings-panel .settings-field > :is(p, [role="note"]) {
+    grid-column: 1 / -1;
+  }
+}
+
 @media (max-height: 479px) {
   .settings-dialog-header {
     gap: 0;

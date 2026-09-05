@@ -39,7 +39,7 @@ interface RepositorySettingsDraft extends AiGenerationSettingsDraft {
 }
 
 const categories = [
-  { id: "git-identity", label: "Git Identity", icon: GitCommitHorizontal },
+  { id: "git-identity", label: "Git identity", icon: GitCommitHorizontal },
   { id: "sync", label: "Sync", icon: RefreshCw },
   { id: "ai", label: "AI", icon: Bot }
 ] as const;
@@ -197,11 +197,11 @@ export function RepositorySettingsDialog({
   return <>
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) requestClose(); }}>
       <DialogContent
-        className="h-[min(780px,calc(100vh-2rem))] max-h-[min(780px,calc(100vh-2rem))] overflow-clip p-0 sm:max-w-[880px]"
+        className="settings-dialog h-[min(780px,calc(100vh-2rem))] max-h-[min(780px,calc(100vh-2rem))] overflow-clip p-0 sm:max-w-[880px]"
         aria-busy={disabled}
       >
-        <form className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]" onSubmit={(event) => { void save(event); }}>
-          <DialogHeader className="border-b px-6 py-5 pr-14">
+        <form className="settings-dialog-form grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]" onSubmit={(event) => { void save(event); }}>
+          <DialogHeader className="settings-dialog-header border-b px-6 py-5 pr-14">
             <p className="eyebrow">Repository preferences</p>
             <DialogTitle>Repository Settings</DialogTitle>
             <DialogDescription className="grid gap-1">
@@ -219,7 +219,7 @@ export function RepositorySettingsDialog({
               errorCategories={{ [activeCategory]: Boolean(error) }}
               onCategoryChange={setActiveCategory}
             >
-              <SettingsPanel value="git-identity" title="Git Identity" description="Override the global author details for commits in this repository.">
+              <SettingsPanel value="git-identity" title="Git identity" description="Override the global author details for commits in this repository.">
                 <OverrideToggle
                   checked={draft.gitIdentityEnabled}
                   disabled={disabled}
@@ -257,7 +257,7 @@ export function RepositorySettingsDialog({
                 />
                 <SettingsCard title="Automatic fetch" description="Fetch remote updates in the background while Githead is open.">
                   <fieldset className="grid max-w-xl gap-4" disabled={disabled || !draft.syncEnabled}>
-                    <Label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-md border px-3 py-2 text-sm has-[:checked]:border-primary has-[:checked]:bg-primary/10">
+                    <Label className="settings-toggle cursor-pointer">
                       <input
                         type="checkbox"
                         className="size-4"
@@ -269,9 +269,9 @@ export function RepositorySettingsDialog({
                             : "0"
                         })}
                       />
-                      Automatically fetch changes
+                      <span>Automatically fetch changes</span>
                     </Label>
-                    <div className="grid gap-2">
+                    <div className="settings-field grid gap-2">
                       <Label htmlFor="repository-auto-fetch-interval">Auto-fetch interval</Label>
                       <Input
                         id="repository-auto-fetch-interval"
@@ -300,7 +300,7 @@ export function RepositorySettingsDialog({
                 />
                 <fieldset className="grid max-w-2xl gap-4" disabled={disabled || !draft.aiEnabled}>
                   <SettingsCard title="Provider" description="Choose the provider and model settings for this repository.">
-                    <div className="grid gap-2">
+                    <div className="settings-field grid gap-2">
                       <Label htmlFor="repository-ai-provider">Provider</Label>
                       <select
                         id="repository-ai-provider"
@@ -319,9 +319,9 @@ export function RepositorySettingsDialog({
             </SettingsCategoryLayout>
           )}
 
-          <div className="flex min-h-16 flex-col gap-3 border-t bg-background px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="settings-dialog-footer flex min-h-16 flex-col gap-3 border-t bg-background px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-h-5 min-w-0 text-sm">{footerMessage}</div>
-            <DialogFooter className="shrink-0">
+            <DialogFooter className="settings-dialog-actions shrink-0">
               <Button type="button" variant="outline" disabled={saving} onClick={requestClose}>Cancel</Button>
               <Button type="submit" disabled={disabled || !dirty}>{saving ? <Loader2 className="animate-spin" /> : <Save />}{saving ? "Saving…" : "Save"}</Button>
             </DialogFooter>
@@ -355,7 +355,7 @@ function OverrideToggle({
   description: string;
   onChange: (checked: boolean) => void;
 }): ReactNode {
-  return <label className="flex items-start gap-3 rounded-lg border bg-card p-4">
+  return <label className="settings-toggle settings-override">
     <input className="mt-1 size-4 shrink-0" type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} />
     <span><span className="block text-sm font-semibold">{title}</span><span className="block text-sm text-muted-foreground">{description}</span></span>
   </label>;

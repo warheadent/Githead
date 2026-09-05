@@ -1388,7 +1388,7 @@ describe("App", { timeout: 10_000 }, () => {
     await flushRendererAsync();
 
     await user.click(screen.getByRole("button", { name: "Settings" }));
-    await user.click(screen.getByRole("tab", { name: "Git Identity" }));
+    await user.click(screen.getByRole("tab", { name: "Git identity" }));
     expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Global");
   });
 

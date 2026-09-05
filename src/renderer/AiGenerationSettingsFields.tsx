@@ -1,3 +1,4 @@
+import { SettingsCard } from "./SettingsCategoryLayout";
 import { RotateCcw } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
@@ -64,7 +65,7 @@ export function AiGenerationSettingsFields<T extends AiGenerationSettingsDraft>(
     <SourceControlWritingStyleField draft={draft} disabled={disabled} idPrefix={idPrefix} onDraftChange={onDraftChange} />
 
     <SettingsCard title="Commit generation" description="Model and reasoning for commit messages.">
-      <div className="grid gap-2">
+      <div className="settings-field grid gap-2">
         <Label htmlFor={`${idPrefix}-model`}>Model</Label>
         <Input id={`${idPrefix}-model`} type="text" autoComplete="off" value={draft.providerModels[provider]} disabled={disabled} onChange={(event) => onDraftChange({ ...draft, providerModels: { ...draft.providerModels, [provider]: event.target.value } })} />
       </div>
@@ -72,7 +73,7 @@ export function AiGenerationSettingsFields<T extends AiGenerationSettingsDraft>(
     </SettingsCard>
 
     <SettingsCard title="Commit plan generation" description="Optional model override and separate reasoning for commit grouping and messages.">
-      <div className="grid gap-2">
+      <div className="settings-field grid gap-2">
         <Label htmlFor={`${idPrefix}-commit-plan-granularity`}>Group changes by</Label>
         <select
           id={`${idPrefix}-commit-plan-granularity`}
@@ -96,7 +97,7 @@ export function AiGenerationSettingsFields<T extends AiGenerationSettingsDraft>(
             : "One file can supply separate hunks to different planned commits."}
         </p>
       </div>
-      <div className="grid gap-2">
+      <div className="settings-field grid gap-2">
         <Label htmlFor={`${idPrefix}-commit-plan-model`}>Commit Plan Model</Label>
         <Input id={`${idPrefix}-commit-plan-model`} type="text" autoComplete="off" placeholder="Leave blank to use the commit message model" value={draft.commitPlanModels[provider]} disabled={disabled} onChange={(event) => onDraftChange({ ...draft, commitPlanModels: { ...draft.commitPlanModels, [provider]: event.target.value } })} />
       </div>
@@ -104,7 +105,7 @@ export function AiGenerationSettingsFields<T extends AiGenerationSettingsDraft>(
     </SettingsCard>
 
     <SettingsCard title="Pull request generation" description="Optional model override and separate reasoning for pull request descriptions.">
-      <div className="grid gap-2">
+      <div className="settings-field grid gap-2">
         <Label htmlFor={`${idPrefix}-pr-description-model`}>PR Description Model</Label>
         <Input id={`${idPrefix}-pr-description-model`} type="text" autoComplete="off" placeholder="Leave blank to use the commit message model" value={draft.prDescriptionModels[provider]} disabled={disabled} onChange={(event) => onDraftChange({ ...draft, prDescriptionModels: { ...draft.prDescriptionModels, [provider]: event.target.value } })} />
       </div>
@@ -113,9 +114,6 @@ export function AiGenerationSettingsFields<T extends AiGenerationSettingsDraft>(
   </>;
 }
 
-function SettingsCard({ title, description, children }: { title: string; description: string; children: ReactNode }): ReactNode {
-  return <section className="grid gap-4 rounded-lg border bg-card p-4"><div><h3 className="text-sm font-semibold">{title}</h3><p className="text-sm text-muted-foreground">{description}</p></div>{children}</section>;
-}
 
 function SourceControlWritingStyleField<T extends AiGenerationSettingsDraft>({ draft, disabled, idPrefix, onDraftChange }: { draft: T; disabled: boolean; idPrefix: string; onDraftChange: (draft: T) => void }): ReactNode {
   const style = draft.sourceControlWritingStyle;
@@ -150,7 +148,7 @@ function useAiReasoningCapabilities(enabled: boolean, provider: AiCommitMessageP
 
 function ReasoningEffortField({ id, label, value, capabilities, loading, disabled, onChange }: { id: string; label: string; value: AiReasoningEffort; capabilities: AiReasoningCapabilities; loading: boolean; disabled: boolean; onChange: (effort: AiReasoningEffort) => void }): ReactNode {
   const supportedEfforts = AI_REASONING_EFFORTS.filter((effort) => capabilities.supportedEfforts.includes(effort)); const available = capabilities.status === "supported" && supportedEfforts.length > 0; const selectedValue = supportedEfforts.includes(value) ? value : supportedEfforts[0] ?? value; const helpId = `${id}-help`; const helpText = loading ? "Checking whether this model supports configurable reasoning…" : capabilities.status === "unsupported" ? "This model does not support configurable reasoning." : capabilities.status === "unknown" ? "Reasoning support could not be verified for this model." : "Lower effort favors speed and cost; higher effort favors deeper reasoning.";
-  return <div className="grid gap-2"><Label htmlFor={id}>{label}</Label><select id={id} className="h-10 rounded-md border border-input bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50" value={selectedValue} disabled={disabled || loading || !available} aria-describedby={helpId} onChange={(event) => onChange(event.target.value as AiReasoningEffort)}>{(available ? supportedEfforts : [value]).map((effort) => <option key={effort} value={effort}>{formatReasoningEffort(effort)}</option>)}</select><p id={helpId} className="text-sm text-muted-foreground" aria-live="polite">{helpText}</p></div>;
+  return <div className="settings-field grid gap-2"><Label htmlFor={id}>{label}</Label><select id={id} className="h-10 rounded-md border border-input bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50" value={selectedValue} disabled={disabled || loading || !available} aria-describedby={helpId} onChange={(event) => onChange(event.target.value as AiReasoningEffort)}>{(available ? supportedEfforts : [value]).map((effort) => <option key={effort} value={effort}>{formatReasoningEffort(effort)}</option>)}</select><p id={helpId} className="text-sm text-muted-foreground" aria-live="polite">{helpText}</p></div>;
 }
 
 function formatReasoningEffort(effort: AiReasoningEffort): string {

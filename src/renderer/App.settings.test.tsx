@@ -892,7 +892,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.queryByText("This model does not support configurable reasoning.")).toBeNull();
   });
 
-  it("shows Git Identity and AI settings sections and saves identity fields", async () => {
+  it("shows Git identity and AI settings sections and saves identity fields", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getGitIdentity).mockResolvedValue({
       scope: "global",
@@ -922,10 +922,10 @@ describe("App", { timeout: 10_000 }, () => {
     expect(settingsDialog.className).toContain("h-[min(780px,calc(100vh-2rem))]");
     expect(settingsDialog.className).toContain("overflow-clip");
     expect(screen.getByRole("tab", { name: "Appearance", selected: false })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Git Identity", selected: true })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Git identity", selected: true })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Sync", selected: false })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "AI", selected: false })).toBeTruthy();
-    await screen.findByText("Git Identity", {
+    await screen.findByText("Git identity", {
       selector: "h2"
     });
     expect(screen.queryByText("Provider settings for generated commit messages.")).toBeNull();
@@ -935,7 +935,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(await screen.findByText("Configure providers and instructions for generated Git content.")).toBeTruthy();
     expect((screen.getByLabelText("Writing style") as HTMLSelectElement).value).toBe("conventional_commits");
     expect(screen.getByText("Uses Conventional Commit prefixes for commit messages and pull request titles. Pull request descriptions stay concise.")).toBeTruthy();
-    await user.click(screen.getByRole("tab", { name: "Git Identity" }));
+    await user.click(screen.getByRole("tab", { name: "Git identity" }));
     await user.clear(screen.getByLabelText("Name"));
     await user.type(screen.getByLabelText("Name"), "Taylor");
     await user.clear(screen.getByLabelText("Email"));
@@ -989,13 +989,13 @@ describe("App", { timeout: 10_000 }, () => {
     });
   });
 
-  it("saves Git Behaviors while preserving the rest of the application settings", async () => {
+  it("saves Git behaviors while preserving the rest of the application settings", async () => {
     const user = userEvent.setup();
 
     render(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Settings" }));
-    await user.click(screen.getByRole("tab", { name: "Git Behaviors" }));
+    await user.click(screen.getByRole("tab", { name: "Git behaviors" }));
     await user.click(screen.getByRole("checkbox", { name: /Check the upstream before committing/ }));
     await user.selectOptions(screen.getByRole("combobox", { name: "Reuse a remote check for" }), "300");
     await user.selectOptions(screen.getByRole("combobox", { name: "Tag push behavior" }), "none");

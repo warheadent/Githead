@@ -92,8 +92,8 @@ export type SettingsCategory = "appearance" | "git-identity" | "git-behaviors" |
 
 const categories = [
   { id: "appearance", label: "Appearance", icon: Palette },
-  { id: "git-identity", label: "Git Identity", icon: GitCommitHorizontal },
-  { id: "git-behaviors", label: "Git Behaviors", icon: SlidersHorizontal },
+  { id: "git-identity", label: "Git identity", icon: GitCommitHorizontal },
+  { id: "git-behaviors", label: "Git behaviors", icon: SlidersHorizontal },
   { id: "sync", label: "Sync", icon: RefreshCw },
   { id: "integrations", label: "Integrations", icon: Plug },
   { id: "ai", label: "AI", icon: Bot },
@@ -255,7 +255,7 @@ export function SettingsDialog({
                 <SettingsPanel value="appearance" title="Appearance" description="Personalize Githead's look and interface scale.">
                   <AppearanceSettings draft={draft} saving={saving} onDraftChange={onDraftChange} />
                 </SettingsPanel>
-                <SettingsPanel value="git-identity" title="Git Identity" description="Set the default author details Git uses for commits.">
+                <SettingsPanel value="git-identity" title="Git identity" description="Set the default author details Git uses for commits.">
                   <SettingsCard title="Global identity">
                     <GitIdentityFields
                       idPrefix="settings-git-identity"
@@ -274,11 +274,13 @@ export function SettingsDialog({
                     <p className="text-sm text-muted-foreground">Repository overrides are available from a repository's context menu.</p>
                   </SettingsCard>
                 </SettingsPanel>
-                <SettingsPanel value="git-behaviors" title="Git Behaviors" description="Choose how Githead handles Git operations by default.">
+                <SettingsPanel value="git-behaviors" title="Git behaviors" description="Choose how Githead handles Git operations by default.">
                   <SettingsCard title="Commit" description="Control the network safety check used by commit operations.">
-                    <div className="flex max-w-2xl items-start gap-3 rounded-md border p-3">
+                    <div className="settings-toggle">
                       <input
                         id="require-up-to-date-upstream-before-commit"
+                        aria-labelledby="require-up-to-date-upstream-before-commit-label"
+                        aria-describedby="require-up-to-date-upstream-before-commit-description"
                         type="checkbox"
                         className="mt-1 shrink-0"
                         checked={draft.requireUpToDateUpstreamBeforeCommit}
@@ -288,14 +290,12 @@ export function SettingsDialog({
                           requireUpToDateUpstreamBeforeCommit: event.currentTarget.checked
                         })}
                       />
-                      <span>
-                        <Label htmlFor="require-up-to-date-upstream-before-commit">Check the upstream before committing</Label>
-                        <span className="mt-1 block text-sm font-normal normal-case text-muted-foreground">
+                      <label htmlFor="require-up-to-date-upstream-before-commit"><span id="require-up-to-date-upstream-before-commit-label" className="text-sm font-medium">Check the upstream before committing</span>
+                        <span id="require-up-to-date-upstream-before-commit-description" className="mt-1 block text-sm font-normal normal-case text-muted-foreground">
                           Fetch the tracked remote and stop before creating a commit when the remote is ahead or has diverged. Branches without a remote upstream can still commit locally.
-                        </span>
-                      </span>
+                        </span></label>
                     </div>
-                    <div className="grid max-w-2xl gap-2">
+                    <div className="settings-field grid max-w-2xl gap-2">
                       <Label htmlFor="remote-check-lease-seconds">Reuse a remote check for</Label>
                       <select
                         id="remote-check-lease-seconds"
@@ -317,7 +317,7 @@ export function SettingsDialog({
                     </div>
                   </SettingsCard>
                   <SettingsCard title="Push" description="Control what happens to tags after an ordinary branch push, targeted push, or branch publish.">
-                    <div className="grid max-w-2xl gap-2">
+                    <div className="settings-field grid max-w-2xl gap-2">
                       <Label htmlFor="tag-push-behavior">Tag push behavior</Label>
                       <select
                         id="tag-push-behavior"
@@ -344,9 +344,11 @@ export function SettingsDialog({
                     </div>
                   </SettingsCard>
                   <SettingsCard title="Cherry-pick" description="Control whether Githead offers unusual cherry-pick workflows.">
-                    <div className="flex max-w-2xl items-start gap-3 rounded-md border p-3">
+                    <div className="settings-toggle">
                       <input
                         id="allow-contained-cherry-pick"
+                        aria-labelledby="allow-contained-cherry-pick-label"
+                        aria-describedby="allow-contained-cherry-pick-description"
                         type="checkbox"
                         className="mt-1 shrink-0"
                         checked={draft.allowCherryPickingContainedCommits}
@@ -356,18 +358,16 @@ export function SettingsDialog({
                           allowCherryPickingContainedCommits: event.currentTarget.checked
                         })}
                       />
-                      <span>
-                        <Label htmlFor="allow-contained-cherry-pick">Allow commits already contained in the current branch</Label>
-                        <span className="mt-1 block text-sm font-normal normal-case text-muted-foreground">
+                      <label htmlFor="allow-contained-cherry-pick"><span id="allow-contained-cherry-pick-label" className="text-sm font-medium">Allow commits already contained in the current branch</span>
+                        <span id="allow-contained-cherry-pick-description" className="mt-1 block text-sm font-normal normal-case text-muted-foreground">
                           Useful for reapplying reverted changes. Git may stop on an empty cherry-pick if the changes already exist.
-                        </span>
-                      </span>
+                        </span></label>
                     </div>
                   </SettingsCard>
                 </SettingsPanel>
                 <SettingsPanel value="sync" title="Sync" description="Control automatic remote fetches while Githead is open.">
                   <SettingsCard title="Global auto-fetch" description="The default schedule for repositories without an override.">
-                    <div className="grid max-w-xl gap-2">
+                    <div className="settings-field grid max-w-xl gap-2">
                       <Label htmlFor="auto-fetch-interval">Auto-fetch interval</Label>
                       <Input id="auto-fetch-interval" type="number" min={0} max={1440} step={1} value={draft.autoFetchIntervalMinutes} disabled={saving} onChange={(event) => onDraftChange({ ...draft, autoFetchIntervalMinutes: event.target.value })} />
                       <p className="text-sm text-muted-foreground">Minutes between fetches. The default is 10 minutes; use 0 to turn automatic fetch off.</p>
@@ -394,7 +394,7 @@ export function SettingsDialog({
                 <SettingsPanel value="ai" title="AI" description="Configure providers and instructions for generated Git content.">
                   <div className="grid max-w-2xl gap-4">
                     <SettingsCard title="Provider" description="Connection and model used for AI generation.">
-                      <div className="grid gap-2">
+                      <div className="settings-field grid gap-2">
                         <Label htmlFor="ai-provider">Provider</Label>
                         <select id="ai-provider" className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={draft.selectedProvider} disabled={saving} onChange={(event) => onDraftChange({ ...draft, selectedProvider: event.target.value as AiCommitMessageProvider })}>
                           {AI_COMMIT_MESSAGE_PROVIDERS.map((item) => <option key={item} value={item}>{getAiProviderLabel(item)}</option>)}
@@ -406,7 +406,7 @@ export function SettingsDialog({
                           <p className="text-muted-foreground">{getCliStatusMessage(aiSettings, provider)}</p>
                         </div>
                       ) : (
-                        <div className="grid gap-2">
+                        <div className="settings-field grid gap-2">
                           <Label htmlFor="ai-api-key">{getAiProviderLabel(provider)} API Key</Label>
                           <Input id="ai-api-key" type="password" autoComplete="off" placeholder="Leave blank to keep existing key" value={draft.apiKeys[provider] ?? ""} disabled={saving} onChange={(event) => onDraftChange({ ...draft, apiKeys: { ...draft.apiKeys, [provider]: event.target.value }, clearApiKeys: { ...draft.clearApiKeys, [provider]: false } })} />
                         </div>
@@ -418,9 +418,11 @@ export function SettingsDialog({
                 </SettingsPanel>
                 <SettingsPanel value="privacy" title="Privacy" description="Control diagnostic data Githead sends outside this device.">
                   <SettingsCard title="Diagnostics and usage" description="Choose whether to help improve Githead by sharing anonymous diagnostic data.">
-                    <div className="flex max-w-2xl items-start gap-3 rounded-md border p-3">
+                    <div className="settings-toggle">
                       <input
                         id="share-anonymous-diagnostics"
+                        aria-labelledby="share-anonymous-diagnostics-label"
+                        aria-describedby="share-anonymous-diagnostics-description"
                         type="checkbox"
                         className="mt-1 shrink-0"
                         checked={draft.shareAnonymousDiagnostics}
@@ -430,12 +432,10 @@ export function SettingsDialog({
                           shareAnonymousDiagnostics: event.currentTarget.checked
                         })}
                       />
-                      <span>
-                        <Label htmlFor="share-anonymous-diagnostics">Share anonymous diagnostics</Label>
-                        <span className="mt-1 block text-sm font-normal normal-case text-muted-foreground">
+                      <label htmlFor="share-anonymous-diagnostics"><span id="share-anonymous-diagnostics-label" className="text-sm font-medium">Share anonymous diagnostics</span>
+                        <span id="share-anonymous-diagnostics-description" className="mt-1 block text-sm font-normal normal-case text-muted-foreground">
                           Send bounded error reports, operation outcomes, and related diagnostic breadcrumbs to Sentry. Turn this off to stop Githead analytics and tracking.
-                        </span>
-                      </span>
+                        </span></label>
                     </div>
                     <p className="text-sm text-muted-foreground">
                       Performance diagnostics remain available on demand and stay on this device.

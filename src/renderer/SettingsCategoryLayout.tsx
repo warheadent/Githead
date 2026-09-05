@@ -29,9 +29,9 @@ export function SettingsCategoryLayout<T extends string>({
     value={activeCategory}
     orientation="vertical"
     onValueChange={(value) => onCategoryChange(value as T)}
-    className="settings-category-layout grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-0 md:grid-cols-[240px_minmax(0,1fr)] md:grid-rows-1"
+    className="settings-category-layout grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-0 md:grid-cols-[192px_minmax(0,1fr)] md:grid-rows-1"
   >
-    <div className="settings-category-nav border-b p-3 md:border-r md:border-b-0 md:p-4">
+    <div className="settings-category-nav border-b bg-muted/30 p-3 md:border-r md:border-b-0">
       <Label htmlFor="settings-category" className="sr-only">Settings category</Label>
       <select
         id="settings-category"
@@ -50,7 +50,7 @@ export function SettingsCategoryLayout<T extends string>({
             key={id}
             value={id}
             aria-label={label}
-            className="group h-auto w-full justify-start gap-3 px-3 py-2 text-left data-[state=active]:bg-accent data-[state=active]:shadow-none"
+            className="group h-auto w-full justify-start gap-3 rounded-md px-3 py-2.5 text-left data-[state=active]:bg-accent data-[state=active]:shadow-none"
           >
             <Icon className="size-4 shrink-0 text-muted-foreground group-data-[state=active]:text-foreground" aria-hidden="true" />
             <span className="min-w-0 flex-1">
@@ -79,9 +79,9 @@ export function SettingsPanel<T extends string>({
   description?: string;
   children: ReactNode;
 }): ReactNode {
-  return <TabsContent value={value} className="m-0 h-full min-h-0 overflow-y-auto">
-    <section className="grid gap-5 px-5 py-5 sm:px-6">
-      <div><h2 className="text-base font-semibold">{title}</h2>{description ? <p className="text-sm text-muted-foreground">{description}</p> : null}</div>
+  return <TabsContent value={value} className="settings-panel m-0 h-full min-h-0 overflow-y-auto">
+    <section className="grid gap-6 px-5 py-6 sm:px-7">
+      <div><h2 className="text-xl font-semibold tracking-tight">{title}</h2>{description ? <p className="text-sm text-muted-foreground">{description}</p> : null}</div>
       {children}
     </section>
   </TabsContent>;
@@ -96,8 +96,8 @@ export function SettingsCard({
   description?: string;
   children: ReactNode;
 }): ReactNode {
-  return <section className="grid gap-4 rounded-lg border bg-card p-4">
-    <div><h3 className="text-sm font-semibold">{title}</h3>{description ? <p className="text-sm text-muted-foreground">{description}</p> : null}</div>
+  return <section className="settings-card grid gap-4">
+    <div className="settings-card-heading"><h3 className="text-sm font-semibold">{title}</h3>{description ? <p className="text-sm text-muted-foreground">{description}</p> : null}</div>
     {children}
   </section>;
 }
