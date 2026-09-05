@@ -19,6 +19,7 @@ For renderer-visible changes or visual checks:
 1. Run `npm run dev:inspect`.
 2. Connect browser automation to the Electron CDP target on port `9222`.
 3. Verify that the inspected target exposes `window.githead` before judging renderer behavior.
+4. Use a 1920 × 1080 display at 125% scaling for screenshots and visual review. Keep the resolution and scaling identical in before-and-after comparisons. Use a smaller display only when the task specifically requires a constrained-layout check.
 
 The Vite URL is not a valid renderer test target because it does not receive the Electron preload API and may appear blank. If Electron verification is unavailable, run the relevant automated checks and report that visual verification was not performed. Verification is complete only when the applicable checks pass and this limitation is reported when it applies.
 
