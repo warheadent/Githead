@@ -7177,7 +7177,7 @@ export function App(): ReactNode {
                 }}
                 className="workspace-tabs flex min-h-0 flex-1 flex-col"
               >
-              <div className="workspace-tabs-bar border-b bg-card px-6 pt-2">
+              <div className="workspace-tabs-bar border-b bg-card px-4 pt-2">
                 <TabsList variant="line" className="h-9 w-max min-w-full bg-transparent p-0">
                   <TabsTrigger value="status" className="workspace-tab-trigger h-9 rounded-none">
                     <ListTree />
@@ -9378,7 +9378,7 @@ function RepositoryPanel({
   };
 
   return (
-    <aside className="flex h-full min-h-0 flex-col gap-5 overflow-auto border-r bg-sidebar p-6 text-sidebar-foreground">
+    <aside className="flex h-full min-h-0 flex-col gap-6 overflow-auto border-r bg-sidebar p-4 text-sidebar-foreground">
       <RepositoryList
         repoPath={repoPath}
         repoPaths={repoRecents}
@@ -9940,7 +9940,7 @@ function ActionBar({
   const actionsMenuDisabled = !summary?.isValid;
 
   return (
-    <header className="action-bar flex items-center justify-between gap-5 border-b bg-card px-6 py-4">
+    <header className="action-bar flex items-center justify-between gap-4 border-b bg-card px-4 py-4">
       <div className="min-w-0">
         <p className="eyebrow">Sync</p>
         <h2 className="truncate text-base font-semibold">{heading}</h2>
@@ -9957,7 +9957,7 @@ function ActionBar({
           <DropdownMenuTrigger asChild>
             <Button
               type="button"
-              variant={runningConfiguredAction ? "secondary" : "outline"}
+              variant={runningConfiguredAction ? "secondary" : "ghost"}
               disabled={actionsMenuDisabled}
               aria-label="Repository actions"
               className="min-w-28"
@@ -9993,7 +9993,7 @@ function ActionBar({
         {showFetch ? (
           <Button
             type="button"
-            variant={runningAction === "fetch" ? "secondary" : "outline"}
+            variant={runningAction === "fetch" ? "secondary" : "ghost"}
             disabled={disabled}
             onClick={() => onRunAction("fetch")}
             className="min-w-24"
@@ -10060,7 +10060,7 @@ function ActionBar({
         <div className="flex items-stretch">
           <Button
             type="button"
-            variant={runningAction === "push" ? "secondary" : "outline"}
+            variant={runningAction === "push" ? "secondary" : "default"}
             disabled={disabled}
             onClick={() => onRunAction("push")}
             aria-label={pushAriaLabel}
@@ -10086,7 +10086,7 @@ function ActionBar({
               <DropdownMenuTrigger asChild>
                 <Button
                   type="button"
-                  variant={runningAction === "push" ? "secondary" : "outline"}
+                  variant={runningAction === "push" ? "secondary" : "default"}
                   disabled={pushMenuDisabled}
                   aria-label="More push actions"
                   className="rounded-l-none border-l-border px-2"
@@ -10482,7 +10482,7 @@ function FileGroup({
   return (
     <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]" aria-label={title}>
       <div className="flex min-h-11 items-center justify-between gap-3 border-b px-4 py-2.5">
-        <h2 className="text-sm font-semibold">{title} ({files.length})</h2>
+        <h2 className="text-base font-semibold">{title} ({files.length})</h2>
         <div className="flex flex-wrap justify-end gap-2">{actions}</div>
       </div>
       {!summary?.isValid ? (
@@ -10903,7 +10903,7 @@ function DiffPanel({
       <div className="flex min-h-14 items-center justify-between gap-4 border-b px-4 py-3">
         <div className="min-w-0">
           <p className="eyebrow">{eyebrow}</p>
-          <TooltipTarget content={title}><h2 className="truncate text-sm font-semibold">{title}</h2></TooltipTarget>
+          <TooltipTarget content={title}><h2 className="truncate font-mono text-sm font-medium">{title}</h2></TooltipTarget>
           {changed ? <p className="diff-changed-description" role="status">Loaded diff is out of date</p> : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
