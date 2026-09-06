@@ -1,9 +1,10 @@
 import type { GitCommitGraphRow } from "../shared/types";
 
 export const COMMIT_GRAPH_ROW_HEIGHT = 28;
-export const COMMIT_GRAPH_LANE_WIDTH = 12;
-export const COMMIT_GRAPH_PADDING_X = 10;
+export const COMMIT_GRAPH_LANE_WIDTH = 18;
+export const COMMIT_GRAPH_PADDING_X = 14;
 export const COMMIT_GRAPH_MIN_WIDTH = 82;
+export const COMMIT_GRAPH_COLOR_COUNT = 8;
 
 export interface CommitGraphNode {
   hash: string;
@@ -11,6 +12,7 @@ export interface CommitGraphNode {
   lane: number;
   x: number;
   y: number;
+  isMerge: boolean;
 }
 
 export interface CommitGraphEdge {
@@ -22,6 +24,7 @@ export interface CommitGraphEdge {
   fromLane: number;
   toLane: number;
   colorLane: number;
+  continues: boolean;
   path: string;
 }
 
@@ -33,175 +36,109 @@ export interface CommitGraphLayout {
   edges: CommitGraphEdge[];
 }
 
+interface PendingEdge {
+  from: CommitGraphNode;
+  parent: string;
+  lane: number;
+}
+
+// Input is newest-first topological order, as returned by git log --topo-order.
 export function buildCommitGraphLayout(commits: GitCommitGraphRow[]): CommitGraphLayout {
   const rowHeight = COMMIT_GRAPH_ROW_HEIGHT;
-  const visibleRowByHash = new Map(commits.map((commit, row) => [commit.hash, row]));
   const activeLanes: Array<string | null> = [];
   const nodes: CommitGraphNode[] = [];
-  const edges: CommitGraphEdge[] = [];
+  const pendingEdges: PendingEdge[] = [];
+  const nodeByHash = new Map<string, CommitGraphNode>();
   let maxLane = 0;
 
   commits.forEach((commit, row) => {
-    const lane = getCommitLane(activeLanes, commit.hash);
-    activeLanes[lane] = commit.hash;
+    const existingLane = activeLanes.indexOf(commit.hash);
+    const lane = existingLane === -1 ? getFirstEmptyLane(activeLanes) : existingLane;
+    const parents = [...new Set(commit.parents)];
+    const node: CommitGraphNode = {
+      hash: commit.hash,
+      row,
+      lane,
+      x: getLaneX(lane),
+      y: row * rowHeight + rowHeight / 2,
+      isMerge: parents.length > 1
+    };
+    nodes.push(node);
+    nodeByHash.set(commit.hash, node);
     maxLane = Math.max(maxLane, lane);
 
-    const node = createNode(commit.hash, row, lane, rowHeight);
-    nodes.push(node);
-
-    const [firstParent, ...mergeParents] = commit.parents;
-    if (firstParent) {
-      const firstParentLane = getExistingParentLane(activeLanes, firstParent, lane);
-      const targetLane = firstParentLane ?? lane;
-      activeLanes[lane] = firstParentLane == null ? firstParent : null;
-      edges.push(createEdge({
-        fromHash: commit.hash,
-        toHash: firstParent,
-        fromRow: row,
-        toRow: getTargetRow(visibleRowByHash, firstParent, commits.length),
-        fromLane: lane,
-        toLane: targetLane,
-        colorLane: targetLane,
-        rowHeight
-      }));
-    } else {
-      activeLanes[lane] = null;
+    // Keep incoming tracks reserved until their common ancestor is reached.
+    // Joining earlier hides the branch's color and makes crossings ambiguous.
+    for (let index = 0; index < activeLanes.length; index += 1) {
+      if (activeLanes[index] === commit.hash) activeLanes[index] = null;
     }
 
-    mergeParents.forEach((parent) => {
-      const parentLane = getParentLane(activeLanes, parent, lane + 1);
+    parents.forEach((parent, index) => {
+      const existingParentLane = activeLanes.indexOf(parent);
+      const parentLane = index === 0
+        ? lane
+        : existingParentLane === -1 ? getFirstEmptyLane(activeLanes) : existingParentLane;
       activeLanes[parentLane] = parent;
       maxLane = Math.max(maxLane, parentLane);
-      edges.push(createEdge({
-        fromHash: commit.hash,
-        toHash: parent,
-        fromRow: row,
-        toRow: getTargetRow(visibleRowByHash, parent, commits.length),
-        fromLane: lane,
-        toLane: parentLane,
-        colorLane: parentLane,
-        rowHeight
-      }));
+      pendingEdges.push({ from: node, parent, lane: parentLane });
     });
 
-    trimEmptyTrailingLanes(activeLanes);
+    while (activeLanes.length > 0 && activeLanes.at(-1) == null) activeLanes.pop();
+  });
+
+  const height = commits.length * rowHeight;
+  const edges = pendingEdges.map(({ from, parent, lane }): CommitGraphEdge => {
+    const target = nodeByHash.get(parent);
+    // Missing parents continue to the boundary, including from the final row.
+    const toRow = target?.row ?? commits.length;
+    const toLane = target?.lane ?? lane;
+    return {
+      id: `${from.hash}:${parent}`,
+      fromHash: from.hash,
+      toHash: parent,
+      fromRow: from.row,
+      toRow,
+      fromLane: from.lane,
+      toLane,
+      colorLane: lane,
+      continues: !target,
+      path: createEdgePath(from, lane, getLaneX(toLane), target?.y ?? height)
+    };
   });
 
   return {
-    width: getGraphWidth(maxLane),
-    height: commits.length * rowHeight,
+    width: Math.max(COMMIT_GRAPH_MIN_WIDTH, COMMIT_GRAPH_PADDING_X * 2 + maxLane * COMMIT_GRAPH_LANE_WIDTH),
+    height,
     rowHeight,
     nodes,
-    edges: edges.filter((edge) => edge.toRow > edge.fromRow)
+    edges
   };
 }
 
-function createNode(hash: string, row: number, lane: number, rowHeight: number): CommitGraphNode {
-  return {
-    hash,
-    row,
-    lane,
-    x: getLaneX(lane),
-    y: getRowY(row, rowHeight)
-  };
-}
+function createEdgePath(from: CommitGraphNode, lane: number, endX: number, endY: number): string {
+  const trackX = getLaneX(lane);
+  const bendHeight = COMMIT_GRAPH_ROW_HEIGHT / 2;
+  const controlOffset = bendHeight / 2;
+  let path = `M ${from.x} ${from.y}`;
 
-function createEdge(params: {
-  fromHash: string;
-  toHash: string;
-  fromRow: number;
-  toRow: number;
-  fromLane: number;
-  toLane: number;
-  colorLane: number;
-  rowHeight: number;
-}): CommitGraphEdge {
-  return {
-    fromHash: params.fromHash,
-    toHash: params.toHash,
-    fromRow: params.fromRow,
-    toRow: params.toRow,
-    fromLane: params.fromLane,
-    toLane: params.toLane,
-    colorLane: params.colorLane,
-    id: `${params.fromHash}:${params.toHash}:${params.fromLane}:${params.toLane}`,
-    path: createEdgePath(params.fromLane, params.fromRow, params.toLane, params.toRow, params.rowHeight)
-  };
-}
-
-function createEdgePath(fromLane: number, fromRow: number, toLane: number, toRow: number, rowHeight: number): string {
-  const startX = getLaneX(fromLane);
-  const startY = getRowY(fromRow, rowHeight);
-  const endX = getLaneX(toLane);
-  const endY = getRowY(toRow, rowHeight);
-
-  if (fromLane === toLane) {
-    return `M ${startX} ${startY} L ${endX} ${endY}`;
+  // Change tracks between row centers so wide merges never run through a node.
+  if (from.x !== trackX) {
+    path += ` C ${from.x} ${from.y + controlOffset}, ${trackX} ${from.y + controlOffset}, ${trackX} ${from.y + bendHeight}`;
   }
-
-  const curveEndY = Math.min(endY, startY + rowHeight);
-  const controlOffset = Math.round(rowHeight * 0.45);
-  const controlOneY = startY + controlOffset;
-  const controlTwoY = curveEndY - controlOffset;
-  const verticalTail = curveEndY < endY ? ` L ${endX} ${endY}` : "";
-
-  return `M ${startX} ${startY} C ${startX} ${controlOneY}, ${endX} ${controlTwoY}, ${endX} ${curveEndY}${verticalTail}`;
-}
-
-function getCommitLane(activeLanes: Array<string | null>, hash: string): number {
-  const existingLane = activeLanes.indexOf(hash);
-  if (existingLane !== -1) {
-    return existingLane;
+  if (trackX !== endX) {
+    path += ` L ${trackX} ${endY - bendHeight}`;
+    path += ` C ${trackX} ${endY - controlOffset}, ${endX} ${endY - controlOffset}, ${endX} ${endY}`;
+  } else {
+    path += ` L ${endX} ${endY}`;
   }
-
-  return getFirstEmptyLane(activeLanes, 0);
+  return path;
 }
 
-function getParentLane(activeLanes: Array<string | null>, parent: string, preferredLane: number): number {
-  const existingLane = activeLanes.indexOf(parent);
-  if (existingLane !== -1) {
-    return existingLane;
-  }
-
-  return getFirstEmptyLane(activeLanes, preferredLane);
-}
-
-function getFirstEmptyLane(activeLanes: Array<string | null>, startLane: number): number {
-  for (let lane = startLane; lane < activeLanes.length; lane += 1) {
-    if (activeLanes[lane] == null) {
-      return lane;
-    }
-  }
-
-  return activeLanes.length;
-}
-
-function getExistingParentLane(activeLanes: Array<string | null>, parent: string, currentLane: number): number | null {
-  const existingLane = activeLanes.findIndex((value, lane) => lane !== currentLane && value === parent);
-  return existingLane === -1 ? null : existingLane;
-}
-
-function trimEmptyTrailingLanes(activeLanes: Array<string | null>): void {
-  while (activeLanes.length > 0 && activeLanes.at(-1) == null) {
-    activeLanes.pop();
-  }
-}
-
-function getTargetRow(visibleRowByHash: Map<string, number>, hash: string, rowCount: number): number {
-  return visibleRowByHash.get(hash) ?? Math.max(0, rowCount - 1);
-}
-
-function getGraphWidth(maxLane: number): number {
-  return Math.max(
-    COMMIT_GRAPH_MIN_WIDTH,
-    COMMIT_GRAPH_PADDING_X * 2 + maxLane * COMMIT_GRAPH_LANE_WIDTH + COMMIT_GRAPH_LANE_WIDTH
-  );
+function getFirstEmptyLane(activeLanes: Array<string | null>): number {
+  const lane = activeLanes.findIndex((value) => value == null);
+  return lane === -1 ? activeLanes.length : lane;
 }
 
 function getLaneX(lane: number): number {
   return COMMIT_GRAPH_PADDING_X + lane * COMMIT_GRAPH_LANE_WIDTH;
-}
-
-function getRowY(row: number, rowHeight: number): number {
-  return row * rowHeight + rowHeight / 2;
 }

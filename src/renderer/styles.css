@@ -3964,61 +3964,93 @@ textarea,
 }
 
 .commit-graph-svg {
+  --graph-lightness: 0.51;
   position: absolute;
   z-index: 1;
   top: 0;
   left: var(--history-graph-offset, 12px);
-  overflow: visible;
+  overflow: hidden;
   pointer-events: none;
+}
+
+.dark .commit-graph-svg {
+  --graph-lightness: 0.74;
+}
+
+.commit-graph-edge,
+.commit-graph-node {
+  color: oklch(var(--graph-lightness) 0.13 235);
 }
 
 .commit-graph-edge {
   fill: none;
-  stroke: oklch(0.56 0.1 230);
+  stroke: currentColor;
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 2px;
 }
 
-.commit-graph-node {
-  fill: var(--card);
-  stroke: oklch(0.56 0.1 230);
-  stroke-width: 2px;
+.commit-graph-edge-clearance {
+  stroke: var(--card);
+  stroke-width: 5px;
 }
 
 .commit-graph-edge.lane-1,
 .commit-graph-node.lane-1 {
-  color: oklch(0.62 0.17 7);
-  stroke: oklch(0.62 0.17 7);
+  color: oklch(var(--graph-lightness) 0.16 350);
 }
 
 .commit-graph-edge.lane-2,
 .commit-graph-node.lane-2 {
-  color: oklch(0.62 0.12 78);
-  stroke: oklch(0.62 0.12 78);
+  color: oklch(var(--graph-lightness) 0.13 75);
 }
 
 .commit-graph-edge.lane-3,
 .commit-graph-node.lane-3 {
-  color: oklch(0.56 0.11 125);
-  stroke: oklch(0.56 0.11 125);
+  color: oklch(var(--graph-lightness) 0.13 150);
 }
 
 .commit-graph-edge.lane-4,
 .commit-graph-node.lane-4 {
-  color: oklch(0.58 0.13 295);
-  stroke: oklch(0.58 0.13 295);
+  color: oklch(var(--graph-lightness) 0.15 295);
 }
 
 .commit-graph-edge.lane-5,
 .commit-graph-node.lane-5 {
-  color: oklch(0.58 0.1 185);
-  stroke: oklch(0.58 0.1 185);
+  color: oklch(var(--graph-lightness) 0.11 195);
 }
 
-.commit-graph-node.is-selected {
-  background: var(--primary-foreground);
-  fill: var(--primary-foreground);
+.commit-graph-edge.lane-6,
+.commit-graph-node.lane-6 {
+  color: oklch(var(--graph-lightness) 0.15 35);
+}
+
+.commit-graph-edge.lane-7,
+.commit-graph-node.lane-7 {
+  color: oklch(var(--graph-lightness) 0.13 110);
+}
+
+.commit-graph-dot {
+  fill: currentColor;
+  stroke: var(--card);
+  stroke-width: 1.5px;
+}
+
+.commit-graph-node.is-merge .commit-graph-dot {
+  fill: var(--card);
+  stroke: currentColor;
+  stroke-width: 2px;
+}
+
+.commit-graph-selection {
+  fill: var(--card);
+  stroke: currentColor;
+  stroke-width: 1.5px;
+}
+
+.commit-graph-node.is-selected .commit-graph-dot {
+  fill: currentColor;
+  stroke: var(--card);
 }
 
 .history-description,

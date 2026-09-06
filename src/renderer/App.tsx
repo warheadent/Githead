@@ -265,7 +265,7 @@ import {
 } from "./workspacePanelState";
 import { getAheadBehindCounts, getPrimaryCommitAction, getPullableCommitCount, getPushableCommitCount, hasStagedChanges, hasUnpushedCommits } from "./commitActions";
 import { buildConfiguredActionMenu, type ConfiguredActionMenuEntry } from "./configuredActionMenu";
-import { buildCommitGraphLayout, COMMIT_GRAPH_ROW_HEIGHT, type CommitGraphLayout } from "./commitGraph";
+import { buildCommitGraphLayout, COMMIT_GRAPH_COLOR_COUNT, COMMIT_GRAPH_ROW_HEIGHT, type CommitGraphLayout } from "./commitGraph";
 import { createLinePatch, isTechnicalFileHeader, type DiffRow, type DiffRowGroup } from "./diffParser";
 import { createDiffProcessingSession, type ProcessedDiff } from "./diffProcessingClient";
 import { areFileDiffsEqual } from "./diffFreshness";
@@ -12260,7 +12260,12 @@ const CommitGraphSvg = memo(function CommitGraphSvg({
   visibleStartRow: number;
   visibleEndRow: number;
 }): ReactNode {
-  if (layout.nodes.length === 0) {
+  const visibleEdges = useMemo(() => layout.edges.filter((edge) => (
+    edge.fromRow < visibleEndRow && edge.toRow >= visibleStartRow
+  )), [layout, visibleEndRow, visibleStartRow]);
+  const top = visibleStartRow * layout.rowHeight;
+  const height = (visibleEndRow - visibleStartRow) * layout.rowHeight;
+  if (layout.nodes.length === 0 || height <= 0) {
     return null;
   }
 
@@ -12269,29 +12274,31 @@ const CommitGraphSvg = memo(function CommitGraphSvg({
       className="commit-graph-svg"
       data-testid="commit-graph-svg"
       width={layout.width}
-      height={layout.height}
-      viewBox={`0 0 ${layout.width} ${layout.height}`}
+      height={height}
+      style={{ top }}
+      viewBox={`0 ${top} ${layout.width} ${height}`}
       aria-hidden="true"
     >
       <g className="commit-graph-edges">
-        {layout.edges.filter((edge) => edge.fromRow < visibleEndRow && edge.toRow >= visibleStartRow).map((edge) => (
-          <path
+        {visibleEdges.map((edge) => (
+          <g
             key={edge.id}
-            className={`commit-graph-edge lane-${edge.colorLane % 6}`}
-            d={edge.path}
-          />
+            className={`commit-graph-edge lane-${edge.colorLane % COMMIT_GRAPH_COLOR_COUNT}`}
+          >
+            <path className="commit-graph-edge-clearance" d={edge.path} />
+            <path d={edge.path} />
+          </g>
         ))}
       </g>
       <g className="commit-graph-nodes">
-        {layout.nodes.filter((node) => node.row >= visibleStartRow && node.row < visibleEndRow).map((node) => (
-          <circle
+        {layout.nodes.slice(visibleStartRow, visibleEndRow).map((node) => (
+          <g
             key={node.hash}
-            data-testid="commit-graph-node"
-            className={`commit-graph-node lane-${node.lane % 6} ${node.hash === selectedCommitHash ? "is-selected" : ""}`}
-            cx={node.x}
-            cy={node.y}
-            r="3.5"
-          />
+            className={`commit-graph-node lane-${node.lane % COMMIT_GRAPH_COLOR_COUNT} ${node.isMerge ? "is-merge" : ""} ${node.hash === selectedCommitHash ? "is-selected" : ""}`}
+          >
+            {node.hash === selectedCommitHash ? <circle className="commit-graph-selection" cx={node.x} cy={node.y} r="7" /> : null}
+            <circle data-testid="commit-graph-node" className="commit-graph-dot" cx={node.x} cy={node.y} r={node.isMerge ? 4.5 : 3.25} />
+          </g>
         ))}
       </g>
     </svg>

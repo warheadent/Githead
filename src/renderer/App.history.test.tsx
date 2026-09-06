@@ -521,6 +521,42 @@ describe("App", { timeout: 10_000 }, () => {
     expect(list.scrollLeft).toBe(40);
   });
 
+  it("keeps graph geometry aligned with virtual rows while scrolling and selecting", async () => {
+    const user = userEvent.setup();
+    const commits = Array.from({ length: 80 }, (_, index) => createCommit({
+      hash: `commit-${index}`,
+      subject: `History row ${index}`,
+      parents: [`commit-${index + 1}`]
+    }));
+    vi.mocked(githead.getCommitHistory).mockResolvedValue(commits);
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: "Commit History" }));
+    const list = await screen.findByRole("listbox", { name: "Commit history" });
+    const svg = screen.getByTestId("commit-graph-svg");
+    expect(Number(svg.getAttribute("height"))).toBeLessThan(commits.length * 28);
+
+    fireEvent.scroll(list, { target: { scrollTop: 28 * 40 } });
+    await waitFor(() => expect(svg.style.top).toBe(`${28 * 34}px`));
+    expect(svg.getAttribute("viewBox")?.split(" ")[1]).toBe(String(28 * 34));
+    const node = screen.getAllByTestId("commit-graph-node")[0]!;
+    expect(node.getAttribute("cy")).toBe(String(28 * 34 + 14));
+    expect(list.querySelector('[data-virtual-index="34"]')?.getAttribute("style")).toContain(`top: ${28 * 34}px`);
+
+    // A segment whose child is outside the mounted rows still enters the viewport.
+    const incomingPaths = svg.querySelectorAll(".commit-graph-edge > path:not(.commit-graph-edge-clearance)");
+    expect(Array.from(incomingPaths).some((path) => path.getAttribute("d")?.startsWith(`M 14 ${28 * 33 + 14}`))).toBe(true);
+    await user.click(screen.getByRole("option", { name: /History row 40/ }));
+    expect(svg.querySelector(".commit-graph-selection")?.getAttribute("cy")).toBe(String(28 * 40 + 14));
+    expect(screen.getByRole("option", { name: /History row 40/ }).getAttribute("aria-selected")).toBe("true");
+
+    fireEvent.scroll(list, { target: { scrollTop: 28 * 79 } });
+    await waitFor(() => expect(svg.querySelectorAll(".commit-graph-edge > path:not(.commit-graph-edge-clearance)").length).toBeGreaterThan(0));
+    expect(Array.from(svg.querySelectorAll(".commit-graph-edge > path")).some((path) => (
+      path.getAttribute("d") === `M 14 ${28 * 79 + 14} L 14 ${28 * 80}`
+    ))).toBe(true);
+  });
+
   it("aligns the commit graph after hidden columns", async () => {
     const storageKey = "githead.column-layout.history";
     window.localStorage.setItem(storageKey, JSON.stringify({
