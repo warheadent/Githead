@@ -1160,7 +1160,6 @@ textarea,
 .setup-recents-empty p { margin: 5px 0 0; font-size: 11px; line-height: 1.6; color: var(--muted-foreground); }
 .setup-back { margin: 0 0 24px -10px; }
 .setup-clone-card { min-width: 0; }
-.setup-clone-card .setup-clone-options { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(60px, 0.5fr); }
 .setup-clone-card .setup-clone-form { gap: 20px; }
 .setup-clone-card .setup-panel-heading { margin-bottom: 4px; }
 .setup-clone-card .setup-panel-heading h2 { font-size: 24px; letter-spacing: -0.6px; font-weight: 600; }
@@ -1239,14 +1238,14 @@ textarea,
 
 .setup-clone-form {
   display: grid;
-  gap: 14px;
+  gap: 20px;
 }
 
 .clone-popout-content {
   width: min(440px, calc(100vw - 32px));
   max-height: calc(100vh - 24px);
   overflow: auto;
-  padding: 16px;
+  padding: 20px;
 }
 
 .repo-add-popout-content {
@@ -1277,8 +1276,47 @@ textarea,
 
 .setup-clone-options {
   display: grid;
-  grid-template-columns: minmax(140px, 1fr) minmax(120px, 0.9fr) minmax(86px, 0.55fr);
-  gap: 10px;
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr) 110px;
+  gap: 16px;
+}
+
+.setup-clone-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 100px;
+  gap: 8px;
+}
+
+.setup-clone-advanced {
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.setup-clone-advanced > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-block: 12px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.setup-clone-advanced > summary::-webkit-details-marker { display: none; }
+.setup-clone-advanced > summary > svg { width: 16px; height: 16px; color: var(--muted-foreground); }
+.setup-clone-advanced[open] > summary > svg { transform: rotate(180deg); }
+.setup-clone-advanced > summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+.setup-clone-advanced-body {
+  display: grid;
+  gap: 16px;
+  padding-bottom: 16px;
+}
+
+.setup-clone-hint {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
 }
 
 .setup-error {

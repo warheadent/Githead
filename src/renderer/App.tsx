@@ -9286,13 +9286,13 @@ function CloneRepositoryForm({
         <GitFork />
         <div>
           <h2>Clone repository</h2>
-          <p>Clone from a Git (HTTPS, SSH, or local) or Lore (lore://) source.</p>
+          <p>Create a local copy of a repository.</p>
         </div>
       </div>
 
       <div className="grid gap-2">
         <Label htmlFor={sourceId}>Repository URL or path</Label>
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+        <div className="setup-clone-input-row">
           <Input
             id={sourceId}
             value={cloneDraft.source}
@@ -9316,7 +9316,7 @@ function CloneRepositoryForm({
 
       <div className="grid gap-2">
         <Label htmlFor={parentId}>Destination folder</Label>
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+        <div className="setup-clone-input-row">
           <Input
             id={parentId}
             value={cloneDraft.parentPath}
@@ -9336,70 +9336,77 @@ function CloneRepositoryForm({
         </div>
       </div>
 
-      <div className="setup-clone-options">
-        <div className="grid gap-2">
-          <Label htmlFor={directoryId}>Folder name</Label>
-          <Input
-            id={directoryId}
-            value={cloneDraft.directoryName}
-            disabled={cloneRunning}
-            onChange={(event) => {
-              onCloneDraftChange({
-                ...cloneDraft,
-                directoryName: event.target.value
-              });
-            }}
-          />
-        </div>
-        <div className="grid gap-2">
-          <Label htmlFor={branchId}>Branch</Label>
-          <ReferencePicker
-            id={branchId}
-            value={cloneDraft.branchName}
-            {...(cloneDraft.branchName ? { displayValue: cloneDraft.branchName } : {})}
-            options={[
-              { value: "", label: "Default branch", icon: <GitBranchIcon /> },
-              ...cloneBranches.map((branch) => ({ value: branch, label: branch, icon: <GitBranchIcon /> }))
-            ]}
-            disabled={cloneRunning}
-            ariaLabel="Choose branch"
-            placeholder="Optional"
-            searchPlaceholder="Search or enter a branch..."
-            emptyMessage="No branches found."
-            triggerIcon={<GitBranchIcon />}
-            customValueLabel={(query) => `Use branch "${query}"`}
-            onValueChange={(branchName) => onCloneDraftChange({ ...cloneDraft, branchName })}
-          />
-        </div>
-        <div className="grid gap-2">
-          <Label htmlFor={depthId}>Depth</Label>
-          <Input
-            id={depthId}
-            type="number"
-            min="0"
-            step="1"
-            value={cloneDraft.depth}
-            disabled={cloneRunning}
-            placeholder="Optional"
-            onChange={(event) => {
-              onCloneDraftChange({
-                ...cloneDraft,
-                depth: event.target.value
-              });
-            }}
-          />
-        </div>
-      </div>
-
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={cloneDraft.recurseSubmodules}
+      <div className="grid gap-2">
+        <Label htmlFor={directoryId}>Folder name</Label>
+        <Input
+          id={directoryId}
+          value={cloneDraft.directoryName}
+          placeholder="From repository name"
           disabled={cloneRunning}
-          onChange={(event) => onCloneDraftChange({ ...cloneDraft, recurseSubmodules: event.target.checked })}
+          onChange={(event) => {
+            onCloneDraftChange({
+              ...cloneDraft,
+              directoryName: event.target.value
+            });
+          }}
         />
-        Initialize submodules recursively
-      </label>
+      </div>
+      <details className="setup-clone-advanced">
+        <summary>Clone options<ChevronDown aria-hidden="true" /></summary>
+        <div className="setup-clone-advanced-body">
+          <div className="setup-clone-options">
+            <div className="grid gap-2">
+              <Label htmlFor={branchId}>Branch</Label>
+              <ReferencePicker
+                id={branchId}
+                value={cloneDraft.branchName}
+                {...(cloneDraft.branchName ? { displayValue: cloneDraft.branchName } : {})}
+                options={[
+                  { value: "", label: "Default branch", icon: <GitBranchIcon /> },
+                  ...cloneBranches.map((branch) => ({ value: branch, label: branch, icon: <GitBranchIcon /> }))
+                ]}
+                disabled={cloneRunning}
+                ariaLabel="Choose branch"
+                placeholder="Optional"
+                searchPlaceholder="Search or enter a branch..."
+                emptyMessage="No branches found."
+                triggerIcon={<GitBranchIcon />}
+                customValueLabel={(query) => `Use branch "${query}"`}
+                onValueChange={(branchName) => onCloneDraftChange({ ...cloneDraft, branchName })}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor={depthId}>Depth</Label>
+              <Input
+                id={depthId}
+                type="number"
+                min="0"
+                step="1"
+                value={cloneDraft.depth}
+                disabled={cloneRunning}
+                aria-describedby={`${depthId}-hint`}
+                onChange={(event) => {
+                  onCloneDraftChange({
+                    ...cloneDraft,
+                    depth: event.target.value
+                  });
+                }}
+              />
+              <span id={`${depthId}-hint`} className="setup-clone-hint">0 for full history</span>
+            </div>
+          </div>
+
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={cloneDraft.recurseSubmodules}
+              disabled={cloneRunning}
+              onChange={(event) => onCloneDraftChange({ ...cloneDraft, recurseSubmodules: event.target.checked })}
+            />
+            Initialize submodules recursively
+          </label>
+        </div>
+      </details>
 
       {cloneError ? (
         <p className="setup-error selectable-text" role="alert">{cloneError}</p>

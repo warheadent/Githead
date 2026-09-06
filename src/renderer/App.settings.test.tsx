@@ -116,6 +116,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(await screen.findByRole("button", { name: "Clone a repository" }));
     await user.type(screen.getByLabelText("Repository URL or path"), "git@github.com:openai/repo.git");
     await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
+    await user.click(screen.getByText("Clone options"));
     await user.click(screen.getByRole("button", { name: "Choose branch" }));
     await user.type(screen.getByRole("combobox", { name: "Search or enter a branch..." }), "main");
     await user.click(screen.getByRole("button", { name: 'Use branch "main"' }));
@@ -163,6 +164,7 @@ describe("App", { timeout: 10_000 }, () => {
       });
     });
     expect(await screen.findByText("Repository is accessible.")).toBeTruthy();
+    await user.click(screen.getByText("Clone options"));
     expect(screen.getByRole("button", { name: "Choose branch" }).textContent).toContain("main");
 
     await user.click(screen.getByRole("button", { name: "Choose branch" }));
@@ -189,6 +191,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await user.click(await screen.findByRole("button", { name: "Clone a repository" }));
     await user.type(screen.getByLabelText("Repository URL or path"), "git@github.com:openai/repo.git");
+    await user.click(screen.getByText("Clone options"));
     await user.click(screen.getByRole("button", { name: "Choose branch" }));
     await user.type(screen.getByRole("combobox", { name: "Search or enter a branch..." }), "release");
     await user.click(screen.getByRole("button", { name: 'Use branch "release"' }));
