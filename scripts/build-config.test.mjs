@@ -35,9 +35,8 @@ describe("build cache and source map policy", () => {
       SENTRY_PROJECT: "test-project"
     });
     expect(config.buildSourceMaps).toBe(true);
-    expect(config.bundleTaskOptions.cache).toBe(false);
+    expect(config.bundleTaskOptions).toEqual({ cache: false });
     expect(config.createSentryVitePlugin("dist/**/*.map").disable).toBe(false);
-    expect(config.bundleTaskOptions.untrackedEnv).toContain("SENTRY_AUTH_TOKEN");
   });
 
   it("keeps incomplete upload configuration local and fingerprints embedded Sentry settings", async () => {

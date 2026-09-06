@@ -10,19 +10,24 @@ export const sentrySourceMapUploadEnabled = Boolean(sentryAuthToken && sentryOrg
 // Uploads require maps even when local debug maps have not been requested.
 export const buildSourceMaps = sentrySourceMapUploadEnabled || process.env.GITHEAD_SOURCEMAP === "1";
 
-export const bundleTaskOptions = {
-  // Replaying cached files cannot replay a Sentry upload.
-  cache: !sentrySourceMapUploadEnabled,
-  env: [
-    "GITHEAD_SOURCEMAP",
-    "SENTRY_DSN",
-    "SENTRY_ENVIRONMENT",
-    "SENTRY_RELEASE",
-    "SENTRY_ORG",
-    "SENTRY_PROJECT"
-  ],
-  untrackedEnv: ["SENTRY_AUTH_TOKEN"]
-};
+export const bundleTaskOptions = sentrySourceMapUploadEnabled
+  ? {
+      // Vite+ passes the full environment to uncached tasks.
+      // Replaying cached files cannot replay a Sentry upload.
+      cache: false as const
+    }
+  : {
+      cache: true as const,
+      env: [
+        "GITHEAD_SOURCEMAP",
+        "SENTRY_DSN",
+        "SENTRY_ENVIRONMENT",
+        "SENTRY_RELEASE",
+        "SENTRY_ORG",
+        "SENTRY_PROJECT"
+      ],
+      untrackedEnv: ["SENTRY_AUTH_TOKEN"]
+    };
 
 export const sentryBuildConfig = {
   dsn: process.env.SENTRY_DSN?.trim() ?? "",

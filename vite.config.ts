@@ -19,12 +19,12 @@ export default defineConfig({
       "types:tests": { command: "tsc --noEmit -p tsconfig.tests.json", input: taskInputs, output: [] },
       "bundle:main": {
         ...bundleTaskOptions,
-        input: taskInputs,
+        ...(bundleTaskOptions.cache ? { input: taskInputs } : {}),
         command: "vp build --config vite.main.config.ts"
       },
       "bundle:renderer": {
         ...bundleTaskOptions,
-        input: taskInputs,
+        ...(bundleTaskOptions.cache ? { input: taskInputs } : {}),
         command: "vp build"
       }
     }
