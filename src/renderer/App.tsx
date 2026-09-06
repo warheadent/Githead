@@ -1,3 +1,5 @@
+import { CheckoutTagDialog } from "./CheckoutTagDialog";
+import type { GitTagCheckoutRequest } from "../shared/types";
 import {
   Archive,
   CheckCircle2,
@@ -410,6 +412,7 @@ interface AppState {
   summary: RepoSummary | null;
   branchDialogOpen: boolean;
   branchManagerOpen: boolean;
+  tagCheckoutOpen: boolean;
   branchNameDraft: string;
   branchError: string;
   branchCheckoutTarget: { kind: "remote"; remoteBranch: string } | { kind: "pullRequest"; pullRequest: GitHubPullRequest } | null;
@@ -833,6 +836,7 @@ const initialState: AppState = {
   summary: null,
   branchDialogOpen: false,
   branchManagerOpen: false,
+  tagCheckoutOpen: false,
   branchNameDraft: "",
   branchError: "",
   branchCheckoutTarget: null,
@@ -2108,6 +2112,7 @@ export function App(): ReactNode {
       summary: cached?.summary ?? null,
       branchDialogOpen: false,
       branchManagerOpen: false,
+      tagCheckoutOpen: false,
       branchNameDraft: "",
       branchError: "",
       branchCheckoutTarget: null,
@@ -2963,6 +2968,8 @@ export function App(): ReactNode {
     if (!current.summary?.isValid || isOperationRunning(current)) {
       return null;
     }
+
+    if (action === "pull" && current.summary.kind === "git" && !current.summary.branch) return null;
 
     if (action === "push" && !pushTarget && shouldPublishInsteadOfPush(current.summary)) {
       updateState({
@@ -4211,6 +4218,25 @@ export function App(): ReactNode {
       pushToBranchDialog: emptyPushToBranchDialog
     });
   }, [updateState]);
+
+  const openTagCheckout = useCallback(async (): Promise<void> => {
+    const current = stateRef.current;
+    if (!current.summary?.isValid || current.summary.kind !== "git" || isOperationRunning(current)) return;
+    const repoPath = current.repoPath;
+    if (!(await ensureTrustedRepo(repoPath)) || !isInvocationCurrent(repoPath)) return;
+    updateState({ tagCheckoutOpen: true });
+  }, [ensureTrustedRepo, isInvocationCurrent, updateState]);
+
+  const checkoutTag = useCallback(async (request: GitTagCheckoutRequest): Promise<string | null> => {
+    const current = stateRef.current;
+    if (!isSameRepoPath(request.repoPath, current.repoPath) || !current.tagCheckoutOpen || isOperationRunning(current)) return "The repository changed or is busy. Try again.";
+    if (!(await ensureTrustedRepo(request.repoPath)) || !isInvocationCurrent(request.repoPath)) return "Repository is no longer available.";
+    const result = await runRepoOperation(`Checking out tag ${request.tagName}`, null, (operationId) =>
+      window.githead.checkoutTag({ ...request, operationId }));
+    if (result?.exitCode !== 0) return getOperationFailureMessage(result, "Unable to check out tag.");
+    if (isSameRepoPath(request.repoPath, stateRef.current.repoPath)) updateState({ tagCheckoutOpen: false });
+    return null;
+  }, [ensureTrustedRepo, isInvocationCurrent, runRepoOperation, updateState]);
 
   const switchBranch = useCallback(async (branchName: string): Promise<void> => {
     const current = stateRef.current;
@@ -7112,6 +7138,7 @@ export function App(): ReactNode {
               onSwitchBranch={(branchName) => {
                 void switchBranch(branchName);
               }}
+              onCheckoutTag={() => { void openTagCheckout(); }}
               onCheckoutRemoteBranch={checkoutRemoteBranch}
               onOpenBranchDialog={openBranchDialog}
               onOpenBranchManager={openBranchManager}
@@ -8063,6 +8090,14 @@ export function App(): ReactNode {
         }}
       />
 
+      {state.tagCheckoutOpen && state.summary?.kind === "git" ? <CheckoutTagDialog
+        key={state.repoPath}
+        repoPath={state.repoPath}
+        remotes={state.summary.remotes}
+        busy={isOperationRunning(state)}
+        onClose={() => { if (!isOperationRunning(stateRef.current)) updateState({ tagCheckoutOpen: false }); }}
+        onCheckout={checkoutTag}
+      /> : null}
       <TagDialog
         state={state.tagDialog}
         commit={getCommitByHash(state.history, state.tagDialog.hash)}
@@ -9325,6 +9360,7 @@ function RepositoryPanel({
   onRemoveWorktree,
   onSwitchBranch,
   onCheckoutRemoteBranch,
+  onCheckoutTag,
   onOpenBranchDialog,
   onOpenBranchManager,
   onOpenMerge,
@@ -9373,6 +9409,7 @@ function RepositoryPanel({
   onRemoveWorktree: (worktree: GitWorktree) => void;
   onSwitchBranch: (branchName: string) => void;
   onCheckoutRemoteBranch: (remoteBranch: GitRemoteBranch) => void;
+  onCheckoutTag: () => void;
   onOpenBranchDialog: () => void;
   onOpenBranchManager: () => void;
   onOpenMerge: () => void;
@@ -9514,6 +9551,8 @@ function RepositoryPanel({
           onSwitchBranch={onSwitchBranch}
           onOpenWorktree={onSelectRecent}
           onCheckoutRemoteBranch={onCheckoutRemoteBranch}
+          onCheckoutTag={onCheckoutTag}
+          currentTag={summary?.currentTag ?? null}
           onCreateBranch={onOpenBranchDialog}
           onCreateWorktree={onAddWorktree}
           onManageBranches={onOpenBranchManager}
@@ -9562,6 +9601,7 @@ function RepositoryPanel({
 function BranchFact({
   repoPath,
   currentBranch,
+  currentTag,
   branches,
   remoteBranches,
   integrationEnabled,
@@ -9569,6 +9609,7 @@ function BranchFact({
   onSwitchBranch,
   onOpenWorktree,
   onCheckoutRemoteBranch,
+  onCheckoutTag,
   onCreateBranch,
   onCreateWorktree,
   onManageBranches,
@@ -9577,6 +9618,7 @@ function BranchFact({
 }: {
   repoPath: string;
   currentBranch: string | null;
+  currentTag: string | null;
   branches: GitBranch[];
   remoteBranches: GitRemoteBranch[];
   integrationEnabled: boolean;
@@ -9584,6 +9626,7 @@ function BranchFact({
   onSwitchBranch: (branchName: string) => void;
   onOpenWorktree: (repoPath: string) => void;
   onCheckoutRemoteBranch: (remoteBranch: GitRemoteBranch) => void;
+  onCheckoutTag: () => void;
   onCreateBranch: () => void;
   onCreateWorktree: () => void;
   onManageBranches: () => void;
@@ -9633,7 +9676,8 @@ function BranchFact({
           options={branchOptions}
           disabled={disabled}
           ariaLabel="Switch branch"
-          placeholder={currentBranch ?? "-"}
+          placeholder={currentBranch ?? (currentTag ? `Tag: ${currentTag}` : "Detached HEAD")}
+          displayValue={currentBranch ?? (currentTag ? `Tag: ${currentTag}` : "Detached HEAD")}
           searchPlaceholder="Search branches..."
           emptyMessage="No branches found."
           triggerIcon={<GitBranchIcon />}
@@ -9652,6 +9696,7 @@ function BranchFact({
             if (remoteBranch) onCheckoutRemoteBranch(remoteBranch);
           }}
           actions={[
+            ...(integrationEnabled ? [{ label: "Check out tag…", icon: <Tag />, onSelect: onCheckoutTag }] : []),
             { label: "New Branch", icon: <Plus />, onSelect: onCreateBranch },
             ...(integrationEnabled ? [
               { label: "Add Worktree…", icon: <GitFork />, onSelect: onCreateWorktree },
@@ -9976,6 +10021,8 @@ function ActionBar({
   const pullBoundActions = !usesSync && !pullRecovery
     ? configuredActions.filter((action) => action.bindToPull)
     : [];
+  const pullDisabled = disabled || (summary?.kind === "git" && !summary.branch && !pullRecovery);
+  const pullDisabledReason = summary?.kind === "git" && !summary.branch && !pullRecovery ? "Switch to a branch before pulling." : undefined;
   const showPullMenu = pullBoundActions.length > 0;
   const runningConfiguredAction = configuredActionRuns.length > 0;
   const actionsMenuDisabled = !summary?.isValid;
@@ -10054,7 +10101,8 @@ function ActionBar({
           <Button
             type="button"
             variant={runningAction === "pull" ? "secondary" : "outline"}
-            disabled={disabled}
+            disabled={pullDisabled}
+            title={pullDisabledReason}
             onClick={() => onRunAction("pull")}
             aria-label={pullAriaLabel}
             className={`min-w-24 ${showPullMenu ? "rounded-r-none" : ""}`}
@@ -10080,7 +10128,8 @@ function ActionBar({
                 <Button
                   type="button"
                   variant={runningAction === "pull" ? "secondary" : "outline"}
-                  disabled={disabled}
+                  disabled={pullDisabled}
+                  title={pullDisabledReason}
                   aria-label="Pull with action"
                   className="rounded-l-none border-l-border px-2"
                 >

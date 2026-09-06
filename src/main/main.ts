@@ -1,3 +1,4 @@
+import type { GitTagListRequest, GitTagCheckoutRequest } from "../shared/types";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, safeStorage, screen, shell } from "electron";
 import fs from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -986,6 +987,18 @@ ipcMain.handle(IPC_CHANNELS.deleteTag, async (event, request: CoordinatedRequest
   return runTrustedExclusiveGitOperation(
     async () => (await vcsRouter.serviceForRepo(request.repoPath)).deleteTag(request),
     repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
+});
+
+ipcMain.handle(IPC_CHANNELS.getCheckoutTags, async (_event, request: GitTagListRequest) => {
+  if (request.remoteName) await assertTrustedRepo(request.repoPath);
+  return gitService.getCheckoutTags(request);
+});
+
+ipcMain.handle(IPC_CHANNELS.checkoutTag, async (event, request: CoordinatedRequest<GitTagCheckoutRequest>) => {
+  return runTrustedExclusiveGitOperation(
+    () => gitService.checkoutTag(request),
+    repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS)
   );
 });
 

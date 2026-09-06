@@ -258,7 +258,7 @@ export function createGitheadMock(): GitheadApi {
     getRepoSummary: vi.fn().mockResolvedValue(createSummary()),
     getRepoIdentity: vi.fn(async (request) => {
       const summary = await progressiveSummary(request);
-      return { repoPath: summary.repoPath, generation: request.generation, kind: summary.kind, capabilities: summary.capabilities, isValid: summary.isValid, branch: summary.branch, hasHead: summary.hasHead, safeDirectory: summary.safeDirectory, validationErrors: summary.validationErrors };
+      return { repoPath: summary.repoPath, generation: request.generation, kind: summary.kind, capabilities: summary.capabilities, isValid: summary.isValid, branch: summary.branch, currentTag: summary.currentTag ?? null, hasHead: summary.hasHead, safeDirectory: summary.safeDirectory, validationErrors: summary.validationErrors };
     }),
     getRepoStatus: vi.fn(async (request) => {
       const summary = await progressiveSummary(request);
@@ -426,6 +426,8 @@ export function createGitheadMock(): GitheadApi {
     revertCommit: vi.fn().mockResolvedValue(okOperation),
     createTag: vi.fn().mockResolvedValue(okOperation),
     deleteTag: vi.fn().mockResolvedValue(okOperation),
+    getCheckoutTags: vi.fn().mockResolvedValue([]),
+    checkoutTag: vi.fn().mockResolvedValue(okOperation),
     switchBranch: vi.fn().mockResolvedValue(okOperation),
     checkoutRemoteBranch: vi.fn().mockResolvedValue(okOperation),
     checkoutGitHubPullRequest: vi.fn().mockResolvedValue(okOperation),

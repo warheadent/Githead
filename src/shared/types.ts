@@ -555,6 +555,7 @@ export interface RepoSummary {
   capabilities: RepoCapabilities;
   isValid: boolean;
   branch: string | null;
+  currentTag?: string | null;
   upstream: string | null;
   branches: GitBranch[];
   hasHead: boolean;
@@ -900,6 +901,7 @@ export interface RepoIdentitySection {
   capabilities: RepoCapabilities;
   isValid: boolean;
   branch: string | null;
+  currentTag?: string | null;
   hasHead: boolean;
   safeDirectory: GitSafeDirectoryInfo | null;
   validationErrors: string[];
@@ -1378,6 +1380,24 @@ export interface GitRepositoryAccessCheckResult {
   stderr: string;
   branches: string[];
   defaultBranch: string | null;
+}
+
+export interface GitTagListRequest {
+  repoPath: string;
+  remoteName?: string;
+}
+
+export interface GitCheckoutTag {
+  name: string;
+  objectId: string;
+  commitId: string | null;
+  description: string;
+}
+
+export interface GitTagCheckoutRequest extends GitTagListRequest {
+  tagName: string;
+  expectedObjectId: string;
+  branchName?: string;
 }
 
 export interface GitBranchRequest {
@@ -2371,6 +2391,8 @@ export interface GitheadApi {
   pushWithForceLease(request: CoordinatedRequest<GitForceWithLeaseRequest>): Promise<GitOperationResult>;
   createTag(request: CoordinatedRequest<GitCreateTagRequest>): Promise<GitOperationResult>;
   deleteTag(request: CoordinatedRequest<GitDeleteTagRequest>): Promise<GitOperationResult>;
+  getCheckoutTags(request: GitTagListRequest): Promise<GitCheckoutTag[]>;
+  checkoutTag(request: CoordinatedRequest<GitTagCheckoutRequest>): Promise<GitOperationResult>;
   switchBranch(request: CoordinatedRequest<GitBranchRequest>): Promise<GitOperationResult>;
   checkoutRemoteBranch(request: CoordinatedRequest<GitRemoteBranchCheckoutRequest>): Promise<GitOperationResult>;
   checkoutGitHubPullRequest(request: CoordinatedRequest<GitHubPullRequestCheckoutRequest>): Promise<GitOperationResult>;

@@ -1,3 +1,4 @@
+import type { GitTagListRequest, GitTagCheckoutRequest, GitCheckoutTag } from "../shared/types";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -281,7 +282,10 @@ export class GitService {
       this.runGitEffect(request.repoPath, ["branch", "--show-current"]),
       this.runGitEffect(request.repoPath, ["rev-parse", "--verify", "HEAD"])
     ], { concurrency: "unbounded" }));
-    return { repoPath: request.repoPath, generation: request.generation, kind: "git", capabilities: gitCapabilities(), isValid: true, branch: branch.stdout.trim() || null, hasHead: head.exitCode === 0, safeDirectory: null, validationErrors: [] };
+    const currentTag = !branch.stdout.trim() && head.exitCode === 0
+      ? await this.runGit(request.repoPath, ["describe", "--tags", "--exact-match", "HEAD"])
+      : null;
+    return { repoPath: request.repoPath, generation: request.generation, kind: "git", capabilities: gitCapabilities(), isValid: true, branch: branch.stdout.trim() || null, currentTag: currentTag?.exitCode === 0 ? currentTag.stdout.trim() : null, hasHead: head.exitCode === 0, safeDirectory: null, validationErrors: [] };
   }
 
   async getRepoStatus(request: RepoSectionRequest): Promise<RepoStatusSection> {
@@ -1945,6 +1949,67 @@ export class GitService {
     }
 
     return this.pushTag(request.repoPath, request.pushRemote, tagResult.tagName, true);
+  }
+
+  async getCheckoutTags(request: GitTagListRequest): Promise<GitCheckoutTag[]> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) throw new Error(validation.validationErrors.join(" "));
+    if (request.remoteName !== undefined) {
+      const remote = await this.validateRemoteName(request.repoPath, request.remoteName);
+      if ("error" in remote) throw new Error(remote.error);
+      const result = await this.runGit(request.repoPath, ["ls-remote", "--tags", "--", remote.remoteName], undefined, undefined, undefined, 30_000);
+      if (result.exitCode !== 0) throw new Error(result.stderr || "Unable to load remote tags.");
+      const tags = new Map<string, GitCheckoutTag>();
+      const peeled = new Map<string, string>();
+      for (const line of splitLines(result.stdout)) {
+        const [objectId, ref] = line.split(/\s+/);
+        if (!objectId || !ref?.startsWith("refs/tags/")) continue;
+        const name = ref.slice(10);
+        if (name.endsWith("^{}")) peeled.set(name.slice(0, -3), objectId);
+        else tags.set(name, { name, objectId, commitId: null, description: "" });
+      }
+      return [...tags.values()].map((tag) => ({ ...tag, commitId: peeled.get(tag.name) ?? null }))
+        .sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true }));
+    }
+    const result = await this.runGit(request.repoPath, ["for-each-ref", "--sort=-version:refname", "--format=%(refname:strip=2)%00%(objectname)%00%(objecttype)%00%(*objectname)%00%(*objecttype)%00%(contents:subject)", "refs/tags"]);
+    if (result.exitCode !== 0) throw new Error(result.stderr || "Unable to load tags.");
+    return splitLines(result.stdout).flatMap((line) => {
+      const [name, objectId, type, peeledId, peeledType, description] = line.split("\0");
+      if (!name || !objectId) return [];
+      return [{ name, objectId, commitId: type === "commit" ? objectId : peeledType === "commit" ? peeledId ?? null : null, description: description ?? "" }];
+    });
+  }
+
+  async checkoutTag(request: GitTagCheckoutRequest): Promise<GitOperationResult> {
+    const fail = (message: string): GitOperationResult => this.createOperationFailure(request.repoPath, message);
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) return fail(validation.validationErrors.join(" "));
+    const tag = await this.validateTagName(request.repoPath, request.tagName);
+    if ("error" in tag) return fail(tag.error);
+    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(request.expectedObjectId)) return fail("Refresh the tag list and select a tag.");
+    if (await this.getRepositoryOperationState(request.repoPath) || await this.readPullRecovery(request.repoPath)) {
+      return fail("Resolve the current Git operation before checking out a tag.");
+    }
+    let branchName: string | undefined;
+    if (request.branchName !== undefined) {
+      const branch = await this.validateBranchName(request.repoPath, request.branchName);
+      if ("error" in branch) return fail(branch.error);
+      branchName = branch.branchName;
+    }
+    const ref = `refs/tags/${tag.tagName}`;
+    if (request.remoteName !== undefined) {
+      const remote = await this.validateRemoteName(request.repoPath, request.remoteName);
+      if ("error" in remote) return fail(remote.error);
+      const fetched = await this.runGitOperation(request.repoPath, ["fetch", "--no-tags", "--", remote.remoteName, `${ref}:${ref}`]);
+      if (fetched.exitCode !== 0) return fetched;
+    }
+    const object = await this.runGit(request.repoPath, ["rev-parse", "--verify", ref]);
+    if (object.exitCode !== 0 || object.stdout.trim() !== request.expectedObjectId) return fail("This tag changed or is no longer available. Refresh the tag list and try again.");
+    const commit = await this.runGit(request.repoPath, ["rev-parse", "--verify", `${request.expectedObjectId}^{commit}`]);
+    if (commit.exitCode !== 0) return fail("This tag does not point to a commit.");
+    return this.runGitOperation(request.repoPath, branchName
+      ? ["switch", "--no-track", "-c", branchName, commit.stdout.trim()]
+      : ["switch", "--detach", commit.stdout.trim()]);
   }
 
   async switchBranch(request: GitBranchRequest): Promise<GitOperationResult> {

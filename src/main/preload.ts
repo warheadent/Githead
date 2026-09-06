@@ -1,3 +1,4 @@
+import type { GitTagListRequest, GitTagCheckoutRequest } from "../shared/types";
 import { contextBridge, ipcRenderer } from "electron";
 import { IPC_CHANNELS } from "../shared/ipc";
 import type {
@@ -287,6 +288,10 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.createTag, request) as ReturnType<GitheadApi["createTag"]>,
   deleteTag: (request: CoordinatedRequest<GitDeleteTagRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.deleteTag, request) as ReturnType<GitheadApi["deleteTag"]>,
+  getCheckoutTags: (request: GitTagListRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getCheckoutTags, request) as ReturnType<GitheadApi["getCheckoutTags"]>,
+  checkoutTag: (request: CoordinatedRequest<GitTagCheckoutRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.checkoutTag, request) as ReturnType<GitheadApi["checkoutTag"]>,
   switchBranch: (request: CoordinatedRequest<GitBranchRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.switchBranch, request) as ReturnType<GitheadApi["switchBranch"]>,
   checkoutRemoteBranch: (request: CoordinatedRequest<GitRemoteBranchCheckoutRequest>) =>

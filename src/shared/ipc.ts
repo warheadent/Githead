@@ -88,6 +88,8 @@ export const IPC_CHANNELS = {
   pushWithForceLease: "git:integration-force-with-lease",
   createTag: "git:tag-create",
   deleteTag: "git:tag-delete",
+  getCheckoutTags: "git:checkout-tags",
+  checkoutTag: "git:tag-checkout",
   switchBranch: "git:branch-switch",
   checkoutRemoteBranch: "git:remote-branch-checkout",
   checkoutGitHubPullRequest: "github:pull-request-checkout",
