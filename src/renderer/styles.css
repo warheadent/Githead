@@ -2355,6 +2355,11 @@ textarea,
   gap: 12px;
 }
 
+.repo-recents-heading button {
+  width: 28px;
+  height: 28px;
+}
+
 .repo-recents-label {
   margin: 0;
   color: var(--muted-foreground);
@@ -2371,20 +2376,15 @@ textarea,
 
 .repo-group {
   overflow: hidden;
+  padding: 3px;
   border: 1px solid transparent;
   border-radius: 8px;
 }
 
 .repo-group:hover,
-.repo-group:focus-within,
-.repo-group.is-active {
+.repo-group:focus-within {
   border-color: var(--border);
-  background: var(--card);
-}
-
-.repo-group.is-active {
-  border-color: color-mix(in oklch, var(--primary) 24%, var(--border));
-  background: color-mix(in oklab, var(--primary) 8%, var(--card));
+  background: color-mix(in oklch, var(--accent) 35%, transparent);
 }
 
 .repo-group.is-dragging { opacity: 0.56; }
@@ -2393,21 +2393,37 @@ textarea,
 
 .repo-group-heading {
   display: grid;
-  grid-template-columns: 28px 28px minmax(0, 1fr) auto auto;
+  grid-template-columns: 20px 24px minmax(0, 1fr) auto;
   align-items: center;
-  min-height: 38px;
+  min-height: 34px;
+  border-radius: 6px;
+}
+
+.repo-group-heading > .repo-recent-drag-handle {
+  width: 20px;
+  opacity: 0;
+}
+
+.repo-group:hover .repo-recent-drag-handle,
+.repo-group:focus-within .repo-recent-drag-handle,
+.repo-group.is-dragging .repo-recent-drag-handle {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .repo-group-heading > .repo-recent-drag-handle { opacity: 1; }
 }
 
 .repo-group-heading > .repo-recent-drag-handle,
 .repo-group-heading > .repo-group-toggle,
 .repo-group-heading > .repo-group-main {
-  align-self: stretch;
-  height: auto;
+  align-self: center;
+  height: 28px;
 }
 
 .repo-group-toggle {
   display: grid;
-  width: 28px;
+  width: 24px;
   height: 28px;
   place-items: center;
   padding: 0;
@@ -2420,6 +2436,12 @@ textarea,
 
 .repo-group-toggle:hover:not(:disabled) { background: var(--accent); color: var(--accent-foreground); }
 .repo-group-toggle:disabled { cursor: default; }
+.repo-group-toggle:focus-visible,
+.repo-group-main:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+  border-radius: 5px;
+}
 .repo-group-toggle > svg { width: 14px; height: 14px; }
 
 .repo-group-chevron {
@@ -2435,13 +2457,13 @@ textarea,
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 5px;
+  gap: 7px;
   padding: 0 4px;
   border: 0;
   background: transparent;
   color: inherit;
-  font-size: 0.9rem;
-  font-weight: 650;
+  font-size: 0.85rem;
+  font-weight: 600;
   text-align: left;
   cursor: pointer;
 }
@@ -2451,11 +2473,11 @@ textarea,
 
 .repo-worktree-list {
   display: grid;
-  padding: 1px 5px 5px 34px;
+  padding: 2px 0 0 32px;
 }
 
 .repo-worktree-row {
-  --repo-worktree-connector: color-mix(in oklch, var(--muted-foreground) 34%, transparent);
+  --repo-worktree-connector: color-mix(in oklch, var(--muted-foreground) 20%, transparent);
   position: relative;
   overflow: hidden;
   border-radius: 6px;
@@ -2495,7 +2517,6 @@ textarea,
 
 .repo-worktree-row.is-active {
   background: color-mix(in oklch, var(--primary) 12%, transparent);
-  box-shadow: inset 2px 0 0 color-mix(in oklch, var(--primary) 72%, transparent);
 }
 
 .repo-worktree-main {
@@ -2523,8 +2544,16 @@ textarea,
 }
 .repo-worktree-row.is-active .repo-worktree-main > svg { color: var(--primary); }
 .repo-worktree-branch, .repo-worktree-path { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.repo-worktree-branch { font-size: 0.82rem; font-weight: 650; }
+.repo-worktree-branch { font-size: 0.82rem; font-weight: 400; }
 .repo-worktree-path { color: var(--muted-foreground); font-size: 0.7rem; }
+.repo-worktree-main-badge {
+  padding: 1px 6px;
+  border-color: transparent;
+  background: color-mix(in oklch, var(--muted-foreground) 8%, transparent);
+  color: var(--muted-foreground);
+  font-size: 0.65rem;
+  font-weight: 500;
+}
 
 .repo-recent-row {
   display: grid;
