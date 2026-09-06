@@ -1050,7 +1050,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Select a repository to continue.")).toBeTruthy();
+    expect(await screen.findByText("Open a local folder or clone a repository to this computer.")).toBeTruthy();
     await waitFor(() => {
       expect(githead.getRepoSummary).not.toHaveBeenCalled();
     });
@@ -1088,7 +1088,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await user.click(await screen.findByRole("button", { name: "Check Again" }));
 
-    expect(await screen.findByText("Select a repository to continue.")).toBeTruthy();
+    expect(await screen.findByText("Open a local folder or clone a repository to this computer.")).toBeTruthy();
     expect(githead.getGitExecutableStatus).toHaveBeenCalledTimes(2);
     expect(githead.getRepoRecents).toHaveBeenCalledTimes(1);
   });
@@ -1106,7 +1106,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Select a repository to continue.")).toBeTruthy();
+    expect(await screen.findByText("Open a local folder or clone a repository to this computer.")).toBeTruthy();
     expect(screen.getByText("Selected folder is not a git repository.")).toBeTruthy();
     expect(screen.getByText("MissingRepo")).toBeTruthy();
     const recents = screen.getByRole("region", { name: "Repositories" });
@@ -1701,8 +1701,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByText("Select a repository to continue.");
-    await user.click(screen.getByRole("button", { name: "Browse for Repository" }));
+    await screen.findByText("Open a local folder or clone a repository to this computer.");
+    await user.click(screen.getByRole("button", { name: "Open repository" }));
 
     expect(await screen.findByText("Git ownership check blocked this repository.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Allow Git Exception" })).toBeTruthy();
@@ -1718,8 +1718,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByText("Select a repository to continue.");
-    await user.click(screen.getByRole("button", { name: "Browse for Repository" }));
+    await screen.findByText("Open a local folder or clone a repository to this computer.");
+    await user.click(screen.getByRole("button", { name: "Open repository" }));
     await user.click(await screen.findByRole("button", { name: "Allow Git Exception" }));
     expect(screen.getByRole("heading", { name: "Allow Git Ownership Exception?" })).toBeTruthy();
 
@@ -1742,8 +1742,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByText("Select a repository to continue.");
-    await user.click(screen.getByRole("button", { name: "Browse for Repository" }));
+    await screen.findByText("Open a local folder or clone a repository to this computer.");
+    await user.click(screen.getByRole("button", { name: "Open repository" }));
     await user.click(await screen.findByRole("button", { name: "Allow Git Exception" }));
     await user.click(screen.getByRole("button", { name: "Allow Exception" }));
 
@@ -1770,8 +1770,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByText("Select a repository to continue.");
-    await user.click(screen.getByRole("button", { name: "Browse for Repository" }));
+    await screen.findByText("Open a local folder or clone a repository to this computer.");
+    await user.click(screen.getByRole("button", { name: "Open repository" }));
     await user.click(await screen.findByRole("button", { name: "Allow Git Exception" }));
     await user.click(screen.getByRole("button", { name: "Allow Exception" }));
 
@@ -1797,13 +1797,13 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByText("Select a repository to continue.");
-    await user.click(screen.getByRole("button", { name: "Browse for Repository" }));
+    await screen.findByText("Open a local folder or clone a repository to this computer.");
+    await user.click(screen.getByRole("button", { name: "Open repository" }));
     await user.click(await screen.findByRole("button", { name: "Allow Git Exception" }));
     await user.click(screen.getByRole("button", { name: "Allow Exception" }));
 
     expect(await screen.findByText("error: could not lock config file")).toBeTruthy();
-    expect(screen.getByText("Select a repository to continue.")).toBeTruthy();
+    expect(screen.getByText("Open a local folder or clone a repository to this computer.")).toBeTruthy();
     expect(githead.addRepoRecent).not.toHaveBeenCalledWith(blockedRepo);
   });
 });

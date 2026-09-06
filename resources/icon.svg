@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 64 64" fill="none">
+  <!-- Branch glyph adapted from Lucide GitBranch. See icon.LICENSE. -->
+  <rect x="1" y="1" width="62" height="62" rx="16" fill="#142235" stroke="#2b4863" stroke-width="1.5"/>
+  <g transform="translate(13 13) scale(1.583333)" stroke="#3986dd" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M15 6a9 9 0 0 0-9 9V3"/>
+    <circle cx="18" cy="6" r="3"/>
+    <circle cx="6" cy="18" r="3"/>
+  </g>
+</svg>

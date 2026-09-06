@@ -1,3 +1,4 @@
+import { getAppIconPath } from "./appIcon";
 import type { GitTagListRequest, GitTagCheckoutRequest } from "../shared/types";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, safeStorage, screen, shell } from "electron";
 import fs from "node:fs/promises";
@@ -236,6 +237,7 @@ async function createWindow(): Promise<void> {
     minWidth: MIN_WINDOW_BOUNDS.width,
     minHeight: MIN_WINDOW_BOUNDS.height,
     title: "Githead",
+    icon: getAppIconPath(),
     backgroundColor: getWindowBackgroundColor(),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -347,6 +349,7 @@ function getDisplayWorkAreas(): Electron.Rectangle[] {
 }
 
 app.whenReady().then(async () => {
+  app.setAppUserModelId("com.githead.gui");
   const appSettings = await getAppSettingsService().getSettings();
   setSentryTelemetryEnabled(appSettings.privacy.shareAnonymousDiagnostics);
   await createWindow();

@@ -1,7 +1,10 @@
+import appIconUrl from "../../resources/icon.svg";
 import { CheckoutTagDialog } from "./CheckoutTagDialog";
 import type { GitTagCheckoutRequest } from "../shared/types";
 import {
   Archive,
+  ArrowLeft,
+  ArrowRight,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -285,6 +288,7 @@ const PerformanceDiagnosticsDialog = lazy(() => import("./PerformanceDiagnostics
 import { StashComposerDialog, type StashCreateDraft } from "./StashComposerDialog";
 import { StashesView } from "./StashesView";
 import { StartupScreen } from "./StartupScreen";
+import { StartLayout } from "./StartLayout";
 import { useGitStashes } from "./useGitStashes";
 import { useSelectionSafeValue } from "./useSelectionSafeValue";
 import { repositoryHistoryRoute, targetFromCommitFile, targetFromHistoryEntry, type HistoricalFileTarget, type HistoryRoute } from "./historyNavigation";
@@ -8205,7 +8209,7 @@ function AppChrome({
       <main className="app-shell bg-background text-foreground">
         <header className="window-chrome" data-maximized={isMaximized ? "true" : "false"}>
           <div className="window-title">
-            <div className="window-title-mark" aria-hidden="true">G</div>
+            <img className="window-title-mark" src={appIconUrl} alt="" width="20" height="20" />
             <span>Githead</span>
             {onToggleRepositoryPanel ? (
               <button
@@ -8326,34 +8330,35 @@ function GitRequiredScreen({
   const unavailable = status.reason === "unavailable";
 
   return (
-    <section className="git-required-screen" aria-labelledby="git-required-title">
-      <div className="git-required-panel">
-        <div className="git-required-icon" aria-hidden="true">
-          <GitFork />
+    <StartLayout>
+      <section className="git-required-screen" aria-labelledby="git-required-title">
+        <div className="git-required-panel">
+          <div className="git-required-icon" aria-hidden="true">
+            <GitFork />
+          </div>
+          <div className="git-required-copy">
+            <h1 id="git-required-title">{unavailable ? "Git could not be started" : "Git is required"}</h1>
+            <p>
+              {unavailable
+                ? "Githead found Git, but the command failed. Reinstall Git or check your system PATH."
+                : "Githead could not find Git on this computer. Install Git before opening or cloning repositories."}
+            </p>
+            <p>After installation, check again. You do not need to restart Githead.</p>
+          </div>
+          <div className="git-required-actions">
+            <Button type="button" onClick={onInstall} disabled={checking}>
+              <Download />
+              Download Git
+              <ExternalLink />
+            </Button>
+            <Button type="button" variant="outline" onClick={onCheckAgain} disabled={checking}>
+              <RefreshCw className={checking ? "animate-spin" : undefined} />
+              {checking ? "Checking for Git" : "Check Again"}
+            </Button>
+          </div>
         </div>
-        <div className="git-required-copy">
-          <p className="git-required-eyebrow">Required dependency</p>
-          <h1 id="git-required-title">{unavailable ? "Git could not be started" : "Git is required"}</h1>
-          <p>
-            {unavailable
-              ? "Githead found Git, but the command failed. Reinstall Git or check your system PATH."
-              : "Githead could not find Git on this computer. Install Git before opening or cloning repositories."}
-          </p>
-          <p>After installation, check again. You do not need to restart Githead.</p>
-        </div>
-        <div className="git-required-actions">
-          <Button type="button" onClick={onInstall} disabled={checking}>
-            <Download />
-            Download Git
-            <ExternalLink />
-          </Button>
-          <Button type="button" variant="outline" onClick={onCheckAgain} disabled={checking}>
-            <RefreshCw className={checking ? "animate-spin" : undefined} />
-            {checking ? "Checking for Git" : "Check Again"}
-          </Button>
-        </div>
-      </div>
-    </section>
+      </section>
+    </StartLayout>
   );
 }
 
@@ -8420,95 +8425,121 @@ function RepositorySetupScreen({
   onClone: (event: FormEvent<HTMLFormElement>) => void;
   onCancelOperation: () => void;
 }): ReactNode {
-  return (
-    <section className="setup-screen">
-      <div className="setup-header">
-        <div className="setup-logo">G</div>
-        <div className="min-w-0">
-          <h1>Githead</h1>
-          <p>Select a repository to continue.</p>
-        </div>
-      </div>
+  const [step, setStep] = useState<"welcome" | "clone">("welcome");
+  const cloneButtonRef = useRef<HTMLButtonElement>(null);
+  const clonePanelRef = useRef<HTMLDivElement>(null);
+  const cloneBusy = cloneRunning || cloneCheckRunning;
 
-      <div className="setup-grid">
-        <section className="setup-panel">
-          <div className="setup-panel-heading">
-            <FolderOpen />
-            <div>
-              <h2>Open existing repository</h2>
-              <p>Locate a folder that already contains a Git working tree.</p>
+  useEffect(() => {
+    if (step === "clone") clonePanelRef.current?.querySelector("input")?.focus();
+  }, [step]);
+
+  const returnToWelcome = (): void => {
+    if (cloneBusy) return;
+    setStep("welcome");
+    requestAnimationFrame(() => cloneButtonRef.current?.focus());
+  };
+
+  return (
+    <StartLayout>
+      <div className="setup-screen">
+        {step === "clone" ? (
+          <div className="setup-clone-step" ref={clonePanelRef}>
+            <Button type="button" variant="ghost" className="setup-back" onClick={returnToWelcome} disabled={cloneBusy}>
+              <ArrowLeft /> Back to repositories
+            </Button>
+            <div className="setup-clone-card">
+                <CloneRepositoryForm
+                  idPrefix="clone"
+                  cloneDraft={cloneDraft}
+                  cloneError={cloneError}
+                  cloneRunning={cloneRunning}
+                  cloneCheckRunning={cloneCheckRunning}
+                  cloneCheckStatus={cloneCheckStatus}
+                  cloneCheckMessage={cloneCheckMessage}
+                  cloneBranches={cloneBranches}
+                  cancelStatus={cancelStatus}
+                  cancelError={cancelError}
+                  onCloneDraftChange={onCloneDraftChange}
+                  onCloneSourceChange={onCloneSourceChange}
+                  onChooseCloneParent={onChooseCloneParent}
+                  onCheckRepositoryAccess={onCheckRepositoryAccess}
+                  onClone={onClone}
+                  onCancelOperation={onCancelOperation}
+                />
             </div>
           </div>
-          <Button type="button" className="w-full justify-center" onClick={onChooseRepo} disabled={running}>
-            <FolderOpen />
-            Browse for Repository
-          </Button>
-          {setupError ? (
-            <p className="setup-error selectable-text" role="alert">{setupError}</p>
-          ) : null}
-          {safeDirectory?.required ? (
-            <div className="setup-safe-directory" role="status">
-              <div className="setup-safe-directory-heading">
-                <ShieldAlert />
-                <span>Git ownership check blocked this repository.</span>
-              </div>
-              <p>Allow an exception for this folder to add it to Git's global safe.directory list.</p>
-              <p className="setup-safe-directory-path selectable-text">{safeDirectory.path}</p>
-              <Button
-                type="button"
-                variant="outline"
-                className="justify-center"
-                onClick={onOpenSafeDirectoryDialog}
-                disabled={running || safeDirectoryRunning}
-              >
-                {safeDirectoryRunning ? <Loader2 className="animate-spin" /> : <ShieldAlert />}
-                {safeDirectoryRunning ? "Adding Exception" : "Allow Git Exception"}
-              </Button>
+        ) : (
+          <>
+            <header className="setup-header">
+              <h2>{repoRecents.length ? "Pick up where you left off." : "Start with a repository."}</h2>
+              <p>Open a local folder or clone a repository to this computer.</p>
+            </header>
+            <div className="setup-actions">
+              <button type="button" className="setup-action is-primary" aria-label="Open repository" onClick={onChooseRepo} disabled={running}>
+                <span className="setup-action-icon"><FolderOpen aria-hidden="true" /></span>
+                <span className="setup-action-copy"><strong>Open repository</strong><span>Choose an existing folder on your computer</span></span>
+                <ArrowRight aria-hidden="true" />
+              </button>
+              <button type="button" ref={cloneButtonRef} className="setup-action" aria-label="Clone a repository" onClick={() => setStep("clone")} disabled={running}>
+                <span className="setup-action-icon"><GitFork aria-hidden="true" /></span>
+                <span className="setup-action-copy"><strong>Clone a repository</strong><span>Download a repository from a URL or path</span></span>
+                <ArrowRight aria-hidden="true" />
+              </button>
             </div>
-          ) : null}
-          {selectedRepoPath ? (
-            <p className="setup-selected-path selectable-text">{selectedRepoPath}</p>
-          ) : null}
-        </section>
-
-        <section className="setup-panel">
-          <CloneRepositoryForm
-            idPrefix="clone"
-            cloneDraft={cloneDraft}
-            cloneError={cloneError}
-            cloneRunning={cloneRunning}
-            cloneCheckRunning={cloneCheckRunning}
-            cloneCheckStatus={cloneCheckStatus}
-            cloneCheckMessage={cloneCheckMessage}
-            cloneBranches={cloneBranches}
-            cancelStatus={cancelStatus}
-            cancelError={cancelError}
-            onCloneDraftChange={onCloneDraftChange}
-            onCloneSourceChange={onCloneSourceChange}
-            onChooseCloneParent={onChooseCloneParent}
-            onCheckRepositoryAccess={onCheckRepositoryAccess}
-            onClone={onClone}
-            onCancelOperation={onCancelOperation}
-          />
-        </section>
+            {setupError ? (
+              <p className="setup-error selectable-text" role="alert">{setupError}</p>
+            ) : null}
+            {safeDirectory?.required ? (
+              <div className="setup-safe-directory" role="status">
+                <div className="setup-safe-directory-heading">
+                  <ShieldAlert />
+                  <span>Git ownership check blocked this repository.</span>
+                </div>
+                <p>Allow an exception for this folder to add it to Git's global safe.directory list.</p>
+                <p className="setup-safe-directory-path selectable-text">{safeDirectory.path}</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="justify-center"
+                  onClick={onOpenSafeDirectoryDialog}
+                  disabled={running || safeDirectoryRunning}
+                >
+                  {safeDirectoryRunning ? <Loader2 className="animate-spin" /> : <ShieldAlert />}
+                  {safeDirectoryRunning ? "Adding Exception" : "Allow Git Exception"}
+                </Button>
+              </div>
+            ) : null}
+            {selectedRepoPath ? (
+              <p className="setup-selected-path selectable-text">{selectedRepoPath}</p>
+            ) : null}
+            <div className="setup-recent-section">
+              <div className="setup-recent-title"><h3>Recent repositories</h3><span>{repoRecents.length}</span></div>
+              {repoRecents.length > 0 ? (
+                <RepositoryList
+                  className="setup-recents"
+                  repoPath=""
+                  repoPaths={repoRecents}
+                  syncStatuses={repoSyncStatuses}
+                  disabled={running}
+                  onSelect={onSelectRecent}
+                  onRemove={onRemoveRecent}
+                  onRecover={onRecoverRecent}
+                  onReorder={onReorderRepositories}
+                  onShowInExplorer={onShowInExplorer}
+                  onOpenRepositorySettings={onOpenRepositorySettings}
+                />
+              ) : (
+                <div className="setup-recents-empty">
+                  <History aria-hidden="true" />
+                  <div><strong>Your repositories will appear here</strong><p>Open or clone your first repository to get started.</p></div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
-
-      {repoRecents.length > 0 ? (
-        <RepositoryList
-          className="setup-recents"
-          repoPath=""
-          repoPaths={repoRecents}
-          syncStatuses={repoSyncStatuses}
-          disabled={running}
-          onSelect={onSelectRecent}
-          onRemove={onRemoveRecent}
-          onRecover={onRecoverRecent}
-          onReorder={onReorderRepositories}
-          onShowInExplorer={onShowInExplorer}
-          onOpenRepositorySettings={onOpenRepositorySettings}
-        />
-      ) : null}
-    </section>
+    </StartLayout>
   );
 }
 

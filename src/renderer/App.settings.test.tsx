@@ -23,6 +23,28 @@ import {
 import { App } from "./App";
 
 describe("App", { timeout: 10_000 }, () => {
+  it("keeps the clone draft when navigating back and restores keyboard focus", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoRecents).mockResolvedValue([]);
+    render(<App />);
+
+    const cloneAction = await screen.findByRole("button", { name: "Clone a repository" });
+    expect(screen.queryByLabelText("Repository URL or path")).toBeNull();
+    await user.click(cloneAction);
+    expect(document.activeElement).toBe(screen.getByLabelText("Repository URL or path"));
+    await user.type(screen.getByLabelText("Repository URL or path"), "https://example.com/team/project.git");
+    await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
+    await user.click(screen.getByRole("button", { name: "Back to repositories" }));
+
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Clone a repository" })));
+    expect(screen.queryByLabelText("Repository URL or path")).toBeNull();
+    await user.keyboard("{Enter}");
+    expect(screen.getByDisplayValue("https://example.com/team/project.git")).toBeTruthy();
+    expect(screen.getByDisplayValue("D:\\Work")).toBeTruthy();
+    expect(screen.getByDisplayValue("project")).toBeTruthy();
+    expect(githead.cloneRepository).not.toHaveBeenCalled();
+  });
+
   it("clones a repository, validates the result, and adds it to repositories", async () => {
     const user = userEvent.setup();
     const clonedRepo = "D:\\Work\\repo";
@@ -38,7 +60,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByText("Select a repository to continue.");
+    await user.click(await screen.findByRole("button", { name: "Clone a repository" }));
     await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
     await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
     await user.click(screen.getByRole("button", { name: "Clone Repository" }));
@@ -72,13 +94,13 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByText("Select a repository to continue.");
+    await user.click(await screen.findByRole("button", { name: "Clone a repository" }));
     await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
     await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
     await user.click(screen.getByRole("button", { name: "Clone Repository" }));
 
     expect(await screen.findByText("fatal: authentication failed")).toBeTruthy();
-    expect(screen.getByText("Select a repository to continue.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Back to repositories" })).toBeTruthy();
     expect(githead.addRepoRecent).not.toHaveBeenCalledWith("D:\\Work\\repo");
   });
 
@@ -91,7 +113,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByText("Select a repository to continue.");
+    await user.click(await screen.findByRole("button", { name: "Clone a repository" }));
     await user.type(screen.getByLabelText("Repository URL or path"), "git@github.com:openai/repo.git");
     await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
     await user.click(screen.getByRole("button", { name: "Choose branch" }));
@@ -130,7 +152,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByText("Select a repository to continue.");
+    await user.click(await screen.findByRole("button", { name: "Clone a repository" }));
     await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
     await user.click(screen.getByRole("button", { name: "Check" }));
 
@@ -165,7 +187,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByText("Select a repository to continue.");
+    await user.click(await screen.findByRole("button", { name: "Clone a repository" }));
     await user.type(screen.getByLabelText("Repository URL or path"), "git@github.com:openai/repo.git");
     await user.click(screen.getByRole("button", { name: "Choose branch" }));
     await user.type(screen.getByRole("combobox", { name: "Search or enter a branch..." }), "release");
@@ -190,7 +212,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByText("Select a repository to continue.");
+    await user.click(await screen.findByRole("button", { name: "Clone a repository" }));
     const sourceInput = screen.getByLabelText("Repository URL or path");
     await user.type(sourceInput, "https://github.com/openai/private.git");
     await user.click(screen.getByRole("button", { name: "Check" }));
@@ -215,7 +237,7 @@ describe("App", { timeout: 10_000 }, () => {
       : Promise.resolve(createSummary({ repoPath: requestedRepoPath })));
 
     render(<App />);
-    await screen.findByText("Select a repository to continue.");
+    await user.click(await screen.findByRole("button", { name: "Clone a repository" }));
     await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
     await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
     await user.click(screen.getByRole("button", { name: "Clone Repository" }));
@@ -241,12 +263,13 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByText("Select a repository to continue.");
+    await user.click(await screen.findByRole("button", { name: "Clone a repository" }));
     await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
     await user.click(screen.getByRole("button", { name: "Check" }));
 
     expect((await screen.findByRole("button", { name: "Checking" }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "Clone Repository" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Back to repositories" }).hasAttribute("disabled")).toBe(true);
 
     await act(async () => {
       resolveCheck({
@@ -266,7 +289,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByText("Select a repository to continue.");
+    await user.click(await screen.findByRole("button", { name: "Clone a repository" }));
     expect((screen.getByLabelText("Depth") as HTMLInputElement).value).toBe("0");
     await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
     await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");

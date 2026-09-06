@@ -48,7 +48,7 @@ describe("App", { timeout: 10_000 }, () => {
     const status = screen.getByRole("status");
     expect(within(status).getByText("Opening your workspace…")).toBeTruthy();
     expect(within(status).getByText("Loading saved repositories")).toBeTruthy();
-    expect(screen.queryByText("Select a repository to continue.")).toBeNull();
+    expect(screen.queryByText("Open a local folder or clone a repository to this computer.")).toBeNull();
 
     pendingRecents.resolve(repositoryRecents(repoPath));
     await waitForRepositoryWorkspace();
@@ -61,8 +61,8 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     expect(await screen.findByText("Opening Githead…")).toBeTruthy();
-    expect(screen.queryByText("Select a repository to continue.")).toBeNull();
-    expect(screen.queryByRole("complementary")).toBeNull();
+    expect(screen.queryByText("Open a local folder or clone a repository to this computer.")).toBeNull();
+    expect(screen.queryByRole("region", { name: "Repositories" })).toBeNull();
 
     pendingSettings.resolve({
       autoFetchIntervalMinutes: 10,
@@ -85,7 +85,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     expect(await screen.findByText("Recent repositories are unavailable.")).toBeTruthy();
-    expect(screen.getByText("Select a repository to continue.")).toBeTruthy();
+    expect(screen.getByText("Open a local folder or clone a repository to this computer.")).toBeTruthy();
   });
 
   it("renders custom window controls on the repository setup screen", async () => {
@@ -98,8 +98,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Select a repository to continue.")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Githead" })).toBeTruthy();
+    expect(await screen.findByText("Open a local folder or clone a repository to this computer.")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Welcome to Githead" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Minimize window" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Maximize window" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Close window" })).toBeTruthy();
@@ -318,7 +318,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     expect(await screen.findByText("Not a git repository.")).toBeTruthy();
-    expect(screen.getByText("Select a repository to continue.")).toBeTruthy();
+    expect(screen.getByText("Open a local folder or clone a repository to this computer.")).toBeTruthy();
   });
 
   it("preloads the full history once and reuses it on the first tab open", async () => {

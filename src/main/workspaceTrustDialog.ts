@@ -1,3 +1,4 @@
+import { getAppIconPath } from "./appIcon";
 import { BrowserWindow, ipcMain, nativeTheme } from "electron";
 import path from "node:path";
 import { IPC_CHANNELS } from "../shared/ipc";
@@ -31,6 +32,7 @@ export function showWorkspaceTrustDialog(options: ShowWorkspaceTrustDialogOption
     fullscreenable: false,
     autoHideMenuBar: true,
     title: "Confirm Workspace Trust",
+    icon: getAppIconPath(),
     backgroundColor: getDialogBackground(options.context.appearanceMode),
     webPreferences: {
       preload: path.join(__dirname, "workspace-trust-preload.js"),

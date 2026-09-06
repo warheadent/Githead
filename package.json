@@ -38,7 +38,8 @@
     "package:win": "npm install && vp run build && node scripts/package-win.mjs",
     "package:win:dir": "npm install && vp run build && node scripts/package-win.mjs --dir",
     "package:linux": "vp run build && node scripts/package-linux.mjs",
-    "package:linux:dir": "vp run build && node scripts/package-linux.mjs --dir"
+    "package:linux:dir": "vp run build && node scripts/package-linux.mjs --dir",
+    "icons:generate": "electron scripts/generate-app-icons.mjs"
   },
   "keywords": [
     "electron",
@@ -104,7 +105,10 @@
     "files": [
       "dist/**/*",
       "!**/*.map",
-      "package.json"
+      "package.json",
+      "resources/icon.png",
+      "resources/icon.ico",
+      "resources/icon.LICENSE"
     ],
     "electronLanguages": [
       "en-US"
@@ -118,7 +122,8 @@
     "win": {
       "target": "nsis",
       "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",
-      "signAndEditExecutable": false
+      "icon": "resources/icon.ico",
+      "signExecutable": false
     },
     "linux": {
       "target": [
@@ -140,13 +145,17 @@
       "synopsis": "Lightweight Git GUI",
       "description": "A lightweight desktop GUI for common git sync commands.",
       "maintainer": "Githead",
-      "vendor": "Githead"
+      "vendor": "Githead",
+      "icon": "resources/icon.png"
     },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": true
-    }
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "resources/icon.ico",
+      "uninstallerIcon": "resources/icon.ico"
+    },
+    "icon": "resources/icon.png"
   },
   "dependencies": {
     "@sentry/electron": "^7.18.0",

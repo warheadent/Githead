@@ -14,6 +14,8 @@ const REQUIRED_ASAR_ENTRIES = Object.freeze([
   "dist/main/main/main.js",
   "dist/main/main/preload.js",
   "dist/renderer/index.html",
+  "resources/icon.png",
+  "resources/icon.ico",
   "node_modules/@sentry/electron/package.json",
   "node_modules/electron-updater/package.json",
   "package.json"
