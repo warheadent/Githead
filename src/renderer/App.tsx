@@ -1,4 +1,3 @@
-import appIconUrl from "../../resources/icon.svg";
 import { CheckoutTagDialog } from "./CheckoutTagDialog";
 import type { GitTagCheckoutRequest } from "../shared/types";
 import {
@@ -8242,7 +8241,14 @@ function AppChrome({
       <main className="app-shell bg-background text-foreground">
         <header className="window-chrome" data-maximized={isMaximized ? "true" : "false"}>
           <div className="window-title">
-            <img className="window-title-mark" src={appIconUrl} alt="" width="20" height="20" />
+            <svg className="window-title-mark" width="20" height="20" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+              <rect className="window-title-mark-background" x="1" y="1" width="62" height="62" rx="16" strokeWidth="1.5" />
+              <g transform="translate(13 13) scale(1.583333)" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 6a9 9 0 0 0-9 9V3" />
+                <circle cx="18" cy="6" r="3" />
+                <circle cx="6" cy="18" r="3" />
+              </g>
+            </svg>
             <span>Githead</span>
             {onToggleRepositoryPanel ? (
               <button
