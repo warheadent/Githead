@@ -1093,6 +1093,67 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.getRepoRecents).toHaveBeenCalledTimes(1);
   });
 
+  it.each(["invalid", "exception"])("keeps the workspace when opening a recent repository fails: %s", async (failure) => {
+    const user = userEvent.setup();
+    const missingRepo = "D:\\MissingRepo";
+    const reason = "Repository is no longer available.";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, missingRepo));
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => {
+      if (requestedRepoPath === missingRepo && failure === "exception") throw new Error(reason);
+      return createSummary({ repoPath: requestedRepoPath, isValid: requestedRepoPath !== missingRepo,
+        validationErrors: requestedRepoPath === missingRepo ? [reason] : [] });
+    });
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("button", { name: `Switch to ${missingRepo}` }));
+
+    expect(await screen.findByRole("heading", { name: "Repository Unavailable" })).toBeTruthy();
+    expect(screen.queryByText("Open a local folder or clone a repository to this computer.")).toBeNull();
+    expect(screen.getByRole("region", { name: "Repositories" })).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toContain(reason);
+
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({ repoPath: requestedRepoPath }));
+    await user.click(screen.getByRole("button", { name: "Try Again" }));
+    await waitForRepositoryWorkspace();
+    expect(screen.queryByRole("heading", { name: "Repository Unavailable" })).toBeNull();
+    expect(screen.getByRole("button", { name: `Switch to ${missingRepo}` }).getAttribute("aria-current")).toBe("true");
+  });
+
+  it("can select another repository after a recent repository fails to open", async () => {
+    const user = userEvent.setup();
+    const missingRepo = "D:\\MissingRepo";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, missingRepo));
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
+      repoPath: requestedRepoPath,
+      isValid: requestedRepoPath !== missingRepo,
+      validationErrors: requestedRepoPath === missingRepo ? ["Repository is unavailable."] : []
+    }));
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("button", { name: `Switch to ${missingRepo}` }));
+    await screen.findByRole("heading", { name: "Repository Unavailable" });
+    await user.click(screen.getByRole("button", { name: `Switch to ${repoPath}` }));
+    await waitForRepositoryWorkspace();
+    expect(screen.queryByRole("heading", { name: "Repository Unavailable" })).toBeNull();
+    expect(screen.getByRole("button", { name: `Switch to ${repoPath}` }).getAttribute("aria-current")).toBe("true");
+  });
+
+  it("can allow a Git ownership exception after opening a recent repository fails", async () => {
+    const user = userEvent.setup();
+    const blockedRepo = "D:\\Work\\Blocked";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, blockedRepo));
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) =>
+      requestedRepoPath === blockedRepo ? createSafeDirectorySummary(blockedRepo) : createSummary());
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("button", { name: `Switch to ${blockedRepo}` }));
+    await screen.findByRole("heading", { name: "Repository Unavailable" });
+    await user.click(screen.getByRole("button", { name: "Allow Git Exception" }));
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+    expect(screen.queryByText("Open a local folder or clone a repository to this computer.")).toBeNull();
+  });
+
   it("shows the setup screen when the initial recent repository is invalid", async () => {
     const invalidRepo = "D:\\MissingRepo";
     vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(invalidRepo));

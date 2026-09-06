@@ -518,6 +518,7 @@ type RepositoryRefreshReason = "filesystem" | "focus" | "repository-change" | "o
 interface AppRepositoryRefreshRequest extends RepositoryRefreshRequest<RepositoryRefreshReason> {
   addToRecents?: boolean;
   preserveWorkspaceOnFailure?: boolean;
+  showSetupOnFailure?: boolean;
   recentAnchorPath?: string;
   silent?: boolean;
   statusOnly?: boolean;
@@ -1713,6 +1714,7 @@ export function App(): ReactNode {
     const requestId = requestIds.current.repo + 1;
     requestIds.current.repo = requestId;
     const fileStatusGeneration = fileStatusGenerationRef.current;
+    const showSetupOnFailure = options.showSetupOnFailure ?? stateRef.current.showSetup;
     let refreshSucceeded = false;
     lastRepositoryRefreshRef.current = { repoPath, succeeded: false };
     repoRefreshInFlightRef.current = true;
@@ -1761,7 +1763,16 @@ export function App(): ReactNode {
       const identitySummary = stateRef.current.summary?.isValid
         ? { ...stateRef.current.summary, ...identity }
         : createSummaryFromIdentity(identity);
-      updateState((current) => ({ ...current, summary: identitySummary, showSetup: !identity.isValid, setupError: identity.validationErrors.join(" ") }));
+      updateState((current) => ({
+        ...current,
+        summary: identitySummary,
+        showSetup: !identity.isValid && showSetupOnFailure,
+        setupError: identity.validationErrors.join(" "),
+        repoSyncStatuses: identity.isValid ? current.repoSyncStatuses : {
+          ...current.repoSyncStatuses,
+          [getRepoPathKey(identity.repoPath)]: createRepoSyncStatusFromSummary(identitySummary)
+        }
+      }));
       if (!identity.isValid) return;
       if (!(await ensureTrustedRepo(identity.repoPath, () => (
         requestId === requestIds.current.repo && isSameRepoPath(repoPath, stateRef.current.repoPath)
@@ -1877,7 +1888,7 @@ export function App(): ReactNode {
             ...current.repoSyncStatuses,
             [getRepoPathKey(summary.repoPath)]: createRepoSyncStatusFromSummary(summary)
           },
-          showSetup: true,
+          showSetup: showSetupOnFailure,
           setupError: error instanceof Error ? error.message : "Unable to read repository state.",
           selection: null,
           diff: null,
@@ -2160,6 +2171,7 @@ export function App(): ReactNode {
 
     await refreshRepo({
       reason: "repository-change",
+      showSetupOnFailure: leaving.showSetup,
       addToRecents: options.addToRecents ?? false,
       ...(options.recentAnchorPath ? { recentAnchorPath: options.recentAnchorPath } : {})
     });
@@ -2201,6 +2213,7 @@ export function App(): ReactNode {
     if (repoRecents.length > 0) {
       void refreshRepo({
         reason: "repository-change",
+        showSetupOnFailure: true,
         addToRecents: false
       });
     }
@@ -7189,6 +7202,18 @@ export function App(): ReactNode {
           <ResizableHandle className="app-workspace-resize-handle" />
           <ResizablePanel minSize="520px" className="main-workspace-panel" data-layout-panel="workspace">
             <section className="app-workspace-main flex h-full min-w-0 flex-col overflow-hidden">
+              {state.summary?.isValid === false ? (
+                <RepositoryErrorView
+                  key={state.repoPath}
+                  repoPath={state.repoPath}
+                  error={state.setupError || state.summary.validationErrors.join(" ")}
+                  safeDirectory={state.summary.safeDirectory}
+                  busy={running || state.repoLoading}
+                  onRetry={() => { void refreshRepo({ reason: "user", addToRecents: true }); }}
+                  onRecover={() => recoverRecentRepo(state.repoPath)}
+                  onAllowGitException={openSafeDirectoryDialog}
+                />
+              ) : <>
               <ActionBar
               heading={actionHeading}
               summary={state.summary}
@@ -7683,11 +7708,19 @@ export function App(): ReactNode {
                 }}
               />
             ) : null}
+            </>}
             </section>
           </ResizablePanel>
         </ResizablePanelGroup>
       </div>
 
+      <SafeDirectoryDialog
+        open={state.safeDirectoryDialogOpen}
+        safeDirectory={state.summary?.safeDirectory ?? null}
+        saving={state.safeDirectoryRunning}
+        onCancel={() => requestModalClose(["safe-directory"], closeSafeDirectoryDialog)}
+        onAllow={() => { void allowSafeDirectory(); }}
+      />
       <GenerateWithContextDialog
         open={state.generateContextDialog.open}
         context={state.generateContextDialog.context}
@@ -8359,6 +8392,52 @@ function GitRequiredScreen({
         </div>
       </section>
     </StartLayout>
+  );
+}
+
+function RepositoryErrorView({ repoPath, error, safeDirectory, busy, onRetry, onRecover, onAllowGitException }: {
+  repoPath: string;
+  error: string;
+  safeDirectory: GitSafeDirectoryInfo | null;
+  busy: boolean;
+  onRetry: () => void;
+  onRecover: () => Promise<RepositoryRecoveryResult>;
+  onAllowGitException: () => void;
+}): ReactNode {
+  const [recovering, setRecovering] = useState(false);
+  const [recoveryError, setRecoveryError] = useState("");
+  const disabled = busy || recovering;
+
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-8">
+      <section className="flex w-full max-w-lg flex-col items-start gap-4" aria-labelledby="repository-error-heading">
+        <TriangleAlert className="size-8 text-destructive" aria-hidden="true" />
+        <h2 id="repository-error-heading" className="text-xl font-semibold">Repository Unavailable</h2>
+        <p className="text-muted-foreground">Githead cannot open this repository. Try again or select another repository from the list.</p>
+        <p className="selectable-text break-all font-mono text-sm">{repoPath}</p>
+        <p className="selectable-text break-words text-sm text-destructive" role="alert">{recoveryError || error}</p>
+        {safeDirectory?.required ? <p className="text-sm text-muted-foreground">Git ownership check blocked this repository.</p> : null}
+        <div className="flex flex-wrap gap-2">
+          <Button disabled={disabled} onClick={onRetry}>
+            {busy ? <Loader2 className="animate-spin" /> : <RefreshCw />}Try Again
+          </Button>
+          {safeDirectory?.required ? (
+            <Button variant="outline" disabled={disabled} onClick={onAllowGitException}><ShieldAlert />Allow Git Exception</Button>
+          ) : (
+            <Button variant="outline" disabled={disabled} onClick={() => {
+              setRecovering(true);
+              setRecoveryError("");
+              void onRecover().then((result) => {
+                if (result.status === "error") setRecoveryError(result.message);
+              }).finally(() => setRecovering(false));
+            }}>
+              {recovering ? <Loader2 className="animate-spin" /> : <FolderOpen />}
+              {recovering ? "Checking Location" : "Choose New Location"}
+            </Button>
+          )}
+        </div>
+      </section>
+    </div>
   );
 }
 
