@@ -56,6 +56,9 @@ describe("TooltipButton", () => {
     fireEvent.focus(screen.getByRole("button", { name: "Refresh repository" }))
 
     await waitFor(() => expect(screen.getByRole("tooltip").textContent).toContain("Refresh repository"))
+    expect(screen.getByRole("button", { name: "Refresh repository" }).getAttribute("aria-describedby")).toBe(screen.getByRole("tooltip").id)
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" })
+    await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull())
   })
 
   it("waits before showing its action tooltip on hover", () => {
@@ -106,5 +109,37 @@ describe("TooltipButton", () => {
 
     fireEvent.focus(screen.getByLabelText("Switch to another branch before deleting this branch"))
     await waitFor(() => expect(screen.getByRole("tooltip").textContent).toContain("Switch to another branch before deleting this branch"))
+    expect(screen.getByLabelText("Switch to another branch before deleting this branch").getAttribute("aria-describedby")).toBe(screen.getByRole("tooltip").id)
+  })
+})
+
+describe("overflow-only tooltips", () => {
+  it("checks the current width on each hover and keeps the target mounted", () => {
+    vi.useFakeTimers()
+    render(<TooltipProvider><TooltipTarget overflowOnly content="Full branch name"><span>branch</span></TooltipTarget></TooltipProvider>)
+    const target = screen.getByText("branch")
+    let width = 120
+    Object.defineProperties(target, {
+      clientWidth: { get: () => width },
+      scrollWidth: { get: () => 120 },
+    })
+    fireEvent.pointerMove(target, { pointerType: "mouse" })
+    act(() => vi.advanceTimersByTime(TOOLTIP_DELAY_MS))
+    expect(screen.queryByRole("tooltip")).toBeNull()
+    fireEvent.pointerLeave(target, { pointerType: "mouse" })
+    width = 60
+    fireEvent.pointerMove(target, { pointerType: "mouse" })
+    act(() => vi.advanceTimersByTime(TOOLTIP_DELAY_MS))
+    expect(screen.getByRole("tooltip").textContent).toContain("Full branch name")
+    expect(screen.getByText("branch")).toBe(target)
+  })
+
+  it("opens on keyboard focus when text is clipped vertically", async () => {
+    render(<TooltipProvider><TooltipTarget overflowOnly content="Full title"><button>title</button></TooltipTarget></TooltipProvider>)
+    const target = screen.getByRole("button")
+    Object.defineProperties(target, { clientHeight: { value: 20 }, scrollHeight: { value: 40 } })
+    fireEvent.focus(target)
+    await waitFor(() => expect(screen.getByRole("tooltip").textContent).toContain("Full title"))
+    expect(target.getAttribute("aria-describedby")).toBe(screen.getByRole("tooltip").id)
   })
 })

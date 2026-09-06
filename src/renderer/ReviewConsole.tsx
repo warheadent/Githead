@@ -232,7 +232,7 @@ export function ReviewConsole({
               </div>
             ) : (
               <>
-                <Button type="button" size="sm" disabled={Boolean(mutation.kind) || !pullRequestDetail?.canMerge} title={getMergeDisabledReason(pullRequestDetail)} onClick={() => setConfirmMerge(true)}><GitMerge />Merge</Button>
+                <TooltipButton type="button" size="sm" disabled={Boolean(mutation.kind) || !pullRequestDetail?.canMerge} tooltip="Merge pull request" disabledTooltip={mutation.kind ? "Wait for the current action to finish." : getMergeDisabledReason(pullRequestDetail)} onClick={() => setConfirmMerge(true)}><GitMerge />Merge</TooltipButton>
                 <Button type="button" variant="outline" size="sm" disabled={Boolean(mutation.kind)} onClick={() => {
                   void runMutation("approve", () => window.githead.approveGitHubPullRequest({ repoPath, number: selection.item.number, operationId: createOperationId("approve") }));
                 }}>{mutation.kind === "approve" ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : <Check />}Approve</Button>

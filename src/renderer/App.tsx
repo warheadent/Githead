@@ -9139,7 +9139,7 @@ function RepositoryUnavailableButton({ repoPath, reason, disabled, onClick }: {
   onClick: () => void;
 }): ReactNode {
   return (
-    <TooltipTarget content={reason} contentProps={{ className: "max-w-80" }}>
+    <TooltipTarget content={reason} contentProps={{ className: "[--tooltip-max-width:20rem]" }}>
       <button
         type="button"
         className="repo-recent-recovery"
@@ -9976,7 +9976,7 @@ function AppUpdateControl({
               {label}
             </Button>
           </TooltipTrigger>
-          <TooltipContent className="max-w-72">
+          <TooltipContent className="[--tooltip-max-width:18rem]">
             {visibleState.message}
           </TooltipContent>
         </Tooltip>
@@ -10208,11 +10208,12 @@ function ActionBar({
           </Button>
         ) : null}
         <div className="flex items-stretch">
-          <Button
+          <TooltipButton
             type="button"
             variant={runningAction === "pull" ? "secondary" : "outline"}
             disabled={pullDisabled}
-            title={pullDisabledReason}
+            tooltip={pullLabel}
+            disabledTooltip={pullDisabledReason}
             onClick={() => onRunAction("pull")}
             aria-label={pullAriaLabel}
             className={`min-w-24 ${showPullMenu ? "rounded-r-none" : ""}`}
@@ -10231,20 +10232,21 @@ function ActionBar({
                 </SyncCountChip>
               ) : null}
             </OperationButtonFeedback>
-          </Button>
+          </TooltipButton>
           {showPullMenu ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button
+                <TooltipButton
                   type="button"
                   variant={runningAction === "pull" ? "secondary" : "outline"}
                   disabled={pullDisabled}
-                  title={pullDisabledReason}
+                  tooltip="Pull with action"
+                  disabledTooltip={pullDisabledReason}
                   aria-label="Pull with action"
                   className="rounded-l-none border-l-border px-2"
                 >
                   <ChevronDown />
-                </Button>
+                </TooltipButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 {pullBoundActions.map((action) => (
@@ -11103,7 +11105,7 @@ function DiffPanel({
       <div className="flex min-h-14 items-center justify-between gap-4 border-b px-4 py-3">
         <div className="min-w-0">
           <p className="eyebrow">{eyebrow}</p>
-          <TooltipTarget content={title}><h2 className="truncate font-mono text-sm font-medium">{title}</h2></TooltipTarget>
+          <TooltipTarget overflowOnly content={title}><h2 className="truncate font-mono text-sm font-medium">{title}</h2></TooltipTarget>
           {changed ? <p className="diff-changed-description" role="status">Loaded diff is out of date</p> : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -11748,14 +11750,14 @@ function WorkflowRunRow({
         </span>
         <span className="workflow-run-row-content">
           <span className="workflow-run-row-heading">
-            <TooltipTarget content={run.name}><strong>{run.name}</strong></TooltipTarget>
+            <TooltipTarget overflowOnly content={run.name}><strong>{run.name}</strong></TooltipTarget>
             <span>{run.runNumber === null ? "Run" : `#${run.runNumber}`}</span>
           </span>
-          <TooltipTarget content={title}><span className="github-primary-text workflow-run-row-title">{title}</span></TooltipTarget>
+          <TooltipTarget overflowOnly content={title}><span className="github-primary-text workflow-run-row-title">{title}</span></TooltipTarget>
           <span className="workflow-run-row-meta github-secondary-text">
-            <TooltipTarget content={run.actor.login}><span className="truncate">{run.actor.login}</span></TooltipTarget>
+            <TooltipTarget overflowOnly content={run.actor.login}><span className="truncate">{run.actor.login}</span></TooltipTarget>
             <span aria-hidden="true">·</span>
-            <TooltipTarget content={run.branch}><span className="truncate">{run.branch}</span></TooltipTarget>
+            <TooltipTarget overflowOnly content={run.branch}><span className="truncate">{run.branch}</span></TooltipTarget>
           </span>
           <span className="workflow-run-row-details github-secondary-text">
             <span>{formatWorkflowEvent(run.event)}</span>
@@ -12232,7 +12234,7 @@ function GitHubSelectorHeader({ repositoryName, countLabel, actions }: { reposit
   return <div className="github-view-header github-selector-header">
     <div className="min-w-0">
       <p className="eyebrow">GitHub</p>
-      <TooltipTarget content={repositoryName}><h2 className="truncate text-sm font-semibold">{repositoryName}</h2></TooltipTarget>
+      <TooltipTarget overflowOnly content={repositoryName}><h2 className="truncate text-sm font-semibold">{repositoryName}</h2></TooltipTarget>
       <p className="github-secondary-text">{countLabel}</p>
     </div>
     {actions ? <div className="github-view-actions">{actions}</div> : null}
@@ -12284,9 +12286,9 @@ function GitHubItemRow({ itemType, number, title, state, qualifier, authorLogin,
         {qualifier ? <span className="github-item-qualifier">{qualifier}</span> : null}
       </span>
       <span className="github-item-row-content">
-        <TooltipTarget content={title}><span className="github-primary-text github-item-row-title">{title}</span></TooltipTarget>
+        <TooltipTarget overflowOnly content={title}><span className="github-primary-text github-item-row-title">{title}</span></TooltipTarget>
         <span className="github-item-row-meta github-secondary-text">
-          <TooltipTarget content={authorLogin}><span className="truncate">{authorLogin}</span></TooltipTarget>
+          <TooltipTarget overflowOnly content={authorLogin}><span className="truncate">{authorLogin}</span></TooltipTarget>
           <span aria-hidden="true">·</span>
           <TooltipTarget content={formatDate(updatedAt)}><span className="truncate">updated {formatRelativeDate(updatedAt)}</span></TooltipTarget>
         </span>
@@ -12627,12 +12629,12 @@ function HistoryReferences({ commit, showEmpty = false, compact = false }: { com
   return (
     <span className={`history-refs ${compact ? "is-compact" : ""}`}>
       {visibleRefs.map((ref) => (
-        <TooltipTarget key={`${commit.hash}:${ref.kind}:${ref.name}`} content={ref.name}>
-          <span className={`ref-badge ${ref.kind}`}>
-            {ref.kind === "tag" ? <Tag aria-hidden="true" /> : null}
+        <span key={`${commit.hash}:${ref.kind}:${ref.name}`} className={`ref-badge ${ref.kind}`}>
+          {ref.kind === "tag" ? <Tag aria-hidden="true" /> : null}
+          <TooltipTarget overflowOnly content={ref.name}>
             <span className="truncate">{ref.name}</span>
-          </span>
-        </TooltipTarget>
+          </TooltipTarget>
+        </span>
       ))}
       {compact && commit.refs.length > 1 ? (
         <Popover>

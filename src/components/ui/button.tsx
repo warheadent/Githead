@@ -81,14 +81,14 @@ function TooltipButton({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span
+        {disabled ? <span
           data-slot="tooltip-button-trigger"
           className="inline-flex"
           tabIndex={disabled ? 0 : undefined}
           aria-label={disabled && typeof content === "string" ? content : undefined}
         >
           <Button disabled={disabled} aria-label={ariaLabel} {...props} />
-        </span>
+        </span> : <Button aria-label={ariaLabel} {...props} />}
       </TooltipTrigger>
       <TooltipContent {...tooltipContentProps}>{content}</TooltipContent>
     </Tooltip>

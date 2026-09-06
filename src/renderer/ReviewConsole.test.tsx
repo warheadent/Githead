@@ -142,7 +142,8 @@ describe("ReviewConsole", () => {
     vi.mocked(githead.getGitHubPullRequestDetail).mockResolvedValue({ ok: true, data: createPullRequestDetail({ number: 24, title: "Review console" }), rateLimit: null });
     const onMerged = vi.fn();
     const { unmount } = renderConsole({ onMerged });
-    await user.click(await screen.findByRole("button", { name: "Merge" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Merge" }).hasAttribute("disabled")).toBe(false));
+    await user.click(screen.getByRole("button", { name: "Merge" }));
     expect(githead.mergeGitHubPullRequest).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Confirm merge" }));
     await waitFor(() => expect(githead.mergeGitHubPullRequest).toHaveBeenCalledWith(expect.objectContaining({ number: 24, operationId: expect.any(String) })));
@@ -151,6 +152,14 @@ describe("ReviewConsole", () => {
 
     vi.mocked(githead.getGitHubPullRequestDetail).mockResolvedValue({ ok: true, data: createPullRequestDetail({ number: 25, title: "Conflicting", mergeable: false, mergeStatus: "conflicting", canMerge: false }), rateLimit: null });
     renderConsole({ selection: { itemType: "pullRequest", item: createPullRequest({ number: 25, title: "Conflicting" }) } });
-    expect((await screen.findByRole("button", { name: "Merge" })).hasAttribute("disabled")).toBe(true);
+    const merge = await screen.findByRole("button", { name: "Merge" });
+    expect(merge.hasAttribute("disabled")).toBe(true);
+    await screen.findByLabelText("GitHub reports merge conflicts.");
+    const trigger = merge.parentElement!;
+    expect(trigger.tabIndex).toBe(0);
+    trigger.focus();
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip.textContent).toContain("conflicts");
+    expect(trigger.getAttribute("aria-describedby")).toBe(tooltip.id);
   });
 });

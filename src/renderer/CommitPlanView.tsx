@@ -478,7 +478,7 @@ function CommitPlanChangeDetails({ change, file, onSelect }: { change: CommitPla
   return <>
     {file ? <CommitPlanStatusBadge file={file} /> : <Badge variant="outline">?</Badge>}
     {onSelect ? <button type="button" className="commit-plan-file-name" onClick={onSelect}>{content}</button> : <span className="commit-plan-file-name">{content}</span>}
-    {change.contextIncomplete ? <Badge variant="outline" title="The AI did not receive the full diff. Review the file before committing.">Limited AI context</Badge> : null}
+    {change.contextIncomplete ? <div className="flex max-w-64 flex-col items-start gap-1"><Badge variant="outline">Limited AI context</Badge><p className="text-xs text-muted-foreground">The AI did not receive the full diff. Review the file before committing.</p></div> : null}
   </>;
 }
 

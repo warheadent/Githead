@@ -246,7 +246,7 @@ export function ConflictResolutionDialog({
 
         <footer className="flex items-center justify-between gap-4 border-t bg-muted/10 px-5 py-3">
           <div className="min-w-0">
-            {error && ready ? <p className="truncate text-xs text-destructive" role="alert" title={error}>{error}</p> : null}
+            {error && ready ? <p className="whitespace-pre-wrap text-xs text-destructive [overflow-wrap:anywhere]" role="alert">{error}</p> : null}
             {!error && ready ? (
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 {hasMarkers
