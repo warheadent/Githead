@@ -1065,7 +1065,7 @@ export function getStatusTone(row: HTMLElement): string | null {
 }
 
 export async function waitForRepositoryWorkspace(): Promise<void> {
-  await screen.findByRole("complementary");
+  await screen.findByRole("region", { name: "Repositories" });
 }
 
 export async function flushRendererAsync(): Promise<void> {

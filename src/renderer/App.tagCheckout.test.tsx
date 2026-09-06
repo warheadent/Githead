@@ -29,7 +29,12 @@ describe("tag checkout UI", () => {
     expect(screen.getByRole("button", { name: "Switch branch" }).textContent).toContain("Tag: v2");
     const pull = screen.getByRole("button", { name: /^Pull/ });
     expect(pull.hasAttribute("disabled")).toBe(true);
-    expect(pull.title).toBe("Switch to a branch before pulling.");
+    const tooltipTrigger = screen.getByLabelText("Switch to a branch before pulling.");
+    expect(tooltipTrigger.contains(pull)).toBe(true);
+    tooltipTrigger.focus();
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip.textContent).toBe("Switch to a branch before pulling.");
+    expect(tooltipTrigger.getAttribute("aria-describedby")).toBe(tooltip.id);
   });
   it("keeps pull recovery available while a rebase has detached HEAD", async () => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ branch: null, upstream: null }));
