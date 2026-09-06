@@ -4,10 +4,31 @@ import react from "@vitejs/plugin-react";
 import { defineConfig, lazyPlugins } from "vite-plus";
 import {
   createSentryVitePlugin,
+  buildSourceMaps,
+  bundleTaskOptions,
   sentryBuildConfig
 } from "./sentry.vite";
 
+const taskInputs = [{ auto: true }, "!dist/**", "!release/**", "!artifacts/**", "!**/*.log"];
+
 export default defineConfig({
+  run: {
+    tasks: {
+      "types:main": { command: "tsc --noEmit -p tsconfig.electron.json", input: taskInputs, output: [] },
+      "types:renderer": { command: "tsc --noEmit -p tsconfig.json", input: taskInputs, output: [] },
+      "types:tests": { command: "tsc --noEmit -p tsconfig.tests.json", input: taskInputs, output: [] },
+      "bundle:main": {
+        ...bundleTaskOptions,
+        input: taskInputs,
+        command: "vp build --config vite.main.config.ts"
+      },
+      "bundle:renderer": {
+        ...bundleTaskOptions,
+        input: taskInputs,
+        command: "vp build"
+      }
+    }
+  },
   root: ".",
   base: "./",
   define: {
@@ -26,7 +47,8 @@ export default defineConfig({
   build: {
     outDir: "dist/renderer",
     emptyOutDir: true,
-    sourcemap: true,
+    sourcemap: buildSourceMaps,
+    reportCompressedSize: false,
     rollupOptions: {
       input: {
         app: path.resolve(__dirname, "index.html"),

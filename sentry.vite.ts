@@ -7,6 +7,23 @@ const sentryProject = process.env.SENTRY_PROJECT?.trim();
 
 export const sentrySourceMapUploadEnabled = Boolean(sentryAuthToken && sentryOrg && sentryProject);
 
+// Uploads require maps even when local debug maps have not been requested.
+export const buildSourceMaps = sentrySourceMapUploadEnabled || process.env.GITHEAD_SOURCEMAP === "1";
+
+export const bundleTaskOptions = {
+  // Replaying cached files cannot replay a Sentry upload.
+  cache: !sentrySourceMapUploadEnabled,
+  env: [
+    "GITHEAD_SOURCEMAP",
+    "SENTRY_DSN",
+    "SENTRY_ENVIRONMENT",
+    "SENTRY_RELEASE",
+    "SENTRY_ORG",
+    "SENTRY_PROJECT"
+  ],
+  untrackedEnv: ["SENTRY_AUTH_TOKEN"]
+};
+
 export const sentryBuildConfig = {
   dsn: process.env.SENTRY_DSN?.trim() ?? "",
   environment: process.env.SENTRY_ENVIRONMENT?.trim() ?? "",

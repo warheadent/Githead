@@ -50,6 +50,13 @@ export function inspectAsarEntries(entries) {
     errors.push(`Packaged source maps: ${packagedSourceMaps.join(", ")}`);
   }
 
+  const packagedDeclarations = [...normalizedEntries]
+    .filter((entry) => /\.d\.(?:ts|cts|mts)$/.test(entry))
+    .sort();
+  if (packagedDeclarations.length > 0) {
+    errors.push(`Packaged TypeScript declarations: ${packagedDeclarations.join(", ")}`);
+  }
+
   for (const dependency of RENDERER_ONLY_DEPENDENCIES) {
     if (normalizedEntries.has(`node_modules/${dependency}/package.json`)) {
       errors.push(`Packaged renderer-only dependency: ${dependency}`);

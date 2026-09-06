@@ -1,7 +1,7 @@
 import { builtinModules } from "node:module";
 import path from "node:path";
 import { defineConfig } from "vite-plus";
-import { createSentryVitePlugin, sentryBuildConfig } from "./sentry.vite";
+import { buildSourceMaps, createSentryVitePlugin, sentryBuildConfig } from "./sentry.vite";
 
 const nodeModules = new Set([
   ...builtinModules,
@@ -20,7 +20,8 @@ export default defineConfig({
     target: "node22",
     outDir: "dist/main/main",
     emptyOutDir: true,
-    sourcemap: true,
+    sourcemap: buildSourceMaps,
+    reportCompressedSize: false,
     minify: false,
     rollupOptions: {
       input: {

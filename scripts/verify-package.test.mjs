@@ -51,6 +51,14 @@ describe("package verification", () => {
     ]);
   });
 
+  it.each(["ts", "cts", "mts"])("rejects .d.%s declarations without rejecting runtime modules", (extension) => {
+    const declaration = `node_modules/example/index.d.${extension}`;
+    expect(inspectAsarEntries([...VALID_ENTRIES, declaration])).toEqual([
+      `Packaged TypeScript declarations: ${declaration}`
+    ]);
+    expect(inspectAsarEntries([...VALID_ENTRIES, "node_modules/example/index.cjs", "node_modules/example/index.mjs"])).toEqual([]);
+  });
+
   it("maps supported package platforms to stable directories", () => {
     expect(unpackedDirectoryName("win")).toBe("win-unpacked");
     expect(unpackedDirectoryName("linux")).toBe("linux-unpacked");
