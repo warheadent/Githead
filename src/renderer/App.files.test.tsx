@@ -1124,8 +1124,8 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(within(commitPanel).getByRole("button", { name: "More generate actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Generate with Context" }));
 
-    const dialog = await screen.findByRole("dialog", { name: "Generate with Context" });
-    await user.type(within(dialog).getByLabelText("Change Context"), "  Preserve legacy project naming.  ");
+    const dialog = await screen.findByRole("dialog", { name: "Generate with context" });
+    await user.type(within(dialog).getByLabelText("Change context"), "  Preserve legacy project naming.  ");
     await user.click(within(dialog).getByRole("button", { name: /^Generate$/ }));
 
     await waitFor(() => {
@@ -1136,7 +1136,7 @@ describe("App", { timeout: 10_000 }, () => {
       });
     });
     await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "Generate with Context" })).toBeNull();
+      expect(screen.queryByRole("dialog", { name: "Generate with context" })).toBeNull();
     });
   });
 
@@ -1156,14 +1156,14 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(within(commitPanel).getByRole("button", { name: "More generate actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Generate with Context" }));
 
-    const dialog = await screen.findByRole("dialog", { name: "Generate with Context" });
-    await user.type(within(dialog).getByLabelText("Change Context"), "Explain the behavior");
+    const dialog = await screen.findByRole("dialog", { name: "Generate with context" });
+    await user.type(within(dialog).getByLabelText("Change context"), "Explain the behavior");
     await user.click(within(dialog).getByRole("button", { name: /^Generate$/ }));
     await user.click(within(dialog).getByRole("button", { name: "Stop" }));
 
     expect((within(dialog).getByRole("button", { name: "Stopping…" }) as HTMLButtonElement).disabled).toBe(true);
     pendingCancellation.resolve({ accepted: true, state: "cancelling" });
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Generate with Context" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Generate with context" })).toBeNull());
 
     pendingGeneration.resolve({ repoPath, exitCode: -1, stdout: "", stderr: "Operation was cancelled." });
     await waitFor(() => expect(within(commitPanel).getByRole("button", { name: /^Generate$/ })).toBeTruthy());
@@ -1192,8 +1192,8 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(within(commitPanel).getByRole("button", { name: "More generate actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Generate with Context" }));
 
-    const dialog = await screen.findByRole("dialog", { name: "Generate with Context" });
-    const contextInput = within(dialog).getByLabelText("Change Context") as HTMLTextAreaElement;
+    const dialog = await screen.findByRole("dialog", { name: "Generate with context" });
+    const contextInput = within(dialog).getByLabelText("Change context") as HTMLTextAreaElement;
     await user.type(contextInput, "Important product context");
     await user.click(within(dialog).getByRole("button", { name: /^Generate$/ }));
 
@@ -1204,7 +1204,7 @@ describe("App", { timeout: 10_000 }, () => {
         operationId: expect.any(String)
       });
     });
-    expect(await screen.findByRole("dialog", { name: "Generate with Context" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "Generate with context" })).toBeTruthy();
     expect(contextInput.value).toBe("Important product context");
     expect(within(dialog).getByRole("alert").textContent).toBe("OpenRouter request failed.");
   });
@@ -1226,14 +1226,14 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(within(commitPanel).getByRole("button", { name: "More generate actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Generate with Context" }));
 
-    const dialog = await screen.findByRole("dialog", { name: "Generate with Context" });
+    const dialog = await screen.findByRole("dialog", { name: "Generate with context" });
     const submitButton = within(dialog).getByRole("button", { name: /^Generate$/ });
     expect((submitButton as HTMLButtonElement).disabled).toBe(true);
 
-    await user.type(within(dialog).getByLabelText("Change Context"), "   ");
+    await user.type(within(dialog).getByLabelText("Change context"), "   ");
     expect((submitButton as HTMLButtonElement).disabled).toBe(true);
 
-    await user.type(within(dialog).getByLabelText("Change Context"), "why");
+    await user.type(within(dialog).getByLabelText("Change context"), "why");
     expect((submitButton as HTMLButtonElement).disabled).toBe(false);
   });
 
@@ -2048,7 +2048,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(screen.getByRole("button", { name: "More commit actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Commit & Push" }));
 
-    expect(await screen.findByRole("dialog", { name: "Publish Branch" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "Publish branch" })).toBeTruthy();
     expect(screen.getByText(/No commit has been created/)).toBeTruthy();
     expect(githead.commitAndPush).not.toHaveBeenCalled();
     expect(githead.commitChanges).not.toHaveBeenCalled();

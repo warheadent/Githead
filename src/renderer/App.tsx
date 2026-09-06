@@ -13123,14 +13123,14 @@ function GenerateWithContextDialog({
       <DialogContent className="sm:max-w-[460px]" aria-busy={generating}>
         <form className="grid gap-4" onSubmit={onGenerate}>
           <DialogHeader>
-            <DialogTitle>Generate with Context</DialogTitle>
-            <DialogDescription className="sr-only">
+            <DialogTitle>Generate with context</DialogTitle>
+            <DialogDescription>
               Add context that is not obvious from the staged code changes.
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-2">
-            <Label htmlFor="generate-change-context">Change Context</Label>
+            <Label htmlFor="generate-change-context">Change context</Label>
             <Textarea
               id="generate-change-context"
               name="changeContext"
@@ -13147,7 +13147,7 @@ function GenerateWithContextDialog({
           <DialogFooter>
             <Button
               type="button"
-              variant="secondary"
+              variant="outline"
               disabled={cancelStatus === "canceling"}
               onClick={() => onOpenChange(false)}
             >
@@ -13189,8 +13189,8 @@ function BranchDialog({
       <DialogContent className="sm:max-w-[420px]">
         <form className="grid gap-4" onSubmit={onCreate}>
           <DialogHeader>
-            <DialogTitle>{checkout ? "Choose Local Branch Name" : "New Branch"}</DialogTitle>
-            <DialogDescription className="sr-only">
+            <DialogTitle>{checkout ? "Choose local branch name" : "New branch"}</DialogTitle>
+            <DialogDescription>
               {checkout ? "Choose a local branch name for the selected remote branch or pull request." : "Create a local branch from the current branch."}
             </DialogDescription>
           </DialogHeader>
@@ -13215,7 +13215,7 @@ function BranchDialog({
             </Button>
             <Button type="submit" disabled={saving}>
               {saving ? <Loader2 className="animate-spin" /> : checkout ? <Download /> : <Plus />}
-              {saving ? (checkout ? "Checking out" : "Creating") : (checkout ? "Check Out" : "Create")}
+              {saving ? (checkout ? "Checking out…" : "Creating branch…") : (checkout ? "Check out branch" : "Create branch")}
             </Button>
           </DialogFooter>
         </form>
@@ -13248,7 +13248,7 @@ function ResetCommitDialog({
       <DialogContent>
         <form className="commit-action-form" onSubmit={onReset}>
           <DialogHeader>
-            <DialogTitle>Reset to Commit</DialogTitle>
+            <DialogTitle>Reset to commit</DialogTitle>
             <DialogDescription>
               Move the current branch pointer to the selected commit.
             </DialogDescription>
@@ -13281,14 +13281,14 @@ function ResetCommitDialog({
               </>
             ) : null}
           </div>
-          {state.error ? <p className="dialog-error">{state.error}</p> : null}
+          {state.error ? <p className="dialog-error" role="alert">{state.error}</p> : null}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={saving || !branchName}>
+            <Button type="submit" variant={state.mode === "hard" ? "destructive" : "default"} disabled={saving || !branchName}>
               {saving ? <Loader2 className="animate-spin" /> : <GitBranchIcon />}
-              OK
+              {saving ? "Resetting branch…" : "Reset branch"}
             </Button>
           </DialogFooter>
         </form>
@@ -13317,13 +13317,13 @@ function ResetCommitFileDialog({
       <DialogContent>
         <form className="commit-action-form" onSubmit={onReset}>
           <DialogHeader>
-            <DialogTitle>Confirm reset file contents</DialogTitle>
+            <DialogTitle>Reset file contents?</DialogTitle>
             <DialogDescription>
               Reset these files to their contents at commit {state.hash}?
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-2">
-            <Label htmlFor="reset-file-paths">files:</Label>
+            <Label htmlFor="reset-file-paths">Files</Label>
             <Textarea
               id="reset-file-paths"
               value={filesText}
@@ -13331,18 +13331,18 @@ function ResetCommitFileDialog({
               rows={Math.max(1, Math.min(6, state.paths.length))}
             />
           </div>
-          {state.error ? <p className="dialog-error">{state.error}</p> : null}
+          {state.error ? <p className="dialog-error" role="alert">{state.error}</p> : null}
           <DialogFooter>
             <Button type="button" variant="outline" disabled={saving || state.paths.length === 0} onClick={onCopy}>
               <Clipboard />
-              Copy to Clipboard
-            </Button>
-            <Button type="submit" disabled={saving || state.paths.length === 0}>
-              {saving ? <Loader2 className="animate-spin" /> : <RotateCcw />}
-              OK
+              Copy paths
             </Button>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
+            </Button>
+            <Button type="submit" variant="destructive" disabled={saving || state.paths.length === 0}>
+              {saving ? <Loader2 className="animate-spin" /> : <RotateCcw />}
+              {saving ? "Resetting files…" : "Reset files"}
             </Button>
           </DialogFooter>
         </form>
@@ -13369,19 +13369,19 @@ function RevertCommitDialog({
       <DialogContent>
         <form className="commit-action-form" onSubmit={onReverse}>
           <DialogHeader>
-            <DialogTitle>Confirm reverse commit?</DialogTitle>
+            <DialogTitle>Reverse commit?</DialogTitle>
             <DialogDescription>
               Are you sure you want to create a new commit reversing all the changes in {commit ? getCommitSummaryLabel(commit) : "the selected commit"}?
             </DialogDescription>
           </DialogHeader>
-          {state.error ? <p className="dialog-error">{state.error}</p> : null}
+          {state.error ? <p className="dialog-error" role="alert">{state.error}</p> : null}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={saving}>
               {saving ? <Loader2 className="animate-spin" /> : <RotateCcw />}
-              Yes
+              {saving ? "Reversing commit…" : "Reverse commit"}
             </Button>
           </DialogFooter>
         </form>
@@ -13418,8 +13418,8 @@ function PublishBranchDialog({
       <DialogContent className="sm:max-w-[420px]">
         <form className="grid gap-4" onSubmit={onPublish}>
           <DialogHeader>
-            <DialogTitle>Publish Branch</DialogTitle>
-            <DialogDescription className="sr-only">
+            <DialogTitle>Publish branch</DialogTitle>
+            <DialogDescription>
               Choose the remote where the current branch will be pushed and tracked.
             </DialogDescription>
           </DialogHeader>
@@ -13452,7 +13452,7 @@ function PublishBranchDialog({
             </Button>
             <Button type="submit" disabled={saving || !branchName || !hasRemote}>
               {saving ? <Loader2 className="animate-spin" /> : <Upload />}
-              {saving ? "Publishing" : "Publish"}
+              {saving ? "Publishing branch…" : "Publish branch"}
             </Button>
           </DialogFooter>
         </form>

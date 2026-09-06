@@ -1323,7 +1323,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await user.click(await screen.findByRole("button", { name: "Publish branch" }));
 
-    expect(await screen.findByRole("heading", { name: "Publish Branch" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Publish branch" })).toBeTruthy();
     expect(screen.getAllByText("feature/publish").length).toBeGreaterThan(0);
     expect(githead.runGitAction).not.toHaveBeenCalled();
   });
@@ -1350,7 +1350,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Publish branch" }));
-    await user.click(await screen.findByRole("button", { name: "Publish" }));
+    await user.click(await screen.findByRole("button", { name: "Publish branch" }));
 
     await waitFor(() => {
       expect(githead.publishBranch).toHaveBeenCalledWith({
@@ -1386,7 +1386,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(await screen.findByRole("button", { name: "Publish branch" }));
     await user.click(await screen.findByRole("button", { name: "Select publish remote" }));
     await user.click(await screen.findByRole("option", { name: "upstream" }));
-    await user.click(screen.getByRole("button", { name: "Publish" }));
+    await user.click(screen.getByRole("button", { name: "Publish branch" }));
 
     await waitFor(() => {
       expect(githead.publishBranch).toHaveBeenCalledWith({
@@ -1419,10 +1419,10 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Publish branch" }));
-    await user.click(await screen.findByRole("button", { name: "Publish" }));
+    await user.click(await screen.findByRole("button", { name: "Publish branch" }));
 
     expect(await screen.findByText("fatal: rejected")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Publish Branch" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Publish branch" })).toBeTruthy();
   });
 
   it("opens the publish dialog after a stale plain push no-upstream failure", async () => {
@@ -1459,7 +1459,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(await screen.findByRole("button", { name: /^Push$/ }));
 
     expect(await screen.findByText("This branch has no upstream. Publish it to set one.")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Publish Branch" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Publish branch" })).toBeTruthy();
   });
 
   it("does not open the publish dialog after unrelated push failures", async () => {
@@ -1502,7 +1502,7 @@ describe("App", { timeout: 10_000 }, () => {
         operationId: expect.any(String)
       });
     });
-    expect(screen.queryByRole("heading", { name: "Publish Branch" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Publish branch" })).toBeNull();
   });
 
   it("does not show Publish when set upstream is not supported", async () => {

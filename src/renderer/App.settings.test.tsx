@@ -469,7 +469,7 @@ describe("App", { timeout: 10_000 }, () => {
     await screen.findByText("main");
     await user.click(screen.getByRole("button", { name: "Create branch" }));
     await user.type(await screen.findByLabelText("Branch name"), "feature/new");
-    await user.click(screen.getByRole("button", { name: "Create" }));
+    await user.click(screen.getByRole("button", { name: "Create branch" }));
 
     await waitFor(() => {
       expect(githead.createBranch).toHaveBeenCalledWith({
@@ -494,7 +494,7 @@ describe("App", { timeout: 10_000 }, () => {
     await screen.findByText("main");
     await user.click(screen.getByRole("button", { name: "Create branch" }));
     await user.type(await screen.findByLabelText("Branch name"), "main");
-    await user.click(screen.getByRole("button", { name: "Create" }));
+    await user.click(screen.getByRole("button", { name: "Create branch" }));
 
     expect(await screen.findByText("Branch already exists.")).toBeTruthy();
     expect(screen.getByLabelText("Branch name")).toBeTruthy();

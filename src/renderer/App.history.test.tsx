@@ -1112,7 +1112,7 @@ describe("App", { timeout: 10_000 }, () => {
     fireEvent.contextMenu(await screen.findByRole("option", { name: /reset target/ }));
     await user.click(await screen.findByRole("menuitem", { name: /Reset current branch to this commit/ }));
     await user.selectOptions(await screen.findByLabelText("Using mode"), "hard");
-    await user.click(screen.getByRole("button", { name: "OK" }));
+    await user.click(screen.getByRole("button", { name: "Reset branch" }));
 
     await waitFor(() => {
       expect(githead.resetBranchToCommit).toHaveBeenCalledWith({
@@ -1143,7 +1143,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     expect(githead.revertCommit).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Yes" }));
+    await user.click(screen.getByRole("button", { name: "Reverse commit" }));
 
     await waitFor(() => {
       expect(githead.revertCommit).toHaveBeenCalledWith({
@@ -1465,18 +1465,18 @@ describe("App", { timeout: 10_000 }, () => {
     fireEvent.contextMenu(commitFile);
     await user.click(await screen.findByRole("menuitem", { name: "Reset to Commit" }));
 
-    expect(await screen.findByRole("dialog", { name: "Confirm reset file contents" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "Reset file contents?" })).toBeTruthy();
     expect(screen.getByDisplayValue("src/App.test.tsx")).toBeTruthy();
     expect(githead.resetFilesToCommit).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Copy to Clipboard" }));
+    await user.click(screen.getByRole("button", { name: "Copy paths" }));
     await waitFor(() => {
       expect(githead.copyTextToClipboard).toHaveBeenCalledWith({
         text: "src/App.test.tsx"
       });
     });
 
-    await user.click(screen.getByRole("button", { name: "OK" }));
+    await user.click(screen.getByRole("button", { name: "Reset files" }));
     await waitFor(() => {
       expect(githead.resetFilesToCommit).toHaveBeenCalledWith({
         repoPath,
@@ -1513,11 +1513,11 @@ describe("App", { timeout: 10_000 }, () => {
 
     fireEvent.contextMenu(commitFile);
     await user.click(await screen.findByRole("menuitem", { name: "Reset to Commit" }));
-    await screen.findByRole("dialog", { name: "Confirm reset file contents" });
+    await screen.findByRole("dialog", { name: "Reset file contents?" });
     await user.click(screen.getByRole("button", { name: "Cancel" }));
 
     await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "Confirm reset file contents" })).toBeNull();
+      expect(screen.queryByRole("dialog", { name: "Reset file contents?" })).toBeNull();
     });
     expect(githead.resetFilesToCommit).not.toHaveBeenCalled();
   });
