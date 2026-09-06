@@ -2,8 +2,8 @@ import { createCommitWritingStyleInstructions, DEFAULT_SOURCE_CONTROL_WRITING_ST
 import type { CommitPlan, CommitPlanChange, CommitPlanGranularity, SourceControlWritingStyle } from "../shared/types";
 import { MAX_COMMIT_PLAN_CHANGES } from "./commitPlanChanges";
 
-export const MAX_COMMIT_PLAN_PATHS = 500;
-export const MAX_COMMIT_PLAN_GROUPS = 50;
+import { MAX_COMMIT_PLAN_GROUPS } from "../shared/commitPlanLimits";
+export { MAX_COMMIT_PLAN_PATHS, MAX_COMMIT_PLAN_GROUPS } from "../shared/commitPlanLimits";
 export const MAX_COMMIT_PLAN_DIFF_CHARS = 80_000;
 
 interface RawCommitPlanGroup {
@@ -30,7 +30,8 @@ export function createCommitPlanSystemPrompt(
     "Return valid JSON only. Do not use markdown fences or add commentary.",
     "Use this exact shape: {\"groups\":[{\"message\":\"...\",\"rationale\":\"...\",\"changeIds\":[\"...\"]}],\"unassignedChangeIds\":[\"...\"]}.",
     "Each supplied change ID must appear exactly once, either in one group or in unassignedChangeIds.",
-    "Use unassignedChangeIds when a safe relationship is unclear."
+    "Use unassignedChangeIds when a safe relationship is unclear.",
+    "Diffs may be shortened or unavailable. Do not infer omitted behavior; leave unclear changes unassigned."
   ].join(" ");
 }
 

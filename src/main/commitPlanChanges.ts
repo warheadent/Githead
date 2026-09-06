@@ -7,7 +7,7 @@ import type {
 } from "../shared/types";
 import { groupDiffRowsByHunk, parseUnifiedDiff, type DiffRowGroup } from "../shared/diffParser";
 
-export const MAX_COMMIT_PLAN_CHANGES = 1_000;
+export { MAX_COMMIT_PLAN_CHANGES } from "../shared/commitPlanLimits";
 
 export interface PreparedCommitPlanChange extends CommitPlanChange {
   patch: string | null;
@@ -34,7 +34,8 @@ export function toPublicCommitPlanChange(change: PreparedCommitPlanChange): Comm
     path: change.path,
     kind: change.kind,
     label: change.label,
-    fingerprint: change.fingerprint
+    fingerprint: change.fingerprint,
+    ...(change.contextIncomplete ? { contextIncomplete: true } : {})
   };
 }
 
@@ -107,6 +108,7 @@ function createFileChange(diff: GitFileDiff): PreparedCommitPlanChange {
     label: "Whole file",
     fingerprint: fingerprintFileDiff(diff),
     patch: null,
+    ...(diff.kind !== "text" || diff.truncated ? { contextIncomplete: true } : {}),
     promptText: describeFileDiff(diff)
   };
 }

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useId, useMemo, useRef, type ReactNode } from "react";
-import { ChevronDown, Loader2, Sparkles } from "lucide-react";
+import { MAX_COMMIT_PLAN_GROUPS, MAX_COMMIT_PLAN_PATHS } from "../shared/commitPlanLimits";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { ArrowDown, ArrowUp, ChevronDown, Loader2, Plus, RotateCw, Sparkles, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,6 +11,9 @@ import {
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { loadCommitPlanDraft, saveCommitPlanDraft } from "./commitPlanDraft";
+import { reconcileCommitPlan, removeCommittedChanges } from "./commitPlanState";
 import type {
   CommitPlan,
   CommitPlanChange,
@@ -42,7 +46,11 @@ interface CommitPlanViewProps {
   onQuickCommit: (changes: GitQuickCommitChange[], message: string) => Promise<GitOperationResult | null>;
 }
 
-export function CommitPlanView({
+export function CommitPlanView(props: CommitPlanViewProps): ReactNode {
+  return <CommitPlanEditor key={props.repoPath} {...props} />;
+}
+
+function CommitPlanEditor({
   repoPath,
   files,
   stagedCount,
@@ -57,149 +65,146 @@ export function CommitPlanView({
   onValidatePlan,
   onQuickCommit
 }: CommitPlanViewProps): ReactNode {
-  const [plan, setPlan] = usePersistentWorkspacePanelState<CommitPlan | null>("commit-plan-plan", null);
+  const draft = useMemo(() => loadCommitPlanDraft(repoPath), [repoPath]);
+  const [plan, setPlan] = usePersistentWorkspacePanelState<CommitPlan | null>("commit-plan-plan", () => draft?.plan ?? null);
   const [includedChangeIds, setIncludedChangeIds] = usePersistentWorkspacePanelState<Set<string>>(
-    "commit-plan-included-changes",
-    () => new Set()
+    "commit-plan-included-changes", () => new Set(draft?.includedChangeIds ?? [])
   );
-  const [error, setError] = usePersistentWorkspacePanelState("commit-plan-error", "");
-  const [stale, setStale] = usePersistentWorkspacePanelState("commit-plan-stale", false);
-  const [validating, setValidating] = usePersistentWorkspacePanelState("commit-plan-validating", false);
-  const [sourcePaths, setSourcePaths] = usePersistentWorkspacePanelState<string[]>("commit-plan-source-paths", []);
-  const [generating, setGenerating] = usePersistentWorkspacePanelState("commit-plan-generating", false);
-  const [committingGroupId, setCommittingGroupId] = usePersistentWorkspacePanelState<string | null>("commit-plan-committing-group", null);
-  const [exitingGroupIds, setExitingGroupIds] = usePersistentWorkspacePanelState<Set<string>>(
-    "commit-plan-exiting-groups",
-    () => new Set()
+  const [excludedPaths, setExcludedPaths] = usePersistentWorkspacePanelState<Set<string>>(
+    "commit-plan-excluded-paths", () => new Set(draft?.excludedPaths ?? [])
   );
+  const [error, setError] = useState("");
+  const [validationError, setValidationError] = useState("");
+  const [choosingFiles, setChoosingFiles] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
+  const [stale, setStale] = useState(false);
+  const [validating, setValidating] = useState(Boolean(plan));
+  const [generating, setGenerating] = useState(false);
+  const [committingGroupId, setCommittingGroupId] = useState<string | null>(null);
+  const [exitingGroupIds, setExitingGroupIds] = useState<Set<string>>(() => new Set());
   const [inboxCollapsed, setInboxCollapsed] = usePersistentWorkspacePanelState("commit-plan-inbox-collapsed", false);
   const inboxId = useId();
-  const previousRepoPathRef = useRef(repoPath);
+  const alive = useRef(true);
+  const planRef = useRef(plan);
+  planRef.current = plan;
   const repositoryChangeVersionRef = useRef(repositoryChangeVersion);
-  const previousRepositoryChangeVersionRef = useRef(repositoryChangeVersion);
-  const validationGenerationRef = useRef(0);
   repositoryChangeVersionRef.current = repositoryChangeVersion;
+  const validationGenerationRef = useRef(0);
+  const operationRef = useRef(false);
+  const generatedSnapshotRef = useRef<{ version: number; pathsKey: string } | null>(null);
   const fileByPath = useMemo(() => new Map(files.map((file) => [file.path, file])), [files]);
-  const availablePaths = useMemo(
-    () => files.filter(canUseInCommitPlan).map((file) => file.path),
-    [files]
-  );
-  const changeById = useMemo(
-    () => new Map(plan?.changes.map((change) => [change.id, change]) ?? []),
-    [plan]
-  );
-  const plannedChangeIds = useMemo(
-    () => new Set(plan?.groups.flatMap((group) => group.changeIds) ?? []),
-    [plan]
-  );
-  const inboxChanges = useMemo(() => {
-    if (!plan) return [];
-    const unassigned = new Set(plan.unassignedChangeIds);
-    return plan.changes.filter((change) => unassigned.has(change.id) || !plannedChangeIds.has(change.id));
-  }, [plan, plannedChangeIds]);
+  const availablePaths = useMemo(() => files.filter(canUseInCommitPlan).map((file) => file.path), [files]);
+  const selectedPaths = useMemo(() => availablePaths.filter((path) => !excludedPaths.has(path)), [availablePaths, excludedPaths]);
+  const selectedPathsRef = useRef(selectedPaths);
+  selectedPathsRef.current = selectedPaths;
+  const pathsKey = JSON.stringify(selectedPaths);
+  const changeById = useMemo(() => new Map(plan?.changes.map((change) => [change.id, change]) ?? []), [plan?.changes]);
+  const plannedChangeIds = useMemo(() => new Set(plan?.groups.flatMap((group) => group.changeIds) ?? []), [plan?.groups]);
+  const inboxChanges = useMemo(() => plan?.changes.filter((change) => !plannedChangeIds.has(change.id)) ?? [], [plan?.changes, plannedChangeIds]);
   const blockedByStagedFiles = stagedCount > 0;
+  const editingDisabled = disabled || generating || committingGroupId !== null;
+  const savedDraft = useRef({ plan, includedChangeIds: [...includedChangeIds], excludedPaths: [...excludedPaths] });
+  savedDraft.current = { plan, includedChangeIds: [...includedChangeIds], excludedPaths: [...excludedPaths] };
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSaveFailed(!saveCommitPlanDraft(repoPath, savedDraft.current)), 250);
+    return () => window.clearTimeout(timer);
+  }, [repoPath, plan, includedChangeIds, excludedPaths]);
+
+  useEffect(() => {
+    alive.current = true;
+    const save = (): void => { saveCommitPlanDraft(repoPath, savedDraft.current); };
+    window.addEventListener("pagehide", save);
+    return () => {
+      alive.current = false;
+      validationGenerationRef.current += 1;
+      window.removeEventListener("pagehide", save);
+      save();
+    };
+  }, [repoPath]);
 
   const validatePlan = useCallback(async (
     candidatePlan: CommitPlan,
     candidatePaths: string[],
     expectedVersion: number
   ): Promise<void> => {
-    const validationGeneration = ++validationGenerationRef.current;
+    const generation = ++validationGenerationRef.current;
     setValidating(true);
-    let result: CommitPlanValidationResult;
     try {
-      result = await onValidatePlan({
-        repoPath,
-        paths: candidatePaths,
-        granularity: candidatePlan.granularity,
-        changes: candidatePlan.changes
-      });
-    } catch {
-      if (
-        validationGeneration === validationGenerationRef.current &&
-        repositoryChangeVersionRef.current === expectedVersion &&
-        previousRepoPathRef.current === repoPath
-      ) {
-        setValidating(false);
+      const result = await onValidatePlan({ repoPath, paths: candidatePaths, granularity: candidatePlan.granularity, changes: candidatePlan.changes });
+      if (!alive.current || generation !== validationGenerationRef.current || expectedVersion !== repositoryChangeVersionRef.current) return;
+      if (result.repoPath !== repoPath || result.stderr || (!result.valid && !result.currentChanges)) {
         setStale(true);
+        setValidationError(result.stderr || "The working tree changed. Generate the commit plan again.");
+        return;
       }
-      return;
+      if (result.currentChanges) {
+        setPlan((current) => current ? reconcileCommitPlan(current, result.currentChanges!) : current);
+      }
+      setStale(false);
+      setValidationError("");
+    } catch (reason) {
+      if (!alive.current || generation !== validationGenerationRef.current) return;
+      setStale(true);
+      setValidationError(reason instanceof Error ? reason.message : "Unable to refresh the commit plan.");
+    } finally {
+      if (alive.current && generation === validationGenerationRef.current) setValidating(false);
     }
-    if (
-      validationGeneration !== validationGenerationRef.current ||
-      repositoryChangeVersionRef.current !== expectedVersion ||
-      previousRepoPathRef.current !== repoPath
-    ) return;
-    setValidating(false);
-    setStale(!result.valid || result.repoPath !== repoPath);
-  }, [onValidatePlan, repoPath]);
+  }, [onValidatePlan, repoPath, setPlan]);
 
   useEffect(() => {
-    if (previousRepoPathRef.current === repoPath) return;
-    previousRepoPathRef.current = repoPath;
-    previousRepositoryChangeVersionRef.current = repositoryChangeVersion;
-    validationGenerationRef.current += 1;
-    setPlan(null);
-    setSourcePaths([]);
-    setIncludedChangeIds(new Set());
-    setError("");
-    setStale(false);
-    setValidating(false);
-    setGenerating(false);
-    setCommittingGroupId(null);
-    setExitingGroupIds(new Set());
-  }, [repoPath, repositoryChangeVersion]);
+    if (!planRef.current || !supported || editingDisabled || blockedByStagedFiles) return;
+    const generatedSnapshot = generatedSnapshotRef.current;
+    generatedSnapshotRef.current = null;
+    if (generatedSnapshot?.version === repositoryChangeVersion && generatedSnapshot.pathsKey === pathsKey) return;
+    void validatePlan(planRef.current, selectedPathsRef.current, repositoryChangeVersion);
+  }, [repositoryChangeVersion, pathsKey, supported, editingDisabled, blockedByStagedFiles, validatePlan]);
 
   useEffect(() => {
-    if (previousRepositoryChangeVersionRef.current === repositoryChangeVersion) return;
-    previousRepositoryChangeVersionRef.current = repositoryChangeVersion;
-    if (plan) {
-      const paths = sourcePaths.length > 0 ? sourcePaths : uniqueChangePaths(plan.changes);
-      void validatePlan(plan, paths, repositoryChangeVersion);
-    }
-  }, [plan, repositoryChangeVersion, sourcePaths, validatePlan]);
+    const ids = new Set(plan?.changes.map((change) => change.id));
+    setIncludedChangeIds((current) => {
+      const next = new Set([...current].filter((id) => ids.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [plan?.changes, setIncludedChangeIds]);
 
-  useEffect(() => {
-    const currentPaths = new Set(files.map((file) => file.path));
-    setIncludedChangeIds((current) => new Set([...current].filter((changeId) => {
-      const change = plan?.changes.find((candidate) => candidate.id === changeId);
-      return Boolean(change && currentPaths.has(change.path));
-    })));
-    if (stagedCount === 0) {
-      setPlan((current) => filterUnavailableChanges(current, currentPaths));
-    }
-  }, [files, stagedCount]);
-
-  useEffect(() => {
-    if (!plan || sourcePaths.length === 0 || haveSamePaths(sourcePaths, availablePaths)) return;
-    validationGenerationRef.current += 1;
-    setValidating(false);
-    setStale(true);
-  }, [availablePaths, plan, sourcePaths]);
+  const storeCompletedPlan = (nextPlan: CommitPlan, included: Set<string>): void => {
+    setPlan(nextPlan);
+    setIncludedChangeIds(included);
+    savedDraft.current = { ...savedDraft.current, plan: nextPlan, includedChangeIds: [...included] };
+    const saved = saveCommitPlanDraft(repoPath, savedDraft.current);
+    if (alive.current) setSaveFailed(!saved);
+  };
 
   const generate = async (): Promise<void> => {
-    if (generating || disabled || blockedByStagedFiles || availablePaths.length === 0) return;
+    if (operationRef.current || editingDisabled || blockedByStagedFiles || selectedPaths.length === 0) return;
+    operationRef.current = true;
+    validationGenerationRef.current += 1;
     const startVersion = repositoryChangeVersionRef.current;
+    const requestedPaths = [...selectedPaths];
     setGenerating(true);
     setError("");
-    const result = await onGenerate(availablePaths);
-    setGenerating(false);
-    if (!result) return;
-    if (result.exitCode !== 0 || !result.plan) {
-      setError(result.stderr || "Unable to generate a commit plan.");
-      return;
-    }
-    setPlan(result.plan);
-    setSourcePaths(availablePaths);
-    setExitingGroupIds(new Set());
-    setIncludedChangeIds(new Set(result.plan.groups.flatMap((group) => group.changeIds)));
-    const endVersion = repositoryChangeVersionRef.current;
-    if (endVersion === startVersion) {
-      validationGenerationRef.current += 1;
-      setValidating(false);
+    try {
+      const result = await onGenerate(requestedPaths);
+      if (!result) return;
+      if (result.repoPath !== repoPath || result.exitCode !== 0 || !result.plan) {
+        if (alive.current) setError(result.stderr || "Unable to generate a commit plan.");
+        return;
+      }
+      storeCompletedPlan(result.plan, new Set(result.plan.groups.flatMap((group) => group.changeIds)));
+      if (!alive.current) return;
+      setChoosingFiles(false);
+      setValidationError("");
+      setExitingGroupIds(new Set());
       setStale(false);
-    } else {
-      void validatePlan(result.plan, availablePaths, endVersion);
+      const currentVersion = repositoryChangeVersionRef.current;
+      if (startVersion === currentVersion) generatedSnapshotRef.current = { version: currentVersion, pathsKey: JSON.stringify(requestedPaths) };
+      setValidating(startVersion !== currentVersion);
+    } catch (reason) {
+      if (alive.current) setError(reason instanceof Error ? reason.message : "Unable to generate a commit plan.");
+    } finally {
+      operationRef.current = false;
+      if (alive.current) setGenerating(false);
     }
   };
 
@@ -211,6 +216,7 @@ export function CommitPlanView({
   };
 
   const moveChange = (changeId: string, fromGroupId: string | null, targetGroupId: string | null): void => {
+    if (targetGroupId) setIncludedChangeIds((current) => new Set(current).add(changeId));
     setPlan((current) => {
       if (!current) return current;
       return {
@@ -221,7 +227,7 @@ export function CommitPlanView({
             return { ...group, changeIds: [...group.changeIds, changeId] };
           }
           return group;
-        }).filter((group) => group.changeIds.length > 0),
+        }),
         unassignedChangeIds: targetGroupId === null
           ? [...new Set([...current.unassignedChangeIds, changeId])]
           : current.unassignedChangeIds.filter((item) => item !== changeId)
@@ -229,41 +235,59 @@ export function CommitPlanView({
     });
   };
 
-  const quickCommit = async (group: CommitPlanGroup): Promise<void> => {
-    const selectedChanges = group.changeIds.flatMap((changeId) => {
-      const change = changeById.get(changeId);
-      return change && includedChangeIds.has(changeId) && fileByPath.has(change.path) ? [change] : [];
-    });
-    const message = createCommitMessage(group);
-    if (!plan || disabled || stale || validating || blockedByStagedFiles || selectedChanges.length === 0 || !message || committingGroupId) return;
-    setCommittingGroupId(group.id);
-    setError("");
-    const result = await onQuickCommit(selectedChanges.map(toQuickCommitChange), message);
-    setCommittingGroupId(null);
-    if (!result) return;
-    if (result.exitCode !== 0) {
-      setError(result.stderr || "Unable to create the commit.");
-      return;
-    }
-    const committedChangeIds = new Set(selectedChanges.map((change) => change.id));
-    const remainingChanges = plan.changes.filter((change) => !committedChangeIds.has(change.id));
-    setExitingGroupIds((current) => new Set(current).add(group.id));
-    setSourcePaths(uniqueChangePaths(remainingChanges));
+  const addGroup = (): void => {
+    setPlan((current) => current && current.groups.length < MAX_COMMIT_PLAN_GROUPS ? {
+      ...current, groups: [...current.groups, { id: crypto.randomUUID(), message: "", rationale: "", changeIds: [] }]
+    } : current);
+  };
+
+  const reorderGroup = (groupId: string, offset: number): void => {
     setPlan((current) => {
       if (!current) return current;
-      const changes = current.changes.filter((change) => !committedChangeIds.has(change.id));
-      return {
-        ...current,
-        changes,
-        groups: current.groups.filter((item) => item.id !== group.id),
-        unassignedChangeIds: current.unassignedChangeIds.filter((changeId) => !committedChangeIds.has(changeId))
-      };
+      const groups = [...current.groups];
+      const index = groups.findIndex((group) => group.id === groupId);
+      const target = index + offset;
+      if (index < 0 || target < 0 || target >= groups.length) return current;
+      [groups[index], groups[target]] = [groups[target]!, groups[index]!];
+      return { ...current, groups };
     });
-    setIncludedChangeIds((current) => {
-      const next = new Set(current);
-      for (const changeId of committedChangeIds) next.delete(changeId);
-      return next;
+  };
+
+  const deleteGroup = (groupId: string): void => {
+    setPlan((current) => current ? {
+      ...current,
+      groups: current.groups.filter((group) => group.id !== groupId),
+      unassignedChangeIds: [...new Set([...current.unassignedChangeIds, ...(current.groups.find((group) => group.id === groupId)?.changeIds ?? [])])]
+    } : current);
+  };
+
+  const quickCommit = async (group: CommitPlanGroup): Promise<void> => {
+    const selectedChanges = group.changeIds.flatMap((id) => {
+      const change = changeById.get(id);
+      return change && includedChangeIds.has(id) && fileByPath.has(change.path) ? [change] : [];
     });
+    const message = createCommitMessage(group);
+    if (!plan || operationRef.current || editingDisabled || stale || validating || blockedByStagedFiles || group.needsReview || selectedChanges.length === 0 || !group.message.trim()) return;
+    operationRef.current = true;
+    validationGenerationRef.current += 1;
+    setCommittingGroupId(group.id);
+    setError("");
+    try {
+      const result = await onQuickCommit(selectedChanges.map(toQuickCommitChange), message);
+      if (!result) return;
+      if (result.repoPath !== repoPath || result.exitCode !== 0) {
+        if (alive.current) setError(result.stderr || "Unable to create the commit.");
+        return;
+      }
+      const committed = new Set(selectedChanges.map((change) => change.id));
+      if (alive.current && group.changeIds.every((id) => committed.has(id))) setExitingGroupIds((current) => new Set(current).add(group.id));
+      storeCompletedPlan(removeCommittedChanges(planRef.current ?? plan, committed), new Set(savedDraft.current.includedChangeIds.filter((id) => !committed.has(id))));
+    } catch (reason) {
+      if (alive.current) setError(reason instanceof Error ? reason.message : "Unable to create the commit.");
+    } finally {
+      operationRef.current = false;
+      if (alive.current) setCommittingGroupId(null);
+    }
   };
 
   const finishGroupExit = useCallback((groupId: string): void => {
@@ -276,7 +300,8 @@ export function CommitPlanView({
   }, []);
 
   const hasRenderedGroups = Boolean(plan && (plan.groups.length > 0 || exitingGroupIds.size > 0));
-  const inboxCount = plan ? inboxChanges.length : availablePaths.length;
+  const showFileSelection = !plan || choosingFiles;
+  const inboxCount = showFileSelection ? availablePaths.length : inboxChanges.length;
   const inboxTitle = plan?.granularity === "hunk" ? "Changes to plan" : "Files to plan";
 
   return (
@@ -286,16 +311,23 @@ export function CommitPlanView({
           <h2>Commit plan</h2>
           <p>{plan?.granularity === "hunk" ? "Group working-tree hunks into focused commits." : "Group working-tree files into focused commits."}</p>
         </div>
+        <div className="commit-plan-toolbar-actions">
+        {plan ? <>
+          <Button type="button" variant="ghost" size="sm" disabled={editingDisabled} aria-pressed={choosingFiles} onClick={() => setChoosingFiles((current) => !current)}>Choose files</Button>
+          <Button type="button" variant="outline" size="sm" disabled={editingDisabled || blockedByStagedFiles || validating} onClick={() => { void validatePlan(plan, selectedPaths, repositoryChangeVersion); }}><RotateCw />Refresh</Button>
+          <Button type="button" variant="outline" size="sm" disabled={editingDisabled || plan.groups.length >= MAX_COMMIT_PLAN_GROUPS} onClick={addGroup}><Plus />Add group</Button>
+        </> : null}
         <Button
           type="button"
           size="sm"
-          disabled={disabled || generating || blockedByStagedFiles || availablePaths.length === 0 || !supported || !canGenerate}
+          disabled={editingDisabled || blockedByStagedFiles || selectedPaths.length === 0 || selectedPaths.length > MAX_COMMIT_PLAN_PATHS || !supported || !canGenerate}
           title={blockedByStagedFiles ? "Unstage existing files before you generate a commit plan." : generateTitle}
           onClick={() => { void generate(); }}
         >
           {generating ? <Loader2 className="animate-spin" /> : <Sparkles />}
           {plan ? "Regenerate" : "Generate"}
         </Button>
+        </div>
       </header>
 
       {blockedByStagedFiles ? (
@@ -306,9 +338,10 @@ export function CommitPlanView({
         <div className="commit-plan-notice">Commit plan is available only for Git repositories.</div>
       ) : validating ? (
         <div className="commit-plan-notice" role="status">Checking whether the commit plan is still current...</div>
-      ) : stale ? (
-        <div className="commit-plan-notice" role="alert">The working tree changed. Generate the commit plan again.</div>
       ) : null}
+      {validationError ? <div className="commit-plan-error" role="alert">{validationError}</div> : null}
+      {saveFailed ? <div className="commit-plan-notice" role="status">This draft could not be saved. Keep this window open to retain your edits.</div> : null}
+      {selectedPaths.length > MAX_COMMIT_PLAN_PATHS ? <div className="commit-plan-notice" role="alert">Select up to {MAX_COMMIT_PLAN_PATHS} files for a commit plan.</div> : null}
       {error ? <div className="commit-plan-error" role="alert">{error}</div> : null}
 
       <div data-workspace-scroll-key="commit-plan" className="commit-plan-scroll">
@@ -316,29 +349,37 @@ export function CommitPlanView({
           <section className="commit-plan-inbox" aria-labelledby={`${inboxId}-title`}>
             <header className="commit-plan-inbox-header">
               <div className="commit-plan-inbox-copy"><h3 id={`${inboxId}-title`}>{inboxTitle}</h3></div>
-              <Badge variant={inboxCount > 0 ? "secondary" : "outline"}>{inboxCount}</Badge>
+              <Badge variant={inboxCount > 0 ? "secondary" : "outline"}>{showFileSelection ? `${selectedPaths.length} selected` : inboxCount}</Badge>
               <Button type="button" variant="ghost" size="icon-xs" aria-label={inboxCollapsed ? `Show ${inboxTitle.toLowerCase()}` : `Hide ${inboxTitle.toLowerCase()}`} aria-expanded={!inboxCollapsed} aria-controls={inboxId} onClick={() => setInboxCollapsed((current) => !current)}>
                 <ChevronDown className={inboxCollapsed ? "commit-plan-inbox-chevron is-collapsed" : "commit-plan-inbox-chevron"} />
               </Button>
+              {showFileSelection ? <div className="commit-plan-selection-actions">
+                <Button type="button" size="sm" variant="ghost" disabled={editingDisabled} onClick={() => setExcludedPaths(new Set())}>Select all</Button>
+                <Button type="button" size="sm" variant="ghost" disabled={editingDisabled} onClick={() => setExcludedPaths(new Set(availablePaths))}>Select none</Button>
+              </div> : null}
             </header>
             {!inboxCollapsed ? (
               <div id={inboxId} className="commit-plan-inbox-content">
                 {inboxCount > 0 ? (
                   <div className="commit-plan-files" role="list">
-                    {plan ? inboxChanges.map((change) => (
+                    {!showFileSelection && plan ? inboxChanges.map((change) => (
                       <CommitPlanChangeRow
                         key={change.id}
                         change={change}
                         file={fileByPath.get(change.path)}
                         selectedPath={selectedPath}
-                        disabled={disabled}
+                        disabled={editingDisabled || stale || validating}
                         groups={plan.groups}
                         onSelectFile={onSelectFile}
                         onMove={(targetGroupId) => moveChange(change.id, null, targetGroupId)}
                       />
                     )) : availablePaths.map((path) => {
                       const file = fileByPath.get(path);
-                      return file ? <div className={`commit-plan-file commit-plan-inbox-file ${selectedPath === path ? "is-selected" : ""}`} role="listitem" key={path}><CommitPlanFileDetails file={file} onSelect={() => onSelectFile(file)} /></div> : null;
+                      return file ? <div className={`commit-plan-file commit-plan-inbox-file ${selectedPath === path ? "is-selected" : ""}`} role="listitem" key={path}><input type="checkbox" aria-label={`Plan ${path}`} checked={!excludedPaths.has(path)} disabled={editingDisabled} onChange={(event) => setExcludedPaths((current) => {
+                        const next = new Set(current);
+                        if (event.target.checked) next.delete(path); else next.add(path);
+                        return next;
+                      })} /><CommitPlanFileDetails file={file} onSelect={() => onSelectFile(file)} /></div> : null;
                     })}
                   </div>
                 ) : <p className="commit-plan-inbox-empty">{plan ? "Every eligible change is assigned to a planned commit." : "No eligible changed files."}</p>}
@@ -357,7 +398,7 @@ export function CommitPlanView({
             content: <div className="commit-plan-empty"><Sparkles aria-hidden="true" /><strong>Create a focused commit plan</strong><span>Githead will inspect the unstaged diffs and suggest groups and commit messages.</span></div>
           } : !hasRenderedGroups ? {
             key: "complete",
-            content: <div className="commit-plan-empty"><strong>All planned groups are committed.</strong></div>
+            content: <div className="commit-plan-empty"><strong>{inboxChanges.length > 0 ? "Create a group to assign the remaining changes." : "All planned groups are committed."}</strong></div>
           } : {
             key: "groups",
             content: <MotionList
@@ -371,14 +412,25 @@ export function CommitPlanView({
                     <span className={`commit-plan-marker commit-plan-marker-${index % 6}`} aria-hidden="true" />
                     <div className="commit-plan-group-copy">
                       <label className="sr-only" htmlFor={`commit-plan-message-${group.id}`}>Commit message</label>
-                      <Input id={`commit-plan-message-${group.id}`} value={group.message} disabled={disabled} onChange={(event) => updateGroup(group.id, (current) => ({ ...current, message: event.target.value }))} />
-                      {group.rationale ? <p>{group.rationale}</p> : null}
+                      <Input id={`commit-plan-message-${group.id}`} value={group.message} disabled={editingDisabled} onChange={(event) => updateGroup(group.id, (current) => ({ ...current, message: event.target.value }))} />
+                      <label className="sr-only" htmlFor={`commit-plan-body-${group.id}`}>Commit body</label>
+                      <Textarea id={`commit-plan-body-${group.id}`} rows={2} value={group.rationale} placeholder="Commit body (optional)" disabled={editingDisabled} onChange={(event) => updateGroup(group.id, (current) => ({ ...current, rationale: event.target.value }))} />
                     </div>
                     <Badge variant="secondary">{group.changeIds.length}</Badge>
-                    <Button type="button" size="sm" disabled={disabled || stale || validating || blockedByStagedFiles || committingGroupId !== null || !group.message.trim() || !group.changeIds.some((changeId) => includedChangeIds.has(changeId) && changeById.has(changeId))} onClick={() => { void quickCommit(group); }}>
+                    <Button type="button" size="sm" disabled={editingDisabled || stale || validating || blockedByStagedFiles || group.needsReview === true || !group.message.trim() || !group.changeIds.some((changeId) => includedChangeIds.has(changeId) && changeById.has(changeId))} onClick={() => { void quickCommit(group); }}>
                       {committingGroupId === group.id ? <Loader2 className="animate-spin" /> : null}
                       Quick Commit
                     </Button>
+                  </div>
+                  <div className="commit-plan-group-actions">
+                    <span>Commit {index + 1}</span>
+                    {group.needsReview ? <>
+                      <span role="status">Changes moved or disappeared. Review this group.</span>
+                      <Button type="button" size="sm" variant="outline" disabled={editingDisabled || validating || stale || group.changeIds.length === 0} onClick={() => updateGroup(group.id, (current) => ({ ...current, needsReview: false }))}>Mark reviewed</Button>
+                    </> : null}
+                    <Button type="button" variant="ghost" size="icon-xs" aria-label={`Move commit ${index + 1} up`} disabled={editingDisabled || index === 0} onClick={() => reorderGroup(group.id, -1)}><ArrowUp /></Button>
+                    <Button type="button" variant="ghost" size="icon-xs" aria-label={`Move commit ${index + 1} down`} disabled={editingDisabled || index === plan.groups.length - 1} onClick={() => reorderGroup(group.id, 1)}><ArrowDown /></Button>
+                    <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove commit group ${index + 1}`} disabled={editingDisabled} onClick={() => deleteGroup(group.id)}><Trash2 /></Button>
                   </div>
                   <div className="commit-plan-files" role="list">
                     {group.changeIds.map((changeId) => {
@@ -386,16 +438,16 @@ export function CommitPlanView({
                       if (!change) return null;
                       const file = fileByPath.get(change.path);
                       return <div className={`commit-plan-file ${selectedPath === change.path ? "is-selected" : ""}`} role="listitem" key={change.id}>
-                        <input type="checkbox" aria-label={`Include ${changeDescription(change)} in this commit`} checked={includedChangeIds.has(change.id)} disabled={disabled || stale || validating} onChange={(event) => setIncludedChangeIds((current) => {
+                        <input type="checkbox" aria-label={`Include ${changeDescription(change)} in this commit`} checked={includedChangeIds.has(change.id)} disabled={editingDisabled || stale || validating} onChange={(event) => setIncludedChangeIds((current) => {
                           const next = new Set(current);
                           if (event.target.checked) next.add(change.id); else next.delete(change.id);
                           return next;
                         })} />
                         <CommitPlanChangeDetails change={change} file={file} onSelect={file ? () => onSelectFile(file) : undefined} />
                         <DropdownMenu>
-                          <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon-xs" aria-label={`Move ${changeDescription(change)} to another group`} disabled={disabled || stale || validating}><span className={`commit-plan-marker commit-plan-marker-${index % 6}`} aria-hidden="true" /><ChevronDown /></Button></DropdownMenuTrigger>
+                          <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon-xs" aria-label={`Move ${changeDescription(change)} to another group`} disabled={editingDisabled || stale || validating}><span className={`commit-plan-marker commit-plan-marker-${index % 6}`} aria-hidden="true" /><ChevronDown /></Button></DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            {plan.groups.filter((target) => target.id !== group.id).map((target) => <DropdownMenuItem key={target.id} onSelect={() => moveChange(change.id, group.id, target.id)}>{target.message}</DropdownMenuItem>)}
+                            {plan.groups.filter((target) => target.id !== group.id).map((target) => <DropdownMenuItem key={target.id} onSelect={() => moveChange(change.id, group.id, target.id)}>{target.message || "Untitled commit"}</DropdownMenuItem>)}
                             <DropdownMenuSeparator />
                             <DropdownMenuItem onSelect={() => moveChange(change.id, group.id, null)}>Move to unassigned</DropdownMenuItem>
                           </DropdownMenuContent>
@@ -417,7 +469,7 @@ export function CommitPlanView({
 function CommitPlanChangeRow({ change, file, selectedPath, disabled, groups, onSelectFile, onMove }: { change: CommitPlanChange; file: GitStatusFile | undefined; selectedPath: string | null; disabled: boolean; groups: CommitPlanGroup[]; onSelectFile: (file: GitStatusFile) => void; onMove: (groupId: string) => void }): ReactNode {
   return <div className={`commit-plan-file commit-plan-inbox-file ${selectedPath === change.path ? "is-selected" : ""}`} role="listitem">
     <CommitPlanChangeDetails change={change} file={file} onSelect={file ? () => onSelectFile(file) : undefined} />
-    {groups.length > 0 ? <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon-xs" aria-label={`Assign ${changeDescription(change)} to a commit`} disabled={disabled}><ChevronDown /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">{groups.map((target) => <DropdownMenuItem key={target.id} onSelect={() => onMove(target.id)}>{target.message}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu> : null}
+    {groups.length > 0 ? <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon-xs" aria-label={`Assign ${changeDescription(change)} to a commit`} disabled={disabled}><ChevronDown /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">{groups.map((target) => <DropdownMenuItem key={target.id} onSelect={() => onMove(target.id)}>{target.message || "Untitled commit"}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu> : null}
   </div>;
 }
 
@@ -426,6 +478,7 @@ function CommitPlanChangeDetails({ change, file, onSelect }: { change: CommitPla
   return <>
     {file ? <CommitPlanStatusBadge file={file} /> : <Badge variant="outline">?</Badge>}
     {onSelect ? <button type="button" className="commit-plan-file-name" onClick={onSelect}>{content}</button> : <span className="commit-plan-file-name">{content}</span>}
+    {change.contextIncomplete ? <Badge variant="outline" title="The AI did not receive the full diff. Review the file before committing.">Limited AI context</Badge> : null}
   </>;
 }
 
@@ -438,30 +491,8 @@ function CommitPlanStatusBadge({ file }: { file: GitStatusFile }): ReactNode {
   return <FileStatusChip visuals={visuals} tooltip={false} />;
 }
 
-function filterUnavailableChanges(plan: CommitPlan | null, currentPaths: Set<string>): CommitPlan | null {
-  if (!plan) return plan;
-  const changes = plan.changes.filter((change) => currentPaths.has(change.path));
-  const changeIds = new Set(changes.map((change) => change.id));
-  return {
-    ...plan,
-    changes,
-    groups: plan.groups.map((group) => ({ ...group, changeIds: group.changeIds.filter((changeId) => changeIds.has(changeId)) })).filter((group) => group.changeIds.length > 0),
-    unassignedChangeIds: plan.unassignedChangeIds.filter((changeId) => changeIds.has(changeId))
-  };
-}
-
 function toQuickCommitChange(change: CommitPlanChange): GitQuickCommitChange {
   return { path: change.path, kind: change.kind, fingerprint: change.fingerprint };
-}
-
-function uniqueChangePaths(changes: CommitPlanChange[]): string[] {
-  return [...new Set(changes.map((change) => change.path))];
-}
-
-function haveSamePaths(left: string[], right: string[]): boolean {
-  if (left.length !== right.length) return false;
-  const rightPaths = new Set(right);
-  return left.every((path) => rightPaths.has(path));
 }
 
 function changeDescription(change: CommitPlanChange): string {

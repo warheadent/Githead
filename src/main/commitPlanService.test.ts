@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import type { AiSettings, GitFileDiff } from "../shared/types";
 import type { AiSettingsService } from "./aiSettingsService";
 import { createCommitPlanChanges, toPublicCommitPlanChange } from "./commitPlanChanges";
-import { CommitPlanService } from "./commitPlanService";
+import { CommitPlanService, createDiffContext } from "./commitPlanService";
 
 const settings: AiSettings = {
   selectedProvider: "openrouter",
@@ -240,5 +240,30 @@ describe("CommitPlanService", () => {
 
     expect(bulkReads).toBe(1);
     expect(individualReads).toBe(0);
+  });
+});
+
+
+describe("commit plan context budget", () => {
+  it("gives large changes a share and fully includes small changes regardless of order", () => {
+    const prepared = createCommitPlanChanges([
+      { path: "large-a.ts", side: "unstaged", kind: "text", text: "A".repeat(100_000) },
+      { path: "small.ts", side: "unstaged", kind: "text", text: "+small change" },
+      { path: "large-b.ts", side: "unstaged", kind: "text", text: "B".repeat(100_000) }
+    ], "file");
+    const context = createDiffContext(prepared);
+    expect(context.text.length).toBeLessThanOrEqual(80_000);
+    expect(context.text).toContain("+small change");
+    expect(context.text.match(/A/g)?.length).toBeGreaterThan(30_000);
+    expect(context.text.match(/B/g)?.length).toBeGreaterThan(30_000);
+    expect([...context.incompleteChangeIds]).toEqual(["change-1", "change-3"]);
+  });
+
+  it("reports already truncated and binary input as incomplete", () => {
+    const prepared = createCommitPlanChanges([
+      { path: "large.ts", side: "unstaged", kind: "text", text: "+prefix", truncated: true },
+      { path: "asset.bin", side: "unstaged", kind: "binary", text: "Binary files differ" }
+    ], "file");
+    expect([...createDiffContext(prepared).incompleteChangeIds]).toEqual(["change-1", "change-2"]);
   });
 });

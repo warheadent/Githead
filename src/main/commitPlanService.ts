@@ -83,14 +83,20 @@ export class CommitPlanService {
           : Promise.resolve([])
       ]);
       throwIfAborted(signal);
-      const preparedChanges = createCommitPlanChanges(diffs, settings.commitPlanGranularity);
+      assertReadableDiffs(diffs);
+      const preparedChanges = createCommitPlanChanges(diffs.filter((diff) => diff.kind !== "empty"), settings.commitPlanGranularity);
+      if (preparedChanges.length === 0) return failure(request.repoPath, "No working-tree changes remain in the selected files.");
       if (preparedChanges.length > MAX_COMMIT_PLAN_CHANGES) {
         return failure(
           request.repoPath,
           `Commit plans support up to ${MAX_COMMIT_PLAN_CHANGES} changes. Select fewer files or use file grouping.`
         );
       }
-      const changes = preparedChanges.map(toPublicCommitPlanChange);
+      const context = createDiffContext(preparedChanges);
+      const changes = preparedChanges.map((change) => ({
+        ...toPublicCommitPlanChange(change),
+        ...(context.incompleteChangeIds.has(change.id) ? { contextIncomplete: true } : {})
+      }));
 
       const reasoningEffort = await resolveReasoningEffort(
         this.reasoningCapabilities,
@@ -109,7 +115,7 @@ export class CommitPlanService {
         systemPrompt: createCommitPlanSystemPrompt(settings.sourceControlWritingStyle),
         userPrompt: createCommitPlanUserPrompt(
           changes,
-          createDiffContext(preparedChanges),
+          context.text,
           settings.sourceControlWritingStyle,
           recentCommits.map((commit) => commit.subject)
         )
@@ -146,19 +152,21 @@ export class CommitPlanService {
       throwIfAborted(signal);
       const paths = [...new Set(request.paths.map((path) => path.trim()).filter(Boolean))];
       if (
-        paths.length === 0 ||
         paths.length > MAX_COMMIT_PLAN_PATHS ||
-        request.changes.length === 0 ||
         request.changes.length > MAX_COMMIT_PLAN_CHANGES
       ) {
         return validationResult(request.repoPath, false);
       }
 
       const service = await this.resolveService(request.repoPath);
-      const diffs = await readCommitPlanDiffs(service, request.repoPath, paths, signal);
+      const diffs = paths.length > 0 ? await readCommitPlanDiffs(service, request.repoPath, paths, signal) : [];
+      assertReadableDiffs(diffs);
       throwIfAborted(signal);
-      const currentChanges = createCommitPlanChanges(diffs, request.granularity).map(toPublicCommitPlanChange);
-      return validationResult(request.repoPath, haveSameCommitPlanChanges(request.changes, currentChanges));
+      const currentChanges = createCommitPlanChanges(diffs.filter((diff) => diff.kind !== "empty"), request.granularity).map(toPublicCommitPlanChange);
+      if (currentChanges.length > MAX_COMMIT_PLAN_CHANGES) {
+        return validationResult(request.repoPath, false, `Commit plans support up to ${MAX_COMMIT_PLAN_CHANGES} changes. Select fewer files.`);
+      }
+      return { ...validationResult(request.repoPath, haveSameCommitPlanChanges(request.changes, currentChanges)), currentChanges };
     } catch (error) {
       if (signal?.aborted) throw signal.reason ?? error;
       return validationResult(
@@ -204,23 +212,39 @@ function validationResult(repoPath: string, valid: boolean, stderr = ""): Commit
   return { repoPath, valid, stderr };
 }
 
-function createDiffContext(changes: PreparedCommitPlanChange[]): string {
-  const sections: string[] = [];
-  let remaining = MAX_COMMIT_PLAN_DIFF_CHARS;
-
-  for (const change of changes) {
-    const heading = `### ${change.id}: ${change.path}${change.kind === "hunk" ? ` (${change.label})` : " (whole file)"}\n`;
-    if (remaining <= heading.length) break;
-    const fullSection = `${heading}${change.promptText}`;
-    const section = fullSection.length <= remaining
-      ? fullSection
-      : `${heading}[Change diff omitted by Githead]`;
-    sections.push(section);
-    remaining -= section.length + 2;
-    if (remaining <= 0) break;
+export function createDiffContext(changes: PreparedCommitPlanChange[]): { text: string; incompleteChangeIds: Set<string> } {
+  const incompleteChangeIds = new Set<string>();
+  const marker = "\n[Diff shortened; review file]";
+  // Give every change a share first, then redistribute space left by small diffs.
+  const sections = changes.map((change) => ({
+    change,
+    heading: `### ${change.id}\n`,
+    budget: 0
+  }));
+  let remaining = Math.max(0, MAX_COMMIT_PLAN_DIFF_CHARS - sections.reduce((total, section) => total + section.heading.length + 2, 0));
+  let pending = [...sections];
+  while (remaining > 0 && pending.length > 0) {
+    const share = Math.max(1, Math.floor(remaining / pending.length));
+    for (const section of pending) {
+      const amount = Math.min(share, section.change.promptText.length - section.budget, remaining);
+      section.budget += amount;
+      remaining -= amount;
+    }
+    pending = pending.filter((section) => section.budget < section.change.promptText.length);
   }
+  const text = sections.map(({ change, heading, budget }) => {
+    const shortened = budget < change.promptText.length;
+    if (shortened || change.contextIncomplete) incompleteChangeIds.add(change.id);
+    if (!shortened) return heading + change.promptText;
+    const contentBudget = Math.max(0, budget - marker.length);
+    return heading + change.promptText.slice(0, contentBudget) + marker.slice(0, budget - contentBudget);
+  }).join("\n\n");
+  return { text, incompleteChangeIds };
+}
 
-  return sections.join("\n\n");
+function assertReadableDiffs(diffs: GitFileDiff[]): void {
+  const failed = diffs.find((diff) => diff.kind === "error");
+  if (failed) throw new Error(`Unable to read ${failed.path}: ${failed.text}`);
 }
 
 function failure(repoPath: string, stderr: string): GenerateCommitPlanResult {

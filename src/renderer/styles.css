@@ -1685,9 +1685,9 @@ textarea,
 }
 
 .commit-plan-view {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
   background: var(--card);
 }
 
@@ -1730,6 +1730,7 @@ textarea,
 }
 
 .commit-plan-scroll {
+  flex: 1;
   min-height: 0;
   overflow: auto;
   padding: 12px;
@@ -7261,4 +7262,39 @@ textarea,
 
 .activity-log-run-outcome[data-failed="true"] {
   color: var(--destructive);
+}
+
+.commit-plan-toolbar-actions,
+.commit-plan-group-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.commit-plan-toolbar {
+  flex-wrap: wrap;
+}
+
+.commit-plan-group-actions {
+  padding: 6px 10px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.commit-plan-group-actions > span:first-child {
+  margin-right: auto;
+}
+
+.commit-plan-group-copy textarea {
+  margin-top: 6px;
+  min-height: 52px;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.commit-plan-selection-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 4px;
 }

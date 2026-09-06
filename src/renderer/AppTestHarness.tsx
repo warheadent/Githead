@@ -177,6 +177,9 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  for (const key of Object.keys(window.localStorage)) {
+    if (key.startsWith("githead:commit-plan:")) window.localStorage.removeItem(key);
+  }
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();

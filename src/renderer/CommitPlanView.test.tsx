@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { CommitPlan, GenerateCommitPlanResult, GitOperationResult, GitStatusFile } from "../shared/types";
+import { commitPlanDraftKey } from "./commitPlanDraft";
 import { CommitPlanView } from "./CommitPlanView";
 
 const files: GitStatusFile[] = [
@@ -38,6 +39,7 @@ const committed: GitOperationResult = {
 
 afterEach(() => {
   cleanup();
+  window.localStorage.clear();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -345,7 +347,130 @@ describe("CommitPlanView motion", () => {
       await Promise.resolve();
     });
 
-    expect(await screen.findByText("All planned groups are committed.")).toBeTruthy();
+    expect(await screen.findByText("Create a group to assign the remaining changes.")).toBeTruthy();
     expect(screen.getByRole("region", { name: "Files to plan" }).textContent).toContain("b.ts");
   });
+});
+
+
+describe("CommitPlanView editing and recovery", () => {
+  it("generates only the selected files", async () => {
+    const onGenerate = vi.fn().mockResolvedValue(generated);
+    renderView(onGenerate);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Plan src/b.ts" }));
+    await generatePlan();
+    expect(onGenerate).toHaveBeenCalledWith(["src/a.ts"]);
+  });
+
+  it("keeps unchecked changes in their group after a partial commit", async () => {
+    const combined = { ...plan, groups: [{ ...plan.groups[0]!, changeIds: ["change-a", "change-b"] }] };
+    const onQuickCommit = vi.fn().mockResolvedValue(committed);
+    renderView(vi.fn().mockResolvedValue({ ...generated, plan: combined }), onQuickCommit);
+    await generatePlan();
+    fireEvent.change(screen.getByRole("textbox", { name: "Commit body" }), { target: { value: "User body\n\nMore detail" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Include src/b.ts in this commit" }));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Quick Commit" })); });
+    expect(onQuickCommit).toHaveBeenCalledWith([expect.objectContaining({ path: "src/a.ts" })], "First commit\n\nUser body\n\nMore detail");
+    expect(screen.getByDisplayValue("First commit")).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Commit body" })).toHaveProperty("value", "User body\n\nMore detail");
+    expect(screen.getByRole("checkbox", { name: "Include src/b.ts in this commit" })).toHaveProperty("checked", false);
+    expect(screen.getByRole("region", { name: "Files to plan" }).textContent).not.toContain("b.ts");
+  });
+
+  it("creates, reorders and removes groups without losing changes", async () => {
+    renderView();
+    await generatePlan();
+    fireEvent.click(screen.getByRole("button", { name: "Move commit 2 up" }));
+    expect(screen.getAllByRole("textbox", { name: "Commit message" })[0]).toHaveProperty("value", "Second commit");
+    fireEvent.click(screen.getByRole("button", { name: "Add group" }));
+    expect(screen.getAllByRole("textbox", { name: "Commit message" })).toHaveLength(3);
+    fireEvent.click(screen.getByRole("button", { name: "Remove commit group 1" }));
+    expect(screen.getByRole("region", { name: "Files to plan" }).textContent).toContain("b.ts");
+    expect(screen.getAllByRole("textbox", { name: "Commit message" })).toHaveLength(2);
+  });
+
+  it("restores edits and blocks commits until the saved draft is validated", async () => {
+    const first = renderView();
+    await generatePlan();
+    fireEvent.change(screen.getAllByRole("textbox", { name: "Commit message" })[0]!, { target: { value: "Saved subject" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Include src/a.ts in this commit" }));
+    first.unmount();
+    const raw = window.localStorage.getItem(commitPlanDraftKey("D:/repo"));
+    expect(raw).toContain("Saved subject");
+    expect(raw).not.toContain("validating");
+    let resolve!: (result: { repoPath: string; valid: boolean; stderr: string }) => void;
+    const validate = vi.fn().mockImplementation(() => new Promise((done) => { resolve = done; }));
+    renderView(vi.fn(), vi.fn(), files, validate);
+    expect(screen.getByDisplayValue("Saved subject")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Quick Commit" }).every((button) => button.hasAttribute("disabled"))).toBe(true);
+    await act(async () => { resolve({ repoPath: "D:/repo", valid: true, stderr: "" }); });
+    expect(screen.getByRole("checkbox", { name: "Include src/a.ts in this commit" })).toHaveProperty("checked", false);
+    expect(screen.getAllByRole("button", { name: "Quick Commit" })[1]).toHaveProperty("disabled", false);
+  });
+
+  it("preserves unaffected groups when a refresh returns changed content", async () => {
+    const validate = vi.fn().mockResolvedValue({ repoPath: "D:/repo", valid: true, currentChanges: plan.changes, stderr: "" });
+    renderView(vi.fn().mockResolvedValue(generated), vi.fn(), files, validate);
+    await generatePlan();
+    fireEvent.change(screen.getAllByRole("textbox", { name: "Commit message" })[0]!, { target: { value: "Keep this edit" } });
+    validate.mockResolvedValue({ repoPath: "D:/repo", valid: false, currentChanges: [{ ...plan.changes[0]!, fingerprint: "c".repeat(64) }, plan.changes[1]!], stderr: "" });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Refresh" })); });
+    expect(screen.getByDisplayValue("Keep this edit")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Files to plan" }).textContent).toContain("a.ts");
+    expect(screen.getByText("Changes moved or disappeared. Review this group.")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Quick Commit" })[1]).toHaveProperty("disabled", false);
+  });
+
+  it("clears the busy state after a rejected generation", async () => {
+    const generate = vi.fn().mockRejectedValueOnce(new Error("Provider disconnected")).mockResolvedValue(generated);
+    renderView(generate);
+    await generatePlan();
+    expect(screen.getByText("Provider disconnected")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Generate" })).toHaveProperty("disabled", false);
+    await generatePlan();
+    expect(screen.getByDisplayValue("First commit")).toBeTruthy();
+  });
+
+  it("preserves a commit failure message after background validation", async () => {
+    renderView(vi.fn().mockResolvedValue(generated), vi.fn().mockResolvedValue({ ...committed, exitCode: 1, stderr: "Hook failed" }));
+    await generatePlan();
+    await act(async () => { fireEvent.click(screen.getAllByRole("button", { name: "Quick Commit" })[0]!); });
+    expect(screen.getByText("Hook failed")).toBeTruthy();
+    expect(screen.getByDisplayValue("First commit")).toBeTruthy();
+  });
+});
+
+
+it("stores a completed generation after the user leaves the plan view", async () => {
+  let resolve!: (result: GenerateCommitPlanResult) => void;
+  const generate = vi.fn().mockImplementation(() => new Promise((done) => { resolve = done; }));
+  const view = renderView(generate);
+  fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+  view.unmount();
+  await act(async () => { resolve(generated); });
+  renderView();
+  expect(screen.getByDisplayValue("First commit")).toBeTruthy();
+  expect(screen.getAllByRole("button", { name: "Quick Commit" })).toHaveLength(2);
+});
+
+it("adds newly discovered files to the inbox without invalidating existing groups", async () => {
+  const addedFile = { ...files[0]!, path: "src/new.ts" };
+  const addedChange = { ...plan.changes[0]!, id: "new", path: addedFile.path, fingerprint: "e".repeat(64) };
+  const validate = vi.fn().mockResolvedValue({ repoPath: "D:/repo", valid: true, currentChanges: plan.changes, stderr: "" });
+  const props = { repoPath: "D:/repo", files, stagedCount: 0, selectedPath: null, disabled: false, supported: true, canGenerate: true, generateTitle: "Generate", onSelectFile: vi.fn(), onGenerate: vi.fn().mockResolvedValue(generated), onQuickCommit: vi.fn(), onValidatePlan: validate };
+  const view = render(<CommitPlanView {...props} />);
+  await generatePlan();
+  validate.mockResolvedValue({ repoPath: "D:/repo", valid: false, currentChanges: [...plan.changes, addedChange], stderr: "" });
+  await act(async () => { view.rerender(<CommitPlanView {...props} files={[...files, addedFile]} />); });
+  expect(validate).toHaveBeenLastCalledWith(expect.objectContaining({ paths: ["src/a.ts", "src/b.ts", "src/new.ts"] }));
+  expect(screen.getByRole("region", { name: "Files to plan" }).textContent).toContain("new.ts");
+  expect(screen.getAllByRole("button", { name: "Quick Commit" }).every((button) => !button.hasAttribute("disabled"))).toBe(true);
+});
+
+
+it("does not read the diffs again after generation if the repository did not change", async () => {
+  const validate = vi.fn();
+  renderView(vi.fn().mockResolvedValue(generated), vi.fn(), files, validate);
+  await generatePlan();
+  expect(validate).not.toHaveBeenCalled();
 });

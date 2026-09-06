@@ -1,0 +1,3 @@
+export const MAX_COMMIT_PLAN_PATHS = 500;
+export const MAX_COMMIT_PLAN_GROUPS = 50;
+export const MAX_COMMIT_PLAN_CHANGES = 1_000;

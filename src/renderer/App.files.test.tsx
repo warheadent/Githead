@@ -1386,7 +1386,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.queryByText(/Generating commit plan exited with code/)).toBeNull();
   });
 
-  it("starts only one commit plan generation when concurrent trust checks resolve", async () => {
+  it("starts only one commit plan generation while a trust check is pending", async () => {
     const user = userEvent.setup();
     const pendingTrust = defer<{ trusted: boolean }>();
     const pendingGeneration = defer<Awaited<ReturnType<typeof githead.generateCommitPlan>>>();
@@ -1406,7 +1406,7 @@ describe("App", { timeout: 10_000 }, () => {
       generateButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       generateButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    await waitFor(() => expect(githead.getRepoTrust).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(githead.getRepoTrust).toHaveBeenCalledTimes(1));
 
     pendingTrust.resolve({ trusted: true });
     await flushRendererAsync();

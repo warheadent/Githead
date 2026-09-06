@@ -1943,6 +1943,7 @@ export interface CommitPlanChange {
   kind: "file" | "hunk";
   label: string;
   fingerprint: string;
+  contextIncomplete?: boolean;
 }
 
 export interface CommitPlanGroup {
@@ -1950,6 +1951,7 @@ export interface CommitPlanGroup {
   message: string;
   rationale: string;
   changeIds: string[];
+  needsReview?: boolean;
 }
 
 export interface CommitPlan {
@@ -1983,6 +1985,7 @@ export interface CommitPlanValidationResult {
   repoPath: string;
   valid: boolean;
   stderr: string;
+  currentChanges?: CommitPlanChange[];
 }
 
 export interface GeneratePrDescriptionRequest {

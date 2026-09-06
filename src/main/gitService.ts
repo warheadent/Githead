@@ -1602,15 +1602,24 @@ export class GitService {
 
     const diffs = await this.getCommitPlanDiffs({ repoPath, paths });
     const diffByPath = new Map(diffs.map((diff) => [diff.path, diff]));
+    const preparedByPath = new Map<string, Map<string, PreparedCommitPlanChange>>();
     const resolvedHunks: PreparedCommitPlanChange[] = [];
     const filePaths: string[] = [];
 
     for (const change of changes) {
       const diff = diffByPath.get(change.path);
       if (!diff) return { error: "The working-tree changes changed. Generate the commit plan again." };
-      const currentChanges = createCommitPlanChanges([diff], change.kind === "hunk" ? "hunk" : "file");
-      const match = currentChanges.find((candidate) =>
-        candidate.kind === change.kind && candidate.fingerprint === change.fingerprint);
+      if (diff.kind === "error" || diff.kind === "empty") {
+        return { error: `Unable to validate ${change.path}. Refresh the commit plan.` };
+      }
+      const key = `${change.path}\0${change.kind}`;
+      let candidates = preparedByPath.get(key);
+      if (!candidates) {
+        candidates = new Map(createCommitPlanChanges([diff], change.kind === "hunk" ? "hunk" : "file")
+          .map((candidate) => [`${candidate.kind}\0${candidate.fingerprint}`, candidate]));
+        preparedByPath.set(key, candidates);
+      }
+      const match = candidates.get(`${change.kind}\0${change.fingerprint}`);
       if (!match) return { error: "The working-tree changes changed. Generate the commit plan again." };
       if (match.kind === "hunk") resolvedHunks.push(match);
       else filePaths.push(match.path);
@@ -3540,6 +3549,7 @@ export class GitService {
         "diff",
         "--no-index",
         "--no-color",
+        "--full-index",
         "--no-ext-diff",
         "--no-textconv",
         "--",
@@ -3557,6 +3567,7 @@ export class GitService {
       "diff",
       "--submodule=short",
       "--no-color",
+      "--full-index",
       "--no-ext-diff",
       "--no-textconv",
       "--",
