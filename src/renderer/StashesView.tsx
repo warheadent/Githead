@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import type { GitStashDetails, GitStashEntry } from "../shared/types";
+import { findStashEntry } from "./stashIdentity";
 import { LoadingState } from "./LoadingState";
 import { usePersistentWorkspacePanelState } from "./workspacePanelState";
 
@@ -58,8 +59,8 @@ export function StashesView({
   const [filesCollapsed, setFilesCollapsed] = usePersistentWorkspacePanelState("stashes-files-collapsed", false);
   const selected = entries.find((entry) => entry.ref === selectedRef) ?? null;
   const actionsDisabled = disabled || loading;
-  const currentDropTarget = entries.find((entry) => entry.hash === dropTarget?.hash);
-  const currentBranchTarget = entries.find((entry) => entry.hash === branchTarget?.hash);
+  const currentDropTarget = findStashEntry(entries, dropTarget);
+  const currentBranchTarget = findStashEntry(entries, branchTarget);
   const searchEnabled = entries.length > 3;
   const normalizedQuery = searchEnabled ? searchQuery.trim().toLocaleLowerCase() : "";
   const visibleEntries = normalizedQuery
@@ -195,6 +196,7 @@ export function StashesView({
       <Dialog open={Boolean(dropTarget)} onOpenChange={(open) => { if (!open && !submitting) setDropTarget(null); }}>
         <DialogContent showCloseButton={!submitting} className="sm:max-w-md">
           <DialogHeader><DialogTitle>Delete this stash?</DialogTitle><DialogDescription>The saved changes in {currentDropTarget?.ref ?? dropTarget?.ref} will be deleted. This action cannot be undone.</DialogDescription></DialogHeader>
+          {!loading && dropTarget && !currentDropTarget ? <p role="alert">The stash list changed. Close this dialog and select the stash again.</p> : null}
           {dialogError ? <p className="text-sm text-destructive" role="alert">{dialogError}</p> : null}
           <DialogFooter><Button type="button" variant="outline" disabled={submitting} onClick={() => setDropTarget(null)}>Cancel</Button><Button type="button" variant="destructive" disabled={submitting || actionsDisabled || !currentDropTarget} onClick={() => { void dropSelected(); }}>{submitting ? "Deleting" : "Delete stash"}</Button></DialogFooter>
         </DialogContent>
@@ -205,6 +207,7 @@ export function StashesView({
           <form onSubmit={(event) => { event.preventDefault(); void createBranch(); }}>
             <DialogHeader><DialogTitle>Create branch from stash</DialogTitle><DialogDescription>Git creates the branch at the stash base, applies the stash, and deletes it after success.</DialogDescription></DialogHeader>
             <div className="grid gap-2 py-5"><Label htmlFor="stash-branch-name">Branch name</Label><Input id="stash-branch-name" value={branchName} autoFocus onChange={(event) => setBranchName(event.target.value)} disabled={submitting} /></div>
+            {!loading && branchTarget && !currentBranchTarget ? <p role="alert">The stash list changed. Close this dialog and select the stash again.</p> : null}
             {dialogError ? <p className="mb-4 text-sm text-destructive" role="alert">{dialogError}</p> : null}
             <DialogFooter><Button type="button" variant="outline" disabled={submitting} onClick={() => setBranchTarget(null)}>Cancel</Button><Button type="submit" disabled={submitting || actionsDisabled || !currentBranchTarget || !branchName.trim()}>{submitting ? "Creating branch" : "Create branch"}</Button></DialogFooter>
           </form>

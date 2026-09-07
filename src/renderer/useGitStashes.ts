@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { findStashEntry } from "./stashIdentity";
 import type { GitFileDiff, GitStashDetails, GitStashEntry } from "../shared/types";
 
 export interface GitStashWorkspaceState {
@@ -119,8 +120,8 @@ export function useGitStashes(repoPath: string, enabled: boolean, active: boolea
       requestIds.current.details += 1;
       requestIds.current.diff += 1;
       setState((current) => {
-        const selectedHash = current.entries.find((entry) => entry.ref === current.selectedRef)?.hash;
-        const selectedRef = entries.find((entry) => entry.hash === selectedHash)?.ref
+        const selectedEntry = current.entries.find((entry) => entry.ref === current.selectedRef);
+        const selectedRef = findStashEntry(entries, selectedEntry)?.ref
           ?? (active ? entries[0]?.ref ?? null : null);
         return { ...initialState, entries, selectedRef };
       });

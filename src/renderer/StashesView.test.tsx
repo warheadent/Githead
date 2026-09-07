@@ -136,6 +136,29 @@ describe("StashesView", () => {
     await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
+  it("deletes the exact row when duplicate stash commits exist", async () => {
+    const onDrop = vi.fn().mockResolvedValue(null);
+    const duplicateEntries = [entries[0]!, { ...entries[0]!, ref: "stash@{1}" }];
+    renderView({ onDrop, entries: duplicateEntries });
+    fireEvent.contextMenu(screen.getAllByRole("option", { name: /cache cleanup/ })[1]!);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete stash..." }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete stash" }));
+    expect(onDrop).toHaveBeenCalledWith("stash@{1}");
+    await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("blocks an ambiguous delete target after refresh", () => {
+    const onDrop = vi.fn();
+    const duplicateEntries = [entries[0]!, { ...entries[0]!, ref: "stash@{1}" }];
+    const view = renderView({ onDrop, entries: duplicateEntries });
+    fireEvent.contextMenu(screen.getAllByRole("option", { name: /cache cleanup/ })[1]!);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete stash..." }));
+    view.rerender(stashView({ onDrop, entries: duplicateEntries.map((entry) => ({ ...entry })) }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete stash" }));
+    expect(onDrop).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("select the stash again");
+  });
+
   it("restores its filter after the panel unmounts", () => {
     const store = new WorkspacePanelStateStore();
     const view = renderPersistentView(store, true);
