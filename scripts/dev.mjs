@@ -48,7 +48,10 @@ server.printUrls();
 const resolvedUrls = server.resolvedUrls?.local ?? [];
 const devServerUrl = resolvedUrls[0] ?? "http://127.0.0.1:5173/";
 
-const electron = spawn(String(electronPath), ["."], {
+const electronArgs = ["."];
+if (process.argv.includes("--no-sandbox")) electronArgs.push("--no-sandbox");
+
+const electron = spawn(String(electronPath), electronArgs, {
   cwd: process.cwd(),
   env: {
     ...process.env,
@@ -77,5 +80,5 @@ process.on("SIGTERM", () => {
 });
 
 electron.on("close", (code) => {
-  void server.close().finally(() => process.exit(code ?? 0));
+  void server.close().finally(() => process.exit(code ?? 1));
 });
