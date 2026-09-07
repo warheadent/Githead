@@ -21,7 +21,7 @@ function setup() {
   }));
   vi.stubGlobal("githead", { getStashes, getStashDetails });
   const hook = renderHook(() => useGitStashes("/repo", true, true));
-  return { ...hook, getStashDetails, removeFirst: () => {
+  return { ...hook, getStashes, getStashDetails, removeFirst: () => {
     savedEntries = entries.slice(1).map((entry, index) => ({ ...entry, ref: `stash@{${index}}` }));
   } };
 }
@@ -62,4 +62,30 @@ it("ignores an old details response after refreshing renumbered stashes", async 
   });
   expect(result.current.state.details?.stash.ref).toBe("stash@{0}");
   expect(result.current.state.details?.stash.hash).toBe("second");
+});
+
+
+it("ignores details requested while a refresh is in flight", async () => {
+  const { result, getStashes, getStashDetails, removeFirst } = setup();
+  await waitFor(() => expect(result.current.state.details?.stash.hash).toBe("first"));
+  let resolveList!: (entries: GitStashEntry[]) => void;
+  let resolveDetails!: (details: GitStashDetails) => void;
+  getStashes.mockImplementationOnce(() => new Promise((resolve) => { resolveList = resolve; }));
+  getStashDetails.mockImplementationOnce(() => new Promise((resolve) => { resolveDetails = resolve; }));
+  let refresh!: Promise<void>;
+  let selection!: Promise<void>;
+  act(() => { refresh = result.current.refresh(); });
+  act(() => { selection = result.current.select("stash@{0}"); });
+  removeFirst();
+  await act(async () => {
+    resolveList(entries.slice(1).map((entry, index) => ({ ...entry, ref: `stash@{${index}}` })));
+    await refresh;
+  });
+  await waitFor(() => expect(result.current.state.details?.stash.hash).toBe("second"));
+  await act(async () => {
+    resolveDetails({ stash: entries[0]!, files: [] });
+    await selection;
+  });
+  expect(result.current.state.details?.stash.hash).toBe("second");
+  expect(result.current.state.selectedRef).toBe("stash@{0}");
 });

@@ -116,11 +116,13 @@ export function useGitStashes(repoPath: string, enabled: boolean, active: boolea
     try {
       const entries = await window.githead.getStashes({ repoPath, requestId: `stash-list:${requestId}` });
       if (requestId !== requestIds.current.list || repoPathRef.current !== repoPath) return;
+      requestIds.current.details += 1;
+      requestIds.current.diff += 1;
       setState((current) => {
         const selectedHash = current.entries.find((entry) => entry.ref === current.selectedRef)?.hash;
         const selectedRef = entries.find((entry) => entry.hash === selectedHash)?.ref
           ?? (active ? entries[0]?.ref ?? null : null);
-        return { ...current, entries, loading: false, selectedRef };
+        return { ...initialState, entries, selectedRef };
       });
     } catch (error) {
       if (requestId !== requestIds.current.list || repoPathRef.current !== repoPath) return;
