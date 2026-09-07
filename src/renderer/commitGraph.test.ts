@@ -7,6 +7,26 @@ import {
 } from "./commitGraph";
 
 describe("commit graph layout", () => {
+  it("keeps master and a remote feature in the same lanes before and after merging", () => {
+    const main = { ...createCommit("main", ["base"]), refs: [{ name: "master", kind: "branch" as const }] };
+    const topic = { ...createCommit("topic", ["sync"]), refs: [{ name: "origin/feature", kind: "remote" as const }] };
+    const sync = createCommit("sync", ["feature-base", "main"]);
+    const base = createCommit("base");
+    const featureBase = createCommit("feature-base", ["base"]);
+    const before = buildCommitGraphLayout([topic, sync, main, featureBase, base]);
+    const merge = { ...createCommit("merge", ["main", "topic"]), refs: main.refs };
+    const after = buildCommitGraphLayout([merge, topic, sync, { ...main, refs: [] }, featureBase, base]);
+
+    expect(before.nodes.find((node) => node.hash === "main")?.lane).toBe(0);
+    expect(before.nodes.find((node) => node.hash === "topic")?.lane).toBe(1);
+    for (const node of before.nodes) {
+      expect(after.nodes.find((candidate) => candidate.hash === node.hash)?.lane).toBe(node.lane);
+    }
+    for (const edge of before.edges) {
+      expect(after.edges.find((candidate) => candidate.id === edge.id)?.colorLane).toBe(edge.colorLane);
+    }
+  });
+
   it("keeps linear first-parent history on one lane", () => {
     const layout = buildCommitGraphLayout([
       createCommit("a", ["b"]),
@@ -25,6 +45,35 @@ describe("commit graph layout", () => {
     ]);
     expect(layout.width).toBe(COMMIT_GRAPH_MIN_WIDTH);
     expect(layout.height).toBe(3 * COMMIT_GRAPH_ROW_HEIGHT);
+  });
+
+  it("uses a configured default branch with a nonstandard name", () => {
+    const commits = [
+      createCommit("feature", ["base"]),
+      { ...createCommit("release", ["base"]), refs: [{ name: "upstream/release", kind: "remote" as const }] },
+      createCommit("base")
+    ];
+    expect(buildCommitGraphLayout(commits, ["release", "upstream/release"]).nodes.map((node) => node.lane))
+      .toEqual([1, 0, 0]);
+  });
+
+  it("prefers the local main tip when its remote is behind", () => {
+    const commits = [
+      createCommit("feature", ["base"]),
+      { ...createCommit("local", ["remote"]), refs: [{ name: "main", kind: "branch" as const }] },
+      { ...createCommit("remote", ["base"]), refs: [{ name: "origin/main", kind: "remote" as const }] },
+      createCommit("base")
+    ];
+    expect(buildCommitGraphLayout(commits).nodes.map((node) => node.lane)).toEqual([1, 0, 0, 0]);
+  });
+
+  it("does not reserve a lane for tags or main tips outside the loaded history", () => {
+    const commits = [
+      createCommit("feature", ["base"]),
+      { ...createCommit("base"), refs: [{ name: "main", kind: "tag" as const }] }
+    ];
+    expect(buildCommitGraphLayout(commits).nodes.map((node) => node.lane)).toEqual([0, 0]);
+    expect(buildCommitGraphLayout(commits, ["missing"]).nodes.map((node) => node.lane)).toEqual([0, 0]);
   });
 
   it("places merge parents in adjacent lanes", () => {

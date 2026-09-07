@@ -11445,7 +11445,13 @@ function HistoryView({
   onDownloadImage: () => void;
   onWrapLinesChange: (wrap: boolean) => void;
 }): ReactNode {
-  const graphLayout = useMemo(() => buildCommitGraphLayout(history), [history]);
+  const graphDefaultBranch = getRemoteDefaultBranch(summary);
+  const graphMainBranch = graphDefaultBranch?.branch;
+  const graphMainRemote = graphDefaultBranch?.name;
+  const graphLayout = useMemo(() => buildCommitGraphLayout(
+    history,
+    graphMainBranch && graphMainRemote ? [graphMainBranch, graphMainRemote] : undefined
+  ), [history, graphMainBranch, graphMainRemote]);
   const associations = useMemo(() => createCommitAssociationMap(insights), [insights]);
   const historyColumns = useMemo(() => [
     { id: "graph", label: "Graph", defaultWidth: Math.max(82, graphLayout.width), minWidth: graphLayout.width },

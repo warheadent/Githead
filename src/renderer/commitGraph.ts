@@ -43,9 +43,17 @@ interface PendingEdge {
 }
 
 // Input is newest-first topological order, as returned by git log --topo-order.
-export function buildCommitGraphLayout(commits: GitCommitGraphRow[]): CommitGraphLayout {
+export function buildCommitGraphLayout(
+  commits: GitCommitGraphRow[],
+  mainBranchRefs: readonly string[] = ["main", "master", "origin/main", "origin/master"]
+): CommitGraphLayout {
   const rowHeight = COMMIT_GRAPH_ROW_HEIGHT;
-  const activeLanes: Array<string | null> = [];
+  // Reserve the main branch before visiting newer feature tips. Its first-parent
+  // history then owns lane zero both before and after a feature is merged.
+  const mainTip = mainBranchRefs.map((name) => commits.find((commit) => commit.refs.some((ref) => (
+    (ref.kind === "branch" || ref.kind === "remote") && ref.name === name
+  )))).find((commit) => commit !== undefined);
+  const activeLanes: Array<string | null> = mainTip ? [mainTip.hash] : [];
   const nodes: CommitGraphNode[] = [];
   const pendingEdges: PendingEdge[] = [];
   const nodeByHash = new Map<string, CommitGraphNode>();
