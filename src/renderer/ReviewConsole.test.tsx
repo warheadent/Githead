@@ -31,6 +31,61 @@ function renderConsole(overrides: Partial<React.ComponentProps<typeof ReviewCons
 }
 
 describe("ReviewConsole", () => {
+  it("rechecks merge availability when details change during confirmation", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getGitHubPullRequestDetail)
+      .mockResolvedValueOnce({ ok: true, data: createPullRequestDetail({ number: 24, title: "Review console" }), rateLimit: null })
+      .mockResolvedValue({ ok: true, data: createPullRequestDetail({ number: 24, title: "Review console", canMerge: false, mergeStatus: "blocked" }), rateLimit: null });
+    renderConsole();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Merge" }).hasAttribute("disabled")).toBe(false));
+    await user.click(screen.getByRole("button", { name: "Merge" }));
+    await user.click(screen.getByRole("button", { name: "Refresh details" }));
+    await screen.findByText("Blocked");
+
+    const confirm = screen.getByRole("button", { name: "Confirm merge" });
+    expect(confirm.hasAttribute("disabled")).toBe(true);
+    await user.click(confirm);
+    expect(githead.mergeGitHubPullRequest).not.toHaveBeenCalled();
+  });
+
+  it.each(["unknown outcome", "connection failure"] as const)("keeps a comment draft and explains recovery after %s", async (outcome) => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getGitHubPullRequestDetail).mockResolvedValue({ ok: true, data: createPullRequestDetail({ number: 24, title: "Review console" }), rateLimit: null });
+    if (outcome === "connection failure") vi.mocked(githead.commentOnGitHubItem).mockRejectedValue(new Error("Connection lost."));
+    else vi.mocked(githead.commentOnGitHubItem).mockResolvedValue({
+      ok: false,
+      error: { kind: "timeout", message: "Connection lost.", retryable: false, retryAfterAt: null, outcomeUnknown: true, source: "rest", rateLimit: null }
+    });
+    renderConsole();
+    const input = await screen.findByRole("textbox", { name: "Write a comment" });
+    await user.type(input, "Please keep this comment draft.");
+    await user.click(screen.getByRole("button", { name: "Add comment" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("GitHub may have accepted the request.");
+    expect(screen.getByRole("alert").textContent).toContain("Refresh details or check GitHub before trying again.");
+    expect((input as HTMLTextAreaElement).value).toBe("Please keep this comment draft.");
+    expect(githead.commentOnGitHubItem).toHaveBeenCalledTimes(1);
+  });
+
+  it("focuses each console's own comment input when its label is clicked", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getGitHubPullRequestDetail).mockResolvedValue({ ok: true, data: createPullRequestDetail({ number: 24, title: "Review console" }), rateLimit: null });
+    vi.mocked(githead.getGitHubIssueDetail).mockResolvedValue({ ok: true, data: createIssueDetail({ number: 12, title: "Issue console" }), rateLimit: null });
+    renderConsole();
+    await screen.findByRole("textbox", { name: "Write a comment" });
+    renderConsole({ selection: { itemType: "issue", item: createIssue({ number: 12, title: "Issue console" }) } });
+    const issueConsole = within(await screen.findByRole("region", { name: "Issue console" }));
+    const issueInput = await issueConsole.findByRole("textbox");
+
+    await user.click(issueConsole.getByText("Write a comment"));
+    expect(document.activeElement).toBe(issueInput);
+
+    const pullRequestConsole = within(screen.getByRole("region", { name: "Review console" }));
+    await user.click(pullRequestConsole.getByText("Write a comment"));
+    expect(document.activeElement).toBe(pullRequestConsole.getByRole("textbox", { name: "Write a comment" }));
+    expect(issueConsole.getByRole("textbox", { name: "Write a comment" })).toBe(issueInput);
+  });
+
   it("ignores comment results after switching repositories with the same item number", async () => {
     const user = userEvent.setup();
     const pending = defer<Awaited<ReturnType<typeof githead.commentOnGitHubItem>>>();
@@ -125,7 +180,7 @@ describe("ReviewConsole", () => {
       ok: false,
       error: { kind: "authorization", message: "Approval is not permitted.", retryable: false, retryAfterAt: null, outcomeUnknown: false, source: "rest", rateLimit: null }
     });
-    expect((await screen.findByRole("alert")).textContent).toContain("Approval is not permitted.");
+    expect((await screen.findByRole("alert")).textContent).toBe("Approval is not permitted.");
   });
 
   it("submits comments and refreshes detail after success", async () => {

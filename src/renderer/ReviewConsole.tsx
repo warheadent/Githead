@@ -20,6 +20,7 @@ import {
   lazy,
   Suspense,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -104,7 +105,7 @@ export function ReviewConsole({
       const result = await operation();
       if (generation !== mutationGeneration.current) return;
       if (!result.ok) {
-        setMutation({ kind: null, message: "", error: result.error.message });
+        setMutation({ kind: null, message: "", error: formatMutationError(result.error.message, result.error.outcomeUnknown) });
         return;
       }
       setMutation({ kind: null, message: result.data.message, error: "" });
@@ -113,7 +114,7 @@ export function ReviewConsole({
       await detail.refresh().catch(() => undefined);
     } catch (error) {
       if (generation !== mutationGeneration.current) return;
-      setMutation({ kind: null, message: "", error: error instanceof Error ? error.message : "The GitHub action failed." });
+      setMutation({ kind: null, message: "", error: formatMutationError(error instanceof Error ? error.message : "The GitHub action failed.", true) });
     }
   };
 
@@ -228,7 +229,8 @@ export function ReviewConsole({
               <div className="review-console-merge-confirmation" role="group" aria-label="Confirm merge">
                 <span>Merge #{selection.item.number} into {pullRequestDetail?.targetBranch || "the target branch"}?</span>
                 <Button type="button" variant="ghost" size="sm" disabled={Boolean(mutation.kind)} onClick={() => setConfirmMerge(false)}>Cancel</Button>
-                <Button type="button" size="sm" disabled={Boolean(mutation.kind)} onClick={() => {
+                <Button type="button" size="sm" disabled={Boolean(mutation.kind) || !pullRequestDetail?.canMerge} onClick={() => {
+                  if (mutation.kind || !pullRequestDetail?.canMerge) return;
                   setConfirmMerge(false);
                   void runMutation("merge", () => window.githead.mergeGitHubPullRequest({ repoPath, number: selection.item.number, operationId: createOperationId("merge") }));
                 }}>{mutation.kind === "merge" ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : <GitMerge />}Confirm merge</Button>
@@ -439,10 +441,11 @@ function CommentComposer({ value, inputRef, busy, onChange, onSubmit }: {
   onChange: (value: string) => void;
   onSubmit: (event: FormEvent) => void;
 }): ReactNode {
+  const inputId = useId();
   return (
     <form className="review-console-composer" aria-label="Add a comment" onSubmit={onSubmit}>
-      <label htmlFor="review-console-comment">Write a comment</label>
-      <textarea id="review-console-comment" ref={inputRef} value={value} disabled={busy} placeholder="Leave a comment" onChange={(event) => onChange(event.target.value)} />
+      <label htmlFor={inputId}>Write a comment</label>
+      <textarea id={inputId} ref={inputRef} value={value} disabled={busy} placeholder="Leave a comment" onChange={(event) => onChange(event.target.value)} />
       <div><span>Markdown supported</span><Button type="submit" size="sm" disabled={busy || !value.trim()}>{busy ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : <MessageSquare />}Add comment</Button></div>
     </form>
   );
@@ -502,6 +505,10 @@ function getMergeDisabledReason(detail: GitHubPullRequestDetail | null): string 
 
 function mutationLabel(kind: MutationKind): string {
   return kind === "approve" ? "Approving pull request" : kind === "merge" ? "Merging pull request" : "Adding comment";
+}
+
+function formatMutationError(message: string, outcomeUnknown: boolean): string {
+  return outcomeUnknown ? `${message} GitHub may have accepted the request. Refresh details or check GitHub before trying again.` : message;
 }
 
 function capitalize(value: string): string {

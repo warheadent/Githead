@@ -221,10 +221,17 @@ function usePagedQuery<T>(repository: GitHubRepositoryScope | null, resource: Pa
   const [snapshot, setSnapshot] = useState<PagedState<T>>({ status: "idle", data: undefined, error: "", failure: null, updatedAt: null, isStale: true, nextPage: null, totalCount: null, loadingMore: false });
   const generation = useRef(0);
   const busy = useRef(false);
+  const lastLoadedPage = useRef(1);
   const canonicalQuery = canonicalPageQuery(resource, query);
   const queryKey = JSON.stringify(canonicalQuery);
   const repositoryKey = repository ? `${repository.repoPath}\0${repository.githubFullName}\0${queryKey}` : "";
-  useEffect(() => { generation.current += 1; busy.current = false; setSnapshot({ status: "idle", data: undefined, error: "", failure: null, updatedAt: null, isStale: true, nextPage: null, totalCount: null, loadingMore: false }); }, [repositoryKey]);
+  useEffect(() => {
+    generation.current += 1;
+    busy.current = false;
+    lastLoadedPage.current = 1;
+    setSnapshot({ status: "idle", data: undefined, error: "", failure: null, updatedAt: null, isStale: true, nextPage: null, totalCount: null, loadingMore: false });
+    return () => { generation.current += 1; };
+  }, [repositoryKey]);
   const pageDescriptor = useCallback((page: number): GitHubQueryDescriptor | null => repository ? {
     repository,
     resource,
@@ -236,11 +243,22 @@ function usePagedQuery<T>(repository: GitHubRepositoryScope | null, resource: Pa
     if (!value || busy.current) return;
     busy.current = true;
     const requestGeneration = ++generation.current;
+    const lastPage = replace ? lastLoadedPage.current : page;
     setSnapshot((current) => ({ ...current, status: current.data === undefined ? "loading" : "refreshing", loadingMore: !replace, error: "", failure: null }));
     try {
-      const result = await gitHubQueryStore.refresh<GitHubPage<T>>(value);
+      let result = await gitHubQueryStore.refresh<GitHubPage<T>>(value);
       if (generation.current !== requestGeneration) return;
-      setSnapshot((current) => ({ status: "success", data: replace ? result.items : mergeItems(current.data ?? [], result.items, keyOf), error: "", failure: null, updatedAt: Date.now(), isStale: false, nextPage: result.nextPage, totalCount: result.totalCount, loadingMore: false }));
+      const totalCount = result.totalCount;
+      const items = [...result.items];
+      while (result.nextPage !== null && result.nextPage > result.page && result.nextPage <= lastPage) {
+        const nextValue = pageDescriptor(result.nextPage);
+        if (!nextValue) return;
+        result = await gitHubQueryStore.refresh<GitHubPage<T>>(nextValue);
+        if (generation.current !== requestGeneration) return;
+        items.push(...result.items);
+      }
+      lastLoadedPage.current = result.page;
+      setSnapshot((current) => ({ status: "success", data: mergeItems(replace ? [] : current.data ?? [], items, keyOf), error: "", failure: null, updatedAt: Date.now(), isStale: false, nextPage: result.nextPage, totalCount, loadingMore: false }));
     } catch (error) {
       if (generation.current !== requestGeneration) return;
       setSnapshot((current) => ({

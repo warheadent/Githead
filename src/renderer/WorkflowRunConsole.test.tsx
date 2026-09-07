@@ -35,6 +35,28 @@ function refreshRun(runId = "1"): Promise<void> {
 }
 
 describe("WorkflowRunConsole", () => {
+  it("updates elapsed run, job, and step times without waiting for another GitHub response", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-07T12:00:10Z"));
+    const run = createWorkflowRun({ status: "in_progress", conclusion: null, startedAt: "2026-09-07T12:00:00Z", updatedAt: "2026-09-07T12:00:02Z" });
+    const detail = createWorkflowRunDetail({ ...run });
+    detail.jobs = [{ ...detail.jobs[0]!, startedAt: run.startedAt, completedAt: "", status: "in_progress", conclusion: null, steps: [{ number: 1, name: "Build", status: "in_progress", conclusion: null, startedAt: run.startedAt, completedAt: "" }] }];
+    vi.mocked(githead.getGitHubWorkflowRunDetail).mockResolvedValue({ ok: true, data: detail, rateLimit: null });
+    const { rerenderConsole } = renderConsole({ run, active: true });
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getAllByText("10s", { exact: false })).toHaveLength(3);
+
+    await act(() => vi.advanceTimersByTimeAsync(1_000));
+    expect(screen.getAllByText("11s", { exact: false })).toHaveLength(3);
+    expect(githead.getGitHubWorkflowRunDetail).toHaveBeenCalledTimes(1);
+
+    rerenderConsole({ run, active: false });
+    await act(() => vi.advanceTimersByTimeAsync(2_000));
+    expect(screen.queryByText("13s", { exact: false })).toBeNull();
+    rerenderConsole({ run, active: true });
+    expect(screen.getAllByText("13s", { exact: false })).toHaveLength(3);
+  });
+
   it.each(["run", "repository", "origin", "unmount"] as const)("ignores a completed action after changing %s", async (change) => {
     const user = userEvent.setup();
     const pending = defer<Awaited<ReturnType<typeof githead.rerunGitHubWorkflowRun>>>();
@@ -138,6 +160,20 @@ describe("WorkflowRunConsole", () => {
 
     expect(screen.getByRole("button", { name: /build-linux/ }).getAttribute("aria-expanded")).toBe("false");
     expect(screen.getByRole("button", { name: /build-windows/ }).getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("expands the new jobs when the selected run advances to another attempt", async () => {
+    const initial = createWorkflowRunDetail();
+    vi.mocked(githead.getGitHubWorkflowRunDetail)
+      .mockResolvedValueOnce({ ok: true, data: initial, rateLimit: null })
+      .mockResolvedValue({ ok: true, data: { ...initial, attempt: 2, jobs: [{ ...initial.jobs[0]!, id: "12" }] }, rateLimit: null });
+    renderConsole();
+    await screen.findByRole("list", { name: "build-linux steps" });
+
+    await act(() => refreshRun());
+
+    expect(screen.getByRole("button", { name: /build-linux/ }).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("list", { name: "build-linux steps" })).toBeTruthy();
   });
 
   it("closes with Escape only when focus is inside the console", async () => {

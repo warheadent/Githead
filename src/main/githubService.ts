@@ -277,7 +277,7 @@ export class GitHubService {
     const readRequest = { cache: { mode: "conditional" as const }, ...(signal ? { signal } : {}) };
     const [runResponse, jobsResponse] = await Promise.all([
       this.client.requestJson<GitHubApiWorkflowRun>(repository, prefix, readRequest),
-      this.client.requestJson<GitHubApiWorkflowJobsResponse>(repository, `${prefix}/jobs?filter=all&per_page=100`, readRequest)
+      this.client.requestJson<GitHubApiWorkflowJobsResponse>(repository, `${prefix}/jobs?filter=latest&per_page=100`, readRequest)
     ]);
     const run = mapWorkflowRun(runResponse.payload, repository);
     if (!run) throw new Error("GitHub returned an invalid workflow run detail response.");
@@ -1147,6 +1147,7 @@ function getReviewStatus(
 ): GitHubPullRequestDetail["reviewStatus"] {
   const latestByReviewer = new Map<string, GitHubPullRequestDetail["reviews"][number]>();
   for (const review of reviews) {
+    if (!["approved", "changes_requested", "dismissed"].includes(review.state)) continue;
     const login = review.author.login.toLowerCase();
     const previous = latestByReviewer.get(login);
     if (!previous || previous.submittedAt <= review.submittedAt) latestByReviewer.set(login, review);

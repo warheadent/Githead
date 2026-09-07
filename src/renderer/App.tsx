@@ -244,6 +244,7 @@ import { gitHubQueryStore, useGitHubQueries } from "./useGitHubQueries";
 import { GitHubQueryToolbar } from "./GitHubQueryToolbar";
 import { CreateIssueDialog, type CreateIssueDraft } from "./CreateIssueDialog";
 import { WorkflowRunConsole } from "./WorkflowRunConsole";
+import { WorkflowDuration } from "./WorkflowDuration";
 import { DEFAULT_ISSUE_QUERY, DEFAULT_PULL_REQUEST_QUERY, DEFAULT_WORKFLOW_QUERY, filterLoadedWorkflowRuns, sortLoadedWorkflowRuns } from "./githubViewQuery";
 import { useGitHubHistoryInsights } from "./useGitHubHistoryInsights";
 import {
@@ -11755,7 +11756,7 @@ function WorkflowRunsView({
               : <GitHubListEmptyState icon={<Workflow />} title="No workflow runs" description="Workflow runs for this repository will appear here." />
           ) : (
             displayedRuns.map((run) => (
-              <WorkflowRunRow key={run.id} run={run} selected={selectedRun?.id === run.id} onSelect={(item, button) => {
+              <WorkflowRunRow key={run.id} run={run} active={active} selected={selectedRun?.id === run.id} onSelect={(item, button) => {
                 selectedRunRef.current = button;
                 setSelectedRun(item);
               }} />
@@ -11771,10 +11772,12 @@ function WorkflowRunsView({
 
 function WorkflowRunRow({
   run,
+  active,
   selected,
   onSelect
 }: {
   run: GitHubWorkflowRun;
+  active: boolean;
   selected: boolean;
   onSelect: (run: GitHubWorkflowRun, button: HTMLButtonElement) => void;
 }): ReactNode {
@@ -11808,7 +11811,7 @@ function WorkflowRunRow({
             <span aria-hidden="true">·</span>
             <TooltipTarget content={formatDate(run.updatedAt)}><span>updated {formatRelativeDate(run.updatedAt)}</span></TooltipTarget>
             <span aria-hidden="true">·</span>
-            <span>{formatRunDuration(run.startedAt, run.updatedAt)}</span>
+            <span><WorkflowDuration startedAt={run.startedAt} completedAt={run.status === "completed" ? run.updatedAt : ""} running={run.status === "in_progress"} active={active} /></span>
           </span>
         </span>
       </button>
@@ -15182,17 +15185,6 @@ function formatRelativeDate(value: string): string {
   if (absolute < 2_592_000) return formatter.format(Math.round(seconds / 86_400), "day");
   if (absolute < 31_536_000) return formatter.format(Math.round(seconds / 2_592_000), "month");
   return formatter.format(Math.round(seconds / 31_536_000), "year");
-}
-
-function formatRunDuration(startedAt: string, updatedAt: string): string {
-  const started = Date.parse(startedAt);
-  const updated = Date.parse(updatedAt);
-  if (!Number.isFinite(started) || !Number.isFinite(updated) || updated < started) return "-";
-  const seconds = Math.floor((updated - started) / 1_000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
 function formatDate(value: string): string {

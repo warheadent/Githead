@@ -71,8 +71,27 @@ describe("GitHubService", () => {
     } });
     expect(client.calls.map((call) => call.path)).toEqual([
       "/repos/openai/githead/actions/runs/123",
-      "/repos/openai/githead/actions/runs/123/jobs?filter=all&per_page=100"
+      "/repos/openai/githead/actions/runs/123/jobs?filter=latest&per_page=100"
     ]);
+  });
+
+  it("excludes failed jobs from older executions after a successful workflow rerun", async () => {
+    const previous = { id: 91, name: "linux", status: "completed", conclusion: "failure" };
+    const current = { id: 92, name: "linux", status: "completed", conclusion: "success" };
+    const client = new FakeClient([], async (path) => {
+      if (!path.includes("/jobs?")) return { id: 123, run_attempt: 2, status: "completed", conclusion: "success" };
+      const jobs = new URL(path, "https://api.github.com").searchParams.get("filter") === "latest" ? [current] : [previous, current];
+      return { total_count: jobs.length, jobs };
+    });
+
+    const result = await new GitHubService(provider(repository), client).getWorkflowRunDetail({ repoPath: "D:\\Repo", runId: "123" });
+
+    expect(result).toMatchObject({ ok: true, data: {
+      attempt: 2,
+      conclusion: "success",
+      jobCount: 1,
+      jobs: [{ id: "92", name: "linux", conclusion: "success" }]
+    } });
   });
 
   it("uses supported workflow mutation endpoints and invalidates repository data", async () => {
@@ -204,6 +223,29 @@ describe("GitHubService", () => {
       "/repos/openai/githead/pulls/24/files?per_page=100",
       "/repos/openai/githead/pulls/24/commits?per_page=100"
     ]);
+  });
+
+  it.each([
+    { decision: "APPROVED", reviewStatus: "approved", canMerge: true },
+    { decision: "CHANGES_REQUESTED", reviewStatus: "changesRequested", canMerge: false },
+    { decision: "DISMISSED", reviewStatus: "none", canMerge: true }
+  ])("keeps the $decision review decision after later comments", async ({ decision, reviewStatus, canMerge }) => {
+    const client = new FakeClient([
+      { number: 24, state: "open", mergeable: true, mergeable_state: "clean" },
+      [],
+      [],
+      [
+        { id: 1, user: { login: "neon" }, state: "APPROVED", submitted_at: "2026-01-01" },
+        { id: 2, user: { login: "NEON" }, state: decision, submitted_at: "2026-01-02" },
+        { id: 3, user: { login: "neon" }, state: "COMMENTED", submitted_at: "2026-01-03" }
+      ],
+      [],
+      []
+    ]);
+
+    const result = await new GitHubService(provider(repository), client).getPullRequestDetail({ repoPath: "D:\\Repo", number: 24 });
+
+    expect(result).toMatchObject({ ok: true, data: { reviewStatus, canMerge } });
   });
 
   it("maps issue detail metadata and linked pull requests", async () => {

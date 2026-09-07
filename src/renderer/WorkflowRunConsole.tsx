@@ -17,6 +17,7 @@ import { Button, TooltipButton } from "@/components/ui/button";
 import type { GitHubWorkflowJob, GitHubWorkflowRun } from "../shared/types";
 import { useGitHubWorkflowRunDetail } from "./useGitHubQueries";
 import { GitHubDetailRefreshButton, GitHubDetailStatus } from "./GitHubDetailStatus";
+import { WorkflowDuration } from "./WorkflowDuration";
 
 type MutationKind = "rerun" | "cancel";
 
@@ -64,12 +65,17 @@ export function WorkflowRunConsole({
   }, [repoPath, githubFullName, run.id]);
 
   useEffect(() => {
+    initializedJobs.current = false;
+    setExpandedJobs(new Set());
+  }, [current.attempt]);
+
+  useEffect(() => {
     const jobs = detail.data?.jobs;
     if (initializedJobs.current || !jobs?.length) return;
     initializedJobs.current = true;
     const failed = jobs.filter((job) => isFailed(job)).map((job) => job.id);
     setExpandedJobs(new Set(failed.length ? failed : [jobs[0]!.id]));
-  }, [detail.data?.jobs, repoPath, githubFullName, run.id]);
+  }, [detail.data?.jobs, repoPath, githubFullName, run.id, current.attempt]);
 
   const runMutation = async (kind: MutationKind): Promise<void> => {
     const generation = mutationGeneration.current + 1;
@@ -167,7 +173,7 @@ export function WorkflowRunConsole({
                         <RunStatusIcon status={job.status} conclusion={job.conclusion} />
                         <span className="workflow-job-heading">
                           <strong>{job.name}</strong>
-                          <small>{formatRunStatus(job.status, job.conclusion)} · {formatDuration(job.startedAt, job.completedAt)}</small>
+                          <small>{formatRunStatus(job.status, job.conclusion)} · <WorkflowDuration startedAt={job.startedAt} completedAt={job.completedAt} running={job.status === "in_progress"} active={active} /></small>
                         </span>
                       </button>
                       {job.url ? <Button type="button" variant="ghost" size="sm" onClick={() => onOpenExternalUrl(job.url)}>Logs <ExternalLink /></Button> : null}
@@ -178,7 +184,7 @@ export function WorkflowRunConsole({
                           <li key={`${job.id}-${step.number}`}>
                             <RunStatusIcon status={step.status} conclusion={step.conclusion} />
                             <span><strong>{step.name}</strong><small>{formatRunStatus(step.status, step.conclusion)}</small></span>
-                            <time>{formatDuration(step.startedAt, step.completedAt)}</time>
+                            <time><WorkflowDuration startedAt={step.startedAt} completedAt={step.completedAt} running={step.status === "in_progress"} active={active} /></time>
                           </li>
                         )) : <li className="workflow-step-empty">GitHub returned no steps for this job.</li>}
                       </ol>
@@ -196,7 +202,7 @@ export function WorkflowRunConsole({
               <InspectorRow label="Trigger"><span>{formatEvent(current.event)}</span></InspectorRow>
               <InspectorRow label="Actor"><span>{current.actor.login}</span></InspectorRow>
               <InspectorRow label="Started"><span>{formatDateTime(current.startedAt || current.createdAt)}</span></InspectorRow>
-              <InspectorRow label="Duration"><span>{formatDuration(current.startedAt || current.createdAt, current.updatedAt)}</span></InspectorRow>
+              <InspectorRow label="Duration"><span><WorkflowDuration startedAt={current.startedAt || current.createdAt} completedAt={current.status === "completed" ? current.updatedAt : ""} running={current.status === "in_progress"} active={active} /></span></InspectorRow>
               <InspectorRow label="Commit"><code title={current.commitSha}>{shortSha(current.commitSha)}</code></InspectorRow>
               <div className="workflow-run-commit-message"><h4>Run title</h4><p>{current.displayTitle || current.commitMessage || "No title provided."}</p></div>
               {current.commitMessage && current.commitMessage !== current.displayTitle ? <div className="workflow-run-commit-message"><h4>Commit</h4><p>{current.commitMessage}</p></div> : null}
@@ -271,19 +277,6 @@ function formatDateTime(value: string): string {
   const parsed = new Date(value);
   if (!Number.isFinite(parsed.getTime())) return value;
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(parsed);
-}
-
-function formatDuration(start: string, end: string): string {
-  const started = Date.parse(start);
-  const ended = Date.parse(end);
-  if (!Number.isFinite(started) || !Number.isFinite(ended) || ended < started) return "-";
-  const totalSeconds = Math.max(0, Math.round((ended - started) / 1_000));
-  const hours = Math.floor(totalSeconds / 3_600);
-  const minutes = Math.floor((totalSeconds % 3_600) / 60);
-  const seconds = totalSeconds % 60;
-  if (hours) return `${hours}h ${minutes}m`;
-  if (minutes) return `${minutes}m ${seconds}s`;
-  return `${seconds}s`;
 }
 
 function shortSha(value: string): string {
