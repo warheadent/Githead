@@ -906,6 +906,41 @@ describe("App", { timeout: 10_000 }, () => {
     }));
   });
 
+  it("cancels worktree creation directly and keeps the draft for recovery", async () => {
+    const user = userEvent.setup();
+    const pending = defer<GitOperationResult>();
+    vi.mocked(githead.createWorktree).mockReturnValue(pending.promise);
+    vi.mocked(githead.cancelGitOperation).mockResolvedValue({ accepted: true, state: "cancelling" });
+    vi.mocked(githead.getRepositoryGroups).mockResolvedValue([{
+      id: "d:\\githead\\.git",
+      kind: "git",
+      anchorPath: repoPath,
+      lastUsedPath: repoPath,
+      recentPaths: [repoPath],
+      commonDir: "D:\\Githead\\.git",
+      error: "",
+      worktrees: [{ path: repoPath, head: "abc", branch: "main", isMain: true, isBare: false, isDetached: false, locked: false, lockReason: null, prunable: false, prunableReason: null }]
+    }]);
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("button", { name: "Switch branch" }));
+    await user.click(await screen.findByRole("button", { name: "Add Worktree…" }));
+    await user.type(screen.getByLabelText("Branch"), "feature/worktrees");
+    await waitFor(() => expect((screen.getByLabelText("Destination") as HTMLInputElement).value).toBe("D:\\Githead-feature-worktrees"));
+    await user.click(screen.getByRole("button", { name: "Create Worktree" }));
+
+    const request = vi.mocked(githead.createWorktree).mock.calls[0]![0];
+    await user.click(screen.getByRole("button", { name: "Cancel operation" }));
+    await waitFor(() => expect(githead.cancelGitOperation).toHaveBeenCalledWith({ operationId: request.operationId }));
+    expect(screen.getByRole("dialog", { name: "Add Worktree" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancelling..." })).toBeTruthy();
+    await act(async () => pending.resolve({ repoPath, exitCode: -1, stdout: "", stderr: "Command was cancelled.", errorKind: "cancelled" }));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Add Worktree" }).textContent).toContain("Worktree creation cancelled"));
+    expect((screen.getByLabelText("Branch") as HTMLInputElement).value).toBe("feature/worktrees");
+    expect((screen.getByRole("button", { name: "Create Worktree" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("does not switch to a created worktree after the user moves repositories during group reload", async () => {
     const user = userEvent.setup();
     const otherRepo = "D:\\Work\\Worktree-B";

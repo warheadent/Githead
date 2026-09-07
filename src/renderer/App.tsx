@@ -3874,7 +3874,12 @@ export function App(): ReactNode {
     if (!isInvocationCurrent(repoPath, (latest) => latest.worktreeDialogOpen)) return "The active repository changed. Reopen Add Worktree and try again.";
     const result = await runRepoOperation("Creating worktree", undefined, (operationId) => window.githead.createWorktree({ ...request, repoPath, operationId } as GitWorktreeCreateRequest & { operationId: string }));
     if (!result) return "Another repository operation is already running.";
-    if (result.exitCode !== 0) return result.stderr || "Unable to create worktree.";
+    if (result.exitCode !== 0) {
+      await loadRepositoryGroups();
+      return result.errorKind === "cancelled"
+        ? "Worktree creation was cancelled. Check the destination before retrying. Git may have left a folder or created the branch."
+        : result.stderr || "Unable to create worktree.";
+    }
     if (!isSameRepoPath(repoPath, stateRef.current.repoPath)) return "The active repository changed. Reopen Add Worktree and try again.";
     updateState({ worktreeDialogOpen: false });
     await loadRepositoryGroups();
@@ -7964,6 +7969,9 @@ export function App(): ReactNode {
         branches={state.summary?.branches ?? []}
         remoteBranches={state.summary?.remoteBranches ?? []}
         busy={running}
+        cancelling={state.activeOperation?.cancelStatus === "canceling"}
+        cancelError={state.activeOperation?.cancelError ?? ""}
+        onCancel={() => { void cancelRunningOperation(); }}
         onOpenChange={(open) => { if (!open) requestModalClose(["repo-operation"], closeWorktreeDialog); }}
         onChooseParent={(defaultPath) => window.githead.chooseWorktreeParent(defaultPath)}
         onCreate={createWorktree}

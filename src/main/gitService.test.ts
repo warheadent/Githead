@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -444,8 +444,12 @@ describe("GitService", () => {
       await run(["-C", repo, "commit", "-m", "Initial"]);
       await run(["-C", repo, "branch", "feature"]);
 
+      const runSpy = vi.spyOn(runner, "run");
+      const onOutput = vi.fn();
       const service = new GitService(runner);
-      await expect(service.createWorktree({ repoPath: repo, destinationPath: linked, mode: "existing-branch", branchName: "feature" })).resolves.toMatchObject({ exitCode: 0 });
+      await expect(service.createWorktree({ repoPath: repo, destinationPath: linked, mode: "existing-branch", branchName: "feature" }, onOutput)).resolves.toMatchObject({ exitCode: 0 });
+      expect(runSpy).toHaveBeenCalledWith("git", ["-C", repo, "worktree", "add", "--", linked, "feature"], expect.objectContaining({ timeoutMs: 0, onOutput: expect.any(Function) }));
+      expect(onOutput).toHaveBeenCalledWith(expect.objectContaining({ action: "worktree-add", stream: "stderr" }));
       const canonicalLinkedPath = await fs.realpath(linked);
       await expect(service.getWorktrees(repo)).resolves.toMatchObject({ worktrees: [expect.objectContaining({ isMain: true, branch: "main" }), expect.objectContaining({ path: path.normalize(canonicalLinkedPath), branch: "feature" })] });
 
@@ -454,6 +458,9 @@ describe("GitService", () => {
       await expect(service.removeWorktree({ repoPath: repo, worktreePath: linked })).resolves.toMatchObject({ exitCode: -1, stderr: "Worktree has uncommitted or untracked files." });
       await expect(service.removeWorktree({ repoPath: repo, worktreePath: linked, force: true })).resolves.toMatchObject({ exitCode: 0 });
       await expect(fs.stat(linked)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(service.createWorktree({ repoPath: repo, destinationPath: linked, mode: "new-branch", branchName: "fresh", startPoint: "HEAD", track: false })).resolves.toMatchObject({ exitCode: 0 });
+      expect(runSpy).toHaveBeenCalledWith("git", ["-C", repo, "worktree", "add", "-b", "fresh", "--", linked, "HEAD"], { timeoutMs: 0 });
+      await expect(service.removeWorktree({ repoPath: repo, worktreePath: linked })).resolves.toMatchObject({ exitCode: 0 });
     });
   });
 

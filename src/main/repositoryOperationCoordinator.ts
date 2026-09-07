@@ -11,6 +11,7 @@ export interface RepositoryOperationOptions {
   resolveAccess?: (signal: AbortSignal) => Promise<NonNullable<RepositoryOperationOptions["access"]>>;
   ownerId: string;
   repoPath: string;
+  /** Zero disables the deadline; cancellation remains active. */
   timeoutMs: number;
   returnResultAfterAbort?: boolean;
   resolveScopePath?: (signal: AbortSignal) => Promise<string>;
@@ -76,14 +77,15 @@ export class RepositoryOperationCoordinator {
       controller,
       state: "running"
     };
-    const timeout = setTimeout(() => {
-      this.requestAbort(active, new DOMException(
-        `Operation timed out after ${options.timeoutMs}ms.`,
-        "TimeoutError"
-      ));
-    }, options.timeoutMs);
-    timeout.unref();
-    active.timeout = timeout;
+    if (options.timeoutMs !== 0) {
+      active.timeout = setTimeout(() => {
+        this.requestAbort(active, new DOMException(
+          `Operation timed out after ${options.timeoutMs}ms.`,
+          "TimeoutError"
+        ));
+      }, options.timeoutMs);
+      active.timeout.unref();
+    }
     this.addToScope(active);
     this.activeById.set(options.operationId, active);
     let ownerOperations = this.activeByOwner.get(options.ownerId);
@@ -98,7 +100,7 @@ export class RepositoryOperationCoordinator {
       resolveAbort = resolve;
     });
     const onAbort = () => {
-      clearTimeout(timeout);
+      clearTimeout(active.timeout);
       resolveAbort(getAbortReason(controller.signal));
     };
     controller.signal.addEventListener("abort", onAbort, { once: true });

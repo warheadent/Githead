@@ -22,6 +22,7 @@ export interface ProcessRunOptions {
   env?: NodeJS.ProcessEnv;
   stdin?: string | Buffer;
   onInputReady?: (input: ProcessInput) => void;
+  /** Zero disables the deadline; cancellation remains active. */
   timeoutMs?: number;
   signal?: AbortSignal;
   onOutput?: (output: ProcessOutput) => void;
@@ -500,7 +501,9 @@ export class NodeProcessRunner implements ProcessRunner {
       // listener above is installed. Re-check after subscribing so that either
       // the event or this state check observes every cancellation request.
       if (options.signal?.aborted) onAbort();
-      timer = setTimeout(() => stop("timedOut", `Command timed out after ${timeoutMs}ms.`), timeoutMs);
+      if (timeoutMs !== 0) {
+        timer = setTimeout(() => stop("timedOut", `Command timed out after ${timeoutMs}ms.`), timeoutMs);
+      }
       child.stdout.on("data", (chunk: Buffer) => {
         if (settled) return;
         if (binary) {

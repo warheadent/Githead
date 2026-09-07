@@ -3385,7 +3385,7 @@ export class GitService {
     };
   }
 
-  async createWorktree(request: GitWorktreeCreateRequest): Promise<GitOperationResult> {
+  async createWorktree(request: GitWorktreeCreateRequest, onOutput?: GitOutputHandler): Promise<GitOperationResult> {
     const validation = await this.validateRepo(request.repoPath);
     if (!validation.isValid) return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
 
@@ -3402,7 +3402,7 @@ export class GitService {
     if (request.mode === "existing-branch") {
       const exists = await this.runGit(request.repoPath, ["show-ref", "--verify", "--quiet", `refs/heads/${branch.branchName}`]);
       if (exists.exitCode !== 0) return this.createOperationFailure(request.repoPath, "Branch does not exist.");
-      return this.runGitOperation(request.repoPath, ["worktree", "add", "--", destination.path, branch.branchName]);
+      return this.runGitOperation(request.repoPath, ["worktree", "add", "--", destination.path, branch.branchName], undefined, undefined, { timeoutMs: 0, onOutput });
     }
 
     const exists = await this.runGit(request.repoPath, ["show-ref", "--verify", "--quiet", `refs/heads/${branch.branchName}`]);
@@ -3416,7 +3416,7 @@ export class GitService {
       ...(request.track ? ["--track"] : []),
       "-b", branch.branchName,
       "--", destination.path, startPoint
-    ]);
+    ], undefined, undefined, { timeoutMs: 0, onOutput });
   }
 
   async checkWorktreeRemoval(request: GitWorktreeRequest): Promise<GitWorktreeRemovalCheck> {
@@ -4061,10 +4061,14 @@ export class GitService {
     repoPath: string,
     args: string[],
     paths?: string[],
-    stdin?: string
+    stdin?: string,
+    options?: { timeoutMs?: number; onOutput?: GitOutputHandler | undefined }
   ): Promise<GitOperationResult> {
     const input = paths ? createPathspecInput(paths) : stdin;
-    const result = await this.runGit(repoPath, args, undefined, input);
+    const runId = randomUUID();
+    const result = await this.runGit(repoPath, args, options?.onOutput
+      ? (output) => options.onOutput?.(this.createOutputEvent(runId, args.slice(0, 2).join("-"), output.stream, output.text))
+      : undefined, input, undefined, options?.timeoutMs);
     const stderr = result.error ? `${result.stderr}${result.error}` : result.stderr;
     const errorKind = result.exitCode === 0 ? null : classifyGitOperationError(stderr);
 

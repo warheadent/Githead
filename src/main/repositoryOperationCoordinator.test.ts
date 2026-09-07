@@ -7,6 +7,26 @@ import {
 } from "./repositoryOperationCoordinator";
 
 describe("RepositoryOperationCoordinator", () => {
+  it("keeps operations without a deadline running until cancellation", async () => {
+    vi.useFakeTimers();
+    try {
+      const coordinator = new RepositoryOperationCoordinator();
+      let observedSignal!: AbortSignal;
+      const pending = coordinator.run(operationOptions("unlimited", "Repo", 0), (signal) => {
+        observedSignal = signal;
+        return new Promise<void>((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason)));
+      });
+      const rejection = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+      await vi.advanceTimersByTimeAsync(60 * 60_000);
+      expect(observedSignal.aborted).toBe(false);
+      expect(coordinator.cancel("unlimited", "owner-1").accepted).toBe(true);
+      await rejection;
+      expect(coordinator.isRunning("Repo")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("allows action saves alongside fetch or push, but keeps both exclusive against working-tree mutations", async () => {
     const coordinator = new RepositoryOperationCoordinator();
     const repoPath = path.resolve("Repo");

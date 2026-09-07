@@ -114,6 +114,17 @@ describe("NodeProcessRunner.run", () => {
     });
   });
 
+  it("allows a command without a deadline to run until the user cancels", async () => {
+    const controller = new AbortController();
+    const result = await new NodeProcessRunner().run(process.execPath, ["-e", "setTimeout(() => process.stdout.write('ready'), 50); setInterval(() => {}, 1000)"], {
+      timeoutMs: 0,
+      signal: controller.signal,
+      onOutput: () => controller.abort()
+    });
+    expect(result.stdout).toBe("ready");
+    expect(result.terminationReason).toBe("aborted");
+  });
+
   it("reports timeout as the termination reason", async () => {
     const result = await new NodeProcessRunner().run(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
       timeoutMs: 50

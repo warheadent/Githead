@@ -1158,8 +1158,9 @@ ipcMain.handle(IPC_CHANNELS.deleteBranch, async (event, request: CoordinatedRequ
 
 ipcMain.handle(IPC_CHANNELS.createWorktree, async (event, request: CoordinatedRequest<GitWorktreeCreateRequest>) => {
   return runTrustedExclusiveGitOperation(
-    async () => (await vcsRouter.serviceForRepo(request.repoPath)).createWorktree(request),
-    repositoryOperationOptions(event, request.operationId, request.repoPath)
+    async () => withOwnedGitOutput(event, request.repoPath, async (onOutput) =>
+      (await vcsRouter.serviceForRepo(request.repoPath)).createWorktree(request, onOutput)),
+    repositoryOperationOptions(event, request.operationId, request.repoPath, 0)
   );
 });
 
