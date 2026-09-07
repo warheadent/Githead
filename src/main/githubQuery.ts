@@ -34,3 +34,7 @@ function searchPath(expression: string, sort: "updated" | "created", direction: 
 export function hasPullRequestSearchFilters(query: GitHubPullRequestQuery): boolean {
   return Boolean(query.search || query.author || query.assignee || query.reviewRequested || query.label || query.sourceBranch || query.draft || query.sort !== "updated" || query.direction !== "desc");
 }
+
+export function hasIssueSearchFilters(query: GitHubIssueQuery): boolean {
+  return Boolean(query.search?.trim() || query.author?.trim() || query.assignee?.trim() || query.unassigned || query.label?.trim());
+}

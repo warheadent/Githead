@@ -37,6 +37,12 @@ async function unwrap<T>(promise: Promise<{ ok: true; data: T } | { ok: false; e
 
 export const gitHubQueryStore = createGitHubQueryStore({
   cancel: (requestId) => window.githead.cancelGitHubRequest({ requestId }),
+  staleTimes: {
+    openCounts: GITHUB_LIST_REFRESH_INTERVAL_MS,
+    pullRequestDetail: GITHUB_DETAIL_REFRESH_INTERVAL_MS,
+    issueDetail: GITHUB_DETAIL_REFRESH_INTERVAL_MS,
+    workflowRunDetail: ACTIVE_WORKFLOW_REFRESH_INTERVAL_MS
+  },
   loaders: {
     workflowRuns: (descriptor, requestId) => unwrap(window.githead.getGitHubWorkflowRuns({ repoPath: descriptor.repository.repoPath, requestId, page: Number(descriptor.params.page ?? 1), query: descriptor.params.query as GitHubWorkflowRunQuery | undefined }), fallbackErrors.workflowRuns),
     workflowRunDetail: (descriptor, requestId) => unwrap(window.githead.getGitHubWorkflowRunDetail({ repoPath: descriptor.repository.repoPath, requestId, runId: String(descriptor.params.runId) }), fallbackErrors.workflowRunDetail),
@@ -219,14 +225,20 @@ function usePagedQuery<T>(repository: GitHubRepositoryScope | null, resource: Pa
   const queryKey = JSON.stringify(canonicalQuery);
   const repositoryKey = repository ? `${repository.repoPath}\0${repository.githubFullName}\0${queryKey}` : "";
   useEffect(() => { generation.current += 1; busy.current = false; setSnapshot({ status: "idle", data: undefined, error: "", failure: null, updatedAt: null, isStale: true, nextPage: null, totalCount: null, loadingMore: false }); }, [repositoryKey]);
+  const pageDescriptor = useCallback((page: number): GitHubQueryDescriptor | null => repository ? {
+    repository,
+    resource,
+    params: { page, ...(Object.keys(canonicalQuery).length ? { query: canonicalQuery } : {}) }
+  } : null, [repositoryKey, resource, queryKey]);
 
   const request = useCallback(async (page: number, replace: boolean) => {
-    if (!repository || busy.current) return;
+    const value = pageDescriptor(page);
+    if (!value || busy.current) return;
     busy.current = true;
     const requestGeneration = ++generation.current;
     setSnapshot((current) => ({ ...current, status: current.data === undefined ? "loading" : "refreshing", loadingMore: !replace, error: "", failure: null }));
     try {
-      const result = await gitHubQueryStore.refresh<GitHubPage<T>>({ repository, resource, params: { page, ...(Object.keys(canonicalQuery).length ? { query: canonicalQuery } : {}) } });
+      const result = await gitHubQueryStore.refresh<GitHubPage<T>>(value);
       if (generation.current !== requestGeneration) return;
       setSnapshot((current) => ({ status: "success", data: replace ? result.items : mergeItems(current.data ?? [], result.items, keyOf), error: "", failure: null, updatedAt: Date.now(), isStale: false, nextPage: result.nextPage, totalCount: result.totalCount, loadingMore: false }));
     } catch (error) {
@@ -242,10 +254,13 @@ function usePagedQuery<T>(repository: GitHubRepositoryScope | null, resource: Pa
     } finally {
       if (generation.current === requestGeneration) busy.current = false;
     }
-  }, [repositoryKey, resource, keyOf, queryKey]);
+  }, [pageDescriptor, keyOf]);
   const loadMore = useCallback(async () => { if (snapshot.nextPage !== null) await request(snapshot.nextPage, false); }, [request, snapshot.nextPage]);
   const refresh = useCallback(() => request(1, true), [request]);
-  const ensure = useCallback(async () => { if (snapshot.data === undefined) await request(1, true); }, [request, snapshot.data]);
+  const ensure = useCallback(async () => {
+    const value = pageDescriptor(1);
+    if (value && (snapshot.data === undefined || gitHubQueryStore.getSnapshot(value).isStale)) await request(1, true);
+  }, [pageDescriptor, request, snapshot.data]);
   return { ...snapshot, loadMore, refresh, ensure };
 }
 

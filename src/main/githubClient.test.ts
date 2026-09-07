@@ -55,6 +55,43 @@ describe("DefaultGitHubClient", () => {
     });
   });
 
+  it.each(["headers", "body"])("times out a connection check stalled while reading %s", async (stage) => {
+    vi.useFakeTimers();
+    try {
+      const cancel = vi.fn();
+      const fetchImpl = vi.fn<typeof fetch>().mockImplementation(() => stage === "headers"
+        ? new Promise<Response>(() => undefined)
+        : Promise.resolve(new Response(new ReadableStream<Uint8Array>({
+          start(stream) { stream.enqueue(new TextEncoder().encode('{"login":')); },
+          cancel
+        }))));
+      const client = new DefaultGitHubClient(fetchImpl, undefined, { env: { GITHUB_TOKEN: "token" }, requestTimeoutMs: 10 });
+      const settled = vi.fn();
+      void client.getConnectionStatus(repository).then(settled);
+
+      await vi.advanceTimersByTimeAsync(11);
+
+      expect(settled).toHaveBeenCalledWith(expect.objectContaining({
+        state: "offline",
+        failure: expect.objectContaining({ kind: "transient", retryable: true, message: "GitHub REST request timed out." })
+      }));
+      expect(fetchImpl.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+      if (stage === "body") expect(cancel).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports malformed connection responses as retryable failures", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response("upstream unavailable", { status: 502 }));
+    const client = new DefaultGitHubClient(fetchImpl, undefined, { env: { GITHUB_TOKEN: "token" } });
+
+    await expect(client.getConnectionStatus(repository)).resolves.toMatchObject({
+      state: "offline",
+      failure: { kind: "transient", retryable: true }
+    });
+  });
+
   it("rejects absolute and protocol-relative request paths", async () => {
     const client = new DefaultGitHubClient(vi.fn<typeof fetch>(), undefined, { env: {} });
     await expect(client.requestJson(repository, "https://example.com/token-leak")).rejects.toThrow("relative path");

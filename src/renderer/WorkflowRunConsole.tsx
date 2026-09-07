@@ -12,10 +12,11 @@ import {
   X,
   XCircle
 } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Button, TooltipButton } from "@/components/ui/button";
 import type { GitHubWorkflowJob, GitHubWorkflowRun } from "../shared/types";
 import { useGitHubWorkflowRunDetail } from "./useGitHubQueries";
+import { GitHubDetailRefreshButton, GitHubDetailStatus } from "./GitHubDetailStatus";
 
 type MutationKind = "rerun" | "cancel";
 
@@ -50,29 +51,35 @@ export function WorkflowRunConsole({
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [mutation, setMutation] = useState<MutationState>(IDLE_MUTATION);
+  const mutationGeneration = useRef(0);
+  const initializedJobs = useRef(false);
 
   useEffect(() => {
+    mutationGeneration.current += 1;
+    initializedJobs.current = false;
     setExpandedJobs(new Set());
     setConfirmCancel(false);
     setMutation(IDLE_MUTATION);
-  }, [run.id]);
+    return () => { mutationGeneration.current += 1; };
+  }, [repoPath, githubFullName, run.id]);
 
   useEffect(() => {
     const jobs = detail.data?.jobs;
-    if (!jobs?.length) return;
-    setExpandedJobs((existing) => {
-      if (existing.size) return existing;
-      const failed = jobs.filter((job) => isFailed(job)).map((job) => job.id);
-      return new Set(failed.length ? failed : [jobs[0]!.id]);
-    });
-  }, [detail.data?.jobs]);
+    if (initializedJobs.current || !jobs?.length) return;
+    initializedJobs.current = true;
+    const failed = jobs.filter((job) => isFailed(job)).map((job) => job.id);
+    setExpandedJobs(new Set(failed.length ? failed : [jobs[0]!.id]));
+  }, [detail.data?.jobs, repoPath, githubFullName, run.id]);
 
   const runMutation = async (kind: MutationKind): Promise<void> => {
+    const generation = mutationGeneration.current + 1;
+    mutationGeneration.current = generation;
     setMutation({ kind, message: kind === "rerun" ? "Requesting re-run" : "Requesting cancellation", error: "" });
     try {
       const result = kind === "rerun"
         ? await window.githead.rerunGitHubWorkflowRun({ repoPath, runId: run.id, operationId: createOperationId(kind) })
         : await window.githead.cancelGitHubWorkflowRun({ repoPath, runId: run.id, operationId: createOperationId(kind) });
+      if (generation !== mutationGeneration.current) return;
       if (!result.ok) {
         setMutation({
           kind: null,
@@ -87,6 +94,7 @@ export function WorkflowRunConsole({
       onRunChanged();
       await detail.refresh().catch(() => undefined);
     } catch (error) {
+      if (generation !== mutationGeneration.current) return;
       setMutation({
         kind: null,
         message: "",
@@ -95,13 +103,19 @@ export function WorkflowRunConsole({
     }
   };
 
+  const handleKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
+    if (event.key !== "Escape" || !event.currentTarget.contains(document.activeElement)) return;
+    event.preventDefault();
+    onClose();
+  };
+
   const canCancel = ["queued", "in_progress", "waiting", "pending", "requested"].includes(current.status);
   const canRerun = current.status === "completed";
   const statusText = formatRunStatus(current.status, current.conclusion);
   const runLabel = current.runNumber === null ? "Run" : `Run #${current.runNumber}`;
 
   return (
-    <aside className="review-console workflow-run-console" aria-label={`${current.name} ${runLabel}`}>
+    <aside className="review-console workflow-run-console" aria-label={`${current.name} ${runLabel}`} onKeyDown={handleKeyDown}>
       <header className="review-console-header">
         <div className="review-console-heading">
           <div className="review-console-title-line">
@@ -125,6 +139,7 @@ export function WorkflowRunConsole({
         </div>
         <div className="review-console-header-actions">
           <Button type="button" variant="ghost" size="sm" onClick={() => onOpenExternalUrl(current.url)}>Open on GitHub <ExternalLink /></Button>
+          <GitHubDetailRefreshButton detail={detail} label="Refresh run details" />
           <TooltipButton type="button" variant="ghost" size="icon" aria-label="Close workflow run details" tooltip="Close" onClick={onClose}><X /></TooltipButton>
         </div>
       </header>
@@ -133,7 +148,7 @@ export function WorkflowRunConsole({
         <div className="review-console-tab-list review-console-single-tab" role="tablist" aria-label="Workflow run details">
           <button type="button" role="tab" aria-selected="true">Jobs <span className="review-console-tab-count">{detail.data?.jobCount ?? "-"}</span></button>
         </div>
-        <WorkflowRunDetailStatus detail={detail} />
+        <GitHubDetailStatus detail={detail} label="run details" />
         {detail.data ? (
           <div className="workflow-run-overview">
             <main className="workflow-job-list" aria-label="Workflow jobs">
@@ -218,18 +233,6 @@ export function WorkflowRunConsole({
       </footer>
     </aside>
   );
-}
-
-function WorkflowRunDetailStatus({ detail }: { detail: ReturnType<typeof useGitHubWorkflowRunDetail> }): ReactNode {
-  if ((detail.status === "loading" || detail.status === "idle") && !detail.data) {
-    return <div className="review-console-loading" role="status" aria-live="polite"><Loader2 className="animate-spin motion-reduce:animate-none" />Loading run details</div>;
-  }
-  if (detail.error && !detail.data) {
-    return <div className="review-console-load-error" role="alert"><p>{detail.error}</p><Button type="button" variant="outline" size="sm" onClick={() => void detail.refresh()}>Retry</Button></div>;
-  }
-  if (detail.status === "refreshing") return <span className="sr-only" role="status" aria-live="polite">Refreshing run details</span>;
-  if (detail.error && detail.data) return <div className="review-console-stale-error" role="status">Showing cached run details. Refresh failed: {detail.error}</div>;
-  return null;
 }
 
 function InspectorRow({ label, children }: { label: string; children: ReactNode }): ReactNode {

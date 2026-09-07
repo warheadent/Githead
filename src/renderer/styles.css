@@ -5571,6 +5571,10 @@ textarea,
 }
 
 .review-console-stale-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   border-bottom: 1px solid color-mix(in oklch, var(--destructive) 45%, var(--border));
   padding: 7px 16px;
   color: var(--destructive);

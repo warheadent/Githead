@@ -39,7 +39,7 @@ import type {
 import { GitHubHttpError, GitHubResponseBodyError, type GitHubApiClient } from "./githubClient";
 import { reportGitHubFailure } from "./githubOperationReporter";
 import { emptyGitHubIssueTemplates, parseGitHubIssueTemplate, parseGitHubIssueTemplateConfig } from "./githubIssueTemplates";
-import { buildIssueSearchPath, buildPullRequestSearchPath, buildWorkflowRunsPath, hasPullRequestSearchFilters } from "./githubQuery";
+import { buildIssueSearchPath, buildPullRequestSearchPath, buildWorkflowRunsPath, hasIssueSearchFilters, hasPullRequestSearchFilters } from "./githubQuery";
 import { runEffect, tryPromise } from "../shared/effectRuntime";
 
 const WORKFLOW_RUN_LIMIT = 30;
@@ -385,7 +385,7 @@ export class GitHubService {
         }
       ];
     });
-    if (page === 1 && Number.isFinite(response.total_count)) this.observeCount(repository, "issues", Number(response.total_count));
+    if (page === 1 && !hasIssueSearchFilters(query) && Number.isFinite(response.total_count)) this.observeCount(repository, "issues", Number(response.total_count));
     return { items: issues, page, nextPage: page * ISSUE_LIMIT < Number(response.total_count ?? 0) ? page + 1 : null, totalCount: Number.isFinite(response.total_count) ? Number(response.total_count) : null };
   }
 

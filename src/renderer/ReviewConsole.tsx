@@ -39,6 +39,7 @@ import type {
 } from "../shared/types";
 import { parseUnifiedDiff } from "./diffParser";
 import { useGitHubDetail, type GitHubDetailSelection } from "./useGitHubQueries";
+import { GitHubDetailRefreshButton, GitHubDetailStatus } from "./GitHubDetailStatus";
 
 const MarkdownPreview = lazy(() => import("./MarkdownPreview.js").then((module) => ({ default: module.MarkdownPreview })));
 
@@ -80,7 +81,7 @@ export function ReviewConsole({
   const [confirmMerge, setConfirmMerge] = useState(false);
   const commentRef = useRef<HTMLTextAreaElement>(null);
   const mutationGeneration = useRef(0);
-  const itemKey = `${selection.itemType}:${selection.item.number}`;
+  const itemKey = `${repoPath}\0${githubFullName}\0${selection.itemType}:${selection.item.number}`;
   const pullRequestDetail = selection.itemType === "pullRequest" && detail.data ? detail.data as GitHubPullRequestDetail : null;
   const issueDetail = selection.itemType === "issue" && detail.data ? detail.data as GitHubIssueDetail : null;
   const titleId = `review-console-title-${selection.itemType}-${selection.item.number}`;
@@ -92,6 +93,7 @@ export function ReviewConsole({
     setComment("");
     setMutation(IDLE_MUTATION);
     setConfirmMerge(false);
+    return () => { mutationGeneration.current += 1; };
   }, [itemKey]);
 
   const runMutation = async (kind: MutationKind, operation: () => ReturnType<typeof window.githead.commentOnGitHubItem>): Promise<void> => {
@@ -145,7 +147,7 @@ export function ReviewConsole({
         <div className="review-console-heading">
           <div className="review-console-title-line">
             <span className="review-console-number">#{selection.item.number}</span>
-            <h2 id={titleId}>{detail.data?.title ?? selection.item.title}</h2>
+            <h2 id={titleId} title={detail.data?.title ?? selection.item.title}>{detail.data?.title ?? selection.item.title}</h2>
           </div>
           <div className="review-console-meta">
             <StateBadge state={state} />
@@ -174,6 +176,7 @@ export function ReviewConsole({
           <Button type="button" variant="ghost" size="sm" aria-label="Open on GitHub" title="Open on GitHub" onClick={() => onOpenExternalUrl(externalUrl)}>
             <span className="review-console-open-label">Open on GitHub</span><ExternalLink />
           </Button>
+          <GitHubDetailRefreshButton detail={detail} />
           <TooltipButton type="button" variant="ghost" size="icon-sm" aria-label="Close review console" tooltip="Close" onClick={onClose}>
             <X />
           </TooltipButton>
@@ -188,7 +191,7 @@ export function ReviewConsole({
             <TabsTrigger value="checks">Checks{pullRequestDetail ? <span className="review-console-tab-count">{pullRequestDetail.checks.length}</span> : null}</TabsTrigger>
             <TabsTrigger value="commits">Commits{pullRequestDetail ? <span className="review-console-tab-count">{pullRequestDetail.commitCount}</span> : null}</TabsTrigger>
           </TabsList>
-          <DetailStatus detail={detail} />
+          <GitHubDetailStatus detail={detail} />
           {pullRequestDetail ? (
             <>
               <TabsContent value="overview" className="review-console-tab-content">
@@ -208,7 +211,7 @@ export function ReviewConsole({
               {issueDetail ? <span className="review-console-tab-count" aria-label={`${issueDetail.comments.length} ${issueDetail.comments.length === 1 ? "comment" : "comments"}`}>{issueDetail.comments.length}</span> : null}
             </button>
           </div>
-          <DetailStatus detail={detail} />
+          <GitHubDetailStatus detail={detail} />
           {issueDetail ? <IssueOverview detail={issueDetail} comment={comment} commentRef={commentRef} mutation={mutation} onCommentChange={setComment} onSubmitComment={submitComment} onOpenExternalUrl={onOpenExternalUrl} /> : null}
         </div>
       )}
@@ -246,18 +249,6 @@ export function ReviewConsole({
       </footer>
     </aside>
   );
-}
-
-function DetailStatus({ detail }: { detail: ReturnType<typeof useGitHubDetail<GitHubPullRequestDetail | GitHubIssueDetail>> }): ReactNode {
-  if ((detail.status === "loading" || detail.status === "idle") && !detail.data) {
-    return <div className="review-console-loading" role="status" aria-live="polite"><Loader2 className="animate-spin motion-reduce:animate-none" />Loading details</div>;
-  }
-  if (detail.error && !detail.data) {
-    return <div className="review-console-load-error" role="alert"><p>{detail.error}</p><Button type="button" variant="outline" size="sm" onClick={() => void detail.refresh()}>Retry</Button></div>;
-  }
-  if (detail.status === "refreshing") return <span className="sr-only" role="status" aria-live="polite">Refreshing details</span>;
-  if (detail.error && detail.data) return <div className="review-console-stale-error" role="status">Showing cached details. Refresh failed: {detail.error}</div>;
-  return null;
 }
 
 function PullRequestOverview({ detail, comment, commentRef, mutation, onCommentChange, onSubmitComment }: {

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -31,6 +31,47 @@ function renderConsole(overrides: Partial<React.ComponentProps<typeof ReviewCons
 }
 
 describe("ReviewConsole", () => {
+  it("ignores comment results after switching repositories with the same item number", async () => {
+    const user = userEvent.setup();
+    const pending = defer<Awaited<ReturnType<typeof githead.commentOnGitHubItem>>>();
+    vi.mocked(githead.getGitHubPullRequestDetail).mockResolvedValue({ ok: true, data: createPullRequestDetail({ number: 24, title: "Review console" }), rateLimit: null });
+    vi.mocked(githead.commentOnGitHubItem).mockReturnValue(pending.promise);
+    const { props, rerender } = renderConsole();
+    await user.type(await screen.findByRole("textbox", { name: "Write a comment" }), "First repository comment.");
+    await user.click(screen.getByRole("button", { name: "Add comment" }));
+
+    rerender(<TooltipProvider><ReviewConsole {...props} repoPath="/other-repo" githubFullName="openai/other" /></TooltipProvider>);
+    const input = await screen.findByRole("textbox", { name: "Write a comment" });
+    expect((input as HTMLTextAreaElement).value).toBe("");
+    await user.type(input, "Second repository draft.");
+    await act(async () => { pending.resolve({ ok: true, data: { number: 24, url: pullRequest.url, merged: false, message: "Comment added." }, rateLimit: null }); });
+
+    expect((input as HTMLTextAreaElement).value).toBe("Second repository draft.");
+    expect(githead.getGitHubPullRequestDetail).toHaveBeenCalledTimes(2);
+  });
+
+  it("refreshes cached details, keeps them visible on failure, and retries", async () => {
+    const user = userEvent.setup();
+    const pending = defer<Awaited<ReturnType<typeof githead.getGitHubPullRequestDetail>>>();
+    vi.mocked(githead.getGitHubPullRequestDetail)
+      .mockResolvedValueOnce({ ok: true, data: createPullRequestDetail({ number: 24, title: "Review console" }), rateLimit: null })
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValue({ ok: true, data: createPullRequestDetail({ number: 24, title: "Updated review" }), rateLimit: null });
+    renderConsole();
+    await screen.findByRole("textbox", { name: "Write a comment" });
+
+    await user.click(screen.getByRole("button", { name: "Refresh details" }));
+    expect(screen.getByRole("button", { name: "Refresh details" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("region", { name: "Review console" })).toBeTruthy();
+    pending.resolve({ ok: false, error: { kind: "offline", message: "Network unavailable.", retryable: true, retryAfterAt: null, outcomeUnknown: false, source: "rest", rateLimit: null } });
+
+    expect((await screen.findByText(/Showing cached details/)).textContent).toContain("Network unavailable.");
+    expect(screen.getByRole("textbox", { name: "Write a comment" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await screen.findByRole("region", { name: "Updated review" });
+    expect(githead.getGitHubPullRequestDetail).toHaveBeenCalledTimes(3);
+  });
+
   it("shows GitHub-style added and removed line totals in pull request details", async () => {
     vi.mocked(githead.getGitHubPullRequestDetail).mockResolvedValue({
       ok: true,

@@ -368,15 +368,18 @@ export class DefaultGitHubClient implements GitHubClient {
   }
 
   private async requestStatusJson<T>(path: string, token: string, allowNotFound = false): Promise<{ payload: T; status: number; headers: Headers }> {
-    const response = await this.fetchImpl(`${GITHUB_API_BASE_URL}${path}`, {
+    const result = await this.fetchJsonWithTimeout(`${GITHUB_API_BASE_URL}${path}`, {
+      method: "GET",
       headers: {
         Accept: "application/vnd.github+json",
         Authorization: `Bearer ${token}`,
         "User-Agent": "Githead",
         "X-GitHub-Api-Version": GITHUB_API_VERSION
       }
-    });
-    const payload = await response.json().catch(() => ({})) as T;
+    }, undefined, this.requestTimeoutMs, false);
+    const { response } = result;
+    if (!result.hasPayload) throw new GitHubResponseBodyError(response.status);
+    const payload = result.payload as T;
     if (!response.ok && !(allowNotFound && response.status === 404)) {
       throw new GitHubHttpError(
         getStatusErrorMessage(response.status, payload),
@@ -555,7 +558,8 @@ function connectionFailureFromError(error: unknown): GitHubFailure {
   }
   const message = error instanceof Error ? error.message : "Unable to check the GitHub connection.";
   const offline = /fetch failed|network|enotfound|econnreset|offline/i.test(message);
-  return connectionFailure(offline ? "offline" : "unexpected", message, offline, new Headers());
+  const transient = error instanceof GitHubResponseBodyError || /timed out|timeout/i.test(message);
+  return connectionFailure(offline ? "offline" : transient ? "transient" : "unexpected", message, offline || transient, new Headers());
 }
 
 function connectionFailure(kind: GitHubFailure["kind"], message: string, retryable: boolean, headers: Headers): GitHubFailure {

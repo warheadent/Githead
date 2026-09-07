@@ -59,7 +59,7 @@ export function getGitHubQueryKey(descriptor: GitHubQueryDescriptor): string {
 
 export function createGitHubQueryStore(options: GitHubQueryStoreOptions) {
   const entries = new Map<string, Entry>();
-  const now = options.now ?? Date.now;
+  const now = options.now ?? (() => Date.now());
   const maxEntries = options.maxEntries ?? 100;
   let disposed = false;
   let requestSequence = 0;

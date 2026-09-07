@@ -248,6 +248,32 @@ describe("GitHubService", () => {
     expect(client.calls.at(-1)?.path).toContain("is%3Apr");
   });
 
+  it.each([
+    { search: "regression" },
+    { author: "octocat" },
+    { assignee: "octocat" },
+    { label: "bug" },
+    { unassigned: true }
+  ])("does not use a filtered issue total for the repository count: %j", async (filter) => {
+    const client = new FakeClient([{ items: [{ number: 1 }], total_count: 1 }, { total_count: 7 }, { total_count: 9 }]);
+    const service = new GitHubService(provider(repository), client);
+
+    await service.getIssues({ repoPath: "D:\\Repo", query: { sort: "updated", direction: "desc", ...filter } });
+
+    await expect(service.getOpenCounts({ repoPath: "D:\\Repo" })).resolves.toMatchObject({ ok: true, data: { issues: 7, pullRequests: 9 } });
+    expect(client.calls).toHaveLength(3);
+  });
+
+  it("reuses the issue total when only ordering and blank filters change", async () => {
+    const client = new FakeClient([{ items: [{ number: 1 }], total_count: 7 }, { total_count: 9 }]);
+    const service = new GitHubService(provider(repository), client);
+
+    await service.getIssues({ repoPath: "D:\\Repo", query: { sort: "created", direction: "asc", search: " ", label: " " } });
+
+    await expect(service.getOpenCounts({ repoPath: "D:\\Repo" })).resolves.toMatchObject({ ok: true, data: { issues: 7, pullRequests: 9 } });
+    expect(client.calls).toHaveLength(2);
+  });
+
   it("does not infer a count from a limit-sized list", async () => {
     const client = new FakeClient([{ items: Array.from({ length: 50 }, (_, number) => ({ number: number + 1 })), total_count: 50 }, { total_count: 4 }]);
     const service = new GitHubService(provider(repository), client);
