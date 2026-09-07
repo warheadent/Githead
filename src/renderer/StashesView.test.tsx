@@ -66,6 +66,60 @@ describe("StashesView", () => {
     expect(onSelectFile).toHaveBeenCalledWith("src/cache.test.ts");
   });
 
+  it.each(["Apply", "Pop"])("runs %s on the right-clicked stash instead of the selected stash", (action) => {
+    const onApply = vi.fn();
+    const onPop = vi.fn();
+    renderView({ onApply, onPop });
+
+    fireEvent.contextMenu(screen.getByRole("option", { name: /icon refactor/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: action }));
+
+    expect(action === "Apply" ? onApply : onPop).toHaveBeenCalledWith("stash@{1}");
+    expect(action === "Apply" ? onPop : onApply).not.toHaveBeenCalled();
+  });
+
+  it("confirms deletion of the right-clicked stash", async () => {
+    const onDrop = vi.fn().mockResolvedValue(null);
+    renderView({ onDrop });
+
+    fireEvent.contextMenu(screen.getByRole("option", { name: /icon refactor/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete stash..." }));
+
+    expect(onDrop).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog").textContent).toContain("stash@{1}");
+    fireEvent.click(screen.getByRole("button", { name: "Delete stash" }));
+    expect(onDrop).toHaveBeenCalledWith("stash@{1}");
+    await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("creates a branch from the right-clicked stash", async () => {
+    const onCreateBranch = vi.fn().mockResolvedValue(null);
+    renderView({ onCreateBranch });
+
+    fireEvent.contextMenu(screen.getByRole("option", { name: /icon refactor/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Create branch..." }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Branch name" }), { target: { value: "restore-icons" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create branch" }));
+
+    expect(onCreateBranch).toHaveBeenCalledWith("stash@{1}", "restore-icons");
+    await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("disables context-menu actions while stash operations are unavailable", () => {
+    const onApply = vi.fn();
+    const onPop = vi.fn();
+    renderView({ disabled: true, onApply, onPop });
+
+    fireEvent.contextMenu(screen.getByRole("option", { name: /icon refactor/ }));
+    for (const item of screen.getAllByRole("menuitem")) {
+      expect(item.getAttribute("aria-disabled")).toBe("true");
+      fireEvent.click(item);
+    }
+    expect(onApply).not.toHaveBeenCalled();
+    expect(onPop).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("restores its filter after the panel unmounts", () => {
     const store = new WorkspacePanelStateStore();
     const view = renderPersistentView(store, true);

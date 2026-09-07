@@ -2,6 +2,7 @@ import { Archive, ArchiveRestore, Clock3, Files, GitBranch, MoreHorizontal, Pane
 import { useState, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -62,6 +63,17 @@ export function StashesView({
     ? entries.filter((entry) => `${entry.message} ${entry.ref} ${entry.sourceBranch ?? ""}`.toLocaleLowerCase().includes(normalizedQuery))
     : entries;
 
+  const openDropDialog = (entry: GitStashEntry): void => {
+    setDialogError("");
+    setDropTarget(entry);
+  };
+
+  const openBranchDialog = (entry: GitStashEntry): void => {
+    setDialogError("");
+    setBranchName("");
+    setBranchTarget(entry);
+  };
+
   const dropSelected = async (): Promise<void> => {
     if (!dropTarget || submitting) return;
     setSubmitting(true);
@@ -109,10 +121,21 @@ export function StashesView({
                   : entries.length === 0 ? <div className="stash-empty"><Archive /><h3>No stashes</h3><p>Right-click changed files in File Status to create a stash.</p></div>
                     : visibleEntries.length === 0 ? <div className="stash-empty stash-filter-empty"><Search /><h3>No matching stashes</h3><p>Change the search text to see other stashes.</p></div>
                       : <div role="listbox" aria-label="Saved stashes" className="stash-list">{visibleEntries.map((entry) => (
-                      <button key={entry.ref} type="button" role="option" aria-selected={entry.ref === selectedRef} className={`stash-list-row ${entry.ref === selectedRef ? "is-selected" : ""}`} onClick={() => onSelect(entry.ref)}>
-                        <span className="stash-list-row-title"><span>{entry.message}</span><code>{entry.ref}</code></span>
-                        <span className="stash-list-row-meta"><span><GitBranch />{entry.sourceBranch || "Detached HEAD"}</span><time dateTime={entry.createdAt}>{formatStashAge(entry.createdAt)}</time></span>
-                      </button>
+                      <ContextMenu key={entry.ref}>
+                        <ContextMenuTrigger asChild>
+                          <button type="button" role="option" aria-selected={entry.ref === selectedRef} className={`stash-list-row ${entry.ref === selectedRef ? "is-selected" : ""}`} onClick={() => onSelect(entry.ref)}>
+                            <span className="stash-list-row-title"><span>{entry.message}</span><code>{entry.ref}</code></span>
+                            <span className="stash-list-row-meta"><span><GitBranch />{entry.sourceBranch || "Detached HEAD"}</span><time dateTime={entry.createdAt}>{formatStashAge(entry.createdAt)}</time></span>
+                          </button>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent>
+                          <ContextMenuItem disabled={disabled} onSelect={() => onApply(entry.ref)}><ArchiveRestore />Apply</ContextMenuItem>
+                          <ContextMenuItem disabled={disabled} onSelect={() => onPop(entry.ref)}><ArchiveRestore />Pop</ContextMenuItem>
+                          <ContextMenuItem disabled={disabled} onSelect={() => openBranchDialog(entry)}><GitBranch />Create branch...</ContextMenuItem>
+                          <ContextMenuSeparator />
+                          <ContextMenuItem disabled={disabled} variant="destructive" onSelect={() => openDropDialog(entry)}><Trash2 />Delete stash...</ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
                     ))}</div>}
             </div>
             <footer className="stash-rail-footer">{entries.length} {entries.length === 1 ? "stash" : "stashes"}</footer>
@@ -137,9 +160,9 @@ export function StashesView({
                     <DropdownMenuTrigger asChild><Button type="button" variant="outline" size="icon-sm" aria-label="More stash actions" disabled={disabled}><MoreHorizontal /></Button></DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onSelect={() => onPop(selected.ref)}><ArchiveRestore />Pop</DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => { setDialogError(""); setBranchName(""); setBranchTarget(selected); }}><GitBranch />Create branch...</DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => openBranchDialog(selected)}><GitBranch />Create branch...</DropdownMenuItem>
                       <DropdownMenuSeparator />
-                      <DropdownMenuItem variant="destructive" onSelect={() => { setDialogError(""); setDropTarget(selected); }}><Trash2 />Delete stash...</DropdownMenuItem>
+                      <DropdownMenuItem variant="destructive" onSelect={() => openDropDialog(selected)}><Trash2 />Delete stash...</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
