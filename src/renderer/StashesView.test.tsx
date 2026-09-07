@@ -159,6 +159,17 @@ describe("StashesView", () => {
     expect(screen.getByRole("alert").textContent).toContain("select the stash again");
   });
 
+  it("closes a context menu when refresh replaces its row", () => {
+    const onApply = vi.fn();
+    const view = renderView({ onApply, disabled: true });
+    fireEvent.contextMenu(screen.getByRole("option", { name: /cache cleanup/ }));
+    expect(screen.getByRole("menu")).toBeTruthy();
+    view.rerender(stashView({ onApply, loading: true }));
+    view.rerender(stashView({ onApply, entries: entries.slice(1).map((entry, index) => ({ ...entry, ref: `stash@{${index}}` })) }));
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
   it("restores its filter after the panel unmounts", () => {
     const store = new WorkspacePanelStateStore();
     const view = renderPersistentView(store, true);

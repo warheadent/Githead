@@ -50,6 +50,7 @@ export function StashesView({
   onDrop: (stashRef: string) => Promise<string | null>;
   onCreateBranch: (stashRef: string, branchName: string) => Promise<string | null>;
 }): ReactNode {
+  const [contextTarget, setContextTarget] = useState<GitStashEntry | null>(null);
   const [dropTarget, setDropTarget] = useState<{ entry: GitStashEntry; entries: GitStashEntry[] } | null>(null);
   const [branchTarget, setBranchTarget] = useState<{ entry: GitStashEntry; entries: GitStashEntry[] } | null>(null);
   const [branchName, setBranchName] = useState("");
@@ -125,7 +126,7 @@ export function StashesView({
                   : entries.length === 0 ? <div className="stash-empty"><Archive /><h3>No stashes</h3><p>Right-click changed files in File Status to create a stash.</p></div>
                     : visibleEntries.length === 0 ? <div className="stash-empty stash-filter-empty"><Search /><h3>No matching stashes</h3><p>Change the search text to see other stashes.</p></div>
                       : <div role="listbox" aria-label="Saved stashes" className="stash-list">{visibleEntries.map((entry) => (
-                      <ContextMenu key={entry.ref}>
+                      <ContextMenu key={entry.ref} open={contextTarget === entry} onOpenChange={(open) => setContextTarget(open ? entry : null)}>
                         <ContextMenuTrigger asChild>
                           <button type="button" role="option" aria-selected={entry.ref === selectedRef} className={`stash-list-row ${entry.ref === selectedRef ? "is-selected" : ""}`} onClick={() => onSelect(entry.ref)}>
                             <span className="stash-list-row-title"><span>{entry.message}</span><code>{entry.ref}</code></span>
