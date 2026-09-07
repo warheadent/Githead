@@ -7,6 +7,8 @@ import {
 } from "motion/react";
 import { type Key, type ReactNode } from "react";
 
+import { useVisualEffects } from "./VisualEffects";
+
 const DEFAULT_DURATION_SECONDS = 0.12;
 const DEFAULT_TRANSITION: Transition = {
   duration: DEFAULT_DURATION_SECONDS,
@@ -54,10 +56,11 @@ function PresenceItem({
   onExitAnimationComplete
 }: PresenceItemProps): ReactNode {
   const isPresent = useIsPresent();
+  const { reduceMotion } = useVisualEffects();
   const hidden = {
     opacity: initialOpacity,
-    y: initialY,
-    scale: initialScale
+    y: reduceMotion ? 0 : initialY,
+    scale: reduceMotion ? 1 : initialScale
   };
   const transition: Transition = {
     ...DEFAULT_TRANSITION,

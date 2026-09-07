@@ -2,6 +2,8 @@ import { Check, X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import type { GitAction } from "../shared/types";
 
+import { useVisualEffects } from "./VisualEffects";
+
 export type OperationButtonFeedbackAction = GitAction | "commit";
 export type OperationButtonFeedbackSurface = "action-bar" | "commit-panel";
 
@@ -50,6 +52,7 @@ export function OperationButtonFeedback({
   successLabel: string;
   surface: OperationButtonFeedbackSurface;
 }): ReactNode {
+  const { effects } = useVisualEffects();
   const matchingEvent = event?.action === action && event.surface === surface
     ? event
     : null;
@@ -76,6 +79,9 @@ export function OperationButtonFeedback({
 
   return (
     <span className="operation-button-feedback" data-feedback={activeOutcome ?? "idle"}>
+      {effects !== "off" && activeOutcome === "success" && (action === "push" || action === "commit") ? (
+        <span key={eventId} className="operation-completion-glow" aria-hidden="true" />
+      ) : null}
       <span
         className="operation-button-feedback-state operation-button-feedback-idle"
       >

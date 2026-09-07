@@ -1090,6 +1090,8 @@ describe("App", { timeout: 10_000 }, () => {
     const user = userEvent.setup();
     const commit = createCommit();
     vi.mocked(githead.getAppSettings).mockResolvedValue({
+      visualEffects: "standard",
+      reduceMotion: "system",
       autoFetchIntervalMinutes: 10,
       colorTheme: "githead",
       appearanceMode: "system",

@@ -287,6 +287,8 @@ const PerformanceDiagnosticsDialog = lazy(() => import("./PerformanceDiagnostics
 import { StashComposerDialog, type StashCreateDraft } from "./StashComposerDialog";
 import { StashesView } from "./StashesView";
 import { StartupScreen } from "./StartupScreen";
+import { attachCommitGraphHover } from "./commitGraphHover";
+import { VisualEffectsProvider, defaultVisualPreferences, useVisualEffects } from "./VisualEffects";
 import { StartLayout } from "./StartLayout";
 import { useGitStashes } from "./useGitStashes";
 import { useSelectionSafeValue } from "./useSelectionSafeValue";
@@ -703,6 +705,7 @@ const emptySettingsDraft: SettingsDraft = {
   autoFetchIntervalMinutes: "10",
   colorTheme: "githead",
   appearanceMode: "system",
+  ...defaultVisualPreferences,
   uiFont: "inter",
   codeFont: "system-mono",
   zoomFactor: 1,
@@ -930,8 +933,8 @@ const initialWindowState: AppWindowState = {
   isMaximized: false
 };
 
-export function App(): ReactNode {
-  const [state, setState] = useState<AppState>(initialState);
+export function App({ initialAppSettings = null }: { initialAppSettings?: AppSettings | null } = {}): ReactNode {
+  const [state, setState] = useState<AppState>(() => ({ ...initialState, appSettings: initialAppSettings }));
   const [activityLogStore] = useState(() => new ActivityLogStore());
   const activityLogAttention = useSyncExternalStore(
     activityLogStore.subscribeAttention,
@@ -2250,10 +2253,11 @@ export function App(): ReactNode {
       if (startupAttempt !== startupAttemptRef.current) return;
       updateState((current) => ({
         ...current,
-        appSettings: {
+        appSettings: current.appSettings ?? {
           autoFetchIntervalMinutes: 10,
           colorTheme: "githead",
           appearanceMode: "system",
+          ...defaultVisualPreferences,
           uiFont: "inter",
           codeFont: "system-mono",
           zoomFactor: 1,
@@ -5703,6 +5707,8 @@ export function App(): ReactNode {
         autoFetchIntervalMinutes: String(appSettings?.autoFetchIntervalMinutes ?? 10),
         colorTheme: appSettings?.colorTheme ?? "githead",
         appearanceMode: appSettings?.appearanceMode ?? "system",
+        visualEffects: appSettings?.visualEffects ?? defaultVisualPreferences.visualEffects,
+        reduceMotion: appSettings?.reduceMotion ?? defaultVisualPreferences.reduceMotion,
         uiFont: appSettings?.uiFont ?? "inter",
         codeFont: appSettings?.codeFont ?? "system-mono",
         zoomFactor: appSettings?.zoomFactor ?? 1,
@@ -5814,6 +5820,8 @@ export function App(): ReactNode {
           autoFetchIntervalMinutes: parseAutoFetchIntervalDraft(draft.autoFetchIntervalMinutes),
           colorTheme: draft.colorTheme,
           appearanceMode: draft.appearanceMode,
+          visualEffects: draft.visualEffects,
+          reduceMotion: draft.reduceMotion,
           uiFont: draft.uiFont,
           codeFont: draft.codeFont,
           zoomFactor: draft.zoomFactor,
@@ -6974,9 +6982,11 @@ export function App(): ReactNode {
   const hasUnreadActivityLog = activityLogAttentionState !== "none";
   const hasUnviewedOperationError = activityLogAttentionState === "error";
 
+  const visualPreferences = state.settingsOpen ? state.settingsDraft : state.appSettings ?? defaultVisualPreferences;
   if (state.startupStatus === "loading") {
     return (
       <AppChrome
+        visualPreferences={visualPreferences}
         isMaximized={windowState.isMaximized}
         onMinimize={minimizeWindow}
         onToggleMaximize={toggleMaximizeWindow}
@@ -6990,6 +7000,7 @@ export function App(): ReactNode {
   if (state.gitExecutableStatus && !state.gitExecutableStatus.available) {
     return (
       <AppChrome
+        visualPreferences={visualPreferences}
         isMaximized={windowState.isMaximized}
         onMinimize={minimizeWindow}
         onToggleMaximize={toggleMaximizeWindow}
@@ -7010,6 +7021,7 @@ export function App(): ReactNode {
   if (state.showSetup) {
     return (
       <AppChrome
+        visualPreferences={visualPreferences}
         isMaximized={windowState.isMaximized}
         onMinimize={minimizeWindow}
         onToggleMaximize={toggleMaximizeWindow}
@@ -7087,6 +7099,7 @@ export function App(): ReactNode {
 
   return (
     <AppChrome
+      visualPreferences={visualPreferences}
       isMaximized={windowState.isMaximized}
       onMinimize={minimizeWindow}
       onToggleMaximize={toggleMaximizeWindow}
@@ -8226,6 +8239,7 @@ export function App(): ReactNode {
 }
 
 interface AppChromeProps {
+  visualPreferences: Pick<AppSettings, "visualEffects" | "reduceMotion">;
   children: ReactNode;
   isMaximized: boolean;
   repositoryPanelOpen?: boolean;
@@ -8236,6 +8250,7 @@ interface AppChromeProps {
 }
 
 function AppChrome({
+  visualPreferences,
   children,
   isMaximized,
   repositoryPanelOpen = false,
@@ -8245,44 +8260,46 @@ function AppChrome({
   onToggleRepositoryPanel
 }: AppChromeProps): ReactNode {
   return (
-    <TooltipProvider>
-      <main className="app-shell bg-background text-foreground">
-        <header className="window-chrome" data-maximized={isMaximized ? "true" : "false"}>
-          <div className="window-title">
-            <svg className="window-title-mark" width="20" height="20" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-              <rect className="window-title-mark-background" x="1" y="1" width="62" height="62" rx="16" strokeWidth="1.5" />
-              <g transform="translate(13 13) scale(1.583333)" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M15 6a9 9 0 0 0-9 9V3" />
-                <circle cx="18" cy="6" r="3" />
-                <circle cx="6" cy="18" r="3" />
-              </g>
-            </svg>
-            <span>Githead</span>
-            {onToggleRepositoryPanel ? (
-              <button
-                type="button"
-                className="repository-drawer-toggle"
-                aria-label={repositoryPanelOpen ? "Hide repositories" : "Show repositories"}
-                aria-expanded={repositoryPanelOpen}
-                aria-controls="repository-panel"
-                onClick={onToggleRepositoryPanel}
-              >
-                {repositoryPanelOpen ? <X /> : <List />}
-              </button>
-            ) : null}
-          </div>
-          <WindowControls
-            isMaximized={isMaximized}
-            onMinimize={onMinimize}
-            onToggleMaximize={onToggleMaximize}
-            onClose={onClose}
-          />
-        </header>
-        <section className="app-content">
-          {children}
-        </section>
-      </main>
-    </TooltipProvider>
+    <VisualEffectsProvider effects={visualPreferences.visualEffects} motionPreference={visualPreferences.reduceMotion}>
+      <TooltipProvider>
+        <main className="app-shell bg-background text-foreground">
+          <header className="window-chrome" data-maximized={isMaximized ? "true" : "false"}>
+            <div className="window-title">
+              <svg className="window-title-mark" width="20" height="20" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+                <rect className="window-title-mark-background" x="1" y="1" width="62" height="62" rx="16" strokeWidth="1.5" />
+                <g transform="translate(13 13) scale(1.583333)" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 6a9 9 0 0 0-9 9V3" />
+                  <circle cx="18" cy="6" r="3" />
+                  <circle cx="6" cy="18" r="3" />
+                </g>
+              </svg>
+              <span>Githead</span>
+              {onToggleRepositoryPanel ? (
+                <button
+                  type="button"
+                  className="repository-drawer-toggle"
+                  aria-label={repositoryPanelOpen ? "Hide repositories" : "Show repositories"}
+                  aria-expanded={repositoryPanelOpen}
+                  aria-controls="repository-panel"
+                  onClick={onToggleRepositoryPanel}
+                >
+                  {repositoryPanelOpen ? <X /> : <List />}
+                </button>
+              ) : null}
+            </div>
+            <WindowControls
+              isMaximized={isMaximized}
+              onMinimize={onMinimize}
+              onToggleMaximize={onToggleMaximize}
+              onClose={onClose}
+            />
+          </header>
+          <section className="app-content">
+            {children}
+          </section>
+        </main>
+      </TooltipProvider>
+    </VisualEffectsProvider>
   );
 }
 
@@ -12448,6 +12465,14 @@ const CommitGraphSvg = memo(function CommitGraphSvg({
   visibleStartRow: number;
   visibleEndRow: number;
 }): ReactNode {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const glowId = useId();
+  const { effects } = useVisualEffects();
+  const hoverEnabled = effects !== "off";
+  useEffect(() => {
+    if (!hoverEnabled || !svgRef.current) return;
+    return attachCommitGraphHover(svgRef.current);
+  }, [hoverEnabled, layout, visibleStartRow, visibleEndRow]);
   const visibleEdges = useMemo(() => layout.edges.filter((edge) => (
     edge.fromRow < visibleEndRow && edge.toRow >= visibleStartRow
   )), [layout, visibleEndRow, visibleStartRow]);
@@ -12459,22 +12484,31 @@ const CommitGraphSvg = memo(function CommitGraphSvg({
 
   return (
     <svg
+      ref={svgRef}
       className="commit-graph-svg"
       data-testid="commit-graph-svg"
       width={layout.width}
       height={height}
-      style={{ top }}
+      style={{ top, "--commit-graph-hover-filter": `url("#${glowId}")` } as CSSProperties}
       viewBox={`0 ${top} ${layout.width} ${height}`}
       aria-hidden="true"
     >
+      {hoverEnabled ? <defs>
+        <filter id={glowId} filterUnits="userSpaceOnUse" x="0" y={top} width={layout.width} height={height} colorInterpolationFilters="sRGB">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="glow" />
+          <feMerge><feMergeNode in="glow" /><feMergeNode in="glow" /><feMergeNode in="SourceGraphic" /></feMerge>
+        </filter>
+      </defs> : null}
       <g className="commit-graph-edges">
         {visibleEdges.map((edge) => (
           <g
             key={edge.id}
+            data-graph-from={edge.fromHash}
+            data-graph-to={edge.toHash}
             className={`commit-graph-edge lane-${edge.colorLane % COMMIT_GRAPH_COLOR_COUNT}`}
           >
             <path className="commit-graph-edge-clearance" d={edge.path} />
-            <path d={edge.path} />
+            <path className="commit-graph-edge-line" d={edge.path} />
           </g>
         ))}
       </g>
@@ -12482,6 +12516,7 @@ const CommitGraphSvg = memo(function CommitGraphSvg({
         {layout.nodes.slice(visibleStartRow, visibleEndRow).map((node) => (
           <g
             key={node.hash}
+            data-graph-hash={node.hash}
             className={`commit-graph-node lane-${node.lane % COMMIT_GRAPH_COLOR_COUNT} ${node.isMerge ? "is-merge" : ""} ${node.hash === selectedCommitHash ? "is-selected" : ""}`}
           >
             {node.hash === selectedCommitHash ? <circle className="commit-graph-selection" cx={node.x} cy={node.y} r="7" /> : null}
@@ -14689,6 +14724,8 @@ function hasAppSettingsChanges(draft: SettingsDraft, settings: AppSettings | nul
 
   return draft.autoFetchIntervalMinutes.trim() !== String(settings.autoFetchIntervalMinutes)
     || draft.colorTheme !== settings.colorTheme
+    || draft.visualEffects !== settings.visualEffects
+    || draft.reduceMotion !== settings.reduceMotion
     || draft.appearanceMode !== settings.appearanceMode
     || draft.uiFont !== settings.uiFont
     || draft.codeFont !== settings.codeFont

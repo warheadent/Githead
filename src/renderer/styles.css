@@ -7095,3 +7095,107 @@ textarea,
   display: flex;
   gap: 4px;
 }
+
+/* Effects are opt-in by level. Full adds blur only to the open dialog. */
+:root[data-visual-effects] [data-slot="dialog-content"] {
+  /* The dialog's duration utility is for its keyframes, not material changes. */
+  transition-property: none;
+}
+:root[data-visual-effects="standard"] [data-slot="dialog-content"],
+:root[data-visual-effects="full"] [data-slot="dialog-content"] {
+  border-color: color-mix(in oklch, var(--primary) 16%, var(--border));
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--foreground) 8%, transparent),
+    0 24px 64px rgb(0 0 0 / 22%);
+  background-image: linear-gradient(145deg, color-mix(in oklch, var(--primary) 4%, transparent), transparent 45%);
+}
+
+:root[data-visual-effects="full"] [data-slot="dialog-content"] {
+  background-color: color-mix(in oklch, var(--background) 94%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+:root[data-visual-effects="standard"] .start-intro,
+:root[data-visual-effects="full"] .start-intro {
+  background: radial-gradient(ellipse at 15% 95%, color-mix(in oklch, var(--primary) 19%, transparent), transparent 65%),
+    linear-gradient(145deg, color-mix(in oklch, var(--primary) 9%, var(--card)), var(--card) 70%);
+}
+
+:root[data-visual-effects="standard"] .start-frame,
+:root[data-visual-effects="full"] .start-frame {
+  box-shadow: 0 24px 64px color-mix(in oklch, var(--foreground) 7%, transparent),
+    inset 0 1px 0 color-mix(in oklch, var(--foreground) 6%, transparent);
+}
+
+:root[data-visual-effects="standard"] .start-graph-branch,
+:root[data-visual-effects="full"] .start-graph-branch {
+  stroke-width: 3;
+}
+
+:root[data-visual-effects="standard"] .start-graph-node.is-branch,
+:root[data-visual-effects="full"] .start-graph-node.is-branch {
+  fill: var(--primary);
+}
+
+.visual-effects-settings { display: grid; gap: 20px; }
+.visual-effects-settings fieldset { min-width: 0; }
+.visual-effects-settings fieldset > p { margin: 4px 0 10px; }
+.visual-effects-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.visual-effects-option { display: flex; align-items: flex-start; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+.visual-effects-option:has(input:checked) { border-color: var(--primary); background: color-mix(in oklch, var(--primary) 7%, var(--background)); }
+.visual-effects-option > span { display: grid; gap: 5px; }
+.visual-effects-option strong { font-size: 13px; font-weight: 600; }
+.visual-effects-option > span > span { color: var(--muted-foreground); font-size: 12px; line-height: 1.5; }
+.visual-effects-settings input { accent-color: var(--primary); flex-shrink: 0; margin-top: 3px; }
+.visual-effects-settings input:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.reduce-motion-options { display: flex; flex-wrap: wrap; gap: 20px; font-size: 13px; }
+.reduce-motion-options label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.visual-effects-settings fieldset:disabled label { cursor: default; opacity: 0.6; }
+
+/* One bounded opacity animation per completed, user-initiated push or commit. */
+.operation-button-feedback { position: relative; isolation: isolate; }
+.operation-completion-glow {
+  position: absolute;
+  inset: -5px -10px;
+  z-index: -1;
+  border-radius: 8px;
+  background: var(--primary);
+  box-shadow: 0 0 16px 6px var(--primary);
+  opacity: 0;
+  pointer-events: none;
+  animation: operation-completion-glow 240ms var(--ease-out) both;
+}
+@keyframes operation-completion-glow {
+  0%, 100% { opacity: 0; }
+  35% { opacity: 0.2; }
+}
+
+:root[data-reduce-motion="true"] *,
+:root[data-reduce-motion="true"] *::before,
+:root[data-reduce-motion="true"] *::after {
+  scroll-behavior: auto !important;
+  transition-duration: 0s !important;
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+}
+:root[data-reduce-motion="true"] .operation-button-feedback-state,
+:root[data-reduce-motion="true"] .activity-log-attention-indicator {
+  transform: none !important;
+  transition-duration: 120ms !important;
+}
+:root[data-reduce-motion="true"] .operation-completion-glow { animation: none !important; }
+:root[data-reduce-motion="true"] [data-slot="dialog-content"],
+:root[data-reduce-motion="true"] [data-slot="dialog-overlay"] { animation: none !important; }
+
+@media (max-width: 640px) {
+  .visual-effects-options { grid-template-columns: 1fr; }
+}
+
+
+/* The hovered commit row lights its node and connected edges. */
+@media (hover: hover) and (pointer: fine) {
+  :root:is([data-visual-effects="standard"], [data-visual-effects="full"]) .commit-graph-edge[data-graph-hover] .commit-graph-edge-line,
+  :root:is([data-visual-effects="standard"], [data-visual-effects="full"]) .commit-graph-node[data-graph-hover] .commit-graph-dot,
+  :root:is([data-visual-effects="standard"], [data-visual-effects="full"]) .commit-graph-node[data-graph-hover] .commit-graph-selection {
+    filter: var(--commit-graph-hover-filter);
+  }
+}

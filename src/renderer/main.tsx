@@ -1,7 +1,8 @@
+import type { AppSettings } from "../shared/types";
 import React, { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { MotionConfig } from "motion/react";
+import { applyVisualEffects, defaultVisualPreferences } from "./VisualEffects";
 import { App } from "./App";
 import { reportRendererFailure } from "./operationalErrorReporter";
 import { setRendererTelemetryEnabled } from "./sentry";
@@ -24,11 +25,15 @@ function handleReactError(
 }
 
 async function startRenderer(appRoot: HTMLDivElement): Promise<void> {
+  let initialAppSettings: AppSettings | null = null;
   try {
     const settings = await window.githead.getAppSettings();
     setRendererTelemetryEnabled(settings.privacy.shareAnonymousDiagnostics);
+    applyVisualEffects(settings.visualEffects, settings.reduceMotion);
+    initialAppSettings = settings;
   } catch {
     setRendererTelemetryEnabled(false);
+    applyVisualEffects(defaultVisualPreferences.visualEffects, defaultVisualPreferences.reduceMotion);
   }
   subscribeToTelemetryPreference(setRendererTelemetryEnabled);
 
@@ -38,11 +43,9 @@ async function startRenderer(appRoot: HTMLDivElement): Promise<void> {
     onUncaughtError: (error) => handleReactError(error, "react-uncaught", "error")
   }).render(
     <StrictMode>
-      <MotionConfig reducedMotion="user" transition={{ duration: 0.12, ease: "easeOut" }}>
-        <TooltipProvider>
-          <App />
-        </TooltipProvider>
-      </MotionConfig>
+      <TooltipProvider>
+        <App initialAppSettings={initialAppSettings} />
+      </TooltipProvider>
     </StrictMode>
   );
 }

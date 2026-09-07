@@ -1851,6 +1851,12 @@ export type AppColorTheme = (typeof APP_COLOR_THEMES)[number];
 
 export const APP_APPEARANCE_MODES = ["system", "light", "dark"] as const;
 export type AppAppearanceMode = (typeof APP_APPEARANCE_MODES)[number];
+export const APP_VISUAL_EFFECTS = ["off", "standard", "full"] as const;
+export type AppVisualEffects = (typeof APP_VISUAL_EFFECTS)[number];
+export const DEFAULT_VISUAL_EFFECTS: AppVisualEffects = "standard";
+export const APP_REDUCE_MOTION_MODES = ["system", "always"] as const;
+export type AppReduceMotion = (typeof APP_REDUCE_MOTION_MODES)[number];
+export const DEFAULT_REDUCE_MOTION: AppReduceMotion = "system";
 export const APP_UI_FONTS = ["system", "inter", "ibm-plex-sans", "roboto"] as const;
 export type AppUiFont = (typeof APP_UI_FONTS)[number];
 export const APP_CODE_FONTS = ["system-mono", "jetbrains-mono", "fira-code", "source-code-pro", "ibm-plex-mono"] as const;
@@ -1902,6 +1908,8 @@ export function isAppZoomFactor(value: unknown): value is number {
 }
 
 export interface AppSettings {
+  visualEffects: AppVisualEffects;
+  reduceMotion: AppReduceMotion;
   autoFetchIntervalMinutes: number;
   colorTheme: AppColorTheme;
   appearanceMode: AppAppearanceMode;
@@ -1915,6 +1923,8 @@ export interface AppSettings {
 }
 
 export interface AppSettingsSaveRequest {
+  visualEffects?: AppVisualEffects;
+  reduceMotion?: AppReduceMotion;
   autoFetchIntervalMinutes: number;
   colorTheme: AppColorTheme;
   appearanceMode: AppAppearanceMode;

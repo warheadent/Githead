@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { AppSettingsSaveRequest } from "../shared/types";
 import { describe, expect, it } from "vite-plus/test";
 import {
   AppSettingsService,
@@ -37,6 +38,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: DEFAULT_AUTO_FETCH_INTERVAL_MINUTES,
         colorTheme: DEFAULT_COLOR_THEME,
         appearanceMode: DEFAULT_APPEARANCE_MODE,
+        visualEffects: "standard",
+        reduceMotion: "system",
         uiFont: DEFAULT_UI_FONT,
         codeFont: DEFAULT_CODE_FONT,
         zoomFactor: DEFAULT_ZOOM_FACTOR,
@@ -78,6 +81,8 @@ describe("AppSettingsService", () => {
           autoFetchIntervalMinutes: 37,
           colorTheme: "copper",
           appearanceMode: "dark",
+          visualEffects: "standard",
+          reduceMotion: "system",
           uiFont: "roboto",
           codeFont: "fira-code",
           zoomFactor: 1.25,
@@ -90,6 +95,8 @@ describe("AppSettingsService", () => {
           autoFetchIntervalMinutes: 37,
           colorTheme: "copper",
           appearanceMode: "dark",
+          visualEffects: "standard",
+          reduceMotion: "system",
           uiFont: "roboto",
           codeFont: "fira-code",
           zoomFactor: 1.25,
@@ -111,6 +118,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 10,
         colorTheme: "githead",
         appearanceMode: "system",
+        visualEffects: "standard",
+        reduceMotion: "system",
         zoomFactor: 1,
         gitBehaviors: {
           tagPushBehavior: "all",
@@ -135,6 +144,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 10,
         colorTheme: "githead",
         appearanceMode: "system",
+        visualEffects: "standard",
+        reduceMotion: "system",
         zoomFactor: 1,
         gitBehaviors: {
           tagPushBehavior: "all",
@@ -161,6 +172,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 10,
         colorTheme: "githead",
         appearanceMode: "system",
+        visualEffects: "standard",
+        reduceMotion: "system",
         zoomFactor: 1,
         gitBehaviors: { tagPushBehavior: "follow" }
       });
@@ -169,11 +182,15 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 20,
         colorTheme: "orchid",
         appearanceMode: "light",
+        visualEffects: "standard",
+        reduceMotion: "system",
         zoomFactor: 1.1
       })).resolves.toMatchObject({
         autoFetchIntervalMinutes: 20,
         colorTheme: "orchid",
         appearanceMode: "light",
+        visualEffects: "standard",
+        reduceMotion: "system",
         gitBehaviors: { tagPushBehavior: "follow" }
       });
     });
@@ -186,6 +203,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 10,
         colorTheme: "githead",
         appearanceMode: "system",
+        visualEffects: "standard",
+        reduceMotion: "system",
         zoomFactor: 1,
         privacy: { shareAnonymousDiagnostics: false }
       })).resolves.toMatchObject({
@@ -199,6 +218,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 20,
         colorTheme: "orchid",
         appearanceMode: "light",
+        visualEffects: "standard",
+        reduceMotion: "system",
         zoomFactor: 1
       })).resolves.toMatchObject({
         privacy: { shareAnonymousDiagnostics: false }
@@ -212,6 +233,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 10,
         colorTheme: "githead",
         appearanceMode: "system",
+        visualEffects: "standard",
+        reduceMotion: "system",
         zoomFactor: 1,
         privacy: { shareAnonymousDiagnostics: "no" as unknown as boolean }
       })).rejects.toThrow("Anonymous diagnostics preference must be a Boolean value.");
@@ -224,6 +247,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 10,
         colorTheme: "githead",
         appearanceMode: "system",
+        visualEffects: "standard",
+        reduceMotion: "system",
         zoomFactor: 1,
         gitBehaviors: { tagPushBehavior: "invalid" as "all" }
       })).rejects.toThrow("Unknown tag push behavior.");
@@ -238,6 +263,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 15,
         colorTheme: "tidepool",
         appearanceMode: "dark",
+        visualEffects: "standard",
+        reduceMotion: "system",
         uiFont: "roboto",
         codeFont: "fira-code",
         zoomFactor: 1.25,
@@ -248,6 +275,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 15,
         colorTheme: "tidepool",
         appearanceMode: "dark",
+        visualEffects: "standard",
+        reduceMotion: "system",
         uiFont: "roboto",
         codeFont: "fira-code",
         zoomFactor: 1.25,
@@ -261,6 +290,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 15,
         colorTheme: "tidepool",
         appearanceMode: "dark",
+        visualEffects: "standard",
+        reduceMotion: "system",
         uiFont: "roboto",
         codeFont: "fira-code",
         zoomFactor: 1.25,
@@ -280,6 +311,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 0,
         colorTheme: "githead",
         appearanceMode: "system",
+        visualEffects: "standard",
+        reduceMotion: "system",
         uiFont: DEFAULT_UI_FONT,
         codeFont: DEFAULT_CODE_FONT,
         zoomFactor: 1,
@@ -290,6 +323,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 0,
         colorTheme: "githead",
         appearanceMode: "system",
+        visualEffects: "standard",
+        reduceMotion: "system",
         uiFont: DEFAULT_UI_FONT,
         codeFont: DEFAULT_CODE_FONT,
         zoomFactor: 1,
@@ -309,6 +344,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: -1,
         colorTheme: "githead",
         appearanceMode: "system",
+        visualEffects: "standard",
+        reduceMotion: "system",
         zoomFactor: 1
       })).rejects.toThrow("Auto-fetch interval cannot be negative.");
     });
@@ -322,6 +359,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 1441,
         colorTheme: "githead",
         appearanceMode: "system",
+        visualEffects: "standard",
+        reduceMotion: "system",
         zoomFactor: 1
       })).rejects.toThrow("Auto-fetch interval cannot exceed 1440 minutes.");
     });
@@ -337,6 +376,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: DEFAULT_AUTO_FETCH_INTERVAL_MINUTES,
         colorTheme: DEFAULT_COLOR_THEME,
         appearanceMode: DEFAULT_APPEARANCE_MODE,
+        visualEffects: "standard",
+        reduceMotion: "system",
         uiFont: DEFAULT_UI_FONT,
         codeFont: DEFAULT_CODE_FONT,
         zoomFactor: DEFAULT_ZOOM_FACTOR,
@@ -354,6 +395,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: DEFAULT_AUTO_FETCH_INTERVAL_MINUTES,
         colorTheme: DEFAULT_COLOR_THEME,
         appearanceMode: DEFAULT_APPEARANCE_MODE,
+        visualEffects: "standard",
+        reduceMotion: "system",
         uiFont: DEFAULT_UI_FONT,
         codeFont: DEFAULT_CODE_FONT,
         zoomFactor: DEFAULT_ZOOM_FACTOR,
@@ -370,6 +413,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: DEFAULT_AUTO_FETCH_INTERVAL_MINUTES,
         colorTheme: DEFAULT_COLOR_THEME,
         appearanceMode: DEFAULT_APPEARANCE_MODE,
+        visualEffects: "standard",
+        reduceMotion: "system",
         uiFont: DEFAULT_UI_FONT,
         codeFont: DEFAULT_CODE_FONT,
         zoomFactor: DEFAULT_ZOOM_FACTOR,
@@ -392,6 +437,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 20,
         colorTheme: DEFAULT_COLOR_THEME,
         appearanceMode: DEFAULT_APPEARANCE_MODE,
+        visualEffects: "standard",
+        reduceMotion: "system",
         uiFont: DEFAULT_UI_FONT,
         codeFont: DEFAULT_CODE_FONT,
         zoomFactor: DEFAULT_ZOOM_FACTOR,
@@ -410,6 +457,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 10,
         colorTheme: "unknown" as "githead",
         appearanceMode: "system",
+        visualEffects: "standard",
+        reduceMotion: "system",
         zoomFactor: 1
       })).rejects.toThrow("Unknown color theme.");
     });
@@ -421,6 +470,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 10,
         colorTheme: "orchid",
         appearanceMode: "sepia",
+        visualEffects: "standard",
+        reduceMotion: "system",
         zoomFactor: 99
       }), "utf8");
       const service = new AppSettingsService(dir);
@@ -429,6 +480,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 10,
         colorTheme: "orchid",
         appearanceMode: DEFAULT_APPEARANCE_MODE,
+        visualEffects: "standard",
+        reduceMotion: "system",
         uiFont: DEFAULT_UI_FONT,
         codeFont: DEFAULT_CODE_FONT,
         zoomFactor: DEFAULT_ZOOM_FACTOR,
@@ -441,6 +494,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 10,
         colorTheme: "orchid",
         appearanceMode: "sepia" as "system",
+        visualEffects: "standard",
+        reduceMotion: "system",
         zoomFactor: 1
       })).rejects.toThrow("Unknown appearance mode.");
     });
@@ -452,6 +507,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 10,
         colorTheme: "githead",
         appearanceMode: "system",
+        visualEffects: "standard",
+        reduceMotion: "system",
         zoomFactor: 1.2
       }), "utf8");
       const service = new AppSettingsService(dir);
@@ -463,6 +520,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 10,
         colorTheme: "githead",
         appearanceMode: "system",
+        visualEffects: "standard",
+        reduceMotion: "system",
         zoomFactor: 1.2
       })).rejects.toThrow("Unsupported interface scale.");
     });
@@ -484,6 +543,8 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 10,
         colorTheme: "githead",
         appearanceMode: "system",
+        visualEffects: "standard",
+        reduceMotion: "system",
         uiFont: "comic-sans" as "inter",
         codeFont: "system-mono",
         zoomFactor: 1
@@ -492,10 +553,53 @@ describe("AppSettingsService", () => {
         autoFetchIntervalMinutes: 10,
         colorTheme: "githead",
         appearanceMode: "system",
+        visualEffects: "standard",
+        reduceMotion: "system",
         uiFont: "inter",
         codeFont: "papyrus" as "system-mono",
         zoomFactor: 1
       })).rejects.toThrow("Unknown code font.");
+    });
+  });
+});
+
+describe("visual preferences", () => {
+  it("defaults missing or invalid stored preferences", async () => {
+    await withTempDir(async (dir) => {
+      const service = new AppSettingsService(dir);
+      for (const stored of [{}, { visualEffects: "ultra", reduceMotion: "never" }, { visualEffects: null, reduceMotion: 1 }]) {
+        await fs.writeFile(path.join(dir, "app-settings.json"), JSON.stringify(stored));
+        expect(await service.getSettings()).toMatchObject({ visualEffects: "standard", reduceMotion: "system" });
+      }
+    });
+  });
+
+  it("persists every level and preserves preferences when an unrelated caller omits them", async () => {
+    await withTempDir(async (dir) => {
+      const service = new AppSettingsService(dir);
+      for (const visualEffects of ["off", "standard", "full"] as const) {
+        for (const reduceMotion of ["system", "always"] as const) {
+          await service.saveSettings({ ...await service.getSettings(), visualEffects, reduceMotion });
+          const restored = await new AppSettingsService(dir).getSettings();
+          expect(restored).toMatchObject({ visualEffects, reduceMotion });
+          const request: AppSettingsSaveRequest = { ...restored, wrapDiffLines: true };
+          delete request.visualEffects;
+          delete request.reduceMotion;
+          await service.saveSettings(request);
+          expect(await service.getSettings()).toMatchObject({ visualEffects, reduceMotion, wrapDiffLines: true });
+        }
+      }
+    });
+  });
+
+  it("rejects invalid incoming preferences without changing the saved file", async () => {
+    await withTempDir(async (dir) => {
+      const service = new AppSettingsService(dir);
+      const saved = await service.saveSettings(await service.getSettings());
+      for (const invalid of [{ visualEffects: "ultra" }, { reduceMotion: "never" }, { visualEffects: null }, { reduceMotion: null }]) {
+        await expect(service.saveSettings({ ...saved, ...JSON.parse(JSON.stringify(invalid)) })).rejects.toThrow(/Unknown/);
+        expect(await service.getSettings()).toEqual(saved);
+      }
     });
   });
 });

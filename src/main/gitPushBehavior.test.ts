@@ -5,6 +5,8 @@ import { snapshotGitPushExecutionOptions } from "./gitPushBehavior";
 describe("snapshotGitPushExecutionOptions", () => {
   it("snapshots the main-process setting without accepting renderer Git arguments", async () => {
     const settings: AppSettings = {
+      visualEffects: "standard",
+      reduceMotion: "system",
       autoFetchIntervalMinutes: 10,
       colorTheme: "githead",
       appearanceMode: "system",
