@@ -7192,10 +7192,26 @@ textarea,
 
 
 /* The hovered commit row lights its node and connected edges. */
+.commit-graph-glow {
+  opacity: 0;
+  pointer-events: none;
+}
+
 @media (hover: hover) and (pointer: fine) {
-  :root:is([data-visual-effects="standard"], [data-visual-effects="full"]) .commit-graph-edge[data-graph-hover] .commit-graph-edge-line,
-  :root:is([data-visual-effects="standard"], [data-visual-effects="full"]) .commit-graph-node[data-graph-hover] .commit-graph-dot,
-  :root:is([data-visual-effects="standard"], [data-visual-effects="full"]) .commit-graph-node[data-graph-hover] .commit-graph-selection {
+  :root:is([data-visual-effects="standard"], [data-visual-effects="full"]) .commit-graph-glow {
     filter: var(--commit-graph-hover-filter);
+    transition: opacity 160ms ease;
   }
+
+  :root:is([data-visual-effects="standard"], [data-visual-effects="full"]) [data-graph-hover] > .commit-graph-glow {
+    opacity: 1;
+  }
+}
+
+:root[data-reduce-motion="true"] .commit-graph-glow {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root .commit-graph-glow { transition: none !important; }
 }
