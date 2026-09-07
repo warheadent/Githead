@@ -184,7 +184,7 @@
 :root[data-theme="orchid"] { --theme-hue: 300; --theme-accent-hue: 330; --theme-chroma: 0.14; }
 :root[data-theme="evergreen"] { --theme-hue: 150; --theme-accent-hue: 115; --theme-chroma: 0.105; }
 :root[data-theme="rosewood"] { --theme-hue: 5; --theme-accent-hue: 345; --theme-chroma: 0.105; }
-:root[data-theme="glacier"] { --theme-hue: 235; --theme-accent-hue: 205; --theme-chroma: 0.085; }
+:root[data-theme="glacier"] { --theme-hue: 185; --theme-accent-hue: 350; --theme-chroma: 0.1; }
 :root[data-theme="sunbeam"] { --theme-hue: 78; --theme-accent-hue: 95; --theme-chroma: 0.12; }
 :root[data-theme="graphite"] { --theme-hue: 255; --theme-accent-hue: 255; --theme-chroma: 0.012; }
 :root[data-theme="copper"] { --theme-hue: 52; --theme-accent-hue: 38; --theme-chroma: 0.105; }
@@ -253,6 +253,29 @@
   --ansi-blue: oklch(0.75 0.12 var(--theme-hue));
   --ansi-magenta: oklch(0.76 0.12 var(--theme-accent-hue));
   --ansi-cyan: oklch(0.78 0.1 var(--theme-accent-hue));
+}
+
+/* Keep the Glacier ID so saved preferences use the replacement Miku palette. */
+:root[data-theme="glacier"]:not([data-theme="githead"]) {
+  --background: oklch(0.975 0.006 185);
+  --foreground: oklch(0.21 0.012 220);
+  --card: oklch(0.995 0.003 185);
+  --sidebar: oklch(0.93 0.018 185);
+  --syntax-keyword: oklch(0.49 0.18 350);
+}
+
+:root.dark[data-theme="glacier"]:not([data-theme="githead"]) {
+  --background: oklch(0.16 0.008 220);
+  --foreground: oklch(0.93 0.008 185);
+  --card: oklch(0.21 0.012 220);
+  --popover: oklch(0.23 0.012 220);
+  --sidebar: oklch(0.145 0.008 220);
+  --primary: oklch(0.76 0.125 185);
+  --primary-foreground: oklch(0.16 0.008 220);
+  --secondary: oklch(0.275 0.014 220);
+  --muted: oklch(0.27 0.012 220);
+  --border: oklch(0.3 0.018 185);
+  --syntax-keyword: oklch(0.72 0.18 350);
 }
 
 @theme inline {

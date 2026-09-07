@@ -14,7 +14,7 @@ export const COLOR_THEME_OPTIONS: readonly ColorThemeOption[] = [
   { id: "orchid", name: "Orchid", description: "Violet and magenta", swatches: ["oklch(0.534251 0.156964 304.475121)", "oklch(0.9441 0.026186 310.401865)", "oklch(0.306427 0.063262 307.441082)"] },
   { id: "evergreen", name: "Evergreen", description: "Forest green and moss", swatches: ["oklch(0.505199 0.086433 153.372242)", "oklch(0.944473 0.024075 127.584125)", "oklch(0.329224 0.0389 151.256224)"] },
   { id: "rosewood", name: "Rosewood", description: "Burgundy and dusty rose", swatches: ["oklch(0.491266 0.106363 3.738238)", "oklch(0.939865 0.01981 9.790142)", "oklch(0.319976 0.048542 359.417353)"] },
-  { id: "glacier", name: "Glacier", description: "Icy blue and slate", swatches: ["oklch(0.561238 0.077999 239.634962)", "oklch(0.952904 0.015373 222.682442)", "oklch(0.340343 0.034525 245.677546)"] },
+  { id: "glacier", name: "Miku", description: "Turquoise, charcoal, and pink", swatches: ["oklch(0.76 0.125 185)", "oklch(0.21 0.012 220)", "oklch(0.72 0.18 350)"] },
   { id: "sunbeam", name: "Sunbeam", description: "Gold and warm cream", swatches: ["oklch(0.583779 0.123191 71.468588)", "oklch(0.963144 0.055803 93.95098)", "oklch(0.351695 0.053984 81.97422)"] },
   { id: "graphite", name: "Graphite", description: "Restrained monochrome", swatches: ["oklch(0.472236 0.018418 257.244253)", "oklch(0.948159 0.003445 247.859301)", "oklch(0.295661 0.012293 258.371556)"] },
   { id: "copper", name: "Copper", description: "Burnt orange and bronze", swatches: ["oklch(0.557912 0.110445 51.499879)", "oklch(0.930407 0.027622 67.478133)", "oklch(0.338555 0.039183 43.514271)"] },
