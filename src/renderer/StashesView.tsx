@@ -57,6 +57,9 @@ export function StashesView({
   const [searchQuery, setSearchQuery] = usePersistentWorkspacePanelState("stashes-search-query", "");
   const [filesCollapsed, setFilesCollapsed] = usePersistentWorkspacePanelState("stashes-files-collapsed", false);
   const selected = entries.find((entry) => entry.ref === selectedRef) ?? null;
+  const actionsDisabled = disabled || loading;
+  const currentDropTarget = entries.find((entry) => entry.hash === dropTarget?.hash);
+  const currentBranchTarget = entries.find((entry) => entry.hash === branchTarget?.hash);
   const searchEnabled = entries.length > 3;
   const normalizedQuery = searchEnabled ? searchQuery.trim().toLocaleLowerCase() : "";
   const visibleEntries = normalizedQuery
@@ -75,20 +78,20 @@ export function StashesView({
   };
 
   const dropSelected = async (): Promise<void> => {
-    if (!dropTarget || submitting) return;
+    if (!currentDropTarget || submitting || actionsDisabled) return;
     setSubmitting(true);
     setDialogError("");
-    const nextError = await onDrop(dropTarget.ref);
+    const nextError = await onDrop(currentDropTarget.ref);
     setSubmitting(false);
     if (nextError) setDialogError(nextError);
     else setDropTarget(null);
   };
 
   const createBranch = async (): Promise<void> => {
-    if (!branchTarget || submitting) return;
+    if (!currentBranchTarget || submitting || actionsDisabled) return;
     setSubmitting(true);
     setDialogError("");
-    const nextError = await onCreateBranch(branchTarget.ref, branchName);
+    const nextError = await onCreateBranch(currentBranchTarget.ref, branchName);
     setSubmitting(false);
     if (nextError) setDialogError(nextError);
     else {
@@ -129,11 +132,11 @@ export function StashesView({
                           </button>
                         </ContextMenuTrigger>
                         <ContextMenuContent>
-                          <ContextMenuItem disabled={disabled} onSelect={() => onApply(entry.ref)}><ArchiveRestore />Apply</ContextMenuItem>
-                          <ContextMenuItem disabled={disabled} onSelect={() => onPop(entry.ref)}><ArchiveRestore />Pop</ContextMenuItem>
-                          <ContextMenuItem disabled={disabled} onSelect={() => openBranchDialog(entry)}><GitBranch />Create branch...</ContextMenuItem>
+                          <ContextMenuItem disabled={actionsDisabled} onSelect={() => onApply(entry.ref)}><ArchiveRestore />Apply</ContextMenuItem>
+                          <ContextMenuItem disabled={actionsDisabled} onSelect={() => onPop(entry.ref)}><ArchiveRestore />Pop</ContextMenuItem>
+                          <ContextMenuItem disabled={actionsDisabled} onSelect={() => openBranchDialog(entry)}><GitBranch />Create branch...</ContextMenuItem>
                           <ContextMenuSeparator />
-                          <ContextMenuItem disabled={disabled} variant="destructive" onSelect={() => openDropDialog(entry)}><Trash2 />Delete stash...</ContextMenuItem>
+                          <ContextMenuItem disabled={actionsDisabled} variant="destructive" onSelect={() => openDropDialog(entry)}><Trash2 />Delete stash...</ContextMenuItem>
                         </ContextMenuContent>
                       </ContextMenu>
                     ))}</div>}
@@ -155,14 +158,14 @@ export function StashesView({
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  <Button type="button" size="sm" disabled={disabled || detailsLoading} onClick={() => onApply(selected.ref)}><ArchiveRestore />Apply</Button>
+                  <Button type="button" size="sm" disabled={actionsDisabled || detailsLoading} onClick={() => onApply(selected.ref)}><ArchiveRestore />Apply</Button>
                   <DropdownMenu>
-                    <DropdownMenuTrigger asChild><Button type="button" variant="outline" size="icon-sm" aria-label="More stash actions" disabled={disabled}><MoreHorizontal /></Button></DropdownMenuTrigger>
+                    <DropdownMenuTrigger asChild><Button type="button" variant="outline" size="icon-sm" aria-label="More stash actions" disabled={actionsDisabled}><MoreHorizontal /></Button></DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onSelect={() => onPop(selected.ref)}><ArchiveRestore />Pop</DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => openBranchDialog(selected)}><GitBranch />Create branch...</DropdownMenuItem>
+                      <DropdownMenuItem disabled={actionsDisabled} onSelect={() => onPop(selected.ref)}><ArchiveRestore />Pop</DropdownMenuItem>
+                      <DropdownMenuItem disabled={actionsDisabled} onSelect={() => openBranchDialog(selected)}><GitBranch />Create branch...</DropdownMenuItem>
                       <DropdownMenuSeparator />
-                      <DropdownMenuItem variant="destructive" onSelect={() => openDropDialog(selected)}><Trash2 />Delete stash...</DropdownMenuItem>
+                      <DropdownMenuItem disabled={actionsDisabled} variant="destructive" onSelect={() => openDropDialog(selected)}><Trash2 />Delete stash...</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
@@ -191,9 +194,9 @@ export function StashesView({
 
       <Dialog open={Boolean(dropTarget)} onOpenChange={(open) => { if (!open && !submitting) setDropTarget(null); }}>
         <DialogContent showCloseButton={!submitting} className="sm:max-w-md">
-          <DialogHeader><DialogTitle>Delete this stash?</DialogTitle><DialogDescription>The saved changes in {dropTarget?.ref} will be deleted. This action cannot be undone.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Delete this stash?</DialogTitle><DialogDescription>The saved changes in {currentDropTarget?.ref ?? dropTarget?.ref} will be deleted. This action cannot be undone.</DialogDescription></DialogHeader>
           {dialogError ? <p className="text-sm text-destructive" role="alert">{dialogError}</p> : null}
-          <DialogFooter><Button type="button" variant="outline" disabled={submitting} onClick={() => setDropTarget(null)}>Cancel</Button><Button type="button" variant="destructive" disabled={submitting} onClick={() => { void dropSelected(); }}>{submitting ? "Deleting" : "Delete stash"}</Button></DialogFooter>
+          <DialogFooter><Button type="button" variant="outline" disabled={submitting} onClick={() => setDropTarget(null)}>Cancel</Button><Button type="button" variant="destructive" disabled={submitting || actionsDisabled || !currentDropTarget} onClick={() => { void dropSelected(); }}>{submitting ? "Deleting" : "Delete stash"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -203,7 +206,7 @@ export function StashesView({
             <DialogHeader><DialogTitle>Create branch from stash</DialogTitle><DialogDescription>Git creates the branch at the stash base, applies the stash, and deletes it after success.</DialogDescription></DialogHeader>
             <div className="grid gap-2 py-5"><Label htmlFor="stash-branch-name">Branch name</Label><Input id="stash-branch-name" value={branchName} autoFocus onChange={(event) => setBranchName(event.target.value)} disabled={submitting} /></div>
             {dialogError ? <p className="mb-4 text-sm text-destructive" role="alert">{dialogError}</p> : null}
-            <DialogFooter><Button type="button" variant="outline" disabled={submitting} onClick={() => setBranchTarget(null)}>Cancel</Button><Button type="submit" disabled={submitting || !branchName.trim()}>{submitting ? "Creating branch" : "Create branch"}</Button></DialogFooter>
+            <DialogFooter><Button type="button" variant="outline" disabled={submitting} onClick={() => setBranchTarget(null)}>Cancel</Button><Button type="submit" disabled={submitting || actionsDisabled || !currentBranchTarget || !branchName.trim()}>{submitting ? "Creating branch" : "Create branch"}</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>

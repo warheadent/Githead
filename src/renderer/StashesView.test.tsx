@@ -105,10 +105,10 @@ describe("StashesView", () => {
     await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("disables context-menu actions while stash operations are unavailable", () => {
+  it.each([{ disabled: true }, { loading: true }])("disables context-menu actions when unavailable: %o", (unavailable) => {
     const onApply = vi.fn();
     const onPop = vi.fn();
-    renderView({ disabled: true, onApply, onPop });
+    renderView({ ...unavailable, onApply, onPop });
 
     fireEvent.contextMenu(screen.getByRole("option", { name: /icon refactor/ }));
     for (const item of screen.getAllByRole("menuitem")) {
@@ -118,6 +118,22 @@ describe("StashesView", () => {
     expect(onApply).not.toHaveBeenCalled();
     expect(onPop).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("keeps an open delete dialog bound to its stash across a refresh", async () => {
+    const onDrop = vi.fn().mockResolvedValue(null);
+    const view = renderView({ onDrop });
+    fireEvent.contextMenu(screen.getByRole("option", { name: /icon refactor/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete stash..." }));
+
+    view.rerender(stashView({ onDrop, loading: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete stash" }));
+    expect(onDrop).not.toHaveBeenCalled();
+
+    view.rerender(stashView({ onDrop, entries: entries.slice(1).map((entry, index) => ({ ...entry, ref: `stash@{${index}}` })) }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete stash" }));
+    expect(onDrop).toHaveBeenCalledWith("stash@{0}");
+    await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   it("restores its filter after the panel unmounts", () => {
@@ -136,7 +152,11 @@ describe("StashesView", () => {
 });
 
 function renderView(overrides: Partial<Parameters<typeof StashesView>[0]> = {}) {
-  return render(<StashesView
+  return render(stashView(overrides));
+}
+
+function stashView(overrides: Partial<Parameters<typeof StashesView>[0]> = {}) {
+  return <StashesView
     entries={entries}
     loading={false}
     error=""
@@ -155,7 +175,7 @@ function renderView(overrides: Partial<Parameters<typeof StashesView>[0]> = {}) 
     onDrop={vi.fn().mockResolvedValue(null)}
     onCreateBranch={vi.fn().mockResolvedValue(null)}
     {...overrides}
-  />);
+  />;
 }
 
 function renderPersistentView(store: WorkspacePanelStateStore, visible: boolean) {
