@@ -147,13 +147,13 @@ describe("StashesView", () => {
     await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("blocks an ambiguous delete target after refresh", () => {
+  it.each([false, true])("blocks an ambiguous delete target after refresh, duplicate removed: %s", (removeDuplicate) => {
     const onDrop = vi.fn();
     const duplicateEntries = [entries[0]!, { ...entries[0]!, ref: "stash@{1}" }];
     const view = renderView({ onDrop, entries: duplicateEntries });
     fireEvent.contextMenu(screen.getAllByRole("option", { name: /cache cleanup/ })[1]!);
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete stash..." }));
-    view.rerender(stashView({ onDrop, entries: duplicateEntries.map((entry) => ({ ...entry })) }));
+    view.rerender(stashView({ onDrop, entries: (removeDuplicate ? duplicateEntries.slice(0, 1) : duplicateEntries).map((entry) => ({ ...entry })) }));
     fireEvent.click(screen.getByRole("button", { name: "Delete stash" }));
     expect(onDrop).not.toHaveBeenCalled();
     expect(screen.getByRole("alert").textContent).toContain("select the stash again");

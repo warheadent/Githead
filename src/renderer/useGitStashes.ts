@@ -121,7 +121,7 @@ export function useGitStashes(repoPath: string, enabled: boolean, active: boolea
       requestIds.current.diff += 1;
       setState((current) => {
         const selectedEntry = current.entries.find((entry) => entry.ref === current.selectedRef);
-        const selectedRef = findStashEntry(entries, selectedEntry)?.ref
+        const selectedRef = findStashEntry(entries, selectedEntry, current.entries)?.ref
           ?? (active ? entries[0]?.ref ?? null : null);
         return { ...initialState, entries, selectedRef };
       });

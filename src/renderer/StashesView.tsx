@@ -50,8 +50,8 @@ export function StashesView({
   onDrop: (stashRef: string) => Promise<string | null>;
   onCreateBranch: (stashRef: string, branchName: string) => Promise<string | null>;
 }): ReactNode {
-  const [dropTarget, setDropTarget] = useState<GitStashEntry | null>(null);
-  const [branchTarget, setBranchTarget] = useState<GitStashEntry | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ entry: GitStashEntry; entries: GitStashEntry[] } | null>(null);
+  const [branchTarget, setBranchTarget] = useState<{ entry: GitStashEntry; entries: GitStashEntry[] } | null>(null);
   const [branchName, setBranchName] = useState("");
   const [dialogError, setDialogError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -59,8 +59,8 @@ export function StashesView({
   const [filesCollapsed, setFilesCollapsed] = usePersistentWorkspacePanelState("stashes-files-collapsed", false);
   const selected = entries.find((entry) => entry.ref === selectedRef) ?? null;
   const actionsDisabled = disabled || loading;
-  const currentDropTarget = findStashEntry(entries, dropTarget);
-  const currentBranchTarget = findStashEntry(entries, branchTarget);
+  const currentDropTarget = findStashEntry(entries, dropTarget?.entry, dropTarget?.entries ?? []);
+  const currentBranchTarget = findStashEntry(entries, branchTarget?.entry, branchTarget?.entries ?? []);
   const searchEnabled = entries.length > 3;
   const normalizedQuery = searchEnabled ? searchQuery.trim().toLocaleLowerCase() : "";
   const visibleEntries = normalizedQuery
@@ -69,13 +69,13 @@ export function StashesView({
 
   const openDropDialog = (entry: GitStashEntry): void => {
     setDialogError("");
-    setDropTarget(entry);
+    setDropTarget({ entry, entries });
   };
 
   const openBranchDialog = (entry: GitStashEntry): void => {
     setDialogError("");
     setBranchName("");
-    setBranchTarget(entry);
+    setBranchTarget({ entry, entries });
   };
 
   const dropSelected = async (): Promise<void> => {
@@ -195,7 +195,7 @@ export function StashesView({
 
       <Dialog open={Boolean(dropTarget)} onOpenChange={(open) => { if (!open && !submitting) setDropTarget(null); }}>
         <DialogContent showCloseButton={!submitting} className="sm:max-w-md">
-          <DialogHeader><DialogTitle>Delete this stash?</DialogTitle><DialogDescription>The saved changes in {currentDropTarget?.ref ?? dropTarget?.ref} will be deleted. This action cannot be undone.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Delete this stash?</DialogTitle><DialogDescription>The saved changes in {currentDropTarget?.ref ?? dropTarget?.entry.ref} will be deleted. This action cannot be undone.</DialogDescription></DialogHeader>
           {!loading && dropTarget && !currentDropTarget ? <p role="alert">The stash list changed. Close this dialog and select the stash again.</p> : null}
           {dialogError ? <p className="text-sm text-destructive" role="alert">{dialogError}</p> : null}
           <DialogFooter><Button type="button" variant="outline" disabled={submitting} onClick={() => setDropTarget(null)}>Cancel</Button><Button type="button" variant="destructive" disabled={submitting || actionsDisabled || !currentDropTarget} onClick={() => { void dropSelected(); }}>{submitting ? "Deleting" : "Delete stash"}</Button></DialogFooter>
