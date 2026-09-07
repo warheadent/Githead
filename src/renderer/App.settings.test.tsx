@@ -999,6 +999,8 @@ describe("App", { timeout: 10_000 }, () => {
         autoFetchIntervalMinutes: 15,
         colorTheme: "githead",
         appearanceMode: "system",
+        visualEffects: "standard",
+        reduceMotion: "system",
         uiFont: "inter",
         codeFont: "system-mono",
         zoomFactor: 1,
@@ -1032,6 +1034,8 @@ describe("App", { timeout: 10_000 }, () => {
       autoFetchIntervalMinutes: 10,
       colorTheme: "githead",
       appearanceMode: "system",
+      visualEffects: "standard",
+      reduceMotion: "system",
       uiFont: "inter",
       codeFont: "system-mono",
       zoomFactor: 1,
@@ -1220,6 +1224,8 @@ describe("App", { timeout: 10_000 }, () => {
       autoFetchIntervalMinutes: 10,
       colorTheme: "ember",
       appearanceMode: "light",
+      visualEffects: "standard",
+      reduceMotion: "system",
       uiFont: "inter",
       codeFont: "system-mono",
       zoomFactor: 1,
@@ -1405,4 +1411,45 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.getByText("GitHub views will be disconnected")).toBeTruthy();
     expect(githead.removeRemote).not.toHaveBeenCalled();
   });
+});
+
+describe("visual effect preferences", () => {
+  it("previews, cancels, and saves effects and reduced motion", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("tab", { name: "Appearance" }));
+    await user.click(screen.getByRole("radio", { name: /^Full/ }));
+    await user.click(screen.getByRole("radio", { name: "Always" }));
+    expect(document.documentElement.dataset.visualEffects).toBe("full");
+    expect(document.documentElement.dataset.reduceMotion).toBe("true");
+    expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(false);
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    expect(document.documentElement.dataset.visualEffects).toBe("standard");
+    expect(document.documentElement.dataset.reduceMotion).toBe("false");
+    expect(githead.saveAppSettings).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("tab", { name: "Appearance" }));
+    await user.click(screen.getByRole("radio", { name: /^Off/ }));
+    await user.click(screen.getByRole("radio", { name: "Always" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(githead.saveAppSettings).toHaveBeenCalledWith(expect.objectContaining({ visualEffects: "off", reduceMotion: "always" })));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull());
+    expect(document.documentElement.dataset.visualEffects).toBe("off");
+    expect(document.documentElement.dataset.reduceMotion).toBe("true");
+  });
+});
+
+
+it("keeps startup visual preferences if the later settings refresh fails", async () => {
+  const initialAppSettings = await githead.getAppSettings();
+  vi.mocked(githead.getAppSettings).mockRejectedValue(new Error("Settings temporarily unavailable"));
+  render(<App initialAppSettings={{ ...initialAppSettings, visualEffects: "off", reduceMotion: "always" }} />);
+  expect(document.documentElement.dataset.visualEffects).toBe("off");
+  expect(document.documentElement.dataset.reduceMotion).toBe("true");
+  await screen.findByRole("button", { name: "Settings" });
+  expect(document.documentElement.dataset.visualEffects).toBe("off");
+  expect(document.documentElement.dataset.reduceMotion).toBe("true");
 });

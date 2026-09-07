@@ -7,6 +7,8 @@ import { SettingsDialog, type SettingsDraft } from "./SettingsDialog";
 afterEach(cleanup);
 
 const savedDraft: SettingsDraft = {
+  visualEffects: "standard",
+  reduceMotion: "system",
   selectedProvider: "openrouter",
   commitPlanGranularity: "file",
   providerModels: { openrouter: "", openai: "", "codex-cli": "", anthropic: "", "claude-code": "" },

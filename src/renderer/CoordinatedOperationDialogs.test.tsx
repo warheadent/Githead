@@ -18,6 +18,8 @@ afterEach(async () => {
 });
 
 const settingsDraft: SettingsDraft = {
+  visualEffects: "standard",
+  reduceMotion: "system",
   selectedProvider: "openrouter",
   commitPlanGranularity: "file",
   providerModels: { openrouter: "", openai: "", "codex-cli": "", anthropic: "", "claude-code": "" },

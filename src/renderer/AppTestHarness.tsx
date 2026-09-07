@@ -212,6 +212,8 @@ export function createGitheadMock(): GitheadApi {
     }
   });
   const appSettings: AppSettings = {
+    visualEffects: "standard",
+    reduceMotion: "system",
     autoFetchIntervalMinutes: 10,
     colorTheme: "githead",
     appearanceMode: "system",

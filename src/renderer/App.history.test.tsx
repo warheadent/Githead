@@ -65,6 +65,8 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.queryByRole("region", { name: "Repositories" })).toBeNull();
 
     pendingSettings.resolve({
+      visualEffects: "standard",
+      reduceMotion: "system",
       autoFetchIntervalMinutes: 10,
       colorTheme: "githead",
       appearanceMode: "system",
@@ -1198,6 +1200,8 @@ describe("App", { timeout: 10_000 }, () => {
     const commit = createCommit();
     const file = { path: "src/App.tsx", status: "M", additions: 3, deletions: 1 };
     vi.mocked(githead.getAppSettings).mockResolvedValue({
+      visualEffects: "standard",
+      reduceMotion: "system",
       autoFetchIntervalMinutes: 10,
       colorTheme: "githead",
       appearanceMode: "system",
@@ -1241,6 +1245,8 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
     vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash));
     vi.mocked(githead.getAppSettings).mockResolvedValue({
+      visualEffects: "standard",
+      reduceMotion: "system",
       autoFetchIntervalMinutes: 10,
       colorTheme: "githead",
       appearanceMode: "system",
@@ -1604,6 +1610,8 @@ describe("App", { timeout: 10_000 }, () => {
   it("renders a shared tree view and stages all eligible files in a folder", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getAppSettings).mockResolvedValue({
+      visualEffects: "standard",
+      reduceMotion: "system",
       autoFetchIntervalMinutes: 10, colorTheme: "githead", appearanceMode: "system", uiFont: "inter", codeFont: "system-mono", zoomFactor: 1, statusFileViewMode: "tree", wrapDiffLines: false, gitBehaviors: { tagPushBehavior: "all" }, privacy: { shareAnonymousDiagnostics: true }
     });
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [
@@ -1762,6 +1770,8 @@ describe("App", { timeout: 10_000 }, () => {
     expect(wrapButton.getAttribute("aria-pressed")).toBe("true");
     expect(output?.classList.contains("is-wrapped")).toBe(true);
     await waitFor(() => expect(githead.saveAppSettings).toHaveBeenLastCalledWith({
+      visualEffects: "standard",
+      reduceMotion: "system",
       autoFetchIntervalMinutes: 10,
       colorTheme: "githead",
       appearanceMode: "system",
@@ -2132,4 +2142,18 @@ describe("App", { timeout: 10_000 }, () => {
     expect(vi.mocked(githead.getFileDiff).mock.calls.every(([request]) => request.repoPath === repoPath)).toBe(true);
     expect(screen.queryByText("repository-b")).toBeNull();
   });
+});
+
+it("omits hover hit geometry and blur filters when visual effects are off", async () => {
+  const settings = await githead.getAppSettings();
+  vi.mocked(githead.getAppSettings).mockResolvedValue({ ...settings, visualEffects: "off" });
+  vi.mocked(githead.getCommitHistory).mockResolvedValue([createCommit()]);
+  const user = userEvent.setup();
+  render(<App />);
+  await waitForRepositoryWorkspace();
+  await user.click(screen.getByRole("tab", { name: "Commit History" }));
+  const svg = await screen.findByTestId("commit-graph-svg");
+  expect(svg.querySelector("filter")).toBeNull();
+  expect(svg.querySelector(".commit-graph-node-hit, .commit-graph-edge-hit")).toBeNull();
+  expect(screen.getAllByTestId("commit-graph-node")).toHaveLength(1);
 });

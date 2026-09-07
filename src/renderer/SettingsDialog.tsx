@@ -36,6 +36,8 @@ import type {
   AiReasoningEffort,
   AiSettings,
   AppAppearanceMode,
+  AppVisualEffects,
+  AppReduceMotion,
   AppCodeFont,
   AppColorTheme,
   AppUiFont,
@@ -75,6 +77,8 @@ export interface SettingsDraft {
   autoFetchIntervalMinutes: string;
   colorTheme: AppColorTheme;
   appearanceMode: AppAppearanceMode;
+  visualEffects: AppVisualEffects;
+  reduceMotion: AppReduceMotion;
   uiFont: AppUiFont;
   codeFont: AppCodeFont;
   zoomFactor: number;
@@ -486,6 +490,29 @@ export function SettingsDialog({
 function AppearanceSettings({ draft, saving, onDraftChange }: { draft: SettingsDraft; saving: boolean; onDraftChange: (draft: SettingsDraft) => void }): ReactNode {
   return <div className="grid max-w-2xl gap-5">
     <fieldset className="appearance-mode-picker" disabled={saving}><legend>Appearance</legend><div className="appearance-mode-options">{([{ id: "system", label: "System", icon: Monitor }, { id: "light", label: "Light", icon: Sun }, { id: "dark", label: "Dark", icon: Moon }] as const).map(({ id, label, icon: Icon }) => <label key={id}><input className="sr-only" type="radio" name="appearance-mode" value={id} checked={draft.appearanceMode === id} onChange={() => onDraftChange({ ...draft, appearanceMode: id })} /><Icon aria-hidden="true" /><span>{label}</span></label>)}</div></fieldset>
+    <div className="visual-effects-settings">
+      <fieldset disabled={saving}>
+        <legend className="text-sm font-semibold">Visual effects</legend>
+        <p id="visual-effects-description" className="text-sm text-muted-foreground">Choose how much detail Githead adds to its appearance.</p>
+        <div className="visual-effects-options" aria-describedby="visual-effects-description">
+          {([
+            { id: "off", label: "Off", description: "Solid panels. No decorative effects." },
+            { id: "standard", label: "Standard", description: "Soft lighting and completion feedback." },
+            { id: "full", label: "Full", description: "Standard effects plus glass blur. Uses more graphics power." }
+          ] as const).map(({ id, label, description }) => <label key={id} className="visual-effects-option">
+            <input type="radio" name="visual-effects" value={id} checked={draft.visualEffects === id} onChange={() => onDraftChange({ ...draft, visualEffects: id })} />
+            <span><strong>{label}</strong><span>{description}</span></span>
+          </label>)}
+        </div>
+      </fieldset>
+      <fieldset disabled={saving}>
+        <legend className="text-sm font-semibold">Reduce motion</legend>
+        <p className="text-sm text-muted-foreground">Limit movement while keeping status feedback visible.</p>
+        <div className="reduce-motion-options">
+          {([{ id: "system", label: "Follow system" }, { id: "always", label: "Always" }] as const).map(({ id, label }) => <label key={id}><input type="radio" name="reduce-motion" value={id} checked={draft.reduceMotion === id} onChange={() => onDraftChange({ ...draft, reduceMotion: id })} /><span>{label}</span></label>)}
+        </div>
+      </fieldset>
+    </div>
     <div className="interface-scale-setting"><div className="interface-scale-heading"><div><label className="text-sm font-semibold" htmlFor="interface-scale">Interface scale</label><p className="text-sm text-muted-foreground">Resize text and controls throughout Githead.</p></div><output className="interface-scale-value" htmlFor="interface-scale">{formatZoomFactor(draft.zoomFactor)}</output></div><div className="interface-scale-slider-wrap"><div className="interface-scale-notches" aria-hidden="true">{APP_ZOOM_FACTORS.map((factor) => <span key={factor} className={factor === 1 ? "is-default" : undefined} />)}</div><input id="interface-scale" className="interface-scale-slider" type="range" min={0} max={APP_ZOOM_FACTORS.length - 1} step={1} value={Math.max(0, APP_ZOOM_FACTORS.indexOf(draft.zoomFactor as typeof APP_ZOOM_FACTORS[number]))} aria-valuetext={formatZoomFactor(draft.zoomFactor)} disabled={saving} onChange={(event) => { const zoomFactor = APP_ZOOM_FACTORS[Number(event.currentTarget.value)]; if (zoomFactor !== undefined) onDraftChange({ ...draft, zoomFactor }); }} /></div><div className="interface-scale-bounds" aria-hidden="true"><span>75%</span><span className="interface-scale-default">100% Default</span><span>200%</span></div></div>
     <div><h3 className="text-sm font-semibold">Fonts</h3><p className="text-sm text-muted-foreground">Choose separate typefaces for the interface and code-focused content.</p></div>
     <div className="font-setting-grid">
@@ -616,7 +643,7 @@ function getDirtyCategories(baseline: string, draft: SettingsDraft): Record<Sett
   if (!baseline) return { appearance: false, "git-identity": false, "git-behaviors": false, sync: false, integrations: false, ai: false, privacy: false, diagnostics: false };
   const saved = JSON.parse(baseline) as SettingsDraft;
   return {
-    appearance: saved.colorTheme !== draft.colorTheme || saved.appearanceMode !== draft.appearanceMode || saved.uiFont !== draft.uiFont || saved.codeFont !== draft.codeFont || saved.zoomFactor !== draft.zoomFactor,
+    appearance: saved.visualEffects !== draft.visualEffects || saved.reduceMotion !== draft.reduceMotion || saved.colorTheme !== draft.colorTheme || saved.appearanceMode !== draft.appearanceMode || saved.uiFont !== draft.uiFont || saved.codeFont !== draft.codeFont || saved.zoomFactor !== draft.zoomFactor,
     "git-identity": saved.gitIdentityName !== draft.gitIdentityName || saved.gitIdentityEmail !== draft.gitIdentityEmail,
     "git-behaviors": saved.tagPushBehavior !== draft.tagPushBehavior
       || saved.requireUpToDateUpstreamBeforeCommit !== draft.requireUpToDateUpstreamBeforeCommit

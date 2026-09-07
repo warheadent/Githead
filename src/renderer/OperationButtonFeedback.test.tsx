@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
-import { act, render } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   OPERATION_BUTTON_FEEDBACK_HOLD_MS,
   OperationButtonFeedback,
   type OperationButtonFeedbackEvent
 } from "./OperationButtonFeedback";
+
+import { VisualEffectsProvider } from "./VisualEffects";
 
 function createFeedbackEvent(overrides: Partial<OperationButtonFeedbackEvent> = {}): OperationButtonFeedbackEvent {
   return {
@@ -20,6 +22,7 @@ function createFeedbackEvent(overrides: Partial<OperationButtonFeedbackEvent> = 
 }
 
 afterEach(() => {
+  cleanup();
   vi.useRealTimers();
 });
 
@@ -83,4 +86,18 @@ describe("OperationButtonFeedback", () => {
     expect(view.container.querySelector(".operation-button-feedback")?.getAttribute("data-feedback")).toBe("error");
     expect(view.getByRole("status").textContent).toBe("Failed.");
   });
+});
+
+
+it("only adds a completion glow to successful pushes and commits, and removes it when effects are off", () => {
+  for (const action of ["fetch", "push", "commit"] as const) {
+    const event = createFeedbackEvent({ action });
+    const feedback = <OperationButtonFeedback action={action} event={event} successLabel="Done" surface="action-bar">Run</OperationButtonFeedback>;
+    const view = render(<VisualEffectsProvider effects="standard" motionPreference="system">{feedback}</VisualEffectsProvider>);
+    expect(Boolean(view.container.querySelector(".operation-completion-glow"))).toBe(action !== "fetch");
+    view.rerender(<VisualEffectsProvider effects="off" motionPreference="system">{feedback}</VisualEffectsProvider>);
+    expect(view.container.querySelector(".operation-completion-glow")).toBeNull();
+    expect(view.getByRole("status").textContent).toBe("Done.");
+    view.unmount();
+  }
 });

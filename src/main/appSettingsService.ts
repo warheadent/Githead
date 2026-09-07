@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { APP_APPEARANCE_MODES, APP_CODE_FONTS, APP_COLOR_THEMES, APP_UI_FONTS, DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS, DEFAULT_TAG_PUSH_BEHAVIOR, REMOTE_CHECK_LEASE_SECONDS, STATUS_FILE_VIEW_MODES, TAG_PUSH_BEHAVIORS, isAppZoomFactor, type AppAppearanceMode, type AppCodeFont, type AppColorTheme, type AppSettings, type AppSettingsSaveRequest, type AppUiFont, type GitBehaviorSettings, type PrivacySettings, type RemoteCheckLeaseSeconds, type StatusFileViewMode, type TagPushBehavior } from "../shared/types";
+import { APP_VISUAL_EFFECTS, APP_REDUCE_MOTION_MODES, DEFAULT_VISUAL_EFFECTS, DEFAULT_REDUCE_MOTION, type AppVisualEffects, type AppReduceMotion, APP_APPEARANCE_MODES, APP_CODE_FONTS, APP_COLOR_THEMES, APP_UI_FONTS, DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS, DEFAULT_TAG_PUSH_BEHAVIOR, REMOTE_CHECK_LEASE_SECONDS, STATUS_FILE_VIEW_MODES, TAG_PUSH_BEHAVIORS, isAppZoomFactor, type AppAppearanceMode, type AppCodeFont, type AppColorTheme, type AppSettings, type AppSettingsSaveRequest, type AppUiFont, type GitBehaviorSettings, type PrivacySettings, type RemoteCheckLeaseSeconds, type StatusFileViewMode, type TagPushBehavior } from "../shared/types";
 import {
   normalizeAutoFetchIntervalForSave,
   parseStoredAutoFetchInterval
@@ -9,6 +9,8 @@ import {
 export { DEFAULT_AUTO_FETCH_INTERVAL_MINUTES } from "./autoFetchSettings";
 
 interface StoredAppSettings {
+  visualEffects?: unknown;
+  reduceMotion?: unknown;
   autoFetchIntervalMinutes?: unknown;
   colorTheme?: unknown;
   appearanceMode?: unknown;
@@ -42,6 +44,8 @@ export class AppSettingsService {
     const stored = await this.readStoredSettings();
     return {
       autoFetchIntervalMinutes: parseStoredAutoFetchInterval(stored.autoFetchIntervalMinutes),
+      visualEffects: APP_VISUAL_EFFECTS.includes(stored.visualEffects as AppVisualEffects) ? stored.visualEffects as AppVisualEffects : DEFAULT_VISUAL_EFFECTS,
+      reduceMotion: APP_REDUCE_MOTION_MODES.includes(stored.reduceMotion as AppReduceMotion) ? stored.reduceMotion as AppReduceMotion : DEFAULT_REDUCE_MOTION,
       colorTheme: parseStoredColorTheme(stored.colorTheme),
       appearanceMode: parseStoredAppearanceMode(stored.appearanceMode),
       uiFont: parseStoredUiFont(stored.uiFont),
@@ -56,6 +60,10 @@ export class AppSettingsService {
 
   async saveSettings(request: AppSettingsSaveRequest): Promise<AppSettings> {
     const existing = await this.getSettings();
+    const visualEffects = request.visualEffects === undefined ? existing.visualEffects : request.visualEffects;
+    const reduceMotion = request.reduceMotion === undefined ? existing.reduceMotion : request.reduceMotion;
+    if (!APP_VISUAL_EFFECTS.includes(visualEffects)) throw new Error("Unknown visual effects level.");
+    if (!APP_REDUCE_MOTION_MODES.includes(reduceMotion)) throw new Error("Unknown reduced motion preference.");
     const autoFetchIntervalMinutes = normalizeAutoFetchIntervalForSave(request.autoFetchIntervalMinutes);
     const colorTheme = normalizeColorThemeForSave(request.colorTheme);
     const appearanceMode = normalizeAppearanceModeForSave(request.appearanceMode);
@@ -76,6 +84,8 @@ export class AppSettingsService {
     });
     await fs.writeFile(this.settingsPath, `${JSON.stringify({
       autoFetchIntervalMinutes,
+      visualEffects,
+      reduceMotion,
       colorTheme,
       appearanceMode,
       uiFont,

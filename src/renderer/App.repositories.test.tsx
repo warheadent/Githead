@@ -474,6 +474,8 @@ describe("App", { timeout: 10_000 }, () => {
   it("does not auto-fetch when the interval is disabled", async () => {
     vi.useFakeTimers();
     vi.mocked(githead.getAppSettings).mockResolvedValue({
+      visualEffects: "standard",
+      reduceMotion: "system",
       autoFetchIntervalMinutes: 0,
       colorTheme: "githead",
       appearanceMode: "system",
@@ -519,6 +521,8 @@ describe("App", { timeout: 10_000 }, () => {
   it("lets a repository override enable auto-fetch when the global setting is off", async () => {
     vi.useFakeTimers();
     vi.mocked(githead.getAppSettings).mockResolvedValue({
+      visualEffects: "standard",
+      reduceMotion: "system",
       autoFetchIntervalMinutes: 0,
       colorTheme: "githead",
       appearanceMode: "system",

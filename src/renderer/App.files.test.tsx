@@ -340,6 +340,8 @@ describe("App", { timeout: 10_000 }, () => {
 
   it("keeps a 10,000-file status tree viewport-proportional during file selection", async () => {
     vi.mocked(githead.getAppSettings).mockResolvedValue({
+      visualEffects: "standard",
+      reduceMotion: "system",
       autoFetchIntervalMinutes: 10, colorTheme: "githead", appearanceMode: "system", uiFont: "inter", codeFont: "system-mono", zoomFactor: 1, statusFileViewMode: "tree", wrapDiffLines: false, gitBehaviors: { tagPushBehavior: "all" }, privacy: { shareAnonymousDiagnostics: true }
     });
     const files = Array.from({ length: 10_000 }, (_, index) => createStatusFile(
@@ -1765,6 +1767,8 @@ describe("App", { timeout: 10_000 }, () => {
   it("uses the optional upstream safety check for an ordinary commit", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getAppSettings).mockResolvedValue({
+      visualEffects: "standard",
+      reduceMotion: "system",
       autoFetchIntervalMinutes: 10,
       colorTheme: "githead",
       appearanceMode: "system",
@@ -1800,6 +1804,8 @@ describe("App", { timeout: 10_000 }, () => {
   it("keeps the optional upstream safety check when retrying after Git identity is saved", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getAppSettings).mockResolvedValue({
+      visualEffects: "standard",
+      reduceMotion: "system",
       autoFetchIntervalMinutes: 10,
       colorTheme: "githead",
       appearanceMode: "system",
@@ -1863,6 +1869,8 @@ describe("App", { timeout: 10_000 }, () => {
   it("keeps the staged commit ready when the optional upstream check finds remote commits", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getAppSettings).mockResolvedValue({
+      visualEffects: "standard",
+      reduceMotion: "system",
       autoFetchIntervalMinutes: 10,
       colorTheme: "githead",
       appearanceMode: "system",
