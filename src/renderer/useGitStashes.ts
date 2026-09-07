@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { findStashEntry } from "./stashIdentity";
 import type { GitFileDiff, GitStashDetails, GitStashEntry } from "../shared/types";
 
 export interface GitStashWorkspaceState {
@@ -99,29 +100,30 @@ export function useGitStashes(repoPath: string, enabled: boolean, active: boolea
       return;
     }
     const requestId = ++requestIds.current.list;
-    setState((current) => ({ ...current, loading: true, error: "" }));
+    requestIds.current.details += 1;
+    requestIds.current.diff += 1;
+    setState((current) => ({
+      ...current,
+      loading: true,
+      error: "",
+      details: null,
+      detailsLoading: false,
+      detailsError: "",
+      selectedFilePath: null,
+      diff: null,
+      diffLoading: false,
+      diffError: ""
+    }));
     try {
       const entries = await window.githead.getStashes({ repoPath, requestId: `stash-list:${requestId}` });
       if (requestId !== requestIds.current.list || repoPathRef.current !== repoPath) return;
+      requestIds.current.details += 1;
+      requestIds.current.diff += 1;
       setState((current) => {
-        const selectedRef = current.selectedRef && entries.some((entry) => entry.ref === current.selectedRef)
-          ? current.selectedRef
-          : active ? entries[0]?.ref ?? null : null;
-        return {
-          ...current,
-          entries,
-          loading: false,
-          selectedRef,
-          ...(selectedRef === current.selectedRef ? {} : {
-            details: null,
-            detailsLoading: false,
-            detailsError: "",
-            selectedFilePath: null,
-            diff: null,
-            diffLoading: false,
-            diffError: ""
-          })
-        };
+        const selectedEntry = current.entries.find((entry) => entry.ref === current.selectedRef);
+        const selectedRef = findStashEntry(entries, selectedEntry, current.entries)?.ref
+          ?? (active ? entries[0]?.ref ?? null : null);
+        return { ...initialState, entries, selectedRef };
       });
     } catch (error) {
       if (requestId !== requestIds.current.list || repoPathRef.current !== repoPath) return;

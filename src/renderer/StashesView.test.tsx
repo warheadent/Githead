@@ -66,6 +66,110 @@ describe("StashesView", () => {
     expect(onSelectFile).toHaveBeenCalledWith("src/cache.test.ts");
   });
 
+  it.each(["Apply", "Pop"])("runs %s on the right-clicked stash instead of the selected stash", (action) => {
+    const onApply = vi.fn();
+    const onPop = vi.fn();
+    renderView({ onApply, onPop });
+
+    fireEvent.contextMenu(screen.getByRole("option", { name: /icon refactor/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: action }));
+
+    expect(action === "Apply" ? onApply : onPop).toHaveBeenCalledWith("stash@{1}");
+    expect(action === "Apply" ? onPop : onApply).not.toHaveBeenCalled();
+  });
+
+  it("confirms deletion of the right-clicked stash", async () => {
+    const onDrop = vi.fn().mockResolvedValue(null);
+    renderView({ onDrop });
+
+    fireEvent.contextMenu(screen.getByRole("option", { name: /icon refactor/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete stash..." }));
+
+    expect(onDrop).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog").textContent).toContain("stash@{1}");
+    fireEvent.click(screen.getByRole("button", { name: "Delete stash" }));
+    expect(onDrop).toHaveBeenCalledWith("stash@{1}");
+    await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("creates a branch from the right-clicked stash", async () => {
+    const onCreateBranch = vi.fn().mockResolvedValue(null);
+    renderView({ onCreateBranch });
+
+    fireEvent.contextMenu(screen.getByRole("option", { name: /icon refactor/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Create branch..." }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Branch name" }), { target: { value: "restore-icons" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create branch" }));
+
+    expect(onCreateBranch).toHaveBeenCalledWith("stash@{1}", "restore-icons");
+    await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it.each([{ disabled: true }, { loading: true }])("disables context-menu actions when unavailable: %o", (unavailable) => {
+    const onApply = vi.fn();
+    const onPop = vi.fn();
+    renderView({ ...unavailable, onApply, onPop });
+
+    fireEvent.contextMenu(screen.getByRole("option", { name: /icon refactor/ }));
+    for (const item of screen.getAllByRole("menuitem")) {
+      expect(item.getAttribute("aria-disabled")).toBe("true");
+      fireEvent.click(item);
+    }
+    expect(onApply).not.toHaveBeenCalled();
+    expect(onPop).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("keeps an open delete dialog bound to its stash across a refresh", async () => {
+    const onDrop = vi.fn().mockResolvedValue(null);
+    const view = renderView({ onDrop });
+    fireEvent.contextMenu(screen.getByRole("option", { name: /icon refactor/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete stash..." }));
+
+    view.rerender(stashView({ onDrop, loading: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete stash" }));
+    expect(onDrop).not.toHaveBeenCalled();
+
+    view.rerender(stashView({ onDrop, entries: entries.slice(1).map((entry, index) => ({ ...entry, ref: `stash@{${index}}` })) }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete stash" }));
+    expect(onDrop).toHaveBeenCalledWith("stash@{0}");
+    await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("deletes the exact row when duplicate stash commits exist", async () => {
+    const onDrop = vi.fn().mockResolvedValue(null);
+    const duplicateEntries = [entries[0]!, { ...entries[0]!, ref: "stash@{1}" }];
+    renderView({ onDrop, entries: duplicateEntries });
+    fireEvent.contextMenu(screen.getAllByRole("option", { name: /cache cleanup/ })[1]!);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete stash..." }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete stash" }));
+    expect(onDrop).toHaveBeenCalledWith("stash@{1}");
+    await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it.each([false, true])("blocks an ambiguous delete target after refresh, duplicate removed: %s", (removeDuplicate) => {
+    const onDrop = vi.fn();
+    const duplicateEntries = [entries[0]!, { ...entries[0]!, ref: "stash@{1}" }];
+    const view = renderView({ onDrop, entries: duplicateEntries });
+    fireEvent.contextMenu(screen.getAllByRole("option", { name: /cache cleanup/ })[1]!);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete stash..." }));
+    view.rerender(stashView({ onDrop, entries: (removeDuplicate ? duplicateEntries.slice(0, 1) : duplicateEntries).map((entry) => ({ ...entry })) }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete stash" }));
+    expect(onDrop).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("select the stash again");
+  });
+
+  it("closes a context menu when refresh replaces its row", () => {
+    const onApply = vi.fn();
+    const view = renderView({ onApply, disabled: true });
+    fireEvent.contextMenu(screen.getByRole("option", { name: /cache cleanup/ }));
+    expect(screen.getByRole("menu")).toBeTruthy();
+    view.rerender(stashView({ onApply, loading: true }));
+    view.rerender(stashView({ onApply, entries: entries.slice(1).map((entry, index) => ({ ...entry, ref: `stash@{${index}}` })) }));
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
   it("restores its filter after the panel unmounts", () => {
     const store = new WorkspacePanelStateStore();
     const view = renderPersistentView(store, true);
@@ -82,7 +186,11 @@ describe("StashesView", () => {
 });
 
 function renderView(overrides: Partial<Parameters<typeof StashesView>[0]> = {}) {
-  return render(<StashesView
+  return render(stashView(overrides));
+}
+
+function stashView(overrides: Partial<Parameters<typeof StashesView>[0]> = {}) {
+  return <StashesView
     entries={entries}
     loading={false}
     error=""
@@ -101,7 +209,7 @@ function renderView(overrides: Partial<Parameters<typeof StashesView>[0]> = {}) 
     onDrop={vi.fn().mockResolvedValue(null)}
     onCreateBranch={vi.fn().mockResolvedValue(null)}
     {...overrides}
-  />);
+  />;
 }
 
 function renderPersistentView(store: WorkspacePanelStateStore, visible: boolean) {
