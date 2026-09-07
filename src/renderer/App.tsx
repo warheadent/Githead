@@ -9811,7 +9811,7 @@ function BranchFact({
           displayValue={currentBranch ?? (currentTag ? `Tag: ${currentTag}` : "Detached HEAD")}
           searchPlaceholder="Search branches..."
           emptyMessage="No branches found."
-          triggerIcon={<GitBranchIcon />}
+          triggerIcon={!currentBranch && currentTag ? <Tag /> : <GitBranchIcon />}
           compact
           onValueChange={(value) => {
             if (value.startsWith("local:")) {
