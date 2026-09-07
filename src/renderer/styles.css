@@ -7168,10 +7168,7 @@ textarea,
 }
 
 
-/* Invisible geometry supports hover without intercepting row clicks. */
-.commit-graph-edge-hit { fill: none; stroke: transparent; stroke-width: 10px; }
-.commit-graph-node-hit { fill: transparent; stroke: none; }
-
+/* The hovered commit row lights its node and connected edges. */
 @media (hover: hover) and (pointer: fine) {
   :root:is([data-visual-effects="standard"], [data-visual-effects="full"]) .commit-graph-edge[data-graph-hover] .commit-graph-edge-line,
   :root:is([data-visual-effects="standard"], [data-visual-effects="full"]) .commit-graph-node[data-graph-hover] .commit-graph-dot,

@@ -12509,7 +12509,6 @@ const CommitGraphSvg = memo(function CommitGraphSvg({
           >
             <path className="commit-graph-edge-clearance" d={edge.path} />
             <path className="commit-graph-edge-line" d={edge.path} />
-            {hoverEnabled ? <path className="commit-graph-edge-hit" d={edge.path} /> : null}
           </g>
         ))}
       </g>
@@ -12520,7 +12519,6 @@ const CommitGraphSvg = memo(function CommitGraphSvg({
             data-graph-hash={node.hash}
             className={`commit-graph-node lane-${node.lane % COMMIT_GRAPH_COLOR_COUNT} ${node.isMerge ? "is-merge" : ""} ${node.hash === selectedCommitHash ? "is-selected" : ""}`}
           >
-            {hoverEnabled ? <circle className="commit-graph-node-hit" cx={node.x} cy={node.y} r="9" /> : null}
             {node.hash === selectedCommitHash ? <circle className="commit-graph-selection" cx={node.x} cy={node.y} r="7" /> : null}
             <circle data-testid="commit-graph-node" className="commit-graph-dot" cx={node.x} cy={node.y} r={node.isMerge ? 4.5 : 3.25} />
           </g>

@@ -2144,7 +2144,7 @@ describe("App", { timeout: 10_000 }, () => {
   });
 });
 
-it("omits hover hit geometry and blur filters when visual effects are off", async () => {
+it("omits graph blur filters when visual effects are off", async () => {
   const settings = await githead.getAppSettings();
   vi.mocked(githead.getAppSettings).mockResolvedValue({ ...settings, visualEffects: "off" });
   vi.mocked(githead.getCommitHistory).mockResolvedValue([createCommit()]);
@@ -2154,6 +2154,5 @@ it("omits hover hit geometry and blur filters when visual effects are off", asyn
   await user.click(screen.getByRole("tab", { name: "Commit History" }));
   const svg = await screen.findByTestId("commit-graph-svg");
   expect(svg.querySelector("filter")).toBeNull();
-  expect(svg.querySelector(".commit-graph-node-hit, .commit-graph-edge-hit")).toBeNull();
   expect(screen.getAllByTestId("commit-graph-node")).toHaveLength(1);
 });
