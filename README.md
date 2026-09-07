@@ -91,6 +91,20 @@ To inspect the Electron renderer on CDP port 9222, run this command:
 vp run dev:inspect
 ```
 
+On Linux development containers that cannot use the Chromium sandbox, explicitly disable it for the development session:
+
+```sh
+npm run dev:inspect -- --no-sandbox
+```
+
+This option disables Electron process sandboxing. Use it only for local development and testing in a trusted environment. Normal development launches keep the sandbox enabled. See the [Electron sandbox documentation](https://www.electronjs.org/docs/latest/tutorial/sandbox).
+
+If the container has no display server, use Xvfb:
+
+```sh
+xvfb-run -a -s "-screen 0 1920x1080x24" npm run dev:inspect -- --no-sandbox
+```
+
 ### Build the application
 
 Run this command:
