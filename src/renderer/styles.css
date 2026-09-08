@@ -3050,7 +3050,7 @@ textarea,
   color: var(--diff-notice-text);
 }
 
-.diff-changed-refresh:not(:disabled)::after {
+:root:is([data-visual-effects="standard"], [data-visual-effects="full"]) .diff-changed-refresh:not(:disabled)::after {
   content: "";
   position: absolute;
   inset: -1px;
@@ -3072,7 +3072,7 @@ textarea,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .diff-changed-refresh::after { animation: none; }
+  .diff-changed-refresh::after { animation: none !important; }
 }
 
 .diff-changed-refresh:hover:not(:disabled) {
