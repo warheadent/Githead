@@ -6963,6 +6963,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
 
   const stagedFiles = useMemo(() => getStagedFiles(state.summary), [state.summary]);
   const unstagedFiles = useMemo(() => getUnstagedFiles(state.summary), [state.summary]);
+  const pendingFileCount = state.summary?.files.length ?? 0;
   const running = isOperationRunning(state);
   const isValid = state.summary?.isValid ?? false;
   const disableActions = running || !isValid;
@@ -7312,9 +7313,14 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
               >
               <div className="workspace-tabs-bar border-b bg-card px-4 pt-2">
                 <TabsList variant="line" className="h-9 w-max min-w-full bg-transparent p-0">
-                  <TabsTrigger value="status" className="workspace-tab-trigger h-9 rounded-none">
+                  <TabsTrigger
+                    value="status"
+                    aria-label={pendingFileCount ? `File Status ${pendingFileCount}` : "File Status"}
+                    className="workspace-tab-trigger h-9 rounded-none"
+                  >
                     <ListTree />
                     File Status
+                    {pendingFileCount ? <span className="workspace-tab-count">{pendingFileCount}</span> : null}
                   </TabsTrigger>
                   {showStashesTab ? (
                     <TabsTrigger
