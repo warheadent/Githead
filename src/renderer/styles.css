@@ -1952,37 +1952,61 @@ textarea,
   color: var(--muted-foreground);
 }
 
-.stash-details-header,
-.stash-list-header {
-  display: flex;
-  min-height: 58px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  border-bottom: 1px solid var(--border);
-  padding: 10px 16px;
+.stash-workspace {
+  container-type: inline-size;
 }
 
 .stash-rail {
-  display: grid;
+  display: flex;
   height: 100%;
   min-height: 0;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
-  border-right: 1px solid var(--border);
+  flex-direction: column;
   background: var(--card);
+}
+
+.stash-list-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 22px 16px 16px;
+}
+
+.stash-list-heading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.stash-list-heading > svg {
+  width: 18px;
+  height: 18px;
+  color: var(--muted-foreground);
+}
+
+.stash-list-heading h2 {
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.stash-list-header p {
+  margin-top: 7px;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
 }
 
 .stash-search {
   position: relative;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+  margin: 0 12px 16px;
 }
 
 .stash-search > svg {
   position: absolute;
   z-index: 1;
   top: 50%;
-  left: 22px;
+  left: 11px;
   width: 14px;
   height: 14px;
   color: var(--muted-foreground);
@@ -1991,26 +2015,107 @@ textarea,
 }
 
 .stash-search input {
-  height: 34px;
-  padding-left: 30px;
+  height: 36px;
+  padding: 0 32px;
   background: var(--background);
+  font-size: 0.75rem;
+}
+
+.stash-search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.stash-search > button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 28px;
+  height: 28px;
+}
+
+.stash-list-scroll {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 10px 12px;
 }
 
 .stash-rail-footer {
-  min-height: 38px;
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: space-between;
+  gap: 8px;
   border-top: 1px solid var(--border);
-  padding: 11px 14px;
+  padding: 13px 16px;
   color: var(--muted-foreground);
   font-size: 0.7rem;
-  text-align: center;
+}
+
+.stash-rail-footer > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stash-rail-footer svg {
+  width: 12px;
+  height: 12px;
+}
+
+.stash-details {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.stash-details-header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.stash-details-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 10px;
+  color: var(--muted-foreground);
+  font-size: 0.7rem;
+}
+
+.stash-details-label svg {
+  width: 13px;
+  height: 13px;
+}
+
+.stash-details-label code {
+  margin-left: 3px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: var(--font-code);
+  font-size: 0.65rem;
+}
+
+.stash-details-header h2 {
+  font-size: 1.15rem;
+  font-weight: 650;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .stash-details-meta {
   display: flex;
   min-width: 0;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-  margin-top: 5px;
+  gap: 8px 16px;
+  margin-top: 10px;
   color: var(--muted-foreground);
   font-size: 0.72rem;
 }
@@ -2020,9 +2125,7 @@ textarea,
   min-width: 0;
   align-items: center;
   gap: 5px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .stash-details-meta svg {
@@ -2031,11 +2134,38 @@ textarea,
   flex: 0 0 auto;
 }
 
+.stash-actions {
+  flex: 0 0 auto;
+}
+
+.stash-actions p {
+  margin-top: 8px;
+  color: var(--muted-foreground);
+  font-size: 0.68rem;
+  text-align: right;
+}
+
+.stash-action-menu {
+  min-width: 260px;
+}
+
+.stash-action-menu [role="menuitem"] {
+  gap: 10px;
+  padding: 10px;
+}
+
+.stash-action-menu small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted-foreground);
+  font-size: 0.7rem;
+}
+
 .stash-review-workspace {
   display: grid;
   min-width: 0;
   min-height: 0;
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  grid-template-columns: 248px minmax(0, 1fr);
 }
 
 .stash-review-workspace.files-collapsed {
@@ -2048,30 +2178,43 @@ textarea,
   min-height: 0;
   grid-template-rows: auto minmax(0, 1fr);
   border-right: 1px solid var(--border);
-  background: var(--card);
+  background: color-mix(in oklch, var(--card) 60%, var(--background));
 }
 
 .stash-file-panel-header {
   display: flex;
-  min-height: 44px;
+  min-height: 56px;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  border-bottom: 1px solid var(--border);
-  padding: 6px 8px 6px 14px;
+  padding: 10px 8px 10px 16px;
 }
 
 .stash-file-panel-header h3 {
-  overflow: hidden;
-  font-size: 0.75rem;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.73rem;
   font-weight: 600;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.stash-file-panel-header h3 > svg {
+  width: 14px;
+  height: 14px;
+  color: var(--muted-foreground);
+}
+
+.stash-file-panel-header h3 > span {
+  color: var(--muted-foreground);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .stash-review-workspace.files-collapsed .stash-file-panel-header {
   justify-content: center;
-  padding: 6px 4px;
+  padding: 10px 4px;
 }
 
 .stash-file-count {
@@ -2080,6 +2223,48 @@ textarea,
   color: var(--muted-foreground);
   font-size: 0.7rem;
   font-weight: 600;
+}
+
+.stash-diff-panel {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  margin: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+@container (max-width: 960px) {
+  .stash-details-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 16px;
+    padding: 20px;
+  }
+
+  .stash-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .stash-actions p {
+    margin: 0;
+    text-align: left;
+  }
+
+  .stash-review-workspace {
+    grid-template-columns: 200px minmax(0, 1fr);
+  }
+
+  .stash-file-panel-header h3 > svg {
+    display: none;
+  }
+
+  .stash-diff-panel {
+    margin: 8px;
+  }
 }
 
 .stash-composer-header {
@@ -2226,73 +2411,103 @@ textarea,
 .stash-list {
   display: grid;
   align-content: start;
+  gap: 8px;
 }
 
 .stash-list-row {
   display: grid;
+  width: 100%;
   min-width: 0;
-  gap: 7px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
   background: transparent;
   color: var(--foreground);
   text-align: left;
 }
 
-.stash-list-row:hover,
-.stash-list-row.is-selected {
-  background: var(--accent);
+.stash-list-row:hover {
+  background: color-mix(in oklch, var(--accent) 50%, transparent);
 }
 
 .stash-list-row.is-selected {
+  border-color: color-mix(in oklch, var(--primary) 36%, var(--border));
+  background: color-mix(in oklch, var(--primary) 10%, var(--card));
   box-shadow: inset 3px 0 0 var(--primary);
 }
 
-.stash-list-row-title,
+.stash-list-row-top,
 .stash-list-row-meta,
-.stash-list-row-meta span {
+.stash-list-row-meta > span {
   display: flex;
   min-width: 0;
   align-items: center;
 }
 
-.stash-list-row-title {
+.stash-list-row-top {
   justify-content: space-between;
-  gap: 10px;
-  font-size: 0.82rem;
-  font-weight: 600;
-}
-
-.stash-list-row-title > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.stash-list-row-title code {
-  flex: 0 0 auto;
+  gap: 8px;
   color: var(--muted-foreground);
-  font-size: 0.7rem;
+  font-size: 0.68rem;
+}
+
+.stash-list-row-top code {
+  font-family: var(--font-code);
+  font-size: 0.66rem;
+}
+
+.stash-list-row.is-selected .stash-list-row-top code {
+  color: var(--primary);
+}
+
+.stash-list-row-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+  font-size: 0.83rem;
+  font-weight: 600;
+  line-height: 1.55;
 }
 
 .stash-list-row-meta {
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   color: var(--muted-foreground);
-  font-size: 0.72rem;
+  font-size: 0.7rem;
 }
 
-.stash-list-row-meta span {
-  gap: 5px;
+.stash-list-row-meta > span {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .stash-list-row-meta svg {
+  display: inline-block;
   width: 12px;
   height: 12px;
+  flex: 0 0 auto;
+  margin-right: 5px;
+  vertical-align: -2px;
+}
+
+.stash-selection-arrow {
+  visibility: hidden;
+  color: var(--primary);
+}
+
+.stash-list-row.is-selected .stash-selection-arrow {
+  visibility: visible;
+}
+
+.stash-list-row:focus-visible,
+.stash-file-row:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
 }
 
 .stash-empty {
@@ -2331,32 +2546,60 @@ textarea,
   line-height: 1.45;
 }
 
+.stash-file-list {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 8px 8px;
+}
+
 .stash-file-row {
   display: grid;
   width: 100%;
   min-width: 0;
-  min-height: 36px;
+  min-height: 46px;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
+  gap: 10px;
+  margin-bottom: 2px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
   background: transparent;
   color: var(--foreground);
   text-align: left;
 }
 
-.stash-file-row:hover,
-.stash-file-row.is-selected {
+.stash-file-row:hover {
   background: var(--accent);
 }
 
-.stash-file-row span {
+.stash-file-row.is-selected {
+  border-color: var(--border);
+  background: var(--accent);
+}
+
+.stash-file-name {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.stash-file-name > span,
+.stash-file-name > small {
+  line-height: 1.3;
   overflow: hidden;
-  font-size: 0.75rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.stash-file-name > span {
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.stash-file-name > small {
+  color: var(--muted-foreground);
+  font-size: 0.65rem;
 }
 
 .reference-picker-option-icon > svg {
