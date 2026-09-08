@@ -2,6 +2,8 @@ type Fetch = typeof fetch;
 
 export interface FetchJsonWithTimeoutOptions<T> {
   timeoutMs: number;
+  /** Inactivity mode resets the timeout on headers and non-empty body chunks. */
+  timeoutMode?: "total" | "inactivity";
   signal?: AbortSignal;
   timeoutReason?: unknown;
   createJsonFallback?: () => T;
@@ -47,7 +49,9 @@ export async function fetchJsonWithTimeout<T>(
       ...init,
       signal: controller.signal
     }), controller.signal);
-    const payload = await parseJson(response, controller.signal, options.createJsonFallback);
+    const onActivity = options.timeoutMode === "inactivity" ? () => { timeout.refresh(); } : undefined;
+    onActivity?.();
+    const payload = await parseJson(response, controller.signal, options.createJsonFallback, onActivity);
     return { response, payload };
   } catch (error) {
     if (controller.signal.aborted) {
@@ -65,10 +69,34 @@ export async function fetchJsonWithTimeout<T>(
 async function parseJson<T>(
   response: Response,
   signal: AbortSignal,
-  createFallback: (() => T) | undefined
+  createFallback: (() => T) | undefined,
+  onActivity: (() => void) | undefined
 ): Promise<T> {
   try {
-    return await raceWithAbort(response.json() as Promise<T>, signal);
+    if (!onActivity || !response.body) {
+      return await raceWithAbort(response.json() as Promise<T>, signal);
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+    try {
+      while (true) {
+        const { done, value } = await raceWithAbort(reader.read(), signal);
+        if (done) break;
+        if (value.byteLength > 0) {
+          onActivity();
+          chunks.push(decoder.decode(value, { stream: true }));
+        }
+      }
+      chunks.push(decoder.decode());
+      return JSON.parse(chunks.join("")) as T;
+    } finally {
+      if (signal.aborted) {
+        // Cancellation must not wait for an unresponsive underlying stream.
+        void reader.cancel(signal.reason).catch(() => undefined);
+      }
+      reader.releaseLock();
+    }
   } catch (error) {
     if (signal.aborted) {
       throw signal.reason;

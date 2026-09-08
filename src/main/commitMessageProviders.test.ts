@@ -50,6 +50,79 @@ afterEach(() => {
 });
 
 describe("commit message provider cancellation", () => {
+  it.each(apiProviderFactories)("keeps $name active while response bytes arrive for more than a minute", async ({ create }) => {
+    vi.useFakeTimers();
+    let body!: ReadableStreamDefaultController<Uint8Array>;
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(controller) { body = controller; }
+    }));
+    const provider = create(async () => response);
+    const generation = provider.generate(providerInput);
+    const result = generation.catch((error: unknown) => error);
+    const encoder = new TextEncoder();
+    for (let index = 0; index < 3; index += 1) {
+      await vi.advanceTimersByTimeAsync(30_000);
+      body.enqueue(encoder.encode(" "));
+    }
+    body.enqueue(encoder.encode(JSON.stringify({
+      choices: [{ message: { content: "feat: café" } }],
+      output_text: "feat: café",
+      content: [{ type: "text", text: "feat: café" }]
+    })));
+    body.close();
+    expect(await result).toMatchObject({ text: "feat: café" });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(apiProviderFactories)("times out $name after response activity stops", async ({ create }) => {
+    vi.useFakeTimers();
+    let body!: ReadableStreamDefaultController<Uint8Array>;
+    const cancel = vi.fn();
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(controller) { body = controller; },
+      cancel
+    }));
+    const provider = create(async () => response);
+    const settled = vi.fn();
+    const result = provider.generate(providerInput).catch((error: unknown) => error).then((value) => {
+      settled();
+      return value;
+    });
+    await vi.advanceTimersByTimeAsync(30_000);
+    body.enqueue(new TextEncoder().encode(" "));
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(settled).not.toHaveBeenCalled();
+    // Empty chunks do not indicate response progress.
+    body.enqueue(new Uint8Array());
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await result).toMatchObject({ name: "TimeoutError" });
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(response.body?.locked).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(apiProviderFactories)("cancels $name after response activity extends the request", async ({ create }) => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    let body!: ReadableStreamDefaultController<Uint8Array>;
+    const cancel = vi.fn();
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(streamController) { body = streamController; },
+      cancel
+    }));
+    const provider = create(async () => response);
+    const result = provider.generate({ ...providerInput, signal: controller.signal }).catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(30_000);
+    body.enqueue(new TextEncoder().encode(" "));
+    await vi.advanceTimersByTimeAsync(40_000);
+    const reason = new DOMException("Generation cancelled.", "AbortError");
+    controller.abort(reason);
+    expect(await result).toBe(reason);
+    expect(cancel).toHaveBeenCalledWith(reason);
+    expect(response.body?.locked).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("propagates an external abort to an in-flight API request", async () => {
     const controller = new AbortController();
     let requestStarted!: () => void;
