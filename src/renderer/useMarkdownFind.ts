@@ -1,5 +1,7 @@
 import { useEffect, useId, useMemo, useState, type RefObject } from "react";
 
+import { scrollWithinMarkdown } from "./markdownTransforms";
+
 export function collectMarkdownMatches(article: HTMLElement, query: string): Range[] {
   if (!query) return [];
   const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
@@ -61,7 +63,8 @@ export function useMarkdownFind(root: RefObject<HTMLDivElement | null>, query: s
   }, [ranges, activeIndex, names]);
   useEffect(() => {
     const range = ranges[activeIndex];
-    range?.startContainer.parentElement?.scrollIntoView({ block: "center" });
+    const element = range?.startContainer.parentElement;
+    if (element) scrollWithinMarkdown(element, "center");
   }, [ranges, activeIndex]);
   return { names, count: ranges.length, index: ranges.length ? activeIndex + 1 : 0,
     next: (direction: number) => setIndex((current) => ranges.length ? (current + direction + ranges.length) % ranges.length : 0) };

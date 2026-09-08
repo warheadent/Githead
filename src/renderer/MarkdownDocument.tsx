@@ -6,7 +6,7 @@ import { isMarkdownPath } from "@/shared/filePreview";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { MarkdownSource } from "./MarkdownSource";
 import { useMarkdownFind } from "./useMarkdownFind";
-import type { MarkdownHeading } from "./markdownTransforms";
+import { scrollToMarkdownHeading, type MarkdownHeading } from "./markdownTransforms";
 
 export function MarkdownDocument({ text, repoPath, path, source, diff, refreshing = false, error = "", readingPosition, revision = 0 }: {
   text: string;
@@ -20,6 +20,7 @@ export function MarkdownDocument({ text, repoPath, path, source, diff, refreshin
   readingPosition?: { scrollTop: number };
 }): ReactNode {
   const instanceId = useId();
+  const requestGeneration = useRef(0);
   const root = useRef<HTMLDivElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
@@ -42,17 +43,19 @@ export function MarkdownDocument({ text, repoPath, path, source, diff, refreshin
       return;
     }
     setNotice("");
+    setHeadings([]);
+    setSourceLine(1);
     const position = scroll.current?.scrollTop ?? 0;
-    setHistory((entries) => [...entries.slice(0, -1), { ...entries[entries.length - 1]!, scroll: position }, { path: nextPath, fragment, scroll: 0 }]);
+    setHistory((entries) => [...entries.slice(0, -1), { ...entries[entries.length - 1]!, fragment: "", scroll: position }, { path: nextPath, fragment, scroll: 0 }]);
   }, [current.path]);
   useEffect(() => {
     if (current.path === path) { setLoaded(null); return; }
     let active = true;
-    const requestId = `markdown-document:${instanceId}`;
-    setLoaded(null);
+    const requestId = `markdown-document:${instanceId}:${++requestGeneration.current}`;
+    setLoaded((previous) => previous?.path === current.path ? previous : null);
     void window.githead.getFilePreview({ repoPath, path: current.path, source: sourceKind === "commit" ? { kind: "commit", hash } : { kind: sourceKind }, requestId })
       .then((result) => { if (active) setLoaded({ path: current.path, text: result.text }); })
-      .catch((error: unknown) => { if (active) setLoaded({ path: current.path, error: error instanceof Error ? error.message : "Unable to load document." }); });
+      .catch((error: unknown) => { if (active) setLoaded((previous) => ({ ...(previous?.path === current.path ? previous : {}), path: current.path, error: error instanceof Error ? error.message : "Unable to load document." })); });
     return () => { active = false; void window.githead.cancelRepositoryRead({ requestId }).catch(() => undefined); };
   }, [current.path, path, repoPath, sourceKind, hash, instanceId, text, revision]);
   const content = current.path === path ? text : loaded?.path === current.path ? loaded.text : undefined;
@@ -64,11 +67,6 @@ export function MarkdownDocument({ text, repoPath, path, source, diff, refreshin
   }, [current, content]);
   const find = useMarkdownFind(root, findOpen ? query : "", content);
   const openFind = (): void => { setFindOpen(true); requestAnimationFrame(() => search.current?.focus()); };
-  const jumpToHeading = (id: string): void => {
-    const heading = Array.from(root.current?.querySelectorAll<HTMLElement>("[data-heading-id]") ?? []).find((element) => element.dataset.headingId === id);
-    heading?.scrollIntoView({ block: "start" });
-    heading?.focus({ preventScroll: true });
-  };
   const repository = useMemo(() => ({ repoPath, path: current.path, source, revision, onNavigate: navigate }), [repoPath, current.path, source, revision, navigate]);
   return <div ref={root} className="markdown-document" onKeyDown={(event) => {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") { event.preventDefault(); event.stopPropagation(); openFind(); }
@@ -113,7 +111,7 @@ export function MarkdownDocument({ text, repoPath, path, source, diff, refreshin
       </div>
       {outline ? <nav className="markdown-outline" aria-label="Document outline">
         <p>On this page</p>
-        {headings.length ? headings.map((heading) => <button key={heading.id} type="button" style={{ paddingLeft: `${8 + (heading.depth - 1) * 12}px` }} onClick={() => jumpToHeading(heading.id)}>{heading.text}</button>) : <span>No headings</span>}
+        {headings.length ? headings.map((heading) => <button key={heading.id} type="button" style={{ paddingLeft: `${8 + (heading.depth - 1) * 12}px` }} onClick={() => scrollToMarkdownHeading(root.current, heading.id)}>{heading.text}</button>) : <span>No headings</span>}
       </nav> : null}
     </div>
   </div>;

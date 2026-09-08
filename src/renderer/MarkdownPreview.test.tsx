@@ -117,6 +117,18 @@ describe("MarkdownPreview", () => {
     expect(screen.getAllByRole("button", { name: "Copy code" })).toHaveLength(1);
   });
 
+  it("shows and copies the source of a valid diagram", async () => {
+    renderPreview("```mermaid\ngraph LR\n  A --> B\n```");
+    await vi.waitFor(() => expect(screen.getByRole("button", { name: "Expand diagram" })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Show source" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy code" }));
+    await flushPromises();
+    expect(copyTextToClipboard).toHaveBeenCalledWith({ text: "graph LR\n  A --> B\n" });
+    fireEvent.click(screen.getByRole("button", { name: "Show diagram" }));
+    expect(screen.getByRole("img", { name: "Mermaid diagram" })).toBeTruthy();
+    expect(renderMermaid).toHaveBeenCalledOnce();
+  });
+
   it("shows invalid Mermaid source with a copy button", async () => {
     renderMermaid.mockRejectedValueOnce(new Error("Parse error on line 1"));
     renderPreview("```mermaid\nnot a diagram\n```");

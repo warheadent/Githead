@@ -55,3 +55,19 @@ export function rehypeMarkdownNavigation(options: { prefix: string; headings: Ma
     visit(tree);
   };
 }
+
+export function scrollToMarkdownHeading(root: ParentNode | null, target: string): void {
+  const heading = Array.from(root?.querySelectorAll<HTMLElement>("[data-heading-id]") ?? [])
+    .find((element) => element.dataset.headingId === target);
+  if (heading) scrollWithinMarkdown(heading, "start");
+  heading?.focus({ preventScroll: true });
+}
+
+export function scrollWithinMarkdown(element: HTMLElement, block: "start" | "center"): void {
+  const scroller = element.closest<HTMLElement>(".markdown-document-scroll");
+  if (!scroller) { element.scrollIntoView({ block }); return; }
+  const target = element.getBoundingClientRect();
+  const viewport = scroller.getBoundingClientRect();
+  const offset = block === "center" ? (scroller.clientHeight - target.height) / 2 : 16;
+  scroller.scrollTop += target.top - viewport.top - offset;
+}

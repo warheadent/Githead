@@ -17,7 +17,7 @@ import remarkGfm from "remark-gfm";
 import { resolveMarkdownLink } from "@/shared/markdownLinks";
 import { MarkdownContext, type MarkdownRepository } from "./markdownContext";
 import { MarkdownImage } from "./MarkdownImage";
-import { remarkAlerts, rehypeMarkdownNavigation, type MarkdownHeading } from "./markdownTransforms";
+import { remarkAlerts, rehypeMarkdownNavigation, scrollToMarkdownHeading, type MarkdownHeading } from "./markdownTransforms";
 import { highlightMarkdownCode } from "./syntaxHighlighter";
 import { TooltipButton } from "@/components/ui/button";
 import { MermaidDiagram } from "./MermaidDiagram";
@@ -184,12 +184,7 @@ export const MarkdownPreview = memo(function MarkdownPreview({ text, repository,
   const article = useRef<HTMLElement>(null);
   const id = useId();
   const navigation = useMemo(() => ({ prefix: `markdown-${id}-`, headings: [] as MarkdownHeading[] }), [id, text]);
-  const onAnchor = useCallback((target: string) => {
-    const heading = Array.from(article.current?.querySelectorAll<HTMLElement>("[data-heading-id]") ?? [])
-      .find((element) => element.dataset.headingId === target);
-    heading?.scrollIntoView({ block: "start" });
-    heading?.focus({ preventScroll: true });
-  }, []);
+  const onAnchor = useCallback((target: string) => scrollToMarkdownHeading(article.current, target), []);
   const context = useMemo(() => ({ repository, onAnchor }), [repository, onAnchor]);
   useEffect(() => { onHeadings?.([...navigation.headings]); }, [navigation, onHeadings]);
   useEffect(() => { if (fragment) onAnchor(fragment); }, [fragment, onAnchor]);

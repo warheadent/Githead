@@ -7292,3 +7292,16 @@ textarea,
   .markdown-source-pane { width: 100%; height: 45%; border-right: 0; border-bottom: 1px solid var(--border); }
 }
 .markdown-preview-output { container-type: inline-size; }
+
+.markdown-image-frame { display: block; position: relative; }
+.markdown-image-expand { position: absolute; top: 8px; right: 8px; }
+.markdown-mermaid-frame { margin: 0 0 1em; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.markdown-mermaid-toolbar { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.markdown-mermaid-toolbar > span { margin-right: auto; color: var(--muted-foreground); font-size: 0.75rem; }
+.markdown-mermaid-frame .markdown-mermaid { border: 0; border-radius: 0; margin: 0; }
+.markdown-mermaid-frame .markdown-code-block { margin: 0; }
+.markdown-media-dialog { width: calc(100vw - 64px); max-width: 1400px; height: calc(100vh - 64px); grid-template-rows: auto auto minmax(0, 1fr); }
+.markdown-media-zoom { display: flex; align-items: center; gap: 12px; }
+.markdown-media-zoom [role="status"] { min-width: 4ch; font-variant-numeric: tabular-nums; text-align: center; }
+.markdown-media-canvas { min-height: 0; overflow: auto; padding: 16px; background: var(--muted); border-radius: 6px; }
+.markdown-media-canvas img { display: block; max-width: none; height: auto; margin: 0 auto; }

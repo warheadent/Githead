@@ -56,3 +56,15 @@ it("searches the rendered text, navigates headings, and shows the selected sourc
   expect(screen.getByRole("option", { selected: true }).textContent).toContain("5");
   expect(screen.getByRole("option", { selected: true }).textContent).toContain("## Install");
 });
+
+it("expands an image, changes zoom, and restores fit width", async () => {
+  show("![Example](https://example.test/image.png)");
+  fireEvent.click(screen.getByRole("button", { name: "Expand image" }));
+  await screen.findByRole("dialog", { name: "Example" });
+  fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+  expect(screen.getByText("125%")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Fit width" }));
+  expect(screen.getByText("100%")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+});

@@ -292,6 +292,7 @@ import { attachCommitGraphHover } from "./commitGraphHover";
 import { VisualEffectsProvider, defaultVisualPreferences, useVisualEffects } from "./VisualEffects";
 import { StartLayout } from "./StartLayout";
 import { useGitStashes } from "./useGitStashes";
+import { useMarkdownFilePreview } from "./useMarkdownFilePreview";
 import { useSelectionSafeValue } from "./useSelectionSafeValue";
 import { repositoryHistoryRoute, targetFromCommitFile, targetFromHistoryEntry, type HistoricalFileTarget, type HistoryRoute } from "./historyNavigation";
 import gitIconUrl from "./assets/git-icon-white.svg";
@@ -300,8 +301,6 @@ import loreIconUrl from "./assets/lore-icon-white.svg";
 const BasicMarkdown = lazy(() => import("./BasicMarkdown.js").then((module) => ({ default: module.BasicMarkdown })));
 const BlameView = lazy(() => import("./BlameView.js").then((module) => ({ default: module.BlameView })));
 const FileHistoryView = lazy(() => import("./FileHistoryView.js").then((module) => ({ default: module.FileHistoryView })));
-import { useMarkdownFilePreview } from "./useMarkdownFilePreview";
-
 const MarkdownDocument = lazy(() => import("./MarkdownDocument.js").then((module) => ({ default: module.MarkdownDocument })));
 const PushToBranchDialog = lazy(() => import("./PushToBranchDialog.js").then((module) => ({ default: module.PushToBranchDialog })));
 const RemoteManagementDialog = lazy(() => import("./RemoteManagementDialog.js").then((module) => ({ default: module.RemoteManagementDialog })));
