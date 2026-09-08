@@ -3044,9 +3044,35 @@ textarea,
 }
 
 .diff-changed-refresh {
+  position: relative;
   border-color: color-mix(in srgb, var(--diff-notice-text) 60%, var(--border));
   background: color-mix(in srgb, var(--diff-notice-bg) 55%, var(--card));
   color: var(--diff-notice-text);
+}
+
+:root:is([data-visual-effects="standard"], [data-visual-effects="full"]) .diff-changed-refresh:not(:disabled)::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  box-shadow: 0 0 12px 2px color-mix(in srgb, var(--diff-notice-text) 45%, transparent);
+  opacity: 0.25;
+  pointer-events: none;
+  /* A slow state cue keeps the notice visible without moving its label. */
+  animation: diff-changed-glow 2400ms cubic-bezier(0.77, 0, 0.175, 1) infinite;
+}
+
+@keyframes diff-changed-glow {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 0.8; }
+}
+
+:root[data-reduce-motion="true"] .diff-changed-refresh::after {
+  animation: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .diff-changed-refresh::after { animation: none !important; }
 }
 
 .diff-changed-refresh:hover:not(:disabled) {
