@@ -152,7 +152,7 @@ describe("CommitPlanView motion", () => {
       changes: plan.changes
     }));
     expect(screen.queryByText("The working tree changed. Generate the commit plan again.")).toBeNull();
-    expect(screen.getAllByRole("button", { name: "Quick Commit" }).every((button) => !button.hasAttribute("disabled"))).toBe(true);
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Quick Commit" }).every((button) => !button.hasAttribute("disabled"))).toBe(true));
   });
 
   it("marks a generated plan stale when monitored hunks changed", async () => {

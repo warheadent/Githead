@@ -82,10 +82,7 @@ export class GitConfigService {
 
   async getIgnoreFile(request: GitConfigRequest): Promise<GitIgnoreFile> {
     const configuredPath = await this.getIgnoreFilePath(request);
-    const filePath = await fs.realpath(configuredPath).catch((error: unknown) => {
-      if (hasCode(error, "ENOENT")) return configuredPath;
-      throw error;
-    });
+    const filePath = await resolveWritableFilePath(configuredPath);
     const stats = await fs.stat(filePath).catch((error: unknown) => {
       if (hasCode(error, "ENOENT")) return null;
       throw error;
@@ -185,10 +182,7 @@ export class GitConfigService {
       configPath = await readOptionalFile(homeConfig) !== null || await readOptionalFile(xdgConfig) === null ? homeConfig : xdgConfig;
     }
     // Preserve symlinked dotfiles by replacing their target, as Git does.
-    return fs.realpath(configPath).catch((error: unknown) => {
-      if (hasCode(error, "ENOENT")) return configPath;
-      throw error;
-    });
+    return resolveWritableFilePath(configPath);
   }
 
   private async readEntries(scopeArgs: string[], repoPath: string, pattern = configPattern): Promise<Array<GitConfigEntry & { key: string }>> {
@@ -216,6 +210,17 @@ function validateRequest(request: GitConfigRequest): void {
 
 function isConfigKey(key: string): key is GitConfigKey { return GIT_CONFIG_KEYS.some((candidate) => candidate === key); }
 function hasCode(error: unknown, code: string): boolean { return error instanceof Error && "code" in error && error.code === code; }
+async function resolveWritableFilePath(filePath: string): Promise<string> {
+  try {
+    return await fs.realpath(filePath);
+  } catch (error) {
+    if (!hasCode(error, "ENOENT")) throw error;
+    const parent = path.dirname(filePath);
+    if (parent === filePath) throw error;
+    // Resolve existing parents before creation so aliases and Windows short paths stay stable.
+    return path.join(await resolveWritableFilePath(parent), path.basename(filePath));
+  }
+}
 async function readOptionalFile(filePath: string): Promise<Buffer | null> {
   try { return await fs.readFile(filePath); } catch (error) { if (hasCode(error, "ENOENT")) return null; throw error; }
 }

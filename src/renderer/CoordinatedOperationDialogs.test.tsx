@@ -173,7 +173,7 @@ describe("coordinated operation dialog cancellation", () => {
     const view = render(renderDialog(false), { wrapper: TooltipProvider });
 
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
-    await screen.findByText("Remove origin?");
+    await screen.findByRole("heading", { name: "Remove Remote" });
     view.rerender(renderDialog(true));
 
     const cancel = screen.getByRole("button", { name: "Cancel operation" }) as HTMLButtonElement;

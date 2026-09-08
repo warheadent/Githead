@@ -49,11 +49,15 @@ describe("Git configuration persistence", () => {
   it("honors conditional includes without treating included values as editable file entries", async () => {
     const included = path.join(directory, "work config");
     await fs.writeFile(included, "[commit]\n gpgSign = true\n");
-    await git("config", "--global", `includeIf.gitdir:${repoPath}/.path`, included);
+    const gitDirectory = (await fs.realpath(repoPath)).replaceAll("\\", "/");
+    await git("config", "--global", `includeIf.gitdir:${gitDirectory}/.path`, included.replaceAll("\\", "/"));
     const before = await fs.readFile(included, "utf8");
     const settings = await service.getSettings({ repoPath, scope: "global" });
     expect(settings.values["commit.gpgsign"]).toBeNull();
-    expect(settings.effective["commit.gpgsign"]).toMatchObject({ value: "true", origin: `file:${included}` });
+    expect(settings.effective["commit.gpgsign"]?.value).toBe("true");
+    const origin = settings.effective["commit.gpgsign"]!.origin;
+    expect(origin.startsWith("file:")).toBe(true);
+    expect(await fs.realpath(origin.slice(5))).toBe(await fs.realpath(included));
     await save({ "commit.gpgsign": "false" }, "global");
     await save({ "commit.gpgsign": null }, "global");
     expect((await service.getSettings({ repoPath, scope: "global" })).effective["commit.gpgsign"]?.value).toBe("true");
@@ -122,6 +126,16 @@ describe("Git configuration persistence", () => {
     expect(await git("check-ignore", "settings.local")).toBe("settings.local");
     await expect(service.saveIgnoreFile({ repoPath, scope: "repository", ...file, contents: "*.log\n" })).rejects.toThrow("changed outside");
     expect(await fs.readFile(ignorePath, "utf8")).toBe("*.local\n");
+  });
+
+  it("keeps a new ignore file path stable through a directory alias", async () => {
+    const alias = path.join(directory, "alias");
+    await fs.symlink(repoPath, alias, "junction");
+    await save({ "core.excludesfile": path.join(alias, "nested", "ignore") });
+    const file = await service.getIgnoreFile({ repoPath, scope: "repository" });
+    const saved = await service.saveIgnoreFile({ repoPath, scope: "repository", ...file, contents: "*.local\n" });
+    expect(saved.filePath).toBe(file.filePath);
+    await expect(service.saveIgnoreFile({ repoPath, scope: "repository", ...file, contents: "*.log\n" })).rejects.toThrow("changed outside");
   });
 
   it("uses the selected initial branch and line ending conversion", async () => {

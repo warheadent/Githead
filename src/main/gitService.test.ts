@@ -256,6 +256,8 @@ async function createRealRecoveryFixture(
   await run(["clone", "--branch", branchName, remote, work]);
   await run(["-C", work, "config", "user.name", "Githead Test"]);
   await run(["-C", work, "config", "user.email", "githead@example.test"]);
+  // Recovery starts from a rejected fast-forward-only pull, independent of machine policy.
+  await run(["-C", work, "config", "pull.ff", "only"]);
   await fs.writeFile(path.join(work, localFile), localContent, "utf8");
   await run(["-C", work, "add", localFile]);
   await run(["-C", work, "commit", "-m", "Local commit"]);
