@@ -40,3 +40,19 @@ it("loads local image bytes through the repository API and releases the object U
   await waitFor(() => expect(revoke).toHaveBeenCalledWith("blob:preview"));
   create.mockRestore(); revoke.mockRestore();
 });
+
+it("searches the rendered text, navigates headings, and shows the selected source line", async () => {
+  show("# Start\n\nRead **this** guide.\n\n## Install\n\nRead this guide.");
+  fireEvent.click(screen.getByRole("button", { name: "Document outline" }));
+  fireEvent.click(screen.getByRole("button", { name: "Install" }));
+  expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Install" }));
+  fireEvent.click(screen.getByRole("button", { name: "Find in preview" }));
+  fireEvent.change(screen.getByRole("searchbox", { name: "Find in preview" }), { target: { value: "Read this" } });
+  await screen.findByText("1 of 2");
+  fireEvent.click(screen.getByRole("button", { name: "Next match" }));
+  await screen.findByText("2 of 2");
+  fireEvent.click(screen.getByRole("button", { name: "Split view" }));
+  fireEvent.click(screen.getByRole("heading", { name: "Install" }));
+  expect(screen.getByRole("option", { selected: true }).textContent).toContain("5");
+  expect(screen.getByRole("option", { selected: true }).textContent).toContain("## Install");
+});

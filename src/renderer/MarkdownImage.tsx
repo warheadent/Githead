@@ -13,7 +13,8 @@ export function MarkdownImage({ src, alt, node: _node, ...props }: ComponentProp
   const sourceKind = repository?.source.kind;
   const hash = repository?.source.kind === "commit" ? repository.source.hash : "";
   const repoPath = repository?.repoPath;
-  const key = `${repoPath}\0${localPath}\0${sourceKind}\0${hash}`;
+  const revision = repository?.revision ?? 0;
+  const key = `${repoPath}\0${localPath}\0${sourceKind}\0${hash}\0${revision}`;
 
   useEffect(() => {
     if (!repoPath || !localPath || !sourceKind) return;

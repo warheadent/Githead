@@ -5,6 +5,7 @@ export interface MarkdownRepository {
   repoPath: string;
   path: string;
   source: GitFilePreviewSource;
+  revision?: number;
   onNavigate: (path: string, fragment: string) => void;
 }
 

@@ -1,7 +1,9 @@
 import { Check, Copy, WrapText } from "lucide-react";
 import {
   isValidElement,
+  memo,
   useContext,
+  useCallback,
   useId,
   useMemo,
   useEffect,
@@ -173,7 +175,7 @@ function MarkdownLink({ children, href = "", node: _node, ...props }: ComponentP
 
 const components = { a: MarkdownLink, img: MarkdownImage, pre: MarkdownCodeBlock, table: MarkdownTable };
 
-export function MarkdownPreview({ text, repository, onHeadings, fragment = "" }: {
+export const MarkdownPreview = memo(function MarkdownPreview({ text, repository, onHeadings, fragment = "" }: {
   text: string;
   repository?: MarkdownRepository | undefined;
   onHeadings?: ((headings: MarkdownHeading[]) => void) | undefined;
@@ -182,14 +184,15 @@ export function MarkdownPreview({ text, repository, onHeadings, fragment = "" }:
   const article = useRef<HTMLElement>(null);
   const id = useId();
   const navigation = useMemo(() => ({ prefix: `markdown-${id}-`, headings: [] as MarkdownHeading[] }), [id, text]);
-  const context = useMemo(() => ({ repository, onAnchor: (target: string) => {
+  const onAnchor = useCallback((target: string) => {
     const heading = Array.from(article.current?.querySelectorAll<HTMLElement>("[data-heading-id]") ?? [])
       .find((element) => element.dataset.headingId === target);
     heading?.scrollIntoView({ block: "start" });
     heading?.focus({ preventScroll: true });
-  } }), [repository]);
+  }, []);
+  const context = useMemo(() => ({ repository, onAnchor }), [repository, onAnchor]);
   useEffect(() => { onHeadings?.([...navigation.headings]); }, [navigation, onHeadings]);
-  useEffect(() => { if (fragment) context.onAnchor(fragment); }, [fragment, text, context]);
+  useEffect(() => { if (fragment) onAnchor(fragment); }, [fragment, onAnchor]);
   return <MarkdownContext.Provider value={context}>
     <article ref={article} className="markdown-preview selectable-text">
       <ReactMarkdown skipHtml remarkPlugins={[remarkGfm, remarkAlerts]}
@@ -198,4 +201,4 @@ export function MarkdownPreview({ text, repository, onHeadings, fragment = "" }:
       </ReactMarkdown>
     </article>
   </MarkdownContext.Provider>;
-}
+});

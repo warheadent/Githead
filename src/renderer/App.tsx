@@ -300,6 +300,8 @@ import loreIconUrl from "./assets/lore-icon-white.svg";
 const BasicMarkdown = lazy(() => import("./BasicMarkdown.js").then((module) => ({ default: module.BasicMarkdown })));
 const BlameView = lazy(() => import("./BlameView.js").then((module) => ({ default: module.BlameView })));
 const FileHistoryView = lazy(() => import("./FileHistoryView.js").then((module) => ({ default: module.FileHistoryView })));
+import { useMarkdownFilePreview } from "./useMarkdownFilePreview";
+
 const MarkdownDocument = lazy(() => import("./MarkdownDocument.js").then((module) => ({ default: module.MarkdownDocument })));
 const PushToBranchDialog = lazy(() => import("./PushToBranchDialog.js").then((module) => ({ default: module.PushToBranchDialog })));
 const RemoteManagementDialog = lazy(() => import("./RemoteManagementDialog.js").then((module) => ({ default: module.RemoteManagementDialog })));
@@ -11067,81 +11069,32 @@ function DiffPanel({
   wrapLines: boolean;
   onWrapLinesChange: (wrap: boolean) => void;
 }): ReactNode {
-  const previewInstanceId = useId();
-  const previewGeneration = useRef(0);
-  const activePreviewRequestId = useRef<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
-  const [preview, setPreview] = useState<{ text: string | null; loading: boolean; error: string }>({
-    text: null,
-    loading: false,
-    error: ""
-  });
   const previewKey = previewSource
     ? `${repoPath}\0${filePath}\0${previewSource.kind}\0${previewSource.kind === "commit" ? previewSource.hash : ""}`
     : "";
-
-  const cancelActivePreview = useCallback((): void => {
-    const requestId = activePreviewRequestId.current;
-    activePreviewRequestId.current = null;
-    if (requestId) void window.githead.cancelRepositoryRead({ requestId }).catch(() => undefined);
-  }, []);
-
-  const resetPreview = useCallback((): void => {
-    previewGeneration.current += 1;
-    cancelActivePreview();
-    setShowPreview(false);
-    setPreview({ text: null, loading: false, error: "" });
-  }, [cancelActivePreview]);
-
-  useEffect(() => {
-    resetPreview();
-    return cancelActivePreview;
-  }, [previewKey, diff, resetPreview, cancelActivePreview]);
-
-  const togglePreview = useCallback((): void => {
-    if (!previewSource) return;
-    if (showPreview) {
-      setShowPreview(false);
-      return;
-    }
-
-    setShowPreview(true);
-    if (preview.text !== null || preview.loading) return;
-
-    const generation = previewGeneration.current + 1;
-    previewGeneration.current = generation;
-    const requestId = `file-preview:${previewInstanceId}:${generation}`;
-    activePreviewRequestId.current = requestId;
-    setPreview({ text: null, loading: true, error: "" });
-    void window.githead.getFilePreview({ repoPath, path: filePath, source: previewSource, requestId })
-      .then((result) => {
-        if (generation !== previewGeneration.current) return;
-        activePreviewRequestId.current = null;
-        setPreview({ text: result.text, loading: false, error: "" });
-      })
-      .catch((error: unknown) => {
-        if (generation !== previewGeneration.current) return;
-        activePreviewRequestId.current = null;
-        setPreview({
-          text: null,
-          loading: false,
-          error: error instanceof Error ? error.message : "Unable to load Markdown preview."
-        });
-      });
-  }, [filePath, preview.loading, preview.text, previewInstanceId, previewSource, repoPath, showPreview]);
+  const readingPosition = useMemo(() => ({ scrollTop: 0 }), [previewKey]);
+  const [selectedPreviewKey, setSelectedPreviewKey] = useState(previewKey);
+  const previewVisible = showPreview && selectedPreviewKey === previewKey;
+  const preview = useMarkdownFilePreview(previewSource ? { repoPath, path: filePath, source: previewSource } : null, diff, previewVisible);
+  const togglePreview = (): void => {
+    setSelectedPreviewKey(previewKey);
+    setShowPreview(!previewVisible);
+  };
 
   let content: ReactNode = emptyMessage;
   let outputClass = "diff-output";
 
-  if (showPreview && previewSource) {
+  if (previewVisible && previewSource) {
     outputClass = "markdown-preview-output";
-    content = preview.loading
+    content = preview.loading && preview.text === null
       ? <LoadingState label="Loading Markdown preview" className="h-full" />
-      : preview.error
+      : preview.error && preview.text === null
         ? <p className="markdown-preview-status bad selectable-text" role="alert">{preview.error}</p>
         : (
           <OptionalFeatureBoundary name="Markdown preview">
-            <MarkdownDocument key={previewKey} text={preview.text ?? ""} repoPath={repoPath} path={filePath} source={previewSource} />
+            <MarkdownDocument key={previewKey} text={preview.text ?? ""} repoPath={repoPath} path={filePath} source={previewSource} readingPosition={readingPosition} revision={preview.revision} refreshing={preview.loading} error={preview.error}
+              diff={diff?.kind === "text" ? <DiffRows filePath={filePath} text={diff.text} truncated={Boolean(diff.truncated)} hunkAction={hunkAction} /> : undefined} />
           </OptionalFeatureBoundary>
         );
   } else if (loading && !diff) {
@@ -11164,7 +11117,7 @@ function DiffPanel({
           {changed ? <p className="diff-changed-description" role="status">Loaded diff is out of date</p> : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {diff?.kind === "text" && !showPreview ? (
+          {diff?.kind === "text" && !previewVisible ? (
             <TooltipButton
               type="button"
               variant={wrapLines ? "secondary" : "outline"}
@@ -11182,11 +11135,11 @@ function DiffPanel({
               type="button"
               variant="outline"
               size="sm"
-              aria-pressed={showPreview}
+              aria-pressed={previewVisible}
               onClick={togglePreview}
             >
               <Eye />
-              {showPreview ? "Show Diff" : "Preview"}
+              {previewVisible ? "Show Diff" : "Preview"}
             </Button>
           ) : null}
           {onRefresh ? (
@@ -11197,7 +11150,6 @@ function DiffPanel({
               className={changed ? "diff-changed-refresh" : undefined}
               disabled={refreshDisabled || loading}
               onClick={() => {
-              resetPreview();
               onRefresh();
             }}>
               <RefreshCw />
