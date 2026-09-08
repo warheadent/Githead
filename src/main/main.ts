@@ -736,6 +736,11 @@ ipcMain.handle(IPC_CHANNELS.getFilePreview, (event, request: GitFilePreviewReque
     processRunner.runWithSignal(signal, async () =>
       (await vcsRouter.serviceForRepo(request.repoPath)).getFilePreview(request))));
 
+ipcMain.handle(IPC_CHANNELS.getFilePreviewImage, (event, request: GitFilePreviewRequest) =>
+  handleRead(event, request, async (signal) =>
+    processRunner.runWithSignal(signal, async () =>
+      (await vcsRouter.serviceForRepo(request.repoPath)).getFilePreviewImage(request))));
+
 ipcMain.handle(IPC_CHANNELS.fetchLfsImageVersions, async (event, request: CoordinatedRequest<GitLfsImageFetchRequest>) => {
   return runTrustedExclusiveGitOperation(
     async () => (await vcsRouter.serviceForRepo(request.repoPath)).fetchLfsImageVersions(request),

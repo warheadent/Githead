@@ -371,6 +371,7 @@ export function createGitheadMock(): GitheadApi {
     getStashDetails: vi.fn(),
     getStashFileDiff: vi.fn(),
     getFilePreview: vi.fn(),
+    getFilePreviewImage: vi.fn(),
     fetchLfsImageVersions: vi.fn(),
     resetFilesToCommit: vi.fn().mockResolvedValue(okOperation),
     openCommitFileVersion: vi.fn().mockResolvedValue(okOperation),

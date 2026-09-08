@@ -2376,6 +2376,7 @@ export interface GitheadApi {
   getStashDetails(request: GitStashDetailsRequest): Promise<GitStashDetails>;
   getStashFileDiff(request: GitStashFileDiffRequest): Promise<GitFileDiff>;
   getFilePreview(request: GitFilePreviewRequest): Promise<GitFilePreview>;
+  getFilePreviewImage(request: GitFilePreviewRequest): Promise<GitImageVersion>;
   fetchLfsImageVersions(request: CoordinatedRequest<GitLfsImageFetchRequest>): Promise<GitOperationResult>;
   resetFilesToCommit(request: CoordinatedRequest<GitCommitFileResetRequest>): Promise<GitOperationResult>;
   openCommitFileVersion(request: CoordinatedRequest<GitCommitFileVersionRequest>): Promise<GitOperationResult>;

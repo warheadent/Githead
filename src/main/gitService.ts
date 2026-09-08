@@ -55,6 +55,7 @@ import type {
   GitFileBlameRequest,
   GitFileBlameResult,
   GitFilePreview,
+  GitImageVersion,
   GitFilePreviewRequest,
   GitHunkRequest,
   GitLfsImageFetchRequest,
@@ -125,7 +126,7 @@ import type { ProcessOutput, ProcessResult, ProcessRunOptions, ProcessRunner } f
 import { mapRepoSyncStatuses } from "./repoSyncStatus";
 import { IMAGE_PREVIEW_LIMIT, imageFallbackText, imageVersionFromBytes, isPreviewableImagePath, type ImageReadResult } from "./imageDiff";
 import { escapeLfsIncludePath, isGitLfsPointerDiff, parseGitLfsPointer, parseLocalMediaDir, resolveLocalLfsImage, type GitLfsPointer } from "./gitLfs";
-import { readMarkdownPreviewFile, validateMarkdownPreviewPath, validateMarkdownPreviewText } from "./filePreview";
+import { resolvePreviewFile, validatePreviewPath, readMarkdownPreviewFile, validateMarkdownPreviewPath, validateMarkdownPreviewText } from "./filePreview";
 import { sanitizeCommitHash, sanitizeHistoryLimit, sanitizeSingleRepoPath } from "./gitReadValidation";
 import { readGitFileHistory } from "./gitFileHistory";
 import { readGitFileBlame } from "./gitBlame";
@@ -718,6 +719,27 @@ export class GitService {
       if (untrackedParent.exitCode === 0) result = await this.runGit(request.repoPath, diffArgs(`${stashRef}^3`));
     }
     return normalizeDiffResult({ repoPath: request.repoPath, path: pathResult.path, side: "staged" }, result);
+  }
+
+  async getFilePreviewImage(request: GitFilePreviewRequest): Promise<GitImageVersion> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) throw new Error(validation.validationErrors.join(" "));
+    const filePath = validatePreviewPath(request.path);
+    if (!isPreviewableImagePath(filePath)) throw new Error("This image format is not supported.");
+    let result: ImageReadResult;
+    if (request.source.kind === "working") {
+      const root = await this.runGit(request.repoPath, ["rev-parse", "--show-toplevel"]);
+      if (root.exitCode !== 0) throw new Error("Unable to locate the repository root.");
+      const resolved = await resolvePreviewFile(root.stdout.trim(), filePath);
+      result = await this.readWorkingImage(root.stdout.trim(), path.relative(root.stdout.trim(), resolved));
+    } else {
+      const hash = request.source.kind === "commit" ? sanitizeCommitHash(request.source.hash) : null;
+      if (hash && "error" in hash) throw new Error(hash.error);
+      result = await this.readGitImage(request.repoPath,
+        request.source.kind === "staged" ? `:${filePath}` : `${hash?.hash}:${filePath}`, filePath, false);
+    }
+    if (result.kind !== "image") throw new Error(imageFallbackText([result]));
+    return result.version;
   }
 
   async getFilePreview(request: GitFilePreviewRequest): Promise<GitFilePreview> {

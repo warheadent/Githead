@@ -60,6 +60,7 @@ export const IPC_CHANNELS = {
   getStashDetails: "git:stash-details",
   getStashFileDiff: "git:stash-file-diff",
   getFilePreview: "git:file-preview",
+  getFilePreviewImage: "git:file-preview-image",
   fetchLfsImageVersions: "git:lfs-image-fetch",
   resetFilesToCommit: "git:commit-files-reset",
   openCommitFileVersion: "git:commit-file-version-open",

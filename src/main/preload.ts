@@ -232,6 +232,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getStashFileDiff, request) as ReturnType<GitheadApi["getStashFileDiff"]>,
   getFilePreview: (request: GitFilePreviewRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getFilePreview, request) as ReturnType<GitheadApi["getFilePreview"]>,
+  getFilePreviewImage: (request: GitFilePreviewRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getFilePreviewImage, request) as ReturnType<GitheadApi["getFilePreviewImage"]>,
   fetchLfsImageVersions: (request: CoordinatedRequest<GitLfsImageFetchRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.fetchLfsImageVersions, request) as ReturnType<GitheadApi["fetchLfsImageVersions"]>,
   resetFilesToCommit: (request: CoordinatedRequest<GitCommitFileResetRequest>) =>
