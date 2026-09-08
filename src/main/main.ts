@@ -799,7 +799,7 @@ ipcMain.handle(IPC_CHANNELS.discardHunk, async (event, request: CoordinatedReque
   return runExclusiveGitOperation(
     async () => {
       if ((await vcsRouter.resolveKind(request.repoPath)) !== "git") {
-        return createOperationFailure(request.repoPath, "Discard Hunk is available only for Git repositories.");
+        return createOperationFailure(request.repoPath, "Revert Hunk is available only for Git repositories.");
       }
       return gitService.discardHunk(request);
     },

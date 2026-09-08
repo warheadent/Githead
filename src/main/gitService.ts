@@ -1015,7 +1015,7 @@ export class GitService {
 
   async discardHunk(request: GitHunkRequest): Promise<GitOperationResult> {
     if (request.side !== "unstaged") {
-      return this.createOperationFailure(request.repoPath, "Only unstaged hunks can be discarded.");
+      return this.createOperationFailure(request.repoPath, "Only unstaged hunks can be reverted.");
     }
     const validation = await this.validateHunkRequest(request, "unstaged");
     if ("error" in validation) {

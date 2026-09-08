@@ -5107,7 +5107,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     const repoPath = current.repoPath;
 
     const result = discard
-      ? await runRepoOperation("Discarding hunk", selection, (operationId) =>
+      ? await runRepoOperation("Reverting hunk", selection, (operationId) =>
           window.githead.discardHunk({ repoPath, path: selection.path, side: selection.side, patch, operationId })
         )
       : selection.side === "unstaged"
@@ -11244,7 +11244,7 @@ const DiffRows = memo(function DiffRows({
       <Dialog open={Boolean(discardTarget && discardTargetCurrent && hunkAction?.onDiscard)} onOpenChange={(open) => { if (!open) setDiscardTarget(null); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Discard this hunk?</DialogTitle>
+            <DialogTitle>Revert this hunk?</DialogTitle>
             <DialogDescription>The changes in this hunk will be reverted. Other hunks and staged changes will be kept.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -11252,7 +11252,7 @@ const DiffRows = memo(function DiffRows({
             <Button type="button" variant="destructive" disabled={hunkAction?.disabled || !discardTargetCurrent} onClick={() => {
               if (discardTarget && discardTargetCurrent && !hunkAction?.disabled) hunkAction?.onDiscard?.(discardTarget.patch);
               setDiscardTarget(null);
-            }}>Discard changes</Button>
+            }}>Revert changes</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -11291,7 +11291,7 @@ const DiffRows = memo(function DiffRows({
                       disabled={hunkAction.disabled}
                       onClick={() => setDiscardTarget({ patch: group.patch!, filePath, text })}
                     >
-                      Discard Hunk
+                      Revert Hunk
                     </Button>
                   ) : null}
                   {hunkAction && group.patch ? (
