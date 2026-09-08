@@ -37,6 +37,7 @@ import type {
   GitFileBlameRequest,
   GitFileBlameResult,
   GitFilePreview,
+  GitImageVersion,
   GitFilePreviewRequest,
   GitHubRepository,
   GitHunkRequest,
@@ -94,7 +95,7 @@ import { mapRepoSyncStatuses } from "./repoSyncStatus";
 import { imageFallbackText, isPreviewableImagePath, readImageFile, type ImageReadResult } from "./imageDiff";
 import { runEffect, tryPromise } from "../shared/effectRuntime";
 import { runProcessEffect } from "./processEffect";
-import { readMarkdownPreviewFile, validateMarkdownPreviewPath } from "./filePreview";
+import { resolvePreviewFile, validatePreviewPath, readMarkdownPreviewFile, validateMarkdownPreviewPath } from "./filePreview";
 import type { VcsService } from "./vcsService";
 import {
   type LoreRevision,
@@ -490,6 +491,23 @@ export class LoreService implements VcsService {
 
   async getFileBlame(request: GitFileBlameRequest): Promise<GitFileBlameResult> {
     throw new Error(`Blame is not supported for Lore repositories: ${request.repoPath}`);
+  }
+
+  async getFilePreviewImage(request: GitFilePreviewRequest): Promise<GitImageVersion> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) throw new Error(validation.error);
+    const filePath = validatePreviewPath(request.path);
+    if (!isPreviewableImagePath(filePath)) throw new Error("This image format is not supported.");
+    let result: ImageReadResult;
+    if (request.source.kind === "commit") {
+      const revision = sanitizeHash(request.source.hash);
+      if (!revision) throw new Error("Revision signature is invalid.");
+      result = await this.readLoreRevisionImage(validation.rootPath, revision, filePath);
+    } else {
+      result = await readImageFile(await resolvePreviewFile(validation.rootPath, filePath), filePath);
+    }
+    if (result.kind !== "image") throw new Error(imageFallbackText([result]));
+    return result.version;
   }
 
   async getFilePreview(request: GitFilePreviewRequest): Promise<GitFilePreview> {

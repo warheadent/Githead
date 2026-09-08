@@ -1,4 +1,7 @@
-import { useEffect, useId, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useMemo, useEffect, useId, useState, useSyncExternalStore, type ReactNode } from "react";
+
+import { Button } from "@/components/ui/button";
+import { MarkdownMediaViewer } from "./MarkdownMediaViewer";
 
 interface RenderedDiagram {
   svg: string;
@@ -66,6 +69,7 @@ export function MermaidDiagram({ definition, fallback }: { definition: string; f
   const reactId = useId();
   const diagramId = `mermaid-${reactId.replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const themeSnapshot = useSyncExternalStore(subscribeToTheme, getThemeSnapshot);
+  const [showSource, setShowSource] = useState(false);
   const [state, setState] = useState<DiagramState>({ status: "loading" });
 
   useEffect(() => {
@@ -86,6 +90,9 @@ export function MermaidDiagram({ definition, fallback }: { definition: string; f
     };
   }, [definition, diagramId, themeSnapshot]);
 
+  const expandedSource = useMemo(() => state.status === "ready"
+    ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(state.diagram.svg)}` : "", [state]);
+
   if (state.status === "loading") {
     return <div className="markdown-mermaid-status" role="status">Rendering Mermaid diagram...</div>;
   }
@@ -100,14 +107,19 @@ export function MermaidDiagram({ definition, fallback }: { definition: string; f
   }
 
   return (
-    <div
-      className="markdown-mermaid"
-      role="img"
-      aria-label="Mermaid diagram"
-      ref={(element) => {
-        if (element) state.diagram.bindFunctions?.(element);
-      }}
-      dangerouslySetInnerHTML={{ __html: state.diagram.svg }}
-    />
+    <div className="markdown-mermaid-frame">
+      <div className="markdown-mermaid-toolbar">
+        <span>Mermaid</span>
+        <Button type="button" variant="ghost" size="sm" aria-pressed={showSource} onClick={() => setShowSource(!showSource)}>{showSource ? "Show diagram" : "Show source"}</Button>
+        <MarkdownMediaViewer src={expandedSource} label="Mermaid diagram" kind="diagram" />
+      </div>
+      {showSource ? fallback : <div
+        className="markdown-mermaid"
+        role="img"
+        aria-label="Mermaid diagram"
+        ref={(element) => { if (element) state.diagram.bindFunctions?.(element); }}
+        dangerouslySetInnerHTML={{ __html: state.diagram.svg }}
+      />}
+    </div>
   );
 }

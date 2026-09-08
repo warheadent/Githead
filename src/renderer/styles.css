@@ -3834,7 +3834,9 @@ textarea,
   background: transparent;
 }
 
+.markdown-preview .hljs-comment,
 .diff-code .hljs-comment,
+.markdown-preview .hljs-quote,
 .diff-code .hljs-quote,
 .conflict-code-text .hljs-comment,
 .conflict-code-text .hljs-quote {
@@ -3842,8 +3844,11 @@ textarea,
   font-style: italic;
 }
 
+.markdown-preview .hljs-keyword,
 .diff-code .hljs-keyword,
+.markdown-preview .hljs-selector-tag,
 .diff-code .hljs-selector-tag,
+.markdown-preview .hljs-subst,
 .diff-code .hljs-subst,
 .conflict-code-text .hljs-keyword,
 .conflict-code-text .hljs-selector-tag,
@@ -3852,9 +3857,13 @@ textarea,
   font-weight: 700;
 }
 
+.markdown-preview .hljs-number,
 .diff-code .hljs-number,
+.markdown-preview .hljs-literal,
 .diff-code .hljs-literal,
+.markdown-preview .hljs-symbol,
 .diff-code .hljs-symbol,
+.markdown-preview .hljs-bullet,
 .diff-code .hljs-bullet,
 .conflict-code-text .hljs-number,
 .conflict-code-text .hljs-literal,
@@ -3863,8 +3872,11 @@ textarea,
   color: var(--syntax-literal);
 }
 
+.markdown-preview .hljs-string,
 .diff-code .hljs-string,
+.markdown-preview .hljs-doctag,
 .diff-code .hljs-doctag,
+.markdown-preview .hljs-regexp,
 .diff-code .hljs-regexp,
 .conflict-code-text .hljs-string,
 .conflict-code-text .hljs-doctag,
@@ -3872,8 +3884,11 @@ textarea,
   color: var(--syntax-string);
 }
 
+.markdown-preview .hljs-title,
 .diff-code .hljs-title,
+.markdown-preview .hljs-section,
 .diff-code .hljs-section,
+.markdown-preview .hljs-selector-id,
 .diff-code .hljs-selector-id,
 .conflict-code-text .hljs-title,
 .conflict-code-text .hljs-section,
@@ -3882,11 +3897,17 @@ textarea,
   font-weight: 700;
 }
 
+.markdown-preview .hljs-variable,
 .diff-code .hljs-variable,
+.markdown-preview .hljs-template-variable,
 .diff-code .hljs-template-variable,
+.markdown-preview .hljs-selector-class,
 .diff-code .hljs-selector-class,
+.markdown-preview .hljs-attr,
 .diff-code .hljs-attr,
+.markdown-preview .hljs-attribute,
 .diff-code .hljs-attribute,
+.markdown-preview .hljs-name,
 .diff-code .hljs-name,
 .conflict-code-text .hljs-variable,
 .conflict-code-text .hljs-template-variable,
@@ -3897,7 +3918,9 @@ textarea,
   color: var(--syntax-variable);
 }
 
+.markdown-preview .hljs-type,
 .diff-code .hljs-type,
+.markdown-preview .hljs-built_in,
 .diff-code .hljs-built_in,
 .diff-code .hljs-class .hljs-title,
 .conflict-code-text .hljs-type,
@@ -3906,18 +3929,22 @@ textarea,
   color: var(--syntax-literal);
 }
 
+.markdown-preview .hljs-meta,
 .diff-code .hljs-meta,
+.markdown-preview .hljs-tag,
 .diff-code .hljs-tag,
 .conflict-code-text .hljs-meta,
 .conflict-code-text .hljs-tag {
   color: var(--syntax-meta);
 }
 
+.markdown-preview .hljs-deletion,
 .diff-code .hljs-deletion,
 .conflict-code-text .hljs-deletion {
   color: var(--destructive);
 }
 
+.markdown-preview .hljs-addition,
 .diff-code .hljs-addition,
 .conflict-code-text .hljs-addition {
   color: var(--success);
@@ -7488,3 +7515,62 @@ textarea,
 @media (prefers-reduced-motion: reduce) {
   :root .commit-graph-glow { transition: none !important; }
 }
+
+.markdown-code-language { position: absolute; top: 10px; left: 16px; color: var(--muted-foreground); font-size: 0.75rem; }
+.markdown-code-copy { display: flex; gap: 4px; }
+.markdown-code-block pre { padding: 44px 16px 14px; }
+.markdown-code-block.is-wrapped pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.markdown-heading-link { margin-left: 0.4em; opacity: 0; font-weight: 400; }
+.markdown-preview :is(h1,h2,h3,h4,h5,h6) { scroll-margin-top: 64px; }
+.markdown-preview :is(h1,h2,h3,h4,h5,h6):hover .markdown-heading-link,
+.markdown-heading-link:focus-visible { opacity: 1; }
+.markdown-alert { --alert-color: var(--primary); border-left-color: var(--alert-color) !important; }
+.markdown-alert-tip { --alert-color: #238636; }
+.markdown-alert-important { --alert-color: #8957e5; }
+.markdown-alert-warning { --alert-color: #9a6700; }
+.markdown-alert-caution { --alert-color: var(--destructive); }
+.markdown-alert-title { color: var(--alert-color); font-weight: 650; }
+.markdown-image-status { display: block; padding: 16px; border: 1px dashed var(--border); color: var(--muted-foreground); }
+
+.markdown-document { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.markdown-document-toolbar, .markdown-find, .markdown-source-toolbar { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.markdown-document-path { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-code); font-size: 0.75rem; color: var(--muted-foreground); }
+.markdown-document-toolbar > [role="status"] { font-size: 0.75rem; color: var(--muted-foreground); }
+.markdown-document-body { display: flex; flex: 1; min-height: 0; min-width: 0; }
+.markdown-document-scroll { flex: 1; min-width: 0; overflow: auto; }
+.markdown-document-scroll:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.markdown-document-notice { margin: 0; padding: 8px 12px; color: var(--destructive); font-size: 0.8rem; }
+.markdown-outline { width: 190px; flex-shrink: 0; border-left: 1px solid var(--border); padding: 16px 8px; overflow: auto; font-size: 0.8rem; }
+.markdown-outline p { margin: 0 8px 12px; font-weight: 600; }
+.markdown-outline button { display: block; width: 100%; text-align: left; padding: 6px 8px; border-radius: 4px; overflow-wrap: anywhere; }
+.markdown-outline button:hover { background: var(--muted); }
+.markdown-find input { width: 100%; min-width: 70px; border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-size: 0.85rem; }
+.markdown-find [role="status"] { flex-shrink: 0; font-size: 0.75rem; color: var(--muted-foreground); }
+.markdown-source-pane { display: flex; flex-direction: column; width: 50%; min-width: 0; border-right: 1px solid var(--border); }
+.markdown-source-toolbar { flex-wrap: wrap; }
+.markdown-source-toolbar span { font-size: 0.75rem; color: var(--muted-foreground); }
+.markdown-source-pane > .diff-output { flex: 1; min-height: 0; }
+.markdown-source { flex: 1; min-height: 0; }
+.markdown-source-list { height: 100%; overflow: auto; }
+.markdown-source-line { display: flex; gap: 12px; white-space: pre; font-size: 0.8rem; line-height: 28px; min-width: max-content; padding-right: 16px; }
+.markdown-source-line[aria-selected="true"] { background: var(--accent); box-shadow: inset 3px 0 var(--primary); }
+.markdown-source-number { display: inline-block; flex-shrink: 0; width: 48px; text-align: right; color: var(--muted-foreground); user-select: none; }
+.markdown-document-body.is-split .markdown-preview { padding: 20px 24px 40px; }
+@container (max-width: 700px) {
+  .markdown-document-body.is-split { flex-direction: column; }
+  .markdown-source-pane { width: 100%; height: 45%; border-right: 0; border-bottom: 1px solid var(--border); }
+}
+.markdown-preview-output { container-type: inline-size; }
+
+.markdown-image-frame { display: block; position: relative; }
+.markdown-image-expand { position: absolute; top: 8px; right: 8px; }
+.markdown-mermaid-frame { margin: 0 0 1em; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.markdown-mermaid-toolbar { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.markdown-mermaid-toolbar > span { margin-right: auto; color: var(--muted-foreground); font-size: 0.75rem; }
+.markdown-mermaid-frame .markdown-mermaid { border: 0; border-radius: 0; margin: 0; }
+.markdown-mermaid-frame .markdown-code-block { margin: 0; }
+.markdown-media-dialog { width: calc(100vw - 64px); max-width: 1400px; height: calc(100vh - 64px); grid-template-rows: auto auto minmax(0, 1fr); }
+.markdown-media-zoom { display: flex; align-items: center; gap: 12px; }
+.markdown-media-zoom [role="status"] { min-width: 4ch; font-variant-numeric: tabular-nums; text-align: center; }
+.markdown-media-canvas { min-height: 0; overflow: auto; padding: 16px; background: var(--muted); border-radius: 6px; }
+.markdown-media-canvas img { display: block; max-width: none; height: auto; margin: 0 auto; }

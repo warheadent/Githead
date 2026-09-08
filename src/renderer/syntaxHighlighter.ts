@@ -164,6 +164,14 @@ export function highlightCode(filePath: string, text: string): HighlightedCode[]
   return highlightCodeLines(language, lines) ?? lines.map(createPlainCode);
 }
 
+/** Highlight a fenced block using its declared language and the shared work limits. */
+export function highlightMarkdownCode(language: string, text: string): HighlightedCode[] {
+  const lines = splitCodeLines(text);
+  const resolved = hljs.getLanguage(language) ? language : detectDiffLanguage(`code.${language}`);
+  if (!resolved || text.length > MAX_TOKENIZED_CODE_LENGTH) return lines.map(createPlainCode);
+  return highlightCodeLines(resolved, lines) ?? lines.map(createPlainCode);
+}
+
 function collectCodeRowIndexes(rows: readonly DiffRow[], side: "old" | "new"): number[] {
   const indexes: number[] = [];
 

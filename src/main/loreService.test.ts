@@ -177,6 +177,33 @@ hello.txt
 `;
 
 describe("LoreService", () => {
+  it("loads working and historical preview images and removes the temporary export", async () => {
+    await withLoreRepo(async (dir) => {
+      const png = Buffer.from("89504e470d0a1a0a", "hex");
+      await fs.writeFile(path.join(dir, "image.png"), Buffer.concat([png, Buffer.from("working")]));
+      const revision = "7154881d5d929c4487cdee9d65fd7b9c6edb6de8994f819c80ac4191a8f08af4";
+      const runner = new FakeRunner([ok("On branch main"), ok("On branch main"), ok("written")]);
+      const run = runner.run.bind(runner);
+      let exported = "";
+      vi.spyOn(runner, "run").mockImplementation(async (command, args, options) => {
+        const result = await run(command, args, options);
+        const index = args.indexOf("--output");
+        if (index >= 0) {
+          exported = args[index + 1]!;
+          await fs.writeFile(exported, Buffer.concat([png, Buffer.from("historical")]));
+        }
+        return result;
+      });
+      const service = new LoreService(runner);
+      const working = await service.getFilePreviewImage({ repoPath: dir, path: "image.png", source: { kind: "working" } });
+      const historical = await service.getFilePreviewImage({ repoPath: dir, path: "image.png", source: { kind: "commit", hash: revision } });
+      expect(Buffer.from(working.data).subarray(8).toString()).toBe("working");
+      expect(Buffer.from(historical.data).subarray(8).toString()).toBe("historical");
+      expect(runner.calls[2]?.args).toContain(revision);
+      await expect(fs.stat(exported)).rejects.toMatchObject({ code: "ENOENT" });
+    });
+  });
+
   it("loads working and historical MDX preview versions", async () => {
     await withLoreRepo(async (dir) => {
       await fs.writeFile(path.join(dir, "README.mdx"), "# Working Lore\n", "utf8");

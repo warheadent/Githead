@@ -34,6 +34,7 @@ export type VcsService = Pick<
   | "getStashFileDiff"
   | "getStashDiff"
   | "getFilePreview"
+  | "getFilePreviewImage"
   | "fetchLfsImageVersions"
   | "getStagedDiff"
   | "getCommitHistory"

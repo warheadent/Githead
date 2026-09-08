@@ -19,6 +19,10 @@ function DialogPortal({
   return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />
 }
 
+function DialogTrigger(props: React.ComponentProps<typeof DialogPrimitive.Trigger>) {
+  return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />
+}
+
 function DialogOverlay({
   className,
   ...props
@@ -141,4 +145,5 @@ export {
   DialogOverlay,
   DialogPortal,
   DialogTitle,
+  DialogTrigger,
 }
