@@ -1,3 +1,5 @@
+import type { GitConfigRequest, GitConfigSaveRequest, GitIgnoreFileSaveRequest, GitSigningTestRequest } from "../shared/gitConfig";
+import { GitConfigService } from "./gitConfigService";
 import { getAppIconPath } from "./appIcon";
 import type { GitTagListRequest, GitTagCheckoutRequest } from "../shared/types";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, safeStorage, screen, shell } from "electron";
@@ -188,6 +190,7 @@ const processRunner = new CancellableProcessRunner(
   new InstrumentedProcessRunner(new NodeProcessRunner(), performanceDiagnostics)
 );
 const gitService = new GitService(processRunner);
+const gitConfigService = new GitConfigService(processRunner);
 const gitExecutableService = new GitExecutableService(processRunner);
 const loreService = new LoreService(processRunner);
 const vcsRouter = new VcsRouter(gitService, loreService);
@@ -1037,6 +1040,48 @@ ipcMain.handle(IPC_CHANNELS.publishBranch, async (event, request: CoordinatedReq
     }),
     repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS, true)
   );
+});
+
+ipcMain.handle(IPC_CHANNELS.getGitConfig, (_event, request: GitConfigRequest) => gitConfigService.getSettings(request));
+
+ipcMain.handle(IPC_CHANNELS.saveGitConfig, (event, request: CoordinatedRequest<GitConfigSaveRequest>) => {
+  const operationKey = request.scope === "repository" ? request.repoPath : "git-global-config";
+  const options = repositoryOperationOptions(event, request.operationId, operationKey);
+  const operation = (signal: AbortSignal) => gitConfigService.saveSettings(request, signal);
+  const busy = () => { throw new Error("Another Git operation is running. Retry when it finishes."); };
+  return request.scope === "repository"
+    ? runTrustedExclusiveRepositoryOperation(operation, options, (failure) => { throw new Error(failure.stderr); }, busy)
+    : runExclusiveRepositoryOperation(options, operation, busy);
+});
+
+ipcMain.handle(IPC_CHANNELS.testGitSigning, (event, request: CoordinatedRequest<GitSigningTestRequest>) => {
+  const options = repositoryOperationOptions(event, request.operationId, request.repoPath || "git-global-config");
+  const operation = () => gitConfigService.testSigning(request);
+  const busy = () => { throw new Error("Another Git operation is running. Retry when it finishes."); };
+  return request.repoPath
+    ? runTrustedExclusiveRepositoryOperation(operation, options, (failure) => { throw new Error(failure.stderr); }, busy)
+    : runExclusiveRepositoryOperation(options, operation, busy);
+});
+
+ipcMain.handle(IPC_CHANNELS.chooseGitConfigFile, async (_event, purpose: "signing-key" | "ignore") => {
+  if (purpose !== "signing-key" && purpose !== "ignore") throw new Error("Choose a valid file type.");
+  const options: Electron.OpenDialogOptions = {
+    title: purpose === "ignore" ? "Select Personal Ignore File" : "Select Signing Key",
+    properties: ["openFile", "showHiddenFiles"]
+  };
+  const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+  return result.canceled ? null : result.filePaths[0] ?? null;
+});
+
+ipcMain.handle(IPC_CHANNELS.getGitIgnoreFile, (_event, request: GitConfigRequest) => gitConfigService.getIgnoreFile(request));
+
+ipcMain.handle(IPC_CHANNELS.saveGitIgnoreFile, (event, request: CoordinatedRequest<GitIgnoreFileSaveRequest>) => {
+  const options = repositoryOperationOptions(event, request.operationId, request.scope === "repository" ? request.repoPath : "git-global-config");
+  const operation = (signal: AbortSignal) => gitConfigService.saveIgnoreFile(request, signal);
+  const busy = () => { throw new Error("Another Git operation is running. Retry when it finishes."); };
+  return request.scope === "repository"
+    ? runTrustedExclusiveRepositoryOperation(operation, options, (failure) => { throw new Error(failure.stderr); }, busy)
+    : runExclusiveRepositoryOperation(options, operation, busy);
 });
 
 ipcMain.handle(IPC_CHANNELS.getGitIdentity, async (_event, repoPath: string) => {

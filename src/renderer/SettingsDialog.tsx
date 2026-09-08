@@ -1,3 +1,5 @@
+import { useGitConfigSettings } from "./useGitConfigSettings";
+import { GitConfigSettingsFields } from "./GitConfigSettingsFields";
 import {
   Bot,
   CheckCircle2,
@@ -92,11 +94,12 @@ export interface SettingsDraft {
   gitIdentityScope: GitIdentityScope;
 }
 
-export type SettingsCategory = "appearance" | "git-identity" | "git-behaviors" | "sync" | "integrations" | "ai" | "privacy" | "diagnostics";
+export type SettingsCategory = "appearance" | "git-identity" | "git-configuration" | "git-behaviors" | "sync" | "integrations" | "ai" | "privacy" | "diagnostics";
 
 const categories = [
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "git-identity", label: "Git identity", icon: GitCommitHorizontal },
+  { id: "git-configuration", label: "Git configuration", icon: GitFork },
   { id: "git-behaviors", label: "Git behaviors", icon: SlidersHorizontal },
   { id: "sync", label: "Sync", icon: RefreshCw },
   { id: "integrations", label: "Integrations", icon: Plug },
@@ -137,6 +140,7 @@ const remoteCheckLeaseOptions: ReadonlyArray<{ value: RemoteCheckLeaseSeconds; l
 ];
 
 export interface SettingsDialogProps {
+  repoPath?: string;
   open: boolean;
   draft: SettingsDraft;
   aiSettings: AiSettings | null;
@@ -162,10 +166,11 @@ export interface SettingsDialogProps {
 }
 
 export function SettingsDialog({
+  repoPath = "",
   open,
   draft,
   aiSettings,
-  saving,
+  saving: parentSaving,
   error,
   onOpenChange,
   onDraftChange,
@@ -185,13 +190,15 @@ export function SettingsDialog({
   onManageRemotes = () => undefined,
   onOpenGitHubRepository = () => undefined
 }: SettingsDialogProps): ReactNode {
+  const gitConfig = useGitConfigSettings(open, repoPath, "global");
+  const saving = parentSaving || gitConfig.saving;
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>("git-identity");
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const baselineRef = useRef("");
   const wasOpenRef = useRef(false);
   const serializedDraft = serializeSettingsDraft(draft);
-  const dirty = open && baselineRef.current !== "" && serializedDraft !== baselineRef.current;
-  const dirtyCategories = getDirtyCategories(baselineRef.current, draft);
+  const dirty = open && baselineRef.current !== "" && (serializedDraft !== baselineRef.current || gitConfig.dirty);
+  const dirtyCategories = { ...getDirtyCategories(baselineRef.current, draft), "git-configuration": gitConfig.dirty };
   const provider = draft.selectedProvider;
   const selectedTagPushBehavior = tagPushBehaviorOptions.find((option) => option.value === draft.tagPushBehavior) ?? tagPushBehaviorOptions[0];
   const footerStatus = error ? {
@@ -215,6 +222,7 @@ export function SettingsDialog({
   }, [draft, initialCategory, open]);
 
   const requestClose = (): void => {
+    if (gitConfig.saving) return;
     if (saving) {
       onOpenChange(false);
       return;
@@ -240,7 +248,8 @@ export function SettingsDialog({
               event.preventDefault();
               return;
             }
-            onSave(event);
+            event.preventDefault();
+            void gitConfig.save().then((saved) => { if (saved) onSave(event); else setActiveCategory("git-configuration"); });
           }}>
             <DialogHeader className="settings-dialog-header border-b px-6 py-5 pr-14">
               <p className="eyebrow">Preferences</p>
@@ -253,7 +262,7 @@ export function SettingsDialog({
               categories={categories}
               disabled={saving}
               dirtyCategories={dirtyCategories}
-              errorCategories={{ "git-identity": Boolean(error) }}
+              errorCategories={{ "git-identity": Boolean(error), "git-configuration": Boolean(gitConfig.error) }}
               onCategoryChange={setActiveCategory}
             >
                 <SettingsPanel value="appearance" title="Appearance" description="Personalize Githead's look and interface scale.">
@@ -277,6 +286,9 @@ export function SettingsDialog({
                     />
                     <p className="text-sm text-muted-foreground">Repository overrides are available from a repository's context menu.</p>
                   </SettingsCard>
+                </SettingsPanel>
+                <SettingsPanel value="git-configuration" title="Git configuration" description="Set Git defaults for your repositories.">
+                  <GitConfigSettingsFields editor={gitConfig} disabled={saving} />
                 </SettingsPanel>
                 <SettingsPanel value="git-behaviors" title="Git behaviors" description="Choose how Githead handles Git operations by default.">
                   <SettingsCard title="Commit" description="Control the network safety check used by commit operations.">
@@ -467,7 +479,7 @@ export function SettingsDialog({
               />
               <DialogFooter className="settings-dialog-actions shrink-0">
                 <Button type="button" variant="outline" onClick={requestClose}>{saving ? "Cancel operation" : "Cancel"}</Button>
-                <Button type="submit" disabled={saving || !dirty}>{saving ? <Loader2 className="animate-spin" /> : <Save />}{saving ? "Saving…" : "Save"}</Button>
+                <Button type="submit" disabled={saving || gitConfig.loading || !dirty}>{saving ? <Loader2 className="animate-spin" /> : <Save />}{saving ? "Saving…" : "Save"}</Button>
               </DialogFooter>
             </div>
           </form>
@@ -640,11 +652,12 @@ function serializeSettingsDraft(draft: SettingsDraft): string { return JSON.stri
 function formatZoomFactor(zoomFactor: number): string { return `${Math.round(zoomFactor * 100)}%`; }
 
 function getDirtyCategories(baseline: string, draft: SettingsDraft): Record<SettingsCategory, boolean> {
-  if (!baseline) return { appearance: false, "git-identity": false, "git-behaviors": false, sync: false, integrations: false, ai: false, privacy: false, diagnostics: false };
+  if (!baseline) return { appearance: false, "git-identity": false, "git-configuration": false, "git-behaviors": false, sync: false, integrations: false, ai: false, privacy: false, diagnostics: false };
   const saved = JSON.parse(baseline) as SettingsDraft;
   return {
     appearance: saved.visualEffects !== draft.visualEffects || saved.reduceMotion !== draft.reduceMotion || saved.colorTheme !== draft.colorTheme || saved.appearanceMode !== draft.appearanceMode || saved.uiFont !== draft.uiFont || saved.codeFont !== draft.codeFont || saved.zoomFactor !== draft.zoomFactor,
     "git-identity": saved.gitIdentityName !== draft.gitIdentityName || saved.gitIdentityEmail !== draft.gitIdentityEmail,
+    "git-configuration": false,
     "git-behaviors": saved.tagPushBehavior !== draft.tagPushBehavior
       || saved.requireUpToDateUpstreamBeforeCommit !== draft.requireUpToDateUpstreamBeforeCommit
       || saved.remoteCheckLeaseSeconds !== draft.remoteCheckLeaseSeconds

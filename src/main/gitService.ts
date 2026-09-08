@@ -1,3 +1,4 @@
+import { gitSyncArgs } from "./gitSyncConfig";
 import type { GitTagListRequest, GitTagCheckoutRequest, GitCheckoutTag } from "../shared/types";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
@@ -8,7 +9,6 @@ import { classifyGitOperationError } from "./gitOperationFailure";
 import { getRepoPathKey, normalizeRepoPath } from "./repoPath";
 import type {
   CommitRef,
-  GitAction,
   GitBranch,
   GitBranchRequest,
   GitRemoteBranchCheckoutRequest,
@@ -137,21 +137,6 @@ import { GitOperationRecoveryService } from "./gitOperationRecovery";
 import { GitAmendService } from "./gitAmendService";
 import { GitIntegrationService } from "./gitIntegrationService";
 import { planGitPush, validateGitPushRemoteName, type GitPushCommandPlan, type ValidatedGitPushTarget } from "./gitPushPlan";
-
-export const GIT_ACTION_COMMANDS: Record<GitAction, string[]> = {
-  fetch: [
-    "fetch",
-    "--all",
-    "--prune"
-  ],
-  pull: [
-    "pull",
-    "--ff-only"
-  ],
-  push: [
-    "push"
-  ]
-};
 
 const PULL_BASE_REF_PREFIX = "refs/githead/pull-base";
 const PULL_HEAD_REF_PREFIX = "refs/githead/pull-head";
@@ -1123,7 +1108,7 @@ export class GitService {
         repoPath,
         "commit-remote-check:fetch",
         runId,
-        ["fetch", "--prune", validatedFetchRemote.remoteName],
+        await gitSyncArgs(this.runner, repoPath, "fetch", undefined, validatedFetchRemote.remoteName),
         onOutput
       );
       if (fetchResult.exitCode !== 0) {
@@ -2702,7 +2687,7 @@ export class GitService {
       : null;
     const result = request.action === "push"
       ? await this.runPush(request, runId, onOutput, pushSnapshot)
-      : await this.runActionCommand(request, runId, GIT_ACTION_COMMANDS[request.action], onOutput);
+      : await this.runActionCommand(request, runId, await gitSyncArgs(this.runner, request.repoPath, request.action, pullSnapshot?.branchName), onOutput);
     const pullRecovery = pullSnapshot
       ? await this.finishPullRecoveryAttempt(request.repoPath, pullSnapshot, result.exitCode)
       : null;

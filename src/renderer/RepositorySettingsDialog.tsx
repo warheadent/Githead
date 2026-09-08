@@ -1,4 +1,6 @@
-import { Bot, CircleAlert, GitCommitHorizontal, Loader2, RefreshCw, Save } from "lucide-react";
+import { useGitConfigSettings } from "./useGitConfigSettings";
+import { GitConfigSettingsFields } from "./GitConfigSettingsFields";
+import { Bot, CircleAlert, GitCommitHorizontal, GitFork, Loader2, RefreshCw, Save } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,7 +29,7 @@ import { GitIdentityFields } from "./GitIdentityFields";
 import { LoadingState } from "./LoadingState";
 import { SettingsCard, SettingsCategoryLayout, SettingsPanel } from "./SettingsCategoryLayout";
 
-type RepositorySettingsCategory = "git-identity" | "sync" | "ai";
+type RepositorySettingsCategory = "git-configuration" | "git-identity" | "sync" | "ai";
 
 interface RepositorySettingsDraft extends AiGenerationSettingsDraft {
   gitIdentityEnabled: boolean;
@@ -40,6 +42,7 @@ interface RepositorySettingsDraft extends AiGenerationSettingsDraft {
 
 const categories = [
   { id: "git-identity", label: "Git identity", icon: GitCommitHorizontal },
+  { id: "git-configuration", label: "Git configuration", icon: GitFork },
   { id: "sync", label: "Sync", icon: RefreshCw },
   { id: "ai", label: "AI", icon: Bot }
 ] as const;
@@ -79,6 +82,7 @@ export function RepositorySettingsDialog({
   onSaved,
   onSaveGitIdentity = (request) => window.githead.saveGitIdentity(request)
 }: RepositorySettingsDialogProps): ReactNode {
+  const gitConfig = useGitConfigSettings(open, repoPath, "repository");
   const requestIdRef = useRef(0);
   const baselineRef = useRef("");
   const [draft, setDraft] = useState<RepositorySettingsDraft>(emptyDraft);
@@ -92,8 +96,8 @@ export function RepositorySettingsDialog({
   const [error, setError] = useState("");
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const serializedDraft = serializeDraft(draft);
-  const dirty = open && baselineRef.current !== "" && serializedDraft !== baselineRef.current;
-  const dirtyCategories = getDirtyCategories(baselineRef.current, draft);
+  const dirty = open && baselineRef.current !== "" && (serializedDraft !== baselineRef.current || gitConfig.dirty);
+  const dirtyCategories = { ...getDirtyCategories(baselineRef.current, draft), "git-configuration": gitConfig.dirty };
 
   useEffect(() => {
     if (!open || !repoPath) return;
@@ -129,7 +133,7 @@ export function RepositorySettingsDialog({
   }, [open, repoPath]);
 
   const requestClose = (): void => {
-    if (saving) return;
+    if (saving || gitConfig.saving) return;
     if (dirty) {
       setConfirmDiscard(true);
       return;
@@ -139,10 +143,11 @@ export function RepositorySettingsDialog({
 
   const save = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
-    if (loading || saving || !dirty) return;
+    if (loading || saving || gitConfig.loading || gitConfig.saving || !dirty) return;
     setSaving(true);
     setError("");
     try {
+      if (!await gitConfig.save()) { setActiveCategory("git-configuration"); return; }
       const dirtyState = getDirtyCategories(baselineRef.current, draft);
       if (dirtyState["git-identity"]) {
         await onSaveGitIdentity({
@@ -188,7 +193,7 @@ export function RepositorySettingsDialog({
     }
   };
 
-  const disabled = loading || saving;
+  const disabled = loading || saving || gitConfig.loading || gitConfig.saving;
   const automaticFetchEnabled = Number(draft.autoFetchIntervalMinutes) > 0;
   const footerMessage = error
     ? <p className="flex items-center gap-2 text-destructive" role="alert"><CircleAlert className="size-4 shrink-0" aria-hidden="true" /><span>{error}</span></p>
@@ -247,6 +252,9 @@ export function RepositorySettingsDialog({
                 </SettingsCard>
               </SettingsPanel>
 
+              <SettingsPanel value="git-configuration" title="Git configuration" description="Override Git defaults for this repository.">
+                <GitConfigSettingsFields editor={gitConfig} disabled={disabled} />
+              </SettingsPanel>
               <SettingsPanel value="sync" title="Sync" description="Choose how often this repository fetches remote changes.">
                 <OverrideToggle
                   checked={draft.syncEnabled}
@@ -388,10 +396,11 @@ function createDraft(
 }
 
 function getDirtyCategories(baseline: string, draft: RepositorySettingsDraft): Record<RepositorySettingsCategory, boolean> {
-  if (!baseline) return { "git-identity": false, sync: false, ai: false };
+  if (!baseline) return { "git-configuration": false, "git-identity": false, sync: false, ai: false };
   try {
     const saved = JSON.parse(baseline) as RepositorySettingsDraft;
     return {
+      "git-configuration": false,
       "git-identity": saved.gitIdentityEnabled !== draft.gitIdentityEnabled
         || saved.gitIdentityName !== draft.gitIdentityName
         || saved.gitIdentityEmail !== draft.gitIdentityEmail,
@@ -400,7 +409,7 @@ function getDirtyCategories(baseline: string, draft: RepositorySettingsDraft): R
       ai: serializeAiSettings(saved) !== serializeAiSettings(draft)
     };
   } catch {
-    return { "git-identity": false, sync: false, ai: false };
+    return { "git-configuration": false, "git-identity": false, sync: false, ai: false };
   }
 }
 
