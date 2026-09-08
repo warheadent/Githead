@@ -286,6 +286,21 @@ describe("LoreService", () => {
     });
   });
 
+  it("reports history failures so loading can be retried", async () => {
+    await withLoreRepo(async (dir) => {
+      const runner = new FakeRunner([ok("ok"), { exitCode: 1, stdout: "", stderr: "Connection lost" }]);
+      await expect(new LoreService(runner).getCommitHistory({ repoPath: dir })).rejects.toThrow("Connection lost");
+    });
+  });
+
+  it("allows loading history beyond 500 revisions", async () => {
+    await withLoreRepo(async (dir) => {
+      const runner = new FakeRunner([ok("ok"), ok(HISTORY_TWO)]);
+      await new LoreService(runner).getCommitHistory({ repoPath: dir, limit: 800 });
+      expect(runner.calls.at(-1)?.args).toEqual(["--repository", dir, "-P", "history", "800"]);
+    });
+  });
+
   it("derives commit-graph parents from history order", async () => {
     await withLoreRepo(async (dir) => {
       const runner = new FakeRunner([

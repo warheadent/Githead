@@ -475,6 +475,7 @@ interface AppState {
   history: GitCommitGraphRow[];
   historyLoading: boolean;
   historyLoaded: boolean;
+  historyHasMore: boolean;
   historyError: string;
   selectedCommitHash: string | null;
   resetCommitDialog: ResetCommitDialogState;
@@ -901,6 +902,7 @@ const initialState: AppState = {
   history: [],
   historyLoading: false,
   historyLoaded: false,
+  historyHasMore: false,
   historyError: "",
   selectedCommitHash: null,
   resetCommitDialog: emptyResetCommitDialog,
@@ -1376,17 +1378,21 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
 
   const loadCommitHistory = useCallback(async (
     force: boolean,
-    preload = false
+    preload = false,
+    loadMore = false
   ): Promise<boolean> => {
     const current = stateRef.current;
     if (!current.summary?.isValid) {
       updateState({
         history: [],
         historyLoaded: false,
+        historyHasMore: false,
         historyError: current.summary?.validationErrors.join(" ") ?? ""
       });
       return false;
     }
+
+    if (loadMore && (current.historyLoading || !current.historyHasMore)) return false;
 
     if (current.historyLoaded && !force) {
       return true;
@@ -1394,6 +1400,9 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
 
     const repoPath = current.repoPath;
     const scope = current.historyScope;
+    // Grow geometrically to avoid repeatedly reading almost the same prefix.
+    // A complete prefix keeps graph ordering consistent when refs change.
+    const limit = Math.max(HISTORY_LIMIT, current.history.length * (loadMore ? 2 : 1));
     const repoRequestId = requestIds.current.repo;
 
     preloadedHistoryRequestId.current = null;
@@ -1410,7 +1419,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     try {
       const loadedHistory = await window.githead.getCommitHistory({
         repoPath,
-        limit: HISTORY_LIMIT,
+        limit: limit + 1,
         scope,
         requestId: repositoryReadRequestId("history", requestId)
       });
@@ -1421,7 +1430,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
 
       const latest = stateRef.current;
       preloadedHistoryRequestId.current = preload && repoRequestId === requestIds.current.repo && latest.activeView !== "history" ? requestId : null;
-      const history = reuseCommitHistoryRows(latest.history, loadedHistory);
+      const history = reuseCommitHistoryRows(latest.history, loadedHistory.slice(0, limit));
       const selectedCommitHash = history.some((commit) => commit.hash === latest.selectedCommitHash)
         ? latest.selectedCommitHash
         : history[0]?.hash ?? null;
@@ -1432,6 +1441,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
 
       updateState(selectionChanged ? {
         history,
+        historyHasMore: loadedHistory.length > limit,
         historyLoaded: true,
         historyError: "",
         selectedCommitHash,
@@ -1442,6 +1452,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
         commitFileDiffError: ""
       } : {
         history,
+        historyHasMore: loadedHistory.length > limit,
         historyLoaded: true,
         historyError: ""
       });
@@ -1461,6 +1472,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
           updateState({
             history: [],
             historyLoaded: false,
+            historyHasMore: false,
             historyError,
             selectedCommitHash: null,
             commitDetails: null,
@@ -1536,6 +1548,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       history: [],
       historyLoading: false,
       historyLoaded: false,
+      historyHasMore: false,
       historyError: "",
       commitDetails: null,
       commitDetailsLoading: false,
@@ -2056,6 +2069,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       repositorySnapshots.current.set(leaving.repoPath, {
         summary: leaving.summary,
         history: leaving.history,
+        historyHasMore: leaving.historyHasMore,
         historyScope: leaving.historyScope,
         selection: leaving.selection,
         activeView: leaving.activeView === "history" ? "history" : "status"
@@ -2169,7 +2183,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       diffLoading: false,
       diffChanged: false
       }));
-      return cached ? { ...reset, history: cached.history, historyScope: cached.historyScope, historyLoaded: cached.history.length > 0, selection: cached.selection } : reset;
+      return cached ? { ...reset, history: cached.history, historyScope: cached.historyScope, historyLoaded: cached.history.length > 0, historyHasMore: cached.historyHasMore, selection: cached.selection } : reset;
     });
 
     await refreshRepo({
@@ -7522,6 +7536,8 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                   summary={state.summary}
                   historyScope={state.historyScope}
                   history={state.history}
+                  historyHasMore={state.historyHasMore}
+                  onLoadMoreHistory={() => { void loadCommitHistory(true, false, true); }}
                   historyLoading={state.historyLoading}
                   historyError={state.historyError}
                   selectedCommitHash={state.selectedCommitHash}
@@ -11411,6 +11427,8 @@ function HistoryView({
   historyScope,
   history,
   historyLoading,
+  historyHasMore,
+  onLoadMoreHistory,
   historyError,
   selectedCommitHash,
   commitDetails,
@@ -11443,6 +11461,8 @@ function HistoryView({
   historyScope: CommitHistoryScope;
   history: GitCommitGraphRow[];
   historyLoading: boolean;
+  historyHasMore: boolean;
+  onLoadMoreHistory: () => void;
   historyError: string;
   selectedCommitHash: string | null;
   commitDetails: GitCommitDetails | null;
@@ -11511,6 +11531,9 @@ function HistoryView({
         <section ref={columnLayout.containerRef} style={historyStyle} className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] border-b bg-card" aria-label="Commit list" onScrollCapture={(event) => {
           const source = event.target;
           if (!(source instanceof HTMLElement)) return;
+          if (source.classList.contains("history-list") && source.scrollTop > 0
+            && source.scrollHeight - source.scrollTop - source.clientHeight < COMMIT_GRAPH_ROW_HEIGHT * 8
+            && historyHasMore && !historyLoading && !historyError) onLoadMoreHistory();
           const targetClass = source.classList.contains("history-list") ? ".history-table-header"
             : source.classList.contains("history-table-header") ? ".history-list" : null;
           const target = targetClass ? event.currentTarget.querySelector<HTMLElement>(targetClass) : null;
@@ -11560,7 +11583,7 @@ function HistoryView({
                 {historyLoading ? <span className="sr-only" role="status">Refreshing commit history</span> : null}
                 {historyError ? (
                   <div className="history-refresh-error selectable-text" role="status">
-                    Commit history refresh failed: {historyError}
+                    Unable to load commit history: {historyError}
                   </div>
                 ) : null}
                 <FixedSizeVirtualList
@@ -11599,6 +11622,13 @@ function HistoryView({
                     />
                   )}
                 />
+                {historyHasMore ? (
+                  <div className="flex items-center justify-center border-t px-3 py-1">
+                    <Button type="button" variant="ghost" size="sm" disabled={historyLoading} onClick={onLoadMoreHistory}>
+                      {historyLoading ? "Loading commits…" : historyError ? "Retry loading commits" : "Load more commits"}
+                    </Button>
+                  </div>
+                ) : null}
               </>
             )}
           </div>
@@ -14289,6 +14319,7 @@ function resetHistoryState(state: AppState): AppState {
     history: [],
     historyLoading: false,
     historyLoaded: false,
+    historyHasMore: false,
     historyError: "",
     selectedCommitHash: null,
     resetCommitDialog: emptyResetCommitDialog,

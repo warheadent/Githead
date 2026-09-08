@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { RepoSummary } from "../shared/types";
+import type { GitCommitGraphRow, RepoSummary } from "../shared/types";
 import { REPOSITORY_SNAPSHOT_MAX_ENTRIES, REPOSITORY_SNAPSHOT_MAX_FILES_PER_ENTRY, REPOSITORY_SNAPSHOT_MAX_RETAINED_ITEMS, RepositorySnapshotCache, getRepoPathKey } from "./repositorySnapshotCache";
 
 const summary = (repoPath: string, fileCount = 1): RepoSummary => ({
   repoPath, kind: "git", capabilities: {} as RepoSummary["capabilities"], isValid: true, branch: "main", upstream: null, branches: [], hasHead: true, remotes: [], remoteBranches: [], defaultRemoteBranch: null, commitsAheadOfDefaultBranch: null, githubRepository: null, ahead: null, behind: null, files: Array.from({ length: fileCount }, (_, index) => ({ path: `file-${index}`, indexStatus: ".", worktreeStatus: "M", isStaged: false, isUnstaged: true, isConflicted: false })), operationState: null, safeDirectory: null, actionsConfig: {} as RepoSummary["actionsConfig"], validationErrors: []
 });
 
-const snapshot = (repoPath: string, fileCount = 1) => ({ summary: summary(repoPath, fileCount), history: [], historyScope: "current" as const, selection: fileCount ? { path: "file-0", side: "unstaged" as const, paths: ["file-0"], anchorPath: "file-0" } : null, activeView: "status" as const });
+const snapshot = (repoPath: string, fileCount = 1) => ({ summary: summary(repoPath, fileCount), history: [], historyHasMore: false, historyScope: "current" as const, selection: fileCount ? { path: "file-0", side: "unstaged" as const, paths: ["file-0"], anchorPath: "file-0" } : null, activeView: "status" as const });
 
 describe("RepositorySnapshotCache", () => {
   it("normalizes equivalent Repository paths", () => {
@@ -26,6 +26,19 @@ describe("RepositorySnapshotCache", () => {
     const cache = new RepositorySnapshotCache();
     cache.set("D:\\Repo", { ...snapshot("D:\\Repo"), historyScope: "all" });
     expect(cache.get("D:\\Repo")?.historyScope).toBe("all");
+  });
+
+  it("allows loading rows omitted by the cache budget", () => {
+    const cache = new RepositorySnapshotCache();
+    const commit: GitCommitGraphRow = {
+      hash: "a".repeat(40), shortHash: "aaaaaaa", subject: "Commit", authorName: "Author",
+      authorEmail: "author@example.test", authorDate: "2026-09-07", relativeDate: "today", parents: [], refs: []
+    };
+    cache.set("repo", { ...snapshot("repo"), history: Array.from({ length: 201 }, () => commit) });
+    expect(cache.get("repo")?.history).toHaveLength(200);
+    expect(cache.get("repo")?.historyHasMore).toBe(true);
+    cache.set("repo", { ...snapshot("repo"), history: [commit] });
+    expect(cache.get("repo")?.historyHasMore).toBe(false);
   });
 
   it("evicts the least recently used entry", () => {

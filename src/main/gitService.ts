@@ -779,7 +779,7 @@ export class GitService {
       }
     }
 
-    const limit = sanitizeHistoryLimit(request.limit);
+    const limit = sanitizeHistoryLimit(request.limit, 200, 0xFFFFFFFF);
     const revisions = scope === "all"
       ? [
         ...(headResult.exitCode === 0 ? ["HEAD"] : []),

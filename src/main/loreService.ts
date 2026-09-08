@@ -108,7 +108,7 @@ import { formatRevertCommitMessage } from "../shared/revertCommitMessage";
 
 const NOT_IMPLEMENTED = "This operation is not yet available for Lore repositories.";
 const DEFAULT_HISTORY_LIMIT = 200;
-const MAX_HISTORY_LIMIT = 500;
+const MAX_HISTORY_LIMIT = 0xFFFFFFFF;
 const HASH_PATTERN = /^[0-9a-f]{7,64}$/i;
 const REPOSITORY_ACCESS_CHECK_TIMEOUT_MS = 30_000;
 
@@ -339,7 +339,7 @@ export class LoreService implements VcsService {
       String(limit)
     ]);
     if (result.exitCode !== 0) {
-      return [];
+      throw new Error(result.stderr.trim() || result.error || "Unable to read commit history.");
     }
 
     const revisions = parseLoreHistory(result.stdout);

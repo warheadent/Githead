@@ -10,6 +10,7 @@ export interface SnapshotSelection { path: string; side: "staged" | "unstaged"; 
 export interface RepositorySnapshot {
   summary: RepoSummary;
   history: GitCommitGraphRow[];
+  historyHasMore: boolean;
   historyScope: CommitHistoryScope;
   selection: SnapshotSelection | null;
   activeView: "status" | "history";
@@ -39,6 +40,7 @@ export class RepositorySnapshotCache {
     const entry: StoredSnapshot = {
       summary: { ...snapshot.summary, files, ...(retainStatus && snapshot.summary.submodules ? { submodules: snapshot.summary.submodules.slice() } : { submodules: [] }) },
       history,
+      historyHasMore: snapshot.historyHasMore || snapshot.history.length > history.length,
       historyScope: snapshot.historyScope,
       selection,
       activeView: snapshot.activeView,

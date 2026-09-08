@@ -2481,6 +2481,12 @@ describe("GitService", () => {
     expect(runner.calls.at(-1)?.args).not.toContain("--tags");
   });
 
+  it("allows loading commit history beyond 500 commits", async () => {
+    const runner = new FakeRunner([ok("true\n"), ok(`${oid}\n`), ok("")]);
+    await new GitService(runner).getCommitHistory({ repoPath: "D:\\Repo", limit: 800 });
+    expect(runner.calls.at(-1)?.args).toContain("--max-count=800");
+  });
+
   it("returns empty commit history when HEAD does not exist", async () => {
     const runner = new FakeRunner([
       ok("true\n"),

@@ -323,6 +323,63 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.getByText("Open a local folder or clone a repository to this computer.")).toBeTruthy();
   });
 
+  it("loads more on scroll, preserves selection, and stops at the end", async () => {
+    const user = userEvent.setup();
+    const commits = Array.from({ length: 601 }, (_, index) => createCommit({
+      hash: index.toString(16).padStart(40, "0"), subject: `History entry ${index}`
+    }));
+    vi.mocked(githead.getCommitHistory).mockImplementation(async ({ limit }) => commits.slice(0, limit));
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: "Commit History" }));
+    const selected = await screen.findByRole("option", { name: /History entry 0/ });
+    expect(selected.getAttribute("aria-selected")).toBe("true");
+    const list = screen.getByRole("listbox", { name: "Commit history" });
+    Object.defineProperties(list, {
+      clientHeight: { configurable: true, value: 280 },
+      scrollHeight: { configurable: true, value: 5600 }
+    });
+    fireEvent.scroll(list, { target: { scrollTop: 5200 } });
+    await waitFor(() => expect(githead.getCommitHistory).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 401 })));
+    await waitFor(() => expect(within(list).getAllByRole("option")[0]?.getAttribute("aria-setsize")).toBe("400"));
+    expect(list.scrollTop).toBe(5200);
+    await user.click(screen.getByRole("button", { name: "Load more commits" }));
+    await waitFor(() => expect(within(list).getAllByRole("option")[0]?.getAttribute("aria-setsize")).toBe("601"));
+    expect(githead.getCommitHistory).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 801 }));
+    expect(screen.queryByRole("button", { name: "Load more commits" })).toBeNull();
+    fireEvent.scroll(list, { target: { scrollTop: 0 } });
+    expect(screen.getByRole("option", { name: /History entry 0/ }).getAttribute("aria-selected")).toBe("true");
+    await user.click(screen.getByRole("tab", { name: "File Status" }));
+    await user.click(screen.getByRole("tab", { name: "Commit History" }));
+    await waitFor(() => expect(githead.getCommitHistory).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 602 })));
+  });
+
+  it("prevents duplicate loads and lets users retry without losing commits", async () => {
+    const user = userEvent.setup();
+    const commits = Array.from({ length: 201 }, (_, index) => createCommit({
+      hash: index.toString(16).padStart(40, "0"), subject: `Retry entry ${index}`
+    }));
+    const pending = defer<GitCommitGraphRow[]>();
+    vi.mocked(githead.getCommitHistory).mockResolvedValueOnce(commits).mockReturnValueOnce(pending.promise).mockResolvedValue(commits);
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: "Commit History" }));
+    await user.click(await screen.findByRole("button", { name: "Load more commits" }));
+    expect(screen.getByRole("button", { name: "Loading commits…" }).hasAttribute("disabled")).toBe(true);
+    const list = screen.getByRole("listbox", { name: "Commit history" });
+    fireEvent.scroll(list, { target: { scrollTop: 1 } });
+    fireEvent.scroll(list, { target: { scrollTop: 2 } });
+    expect(githead.getCommitHistory).toHaveBeenCalledTimes(2);
+    pending.reject(new Error("Connection lost"));
+    const retry = await screen.findByRole("button", { name: "Retry loading commits" });
+    expect(within(list).getAllByRole("option")[0]?.getAttribute("aria-setsize")).toBe("200");
+    fireEvent.scroll(list, { target: { scrollTop: 3 } });
+    expect(githead.getCommitHistory).toHaveBeenCalledTimes(2);
+    await user.click(retry);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Retry loading commits" })).toBeNull());
+    expect(githead.getCommitHistory).toHaveBeenCalledTimes(3);
+  });
+
   it("preloads the full history once and reuses it on the first tab open", async () => {
     const user = userEvent.setup();
     const history = Array.from({ length: 25 }, (_, index) => createCommit({
@@ -343,7 +400,7 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => expect(idleCallback).not.toBeNull());
     act(() => idleCallback?.({ didTimeout: false, timeRemaining: () => 50 }));
     await flushRendererAsync();
-    expect(githead.getCommitHistory).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ limit: 200, scope: "current" }));
+    expect(githead.getCommitHistory).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ limit: 201, scope: "current" }));
     expect(githead.getCommitDetails).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
@@ -379,7 +436,7 @@ describe("App", { timeout: 10_000 }, () => {
     pendingHistory.resolve(history);
     expect((await screen.findByRole("option", { name: /pending history 0/ })).getAttribute("aria-setsize")).toBe("25");
     expect(githead.getCommitHistory).toHaveBeenCalledTimes(1);
-    expect(githead.getCommitHistory).toHaveBeenCalledWith(expect.objectContaining({ limit: 200 }));
+    expect(githead.getCommitHistory).toHaveBeenCalledWith(expect.objectContaining({ limit: 201 }));
     pendingDetails.resolve(createCommitDetails(history[0]!.hash));
     await flushRendererAsync();
   });
@@ -888,7 +945,7 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => expect(githead.getCommitHistory).toHaveBeenCalledTimes(2));
     pendingHistory.reject(new Error("history unavailable"));
 
-    expect(await screen.findByText("Commit history refresh failed: history unavailable")).toBeTruthy();
+    expect(await screen.findByText("Unable to load commit history: history unavailable")).toBeTruthy();
     expect(commitRow.getAttribute("aria-selected")).toBe("true");
     expect(screen.queryByText("Loading commit history")).toBeNull();
   });
