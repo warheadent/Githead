@@ -626,7 +626,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     expect(await screen.findByRole("option", { name: /cache cleanup/ })).toBeTruthy();
     expect(await screen.findByText("cached-change")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Apply" }));
+    await user.click(screen.getByRole("button", { name: "Apply stash" }));
     await waitFor(() => expect(githead.applyStash).toHaveBeenCalledWith({ repoPath, stashRef: "stash@{0}", operationId: expect.any(String) }));
   });
 

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GitStashDetails, GitStashEntry } from "../shared/types";
 import { StashesView } from "./StashesView";
@@ -41,6 +41,67 @@ describe("StashesView", () => {
 
     expect(screen.getByRole("option", { name: /icon refactor/ })).toBeTruthy();
     expect(screen.queryByRole("option", { name: /cache cleanup/ })).toBeNull();
+  });
+
+  it("keeps search active when a refresh reduces the list to three stashes", () => {
+    const view = renderView();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search stashes" }), { target: { value: "feature/icons" } });
+    view.rerender(stashView({ entries: entries.slice(0, 3) }));
+
+    expect(screen.getAllByRole("option", { name: /icon refactor/ })).toHaveLength(1);
+    expect(screen.queryByRole("option", { name: /cache cleanup/ })).toBeNull();
+    expect(screen.getByRole("status").textContent).toBe("1 of 3");
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear stash search" }));
+    expect(within(screen.getByRole("listbox", { name: "Saved stashes" })).getAllByRole("option")).toHaveLength(3);
+  });
+
+  it("recovers from an empty search without changing the selected stash", () => {
+    const onSelect = vi.fn();
+    renderView({ entries: entries.slice(0, 1), onSelect });
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search stashes" }), { target: { value: "missing" } });
+
+    expect(screen.getByText("No matching stashes")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Stash cache cleanup" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    expect(screen.getByRole("option", { name: /cache cleanup/ }).getAttribute("aria-selected")).toBe("true");
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("selects stashes and files with the arrow, Home, and End keys", () => {
+    const onSelect = vi.fn();
+    const onSelectFile = vi.fn();
+    renderView({ onSelect, onSelectFile });
+    const first = screen.getByRole("option", { name: /cache cleanup/ });
+    first.focus();
+    fireEvent.keyDown(first, { key: "ArrowDown" });
+    expect(onSelect).toHaveBeenLastCalledWith("stash@{1}");
+    expect(document.activeElement).toBe(screen.getByRole("option", { name: /icon refactor/ }));
+    fireEvent.keyDown(document.activeElement!, { key: "End" });
+    expect(onSelect).toHaveBeenLastCalledWith("stash@{3}");
+    fireEvent.keyDown(document.activeElement!, { key: "Home" });
+    expect(document.activeElement).toBe(first);
+
+    const lastFile = screen.getByRole("option", { name: /src\/cache\.test\.ts/ });
+    lastFile.focus();
+    fireEvent.keyDown(lastFile, { key: "ArrowUp" });
+    expect(onSelectFile).toHaveBeenCalledWith("src/cache.ts");
+    expect(document.activeElement).toBe(screen.getByRole("option", { name: "Modified file src/cache.ts" }));
+  });
+
+  it("keeps duplicate file names distinct and exposes rename paths", () => {
+    const onSelectFile = vi.fn();
+    renderView({ onSelectFile, details: { stash: entries[0]!, files: [
+      { path: "src/cache/index.ts", status: "M" },
+      { path: "src/icons/index.ts", originalPath: "src/old-icons.ts", status: "R100" },
+      { path: "README.md", status: "A" }
+    ] } });
+
+    expect(screen.getAllByText("index.ts")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("option", { name: "Renamed file src/old-icons.ts → src/icons/index.ts" }));
+    expect(onSelectFile).toHaveBeenCalledWith("src/icons/index.ts");
+    expect(screen.getByText("From src/old-icons.ts")).toBeTruthy();
+    expect(screen.getByText("Repository root")).toBeTruthy();
   });
 
   it("collapses and restores the changed-file list", () => {
