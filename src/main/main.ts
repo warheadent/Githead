@@ -795,6 +795,18 @@ ipcMain.handle(IPC_CHANNELS.unstageFiles, async (event, request: CoordinatedRequ
   );
 });
 
+ipcMain.handle(IPC_CHANNELS.discardHunk, async (event, request: CoordinatedRequest<GitHunkRequest>) => {
+  return runExclusiveGitOperation(
+    async () => {
+      if ((await vcsRouter.resolveKind(request.repoPath)) !== "git") {
+        return createOperationFailure(request.repoPath, "Revert Hunk is available only for Git repositories.");
+      }
+      return gitService.discardHunk(request);
+    },
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  );
+});
+
 ipcMain.handle(IPC_CHANNELS.stageHunk, async (event, request: CoordinatedRequest<GitHunkRequest>) => {
   return runExclusiveGitOperation(
     async () => (await vcsRouter.serviceForRepo(request.repoPath)).stageHunk(request),

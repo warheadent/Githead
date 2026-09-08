@@ -67,6 +67,7 @@ export const IPC_CHANNELS = {
   stageFiles: "git:stage-files",
   unstageFiles: "git:unstage-files",
   stageHunk: "git:stage-hunk",
+  discardHunk: "git:discard-hunk",
   unstageHunk: "git:unstage-hunk",
   commitChanges: "git:commit-changes",
   commitWithRemoteCheck: "git:commit-with-remote-check",

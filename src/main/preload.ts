@@ -244,6 +244,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.stageFiles, request) as ReturnType<GitheadApi["stageFiles"]>,
   unstageFiles: (request: CoordinatedRequest<GitPathRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.unstageFiles, request) as ReturnType<GitheadApi["unstageFiles"]>,
+  discardHunk: (request: CoordinatedRequest<GitHunkRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.discardHunk, request) as ReturnType<GitheadApi["discardHunk"]>,
   stageHunk: (request: CoordinatedRequest<GitHunkRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.stageHunk, request) as ReturnType<GitheadApi["stageHunk"]>,
   unstageHunk: (request: CoordinatedRequest<GitHunkRequest>) =>

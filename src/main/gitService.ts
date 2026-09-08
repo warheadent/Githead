@@ -1013,6 +1013,23 @@ export class GitService {
     ], undefined, validation.patch);
   }
 
+  async discardHunk(request: GitHunkRequest): Promise<GitOperationResult> {
+    if (request.side !== "unstaged") {
+      return this.createOperationFailure(request.repoPath, "Only unstaged hunks can be reverted.");
+    }
+    const validation = await this.validateHunkRequest(request, "unstaged");
+    if ("error" in validation) {
+      return this.createOperationFailure(request.repoPath, validation.error);
+    }
+
+    return this.runGitOperation(request.repoPath, [
+      "apply",
+      "--reverse",
+      "--whitespace=nowarn",
+      "-"
+    ], undefined, validation.patch);
+  }
+
   async unstageHunk(request: GitHunkRequest): Promise<GitOperationResult> {
     const validation = await this.validateHunkRequest(request, "staged");
     if ("error" in validation) {
