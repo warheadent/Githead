@@ -663,7 +663,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(firstRow.getAttribute("aria-setsize")).toBe("200");
   });
 
-  it("defers file change refreshes until File Status is opened", async () => {
+  it("refreshes the pending file count while Commit History is active", async () => {
     vi.mocked(githead.getRepoSummary)
       .mockResolvedValueOnce(createSummary())
       .mockResolvedValue(createSummary({
@@ -680,10 +680,17 @@ describe("App", { timeout: 10_000 }, () => {
     fireEvent.mouseDown(screen.getByRole("tab", { name: /Commit History/ }), {
       button: 0
     });
+    await flushRendererAsync();
+    const metadataCalls = vi.mocked(githead.getRepoMetadata).mock.calls.length;
+    const historyCalls = vi.mocked(githead.getCommitHistory).mock.calls.length;
 
     emitRepoChanged();
     await flushRendererAsync();
-    expect(githead.getRepoSummary).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("tab", { name: "File Status 1" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /Commit History/ }).getAttribute("aria-selected")).toBe("true");
+    expect(githead.getRepoSummary).toHaveBeenCalledTimes(2);
+    expect(githead.getRepoMetadata).toHaveBeenCalledTimes(metadataCalls);
+    expect(githead.getCommitHistory).toHaveBeenCalledTimes(historyCalls);
 
     fireEvent.mouseDown(screen.getByRole("tab", { name: /File Status/ }), {
       button: 0
@@ -692,6 +699,14 @@ describe("App", { timeout: 10_000 }, () => {
 
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(2);
     expect(screen.getByRole("option", { name: /src\/deferred\.ts/ })).toBeTruthy();
+
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /Commit History/ }), { button: 0 });
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary());
+    emitRepoChanged();
+    await flushRendererAsync();
+    const statusTab = screen.getByRole("tab", { name: "File Status" });
+    expect(statusTab.querySelector(".workspace-tab-count")).toBeNull();
+    expect(screen.getByRole("tab", { name: /Commit History/ }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("ignores file change events for stale repositories", async () => {
@@ -706,7 +721,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(1);
   });
 
-  it("coalesces file changes during an in-flight refresh into one trailing refresh", async () => {
+  it.each(["File Status", "Commit History"])("coalesces file changes during an in-flight refresh into one trailing refresh in %s", async (view) => {
     const pendingRefresh = defer<RepoSummary>();
     const largeFiles = Array.from({ length: 10_000 }, (_, index) => createStatusFile(
       `generated/live-${index.toString().padStart(5, "0")}.ts`,
@@ -737,6 +752,8 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await flushRendererAsync();
     expect(screen.getAllByRole("option").length).toBeLessThan(100);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: new RegExp(view) }), { button: 0 });
+    await flushRendererAsync();
     const metadataCallsBeforeLiveUpdate = vi.mocked(githead.getRepoMetadata).mock.calls.length;
     emitRepoChanged();
     await flushRendererAsync();
@@ -753,6 +770,9 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(3);
     expect(githead.getRepoMetadata).toHaveBeenCalledTimes(metadataCallsBeforeLiveUpdate);
     expect(maxActiveSummaryCalls).toBe(1);
+    expect(screen.getByRole("tab", { name: "File Status 1" })).toBeTruthy();
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /File Status/ }), { button: 0 });
+    await flushRendererAsync();
     expect(screen.getByRole("option", { name: /src\/final\.ts/ })).toBeTruthy();
   });
 

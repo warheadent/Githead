@@ -1968,10 +1968,6 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       return;
     }
 
-    if (current.activeView !== "status") {
-      return;
-    }
-
     if (
       !current.summary?.isValid ||
       isOperationRunning(current)
