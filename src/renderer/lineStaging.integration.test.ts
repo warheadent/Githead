@@ -10,6 +10,54 @@ import { NodeProcessRunner, type ProcessResult } from "../main/processRunner";
 import { createLinePatch, groupDiffRowsByHunk, parseUnifiedDiff, type DiffRowGroup } from "./diffParser";
 
 describe("line staging patches", { timeout: 20_000 }, () => {
+  it("discards one unstaged hunk while preserving other hunks and the index", async () => {
+    await withRepository(async ({ repoPath, run, service }) => {
+      const original = Array.from({ length: 32 }, (_, index) => `value ${index + 1}`);
+      const filePath = path.join(repoPath, "hunks.txt");
+      await fs.writeFile(filePath, `${original.join("\n")}\n`);
+      await run(["add", "hunks.txt"]);
+      await run(["commit", "-m", "Add hunks"]);
+      const staged = [...original];
+      staged[15] = "staged change";
+      await fs.writeFile(filePath, `${staged.join("\n")}\n`);
+      await run(["add", "hunks.txt"]);
+      const changed = [...staged];
+      changed[1] = "first change";
+      changed[29] = "last change";
+      await fs.writeFile(filePath, `${changed.join("\n")}\n`);
+      const diff = await service.getFileDiff({ repoPath, path: "hunks.txt", side: "unstaged" });
+      const hunks = groupDiffRowsByHunk(parseUnifiedDiff(diff.text)).filter((group) => group.kind === "hunk");
+      expect(hunks).toHaveLength(2);
+      const result = await service.discardHunk({ repoPath, path: "hunks.txt", side: "unstaged", patch: hunks[0]!.patch! });
+      expect(result.exitCode, result.stderr).toBe(0);
+      changed[1] = staged[1]!;
+      expect(await fs.readFile(filePath, "utf8")).toBe(`${changed.join("\n")}\n`);
+      expect((await run(["show", ":hunks.txt"])).stdout).toBe(`${staged.join("\n")}\n`);
+
+      const stale = await service.discardHunk({ repoPath, path: "hunks.txt", side: "unstaged", patch: hunks[0]!.patch! });
+      expect(stale.exitCode).not.toBe(0);
+      expect(await fs.readFile(filePath, "utf8")).toBe(`${changed.join("\n")}\n`);
+      const wrongSide = await service.discardHunk({ repoPath, path: "hunks.txt", side: "staged", patch: hunks[1]!.patch! });
+      expect(wrongSide.exitCode).not.toBe(0);
+    });
+  });
+
+  it("restores a deleted file and removes an untracked file when discarding their hunks", async () => {
+    await withRepository(async ({ repoPath, run, service }) => {
+      await fs.rm(path.join(repoPath, "base.txt"));
+      await fs.writeFile(path.join(repoPath, "new.txt"), "new content\n");
+      for (const name of ["base.txt", "new.txt"]) {
+        const diff = await service.getFileDiff({ repoPath, path: name, side: "unstaged" });
+        const hunk = groupDiffRowsByHunk(parseUnifiedDiff(diff.text)).find((group) => group.kind === "hunk");
+        const result = await service.discardHunk({ repoPath, path: name, side: "unstaged", patch: hunk!.patch! });
+        expect(result.exitCode, result.stderr).toBe(0);
+      }
+      expect(await fs.readFile(path.join(repoPath, "base.txt"), "utf8")).toBe("base\n");
+      await expect(fs.stat(path.join(repoPath, "new.txt"))).rejects.toThrow();
+      expect((await run(["status", "--porcelain"])).stdout).toBe("");
+    });
+  });
+
   it("creates one commit from two selected hunks in one file", async () => {
     await withRepository(async ({ repoPath, run, service }) => {
       const original = Array.from({ length: 24 }, (_, index) => `value ${index + 1}`);

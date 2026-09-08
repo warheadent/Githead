@@ -379,6 +379,7 @@ export function createGitheadMock(): GitheadApi {
     stageFiles: vi.fn().mockResolvedValue(okOperation),
     unstageFiles: vi.fn().mockResolvedValue(okOperation),
     stageHunk: vi.fn().mockResolvedValue(okOperation),
+    discardHunk: vi.fn().mockResolvedValue(okOperation),
     unstageHunk: vi.fn().mockResolvedValue(okOperation),
     commitChanges: vi.fn().mockResolvedValue(okOperation),
     commitWithRemoteCheck: vi.fn().mockResolvedValue({

@@ -5098,15 +5098,19 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     );
   }, [runRepoOperation]);
 
-  const applySelectedHunk = useCallback(async (patch: string): Promise<void> => {
+  const applySelectedHunk = useCallback(async (patch: string, discard = false): Promise<void> => {
     const current = stateRef.current;
     const selection = current.selection;
-    if (!selection || current.diffChanged) {
+    if (!selection || current.diffChanged || (discard && selection.side !== "unstaged")) {
       return;
     }
     const repoPath = current.repoPath;
 
-    const result = selection.side === "unstaged"
+    const result = discard
+      ? await runRepoOperation("Discarding hunk", selection, (operationId) =>
+          window.githead.discardHunk({ repoPath, path: selection.path, side: selection.side, patch, operationId })
+        )
+      : selection.side === "unstaged"
       ? await runRepoOperation("Staging hunk", selection, (operationId) =>
           window.githead.stageHunk({
             repoPath,
@@ -10489,7 +10493,7 @@ function StatusView({
   onUnstageFiles: (paths: string[], selection?: FileSelection) => void;
   onRefreshDiff: () => void;
   onDownloadImage: () => void;
-  onApplyHunk: (patch: string) => void;
+  onApplyHunk: (patch: string, discard?: boolean) => void;
   onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind, paths?: string[]) => void;
   onUpdateSubmodules: (path?: string) => void;
   onSyncSubmodules: () => void;
@@ -10523,7 +10527,8 @@ function StatusView({
       ? {
           side: selectedSide,
           disabled: disabled || diffChanged,
-          onApply: onApplyHunk
+          onApply: onApplyHunk,
+          onDiscard: selectedSide === "unstaged" ? (patch) => onApplyHunk(patch, true) : undefined
         }
       : undefined
   ), [canApplyHunks, diffChanged, disabled, onApplyHunk, selectedSide]);
@@ -11168,6 +11173,7 @@ function DiffPanel({
 }
 
 interface DiffHunkAction {
+  onDiscard?: ((patch: string) => void) | undefined;
   side: GitDiffSide;
   disabled: boolean;
   onApply: (patch: string) => void;
@@ -11184,6 +11190,8 @@ const DiffRows = memo(function DiffRows({
   truncated: boolean;
   hunkAction?: DiffHunkAction | undefined;
 }): ReactNode {
+  const [discardTarget, setDiscardTarget] = useState<{ patch: string; filePath: string; text: string } | null>(null);
+  const discardTargetCurrent = discardTarget?.filePath === filePath && discardTarget.text === text;
   const sessionRef = useRef<ReturnType<typeof createDiffProcessingSession> | null>(null);
   const {
     value: processedValue,
@@ -11233,6 +11241,21 @@ const DiffRows = memo(function DiffRows({
   return (
     <div className="diff-rows" ref={rootRef} aria-busy={!processed} onPointerDownCapture={onPointerDownCapture}>
       {!processed ? <LoadingState label="Processing diff" className="min-h-32" /> : null}
+      <Dialog open={Boolean(discardTarget && discardTargetCurrent && hunkAction?.onDiscard)} onOpenChange={(open) => { if (!open) setDiscardTarget(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Discard this hunk?</DialogTitle>
+            <DialogDescription>The changes in this hunk will be reverted. Other hunks and staged changes will be kept.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setDiscardTarget(null)}>Cancel</Button>
+            <Button type="button" variant="destructive" disabled={hunkAction?.disabled || !discardTargetCurrent} onClick={() => {
+              if (discardTarget && discardTargetCurrent && !hunkAction?.disabled) hunkAction?.onDiscard?.(discardTarget.patch);
+              setDiscardTarget(null);
+            }}>Discard changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {groups.map((group, groupIndex) => {
         const groupKey = `${groupIndex}:${group.kind}:${group.rows[0]?.text ?? ""}`;
         const rowViews = group.rows.flatMap((row, rowIndex) => {
@@ -11259,6 +11282,18 @@ const DiffRows = memo(function DiffRows({
                 <span aria-hidden="true" />
                 <span className="diff-hunk-title">{formatHunkTitle(group.rows, hunkNumber)}</span>
                 <span className="diff-hunk-actions">
+                  {hunkAction?.onDiscard && group.patch ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="xs"
+                      className="diff-hunk-action"
+                      disabled={hunkAction.disabled}
+                      onClick={() => setDiscardTarget({ patch: group.patch!, filePath, text })}
+                    >
+                      Discard Hunk
+                    </Button>
+                  ) : null}
                   {hunkAction && group.patch ? (
                     <TooltipTarget content={hunkActionLabel}>
                       <Button

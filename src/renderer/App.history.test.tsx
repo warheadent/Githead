@@ -1935,6 +1935,27 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.queryByRole("button", { name: "Wrap diff lines" })).toBeNull();
   });
 
+  it("confirms hunk discard and reloads the remaining changes", async () => {
+    const user = userEvent.setup();
+    const file = createStatusFile("src/App.tsx", { isUnstaged: true, worktreeStatus: "M" });
+    const diff = createTextDiff(file.path, "discard-me");
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [file] }));
+    vi.mocked(githead.getFileDiff).mockResolvedValueOnce(diff).mockResolvedValue(createTextDiff(file.path, "remaining-hunk"));
+    render(<App />);
+    await user.click(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
+    await user.click(await screen.findByRole("button", { name: "Discard Hunk" }));
+    expect(githead.discardHunk).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(githead.discardHunk).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Discard Hunk" }));
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    await waitFor(() => expect(githead.discardHunk).toHaveBeenCalledWith({
+      repoPath, path: file.path, side: "unstaged", patch: `${diff.text}\n`, operationId: expect.any(String)
+    }));
+    expect(await screen.findByText("remaining-hunk")).toBeTruthy();
+    expect(githead.stageHunk).not.toHaveBeenCalled();
+  });
+
   it("keeps an unstaged file selected and reloads its remaining diff after staging a hunk", async () => {
     const user = userEvent.setup();
     const initialFile = createStatusFile("src/App.tsx", {

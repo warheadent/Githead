@@ -2385,6 +2385,7 @@ export interface GitheadApi {
   stageFiles(request: CoordinatedRequest<GitPathRequest>): Promise<GitOperationResult>;
   unstageFiles(request: CoordinatedRequest<GitPathRequest>): Promise<GitOperationResult>;
   stageHunk(request: CoordinatedRequest<GitHunkRequest>): Promise<GitOperationResult>;
+  discardHunk(request: CoordinatedRequest<GitHunkRequest>): Promise<GitOperationResult>;
   unstageHunk(request: CoordinatedRequest<GitHunkRequest>): Promise<GitOperationResult>;
   commitChanges(request: CoordinatedRequest<GitCommitRequest>): Promise<GitOperationResult>;
   commitWithRemoteCheck(request: CoordinatedRequest<GitCommitRequest>): Promise<GitCommitWithRemoteCheckResult>;
