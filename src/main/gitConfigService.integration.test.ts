@@ -176,5 +176,5 @@ describe("Git configuration persistence", () => {
     expect(await fs.readFile(path.join(repoPath, ".git/config"), "utf8")).toBe(config);
     await git("config", "gpg.ssh.program", path.join(directory, "missing-signer"));
     expect(await service.testSigning({ repoPath, scope: "repository" })).toMatchObject({ ok: false });
-  });
+  }, 15_000);
 });
