@@ -300,7 +300,7 @@ import loreIconUrl from "./assets/lore-icon-white.svg";
 const BasicMarkdown = lazy(() => import("./BasicMarkdown.js").then((module) => ({ default: module.BasicMarkdown })));
 const BlameView = lazy(() => import("./BlameView.js").then((module) => ({ default: module.BlameView })));
 const FileHistoryView = lazy(() => import("./FileHistoryView.js").then((module) => ({ default: module.FileHistoryView })));
-const MarkdownPreview = lazy(() => import("./MarkdownPreview.js").then((module) => ({ default: module.MarkdownPreview })));
+const MarkdownDocument = lazy(() => import("./MarkdownDocument.js").then((module) => ({ default: module.MarkdownDocument })));
 const PushToBranchDialog = lazy(() => import("./PushToBranchDialog.js").then((module) => ({ default: module.PushToBranchDialog })));
 const RemoteManagementDialog = lazy(() => import("./RemoteManagementDialog.js").then((module) => ({ default: module.RemoteManagementDialog })));
 const ReviewConsole = lazy(() => import("./ReviewConsole.js").then((module) => ({ default: module.ReviewConsole })));
@@ -11141,7 +11141,7 @@ function DiffPanel({
         ? <p className="markdown-preview-status bad selectable-text" role="alert">{preview.error}</p>
         : (
           <OptionalFeatureBoundary name="Markdown preview">
-            <MarkdownPreview text={preview.text ?? ""} />
+            <MarkdownDocument key={previewKey} text={preview.text ?? ""} repoPath={repoPath} path={filePath} source={previewSource} />
           </OptionalFeatureBoundary>
         );
   } else if (loading && !diff) {

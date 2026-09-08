@@ -58,6 +58,28 @@ afterEach(() => {
 });
 
 describe("MarkdownPreview", () => {
+  it("renders alerts and gives duplicate headings distinct local targets", () => {
+    renderPreview("# Install\n\n# Install\n\n[Second](#install-1)\n\n> [!WARNING]\n> Check the selected version.");
+    expect(screen.getByText("Warning").className).toBe("markdown-alert-title");
+    const headings = screen.getAllByRole("heading", { name: "Install" });
+    expect(headings[0]?.id).not.toBe(headings[1]?.id);
+    const scroll = vi.fn();
+    headings[1]!.scrollIntoView = scroll;
+    fireEvent.click(screen.getByRole("link", { name: "Second" }));
+    expect(scroll).toHaveBeenCalledOnce();
+    expect(document.activeElement).toBe(headings[1]);
+  });
+
+  it("highlights declared languages and wraps code without changing copied text", async () => {
+    renderPreview("```typescript\nconst enabled = true;\n```");
+    expect(document.querySelector(".hljs-keyword")?.textContent).toBe("const");
+    fireEvent.click(screen.getByRole("button", { name: "Wrap code" }));
+    expect(document.querySelector(".markdown-code-block")?.classList.contains("is-wrapped")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Copy code" }));
+    await flushPromises();
+    expect(copyTextToClipboard).toHaveBeenCalledWith({ text: "const enabled = true;\n" });
+  });
+
   it("copies each fenced code block independently and preserves its text", async () => {
     renderPreview("`inline`\n\n```ts\nconst first = 1;\n```\n\n```sh\necho second\n```");
 

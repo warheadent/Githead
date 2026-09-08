@@ -3565,7 +3565,9 @@ textarea,
   background: transparent;
 }
 
+.markdown-preview .hljs-comment,
 .diff-code .hljs-comment,
+.markdown-preview .hljs-quote,
 .diff-code .hljs-quote,
 .conflict-code-text .hljs-comment,
 .conflict-code-text .hljs-quote {
@@ -3573,8 +3575,11 @@ textarea,
   font-style: italic;
 }
 
+.markdown-preview .hljs-keyword,
 .diff-code .hljs-keyword,
+.markdown-preview .hljs-selector-tag,
 .diff-code .hljs-selector-tag,
+.markdown-preview .hljs-subst,
 .diff-code .hljs-subst,
 .conflict-code-text .hljs-keyword,
 .conflict-code-text .hljs-selector-tag,
@@ -3583,9 +3588,13 @@ textarea,
   font-weight: 700;
 }
 
+.markdown-preview .hljs-number,
 .diff-code .hljs-number,
+.markdown-preview .hljs-literal,
 .diff-code .hljs-literal,
+.markdown-preview .hljs-symbol,
 .diff-code .hljs-symbol,
+.markdown-preview .hljs-bullet,
 .diff-code .hljs-bullet,
 .conflict-code-text .hljs-number,
 .conflict-code-text .hljs-literal,
@@ -3594,8 +3603,11 @@ textarea,
   color: var(--syntax-literal);
 }
 
+.markdown-preview .hljs-string,
 .diff-code .hljs-string,
+.markdown-preview .hljs-doctag,
 .diff-code .hljs-doctag,
+.markdown-preview .hljs-regexp,
 .diff-code .hljs-regexp,
 .conflict-code-text .hljs-string,
 .conflict-code-text .hljs-doctag,
@@ -3603,8 +3615,11 @@ textarea,
   color: var(--syntax-string);
 }
 
+.markdown-preview .hljs-title,
 .diff-code .hljs-title,
+.markdown-preview .hljs-section,
 .diff-code .hljs-section,
+.markdown-preview .hljs-selector-id,
 .diff-code .hljs-selector-id,
 .conflict-code-text .hljs-title,
 .conflict-code-text .hljs-section,
@@ -3613,11 +3628,17 @@ textarea,
   font-weight: 700;
 }
 
+.markdown-preview .hljs-variable,
 .diff-code .hljs-variable,
+.markdown-preview .hljs-template-variable,
 .diff-code .hljs-template-variable,
+.markdown-preview .hljs-selector-class,
 .diff-code .hljs-selector-class,
+.markdown-preview .hljs-attr,
 .diff-code .hljs-attr,
+.markdown-preview .hljs-attribute,
 .diff-code .hljs-attribute,
+.markdown-preview .hljs-name,
 .diff-code .hljs-name,
 .conflict-code-text .hljs-variable,
 .conflict-code-text .hljs-template-variable,
@@ -3628,7 +3649,9 @@ textarea,
   color: var(--syntax-variable);
 }
 
+.markdown-preview .hljs-type,
 .diff-code .hljs-type,
+.markdown-preview .hljs-built_in,
 .diff-code .hljs-built_in,
 .diff-code .hljs-class .hljs-title,
 .conflict-code-text .hljs-type,
@@ -3637,18 +3660,22 @@ textarea,
   color: var(--syntax-literal);
 }
 
+.markdown-preview .hljs-meta,
 .diff-code .hljs-meta,
+.markdown-preview .hljs-tag,
 .diff-code .hljs-tag,
 .conflict-code-text .hljs-meta,
 .conflict-code-text .hljs-tag {
   color: var(--syntax-meta);
 }
 
+.markdown-preview .hljs-deletion,
 .diff-code .hljs-deletion,
 .conflict-code-text .hljs-deletion {
   color: var(--destructive);
 }
 
+.markdown-preview .hljs-addition,
 .diff-code .hljs-addition,
 .conflict-code-text .hljs-addition {
   color: var(--success);
@@ -7219,3 +7246,19 @@ textarea,
 @media (prefers-reduced-motion: reduce) {
   :root .commit-graph-glow { transition: none !important; }
 }
+
+.markdown-code-language { position: absolute; top: 10px; left: 16px; color: var(--muted-foreground); font-size: 0.75rem; }
+.markdown-code-copy { display: flex; gap: 4px; }
+.markdown-code-block pre { padding: 44px 16px 14px; }
+.markdown-code-block.is-wrapped pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.markdown-heading-link { margin-left: 0.4em; opacity: 0; font-weight: 400; }
+.markdown-preview :is(h1,h2,h3,h4,h5,h6) { scroll-margin-top: 64px; }
+.markdown-preview :is(h1,h2,h3,h4,h5,h6):hover .markdown-heading-link,
+.markdown-heading-link:focus-visible { opacity: 1; }
+.markdown-alert { --alert-color: var(--primary); border-left-color: var(--alert-color) !important; }
+.markdown-alert-tip { --alert-color: #238636; }
+.markdown-alert-important { --alert-color: #8957e5; }
+.markdown-alert-warning { --alert-color: #9a6700; }
+.markdown-alert-caution { --alert-color: var(--destructive); }
+.markdown-alert-title { color: var(--alert-color); font-weight: 650; }
+.markdown-image-status { display: block; padding: 16px; border: 1px dashed var(--border); color: var(--muted-foreground); }

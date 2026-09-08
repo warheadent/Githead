@@ -1,0 +1,42 @@
+// @vitest-environment jsdom
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { createGitheadMock } from "./AppTestHarness";
+import { MarkdownDocument } from "./MarkdownDocument";
+
+beforeEach(() => {
+  window.githead = createGitheadMock();
+  vi.mocked(window.githead.cancelRepositoryRead).mockResolvedValue(undefined);
+  Element.prototype.scrollIntoView = vi.fn();
+});
+afterEach(cleanup);
+
+function show(text: string): void {
+  render(<TooltipProvider><MarkdownDocument text={text} repoPath="/repo" path="docs/README.md" source={{ kind: "commit", hash: "abc123" }} /></TooltipProvider>);
+}
+
+it("opens relative documents at the selected revision and returns to the original", async () => {
+  vi.mocked(window.githead.getFilePreview).mockResolvedValue({ path: "guide.md", text: "# Guide\n\n## Install" });
+  show("# Start\n\n[Guide](../guide.md#install)");
+  fireEvent.click(screen.getByRole("link", { name: "Guide" }));
+  await screen.findByRole("heading", { name: "Guide" });
+  expect(window.githead.getFilePreview).toHaveBeenCalledWith(expect.objectContaining({
+    repoPath: "/repo", path: "guide.md", source: { kind: "commit", hash: "abc123" }
+  }));
+  expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Install" }));
+  fireEvent.click(screen.getByRole("button", { name: "Back" }));
+  await screen.findByRole("heading", { name: "Start" });
+});
+
+it("loads local image bytes through the repository API and releases the object URL", async () => {
+  const create = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:preview");
+  const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+  vi.mocked(window.githead.getFilePreviewImage).mockResolvedValue({ data: new Uint8Array([1]), byteLength: 1, mimeType: "image/png" });
+  show("![Example](../image.png)");
+  await screen.findByRole("img", { name: "Example" });
+  expect(window.githead.getFilePreviewImage).toHaveBeenCalledWith(expect.objectContaining({ path: "image.png", source: { kind: "commit", hash: "abc123" } }));
+  cleanup();
+  await waitFor(() => expect(revoke).toHaveBeenCalledWith("blob:preview"));
+  create.mockRestore(); revoke.mockRestore();
+});
