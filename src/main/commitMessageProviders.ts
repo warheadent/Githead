@@ -163,6 +163,7 @@ export class OpenRouterCommitMessageProvider implements CommitMessageProvider {
       })
     }, {
       timeoutMs: API_TIMEOUT_MS,
+      timeoutMode: "inactivity",
       timeoutReason: createApiTimeoutReason(),
       ...(input.signal ? { signal: input.signal } : {}),
       createJsonFallback: () => ({} as OpenRouterResponse)
@@ -193,6 +194,7 @@ export class OpenAiCommitMessageProvider implements CommitMessageProvider {
       })
     }, {
       timeoutMs: API_TIMEOUT_MS,
+      timeoutMode: "inactivity",
       timeoutReason: createApiTimeoutReason(),
       ...(input.signal ? { signal: input.signal } : {}),
       createJsonFallback: () => ({} as OpenAiResponse)
@@ -242,6 +244,7 @@ export class AnthropicCommitMessageProvider implements CommitMessageProvider {
       })
     }, {
       timeoutMs: API_TIMEOUT_MS,
+      timeoutMode: "inactivity",
       timeoutReason: createApiTimeoutReason(),
       ...(input.signal ? { signal: input.signal } : {}),
       createJsonFallback: () => ({} as AnthropicResponse)
