@@ -36,6 +36,8 @@ class FakeRunner implements ProcessRunner {
       return failure("No operation metadata in this fake repository.");
     }
 
+    if (args.includes("--get-regexp") && args.includes("--null") && args.some((arg) => arg.startsWith("^(pull"))) return ok("");
+
     const result = this.results.shift();
     if (!result) {
       throw new Error("Fake runner has no result queued.");
@@ -533,7 +535,7 @@ describe("GitService", () => {
     expect(result.exitCode).toBe(0);
     expect(runner.calls.at(-1)).toMatchObject({
       command: "git",
-      args: ["-C", "D:\\Repo", "fetch", "--all", "--prune"],
+      args: ["-C", "D:\\Repo", "-c", "fetch.prune=true", "fetch", "--all"],
       options: expect.objectContaining({
         timeoutMs: 30 * 60_000
       })

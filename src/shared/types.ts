@@ -1,3 +1,5 @@
+import type { GitConfigRequest, GitConfigSaveRequest, GitConfigSettings, GitIgnoreFile, GitIgnoreFileSaveRequest, GitSigningTestRequest, GitSigningTestResult } from "./gitConfig";
+
 export const GIT_ACTIONS = [
   "fetch",
   "pull",
@@ -2424,6 +2426,12 @@ export interface GitheadApi {
   renameRemote(request: CoordinatedRequest<GitRenameRemoteRequest>): Promise<GitOperationResult>;
   setRemoteUrl(request: CoordinatedRequest<GitSetRemoteUrlRequest>): Promise<GitOperationResult>;
   removeRemote(request: CoordinatedRequest<GitRemoveRemoteRequest>): Promise<GitOperationResult>;
+  getGitConfig(request: GitConfigRequest): Promise<GitConfigSettings>;
+  saveGitConfig(request: CoordinatedRequest<GitConfigSaveRequest>): Promise<GitConfigSettings>;
+  testGitSigning(request: CoordinatedRequest<GitSigningTestRequest>): Promise<GitSigningTestResult>;
+  chooseGitConfigFile(purpose: "signing-key" | "ignore"): Promise<string | null>;
+  getGitIgnoreFile(request: GitConfigRequest): Promise<GitIgnoreFile>;
+  saveGitIgnoreFile(request: CoordinatedRequest<GitIgnoreFileSaveRequest>): Promise<GitIgnoreFile>;
   getGitIdentity(repoPath: string): Promise<GitIdentitySettings>;
   saveGitIdentity(request: CoordinatedRequest<GitIdentitySaveRequest>): Promise<GitIdentitySettings>;
   getAiSettings(): Promise<AiSettings>;

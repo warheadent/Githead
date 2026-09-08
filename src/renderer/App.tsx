@@ -7813,6 +7813,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       ) : null}
 
       <RedesignedSettingsDialog
+        repoPath={state.repoPath}
         open={state.settingsOpen}
         initialCategory={state.settingsCategory}
         draft={state.settingsDraft}

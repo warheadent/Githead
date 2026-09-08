@@ -18,7 +18,7 @@ class CountingRunner implements ProcessRunner {
   }
 
   fetchCount(): number {
-    return this.calls.filter((args) => args.includes("fetch") && args.includes("--prune")).length;
+    return this.calls.filter((args) => args.includes("fetch")).length;
   }
 }
 

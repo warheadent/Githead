@@ -328,6 +328,12 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.setRemoteUrl, request) as ReturnType<GitheadApi["setRemoteUrl"]>,
   removeRemote: (request: CoordinatedRequest<GitRemoveRemoteRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.removeRemote, request) as ReturnType<GitheadApi["removeRemote"]>,
+  getGitConfig: (request) => ipcRenderer.invoke(IPC_CHANNELS.getGitConfig, request),
+  saveGitConfig: (request) => ipcRenderer.invoke(IPC_CHANNELS.saveGitConfig, request),
+  testGitSigning: (request) => ipcRenderer.invoke(IPC_CHANNELS.testGitSigning, request),
+  chooseGitConfigFile: (purpose) => ipcRenderer.invoke(IPC_CHANNELS.chooseGitConfigFile, purpose),
+  getGitIgnoreFile: (request) => ipcRenderer.invoke(IPC_CHANNELS.getGitIgnoreFile, request),
+  saveGitIgnoreFile: (request) => ipcRenderer.invoke(IPC_CHANNELS.saveGitIgnoreFile, request),
   getGitIdentity: (repoPath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitIdentity, repoPath) as ReturnType<GitheadApi["getGitIdentity"]>,
   saveGitIdentity: (request: CoordinatedRequest<GitIdentitySaveRequest>) =>

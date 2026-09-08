@@ -1,3 +1,4 @@
+import { emptyGitConfigValues } from "../shared/gitConfig";
 import { act, cleanup, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, vi } from "vite-plus/test";
@@ -456,6 +457,12 @@ export function createGitheadMock(): GitheadApi {
     renameRemote: vi.fn().mockResolvedValue(okOperation),
     setRemoteUrl: vi.fn().mockResolvedValue(okOperation),
     removeRemote: vi.fn().mockResolvedValue(okOperation),
+    getGitConfig: vi.fn().mockImplementation(async (request) => ({ ...request, filePath: "/test/gitconfig", revision: "test", values: emptyGitConfigValues(), effective: {}, inherited: {}, branchRebase: null })),
+    saveGitConfig: vi.fn().mockImplementation(async (request) => ({ ...request, filePath: "/test/gitconfig", revision: "saved", values: { ...emptyGitConfigValues(), ...request.changes }, effective: {}, inherited: {}, branchRebase: null })),
+    testGitSigning: vi.fn().mockResolvedValue({ ok: true, message: "Signing succeeded." }),
+    chooseGitConfigFile: vi.fn().mockResolvedValue(null),
+    getGitIgnoreFile: vi.fn().mockResolvedValue({ filePath: "/test/ignore", contents: "", revision: "test" }),
+    saveGitIgnoreFile: vi.fn().mockImplementation(async (request) => ({ filePath: request.filePath, contents: request.contents, revision: "saved" })),
     getGitIdentity: vi.fn().mockResolvedValue(gitIdentity),
     saveGitIdentity: vi.fn().mockResolvedValue({
       ...gitIdentity,
