@@ -1,3 +1,5 @@
+import { RepositoryOrganizationDialog, RepositoryOrganizationMenu } from "./RepositoryOrganizationDialog";
+import { repositoryName as getRepoDisplayName, organizeRepositories, repositoryLabels, repositoryPreference, useRepositoryOrganization, type RepositoryPreference } from "./repositoryOrganization";
 import { CheckoutTagDialog } from "./CheckoutTagDialog";
 import type { GitTagCheckoutRequest } from "../shared/types";
 import {
@@ -35,6 +37,10 @@ import {
   RotateCcw,
   Save,
   SearchX,
+  Search,
+  SlidersHorizontal,
+  Pin,
+  EyeOff,
   Settings,
   ShieldAlert,
   Sparkles,
@@ -8696,6 +8702,9 @@ interface RepositoryListProps {
 }
 
 interface RecentRepositoryRowProps {
+  label?: { name: string; detail: string };
+  organizationMenu?: ReactNode;
+  hidden?: boolean;
   active?: boolean;
   disabled: boolean;
   dropPosition: RepositoryDropPosition | null;
@@ -8743,7 +8752,20 @@ function RepositoryList({
   const repositoryRowsRef = useRef(new Map<string, HTMLDivElement>());
   const [draggedRepoPath, setDraggedRepoPath] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ repoPath: string; position: RepositoryDropPosition } | null>(null);
-  const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
+  const { organization, update: updateOrganization, saveError } = useRepositoryOrganization();
+  const [query, setQuery] = useState("");
+  const [showHidden, setShowHidden] = useState(false);
+  const [organizerQuery, setOrganizerQuery] = useState<string | null>(null);
+  const orderedPaths = useMemo(() => groups?.length ? groups.map((group) => group.anchorPath) : repoPaths, [groups, repoPaths]);
+  const groupsByPath = useMemo(() => new Map(groups?.map((group) => [getRepoPathKey(group.anchorPath), group]) ?? []), [groups]);
+  const labels = useMemo(() => repositoryLabels(orderedPaths, organization), [orderedPaths, organization]);
+  const sections = useMemo(() => organizeRepositories(orderedPaths, groups ?? [], organization, query, showHidden, repoPath), [orderedPaths, groups, organization, query, showHidden, repoPath]);
+  const visiblePaths = sections.flatMap((section) => section.collapsed ? [] : section.paths);
+  const hiddenCount = orderedPaths.filter((path) => repositoryPreference(organization, path).hidden).length;
+  const changePreference = (path: string, patch: Partial<RepositoryPreference>) => updateOrganization((current) => ({
+    ...current, repositories: { ...current.repositories, [getRepoPathKey(path)]: { ...repositoryPreference(current, path), ...patch } }
+  }));
+  const organizationMenu = (path: string) => <RepositoryOrganizationMenu preference={repositoryPreference(organization, path)} onChange={(patch) => { changePreference(path, patch); }} onOrganize={() => setOrganizerQuery(path)} />;
   const [removeTarget, setRemoveTarget] = useState<string | null>(null);
   const [recoveryTarget, setRecoveryTarget] = useState<{ repoPath: string; reason: string } | null>(null);
   const [recoveryError, setRecoveryError] = useState("");
@@ -8762,33 +8784,27 @@ function RepositoryList({
     });
   }, [repoPath, repoPaths]);
 
-  const moveRepository = useCallback((fromRepoPath: string, toRepoPath: string, position: RepositoryDropPosition): void => {
+  const moveRepository = (fromRepoPath: string, toRepoPath: string, position: RepositoryDropPosition): void => {
     if (isSameRepoPath(fromRepoPath, toRepoPath)) {
       return;
     }
 
+    const targetPreference = repositoryPreference(organization, toRepoPath);
+    const sourcePreference = repositoryPreference(organization, fromRepoPath);
+    if (sourcePreference.pinned !== targetPreference.pinned || (!targetPreference.pinned && sourcePreference.projectId !== targetPreference.projectId)) {
+      if (!changePreference(fromRepoPath, { pinned: targetPreference.pinned, ...(!targetPreference.pinned ? { projectId: targetPreference.projectId } : {}) })) return;
+    }
     const next = moveRepoPath(repoPaths, fromRepoPath, toRepoPath, position);
-    if (!areRepoPathListsEqual(repoPaths, next)) {
-      onReorder(next);
-    }
-  }, [onReorder, repoPaths]);
+    if (!areRepoPathListsEqual(repoPaths, next)) onReorder(next);
+  };
 
-  const moveRepositoryByKeyboard = useCallback((moveRepoPathValue: string, direction: RepositoryMoveDirection): void => {
-    const index = repoPaths.findIndex((candidate) => isSameRepoPath(candidate, moveRepoPathValue));
-    const targetIndex = direction === "up" ? index - 1 : index + 1;
-    if (index < 0 || targetIndex < 0 || targetIndex >= repoPaths.length) {
-      return;
-    }
-
-    const next = [...repoPaths];
-    const [moved] = next.splice(index, 1);
-    if (!moved) {
-      return;
-    }
-
-    next.splice(targetIndex, 0, moved);
-    onReorder(next);
-  }, [onReorder, repoPaths]);
+  const moveRepositoryByKeyboard = (path: string, direction: RepositoryMoveDirection): void => {
+    const section = sections.find((item) => item.paths.some((candidate) => isSameRepoPath(candidate, path)));
+    if (!section) return;
+    const index = section.paths.findIndex((candidate) => isSameRepoPath(candidate, path));
+    const target = section.paths[direction === "up" ? index - 1 : index + 1];
+    if (target) moveRepository(path, target, direction === "up" ? "before" : "after");
+  };
 
   const startDrag = (event: DragEvent<HTMLButtonElement>, dragRepoPath: string): void => {
     event.dataTransfer.effectAllowed = "move";
@@ -8854,46 +8870,29 @@ function RepositoryList({
     moveRepository(sourceRepoPath, target.repoPath, getDropPosition(event.clientY, target.element));
   };
 
-  return (
-    <>
-    <section className={className} aria-label="Repositories">
-      <div className="repo-recents-heading">
-        <p className="repo-recents-label">Repositories</p>
-        {headingAction}
-      </div>
-      <div
-        className="repo-recents-list"
-        onMouseUp={finishPointerDrag}
-        onDragOver={(event) => {
-          const target = getDragTarget(event);
-          if (target) {
-            updateDropTarget(event, target.repoPath, target.element);
-          }
-        }}
-        onDrop={(event) => {
-          const target = getDragTarget(event);
-          if (target) {
-            dropRepository(event, target.repoPath, target.element);
-          }
-        }}
-      >
-        {groups?.length ? groups.map((group) => {
+  const renderRepository = (recentRepoPath: string): ReactNode => {
+    const group = groupsByPath.get(getRepoPathKey(recentRepoPath));
+    if (group) {
           const key = getRepoPathKey(group.anchorPath);
           const active = group.worktrees.some((worktree) => isSameRepoPath(worktree.path, repoPath)) || isSameRepoPath(group.anchorPath, repoPath);
           const currentDropPosition = dropTarget && isSameRepoPath(dropTarget.repoPath, group.anchorPath) ? dropTarget.position : null;
           return <RepositoryGroupRow
             key={group.id}
             group={group}
+            label={labels.get(key)!}
+            hidden={repositoryPreference(organization, group.anchorPath).hidden}
+            organizationMenu={organizationMenu(group.anchorPath)}
             activeRepoPath={repoPath}
             active={active}
-            expanded={expandedGroupIds.has(group.id)}
+            searchExpanded={Boolean(query.trim())}
+            expanded={organization.expandedWorktrees.includes(group.id) || Boolean(query.trim())}
             disabled={disabled}
             dragging={Boolean(draggedRepoPath && isSameRepoPath(draggedRepoPath, group.anchorPath))}
             dropPosition={currentDropPosition}
             syncStatuses={syncStatuses}
             layoutDependency={repositoryOrderDependency}
             rowRef={(element) => { if (element) repositoryRowsRef.current.set(key, element); else repositoryRowsRef.current.delete(key); }}
-            onToggle={() => setExpandedGroupIds((current) => { const next = new Set(current); if (next.has(group.id)) next.delete(group.id); else next.add(group.id); return next; })}
+            onToggle={() => updateOrganization((current) => ({ ...current, expandedWorktrees: current.expandedWorktrees.includes(group.id) ? current.expandedWorktrees.filter((id) => id !== group.id) : [...current.expandedWorktrees, group.id] }))}
             onDragStart={startDrag}
             onPointerDragStart={startPointerDrag}
             onDragEnd={() => { draggedRepoPathRef.current = null; setDraggedRepoPath(null); setDropTarget(null); }}
@@ -8908,7 +8907,7 @@ function RepositoryList({
             onOpenRepositorySettings={onOpenRepositorySettings}
             {...(onRemoveWorktree ? { onRemoveWorktree } : {})}
           />;
-        }) : repoPaths.map((recentRepoPath) => {
+        }
           const key = getRepoPathKey(recentRepoPath);
           const active = repoPath ? isSameRepoPath(recentRepoPath, repoPath) : false;
           const currentDropPosition = dropTarget && isSameRepoPath(dropTarget.repoPath, recentRepoPath)
@@ -8919,6 +8918,9 @@ function RepositoryList({
             <RecentRepositoryRow
               key={key}
               repoPath={recentRepoPath}
+              label={labels.get(key)!}
+              hidden={repositoryPreference(organization, recentRepoPath).hidden}
+              organizationMenu={organizationMenu(recentRepoPath)}
               rowRef={(element) => {
                 if (element) {
                   repositoryRowsRef.current.set(key, element);
@@ -8951,9 +8953,51 @@ function RepositoryList({
               onOpenRepositorySettings={onOpenRepositorySettings}
             />
           );
-        })}
+  };
+
+  return (
+    <>
+    <section className={className} aria-label="Repositories">
+      <div className="repo-recents-heading">
+        <p className="repo-recents-label">Repositories</p>
+        <div className="flex items-center gap-1">
+          <TooltipButton type="button" variant="ghost" size="icon-sm" aria-label="Organize repositories" tooltip="Organize repositories" onClick={() => setOrganizerQuery("")}><SlidersHorizontal /></TooltipButton>
+          {headingAction}
+        </div>
       </div>
+      <div className="repository-search">
+        <Search aria-hidden="true" />
+        <Input type="search" aria-label="Search repositories" placeholder="Search repositories…" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); setQuery(""); } }} />
+      </div>
+      {saveError ? <p role="alert" className="text-xs text-destructive">{saveError}</p> : null}
+      <div
+        className="repo-recents-list"
+        onMouseUp={finishPointerDrag}
+        onDragOver={(event) => {
+          const target = getDragTarget(event);
+          if (target) {
+            updateDropTarget(event, target.repoPath, target.element);
+          }
+        }}
+        onDrop={(event) => {
+          const target = getDragTarget(event);
+          if (target) {
+            dropRepository(event, target.repoPath, target.element);
+          }
+        }}
+      >
+        {sections.map((section) => <div key={section.id} className="repository-project-section">
+          {section.id.startsWith("project:") ? <button type="button" className="repository-section-heading" aria-label={`${section.name}, ${section.paths.length} repositories`} disabled={Boolean(query.trim())} title={query.trim() ? "Clear search to collapse groups" : undefined} aria-expanded={!section.collapsed} onClick={() => updateOrganization((current) => ({ ...current, projects: current.projects.map((project) => `project:${project.id}` === section.id ? { ...project, collapsed: !project.collapsed } : project) }))}>
+            <ChevronRight className={section.collapsed ? "" : "rotate-90"} /><span>{section.name}</span><span className="repository-section-count">{section.paths.length}</span>
+          </button> : sections.length > 1 || section.id === "pinned" ? <p className="repository-section-heading">{section.id === "pinned" ? <Pin /> : null}<span>{section.name}</span><span className="repository-section-count">{section.paths.length}</span></p> : null}
+          {!section.collapsed ? section.paths.map(renderRepository) : null}
+          {!section.collapsed && !section.paths.length ? <p className="repository-empty-group">Assign repositories in Organize repositories.</p> : null}
+        </div>)}
+        {!visiblePaths.length && query.trim() ? <p className="repository-empty-group" role="status">No repositories match your search.</p> : null}
+      </div>
+      {hiddenCount > 0 ? <button type="button" className="repository-show-hidden" aria-pressed={showHidden} onClick={() => setShowHidden((current) => !current)}>{showHidden ? "Hide inactive repositories" : `Show hidden (${hiddenCount})`}</button> : null}
     </section>
+    {organizerQuery !== null ? <RepositoryOrganizationDialog organization={organization} paths={orderedPaths} initialQuery={organizerQuery} onClose={() => setOrganizerQuery(null)} onSave={(draft) => updateOrganization((current) => ({ ...draft, expandedWorktrees: current.expandedWorktrees }))} /> : null}
     <Dialog open={Boolean(removeTarget)} onOpenChange={(open) => { if (!open) setRemoveTarget(null); }}>
       <DialogContent className="sm:max-w-[440px]">
         <DialogHeader>
@@ -9024,7 +9068,11 @@ function RepositoryList({
   );
 }
 
-function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled, dragging, dropPosition, syncStatuses, layoutDependency, rowRef, onToggle, onDragStart, onPointerDragStart, onDragEnd, onKeyboardMove, onSelect, onRemove, onRecover, onShowInExplorer, onOpenRepositorySettings, onRemoveWorktree }: {
+function RepositoryGroupRow({ searchExpanded, label, organizationMenu, hidden, group, activeRepoPath, active, expanded, disabled, dragging, dropPosition, syncStatuses, layoutDependency, rowRef, onToggle, onDragStart, onPointerDragStart, onDragEnd, onKeyboardMove, onSelect, onRemove, onRecover, onShowInExplorer, onOpenRepositorySettings, onRemoveWorktree }: {
+  searchExpanded: boolean;
+  label?: { name: string; detail: string };
+  organizationMenu?: ReactNode;
+  hidden?: boolean;
   group: RepositoryGroup;
   activeRepoPath: string;
   active: boolean;
@@ -9049,7 +9097,7 @@ function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled,
 }): ReactNode {
   const worktreeListId = useId();
   const worktrees = group.worktrees.length ? group.worktrees : [{ path: group.anchorPath, head: null, branch: null, isMain: true, isBare: false, isDetached: false, locked: false, lockReason: null, prunable: false, prunableReason: null } satisfies GitWorktree];
-  const displayName = getRepoDisplayName(group.anchorPath);
+  const displayName = label?.name ?? getRepoDisplayName(group.anchorPath);
   const navigationWorktree = worktrees.find((worktree) => isSameRepoPath(worktree.path, group.lastUsedPath));
   const navigationUnavailable = Boolean(navigationWorktree?.isBare || navigationWorktree?.prunable);
   const syncStatus = syncStatuses[getRepoPathKey(group.anchorPath)] ?? null;
@@ -9065,10 +9113,10 @@ function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled,
   return <motion.div ref={rowRef} layout="position" layoutDependency={layoutDependency} transition={{ layout: { duration: 0.12, ease: "easeOut" } }} className={rowClassName} data-repo-path={group.anchorPath}>
     <ContextMenu><ContextMenuTrigger asChild><div className="repo-group-heading">
       <button type="button" className="repo-recent-drag-handle" draggable onDragStart={(event) => onDragStart(event, group.anchorPath)} onMouseDown={() => onPointerDragStart(group.anchorPath)} onDragEnd={onDragEnd} onKeyDown={handleKeyDown} aria-label={`Reorder ${group.anchorPath}`}><GripVertical /></button>
-      <button type="button" className="repo-group-toggle" onClick={onToggle} aria-expanded={expanded} aria-controls={worktreeListId} aria-label={`${expanded ? "Collapse" : "Expand"} worktrees for ${displayName}`}><ChevronRight className="repo-group-chevron" /></button>
-      <button type="button" className="repo-group-main" disabled={disabled || navigationActive || navigationUnavailable || Boolean(unavailableReason)} onClick={() => onSelect(group.lastUsedPath)} aria-current={navigationActive ? "true" : undefined} aria-label={`Switch to ${group.anchorPath}`}><RecentRepositoryVcsIcon kind={group.kind} /><span className="repo-recent-title">{displayName}</span></button>
+      <button type="button" className="repo-group-toggle" disabled={searchExpanded} title={searchExpanded ? "Clear search to collapse worktrees" : undefined} onClick={onToggle} aria-expanded={expanded} aria-controls={worktreeListId} aria-label={`${expanded ? "Collapse" : "Expand"} worktrees for ${displayName}`}><ChevronRight className="repo-group-chevron" /></button>
+      <button type="button" className="repo-group-main" disabled={disabled || navigationActive || navigationUnavailable || Boolean(unavailableReason)} onClick={() => onSelect(group.lastUsedPath)} aria-current={navigationActive ? "true" : undefined} aria-label={`Switch to ${group.anchorPath}`}><RecentRepositoryVcsIcon kind={group.kind} /><span className="repo-recent-title" title={group.anchorPath}>{displayName}{label?.detail ? <span className="repository-path-detail">{label.detail}</span> : null}</span>{hidden ? <EyeOff className="repository-hidden-icon" aria-label="Hidden repository" /> : null}</button>
       {unavailableReason ? <RepositoryUnavailableButton repoPath={group.anchorPath} reason={unavailableReason} disabled={disabled} onClick={() => onRecover(unavailableReason)} /> : null}
-    </div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{group.anchorPath}</ContextMenuLabel><ContextMenuSeparator /><ContextMenuItem disabled={navigationUnavailable} onSelect={() => onOpenRepositorySettings(group.lastUsedPath)}><Settings />Repository Settings…</ContextMenuItem><ContextMenuItem disabled={navigationUnavailable} onSelect={() => onShowInExplorer(group.anchorPath)}><MapPinned />Show in Explorer</ContextMenuItem><ContextMenuSeparator /><ContextMenuItem variant="destructive" onSelect={onRemove}><Trash2 />Remove Repository</ContextMenuItem></ContextMenuContent></ContextMenu>
+    </div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{group.anchorPath}</ContextMenuLabel><ContextMenuSeparator />{organizationMenu}<ContextMenuItem disabled={navigationUnavailable} onSelect={() => onOpenRepositorySettings(group.lastUsedPath)}><Settings />Repository Settings…</ContextMenuItem><ContextMenuItem disabled={navigationUnavailable} onSelect={() => onShowInExplorer(group.anchorPath)}><MapPinned />Show in Explorer</ContextMenuItem><ContextMenuSeparator /><ContextMenuItem variant="destructive" onSelect={onRemove}><Trash2 />Remove Repository</ContextMenuItem></ContextMenuContent></ContextMenu>
     <MotionPresence present={expanded} id={worktreeListId} className="repo-worktree-list" initialY={-2}>{worktrees.map((worktree) => {
       const workspaceActive = isSameRepoPath(worktree.path, activeRepoPath);
       const unavailable = worktree.isBare || worktree.prunable;
@@ -9079,6 +9127,9 @@ function RepositoryGroupRow({ group, activeRepoPath, active, expanded, disabled,
 }
 
 function RecentRepositoryRow({
+  label,
+  organizationMenu,
+  hidden,
   active = false,
   disabled,
   dropPosition,
@@ -9098,7 +9149,7 @@ function RecentRepositoryRow({
   onShowInExplorer,
   onOpenRepositorySettings
 }: RecentRepositoryRowProps): ReactNode {
-  const displayName = getRepoDisplayName(repoPath);
+  const displayName = label?.name ?? getRepoDisplayName(repoPath);
   const syncDescription = formatRepoSyncStatusDescription(syncStatus);
   const rowClassName = [
     "repo-recent-row",
@@ -9158,7 +9209,8 @@ function RecentRepositoryRow({
           >
             <span className="repo-recent-name">
               {syncStatus?.isValid ? <RecentRepositoryVcsIcon kind={syncStatus.kind} /> : null}
-              <span className="repo-recent-title">{displayName}</span>
+              <span className="repo-recent-title" title={repoPath}>{displayName}{label?.detail ? <span className="repository-path-detail">{label.detail}</span> : null}</span>
+              {hidden ? <EyeOff className="repository-hidden-icon" aria-label="Hidden repository" /> : null}
               <RepoSyncStatusChips status={syncStatus} />
             </span>
           </button>
@@ -9170,6 +9222,7 @@ function RecentRepositoryRow({
           <ContextMenuLabel className="repo-recent-menu-path">{repoPath}</ContextMenuLabel>
         </TooltipTarget>
         <ContextMenuSeparator />
+        {organizationMenu}
         <ContextMenuItem onSelect={() => onOpenRepositorySettings(repoPath)}>
           <Settings />
           Repository Settings…
@@ -9628,7 +9681,7 @@ function RepositoryPanel({
   };
 
   return (
-    <aside className="flex h-full min-h-0 flex-col gap-6 overflow-auto border-r bg-sidebar p-4 text-sidebar-foreground">
+    <aside className="repository-sidebar flex h-full min-h-0 flex-col gap-4 overflow-hidden border-r bg-sidebar p-4 text-sidebar-foreground">
       <RepositoryList
         repoPath={repoPath}
         repoPaths={repoRecents}
@@ -15082,11 +15135,6 @@ function getDropPosition(clientY: number, element: HTMLElement): RepositoryDropP
   return clientY < bounds.top + bounds.height / 2 ? "before" : "after";
 }
 
-function getRepoDisplayName(repoPath: string): string {
-  const normalizedPath = repoPath.trim().replace(/[\\/]+$/, "");
-  const match = /[^\\/]+$/.exec(normalizedPath);
-  return match?.[0] || repoPath;
-}
 
 function inferCloneDirectoryName(source: string): string {
   const trimmedSource = source.trim().replace(/[\\/]+$/, "");
