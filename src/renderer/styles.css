@@ -3631,6 +3631,11 @@ textarea,
   font-size: 12px;
 }
 
+.diff-hunk-action:hover:not(:disabled) {
+  border-color: var(--diff-hunk-text);
+  background: color-mix(in srgb, var(--diff-hunk-text) 18%, var(--diff-meta-bg));
+}
+
 .diff-output.text.is-wrapped .diff-row {
   grid-template-columns: 56px 56px 28px minmax(0, 1fr);
   width: 100%;
