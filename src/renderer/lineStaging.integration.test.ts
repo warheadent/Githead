@@ -214,6 +214,9 @@ async function withRepository(callback: (fixture: RepositoryFixture) => Promise<
 
   try {
     await run(["init", "-b", "main"]);
+    // These fixtures assert exact LF bytes, regardless of the host Git configuration.
+    await run(["config", "core.autocrlf", "false"]);
+    await run(["config", "core.eol", "lf"]);
     await run(["config", "user.name", "Githead Test"]);
     await run(["config", "user.email", "githead@example.test"]);
     await fs.writeFile(path.join(repoPath, "base.txt"), "base\n", "utf8");
