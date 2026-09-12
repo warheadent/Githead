@@ -28,16 +28,15 @@ describe("Repository organization", { timeout: 10_000 }, () => {
     await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("button", { name: "Organize repositories" }));
     const dialog = within(screen.getByRole("dialog"));
-    await user.type(dialog.getByRole("textbox", { name: "New group name" }), "Tools");
-    await user.click(dialog.getByRole("button", { name: "Add group" }));
-    const aliases = dialog.getAllByRole("textbox", { name: "Display alias" });
-    await user.type(aliases[1]!, "Builder");
-    await user.selectOptions(
-      dialog.getAllByRole("combobox", { name: "Project group" })[1]!,
-      "Tools",
-    );
-    await user.click(dialog.getAllByRole("checkbox", { name: "Pinned" })[0]!);
-    await user.click(dialog.getAllByRole("checkbox", { name: "Hidden" })[2]!);
+    await user.click(dialog.getByRole("button", { name: "New group" }));
+    await user.type(screen.getByRole("textbox", { name: "Group name" }), "Tools");
+    await user.click(screen.getByRole("button", { name: "Create group" }));
+    await user.click(dialog.getByRole("button", { name: `Rename ${other} in Githead` }));
+    await user.type(screen.getByRole("textbox", { name: "Display name" }), "Builder");
+    await user.click(screen.getByRole("button", { name: "Apply name" }));
+    await user.selectOptions(dialog.getByRole("combobox", { name: `Group for ${other}` }), "Tools");
+    await user.click(dialog.getByRole("checkbox", { name: `Pin ${repoPath}` }));
+    await user.click(dialog.getByRole("checkbox", { name: `Show ${third}` }));
     await user.click(dialog.getByRole("button", { name: "Save changes" }));
     expect(repositories().getByText("Pinned")).toBeTruthy();
     expect(repositories().getByText("Builder")).toBeTruthy();
@@ -86,12 +85,14 @@ describe("Repository organization", { timeout: 10_000 }, () => {
     render(<App />);
     await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("button", { name: "Organize repositories" }));
-    await user.type(screen.getByRole("textbox", { name: "New group name" }), "Temporary");
-    await user.click(screen.getByRole("button", { name: "Add group" }));
-    await user.clear(screen.getByRole("textbox", { name: "Group name 1" }));
-    expect(screen.getByRole("button", { name: "Save changes" }).hasAttribute("disabled")).toBe(
+    await user.click(screen.getByRole("button", { name: "New group" }));
+    await user.type(screen.getByRole("textbox", { name: "Group name" }), "Temporary");
+    await user.clear(screen.getByRole("textbox", { name: "Group name" }));
+    expect(screen.getByRole("button", { name: "Create group" }).hasAttribute("disabled")).toBe(
       true,
     );
+    await user.type(screen.getByRole("textbox", { name: "Group name" }), "Temporary");
+    await user.click(screen.getByRole("button", { name: "Create group" }));
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(readRepositoryOrganization().projects).toEqual([]);
   });
@@ -101,7 +102,9 @@ describe("Repository organization", { timeout: 10_000 }, () => {
     render(<App />);
     await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("button", { name: "Organize repositories" }));
-    await user.type(screen.getAllByRole("textbox", { name: "Display alias" })[0]!, "Daily");
+    await user.click(screen.getByRole("button", { name: `Rename ${repoPath} in Githead` }));
+    await user.type(screen.getByRole("textbox", { name: "Display name" }), "Daily");
+    await user.click(screen.getByRole("button", { name: "Apply name" }));
     const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("Storage full");
     });
