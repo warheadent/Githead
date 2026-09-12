@@ -10233,6 +10233,11 @@ function ActionBar({
     : undefined;
   const publishInsteadOfPush = shouldPublishInsteadOfPush(summary);
   const pushableCommitCount = getPushableCommitCount(summary);
+  const pushVariant = runningAction === "push"
+    ? "secondary"
+    : publishInsteadOfPush || pushableCommitCount > 0
+    ? "default"
+    : "outline";
   const pushAriaLabel = publishInsteadOfPush
     ? "Publish branch"
     : pushableCommitCount > 0
@@ -10378,7 +10383,7 @@ function ActionBar({
         <div className="flex items-stretch">
           <Button
             type="button"
-            variant={runningAction === "push" ? "secondary" : "default"}
+            variant={pushVariant}
             disabled={disabled}
             onClick={() => onRunAction("push")}
             aria-label={pushAriaLabel}
@@ -10404,7 +10409,7 @@ function ActionBar({
               <DropdownMenuTrigger asChild>
                 <Button
                   type="button"
-                  variant={runningAction === "push" ? "secondary" : "default"}
+                  variant={pushVariant}
                   disabled={pushMenuDisabled}
                   aria-label="More push actions"
                   className="rounded-l-none border-l-border px-2"
