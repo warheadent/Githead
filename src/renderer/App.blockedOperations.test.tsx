@@ -127,7 +127,7 @@ describe("unrelated tasks during Git operations", { timeout: 20_000 }, () => {
       })
     ] }));
     const fetch = await startFetch();
-    fireEvent.contextMenu(await screen.findByText("modules/sample"));
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /modules\/sample/ }));
     expect(screen.getByRole("menuitem", { name: "Open Submodule" }).hasAttribute("data-disabled")).toBe(true);
     fireEvent.click(screen.getByRole("menuitem", { name: "Open Submodule" }));
     expect(githead.cancelGitOperation).not.toHaveBeenCalled();
