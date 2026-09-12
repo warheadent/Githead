@@ -3180,6 +3180,71 @@ textarea,
   text-align: left;
 }
 
+.status-file-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.status-file-toolbar > .relative {
+  min-width: 130px;
+}
+
+.status-file-filter {
+  max-width: 130px;
+  height: 32px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 12px;
+}
+
+.status-file-group-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 56px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.status-file-path {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-code);
+  font-size: 0.8125rem;
+}
+
+.status-file-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.status-file-directory {
+  flex: 0 10 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
 .file-row:hover,
 .commit-file-row:hover,
 .history-row:hover {

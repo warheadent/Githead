@@ -46,6 +46,125 @@ function installHistoryPreloadProbe(): () => void {
 }
 
 describe("App", { timeout: 10_000 }, () => {
+  it("filters both sides by path and side-specific status, then stages only matching files", async () => {
+    const files = [
+      createStatusFile("src/mixed.ts", { isStaged: true, indexStatus: "A", isUnstaged: true, worktreeStatus: "M" }),
+      createStatusFile("docs/guide.md", { isUnstaged: true, worktreeStatus: "M" }),
+      createStatusFile("src/new.ts", { isUnstaged: true, worktreeStatus: "?" })
+    ];
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files }));
+    render(<App />);
+    await screen.findByRole("option", { name: /src\/new.ts/ });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search changed files" }), { target: { value: "SRC/" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Filter files by status" }), { target: { value: "modified" } });
+    expect(within(screen.getByRole("listbox", { name: "Staged files" })).queryAllByRole("option")).toHaveLength(0);
+    const unstaged = screen.getByRole("listbox", { name: "Unstaged files" });
+    expect(within(unstaged).getAllByRole("option")).toHaveLength(1);
+    expect(screen.getByRole("heading", { name: "Unstaged files (1 of 3)" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stage 1 matching" }));
+    await waitFor(() => expect(githead.stageFiles).toHaveBeenCalledWith({ repoPath, paths: ["src/mixed.ts"], operationId: expect.any(String) }));
+  });
+
+  it("keeps filtered range selection and context actions scoped to matching files", async () => {
+    const files = ["src/a.ts", "src/b.md", "src/c.ts"].map((path) => createStatusFile(path, { isUnstaged: true, worktreeStatus: "M" }));
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files }));
+    render(<App />);
+    const first = await screen.findByRole("option", { name: /src\/a.ts/ });
+    fireEvent.click(first);
+    fireEvent.keyDown(first, { key: "a", ctrlKey: true });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search changed files" }), { target: { value: ".ts" } });
+    expect(screen.getByRole("button", { name: "Stage 2 files" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("option", { name: /src\/a.ts/ }));
+    const last = screen.getByRole("option", { name: /src\/c.ts/ });
+    fireEvent.click(last, { shiftKey: true });
+    fireEvent.contextMenu(last);
+    expect(screen.getByRole("menuitem", { name: "Discard changes in 2 files…" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Stage 2 files" }));
+    await waitFor(() => expect(githead.stageFiles).toHaveBeenCalledWith({ repoPath, paths: ["src/a.ts", "src/c.ts"], operationId: expect.any(String) }));
+  });
+
+  it("selects all matching files with Ctrl+A and searches the original rename path", async () => {
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [
+      createStatusFile("src/renamed.ts", { originalPath: "legacy/old.ts", isUnstaged: true, worktreeStatus: "R" }),
+      createStatusFile("src/hidden.ts", { isUnstaged: true, worktreeStatus: "M" })
+    ] }));
+    render(<App />);
+    await screen.findByRole("option", { name: /src\/hidden.ts/ });
+    fireEvent.change(screen.getByRole("textbox", { name: "Search changed files" }), { target: { value: "legacy/" } });
+    const file = screen.getByRole("option", { name: /legacy\/old.ts -> src\/renamed.ts/ });
+    fireEvent.click(file);
+    fireEvent.keyDown(file, { key: "a", ctrlKey: true });
+    fireEvent.click(screen.getByRole("button", { name: "Stage 1 file" }));
+    await waitFor(() => expect(githead.stageFiles).toHaveBeenCalledWith({ repoPath, paths: ["src/renamed.ts"], operationId: expect.any(String) }));
+  });
+
+  it.each(["list", "tree"])("navigates the full virtual %s with End, Home, arrows, and Shift", async (viewMode) => {
+    const files = Array.from({ length: 1_000 }, (_, index) => createStatusFile(`src/file-${String(index).padStart(4, "0")}.ts`, { isUnstaged: true, worktreeStatus: "M" }));
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files }));
+    render(<App />);
+    await screen.findByRole("listbox", { name: "Unstaged files" });
+    if (viewMode === "tree") {
+      fireEvent.click(screen.getByRole("button", { name: "Tree view" }));
+      await screen.findByRole("tree", { name: "Unstaged files" });
+    }
+    const role = viewMode === "tree" ? "treeitem" : "option";
+    const first = screen.getByRole(role, { name: /src\/file-0000.ts/ });
+    const list = screen.getByRole(viewMode === "tree" ? "tree" : "listbox", { name: "Unstaged files" });
+    Object.defineProperty(list, "clientHeight", { configurable: true, value: 340 });
+    fireEvent.click(first);
+    fireEvent.keyDown(first, { key: "End", shiftKey: true });
+    const last = screen.getByRole(role, { name: /src\/file-0999.ts/ });
+    expect(document.activeElement).toBe(last);
+    expect(last.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("button", { name: "Stage 1000 files" })).toBeTruthy();
+    expect(within(list).getAllByRole(role).length).toBeLessThan(100);
+    fireEvent.keyDown(last, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(screen.getByRole(role, { name: /src\/file-0998.ts/ }));
+    fireEvent.keyDown(document.activeElement!, { key: "Home" });
+    if (viewMode === "tree") {
+      expect(document.activeElement).toBe(screen.getByRole("treeitem", { name: "src" }));
+      fireEvent.keyDown(document.activeElement!, { key: "ArrowLeft" });
+      expect(screen.getByRole("treeitem", { name: "src" }).getAttribute("aria-expanded")).toBe("false");
+      fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" });
+      fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" });
+    }
+    expect(document.activeElement).toBe(screen.getByRole(role, { name: /src\/file-0000.ts/ }));
+  });
+
+  it("lets users expand an empty group and distinguishes no matches from a clean tree", async () => {
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [createStatusFile("change.ts", { isUnstaged: true, worktreeStatus: "M" })] }));
+    render(<App />);
+    await screen.findByRole("option", { name: /change.ts/ });
+    const expand = screen.getByRole("button", { name: "Expand staged files" });
+    expect(expand.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(expand);
+    expect(screen.getByRole("button", { name: "Collapse staged files" }).getAttribute("aria-expanded")).toBe("true");
+    expect(within(screen.getByRole("listbox", { name: "Staged files" })).getByText("No staged files")).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search changed files" }), { target: { value: "missing" } });
+    expect(screen.getByText("No files match your search and filter")).toBeTruthy();
+    expect(screen.queryByText("Working tree clean")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Clear file search" }));
+    expect(screen.getByRole("option", { name: /change.ts/ })).toBeTruthy();
+  });
+
+  it.each(["filesystem", "filesystem-metadata"] as const)("cancels discard and refuses a discard after a %s change", async (reason) => {
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [createStatusFile("change.ts", { isUnstaged: true, worktreeStatus: "M" })] }));
+    render(<App />);
+    const file = await screen.findByRole("option", { name: /change.ts/ });
+    fireEvent.contextMenu(file);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Discard changes in 1 file…" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("change.ts")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(githead.revertFileChanges).not.toHaveBeenCalled();
+    fireEvent.contextMenu(file);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Discard changes in 1 file…" }));
+    emitRepoChanged({ repoPath, reason });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Discard changes" }).hasAttribute("disabled")).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+    expect(githead.revertFileChanges).not.toHaveBeenCalled();
+  });
+
   it("stages multiple ctrl-selected unstaged files through the preload API", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
@@ -71,7 +190,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(firstFile.getAttribute("aria-selected")).toBe("true");
     expect(secondFile.getAttribute("aria-selected")).toBe("true");
 
-    await user.click(screen.getByRole("button", { name: /^Stage$/ }));
+    await user.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
 
     await waitFor(() => {
       expect(githead.stageFiles).toHaveBeenCalledWith({
@@ -110,7 +229,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(firstFile.getAttribute("aria-selected")).toBe("true");
     expect(secondFile.getAttribute("aria-selected")).toBe("true");
 
-    await user.click(screen.getByRole("button", { name: /^Unstage$/ }));
+    await user.click(screen.getByRole("button", { name: /^Unstage(?: \d+ files?)?$/ }));
 
     await waitFor(() => {
       expect(githead.unstageFiles).toHaveBeenCalledWith({
@@ -235,7 +354,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(middleFile.getAttribute("aria-selected")).toBe("true");
     expect(lastFile.getAttribute("aria-selected")).toBe("true");
 
-    await user.click(screen.getByRole("button", { name: /^Stage$/ }));
+    await user.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
 
     await waitFor(() => {
       expect(githead.stageFiles).toHaveBeenCalledWith({
@@ -273,7 +392,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(within(list).queryByText("generated/file-00000.ts")).toBeNull();
     const target = within(list).getByRole("option", { name: /generated\/file-00500\.ts/ });
     fireEvent.click(target, { shiftKey: true });
-    fireEvent.click(screen.getByRole("button", { name: /^Stage$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
 
     await waitFor(() => {
       const request = vi.mocked(githead.stageFiles).mock.calls.at(-1)?.[0];
@@ -298,7 +417,7 @@ describe("App", { timeout: 10_000 }, () => {
     const first = within(list).getAllByRole("option")[0]!;
     fireEvent.click(first);
     fireEvent.keyDown(first, { key: "a", ctrlKey: true });
-    const stage = screen.getByRole("button", { name: /^Stage$/ });
+    const stage = screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ });
 
     pathReads = 0;
     fireEvent.click(stage);
@@ -310,7 +429,7 @@ describe("App", { timeout: 10_000 }, () => {
     });
   });
 
-  it.each(["Stage", "Stage All"])("%s excludes submodules that cannot be staged", async (buttonName) => {
+  it.each(["Stage 1 file", "Stage All"])("%s excludes submodules that cannot be staged", async (buttonName) => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       files: [
         createStatusFile("src/change.ts", { isUnstaged: true, worktreeStatus: "M" }),
@@ -384,7 +503,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await waitFor(() => expect(screen.queryByRole("option", { name: /src\/first\.ts/ })).toBeNull());
     expect(screen.getByRole("option", { name: /src\/second\.ts/ }).getAttribute("aria-selected")).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: /^Stage$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
     await waitFor(() => expect(githead.stageFiles).toHaveBeenCalledWith({ repoPath, paths: ["src/second.ts"], operationId: expect.any(String) }));
   });
 
@@ -411,7 +530,7 @@ describe("App", { timeout: 10_000 }, () => {
     fireEvent.click(secondFile, { ctrlKey: true });
 
     fireEvent.contextMenu(secondFile);
-    await user.click(await screen.findByRole("menuitem", { name: /^Stage$/ }));
+    await user.click(await screen.findByRole("menuitem", { name: /^Stage(?: \d+ files?)?$/ }));
 
     await waitFor(() => {
       expect(githead.stageFiles).toHaveBeenCalledWith({
@@ -448,7 +567,7 @@ describe("App", { timeout: 10_000 }, () => {
     fireEvent.click(secondFile, { ctrlKey: true });
 
     fireEvent.contextMenu(firstFile);
-    await user.click(await screen.findByRole("menuitem", { name: /^Unstage$/ }));
+    await user.click(await screen.findByRole("menuitem", { name: /^Unstage(?: \d+ files?)?$/ }));
 
     await waitFor(() => {
       expect(githead.unstageFiles).toHaveBeenCalledWith({
@@ -485,7 +604,7 @@ describe("App", { timeout: 10_000 }, () => {
     fireEvent.click(secondFile, { ctrlKey: true });
 
     fireEvent.contextMenu(firstFile);
-    await user.click(await screen.findByRole("menuitem", { name: /^Delete$/ }));
+    await user.click(await screen.findByRole("menuitem", { name: /^Delete \d+ files?$/ }));
 
     await waitFor(() => {
       expect(githead.deleteFiles).toHaveBeenCalledWith({
@@ -522,7 +641,9 @@ describe("App", { timeout: 10_000 }, () => {
     fireEvent.click(secondFile, { ctrlKey: true });
 
     fireEvent.contextMenu(secondFile);
-    await user.click(await screen.findByRole("menuitem", { name: /^Revert changes$/ }));
+    await user.click(await screen.findByRole("menuitem", { name: /^Discard changes in \d+ files?…$/ }));
+    expect(githead.revertFileChanges).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
 
     await waitFor(() => {
       expect(githead.revertFileChanges).toHaveBeenCalledWith({
@@ -554,7 +675,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(firstFile);
     fireEvent.click(secondFile, { ctrlKey: true });
     fireEvent.contextMenu(firstFile);
-    await user.click(await screen.findByRole("menuitem", { name: "Stash selected files..." }));
+    await user.click(await screen.findByRole("menuitem", { name: /^Stash \d+ files?…$/ }));
 
     const stashDialog = await screen.findByRole("dialog", { name: "New stash" });
     expect(stashDialog).toBeTruthy();
@@ -591,7 +712,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     const file = await screen.findByRole("option", { name: /src\/cache\.ts/ });
     fireEvent.contextMenu(file);
-    await user.click(await screen.findByRole("menuitem", { name: "Stash selected files..." }));
+    await user.click(await screen.findByRole("menuitem", { name: /^Stash \d+ files?…$/ }));
     const dialog = await screen.findByRole("dialog", { name: "New stash" });
     await user.click(within(dialog).getByRole("button", { name: "Generate stash message" }));
 
@@ -665,7 +786,7 @@ describe("App", { timeout: 10_000 }, () => {
     fireEvent.click(secondFile, { ctrlKey: true });
 
     fireEvent.contextMenu(thirdFile);
-    await user.click(await screen.findByRole("menuitem", { name: /^Stage$/ }));
+    await user.click(await screen.findByRole("menuitem", { name: /^Stage(?: \d+ files?)?$/ }));
 
     await waitFor(() => {
       expect(githead.stageFiles).toHaveBeenCalledWith({

@@ -60,6 +60,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -121,6 +122,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { motion } from "motion/react";
+import type { PanelImperativeHandle } from "react-resizable-panels";
 import { TagDialog, type TagDialogState } from "./TagDialog";
 import { MotionPresence, MotionSwap } from "./motion";
 import {
@@ -282,6 +284,7 @@ import { createDiffProcessingSession, type ProcessedDiff } from "./diffProcessin
 import { areFileDiffsEqual } from "./diffFreshness";
 import { getCommitFileStatusVisuals, getFileStatusVisuals } from "./fileStatusVisuals";
 import { FileStatusChip } from "./FileStatusChip";
+import { filterStatusFiles, type StatusFileFilter } from "./statusFileFilter";
 import { FixedSizeVirtualList, type VirtualRowProps } from "./FixedSizeVirtualList";
 import type { HighlightedCode } from "./syntaxHighlighter";
 import { buildStatusFileTree, fileName, flattenStatusFileTree, type StatusFileTreeFolder } from "./statusFileTree";
@@ -327,6 +330,7 @@ interface FileSelection {
 }
 
 interface FileSelectionModifiers {
+  orderedPaths?: string[];
   extendRange: boolean;
   selectAll: boolean;
   toggle: boolean;
@@ -6053,9 +6057,13 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
   ]);
 
   const selectFile = useCallback((file: GitStatusFile, side: GitDiffSide, modifiers: FileSelectionModifiers): void => {
+    const availableFiles = getFilesForSide(stateRef.current.summary, side);
+    const filesByPath = modifiers.orderedPaths ? new Map(availableFiles.map((candidate) => [candidate.path, candidate])) : null;
     const selection = buildFileSelection(
       stateRef.current.selection,
-      getFilesForSide(stateRef.current.summary, side),
+      filesByPath && modifiers.orderedPaths
+        ? modifiers.orderedPaths.flatMap((path) => { const candidate = filesByPath.get(path); return candidate ? [candidate] : []; })
+        : availableFiles,
       file.path,
       side,
       modifiers
@@ -7431,6 +7439,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                   canGeneratePlan={canUseSelectedAiProvider(state.aiSettings)}
                   generatePlanTitle={getCommitPlanGenerateTitle(state)}
                   repositoryChangeVersion={workingTreeChangeVersion}
+                  repositoryStatusVersion={fileStatusGenerationRef.current}
                   onGeneratePlan={generateCommitPlan}
                   onValidatePlan={validateCommitPlan}
                   onQuickCommit={quickCommitPlannedFiles}
@@ -10526,6 +10535,7 @@ function StatusView({
   canGeneratePlan,
   generatePlanTitle,
   repositoryChangeVersion,
+  repositoryStatusVersion,
   onGeneratePlan,
   onValidatePlan,
   onQuickCommit,
@@ -10558,16 +10568,50 @@ function StatusView({
   canGeneratePlan: boolean;
   generatePlanTitle: string;
   repositoryChangeVersion: number;
+  repositoryStatusVersion: number;
   onGeneratePlan: (paths: string[]) => Promise<GenerateCommitPlanResult | null>;
   onValidatePlan: (request: CommitPlanValidationRequest) => Promise<CommitPlanValidationResult>;
   onQuickCommit: (changes: GitQuickCommitChange[], message: string) => Promise<GitOperationResult | null>;
   composer?: ReactNode;
 }): ReactNode {
-  const stagedSelectionPaths = selection?.side === "staged" ? getSelectionPaths(selection) : [];
-  const unstagedSelectionPaths = selection?.side === "unstaged" ? getSelectionPaths(selection) : [];
+  const [query, setQuery] = usePersistentWorkspacePanelState("status-file-query", "");
+  const [statusFilter, setStatusFilter] = usePersistentWorkspacePanelState<StatusFileFilter>("status-file-filter", "all");
+  const [expandEmptyStaged, setExpandEmptyStaged] = usePersistentWorkspacePanelState("status-expand-empty-staged", false);
+  const [expandEmptyUnstaged, setExpandEmptyUnstaged] = usePersistentWorkspacePanelState("status-expand-empty-unstaged", false);
+  const matchingStagedFiles = useMemo(() => filterStatusFiles(stagedFiles, "staged", query, statusFilter), [stagedFiles, query, statusFilter]);
+  const matchingUnstagedFiles = useMemo(() => filterStatusFiles(unstagedFiles, "unstaged", query, statusFilter), [unstagedFiles, query, statusFilter]);
+  const filtering = query.trim().length > 0 || statusFilter !== "all";
+  const matchingPaths = useMemo(() => new Set((selection?.side === "staged" ? matchingStagedFiles : matchingUnstagedFiles).map((file) => file.path)), [matchingStagedFiles, matchingUnstagedFiles, selection?.side]);
+  const selectedPaths = selection ? getSelectionPaths(selection).filter((path) => matchingPaths.has(path)) : [];
+  const matchingSelection = selection && selectedPaths.length > 0
+    ? createFileSelection(selection.side, selectedPaths, selection.path, selection.anchorPath)
+    : null;
+  const stagedSelectionPaths = matchingSelection?.side === "staged" ? selectedPaths : [];
+  const unstagedSelectionPaths = matchingSelection?.side === "unstaged" ? selectedPaths : [];
+  const stagedCollapsed = stagedFiles.length === 0 && unstagedFiles.length > 0 && !expandEmptyStaged;
+  const unstagedCollapsed = unstagedFiles.length === 0 && stagedFiles.length > 0 && !expandEmptyUnstaged;
+  const stagedPanelRef = useRef<PanelImperativeHandle | null>(null);
+  const unstagedPanelRef = useRef<PanelImperativeHandle | null>(null);
+  useLayoutEffect(() => {
+    if (stagedCollapsed) stagedPanelRef.current?.collapse();
+    else stagedPanelRef.current?.expand();
+    if (unstagedCollapsed) unstagedPanelRef.current?.collapse();
+    else unstagedPanelRef.current?.expand();
+  }, [stagedCollapsed, unstagedCollapsed, workspaceMode]);
+  const clean = summary?.isValid && stagedFiles.length === 0 && unstagedFiles.length === 0;
+  const [discardTarget, setDiscardTarget] = useState<{ file: GitStatusFile; side: GitDiffSide; paths: string[]; repoPath: string; version: number } | null>(null);
+  const discardCurrent = discardTarget?.repoPath === summary?.repoPath && discardTarget?.version === repositoryStatusVersion;
+  const handleContextAction = (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind, explicitPaths?: string[]): void => {
+    const paths = explicitPaths ?? getContextActionPaths(matchingSelection, file, side);
+    if (kind === "revert") {
+      setDiscardTarget({ file, side, paths, repoPath: summary?.repoPath ?? "", version: repositoryStatusVersion });
+    } else {
+      onContextAction(file, side, kind, paths);
+    }
+  };
   const stageableUnstagedPaths = useMemo(
-    () => new Set(unstagedFiles.filter(canStageStatusFile).map((file) => file.path)),
-    [unstagedFiles]
+    () => new Set(matchingUnstagedFiles.filter(canStageStatusFile).map((file) => file.path)),
+    [matchingUnstagedFiles]
   );
   const selectedFile = selection
     ? (selection.side === "staged" ? stagedFiles : unstagedFiles).find((file) => file.path === selection.path) ?? null
@@ -10595,7 +10639,25 @@ function StatusView({
     <ResizablePanelGroup orientation="horizontal" className="status-workspace h-full min-h-0 bg-background">
       <ResizablePanel defaultSize="38%" minSize="300px" className="min-w-[300px]" data-status-panel="files">
         <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] border-r bg-card">
-          <div className="flex min-h-10 items-center justify-between gap-3 border-b px-4 py-1.5">
+          <div className="status-file-toolbar">
+            {workspaceMode === "files" ? <>
+              <div className="relative min-w-0 flex-1">
+                <Search className="pointer-events-none absolute left-2 top-2 size-4 text-muted-foreground" />
+                <Input aria-label="Search changed files" placeholder="Search files…" spellCheck={false} value={query} className="h-8 pl-8 pr-8"
+                  onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setQuery(""); }} />
+                {query ? <TooltipButton type="button" variant="ghost" size="icon-xs" aria-label="Clear file search" tooltip="Clear file search" className="absolute right-1 top-1" onClick={() => setQuery("")}><X /></TooltipButton> : null}
+              </div>
+              <select aria-label="Filter files by status" className="status-file-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFileFilter)}>
+                <option value="all">All statuses</option>
+                <option value="modified">Modified</option>
+                <option value="untracked">Untracked</option>
+                <option value="added">Added</option>
+                <option value="deleted">Deleted</option>
+                <option value="renamed">Renamed</option>
+                <option value="copied">Copied</option>
+                <option value="conflict">Conflicted</option>
+              </select>
+            </> : null}
             {(summary?.submodules?.length ?? 0) > 0 ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -10641,13 +10703,18 @@ function StatusView({
             />
           ) : (
           <ResizablePanelGroup id="status-file-groups" orientation="vertical" className="min-h-0">
-            <ResizablePanel id="staged-file-group" defaultSize="50%" minSize="96px">
+            <ResizablePanel id="staged-file-group" panelRef={stagedPanelRef} defaultSize="50%" minSize="96px" collapsible collapsedSize="56px" disabled={stagedCollapsed}>
               <FileGroup
                 title="Staged files"
                 side="staged"
-                files={stagedFiles}
+                files={matchingStagedFiles}
+                totalCount={stagedFiles.length}
+                filtering={filtering}
+                collapsed={stagedCollapsed}
+                onToggleEmpty={stagedFiles.length === 0 && unstagedFiles.length > 0 ? () => setExpandEmptyStaged((value) => !value) : undefined}
+                emptyMessage="No staged files"
                 summary={summary}
-                selection={selection}
+                selection={matchingSelection}
                 disabled={disabled}
                 recoveryMode={recoveryMode}
                 viewMode={viewMode}
@@ -10657,10 +10724,10 @@ function StatusView({
                       type="button"
                       variant="outline"
                       size="sm"
-                      disabled={disabled || stagedFiles.length === 0}
-                      onClick={() => onUnstageFiles(stagedFiles.map((file) => file.path))}
+                      disabled={disabled || matchingStagedFiles.length === 0}
+                      onClick={() => onUnstageFiles(matchingStagedFiles.map((file) => file.path))}
                     >
-                      Unstage All
+                      {filtering ? `Unstage ${matchingStagedFiles.length} matching` : "Unstage All"}
                     </Button>
                     <Button
                       type="button"
@@ -10676,22 +10743,27 @@ function StatusView({
                         }
                       }}
                     >
-                      Unstage
+                      {fileActionLabel("Unstage", stagedSelectionPaths.length)}
                     </Button>
                   </>
                 }
                 onSelectFile={onSelectFile}
-                onContextAction={onContextAction}
+                onContextAction={handleContextAction}
               />
             </ResizablePanel>
             <ResizableHandle withHandle aria-label="Resize staged and unstaged file lists" />
-            <ResizablePanel id="unstaged-file-group" defaultSize="50%" minSize="96px">
+            <ResizablePanel id="unstaged-file-group" panelRef={unstagedPanelRef} defaultSize="50%" minSize="96px" collapsible collapsedSize="56px" disabled={unstagedCollapsed}>
               <FileGroup
                 title="Unstaged files"
                 side="unstaged"
-                files={unstagedFiles}
+                files={matchingUnstagedFiles}
+                totalCount={unstagedFiles.length}
+                filtering={filtering}
+                collapsed={unstagedCollapsed}
+                onToggleEmpty={unstagedFiles.length === 0 && stagedFiles.length > 0 ? () => setExpandEmptyUnstaged((value) => !value) : undefined}
+                emptyMessage="No unstaged files"
                 summary={summary}
-                selection={selection}
+                selection={matchingSelection}
                 disabled={disabled}
                 recoveryMode={recoveryMode}
                 viewMode={viewMode}
@@ -10704,7 +10776,7 @@ function StatusView({
                       disabled={disabled || stageableUnstagedPaths.size === 0}
                       onClick={() => onStageFiles([...stageableUnstagedPaths])}
                     >
-                      Stage All
+                      {filtering ? `Stage ${stageableUnstagedPaths.size} matching` : "Stage All"}
                     </Button>
                     <Button
                       type="button"
@@ -10720,12 +10792,12 @@ function StatusView({
                         }
                       }}
                     >
-                      Stage
+                      {fileActionLabel("Stage", unstagedSelectionPaths.filter((path) => stageableUnstagedPaths.has(path)).length)}
                     </Button>
                   </>
                 }
                 onSelectFile={onSelectFile}
-                onContextAction={onContextAction}
+                onContextAction={handleContextAction}
               />
             </ResizablePanel>
           </ResizablePanelGroup>
@@ -10740,7 +10812,7 @@ function StatusView({
           diff={diff}
           filePath={selection?.path ?? ""}
           loading={diffLoading}
-          emptyMessage={selection ? "Refresh the diff to view this file." : "Select a file to view the diff"}
+          emptyMessage={selection ? "Refresh the diff to view this file." : clean ? "Working tree clean" : "Select a file to view the diff"}
           onDownloadImage={onDownloadImage}
           imageDownloadLoading={disabled}
           repoPath={summary?.repoPath ?? ""}
@@ -10755,6 +10827,26 @@ function StatusView({
           onWrapLinesChange={onWrapLinesChange}
         />
       </ResizablePanel>
+      <Dialog open={Boolean(discardTarget)} onOpenChange={(open) => { if (!open) setDiscardTarget(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{fileActionLabel("Discard changes in", discardTarget?.paths.length ?? 0)}?</DialogTitle>
+            <DialogDescription>Discard the {discardTarget?.side} changes in these files. This cannot be undone.</DialogDescription>
+          </DialogHeader>
+          <ul className="max-h-48 overflow-auto text-sm">{discardTarget?.paths.slice(0, 100).map((path) => <li key={path} className="break-all font-mono">{path}</li>)}</ul>
+          {discardTarget && discardTarget.paths.length > 100 ? <p className="text-sm text-muted-foreground">Showing the first 100 of {discardTarget.paths.length} files.</p> : null}
+          {!discardCurrent ? <p role="alert" className="text-sm text-destructive">The repository changed. Close this dialog and review the files again.</p> : null}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setDiscardTarget(null)}>Cancel</Button>
+            <Button type="button" variant="destructive" disabled={disabled || recoveryMode || !discardCurrent} onClick={() => {
+              if (discardTarget && discardCurrent) {
+                onContextAction(discardTarget.file, discardTarget.side, "revert", discardTarget.paths);
+                setDiscardTarget(null);
+              }
+            }}>Discard changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {composer}
     </ResizablePanelGroup>
   );
@@ -10766,6 +10858,11 @@ type CommitFileContextActionKind = "log" | "blame" | "reset" | "open-current" | 
 
 function FileGroup({
   title,
+  totalCount,
+  filtering,
+  collapsed,
+  onToggleEmpty,
+  emptyMessage,
   side,
   files,
   summary,
@@ -10778,6 +10875,11 @@ function FileGroup({
   onContextAction
 }: {
   title: string;
+  totalCount: number;
+  filtering: boolean;
+  collapsed: boolean;
+  onToggleEmpty?: (() => void) | undefined;
+  emptyMessage: string;
   side: GitDiffSide;
   files: GitStatusFile[];
   summary: RepoSummary | null;
@@ -10793,6 +10895,9 @@ function FileGroup({
     () => selection?.side === side ? new Set(getSelectionPaths(selection)) : new Set<string>(),
     [selection, side]
   );
+  const selectedFiles = useMemo(() => files.filter((file) => selectedPathSet.has(file.path)), [files, selectedPathSet]);
+  const stageableSelectedCount = side === "staged" ? selectedFiles.length : selectedFiles.filter(canStageStatusFile).length;
+  const canDiscardSelection = selectedFiles.every(canDiscardStatusFile);
   const tree = useMemo(() => buildStatusFileTree(files), [files]);
   const [collapsedFolders, setCollapsedFolders] = usePersistentWorkspacePanelState<Set<string>>(
     `status-${side}-collapsed-folders`,
@@ -10803,14 +10908,40 @@ function FileGroup({
     [collapsedFolders, tree]
   );
 
+  const orderedPaths = useMemo(() => viewMode === "tree"
+    ? treeRows.flatMap((row) => row.kind === "file" ? [row.file.path] : [])
+    : files.map((file) => file.path), [files, treeRows, viewMode]);
+  const selectVisibleFile = (file: GitStatusFile, selectedSide: GitDiffSide, modifiers: FileSelectionModifiers): void => {
+    onSelectFile(file, selectedSide, { ...modifiers, orderedPaths });
+  };
+  const navigateToFile = (file: GitStatusFile, event: KeyboardEvent<HTMLDivElement>): void => {
+    if (!event.ctrlKey && !event.metaKey) {
+      selectVisibleFile(file, side, { extendRange: event.shiftKey, selectAll: false, toggle: false });
+    }
+  };
+  const toggleFolder = (id: string): void => setCollapsedFolders((current) => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  });
+
   return (
     <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]" aria-label={title}>
-      <div className="flex min-h-11 items-center justify-between gap-3 border-b px-4 py-2.5">
-        <h2 className="text-base font-semibold">{title} ({files.length})</h2>
-        <div className="flex flex-wrap justify-end gap-2">{actions}</div>
+      <div className="status-file-group-header">
+        <h2 className="min-w-0 text-sm font-semibold">
+          {onToggleEmpty ? <button type="button" className="inline-flex items-center gap-1" aria-label={`${collapsed ? "Expand" : "Collapse"} ${title.toLowerCase()}`} aria-expanded={!collapsed} onClick={onToggleEmpty}>
+            {collapsed ? <ChevronRight className="size-4" /> : <ChevronDown className="size-4" />}{title} (0)
+          </button> : <>{title} <span className="font-normal text-muted-foreground">({filtering ? `${files.length} of ${totalCount}` : totalCount})</span></>}
+        </h2>
+        {!collapsed ? <div className="flex flex-wrap justify-end gap-1">{actions}</div> : <span className="text-xs text-muted-foreground">{emptyMessage}</span>}
       </div>
-      {!summary?.isValid ? (
+      {collapsed ? null : !summary?.isValid ? (
         <div className="file-list" role={viewMode === "tree" ? "tree" : "listbox"} aria-label={title} aria-multiselectable="true" />
+      ) : files.length === 0 ? (
+        <div className="file-list flex items-center justify-center p-4 text-center text-sm text-muted-foreground" role={viewMode === "tree" ? "tree" : "listbox"} aria-label={title} aria-multiselectable="true">
+          <p>{filtering && totalCount > 0 ? "No files match your search and filter" : emptyMessage}</p>
+        </div>
       ) : viewMode === "tree" ? (
         <FixedSizeVirtualList
           items={treeRows}
@@ -10818,6 +10949,29 @@ function FileGroup({
           rowHeight={34}
           ariaLabel={title}
           role="tree"
+          onNavigate={(row, event) => { if (row.kind === "file") navigateToFile(row.file, event); }}
+          onItemKeyDown={(row, index, event) => {
+            if (event.key === "ArrowRight" && row.kind === "folder") {
+              event.preventDefault();
+              if (collapsedFolders.has(row.folder.id)) toggleFolder(row.folder.id);
+              else if (treeRows[index + 1]?.level === row.level + 1) return index + 1;
+            }
+            if (event.key === "ArrowLeft") {
+              event.preventDefault();
+              if (row.kind === "folder" && !collapsedFolders.has(row.folder.id)) toggleFolder(row.folder.id);
+              else {
+                for (let parent = index - 1; parent >= 0; parent -= 1) {
+                  if (treeRows[parent]!.level < row.level) return parent;
+                }
+              }
+            }
+            if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a" && row.kind === "folder") {
+              const first = treeRows.find((candidate) => candidate.kind === "file");
+              if (first?.kind === "file") selectVisibleFile(first.file, side, { extendRange: false, toggle: false, selectAll: true });
+              event.preventDefault();
+            }
+            return undefined;
+          }}
           selectedKey={selection?.side === side ? `${side}:${selection.path}` : null}
           className="file-list"
           renderItem={(row, index, rowProps) => {
@@ -10837,12 +10991,7 @@ function FileGroup({
               recoveryMode={recoveryMode}
               virtualIndex={index}
               virtualRowProps={treeRowProps}
-              onToggle={() => setCollapsedFolders((current) => {
-                const next = new Set(current);
-                if (next.has(row.folder.id)) next.delete(row.folder.id);
-                else next.add(row.folder.id);
-                return next;
-              })}
+              onToggle={() => toggleFolder(row.folder.id)}
               onContextAction={onContextAction}
             />
           ) : (
@@ -10851,9 +11000,12 @@ function FileGroup({
               file={row.file}
               side={side}
               selected={selectedPathSet.has(row.file.path)}
+              selectedCount={selectedPathSet.has(row.file.path) ? selectedPathSet.size : 1}
+              stageCount={selectedPathSet.has(row.file.path) ? stageableSelectedCount : side === "staged" || canStageStatusFile(row.file) ? 1 : 0}
+              canDiscard={selectedPathSet.has(row.file.path) ? canDiscardSelection : canDiscardStatusFile(row.file)}
               disabled={disabled}
               recoveryMode={recoveryMode}
-              onSelectFile={onSelectFile}
+              onSelectFile={selectVisibleFile}
               onContextAction={onContextAction}
               treeLevel={row.level}
               virtualIndex={index}
@@ -10865,6 +11017,7 @@ function FileGroup({
       ) : (
         <FixedSizeVirtualList
           items={files}
+          onNavigate={navigateToFile}
           itemKey={(file) => `${side}:${file.path}`}
           rowHeight={34}
           ariaLabel={title}
@@ -10876,9 +11029,12 @@ function FileGroup({
               file={file}
               side={side}
               selected={selectedPathSet.has(file.path)}
+              selectedCount={selectedPathSet.has(file.path) ? selectedPathSet.size : 1}
+              stageCount={selectedPathSet.has(file.path) ? stageableSelectedCount : side === "staged" || canStageStatusFile(file) ? 1 : 0}
+              canDiscard={selectedPathSet.has(file.path) ? canDiscardSelection : canDiscardStatusFile(file)}
               disabled={disabled}
               recoveryMode={recoveryMode}
-              onSelectFile={onSelectFile}
+              onSelectFile={selectVisibleFile}
               onContextAction={onContextAction}
               virtualIndex={index}
               virtualRowProps={rowProps}
@@ -10909,7 +11065,7 @@ function StatusFileTreeFolderRow({ folder, side, level, collapsed, disabled, rec
         <div className="file-tree-folder-row" style={{ ...virtualRowProps.style, paddingLeft: `${(level - 1) * 18 + 4}px` }}>
           <button type="button" className="file-tree-folder-trigger" role="treeitem" aria-level={level} aria-expanded={!collapsed}
             aria-posinset={virtualRowProps["aria-posinset"]} aria-setsize={virtualRowProps["aria-setsize"]}
-            data-folder-id={folder.id} data-virtual-index={virtualIndex} onClick={onToggle} onKeyDown={handleStatusTreeKeyDown}>
+            data-folder-id={folder.id} data-virtual-index={virtualIndex} onClick={onToggle} tabIndex={virtualRowProps.tabIndex}>
             {collapsed ? <ChevronRight /> : <ChevronDown />}<Folder /><span className="file-path">{folder.name}</span>
           </button>
         </div>
@@ -10921,29 +11077,29 @@ function StatusFileTreeFolderRow({ folder, side, level, collapsed, disabled, rec
           if (first) onContextAction(first, side, "toggle-stage", actionableFiles.map((file) => file.path));
         }}>
           <Save />
-          {side === "unstaged" ? "Stage folder" : "Unstage folder"}
+          {fileActionLabel(side === "unstaged" ? "Stage" : "Unstage", actionableFiles.length)} in folder
         </ContextMenuItem>
         <ContextMenuItem disabled={disabled || recoveryMode || folder.descendantFiles.length === 0} onSelect={() => {
           const first = folder.descendantFiles[0];
           if (first) onContextAction(first, side, "stash", folder.descendantFiles.map((file) => file.path));
         }}>
           <Archive />
-          Stash folder files...
+          {fileActionLabel("Stash", folder.descendantFiles.length)} in folder…
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem disabled={disabled || recoveryMode} onSelect={() => {
+        {side === "unstaged" ? <ContextMenuItem variant="destructive" disabled={disabled || recoveryMode || !folder.descendantFiles.every(canDiscardStatusFile)} onSelect={() => {
           const first = folder.descendantFiles[0];
           if (first) onContextAction(first, side, "revert", folder.descendantFiles.map((file) => file.path));
         }}>
           <RotateCcw />
-          Revert folder changes
-        </ContextMenuItem>
+          {fileActionLabel("Discard changes in", folder.descendantFiles.length)}…
+        </ContextMenuItem> : null}
         <ContextMenuItem variant="destructive" disabled={disabled || recoveryMode} onSelect={() => {
           const first = folder.descendantFiles[0];
           if (first) onContextAction(first, side, "delete", folder.descendantFiles.map((file) => file.path));
         }}>
           <Trash2 />
-          Delete folder files
+          {fileActionLabel("Delete", folder.descendantFiles.length)} in folder
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
@@ -10955,26 +11111,14 @@ interface StashComposerState {
   paths: string[];
 }
 
-function handleStatusTreeKeyDown(event: KeyboardEvent<HTMLButtonElement>): void {
-  const current = event.currentTarget;
-  const tree = current.closest('[role="tree"]');
-  if (!tree) return;
-  const items = [...tree.querySelectorAll<HTMLElement>('[role="treeitem"]')].filter((item) => item.offsetParent !== null);
-  const index = items.indexOf(current);
-  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-    event.preventDefault();
-    items[index + (event.key === "ArrowDown" ? 1 : -1)]?.focus();
-  } else if (event.key === "ArrowLeft" && current.getAttribute("aria-expanded") === "true") {
-    event.preventDefault(); current.click();
-  } else if (event.key === "ArrowRight" && current.getAttribute("aria-expanded") === "false") {
-    event.preventDefault(); current.click();
-  }
-}
 
 function FileRow({
   file,
   side,
   selected,
+  selectedCount,
+  stageCount,
+  canDiscard,
   disabled,
   recoveryMode,
   onSelectFile,
@@ -10986,6 +11130,9 @@ function FileRow({
   file: GitStatusFile;
   side: GitDiffSide;
   selected: boolean;
+  selectedCount: number;
+  stageCount: number;
+  canDiscard: boolean;
   disabled: boolean;
   recoveryMode: boolean;
   onSelectFile: (file: GitStatusFile, side: GitDiffSide, modifiers: FileSelectionModifiers) => void;
@@ -11014,6 +11161,8 @@ function FileRow({
           role={treeLevel ? "treeitem" : "option"}
           aria-level={treeLevel}
           aria-selected={selected}
+          aria-label={`${getFileStatusVisuals(file, side).label} ${file.originalPath ? `${file.originalPath} -> ` : ""}${file.path}`}
+          tabIndex={virtualRowProps?.tabIndex}
           aria-posinset={virtualRowProps?.["aria-posinset"]}
           aria-setsize={virtualRowProps?.["aria-setsize"]}
           data-virtual-index={virtualIndex}
@@ -11026,7 +11175,6 @@ function FileRow({
             toggle: event.ctrlKey || event.metaKey
           })}
           onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
-            if (treeLevel && event.key.startsWith("Arrow")) handleStatusTreeKeyDown(event);
             if (event.key.toLowerCase() === "a" && (event.ctrlKey || event.metaKey)) {
               event.preventDefault();
               onSelectFile(file, side, {
@@ -11039,56 +11187,54 @@ function FileRow({
         >
           <StatusBadge file={file} side={side} />
           <TooltipTarget content={file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}>
-            <span className="file-path">{treeLevel ? fileName(file.path) : file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}</span>
+            <span className="status-file-path">
+              <span className="status-file-name">{fileName(file.path)}</span>
+              {!treeLevel && file.path.includes("/") ? <span className="status-file-directory">{file.path.slice(0, file.path.lastIndexOf("/"))}</span> : null}
+              {file.originalPath ? <span className="status-file-directory">← {file.originalPath}</span> : null}
+            </span>
           </TooltipTarget>
         </button>
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-52">
-        <ContextMenuItem disabled={deleted || (Boolean(file.submodule) && disabled)} onSelect={() => onContextAction(file, side, "open")}>
-          <ExternalLink />
-          {file.submodule ? "Open Submodule" : "Open"}
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={() => onContextAction(file, side, "show")}>
-          <MapPinned />
-          Show in Explorer
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={() => onContextAction(file, side, "copy")}>
-          <Clipboard />
-          Copy Path
-        </ContextMenuItem>
-        {file.submodule ? (
-          <>
-            <ContextMenuSeparator />
-            <ContextMenuItem disabled={disabled || recoveryMode} onSelect={() => onContextAction(file, side, "update-submodule")}>
-              <RefreshCw />
-              Initialize / Update
-            </ContextMenuItem>
-          </>
-        ) : <ContextMenuSeparator />}
-        <ContextMenuItem disabled={disabled} onSelect={() => onContextAction(file, side, "toggle-stage")}>
-          <Save />
-          {actionLabel}
+      <ContextMenuContent className="w-64">
+        <ContextMenuLabel>{selectedCount === 1 ? "1 file selected" : `${selectedCount} files selected`}</ContextMenuLabel>
+        <ContextMenuItem disabled={disabled || stageCount === 0} onSelect={() => onContextAction(file, side, "toggle-stage")}>
+          <Save />{fileActionLabel(actionLabel, stageCount)}
         </ContextMenuItem>
         <ContextMenuItem disabled={disabled || recoveryMode} onSelect={() => onContextAction(file, side, "stash")}>
-          <Archive />
-          Stash selected files...
+          <Archive />{fileActionLabel("Stash", selectedCount)}…
         </ContextMenuItem>
-        {!file.submodule ? <ContextMenuItem variant="destructive" disabled={disabled || recoveryMode} onSelect={() => onContextAction(file, side, "delete")}>
-          <Trash2 />
-          Delete
-        </ContextMenuItem> : null}
-        {!file.submodule ? <ContextMenuItem disabled={disabled || recoveryMode} onSelect={() => onContextAction(file, side, "revert")}>
-          <RotateCcw />
-          Revert changes
-        </ContextMenuItem> : null}
-        {!file.submodule ? <ContextMenuSeparator /> : null}
-        {!file.submodule ? <ContextMenuItem disabled={disabled || recoveryMode || deleted} onSelect={() => onContextAction(file, side, "ignore")}>
-          <FileCode2 />
-          Add to ignore
-        </ContextMenuItem> : null}
+        <ContextMenuSeparator />
+        {selectedCount > 1 ? <ContextMenuLabel className="truncate" title={file.path}>For {fileName(file.path)}</ContextMenuLabel> : null}
+        <ContextMenuItem disabled={deleted || (Boolean(file.submodule) && disabled)} onSelect={() => onContextAction(file, side, "open")}>
+          <ExternalLink />{file.submodule ? "Open Submodule" : "Open"}
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => onContextAction(file, side, "show")}>
+          <MapPinned />Show in Explorer
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => onContextAction(file, side, "copy")}>
+          <Clipboard />Copy Path
+        </ContextMenuItem>
+        {file.submodule ? <ContextMenuItem disabled={disabled || recoveryMode} onSelect={() => onContextAction(file, side, "update-submodule")}>
+          <RefreshCw />Initialize / Update
+        </ContextMenuItem> : <ContextMenuItem disabled={disabled || recoveryMode || deleted} onSelect={() => onContextAction(file, side, "ignore")}>
+          <FileCode2 />Add to ignore
+        </ContextMenuItem>}
+        {!file.submodule ? <>
+          <ContextMenuSeparator />
+          {side === "unstaged" ? <ContextMenuItem variant="destructive" disabled={disabled || recoveryMode || !canDiscard} onSelect={() => onContextAction(file, side, "revert")}>
+            <RotateCcw />{fileActionLabel("Discard changes in", selectedCount)}…
+          </ContextMenuItem> : null}
+          <ContextMenuItem variant="destructive" disabled={disabled || recoveryMode} onSelect={() => onContextAction(file, side, "delete")}>
+            <Trash2 />{fileActionLabel("Delete", selectedCount)}
+          </ContextMenuItem>
+        </> : null}
       </ContextMenuContent>
     </ContextMenu>
   );
+}
+
+function fileActionLabel(action: string, count: number): string {
+  return count === 0 ? action : `${action} ${count} ${count === 1 ? "file" : "files"}`;
 }
 
 function StatusBadge({ file, side }: { file: GitStatusFile; side: GitDiffSide }): ReactNode {
@@ -11302,15 +11448,15 @@ const DiffRows = memo(function DiffRows({
       <Dialog open={Boolean(discardTarget && discardTargetCurrent && hunkAction?.onDiscard)} onOpenChange={(open) => { if (!open) setDiscardTarget(null); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Revert this hunk?</DialogTitle>
-            <DialogDescription>The changes in this hunk will be reverted. Other hunks and staged changes will be kept.</DialogDescription>
+            <DialogTitle>Discard this hunk?</DialogTitle>
+            <DialogDescription>The changes in this hunk will be discarded. Other hunks and staged changes will be kept.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setDiscardTarget(null)}>Cancel</Button>
             <Button type="button" variant="destructive" disabled={hunkAction?.disabled || !discardTargetCurrent} onClick={() => {
               if (discardTarget && discardTargetCurrent && !hunkAction?.disabled) hunkAction?.onDiscard?.(discardTarget.patch);
               setDiscardTarget(null);
-            }}>Revert changes</Button>
+            }}>Discard changes</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -11349,7 +11495,7 @@ const DiffRows = memo(function DiffRows({
                       disabled={hunkAction.disabled}
                       onClick={() => setDiscardTarget({ patch: group.patch!, filePath, text })}
                     >
-                      Revert Hunk
+                      Discard Hunk
                     </Button>
                   ) : null}
                   {hunkAction && group.patch ? (
@@ -14563,6 +14709,10 @@ function getUnstagedFiles(summary: RepoSummary | null): GitStatusFile[] {
 
 function getFilesForSide(summary: RepoSummary | null, side: GitDiffSide): GitStatusFile[] {
   return side === "staged" ? getStagedFiles(summary) : getUnstagedFiles(summary);
+}
+
+function canDiscardStatusFile(file: GitStatusFile): boolean {
+  return !file.submodule && !file.isConflicted && getFileStatusVisuals(file, "unstaged").tone !== "untracked";
 }
 
 function canStageStatusFile(file: GitStatusFile): boolean {

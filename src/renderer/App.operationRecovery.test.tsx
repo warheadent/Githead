@@ -218,10 +218,10 @@ describe("App repository operation recovery", { timeout: 10_000 }, () => {
     const unstagedFiles = await screen.findByRole("listbox", { name: "Unstaged files" });
     fireEvent.contextMenu(within(unstagedFiles).getByRole("option", { name: /conflict\.txt/ }));
 
-    expect((await screen.findByRole("menuitem", { name: "Stage" })).getAttribute("data-disabled")).toBeNull();
-    expect(screen.getByRole("menuitem", { name: "Stash selected files..." }).getAttribute("data-disabled")).not.toBeNull();
-    expect(screen.getByRole("menuitem", { name: "Delete" }).getAttribute("data-disabled")).not.toBeNull();
-    expect(screen.getByRole("menuitem", { name: "Revert changes" }).getAttribute("data-disabled")).not.toBeNull();
+    expect((await screen.findByRole("menuitem", { name: "Stage 1 file" })).getAttribute("data-disabled")).toBeNull();
+    expect(screen.getByRole("menuitem", { name: /^Stash \d+ files?…$/ }).getAttribute("data-disabled")).not.toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Delete 1 file" }).getAttribute("data-disabled")).not.toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Discard changes in 1 file…" }).getAttribute("data-disabled")).not.toBeNull();
     expect(screen.getByRole("menuitem", { name: "Add to ignore" }).getAttribute("data-disabled")).not.toBeNull();
   });
 });

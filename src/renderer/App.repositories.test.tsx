@@ -211,7 +211,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await flushRendererAsync();
     fireEvent.click(screen.getByRole("option", { name: /src\/pending\.ts/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^Stage$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
     await flushRendererAsync();
 
     await act(async () => {
@@ -239,7 +239,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await flushRendererAsync();
     fireEvent.click(screen.getByRole("option", { name: /src\/pending\.ts/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^Stage$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
     await flushRendererAsync();
 
     const operationId = vi.mocked(githead.stageFiles).mock.calls[0]?.[0].operationId;
@@ -270,7 +270,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await flushRendererAsync();
     fireEvent.click(screen.getByRole("option", { name: /src\/stale\.ts/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^Stage$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
     await flushRendererAsync();
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -301,7 +301,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await flushRendererAsync();
     fireEvent.click(screen.getByRole("option", { name: /src\/lost-result\.ts/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^Stage$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
     await flushRendererAsync();
 
     const operationId = vi.mocked(githead.stageFiles).mock.calls[0]?.[0].operationId;
@@ -338,7 +338,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await flushRendererAsync();
     fireEvent.click(screen.getByRole("option", { name: /src\/retry-cancel\.ts/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^Stage$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
     await flushRendererAsync();
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -382,7 +382,7 @@ describe("App", { timeout: 10_000 }, () => {
     await flushRendererAsync();
 
     fireEvent.click(screen.getByRole("option", { name: /src\/race\.ts/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^Stage$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
     await flushRendererAsync();
 
     pendingTrust.resolve({
@@ -794,7 +794,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await flushRendererAsync();
     fireEvent.click(screen.getByRole("option", { name: /src\/pending\.ts/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^Stage$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
     await flushRendererAsync();
 
     emitRepoChanged();

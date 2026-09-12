@@ -1684,7 +1684,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(srcFolder.getAttribute("aria-expanded")).toBe("true");
     expect(within(unstagedTree).queryByRole("button", { name: "Stage folder src" })).toBeNull();
     await user.pointer({ target: srcFolder, keys: "[MouseRight]" });
-    await user.click(screen.getByRole("menuitem", { name: "Stage folder" }));
+    await user.click(screen.getByRole("menuitem", { name: /^Stage \d+ files? in folder$/ }));
     await waitFor(() => expect(githead.stageFiles).toHaveBeenCalledWith({ repoPath, paths: ["src/App.tsx", "src/lib/utils.ts"], operationId: expect.any(String) }));
     await user.click(srcFolder);
     expect(srcFolder.getAttribute("aria-expanded")).toBe("false");
@@ -1795,7 +1795,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await user.click(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
-    await user.click(screen.getByRole("button", { name: /^Stage$/ }));
+    await user.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
 
     await waitFor(() => {
       expect(githead.stageFiles).toHaveBeenCalledWith({
@@ -1943,12 +1943,12 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getFileDiff).mockResolvedValueOnce(diff).mockResolvedValue(createTextDiff(file.path, "remaining-hunk"));
     render(<App />);
     await user.click(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
-    await user.click(await screen.findByRole("button", { name: "Revert Hunk" }));
+    await user.click(await screen.findByRole("button", { name: "Discard Hunk" }));
     expect(githead.discardHunk).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(githead.discardHunk).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Revert Hunk" }));
-    await user.click(screen.getByRole("button", { name: "Revert changes" }));
+    await user.click(screen.getByRole("button", { name: "Discard Hunk" }));
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
     await waitFor(() => expect(githead.discardHunk).toHaveBeenCalledWith({
       repoPath, path: file.path, side: "unstaged", patch: `${diff.text}\n`, operationId: expect.any(String)
     }));
