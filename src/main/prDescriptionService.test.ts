@@ -215,6 +215,18 @@ function createService(params: {
 }
 
 describe("PrDescriptionService", () => {
+  it("passes the template and existing answers to generation without forcing fallback headings", async () => {
+    const { service, calls } = createService({});
+    const template = "## Motivation\n<!-- Explain why -->\n## Verification\n- [ ] Tests passed";
+    const currentBody = "## Motivation\nFix #42\n## Verification\nManually checked on Linux.";
+    await service.generatePrDescription({ repoPath: "D:\\Repo", baseRef: "origin/main", headRef: "feature", template, currentBody });
+    const body = JSON.parse(String(calls[0]!.init!.body));
+    expect(body.messages[0].content).toContain("Follow the supplied PR template");
+    expect(body.messages[0].content).not.toContain("Include the headings");
+    expect(body.messages[0].content).toContain("Leave unverified checklist items unchecked");
+    expect(body.messages[1].content).toContain(template);
+    expect(body.messages[1].content).toContain(currentBody);
+  });
   it("uses the generation settings path for titles and descriptions", async () => {
     const { service, settingsService } = createService({});
 

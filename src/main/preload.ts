@@ -184,6 +184,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubIssues, request) as ReturnType<GitheadApi["getGitHubIssues"]>,
   getGitHubIssueTemplates: (request: GitHubRepositoryRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubIssueTemplates, request) as ReturnType<GitheadApi["getGitHubIssueTemplates"]>,
+  getGitHubPullRequestTemplates: (request: GitHubRepositoryRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getGitHubPullRequestTemplates, request) as ReturnType<GitheadApi["getGitHubPullRequestTemplates"]>,
   createGitHubIssue: (request: CoordinatedRequest<CreateIssueRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.createGitHubIssue, request) as ReturnType<GitheadApi["createGitHubIssue"]>,
   getGitHubPullRequests: (request: GitHubPullRequestsRequest) =>

@@ -179,7 +179,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   for (const key of Object.keys(window.localStorage)) {
-    if (key.startsWith("githead:commit-plan:") || key === "githead:repository-organization:v1") window.localStorage.removeItem(key);
+    if (key.startsWith("githead:commit-plan:") || key.startsWith("githead:pull-request:") || key === "githead:repository-organization:v1") window.localStorage.removeItem(key);
   }
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -344,6 +344,7 @@ export function createGitheadMock(): GitheadApi {
     getGitHubOpenCounts: vi.fn().mockResolvedValue({ ok: true, data: createOpenCounts(), rateLimit: null }),
     getGitHubIssues: vi.fn().mockResolvedValue({ ok: true, data: { items: [], page: 1, nextPage: null, totalCount: null }, rateLimit: null }),
     getGitHubIssueTemplates: vi.fn().mockResolvedValue({ ok: true, data: { templates: [], blankIssuesEnabled: true, contactLinks: [] }, rateLimit: null }),
+    getGitHubPullRequestTemplates: vi.fn().mockResolvedValue({ ok: true, data: [], rateLimit: null }),
     createGitHubIssue: vi.fn().mockResolvedValue({ ok: true, data: {
       number: 12,
       url: "https://github.com/openai/githead/issues/12",

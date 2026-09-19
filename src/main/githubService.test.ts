@@ -8,6 +8,56 @@ const repository: GitHubRepository = {
 };
 
 describe("GitHubService", () => {
+  it("discovers default and named PR templates on the default branch in GitHub precedence order", async () => {
+    const file = (path: string) => ({ type: "file", name: path.split("/").at(-1), path });
+    const content = (body: string) => ({ encoding: "base64", content: Buffer.from(body).toString("base64") });
+    const responses: Record<string, unknown> = {
+      ".github": [file(".github/PULL_REQUEST_TEMPLATE.md"), { type: "dir", name: "PULL_REQUEST_TEMPLATE", path: ".github/PULL_REQUEST_TEMPLATE" }],
+      ".github/PULL_REQUEST_TEMPLATE": [file(".github/PULL_REQUEST_TEMPLATE/fix.md")],
+      ".github/PULL_REQUEST_TEMPLATE.md": content("## Why\n## Verification"),
+      ".github/PULL_REQUEST_TEMPLATE/fix.md": content("## Bug"),
+      "": [file("pull_request_template.md")],
+      "pull_request_template.md": content("Root default"),
+      "docs": [file("docs/pull_request_template.md")],
+      "docs/pull_request_template.md": content("Docs default")
+    };
+    const client = new FakeClient([], async (path) => responses[path.split("/contents/")[1]!] ?? []);
+    const result = await new GitHubService(provider(repository), client).getPullRequestTemplates({ repoPath: "/repo" });
+    expect(result).toMatchObject({ ok: true, data: [
+      { path: ".github/PULL_REQUEST_TEMPLATE.md", body: "## Why\n## Verification", isDefault: true, repository: "openai/githead" },
+      { path: ".github/PULL_REQUEST_TEMPLATE/fix.md", body: "## Bug", isDefault: false }
+    ] });
+    expect(client.calls.every((call) => !call.path.includes("?ref="))).toBe(true);
+  });
+
+  it("inherits a public account template only when the repository has no templates", async () => {
+    const client = new FakeClient([], async (path) => {
+      if (path === "/repos/openai/.github") return { private: false };
+      if (path === "/repos/openai/.github/contents/.github") return [{ type: "file", name: "pull_request_template.md", path: ".github/pull_request_template.md" }];
+      if (path.endsWith("/contents/.github/pull_request_template.md")) return { encoding: "base64", content: Buffer.from("Shared template").toString("base64") };
+      throw new GitHubHttpError("Not Found", 404, new Headers(), {});
+    });
+    expect(await new GitHubService(provider(repository), client).getPullRequestTemplates({ repoPath: "/repo" }))
+      .toMatchObject({ ok: true, data: [{ repository: "openai/.github", body: "Shared template" }] });
+  });
+
+  it("does not inherit private defaults or hide a template loading failure", async () => {
+    const client = new FakeClient([], async (path) => path === "/repos/openai/.github" ? { private: true } : []);
+    expect(await new GitHubService(provider(repository), client).getPullRequestTemplates({ repoPath: "/repo" }))
+      .toMatchObject({ ok: true, data: [] });
+    const failing = new FakeClient([], async () => { throw new GitHubHttpError("Unavailable", 503, new Headers(), {}); });
+    expect(await new GitHubService(provider(repository), failing).getPullRequestTemplates({ repoPath: "/repo" }))
+      .toMatchObject({ ok: false });
+    expect(failing.calls).toHaveLength(1);
+  });
+
+  it("stops PR template discovery when cancelled", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const client = new FakeClient([]);
+    expect(await new GitHubService(provider(repository), client).getPullRequestTemplates({ repoPath: "/repo" }, controller.signal)).toMatchObject({ ok: false });
+    expect(client.calls).toHaveLength(0);
+  });
   it("uses Link metadata and workflow totals for explicit pages", async () => {
     const client = new FakeClient([{ payload: { total_count: 248, workflow_runs: [] }, headers: { Link: '<https://api.github.com/repos/openai/githead/actions/runs?per_page=30&page=3>; rel="last", <https://api.github.com/repos/openai/githead/actions/runs?page=2&per_page=30>; rel="NEXT"' } }]);
     const result = await new GitHubService(provider(repository), client).getWorkflowRuns({ repoPath: "D:\\Repo", page: 1 });

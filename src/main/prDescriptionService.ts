@@ -171,7 +171,7 @@ export class PrDescriptionService {
         model,
         ...(signal ? { signal } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
-        systemPrompt: createPrDescriptionSystemPrompt(settings.sourceControlWritingStyle),
+        systemPrompt: createPrDescriptionSystemPrompt(settings.sourceControlWritingStyle, Boolean(request.template?.trim())),
         userPrompt: createPrDescriptionUserPrompt(
           settings.prDescriptionPrompt,
           request.baseRef.trim(),
@@ -180,7 +180,9 @@ export class PrDescriptionService {
           range.diff,
           request.title,
           settings.sourceControlWritingStyle,
-          range.recentCommitSubjects
+          range.recentCommitSubjects,
+          request.template,
+          request.currentBody
         ),
         maxTokens: PR_DESCRIPTION_MAX_TOKENS
       });

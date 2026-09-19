@@ -18,6 +18,7 @@ import type {
   GitHubMutationResult,
   GitHubOpenCounts,
   GitHubPullRequest,
+  GitHubPullRequestTemplate,
   GitHubPullRequestDetail,
   GitHubPullRequestDetailRequest,
   GitHubPullRequestMergeRequest,
@@ -205,6 +206,73 @@ export class GitHubService {
   async getIssueTemplates(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubIssueTemplates>> {
     return this.read(() => this.getIssueTemplatesData(request, signal));
   }
+  async getPullRequestTemplates(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubPullRequestTemplate[]>> {
+    return this.read(async () => {
+      const repository = await this.getRepository(request.repoPath);
+      const templates = await this.loadPullRequestTemplates(repository, signal);
+      if (templates.length || repository.name === ".github") return templates;
+      const defaults = { ...repository, name: ".github", fullName: `${repository.owner}/.github`, webUrl: `${repository.webUrl.slice(0, repository.webUrl.lastIndexOf("/"))}/.github` };
+      // GitHub only inherits community files from a public .github repository.
+      try {
+        const { payload } = await this.client.requestJson<{ private?: boolean }>(defaults,
+          `/repos/${encodePath(defaults.owner)}/.github`,
+          { cache: { mode: "conditional", maxAgeMs: 60_000 }, ...(signal ? { signal } : {}) });
+        if (payload.private !== false) return [];
+      } catch (error) {
+        if (error instanceof GitHubHttpError && error.status === 404) return [];
+        throw error;
+      }
+      return this.loadPullRequestTemplates(defaults, signal);
+    });
+  }
+
+  private async readContent(repository: GitHubRepository, path: string, signal?: AbortSignal, allowMissing = false): Promise<unknown> {
+    signal?.throwIfAborted();
+    try {
+      // Omitting ref reads the default branch, independently of the PR base.
+      const { payload } = await this.client.requestJson<unknown>(repository,
+        `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/contents/${path.split("/").map(encodePath).join("/")}`,
+        { cache: { mode: "conditional", maxAgeMs: 60_000 }, ...(signal ? { signal } : {}) });
+      return payload;
+    } catch (error) {
+      if (allowMissing && error instanceof GitHubHttpError && error.status === 404) return null;
+      throw error;
+    }
+  }
+
+  private async loadPullRequestTemplates(repository: GitHubRepository, signal?: AbortSignal): Promise<GitHubPullRequestTemplate[]> {
+    const templates: GitHubPullRequestTemplate[] = [];
+    for (const directory of [".github", "", "docs"]) {
+      const payload = await this.readContent(repository, directory, signal, true);
+      if (payload === null) continue;
+      if (!Array.isArray(payload)) throw new Error("GitHub returned an unexpected template directory response.");
+      const entries = payload.filter(isRecord);
+      const files = entries.filter((entry) => entry.type === "file" && typeof entry.name === "string"
+        && /^pull_request_template(?:\.md|\.markdown|\.txt)?$/i.test(entry.name));
+      const folder = entries.find((entry) => entry.type === "dir" && typeof entry.name === "string" && /^pull_request_template$/i.test(entry.name));
+      if (folder && typeof folder.path === "string") {
+        const children = await this.readContent(repository, folder.path, signal);
+        if (!Array.isArray(children)) throw new Error(`Unable to read pull request template directory: ${folder.path}`);
+        files.push(...children.filter(isRecord).filter((entry) => entry.type === "file"
+          && typeof entry.name === "string" && /\.(md|markdown|txt)$/i.test(entry.name)));
+      }
+      files.sort((a, b) => String(a.path).localeCompare(String(b.path)));
+      for (const entry of files) {
+        if (templates.length >= 50) throw new Error("Too many pull request templates. Use GitHub to select a template.");
+        if (typeof entry.path !== "string") continue;
+        const isDefault = entry.path === `${directory ? `${directory}/` : ""}${String(entry.name)}`;
+        if (isDefault && templates.some((template) => template.isDefault)) continue;
+        const content = await this.readContent(repository, entry.path, signal);
+        if (!isRecord(content) || content.encoding !== "base64" || typeof content.content !== "string") {
+          throw new Error(`Unable to read pull request template: ${entry.path}`);
+        }
+        const body = Buffer.from(content.content.replace(/\s/g, ""), "base64").toString("utf8");
+        if (body.length > 65_536) throw new Error(`Pull request template is too large: ${entry.path}`);
+        templates.push({ id: `${repository.fullName}:${entry.path}`, repository: repository.fullName, path: entry.path, body, isDefault });
+      }
+    }
+    return templates;
+  }
   async getPullRequests(request: GitHubPullRequestsRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubPage<GitHubPullRequest>>> {
     return this.read(() => this.getPullRequestsData(request, signal));
   }
@@ -391,18 +459,9 @@ export class GitHubService {
 
   private async getIssueTemplatesData(request: GitHubRepositoryRequest, signal?: AbortSignal): Promise<GitHubIssueTemplates> {
     const repository = await this.getRepository(request.repoPath);
-    const directoryPath = `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/contents/.github/ISSUE_TEMPLATE`;
-    let entries: GitHubApiContentEntry[];
-    try {
-      const { payload } = await this.client.requestJson<unknown>(repository, directoryPath, {
-        cache: { mode: "conditional", maxAgeMs: 60_000 },
-        ...(signal ? { signal } : {})
-      });
-      entries = Array.isArray(payload) ? payload.filter(isRecord) as GitHubApiContentEntry[] : [];
-    } catch (error) {
-      if (error instanceof GitHubHttpError && error.status === 404) return emptyGitHubIssueTemplates();
-      throw error;
-    }
+    const directory = await this.readContent(repository, ".github/ISSUE_TEMPLATE", signal, true);
+    if (directory === null) return emptyGitHubIssueTemplates();
+    const entries = Array.isArray(directory) ? directory.filter(isRecord) as GitHubApiContentEntry[] : [];
 
     const files = entries
       .filter((entry) => entry.type === "file" && typeof entry.name === "string" && typeof entry.path === "string")
@@ -410,13 +469,8 @@ export class GitHubService {
       .slice(0, 50);
     const loaded = await Promise.all(files.map(async (entry) => {
       signal?.throwIfAborted();
-      const path = String(entry.path).split("/").map(encodePath).join("/");
-      const { payload } = await this.client.requestJson<GitHubApiContentEntry>(
-        repository,
-        `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/contents/${path}`,
-        { cache: { mode: "conditional", maxAgeMs: 60_000 }, ...(signal ? { signal } : {}) }
-      );
-      if (payload.encoding !== "base64" || typeof payload.content !== "string") return null;
+      const payload = await this.readContent(repository, String(entry.path), signal);
+      if (!isRecord(payload) || payload.encoding !== "base64" || typeof payload.content !== "string") return null;
       return { name: String(entry.name), source: Buffer.from(payload.content.replace(/\s/g, ""), "base64").toString("utf8") };
     }));
 

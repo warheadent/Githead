@@ -36,6 +36,7 @@ export const IPC_CHANNELS = {
   getGitHubOpenCounts: "github:open-counts",
   getGitHubIssues: "github:issues",
   getGitHubIssueTemplates: "github:issue-templates",
+  getGitHubPullRequestTemplates: "github:pull-request-templates",
   createGitHubIssue: "github:issue-create",
   getGitHubPullRequests: "github:pull-requests",
   getGitHubPullRequestDetail: "github:pull-request-detail",

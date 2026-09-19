@@ -663,6 +663,8 @@ ipcMain.handle(IPC_CHANNELS.getGitHubIssues, (event, request: GitHubIssuesReques
   handleGitHubRead(event, request, (signal) => getGitHubService().getIssues(request, signal)));
 ipcMain.handle(IPC_CHANNELS.getGitHubIssueTemplates, (event, request: GitHubRepositoryRequest) =>
   handleGitHubRead(event, request, (signal) => getGitHubService().getIssueTemplates(request, signal)));
+ipcMain.handle(IPC_CHANNELS.getGitHubPullRequestTemplates, (event, request: GitHubRepositoryRequest) =>
+  handleGitHubRead(event, request, (signal) => getGitHubService().getPullRequestTemplates(request, signal)));
 ipcMain.handle(IPC_CHANNELS.getGitHubPullRequests, (event, request: GitHubPullRequestsRequest) =>
   handleGitHubRead(event, request, (signal) => getGitHubService().getPullRequests(request, signal)));
 ipcMain.handle(IPC_CHANNELS.getGitHubPullRequestDetail, (event, request: GitHubPullRequestDetailRequest) =>

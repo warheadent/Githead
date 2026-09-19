@@ -28,8 +28,84 @@ import {
   type GitheadApi,
 } from "./AppTestHarness";
 import { App } from "./App";
+import { loadPullRequestDraft, savePullRequestDraft } from "./pullRequestDraft";
+
+const prTemplate = {
+  id: "openai/githead:.github/pull_request_template.md", path: ".github/pull_request_template.md",
+  repository: "openai/githead", body: "## Motivation\n\n## Verification\n- [ ] Tests passed", isDefault: true
+};
+
+function setupPrFlow(): void {
+  vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary({
+    branch: "feature/templates", upstream: "origin/feature/templates", ahead: 0, behind: 0,
+    branches: [{ name: "feature/templates", current: true, upstream: "origin/feature/templates" }],
+    remoteBranches: [{ name: "origin/main", remote: "origin", branch: "main" }], commitsAheadOfDefaultBranch: 2
+  }));
+  vi.mocked(githead.getGitHubPullRequestTemplates).mockResolvedValue({ ok: true, data: [prTemplate], rateLimit: null });
+}
 
 describe("App", { timeout: 10_000 }, () => {
+  it("loads a PR template, updates user notes, supports Undo, and restores the draft after remount", async () => {
+    setupPrFlow();
+    const user = userEvent.setup();
+    const view = render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Create PR" }));
+    await waitFor(() => expect((screen.getByLabelText("Description") as HTMLTextAreaElement).value).toBe(prTemplate.body));
+    const notes = `${prTemplate.body}\nManually checked on Linux.`;
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: notes } });
+    vi.mocked(githead.generatePrDescription).mockResolvedValue({ repoPath, exitCode: 0, stdout: "## Motivation\nUpdated\n## Verification\nManually checked on Linux.", stderr: "" });
+    await user.click(screen.getByRole("button", { name: "Update description" }));
+    await waitFor(() => expect(githead.generatePrDescription).toHaveBeenCalledWith(expect.objectContaining({ template: prTemplate.body, currentBody: notes })));
+    await user.click(await screen.findByRole("button", { name: "Undo" }));
+    expect((screen.getByLabelText("Description") as HTMLTextAreaElement).value).toBe(notes);
+    await user.click(screen.getByRole("checkbox", { name: "Create as draft" }));
+    await user.click(screen.getByRole("button", { name: "Close draft" }));
+    view.unmount();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Create PR" }));
+    await waitFor(() => expect((screen.getByLabelText("Description") as HTMLTextAreaElement).value).toBe(notes));
+    expect((screen.getByRole("checkbox", { name: "Create as draft" }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("does not replace typing with a delayed template or accept a result from a closed dialog", async () => {
+    setupPrFlow();
+    const pending = defer<Awaited<ReturnType<GitheadApi["getGitHubPullRequestTemplates"]>>>();
+    vi.mocked(githead.getGitHubPullRequestTemplates).mockReturnValueOnce(pending.promise);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Create PR" }));
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Keep my notes" } });
+    await user.click(screen.getByRole("button", { name: "Close draft" }));
+    await user.click(screen.getByRole("button", { name: "Create PR" }));
+    await act(async () => pending.resolve({ ok: true, data: [{ ...prTemplate, body: "Late response" }], rateLimit: null }));
+    await waitFor(() => expect((screen.getByLabelText("Description") as HTMLTextAreaElement).value).toBe("Keep my notes"));
+    expect(githead.cancelGitHubRequest).toHaveBeenCalled();
+  });
+
+  it("preserves the description when selecting another template", async () => {
+    setupPrFlow();
+    const alternate = { ...prTemplate, id: "alternate", path: "docs/PULL_REQUEST_TEMPLATE/fix.md", body: "## Fix", isDefault: false };
+    vi.mocked(githead.getGitHubPullRequestTemplates).mockResolvedValue({ ok: true, data: [prTemplate, alternate], rateLimit: null });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Create PR" }));
+    await waitFor(() => expect((screen.getByLabelText("Description") as HTMLTextAreaElement).value).toBe(prTemplate.body));
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "My answer" } });
+    await user.click(screen.getByRole("button", { name: "Select pull request template" }));
+    await user.click(screen.getByText(alternate.path));
+    expect((screen.getByLabelText("Description") as HTMLTextAreaElement).value).toBe("My answer");
+  });
+
+  it("restores an uncertain creation with retry blocked", async () => {
+    setupPrFlow();
+    savePullRequestDraft(repoPath, "feature/templates", { title: "Recovered", body: "Notes", baseBranch: "main", draft: true, templateId: "", undoBody: null, outcomeUnknown: true, applyDefaultTemplate: false });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Create PR" }));
+    expect(await screen.findByText(/previous creation may have reached GitHub/)).toBeTruthy();
+    expect((within(screen.getByRole("dialog")).getByRole("button", { name: "Create Pull Request" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(loadPullRequestDraft(repoPath, "feature/templates")?.outcomeUnknown).toBe(true);
+  });
   it("shows GitHub tabs only for repositories with a supported GitHub origin", async () => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary());
 
@@ -416,7 +492,7 @@ describe("App", { timeout: 10_000 }, () => {
       operationId: expect.any(String)
     })));
 
-    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await user.click(within(dialog).getByRole("button", { name: "Close draft" }));
     const operationId = vi.mocked(githead.createGitHubPullRequest).mock.calls[0]?.[0].operationId;
     await waitFor(() => expect(githead.cancelGitOperation).toHaveBeenCalledWith({ operationId }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Create Pull Request" })).toBeNull());

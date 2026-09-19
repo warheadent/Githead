@@ -1,6 +1,7 @@
 import { RepositoryOrganizationDialog, RepositoryOrganizationMenu } from "./RepositoryOrganizationDialog";
 import { repositoryName as getRepoDisplayName, organizeRepositories, repositoryLabels, repositoryPreference, useRepositoryOrganization, type RepositoryPreference } from "./repositoryOrganization";
 import { CheckoutTagDialog } from "./CheckoutTagDialog";
+import { loadPullRequestDraft, savePullRequestDraft, removePullRequestDraft } from "./pullRequestDraft";
 import type { GitTagCheckoutRequest } from "../shared/types";
 import {
   Archive,
@@ -392,6 +393,15 @@ interface GenerateContextDialogState {
 
 interface CreatePrDialogState {
   open: boolean;
+  repoPath: string;
+  templateId: string;
+  templates: import("../shared/types").GitHubPullRequestTemplate[];
+  templatesLoading: boolean;
+  templateError: string;
+  templateRequest: number;
+  applyDefaultTemplate: boolean;
+  undoBody: string | null;
+  draftSaveError: boolean;
   /** Branch captured when the dialog opened; submit bails if it changed. */
   headBranch: string;
   title: string;
@@ -804,6 +814,15 @@ const emptyGenerateContextDialog: GenerateContextDialogState = {
 
 const emptyCreatePrDialog: CreatePrDialogState = {
   open: false,
+  repoPath: "",
+  templateId: "",
+  templates: [],
+  templatesLoading: false,
+  templateError: "",
+  templateRequest: 0,
+  applyDefaultTemplate: true,
+  undoBody: null,
+  draftSaveError: false,
   headBranch: "",
   title: "",
   body: "",
@@ -1080,6 +1099,44 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       return next;
     });
   }, []);
+
+  useEffect(() => {
+    const dialog = state.createPrDialog;
+    if (!dialog.open || !dialog.repoPath) return;
+    let active = true;
+    const requestId = crypto.randomUUID();
+    updateState((latest) => ({ ...latest, createPrDialog: { ...latest.createPrDialog, templatesLoading: true, templateError: "" } }));
+    void window.githead.getGitHubPullRequestTemplates({ repoPath: dialog.repoPath, requestId }).then((result) => {
+      if (!active) return;
+      updateState((latest) => {
+        const current = latest.createPrDialog;
+        if (!result.ok) return { ...latest, createPrDialog: { ...current, templatesLoading: false, templateError: result.error.message } };
+        const selected = result.data.find((template) => template.isDefault) ?? (result.data.length === 1 ? result.data[0] : undefined);
+        const apply = current.applyDefaultTemplate && !current.body && current.generating === null && current.step === "idle";
+        return { ...latest, createPrDialog: {
+          ...current,
+          templates: result.data,
+          templatesLoading: false,
+          ...(apply ? { templateId: selected?.id ?? "", body: selected?.body ?? "", applyDefaultTemplate: false } : {})
+        } };
+      });
+    }).catch((error: unknown) => {
+      if (active) updateState((latest) => ({ ...latest, createPrDialog: { ...latest.createPrDialog, templatesLoading: false, templateError: error instanceof Error ? error.message : "Unable to load pull request templates." } }));
+    });
+    return () => {
+      active = false;
+      void window.githead.cancelGitHubRequest({ requestId }).catch(() => undefined);
+    };
+  }, [state.createPrDialog.open, state.createPrDialog.repoPath, state.createPrDialog.headBranch, state.createPrDialog.templateRequest, updateState]);
+
+  useEffect(() => {
+    const dialog = state.createPrDialog;
+    if (!dialog.open || !dialog.repoPath) return;
+    const saved = savePullRequestDraft(dialog.repoPath, dialog.headBranch, {
+      ...dialog, outcomeUnknown: dialog.step === "creating" || Boolean(dialog.failure?.outcomeUnknown)
+    });
+    if (dialog.draftSaveError === saved) updateState((latest) => ({ ...latest, createPrDialog: { ...latest.createPrDialog, draftSaveError: !saved } }));
+  }, [state.createPrDialog, updateState]);
 
   useEffect(() => {
     if (!state.summary?.isValid || state.summary.kind !== "git") return;
@@ -4572,13 +4629,22 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
 
     const defaultBranch = getRemoteDefaultBranch(summary);
     const latestCommitSubject = current.history[0]?.subject.trim() ?? "";
+    const saved = loadPullRequestDraft(current.repoPath, summary.branch);
     updateState({
       createPrDialog: {
         ...emptyCreatePrDialog,
         open: true,
+        repoPath: current.repoPath,
+        templatesLoading: true,
+        applyDefaultTemplate: !saved,
         headBranch: summary.branch,
         title: latestCommitSubject || summary.branch,
-        baseBranch: defaultBranch?.branch ?? ""
+        baseBranch: defaultBranch?.branch ?? "",
+        ...saved,
+        ...(saved?.outcomeUnknown ? {
+          error: "A previous creation may have reached GitHub. Check Pull Requests before retrying.",
+          failure: { kind: "unexpected" as const, message: "Previous creation outcome unknown.", retryable: false, retryAfterAt: null, outcomeUnknown: true, source: "combined" as const, rateLimit: null }
+        } : {})
       }
     });
   }, [updateState]);
@@ -4599,7 +4665,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     const dialog = current.createPrDialog;
     const summary = current.summary;
 
-    if (!dialog.open || dialog.generating !== null || dialog.step !== "idle" || isOperationRunning(current)) {
+    if (!dialog.open || dialog.templatesLoading || dialog.generating !== null || dialog.step !== "idle" || isOperationRunning(current)) {
       return;
     }
 
@@ -4642,6 +4708,8 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
         baseRef: `${remoteName}/${dialog.baseBranch}`,
         headRef: summary.branch,
         ...(trimmedTitle ? { title: trimmedTitle } : {}),
+        ...(dialog.body ? { currentBody: dialog.body } : {}),
+        ...(dialog.templateId ? { template: dialog.templates.find((template) => template.id === dialog.templateId)?.body ?? "" } : {}),
         operationId: activeOperation.operationId
       });
       if (!isActiveOperationCurrent(activeOperation.token)) {
@@ -4655,7 +4723,9 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
           : result.exitCode === 0
           ? {
               ...latest.createPrDialog,
-              body: result.stdout.trim()
+              body: result.stdout.trim(),
+              undoBody: dialog.body,
+              applyDefaultTemplate: false
             }
           : {
               ...latest.createPrDialog,
@@ -4689,7 +4759,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     const dialog = current.createPrDialog;
     const summary = current.summary;
 
-    if (!dialog.open || dialog.generating !== null || dialog.step !== "idle" || isOperationRunning(current)) {
+    if (!dialog.open || dialog.templatesLoading || dialog.generating !== null || dialog.step !== "idle" || isOperationRunning(current)) {
       return;
     }
 
@@ -4777,7 +4847,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     const dialog = current.createPrDialog;
     const summary = current.summary;
 
-    if (!dialog.open || dialog.step !== "idle" || dialog.generating !== null || isOperationRunning(current)) {
+    if (!dialog.open || dialog.templatesLoading || dialog.step !== "idle" || dialog.generating !== null || isOperationRunning(current)) {
       return;
     }
 
@@ -4955,6 +5025,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
         return;
       }
 
+      removePullRequestDraft(repoPath, dialog.headBranch);
       finishActiveOperation(createOperation.token, (latest) => ({
         ...latest,
         createPrDialog: emptyCreatePrDialog,
@@ -13895,6 +13966,9 @@ function CreatePullRequestDialog({
   const generatingTitle = state.generating === "title";
   const generatingDescription = state.generating === "description";
   const generating = state.generating !== null;
+  const selectedTemplate = state.templates.find((template) => template.id === state.templateId);
+  const templateUnavailable = Boolean(state.templateId && !selectedTemplate);
+  const descriptionAction = state.body.trim() ? "Update description" : "Generate description";
   const submitLabel = state.step === "pushing"
     ? "Pushing…"
     : state.step === "creating"
@@ -13905,122 +13979,163 @@ function CreatePullRequestDialog({
 
   return (
     <Dialog open={state.open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[560px]">
-        <form className="grid gap-4" onSubmit={onSubmit}>
-          <DialogHeader>
-            <DialogTitle>Create Pull Request</DialogTitle>
-            <DialogDescription>
-              {`Open a GitHub pull request from ${state.headBranch || "the current branch"}${state.baseBranch ? ` into ${state.baseBranch}` : ""}.`}
-            </DialogDescription>
-          </DialogHeader>
+      <DialogContent className="create-pr-dialog sm:max-w-[720px]">
+        <form onSubmit={onSubmit}>
+          <div className="create-pr-content">
+            <DialogHeader>
+              <DialogTitle>Create Pull Request</DialogTitle>
+              <DialogDescription className="sr-only">
+                {`Open a GitHub pull request from ${state.headBranch || "the current branch"}${state.baseBranch ? ` into ${state.baseBranch}` : ""}.`}
+              </DialogDescription>
+            </DialogHeader>
 
-          <div className="grid gap-2">
-            <Label htmlFor="create-pr-base">Base branch</Label>
-            <ReferencePicker
-              id="create-pr-base"
-              value={state.baseBranch}
-              options={baseBranches.map((branch) => ({ value: branch, label: branch, icon: <GitBranchIcon /> }))}
-              disabled={busy || generating || baseBranches.length === 0}
-              ariaLabel="Select pull request base branch"
-              placeholder="No remote branches found"
-              searchPlaceholder="Search base branches..."
-              emptyMessage="No remote branches found."
-              triggerIcon={<GitBranchIcon />}
-              onValueChange={(baseBranch) => onStateChange({
-                ...state,
-                baseBranch,
-                error: ""
-              })}
-            />
-          </div>
+            <div className="create-pr-branches">
+              <div className="create-pr-head" title={state.headBranch}>
+                <GitBranchIcon aria-hidden="true" />
+                <span className="create-pr-meta-label">From</span>
+                <span className="truncate">{state.headBranch || "Current branch"}</span>
+              </div>
+              <ArrowRight className="create-pr-branch-arrow" aria-hidden="true" />
+              <div className="create-pr-base">
+                <Label htmlFor="create-pr-base" className="create-pr-meta-label">Into</Label>
+                <ReferencePicker
+                  id="create-pr-base"
+                  compact
+                  value={state.baseBranch}
+                  options={baseBranches.map((branch) => ({ value: branch, label: branch, icon: <GitBranchIcon /> }))}
+                  disabled={busy || generating || baseBranches.length === 0}
+                  ariaLabel="Select pull request base branch"
+                  placeholder="Select base branch"
+                  searchPlaceholder="Search base branches..."
+                  emptyMessage="No remote branches found."
+                  onValueChange={(baseBranch) => onStateChange({ ...state, baseBranch, error: "" })}
+                />
+              </div>
+            </div>
 
-          <div className="grid gap-2">
-            <div className="flex items-center justify-between gap-3">
+            <div className="grid gap-2">
               <Label htmlFor="create-pr-title">Title</Label>
-              <TooltipButton
-                type="button"
-                variant="outline"
-                size="icon-sm"
-                disabled={busy || generating || !canGenerate}
-                aria-label="Generate pull request title"
-                tooltip="Generate pull request title"
-                disabledTooltip={!canGenerate ? generateTitle : undefined}
-                onClick={onGenerateTitle}
-              >
-                {generatingTitle ? <Loader2 className="animate-spin" /> : <Sparkles />}
-              </TooltipButton>
+              <div className="create-pr-title-row">
+                <Input
+                  id="create-pr-title"
+                  value={state.title}
+                  disabled={busy || generating}
+                  onChange={(event) => onStateChange({ ...state, title: event.currentTarget.value, error: "" })}
+                />
+                <TooltipButton
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  disabled={busy || generating || !canGenerate || state.templatesLoading}
+                  aria-label="Generate pull request title"
+                  tooltip="Generate pull request title"
+                  disabledTooltip={!canGenerate ? generateTitle : undefined}
+                  onClick={onGenerateTitle}
+                >
+                  {generatingTitle ? <Loader2 className="animate-spin" /> : <Sparkles />}
+                </TooltipButton>
+              </div>
             </div>
-            <Input
-              id="create-pr-title"
-              value={state.title}
-              disabled={busy || generating}
-              onChange={(event) => onStateChange({
-                ...state,
-                title: event.currentTarget.value,
-                error: ""
-              })}
-            />
-          </div>
 
-          <div className="grid gap-2">
-            <div className="flex items-center justify-between gap-3">
-              <Label htmlFor="create-pr-body">Description</Label>
-              <TooltipButton
-                type="button"
-                variant="outline"
-                size="icon-sm"
-                disabled={busy || generating || !canGenerate}
-                aria-label="Generate pull request description"
-                tooltip="Generate pull request description"
-                disabledTooltip={!canGenerate ? generateTitle : undefined}
-                onClick={onGenerate}
-              >
-                {generatingDescription ? <Loader2 className="animate-spin" /> : <Sparkles />}
-              </TooltipButton>
+            <div className="create-pr-description">
+              <div className="create-pr-editor-heading">
+                <Label htmlFor="create-pr-body">Description</Label>
+                <div className="create-pr-template" title={selectedTemplate ? `${selectedTemplate.repository}/${selectedTemplate.path}` : "Choose the format for the description"}>
+                  <Label htmlFor="create-pr-template" className="sr-only">PR template</Label>
+                  <ReferencePicker
+                    id="create-pr-template"
+                    compact
+                    value={state.templateId || "none"}
+                    options={[
+                      { value: "none", label: "No template" },
+                      ...state.templates.map((template) => ({
+                        value: template.id,
+                        label: state.templates.length === 1 ? "Repository template"
+                          : template.isDefault ? "Default template" : template.path.split("/").at(-1) ?? template.path,
+                        detail: template.path,
+                        group: template.repository
+                      })),
+                      ...(templateUnavailable ? [{ value: state.templateId, label: "Template unavailable" }] : [])
+                    ]}
+                    disabled={busy || generating || state.templatesLoading}
+                    ariaLabel="Select pull request template"
+                    placeholder="Select a template"
+                    searchPlaceholder="Search templates..."
+                    emptyMessage="No templates found."
+                    onValueChange={(value) => {
+                      const templateId = value === "none" ? "" : value;
+                      if (templateId === state.templateId) return;
+                      const template = state.templates.find((item) => item.id === templateId);
+                      // Selecting a format never discards an existing description.
+                      onStateChange({ ...state, templateId, applyDefaultTemplate: false,
+                        ...(!state.body && template ? { body: template.body, undoBody: state.body } : {}) });
+                    }}
+                  />
+                </div>
+              </div>
+              <div className="create-pr-editor">
+                <Textarea
+                  id="create-pr-body"
+                  className="create-pr-body field-sizing-fixed"
+                  rows={12}
+                  value={state.body}
+                  disabled={busy || generating}
+                  placeholder="Describe the change and how you verified it…"
+                  onChange={(event) => onStateChange({ ...state, body: event.currentTarget.value, applyDefaultTemplate: false, error: "" })}
+                />
+                <div className="create-pr-editor-toolbar">
+                  <div className="flex items-center gap-1">
+                    <TooltipButton
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={busy || generating || !canGenerate || state.templatesLoading || templateUnavailable}
+                      aria-label={descriptionAction}
+                      tooltip={descriptionAction}
+                      disabledTooltip={!canGenerate ? generateTitle : undefined}
+                      onClick={onGenerate}
+                    >
+                      {generatingDescription ? <Loader2 className="animate-spin" /> : <Sparkles />}
+                      {generatingDescription ? "Generating…" : state.body.trim() ? "Update description" : "Generate description"}
+                    </TooltipButton>
+                    {state.undoBody !== null ? <Button type="button" variant="ghost" size="sm" disabled={busy || generating}
+                      onClick={() => onStateChange({ ...state, body: state.undoBody ?? "", undoBody: null, applyDefaultTemplate: false })}>
+                      <RotateCcw />Undo
+                    </Button> : null}
+                  </div>
+                  <span className="create-pr-save-status" role="status">
+                    {state.templatesLoading ? "Loading template…" : state.draftSaveError ? "Not saved" : <><CheckCircle2 aria-hidden="true" />Saved locally</>}
+                  </span>
+                </div>
+              </div>
             </div>
-            <Textarea
-              id="create-pr-body"
-              className="resize-y field-sizing-fixed"
-              rows={8}
-              value={state.body}
-              disabled={busy || generating}
-              onChange={(event) => onStateChange({
-                ...state,
-                body: event.currentTarget.value,
-                error: ""
-              })}
-            />
-          </div>
 
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={state.draft}
-              disabled={busy || generating}
-              onChange={(event) => onStateChange({
-                ...state,
-                draft: event.currentTarget.checked,
-                error: ""
-              })}
-            />
-            Create as draft
-          </label>
-
-          <div className="grid min-h-5 gap-2">
-            <p className="text-sm text-destructive" role="alert">{state.error}</p>
+            {templateUnavailable && !state.templatesLoading ? <p className="text-sm text-muted-foreground" role="status">Select an available template or No template before generating. Your text is preserved.</p> : null}
+            {state.templateError ? <div className="flex items-center gap-2 text-sm text-destructive" role="alert">
+              <span>{state.templateError}</span>
+              <Button type="button" variant="outline" size="sm" disabled={busy || generating || state.templatesLoading}
+                onClick={() => onStateChange({ ...state, templateRequest: state.templateRequest + 1 })}>Retry</Button>
+            </div> : null}
+            {state.draftSaveError ? <p className="text-sm text-destructive" role="alert">Unable to save this draft on this device. Keep this window open or copy your text.</p> : null}
+            {state.error ? <p className="text-sm text-destructive" role="alert">{state.error}</p> : null}
             {state.failure?.outcomeUnknown && !state.unknownOutcomeReviewed ? (
               <Button type="button" variant="outline" className="w-fit" onClick={onReviewUnknownOutcome}><ExternalLink />Open Pull Requests</Button>
             ) : null}
           </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={busy || generating || !state.title.trim() || !state.baseBranch || Boolean(state.failure?.outcomeUnknown && !state.unknownOutcomeReviewed)}>
-              {busy ? <Loader2 className="animate-spin" /> : <GitPullRequest />}
-              {submitLabel}
-            </Button>
-          </DialogFooter>
+          <div className="create-pr-footer">
+            <label className="checkbox-row">
+              <input type="checkbox" checked={state.draft} disabled={busy || generating}
+                onChange={(event) => onStateChange({ ...state, draft: event.currentTarget.checked, error: "" })} />
+              Create as draft
+            </label>
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Close draft</Button>
+              <Button type="submit" disabled={busy || generating || state.templatesLoading || !state.title.trim() || !state.baseBranch || Boolean(state.failure?.outcomeUnknown && !state.unknownOutcomeReviewed)}>
+                {busy ? <Loader2 className="animate-spin" /> : <GitPullRequest />}
+                {submitLabel}
+              </Button>
+            </DialogFooter>
+          </div>
         </form>
       </DialogContent>
     </Dialog>

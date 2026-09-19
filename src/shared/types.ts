@@ -2007,6 +2007,16 @@ export interface GeneratePrDescriptionRequest {
   /** Local head branch name. */
   headRef: string;
   title?: string;
+  template?: string;
+  currentBody?: string;
+}
+
+export interface GitHubPullRequestTemplate {
+  id: string;
+  path: string;
+  repository: string;
+  body: string;
+  isDefault: boolean;
 }
 
 export interface GeneratePrTitleRequest {
@@ -2354,6 +2364,7 @@ export interface GitheadApi {
   getGitHubOpenCounts(request: GitHubRepositoryRequest): Promise<GitHubOperationResult<GitHubOpenCounts>>;
   getGitHubIssues(request: GitHubIssuesRequest): Promise<GitHubOperationResult<GitHubPage<GitHubIssue>>>;
   getGitHubIssueTemplates(request: GitHubRepositoryRequest): Promise<GitHubOperationResult<GitHubIssueTemplates>>;
+  getGitHubPullRequestTemplates(request: GitHubRepositoryRequest): Promise<GitHubOperationResult<GitHubPullRequestTemplate[]>>;
   createGitHubIssue(request: CoordinatedRequest<CreateIssueRequest>): Promise<GitHubOperationResult<CreateIssueResult>>;
   getGitHubPullRequests(request: GitHubPullRequestsRequest): Promise<GitHubOperationResult<GitHubPage<GitHubPullRequest>>>;
   getGitHubPullRequestDetail(request: GitHubPullRequestDetailRequest): Promise<GitHubOperationResult<GitHubPullRequestDetail>>;
