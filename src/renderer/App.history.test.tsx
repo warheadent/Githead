@@ -323,6 +323,48 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.getByText("Open a local folder or clone a repository to this computer.")).toBeTruthy();
   });
 
+  it("does not reload commit history while the view is idle", async () => {
+    const user = userEvent.setup();
+    const commits = Array.from({ length: 201 }, (_, index) => createCommit({
+      hash: index.toString(16).padStart(40, "0"), subject: `Idle entry ${index}`
+    }));
+    vi.mocked(githead.getCommitHistory).mockResolvedValue(commits);
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: "Commit History" }));
+    await screen.findByRole("button", { name: "Load more commits" });
+    vi.useFakeTimers();
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    for (let change = 0; change < 3; change += 1) {
+      act(() => emitRepoChanged({ reason: "filesystem" }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    }
+    expect(githead.getCommitHistory).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Loading commits…" })).toBeNull();
+  });
+
+  it("keeps the load-more label stable during background history refreshes", async () => {
+    const user = userEvent.setup();
+    const commits = Array.from({ length: 201 }, (_, index) => createCommit({
+      hash: index.toString(16).padStart(40, "0"), subject: `Refresh entry ${index}`
+    }));
+    vi.mocked(githead.getCommitHistory).mockResolvedValue(commits);
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: "Commit History" }));
+    await screen.findByRole("button", { name: "Load more commits" });
+
+    for (let refresh = 0; refresh < 2; refresh += 1) {
+      const pending = defer<GitCommitGraphRow[]>();
+      vi.mocked(githead.getCommitHistory).mockReturnValueOnce(pending.promise);
+      act(() => emitRepoChanged({ reason: "filesystem-metadata" }));
+      await waitFor(() => expect(githead.getCommitHistory).toHaveBeenCalledTimes(refresh + 2));
+      expect(screen.queryByRole("button", { name: "Loading commits…" })).toBeNull();
+      expect(screen.getByRole("button", { name: "Load more commits" })).toBeTruthy();
+      await act(async () => pending.resolve(commits));
+    }
+  });
+
   it("loads more on scroll, preserves selection, and stops at the end", async () => {
     const user = userEvent.setup();
     const commits = Array.from({ length: 601 }, (_, index) => createCommit({

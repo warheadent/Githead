@@ -495,6 +495,7 @@ interface AppState {
   historyScope: CommitHistoryScope;
   history: GitCommitGraphRow[];
   historyLoading: boolean;
+  historyLoadingMore: boolean;
   historyLoaded: boolean;
   historyHasMore: boolean;
   historyError: string;
@@ -931,6 +932,7 @@ const initialState: AppState = {
   historyScope: "current",
   history: [],
   historyLoading: false,
+  historyLoadingMore: false,
   historyLoaded: false,
   historyHasMore: false,
   historyError: "",
@@ -1479,6 +1481,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     requestIds.current.history = requestId;
     updateState({
       historyLoading: true,
+      historyLoadingMore: loadMore,
       historyError: ""
     });
 
@@ -1553,7 +1556,8 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     } finally {
       if (requestId === requestIds.current.history) {
         updateState({
-          historyLoading: false
+          historyLoading: false,
+          historyLoadingMore: false
         });
       }
     }
@@ -1615,6 +1619,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       historyScope: scope,
       history: [],
       historyLoading: false,
+      historyLoadingMore: false,
       historyLoaded: false,
       historyHasMore: false,
       historyError: "",
@@ -7632,6 +7637,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                   historyHasMore={state.historyHasMore}
                   onLoadMoreHistory={() => { void loadCommitHistory(true, false, true); }}
                   historyLoading={state.historyLoading}
+                  historyLoadingMore={state.historyLoadingMore}
                   historyError={state.historyError}
                   selectedCommitHash={state.selectedCommitHash}
                   commitDetails={state.commitDetails}
@@ -11693,6 +11699,7 @@ function HistoryView({
   historyScope,
   history,
   historyLoading,
+  historyLoadingMore,
   historyHasMore,
   onLoadMoreHistory,
   historyError,
@@ -11727,6 +11734,7 @@ function HistoryView({
   historyScope: CommitHistoryScope;
   history: GitCommitGraphRow[];
   historyLoading: boolean;
+  historyLoadingMore: boolean;
   historyHasMore: boolean;
   onLoadMoreHistory: () => void;
   historyError: string;
@@ -11891,7 +11899,7 @@ function HistoryView({
                 {historyHasMore ? (
                   <div className="flex items-center justify-center border-t px-3 py-1">
                     <Button type="button" variant="ghost" size="sm" disabled={historyLoading} onClick={onLoadMoreHistory}>
-                      {historyLoading ? "Loading commits…" : historyError ? "Retry loading commits" : "Load more commits"}
+                      {historyLoadingMore ? "Loading commits…" : historyError ? "Retry loading commits" : "Load more commits"}
                     </Button>
                   </div>
                 ) : null}
@@ -14628,6 +14636,7 @@ function resetHistoryState(state: AppState): AppState {
     historyScope: "current",
     history: [],
     historyLoading: false,
+    historyLoadingMore: false,
     historyLoaded: false,
     historyHasMore: false,
     historyError: "",
