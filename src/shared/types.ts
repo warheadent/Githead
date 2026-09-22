@@ -2057,7 +2057,10 @@ export interface GitFileChangesRequest {
   repoPath: string;
   paths: string[];
   side: GitDiffSide;
+  expectedSnapshot?: string;
 }
+
+export type GitDiscardSnapshotRequest = GitFileChangesRequest & RepositoryReadRequest;
 
 export interface GitHunkRequest {
   repoPath: string;
@@ -2470,6 +2473,7 @@ export interface GitheadApi {
   copyTextToClipboard(request: ClipboardTextRequest): Promise<GitOperationResult>;
   deleteFile(request: CoordinatedRequest<FileSystemPathRequest>): Promise<GitOperationResult>;
   deleteFiles(request: CoordinatedRequest<FileSystemPathListRequest>): Promise<GitOperationResult>;
+  getDiscardSnapshot(request: GitDiscardSnapshotRequest): Promise<string>;
   revertFileChanges(request: CoordinatedRequest<GitFileChangesRequest>): Promise<GitOperationResult>;
   addPathToIgnore(request: CoordinatedRequest<GitIgnorePathRequest>): Promise<GitOperationResult>;
   cloneRepository(request: CoordinatedRequest<GitCloneRequest>): Promise<GitOperationResult>;

@@ -142,6 +142,7 @@ export const IPC_CHANNELS = {
   copyTextToClipboard: "clipboard:copy-text",
   deleteFile: "file:delete",
   deleteFiles: "file:delete-files",
+  getDiscardSnapshot: "git:discard-snapshot",
   revertFileChanges: "git:revert-file",
   addPathToIgnore: "git:add-ignore",
   cloneRepository: "git:clone",

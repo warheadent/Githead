@@ -66,6 +66,7 @@ import type {
   GitCreateTagRequest,
   GitDeleteTagRequest,
   GitFileChangesRequest,
+  GitDiscardSnapshotRequest,
   GitFileDiffRequest,
   GitFileHistoryRequest,
   GitForceWithLeaseRequest,
@@ -1402,6 +1403,10 @@ ipcMain.handle(IPC_CHANNELS.deleteFiles, async (event, request: CoordinatedReque
     repositoryOperationOptions(event, request.operationId, request.repoPath)
   );
 });
+
+ipcMain.handle(IPC_CHANNELS.getDiscardSnapshot, (event, request: GitDiscardSnapshotRequest) =>
+  handleRead(event, request, async (signal) =>
+    processRunner.runWithSignal(signal, () => gitService.getDiscardSnapshot(request))));
 
 ipcMain.handle(IPC_CHANNELS.revertFileChanges, async (event, request: CoordinatedRequest<GitFileChangesRequest>) => {
   return runExclusiveGitOperation(

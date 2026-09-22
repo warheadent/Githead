@@ -50,6 +50,7 @@ import type {
   GitCreateTagRequest,
   GitDeleteTagRequest,
   GitFileChangesRequest,
+  GitDiscardSnapshotRequest,
   GitFileDiffRequest,
   GitFileHistoryRequest,
   GitForceWithLeaseRequest,
@@ -390,6 +391,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.deleteFile, request) as ReturnType<GitheadApi["deleteFile"]>,
   deleteFiles: (request: CoordinatedRequest<FileSystemPathListRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.deleteFiles, request) as ReturnType<GitheadApi["deleteFiles"]>,
+  getDiscardSnapshot: (request: GitDiscardSnapshotRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getDiscardSnapshot, request) as ReturnType<GitheadApi["getDiscardSnapshot"]>,
   revertFileChanges: (request: CoordinatedRequest<GitFileChangesRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.revertFileChanges, request) as ReturnType<GitheadApi["revertFileChanges"]>,
   addPathToIgnore: (request: CoordinatedRequest<GitIgnorePathRequest>) =>

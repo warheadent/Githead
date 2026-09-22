@@ -1,6 +1,6 @@
 import { gitSyncArgs } from "./gitSyncConfig";
 import type { GitTagListRequest, GitTagCheckoutRequest, GitCheckoutTag } from "../shared/types";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Effect } from "effect";
@@ -2597,6 +2597,31 @@ export class GitService {
     return { diff, log };
   }
 
+  async getDiscardSnapshot(request: GitFileChangesRequest): Promise<string> {
+    const pathsResult = sanitizeRepoPaths(request.paths);
+    if ("error" in pathsResult) throw new Error(pathsResult.error);
+    // Git compares the link itself, not the contents of an external symlink target.
+    // Full binary patches also detect changes that a display diff cannot represent.
+    const paths = [...pathsResult.paths].sort();
+    const hash = createHash("sha256").update(JSON.stringify([request.side, paths]));
+    for (const batch of chunkGitStatusPaths(paths)) {
+      const commands = [
+        ["ls-files", "--stage", "-z", "--", ...batch],
+        ["diff", ...(request.side === "staged" ? ["--cached"] : []),
+          "--binary", "--full-index", "--no-renames", "--no-color", "--no-ext-diff",
+          "--no-textconv", "--ignore-submodules=none", "--", ...batch]
+      ];
+      for (const args of commands) {
+        const result = await this.runGit(request.repoPath, args);
+        if (result.exitCode !== 0 || result.stdoutTruncated || result.exceededLimit) {
+          throw new Error(result.stderr.trim() || "Unable to check the selected files before discard.");
+        }
+        hash.update("\0").update(result.stdout);
+      }
+    }
+    return hash.digest("hex");
+  }
+
   async revertFileChanges(request: GitFileChangesRequest): Promise<GitOperationResult> {
     const validation = await this.validateRepo(request.repoPath);
     if (!validation.isValid) {
@@ -2606,6 +2631,16 @@ export class GitService {
     const pathsResult = sanitizeRepoPaths(request.paths);
     if ("error" in pathsResult) {
       return this.createOperationFailure(request.repoPath, pathsResult.error);
+    }
+
+    if (request.expectedSnapshot !== undefined) {
+      try {
+        if (await this.getDiscardSnapshot(request) !== request.expectedSnapshot) {
+          return this.createOperationFailure(request.repoPath, "The selected files changed. Review the files and try discarding again.");
+        }
+      } catch (error) {
+        return this.createOperationFailure(request.repoPath, error instanceof Error ? error.message : "Unable to check the selected files before discard.");
+      }
     }
 
     if (request.side === "staged") {

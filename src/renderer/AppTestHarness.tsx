@@ -368,6 +368,7 @@ export function createGitheadMock(): GitheadApi {
     getCommitFileDiff: vi.fn(),
     getFileHistory: vi.fn().mockResolvedValue({ repoPath, startHash: "a".repeat(40), requestedPath: "", entries: [], hasMore: false }),
     getFileBlame: vi.fn(),
+    getDiscardSnapshot: vi.fn().mockResolvedValue("unchanged-snapshot"),
     getFileDiff: vi.fn(),
     getStashes: vi.fn().mockResolvedValue([]),
     getStashDetails: vi.fn(),

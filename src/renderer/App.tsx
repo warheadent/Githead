@@ -6768,7 +6768,8 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     file: GitStatusFile,
     side: GitDiffSide,
     kind: ContextActionKind,
-    explicitPaths?: string[]
+    explicitPaths?: string[],
+    expectedSnapshot?: string
   ): Promise<void> => {
     if (
       stateRef.current.summary?.operationState &&
@@ -6858,6 +6859,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
           repoPath,
           paths,
           side,
+          ...(expectedSnapshot === undefined ? {} : { expectedSnapshot }),
           operationId
         })
       );
@@ -7507,8 +7509,8 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                   }}
                   onDownloadImage={() => { void downloadStatusLfsPreview(); }}
                   onApplyHunk={applySelectedHunk}
-                  onContextAction={(file, side, kind, paths) => {
-                    void runContextFileOperation(file, side, kind, paths);
+                  onContextAction={(file, side, kind, paths, expectedSnapshot) => {
+                    void runContextFileOperation(file, side, kind, paths, expectedSnapshot);
                   }}
                   onUpdateSubmodules={(path) => { void updateSubmodules(path); }}
                   onSyncSubmodules={() => { void syncSubmodules(); }}
@@ -10641,7 +10643,7 @@ function StatusView({
   onRefreshDiff: () => void;
   onDownloadImage: () => void;
   onApplyHunk: (patch: string, discard?: boolean) => void;
-  onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind, paths?: string[]) => void;
+  onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind, paths?: string[], expectedSnapshot?: string) => void;
   onUpdateSubmodules: (path?: string) => void;
   onSyncSubmodules: () => void;
   canGeneratePlan: boolean;
@@ -10678,12 +10680,57 @@ function StatusView({
     else unstagedPanelRef.current?.expand();
   }, [stagedCollapsed, unstagedCollapsed, workspaceMode]);
   const clean = summary?.isValid && stagedFiles.length === 0 && unstagedFiles.length === 0;
-  const [discardTarget, setDiscardTarget] = useState<{ file: GitStatusFile; side: GitDiffSide; paths: string[]; repoPath: string; version: number } | null>(null);
-  const discardCurrent = discardTarget?.repoPath === summary?.repoPath && discardTarget?.version === repositoryStatusVersion;
+  const [discardTarget, setDiscardTarget] = useState<{
+    file: GitStatusFile; side: GitDiffSide; paths: string[]; repoPath: string; version: number;
+    snapshot: Promise<string | null> | null;
+  } | null>(null);
+  const [discardCheck, setDiscardCheck] = useState<{
+    target: typeof discardTarget; version: number; snapshot: string | null; error: string | null;
+  } | null>(null);
+  useEffect(() => {
+    if (!discardTarget?.snapshot) return;
+    let cancelled = false;
+    const check = async (): Promise<void> => {
+      try {
+        const snapshot = await discardTarget.snapshot;
+        if (snapshot === null) throw new Error("Unable to check the selected files. Close this dialog and try again.");
+        const currentSnapshot = discardTarget.version === repositoryStatusVersion
+          ? snapshot
+          : await window.githead.getDiscardSnapshot({ repoPath: discardTarget.repoPath, paths: discardTarget.paths, side: discardTarget.side });
+        if (!cancelled) setDiscardCheck({
+          target: discardTarget, version: repositoryStatusVersion, snapshot,
+          error: snapshot === currentSnapshot ? null : "The selected files changed. Close this dialog and review the files again."
+        });
+      } catch {
+        if (!cancelled) setDiscardCheck({
+          target: discardTarget, version: repositoryStatusVersion, snapshot: null,
+          error: "Unable to check the selected files. Close this dialog and try again."
+        });
+      }
+    };
+    void check();
+    return () => { cancelled = true; };
+  }, [discardTarget, repositoryStatusVersion]);
+  const discardCheckReady = discardCheck?.target === discardTarget && discardCheck?.version === repositoryStatusVersion;
+  const discardError = discardTarget?.repoPath !== summary?.repoPath
+    ? "The repository changed. Close this dialog and review the files again."
+    : discardTarget?.snapshot
+      ? (discardCheckReady ? discardCheck?.error : null)
+      : discardTarget?.version !== repositoryStatusVersion
+        ? "The repository changed. Close this dialog and review the files again."
+        : null;
+  const discardChecking = Boolean(discardTarget?.snapshot && !discardCheckReady);
+  const discardCurrent = Boolean(discardTarget && !discardError && !discardChecking);
   const handleContextAction = (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind, explicitPaths?: string[]): void => {
     const paths = explicitPaths ?? getContextActionPaths(matchingSelection, file, side);
     if (kind === "revert") {
-      setDiscardTarget({ file, side, paths, repoPath: summary?.repoPath ?? "", version: repositoryStatusVersion });
+      const repoPath = summary?.repoPath ?? "";
+      setDiscardTarget({
+        file, side, paths, repoPath, version: repositoryStatusVersion,
+        snapshot: summary?.kind === "git"
+          ? window.githead.getDiscardSnapshot({ repoPath, paths, side }).catch(() => null)
+          : null
+      });
     } else {
       onContextAction(file, side, kind, paths);
     }
@@ -10914,12 +10961,13 @@ function StatusView({
           </DialogHeader>
           <ul className="max-h-48 overflow-auto text-sm">{discardTarget?.paths.slice(0, 100).map((path) => <li key={path} className="break-all font-mono">{path}</li>)}</ul>
           {discardTarget && discardTarget.paths.length > 100 ? <p className="text-sm text-muted-foreground">Showing the first 100 of {discardTarget.paths.length} files.</p> : null}
-          {!discardCurrent ? <p role="alert" className="text-sm text-destructive">The repository changed. Close this dialog and review the files again.</p> : null}
+          {discardChecking ? <p role="status" className="text-sm text-muted-foreground">Checking selected files…</p> : null}
+          {discardError ? <p role="alert" className="text-sm text-destructive">{discardError}</p> : null}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setDiscardTarget(null)}>Cancel</Button>
             <Button type="button" variant="destructive" disabled={disabled || recoveryMode || !discardCurrent} onClick={() => {
               if (discardTarget && discardCurrent) {
-                onContextAction(discardTarget.file, discardTarget.side, "revert", discardTarget.paths);
+                onContextAction(discardTarget.file, discardTarget.side, "revert", discardTarget.paths, discardTarget.snapshot ? discardCheck?.snapshot ?? undefined : undefined);
                 setDiscardTarget(null);
               }
             }}>Discard changes</Button>

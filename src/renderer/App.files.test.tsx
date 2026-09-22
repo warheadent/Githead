@@ -159,10 +159,66 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.revertFileChanges).not.toHaveBeenCalled();
     fireEvent.contextMenu(file);
     fireEvent.click(screen.getByRole("menuitem", { name: "Discard changes in 1 file…" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Discard changes" }).hasAttribute("disabled")).toBe(false));
+    vi.mocked(githead.getDiscardSnapshot).mockResolvedValue("changed-snapshot");
     emitRepoChanged({ repoPath, reason });
+    await screen.findByText("The selected files changed. Close this dialog and review the files again.");
     await waitFor(() => expect(screen.getByRole("button", { name: "Discard changes" }).hasAttribute("disabled")).toBe(true));
     fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
     expect(githead.revertFileChanges).not.toHaveBeenCalled();
+  });
+
+  it.each(["filesystem", "filesystem-metadata", "focus"] as const)("allows discard of unchanged files after %s activity", async (reason) => {
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [createStatusFile("change.ts", { isUnstaged: true, worktreeStatus: "M" })] }));
+    render(<App />);
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /change.ts/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Discard changes in 1 file…" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Discard changes" }).hasAttribute("disabled")).toBe(false));
+    if (reason === "focus") {
+      act(() => {
+        window.dispatchEvent(new Event("blur"));
+        window.dispatchEvent(new Event("focus"));
+      });
+    } else {
+      emitRepoChanged({ repoPath, reason });
+    }
+    await flushRendererAsync();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Discard changes" }).hasAttribute("disabled")).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+    await waitFor(() => expect(githead.revertFileChanges).toHaveBeenCalledWith({
+      repoPath, paths: ["change.ts"], side: "unstaged", expectedSnapshot: "unchanged-snapshot", operationId: expect.any(String)
+    }));
+  });
+
+  it("keeps discard disabled when the selected files cannot be checked", async () => {
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [createStatusFile("change.ts", { isUnstaged: true, worktreeStatus: "M" })] }));
+    vi.mocked(githead.getDiscardSnapshot).mockRejectedValue(new Error("read failed"));
+    render(<App />);
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /change.ts/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Discard changes in 1 file…" }));
+    await screen.findByText("Unable to check the selected files. Close this dialog and try again.");
+    expect(screen.getByRole("button", { name: "Discard changes" }).hasAttribute("disabled")).toBe(true);
+    expect(githead.revertFileChanges).not.toHaveBeenCalled();
+  });
+
+  it("does not apply a completed check to a reopened discard dialog", async () => {
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [createStatusFile("change.ts", { isUnstaged: true, worktreeStatus: "M" })] }));
+    const firstCheck = defer<string>();
+    const secondCheck = defer<string>();
+    vi.mocked(githead.getDiscardSnapshot).mockReturnValueOnce(firstCheck.promise).mockReturnValueOnce(secondCheck.promise);
+    render(<App />);
+    const file = await screen.findByRole("option", { name: /change.ts/ });
+    fireEvent.contextMenu(file);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Discard changes in 1 file…" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    fireEvent.contextMenu(file);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Discard changes in 1 file…" }));
+    await act(async () => { firstCheck.resolve("old-snapshot"); });
+    expect(screen.getByRole("button", { name: "Discard changes" }).hasAttribute("disabled")).toBe(true);
+    await act(async () => { secondCheck.resolve("new-snapshot"); });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Discard changes" }).hasAttribute("disabled")).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+    await waitFor(() => expect(githead.revertFileChanges).toHaveBeenCalledWith(expect.objectContaining({ expectedSnapshot: "new-snapshot" })));
   });
 
   it("stages multiple ctrl-selected unstaged files through the preload API", async () => {
@@ -653,6 +709,7 @@ describe("App", { timeout: 10_000 }, () => {
           "src/second.ts"
         ],
         side: "unstaged",
+        expectedSnapshot: "unchanged-snapshot",
         operationId: expect.any(String)
       });
     });
