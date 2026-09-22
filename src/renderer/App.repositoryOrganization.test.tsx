@@ -62,6 +62,55 @@ describe("Repository organization", { timeout: 10_000 }, () => {
     expect(repositories().getByRole("button", { name: `Switch to ${third}` })).toBeTruthy();
   });
 
+  it("renames from the context menu, persists the alias, and restores the folder name", async () => {
+    const user = userEvent.setup();
+    const mounted = render(<App />);
+    await waitForRepositoryWorkspace();
+    fireEvent.contextMenu(repositories().getByRole("button", { name: `Switch to ${other}` }));
+    await user.click(screen.getByRole("menuitem", { name: "Rename repository" }));
+    await user.type(screen.getByRole("textbox", { name: "Display name" }), "  Builder  ");
+    await user.click(screen.getByRole("button", { name: "Save name" }));
+    expect(repositories().getByText("Builder")).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    mounted.unmount();
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    expect(repositories().getByText("Builder")).toBeTruthy();
+    fireEvent.contextMenu(repositories().getByRole("button", { name: `Switch to ${other}` }));
+    await user.click(screen.getByRole("menuitem", { name: "Rename repository" }));
+    expect((screen.getByRole("textbox", { name: "Display name" }) as HTMLInputElement).value).toBe("Builder");
+    await user.clear(screen.getByRole("textbox", { name: "Display name" }));
+    await user.keyboard("{Enter}");
+    expect(repositories().queryByText("Builder")).toBeNull();
+    expect(repositories().getByRole("button", { name: `Switch to ${other}` }).textContent).toContain("Other");
+    expect(githead.removeRepoRecent).not.toHaveBeenCalled();
+  });
+
+  it("cancels direct rename and keeps the draft available after a failed save", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    const openRename = async () => {
+      fireEvent.contextMenu(repositories().getByRole("button", { name: `Switch to ${other}` }));
+      await user.click(screen.getByRole("menuitem", { name: "Rename repository" }));
+    };
+    await openRename();
+    await user.type(screen.getByRole("textbox", { name: "Display name" }), "Temporary");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(readRepositoryOrganization().repositories).toEqual({});
+    await openRename();
+    await user.type(screen.getByRole("textbox", { name: "Display name" }), "Builder");
+    const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("Storage full");
+    });
+    await user.click(screen.getByRole("button", { name: "Save name" }));
+    expect(within(screen.getByRole("dialog")).getByRole("alert").textContent).toContain("Unable to save");
+    expect(readRepositoryOrganization().repositories).toEqual({});
+    write.mockRestore();
+    await user.click(screen.getByRole("button", { name: "Save name" }));
+    expect(repositories().getByText("Builder")).toBeTruthy();
+  });
+
   it("searches hidden paths and switches without removing them", async () => {
     window.localStorage.setItem(
       REPOSITORY_ORGANIZATION_KEY,

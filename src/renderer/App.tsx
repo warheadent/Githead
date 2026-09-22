@@ -1,4 +1,4 @@
-import { RepositoryOrganizationDialog, RepositoryOrganizationMenu } from "./RepositoryOrganizationDialog";
+import { RepositoryAliasDialog, RepositoryOrganizationDialog, RepositoryOrganizationMenu } from "./RepositoryOrganizationDialog";
 import { repositoryName as getRepoDisplayName, organizeRepositories, repositoryLabels, repositoryPreference, useRepositoryOrganization, type RepositoryPreference } from "./repositoryOrganization";
 import { CheckoutTagDialog } from "./CheckoutTagDialog";
 import { loadPullRequestDraft, savePullRequestDraft, removePullRequestDraft } from "./pullRequestDraft";
@@ -8836,6 +8836,7 @@ function RepositoryList({
   const [query, setQuery] = useState("");
   const [showHidden, setShowHidden] = useState(false);
   const [organizerQuery, setOrganizerQuery] = useState<string | null>(null);
+  const [renamePath, setRenamePath] = useState<string | null>(null);
   const orderedPaths = useMemo(() => groups?.length ? groups.map((group) => group.anchorPath) : repoPaths, [groups, repoPaths]);
   const groupsByPath = useMemo(() => new Map(groups?.map((group) => [getRepoPathKey(group.anchorPath), group]) ?? []), [groups]);
   const labels = useMemo(() => repositoryLabels(orderedPaths, organization), [orderedPaths, organization]);
@@ -8845,7 +8846,7 @@ function RepositoryList({
   const changePreference = (path: string, patch: Partial<RepositoryPreference>) => updateOrganization((current) => ({
     ...current, repositories: { ...current.repositories, [getRepoPathKey(path)]: { ...repositoryPreference(current, path), ...patch } }
   }));
-  const organizationMenu = (path: string) => <RepositoryOrganizationMenu preference={repositoryPreference(organization, path)} onChange={(patch) => { changePreference(path, patch); }} onOrganize={() => setOrganizerQuery(path)} />;
+  const organizationMenu = (path: string) => <RepositoryOrganizationMenu preference={repositoryPreference(organization, path)} onChange={(patch) => { changePreference(path, patch); }} onOrganize={() => setOrganizerQuery(path)} onRename={() => setRenamePath(path)} />;
   const [removeTarget, setRemoveTarget] = useState<string | null>(null);
   const [recoveryTarget, setRecoveryTarget] = useState<{ repoPath: string; reason: string } | null>(null);
   const [recoveryError, setRecoveryError] = useState("");
@@ -9077,6 +9078,7 @@ function RepositoryList({
       </div>
       {hiddenCount > 0 ? <button type="button" className="repository-show-hidden" aria-pressed={showHidden} onClick={() => setShowHidden((current) => !current)}>{showHidden ? "Hide inactive repositories" : `Show hidden (${hiddenCount})`}</button> : null}
     </section>
+    {renamePath !== null ? <RepositoryAliasDialog key={renamePath} path={renamePath} alias={repositoryPreference(organization, renamePath).alias} onClose={() => setRenamePath(null)} onSave={(alias) => changePreference(renamePath, { alias })} /> : null}
     {organizerQuery !== null ? <RepositoryOrganizationDialog organization={organization} paths={orderedPaths} initialQuery={organizerQuery} onClose={() => setOrganizerQuery(null)} onSave={(draft) => updateOrganization((current) => ({ ...draft, expandedWorktrees: current.expandedWorktrees }))} /> : null}
     <Dialog open={Boolean(removeTarget)} onOpenChange={(open) => { if (!open) setRemoveTarget(null); }}>
       <DialogContent className="sm:max-w-[440px]">

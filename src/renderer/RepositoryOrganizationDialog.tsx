@@ -46,13 +46,19 @@ export function RepositoryOrganizationMenu({
   preference,
   onChange,
   onOrganize,
+  onRename,
 }: {
   preference: RepositoryPreference;
   onChange: (patch: Partial<RepositoryPreference>) => void;
   onOrganize: () => void;
+  onRename: () => void;
 }): ReactNode {
   return (
     <>
+      <ContextMenuItem onSelect={onRename}>
+        <Pencil />
+        Rename repository
+      </ContextMenuItem>
       <ContextMenuItem onSelect={() => onChange({ pinned: !preference.pinned })}>
         {preference.pinned ? <PinOff /> : <Pin />}
         {preference.pinned ? "Unpin repository" : "Pin repository"}
@@ -67,6 +73,51 @@ export function RepositoryOrganizationMenu({
       </ContextMenuItem>
       <ContextMenuSeparator />
     </>
+  );
+}
+
+export function RepositoryAliasDialog({
+  path,
+  alias,
+  onClose,
+  onSave,
+}: {
+  path: string;
+  alias: string;
+  onClose: () => void;
+  onSave: (name: string) => boolean;
+}): ReactNode {
+  const id = useId();
+  const [name, setName] = useState(alias);
+  const [error, setError] = useState("");
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Rename repository</DialogTitle>
+          <DialogDescription>
+            Only the name in Githead changes. Leave empty to use the folder name.
+          </DialogDescription>
+        </DialogHeader>
+        <form className="grid gap-4" onSubmit={(event) => {
+          event.preventDefault();
+          if (onSave(name.trim())) onClose();
+          else setError("Unable to save repository name. Try again.");
+        }}>
+          <p className="break-all font-mono text-xs text-muted-foreground">{path}</p>
+          <div className="grid gap-2">
+            <Label htmlFor={id}>Display name</Label>
+            <Input id={id} value={name} maxLength={120} placeholder={repositoryName(path)}
+              onChange={(event) => setName(event.target.value)} />
+          </div>
+          {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            <Button type="submit">Save name</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -471,7 +522,7 @@ export function RepositoryOrganizationDialog({
                               variant="ghost"
                               size="icon-xs"
                               aria-label={`Rename ${path} in Githead`}
-                              tooltip="Rename in Githead"
+                              tooltip="Rename repository"
                               onClick={() =>
                                 setEdit({ kind: "repository", path, name: preference.alias })
                               }
@@ -596,7 +647,7 @@ export function RepositoryOrganizationDialog({
             <DialogHeader>
               <DialogTitle>
                 {edit?.kind === "repository"
-                  ? "Rename in Githead"
+                  ? "Rename repository"
                   : edit?.kind === "group"
                     ? "Rename group"
                     : "New group"}
