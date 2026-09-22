@@ -7,6 +7,7 @@ import {
   Gauge,
   GitFork,
   GitCommitHorizontal,
+  Info,
   ExternalLink,
   Loader2,
   Monitor,
@@ -94,7 +95,7 @@ export interface SettingsDraft {
   gitIdentityScope: GitIdentityScope;
 }
 
-export type SettingsCategory = "appearance" | "git-identity" | "git-configuration" | "git-behaviors" | "sync" | "integrations" | "ai" | "privacy" | "diagnostics";
+export type SettingsCategory = "appearance" | "git-identity" | "git-configuration" | "git-behaviors" | "sync" | "integrations" | "ai" | "privacy" | "diagnostics" | "about";
 
 const categories = [
   { id: "appearance", label: "Appearance", icon: Palette },
@@ -105,7 +106,8 @@ const categories = [
   { id: "integrations", label: "Integrations", icon: Plug },
   { id: "ai", label: "AI", icon: Bot },
   { id: "privacy", label: "Privacy", icon: ShieldCheck },
-  { id: "diagnostics", label: "Diagnostics", icon: Gauge }
+  { id: "diagnostics", label: "Diagnostics", icon: Gauge },
+  { id: "about", label: "About", icon: Info }
 ] as const;
 
 const tagPushBehaviorOptions = [
@@ -468,6 +470,21 @@ export function SettingsDialog({
                     </div>
                   </SettingsCard>
                 </SettingsPanel>
+                <SettingsPanel value="about" title="About" description="Version information for this copy of Githead.">
+                  <SettingsCard title="Githead">
+                    <dl className="grid gap-4 text-sm">
+                      <div className="grid gap-1 sm:grid-cols-[130px_minmax(0,1fr)]">
+                        <dt className="text-muted-foreground">Version</dt>
+                        <dd className="font-mono selectable-text">{__APP_VERSION__}</dd>
+                      </div>
+                      <div className="grid gap-1 sm:grid-cols-[130px_minmax(0,1fr)]">
+                        <dt className="text-muted-foreground">Last updated</dt>
+                        <dd className="selectable-text"><time dateTime={__APP_BUILD_DATE__}>{formatSettingsTimestamp(__APP_BUILD_DATE__)}</time></dd>
+                      </div>
+                    </dl>
+                    <p className="text-xs text-muted-foreground">Last updated is the build date of this version.</p>
+                  </SettingsCard>
+                </SettingsPanel>
             </SettingsCategoryLayout>
 
             <div className="settings-dialog-footer flex min-h-16 flex-col gap-3 border-t bg-background px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -589,12 +606,12 @@ function GitHubIntegrationSettings({
       <div className="grid gap-1 sm:grid-cols-[130px_minmax(0,1fr)]"><dt className="text-muted-foreground">Credential source</dt><dd className="font-medium">{formatGitHubSource(connection?.source ?? "anonymous")}</dd></div>
     </dl>
 
-    {resetAt ? <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm" role="status">GitHub expects access to resume {formatResetTime(resetAt)}. Cached results remain visible.</p> : null}
+    {resetAt ? <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm" role="status">GitHub expects access to resume {formatSettingsTimestamp(resetAt)}. Cached results remain visible.</p> : null}
     {error ? <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">{error}</p> : null}
 
     {deviceFlow ? <div className="grid gap-3 rounded-md border border-primary/30 bg-primary/5 p-3" role="status">
       <div><p className="text-sm font-medium">Enter this code on GitHub</p><p className="mt-1 font-mono text-2xl font-semibold tracking-[0.2em] selectable-text">{deviceFlow.userCode}</p></div>
-      <p className="text-sm text-muted-foreground">Githead is waiting for authorization. This code expires {formatResetTime(deviceFlow.expiresAt)}.</p>
+      <p className="text-sm text-muted-foreground">Githead is waiting for authorization. This code expires {formatSettingsTimestamp(deviceFlow.expiresAt)}.</p>
       <Button type="button" variant="outline" className="w-fit" disabled={disabled} onClick={() => void window.githead.openExternalUrl({ url: deviceFlow.verificationUri })}><ExternalLink />Open GitHub</Button>
     </div> : null}
 
@@ -636,7 +653,7 @@ function formatGitHubSource(source: GitHubConnectionStatus["source"]): string {
   return "None";
 }
 
-function formatResetTime(value: string): string {
+function formatSettingsTimestamp(value: string): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
@@ -652,7 +669,7 @@ function serializeSettingsDraft(draft: SettingsDraft): string { return JSON.stri
 function formatZoomFactor(zoomFactor: number): string { return `${Math.round(zoomFactor * 100)}%`; }
 
 function getDirtyCategories(baseline: string, draft: SettingsDraft): Record<SettingsCategory, boolean> {
-  if (!baseline) return { appearance: false, "git-identity": false, "git-configuration": false, "git-behaviors": false, sync: false, integrations: false, ai: false, privacy: false, diagnostics: false };
+  if (!baseline) return { appearance: false, "git-identity": false, "git-configuration": false, "git-behaviors": false, sync: false, integrations: false, ai: false, privacy: false, diagnostics: false, about: false };
   const saved = JSON.parse(baseline) as SettingsDraft;
   return {
     appearance: saved.visualEffects !== draft.visualEffects || saved.reduceMotion !== draft.reduceMotion || saved.colorTheme !== draft.colorTheme || saved.appearanceMode !== draft.appearanceMode || saved.uiFont !== draft.uiFont || saved.codeFont !== draft.codeFont || saved.zoomFactor !== draft.zoomFactor,
@@ -666,6 +683,7 @@ function getDirtyCategories(baseline: string, draft: SettingsDraft): Record<Sett
     integrations: false,
     ai: JSON.stringify({ selectedProvider: saved.selectedProvider, commitPlanGranularity: saved.commitPlanGranularity, providerModels: saved.providerModels, commitPlanModels: saved.commitPlanModels, commitPlanReasoningEfforts: saved.commitPlanReasoningEfforts, prDescriptionModels: saved.prDescriptionModels, reasoningEfforts: saved.reasoningEfforts, prDescriptionReasoningEfforts: saved.prDescriptionReasoningEfforts, apiKeys: saved.apiKeys, clearApiKeys: saved.clearApiKeys, commitMessagePrompt: saved.commitMessagePrompt, prDescriptionPrompt: saved.prDescriptionPrompt, sourceControlWritingStyle: saved.sourceControlWritingStyle }) !== JSON.stringify({ selectedProvider: draft.selectedProvider, commitPlanGranularity: draft.commitPlanGranularity, providerModels: draft.providerModels, commitPlanModels: draft.commitPlanModels, commitPlanReasoningEfforts: draft.commitPlanReasoningEfforts, prDescriptionModels: draft.prDescriptionModels, reasoningEfforts: draft.reasoningEfforts, prDescriptionReasoningEfforts: draft.prDescriptionReasoningEfforts, apiKeys: draft.apiKeys, clearApiKeys: draft.clearApiKeys, commitMessagePrompt: draft.commitMessagePrompt, prDescriptionPrompt: draft.prDescriptionPrompt, sourceControlWritingStyle: draft.sourceControlWritingStyle }),
     privacy: saved.shareAnonymousDiagnostics !== draft.shareAnonymousDiagnostics,
-    diagnostics: false
+    diagnostics: false,
+    about: false
   };
 }
