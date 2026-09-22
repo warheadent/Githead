@@ -6,6 +6,7 @@ import path from "node:path";
 import { Effect } from "effect";
 import { NETWORK_OPERATION_TIMEOUT_MS } from "./operationTimeouts";
 import { classifyGitOperationError } from "./gitOperationFailure";
+import { isGitIndexLockError } from "../shared/gitIndexLock";
 import { getRepoPathKey, normalizeRepoPath } from "./repoPath";
 import type {
   CommitRef,
@@ -4552,11 +4553,12 @@ function createPathspecInput(paths: string[]): Buffer {
 
 const INDEX_LOCK_GUIDANCE = [
   "Git could not acquire the repository index lock. Another Git process may still be using this repository.",
-  "If no Git process is running, remove the stale .git/index.lock file and retry. Githead will not remove it automatically."
-].join(" ");
+  "Wait for any Git operation to finish, then retry. If the error continues, use the recovery prompt to check and delete the lock.",
+  "Githead will not remove the lock without your confirmation."
+].join("\n");
 
 function appendIndexLockGuidance(stderr: string): string {
-  if (!/index\.lock/i.test(stderr) || stderr.includes(INDEX_LOCK_GUIDANCE)) {
+  if (!isGitIndexLockError(stderr) || stderr.includes(INDEX_LOCK_GUIDANCE)) {
     return stderr;
   }
 

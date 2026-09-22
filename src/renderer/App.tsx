@@ -148,6 +148,7 @@ import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import { DEFAULT_PR_DESCRIPTION_PROMPT } from "../shared/prDescriptionPrompt";
 import { DEFAULT_SOURCE_CONTROL_WRITING_STYLE } from "../shared/sourceControlWritingStyle";
 import { GITHUB_APP_INSTALL_URL } from "../shared/githubApp";
+import { GitIndexLockRecovery } from "./GitIndexLockRecovery";
 import type {
   AiCommitMessageProvider,
   AiReasoningEffort,
@@ -7849,6 +7850,16 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
         </ResizablePanelGroup>
       </div>
 
+      <GitIndexLockRecovery
+        key={state.repoPath}
+        repoPath={state.repoPath}
+        operationResult={state.lastOperationResult}
+        actionResult={state.lastResult}
+        busy={running}
+        onRemove={(fingerprint) => runRepoOperation("Recover index lock", undefined, (operationId) =>
+          window.githead.removeGitIndexLock({ repoPath: state.repoPath, fingerprint, operationId })
+        )}
+      />
       <SafeDirectoryDialog
         open={state.safeDirectoryDialogOpen}
         safeDirectory={state.summary?.safeDirectory ?? null}

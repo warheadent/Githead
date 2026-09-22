@@ -2764,8 +2764,9 @@ describe("GitService", () => {
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("Unable to create 'D:/Repo/.git/index.lock'");
     expect(result.stderr).toContain("Another Git process may still be using this repository.");
-    expect(result.stderr).toContain("remove the stale .git/index.lock file and retry");
-    expect(result.stderr).toContain("Githead will not remove it automatically");
+    expect(result.stderr).toContain("Wait for any Git operation to finish, then retry.");
+    expect(result.stderr).toContain("use the recovery prompt to check and delete the lock");
+    expect(result.stderr).toContain("Githead will not remove the lock without your confirmation");
   });
 
   it("unstages with restore when HEAD exists", async () => {

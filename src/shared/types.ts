@@ -2136,6 +2136,15 @@ export interface GitOperationResult {
   errorKind?: GitOperationErrorKind;
 }
 
+export interface GitIndexLockInspection extends GitOperationResult {
+  lock?: { path: string; modifiedAt: string; fingerprint: string };
+}
+
+export interface GitIndexLockRemoveRequest {
+  repoPath: string;
+  fingerprint: string;
+}
+
 export interface GitRunResult {
   /** Output was sent separately over IPC; do not replay buffered stdout/stderr. */
   outputStreamed?: boolean;
@@ -2332,6 +2341,8 @@ export interface PerformanceDiagnosticsSnapshot {
 }
 
 export interface GitheadApi {
+  inspectGitIndexLock(request: CoordinatedRequest<{ repoPath: string }>): Promise<GitIndexLockInspection>;
+  removeGitIndexLock(request: CoordinatedRequest<GitIndexLockRemoveRequest>): Promise<GitOperationResult>;
   getGitExecutableStatus(): Promise<GitExecutableStatus>;
   chooseRepo(defaultPath?: string): Promise<string | null>;
   chooseCloneParent(defaultPath?: string): Promise<string | null>;

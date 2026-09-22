@@ -2,6 +2,7 @@ import type { GitTagListRequest, GitTagCheckoutRequest } from "../shared/types";
 import { contextBridge, ipcRenderer } from "electron";
 import { IPC_CHANNELS } from "../shared/ipc";
 import type {
+  GitIndexLockRemoveRequest,
   AiSettingsSaveRequest,
   RepositoryAiSettingsRequest,
   RepositoryAiSettingsSaveRequest,
@@ -127,6 +128,10 @@ const api: GitheadApi = {
     } satisfies RepoSummaryReadRequest) as Promise<RepoSummary>,
   getRepoIdentity: (request: RepoSectionRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getRepoIdentity, request) as ReturnType<GitheadApi["getRepoIdentity"]>,
+  inspectGitIndexLock: (request: CoordinatedRequest<{ repoPath: string }>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.inspectGitIndexLock, request) as ReturnType<GitheadApi["inspectGitIndexLock"]>,
+  removeGitIndexLock: (request: CoordinatedRequest<GitIndexLockRemoveRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.removeGitIndexLock, request) as ReturnType<GitheadApi["removeGitIndexLock"]>,
   getRepoStatus: (request: RepoSectionRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getRepoStatus, request) as ReturnType<GitheadApi["getRepoStatus"]>,
   getRepoMetadata: (request: RepoSectionRequest) =>

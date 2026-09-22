@@ -1,5 +1,6 @@
 import type { GitConfigRequest, GitConfigSaveRequest, GitIgnoreFileSaveRequest, GitSigningTestRequest } from "../shared/gitConfig";
 import { GitConfigService } from "./gitConfigService";
+import { GitIndexLockService } from "./gitIndexLockService";
 import { getAppIconPath } from "./appIcon";
 import type { GitTagListRequest, GitTagCheckoutRequest } from "../shared/types";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, safeStorage, screen, shell } from "electron";
@@ -10,6 +11,7 @@ import { pathToFileURL } from "node:url";
 import { IPC_CHANNELS } from "../shared/ipc";
 import { DEFAULT_REMOTE_CHECK_LEASE_SECONDS, PERFORMANCE_REFRESH_KINDS } from "../shared/types";
 import type {
+  GitIndexLockRemoveRequest,
   AiSettingsSaveRequest,
   RepositoryAiSettingsRequest,
   RepositoryAiSettingsSaveRequest,
@@ -191,6 +193,7 @@ const processRunner = new CancellableProcessRunner(
   new InstrumentedProcessRunner(new NodeProcessRunner(), performanceDiagnostics)
 );
 const gitService = new GitService(processRunner);
+const gitIndexLockService = new GitIndexLockService(processRunner);
 const gitConfigService = new GitConfigService(processRunner);
 const gitExecutableService = new GitExecutableService(processRunner);
 const loreService = new LoreService(processRunner);
@@ -783,6 +786,21 @@ ipcMain.handle(IPC_CHANNELS.openCommitFileVersion, async (event, request: Coordi
 
   return createOperationSuccess(request.repoPath, "Selected file version opened.");
 });
+
+ipcMain.handle(IPC_CHANNELS.inspectGitIndexLock, (event, request: CoordinatedRequest<{ repoPath: string }>) =>
+  runExclusiveRepositoryOperation(
+    { ...repositoryOperationOptions(event, request.operationId, request.repoPath), access: "read" },
+    (signal) => gitIndexLockService.inspect(request.repoPath, signal),
+    () => createOperationFailure(request.repoPath, "Another Githead operation is running. Wait for it to finish, then check again.")
+  )
+);
+
+ipcMain.handle(IPC_CHANNELS.removeGitIndexLock, (event, request: CoordinatedRequest<GitIndexLockRemoveRequest>) =>
+  runExclusiveGitOperation(
+    (signal) => gitIndexLockService.remove(request, signal),
+    repositoryOperationOptions(event, request.operationId, request.repoPath)
+  )
+);
 
 ipcMain.handle(IPC_CHANNELS.stageFiles, async (event, request: CoordinatedRequest<GitPathRequest>) => {
   return runExclusiveGitOperation(

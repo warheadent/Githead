@@ -378,6 +378,8 @@ export function createGitheadMock(): GitheadApi {
     fetchLfsImageVersions: vi.fn(),
     resetFilesToCommit: vi.fn().mockResolvedValue(okOperation),
     openCommitFileVersion: vi.fn().mockResolvedValue(okOperation),
+    inspectGitIndexLock: vi.fn().mockResolvedValue({ ...okOperation, exitCode: -1, stderr: "The index lock no longer exists." }),
+    removeGitIndexLock: vi.fn().mockResolvedValue(okOperation),
     stageFiles: vi.fn().mockResolvedValue(okOperation),
     unstageFiles: vi.fn().mockResolvedValue(okOperation),
     stageHunk: vi.fn().mockResolvedValue(okOperation),

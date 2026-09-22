@@ -1,4 +1,6 @@
 export const IPC_CHANNELS = {
+  inspectGitIndexLock: "git:index-lock-inspect",
+  removeGitIndexLock: "git:index-lock-remove",
   getGitExecutableStatus: "git:executable-status",
   chooseRepo: "repo:choose",
   chooseCloneParent: "repo:clone-parent-choose",
