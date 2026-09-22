@@ -28,9 +28,11 @@ import { runEffect, tryPromise } from "../shared/effectRuntime";
 
 const LEGACY_DEFAULT_OPENROUTER_MODEL = "openai/gpt-5.4-nano";
 const LEGACY_DEFAULT_CODEX_CLI_MODEL = "gpt-5.4-mini";
-export const DEFAULT_OPENROUTER_MODEL = "openai/gpt-5.6-luna";
+const PREVIOUS_DEFAULT_OPENROUTER_MODEL = "openai/gpt-5.6-luna";
+const PREVIOUS_DEFAULT_CODEX_CLI_MODEL = "gpt-5.6-luna";
+export const DEFAULT_OPENROUTER_MODEL = "openai/gpt-6-luna";
 export const DEFAULT_OPENAI_MODEL = "gpt-5.4-nano";
-export const DEFAULT_CODEX_CLI_MODEL = "gpt-5.6-luna";
+export const DEFAULT_CODEX_CLI_MODEL = "gpt-6-luna";
 export const DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
 export const DEFAULT_CLAUDE_CODE_MODEL = "haiku";
 export const DEFAULT_AI_REASONING_EFFORT: AiReasoningEffort = "low";
@@ -548,10 +550,10 @@ function createStoredProviderModels(stored: StoredAiSettings): Record<AiCommitMe
   if (legacyModel && !sanitizeSetting(stored.providerModels?.openrouter)) {
     models.openrouter = legacyModel;
   }
-  if (models.openrouter === LEGACY_DEFAULT_OPENROUTER_MODEL) {
+  if (models.openrouter === LEGACY_DEFAULT_OPENROUTER_MODEL || models.openrouter === PREVIOUS_DEFAULT_OPENROUTER_MODEL) {
     models.openrouter = DEFAULT_OPENROUTER_MODEL;
   }
-  if (models["codex-cli"] === LEGACY_DEFAULT_CODEX_CLI_MODEL) {
+  if (models["codex-cli"] === LEGACY_DEFAULT_CODEX_CLI_MODEL || models["codex-cli"] === PREVIOUS_DEFAULT_CODEX_CLI_MODEL) {
     models["codex-cli"] = DEFAULT_CODEX_CLI_MODEL;
   }
 

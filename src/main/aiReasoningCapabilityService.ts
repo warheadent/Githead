@@ -75,6 +75,7 @@ const unknown = (): AiReasoningCapabilities => ({
 
 const STATIC_CAPABILITIES: Partial<Record<AiCommitMessageProvider, Record<string, AiReasoningCapabilities>>> = {
   openrouter: {
+    "openai/gpt-6-luna": supported(["low", "medium", "high", "xhigh", "max"]),
     "openai/gpt-5.6-luna": supported(["low", "medium", "high", "xhigh", "max"])
   },
   openai: {
@@ -83,6 +84,7 @@ const STATIC_CAPABILITIES: Partial<Record<AiCommitMessageProvider, Record<string
     "gpt-5.4": supported(["none", "minimal", "low", "medium", "high", "xhigh"])
   },
   "codex-cli": {
+    "gpt-6-luna": supported(["low", "medium", "high", "xhigh", "max"]),
     "gpt-5.6-sol": supported(["low", "medium", "high", "xhigh", "max", "ultra"]),
     "gpt-5.6-terra": supported(["low", "medium", "high", "xhigh", "max", "ultra"]),
     "gpt-5.6-luna": supported(["low", "medium", "high", "xhigh", "max"]),

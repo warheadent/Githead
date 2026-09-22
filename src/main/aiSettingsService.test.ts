@@ -234,6 +234,24 @@ describe("AiSettingsService", () => {
     });
   });
 
+  it("updates saved Luna defaults without replacing custom models", async () => {
+    await withTempDir(async (dir) => {
+      await fs.writeFile(path.join(dir, "ai-settings.json"), JSON.stringify({
+        providerModels: {
+          openrouter: "openai/gpt-5.6-luna",
+          "codex-cli": "gpt-5.6-luna",
+          openai: "gpt-5.4-mini"
+        }
+      }), "utf8");
+
+      const settings = await createService(dir).getSettings();
+
+      expect(settings.providers.openrouter.model).toBe("openai/gpt-6-luna");
+      expect(settings.providers["codex-cli"].model).toBe("gpt-6-luna");
+      expect(settings.providers.openai.model).toBe("gpt-5.4-mini");
+    });
+  });
+
   it("defaults invalid reasoning values and persists efforts per provider", async () => {
     await withTempDir(async (dir) => {
       await fs.writeFile(path.join(dir, "ai-settings.json"), JSON.stringify({

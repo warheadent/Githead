@@ -71,7 +71,7 @@ describe("AiReasoningCapabilityService", () => {
 
     await expect(service.getCapabilities({
       provider: "openrouter",
-      model: "openai/gpt-5.6-luna"
+      model: "openai/gpt-6-luna"
     })).resolves.toEqual({
       status: "supported",
       supportedEfforts: ["low", "medium", "high", "xhigh", "max"]
@@ -86,7 +86,7 @@ describe("AiReasoningCapabilityService", () => {
 
     await expect(service.getCapabilities({
       provider: "codex-cli",
-      model: "gpt-5.6-luna"
+      model: "gpt-6-luna"
     })).resolves.toEqual({
       status: "supported",
       supportedEfforts: ["low", "medium", "high", "xhigh", "max"]
