@@ -56,7 +56,7 @@ describe("Git index lock recovery", () => {
     const worktree = path.join(root, "linked");
     expect((await git.run("git", ["-C", repoPath, "worktree", "add", "-b", "linked", worktree])).exitCode).toBe(0);
     const resolved = await git.run("git", ["-C", worktree, "rev-parse", "--path-format=absolute", "--git-path", "index.lock"]);
-    const linkedLock = resolved.stdout.trim();
+    const linkedLock = path.normalize(resolved.stdout.trim());
     await createOldLock(linkedLock);
     await createOldLock();
     const inspection = await service.inspect(worktree);

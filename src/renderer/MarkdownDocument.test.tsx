@@ -24,7 +24,7 @@ it("opens relative documents at the selected revision and returns to the origina
   expect(window.githead.getFilePreview).toHaveBeenCalledWith(expect.objectContaining({
     repoPath: "/repo", path: "guide.md", source: { kind: "commit", hash: "abc123" }
   }));
-  expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Install" }));
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Install" })));
   fireEvent.click(screen.getByRole("button", { name: "Back" }));
   await screen.findByRole("heading", { name: "Start" });
 });

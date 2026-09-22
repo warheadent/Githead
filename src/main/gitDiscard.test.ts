@@ -19,6 +19,7 @@ async function fixture() {
     expect(result.exitCode, result.stderr).toBe(0);
   };
   await git("init");
+  await git("config", "core.autocrlf", "false");
   await git("config", "user.name", "Discard Test");
   await git("config", "user.email", "discard@example.test");
   await fs.writeFile(path.join(repoPath, "file.txt"), "original\n");
