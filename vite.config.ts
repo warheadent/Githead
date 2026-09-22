@@ -2,6 +2,7 @@ import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, lazyPlugins } from "vite-plus";
+import packageJson from "./package.json";
 import {
   createSentryVitePlugin,
   buildSourceMaps,
@@ -32,6 +33,8 @@ export default defineConfig({
   root: ".",
   base: "./",
   define: {
+    __APP_VERSION__: JSON.stringify(packageJson.version),
+    __APP_BUILD_DATE__: JSON.stringify(new Date().toISOString()),
     __SENTRY_ENABLED__: JSON.stringify(Boolean(sentryBuildConfig.dsn))
   },
   plugins: lazyPlugins(() => [
