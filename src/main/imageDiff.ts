@@ -1,12 +1,14 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { GitImageVersion } from "../shared/types";
+import { isSvgPath } from "../shared/filePreview";
 
 export const IMAGE_PREVIEW_LIMIT = 10 * 1024 * 1024;
 
 const EXTENSION_MIME = new Map([
   [".png", "image/png"], [".jpg", "image/jpeg"], [".jpeg", "image/jpeg"],
-  [".gif", "image/gif"], [".webp", "image/webp"], [".bmp", "image/bmp"], [".ico", "image/x-icon"]
+  [".gif", "image/gif"], [".webp", "image/webp"], [".bmp", "image/bmp"], [".ico", "image/x-icon"],
+  [".svg", "image/svg+xml"]
 ]);
 
 export type ImageReadResult =
@@ -21,10 +23,15 @@ export function isPreviewableImagePath(filePath: string): boolean {
   return EXTENSION_MIME.has(path.extname(filePath).toLowerCase());
 }
 
+/** SVG source retains its text diff; raster images use the image diff path. */
+export function isPreviewableRasterImagePath(filePath: string): boolean {
+  return isPreviewableImagePath(filePath) && !isSvgPath(filePath);
+}
+
 export function imageVersionFromBytes(filePath: string, bytes: Uint8Array): ImageReadResult {
   if (bytes.byteLength > IMAGE_PREVIEW_LIMIT) return { kind: "oversized" };
   const expected = EXTENSION_MIME.get(path.extname(filePath).toLowerCase());
-  const actual = detectMime(bytes);
+  const actual = expected === "image/svg+xml" ? detectSvgMime(bytes) : detectMime(bytes);
   if (!expected || actual !== expected) return { kind: "invalid" };
   return { kind: "image", version: { mimeType: actual, data: new Uint8Array(bytes), byteLength: bytes.byteLength } };
 }
@@ -55,4 +62,17 @@ function detectMime(bytes: Uint8Array): string | null {
   if (bytes.length >= 2 && ascii(0, 2) === "BM") return "image/bmp";
   if (bytes.length >= 6 && bytes[0] === 0 && bytes[1] === 0 && bytes[2] === 1 && bytes[3] === 0 && (bytes[4] !== 0 || bytes[5] !== 0)) return "image/x-icon";
   return null;
+}
+
+function detectSvgMime(bytes: Uint8Array): string | null {
+  let source: string;
+  try {
+    source = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return null;
+  }
+  if (source.includes("\0") || /<!DOCTYPE|<!ENTITY/i.test(source)) return null;
+  const root = source.replace(/^\uFEFF/, "").trimStart()
+    .replace(/^(?:(?:<\?xml[\s\S]*?\?>|<!--[\s\S]*?-->)\s*)*/, "");
+  return /^<svg(?:\s|>|\/>)/.test(root) ? "image/svg+xml" : null;
 }

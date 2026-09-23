@@ -177,6 +177,34 @@ hello.txt
 `;
 
 describe("LoreService", () => {
+  it("reads SVG previews from working and historical versions without replacing source diffs", async () => {
+    await withLoreRepo(async (dir) => {
+      const svg = (label: string) => `<svg xmlns="http://www.w3.org/2000/svg"><text>${label}</text></svg>`;
+      await fs.writeFile(path.join(dir, "mark.svg"), svg("working"));
+      const revision = "7154881d5d929c4487cdee9d65fd7b9c6edb6de8994f819c80ac4191a8f08af4";
+      const runner = new FakeRunner([
+        ok("On branch main"), ok("On branch main"), ok("written"), ok("On branch main"),
+        ok("mark.svg\n--- mark.svg@1\n+++ mark.svg\n@@ -1 +1 @@\n-old\n+working\n")
+      ]);
+      const run = runner.run.bind(runner);
+      vi.spyOn(runner, "run").mockImplementation(async (command, args, options) => {
+        const result = await run(command, args, options);
+        const output = args.indexOf("--output");
+        if (output >= 0) await fs.writeFile(args[output + 1]!, svg("historical"));
+        return result;
+      });
+      const service = new LoreService(runner);
+      const working = await service.getFilePreviewImage({ repoPath: dir, path: "mark.svg", source: { kind: "working" } });
+      const historical = await service.getFilePreviewImage({ repoPath: dir, path: "mark.svg", source: { kind: "commit", hash: revision } });
+      expect(working.mimeType).toBe("image/svg+xml");
+      expect(Buffer.from(working.data).toString()).toBe(svg("working"));
+      expect(Buffer.from(historical.data).toString()).toBe(svg("historical"));
+      const diff = await service.getFileDiff({ repoPath: dir, path: "mark.svg", side: "unstaged" });
+      expect(diff.kind).toBe("text");
+      expect(diff.text).toContain("+working");
+    });
+  });
+
   it("loads working and historical preview images and removes the temporary export", async () => {
     await withLoreRepo(async (dir) => {
       const png = Buffer.from("89504e470d0a1a0a", "hex");

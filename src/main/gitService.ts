@@ -125,7 +125,7 @@ import { mapWithConcurrency } from "./asyncMap";
 import { validateCloneRequest } from "./cloneValidation";
 import type { ProcessOutput, ProcessResult, ProcessRunOptions, ProcessRunner } from "./processRunner";
 import { mapRepoSyncStatuses } from "./repoSyncStatus";
-import { IMAGE_PREVIEW_LIMIT, imageFallbackText, imageVersionFromBytes, isPreviewableImagePath, type ImageReadResult } from "./imageDiff";
+import { IMAGE_PREVIEW_LIMIT, imageFallbackText, imageVersionFromBytes, isPreviewableImagePath, isPreviewableRasterImagePath, type ImageReadResult } from "./imageDiff";
 import { escapeLfsIncludePath, isGitLfsPointerDiff, parseGitLfsPointer, parseLocalMediaDir, resolveLocalLfsImage, type GitLfsPointer } from "./gitLfs";
 import { resolvePreviewFile, validatePreviewPath, readMarkdownPreviewFile, validateMarkdownPreviewPath, validateMarkdownPreviewText } from "./filePreview";
 import { sanitizeCommitHash, sanitizeHistoryLimit, sanitizeSingleRepoPath } from "./gitReadValidation";
@@ -589,7 +589,7 @@ export class GitService {
         };
       }
     }
-    return (normalized.kind === "binary" || (normalized.kind === "text" && isGitLfsPointerDiff(normalized.text))) && isPreviewableImagePath(request.path) && this.runner.runBinary
+    return (normalized.kind === "binary" || (normalized.kind === "text" && isGitLfsPointerDiff(normalized.text))) && isPreviewableRasterImagePath(request.path) && this.runner.runBinary
       ? await this.getWorkingImageDiff(request)
       : normalized;
   }
@@ -913,7 +913,7 @@ export class GitService {
       path: pathResult.path,
       side: "unstaged"
     }, diffResult);
-    return (normalized.kind === "binary" || (normalized.kind === "text" && isGitLfsPointerDiff(normalized.text))) && isPreviewableImagePath(request.path) && this.runner.runBinary
+    return (normalized.kind === "binary" || (normalized.kind === "text" && isGitLfsPointerDiff(normalized.text))) && isPreviewableRasterImagePath(request.path) && this.runner.runBinary
       ? await this.getCommitImageDiff(request, hashResult.hash)
       : normalized;
   }

@@ -5,3 +5,7 @@ const MARKDOWN_EXTENSION_PATTERN = /\.(?:md|mdx|markdown)$/i;
 export function isMarkdownPath(filePath: string): boolean {
   return MARKDOWN_EXTENSION_PATTERN.test(filePath.trim());
 }
+
+export function isSvgPath(filePath: string): boolean {
+  return /\.svg$/i.test(filePath.trim());
+}

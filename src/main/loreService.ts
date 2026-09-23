@@ -92,7 +92,7 @@ import { validateCloneRequest } from "./cloneValidation";
 import type { GitOutputHandler } from "./gitService";
 import type { ProcessResult, ProcessRunOptions, ProcessRunner } from "./processRunner";
 import { mapRepoSyncStatuses } from "./repoSyncStatus";
-import { imageFallbackText, isPreviewableImagePath, readImageFile, type ImageReadResult } from "./imageDiff";
+import { imageFallbackText, isPreviewableImagePath, isPreviewableRasterImagePath, readImageFile, type ImageReadResult } from "./imageDiff";
 import { runEffect, tryPromise } from "../shared/effectRuntime";
 import { runProcessEffect } from "./processEffect";
 import { resolvePreviewFile, validatePreviewPath, readMarkdownPreviewFile, validateMarkdownPreviewPath } from "./filePreview";
@@ -421,7 +421,7 @@ export class LoreService implements VcsService {
     }
 
     const text = normalizeLoreDiff(result.stdout);
-    if (text && isPreviewableImagePath(request.path)) {
+    if (text && isPreviewableRasterImagePath(request.path)) {
       return await this.getWorkingImageDiff(validation.rootPath, request);
     }
     return {
@@ -445,7 +445,7 @@ export class LoreService implements VcsService {
 
     const parent = await this.getParentSignature(validation.rootPath, hash);
     if (!parent) {
-      if (isPreviewableImagePath(request.path)) {
+      if (isPreviewableRasterImagePath(request.path)) {
         const currentPath = safeRelativePath(request.path);
         if (currentPath) {
           return this.buildImageDiff(request.path, "unstaged", { kind: "missing" }, await this.readLoreRevisionImage(validation.rootPath, hash, currentPath));
@@ -474,7 +474,7 @@ export class LoreService implements VcsService {
     }
 
     const text = normalizeLoreDiff(result.stdout);
-    if (text && isPreviewableImagePath(request.path)) {
+    if (text && isPreviewableRasterImagePath(request.path)) {
       return await this.getCommitImageDiff(validation.rootPath, request, parent);
     }
     return {

@@ -2,7 +2,7 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 import { createGitheadMock } from "./AppTestHarness";
-import { useMarkdownFilePreview } from "./useMarkdownFilePreview";
+import { useMarkdownFilePreview } from "./useFilePreview";
 import type { GitFilePreview } from "@/shared/types";
 
 afterEach(cleanup);

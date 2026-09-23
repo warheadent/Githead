@@ -1109,6 +1109,33 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.getFilePreview).toHaveBeenCalledTimes(1);
   });
 
+  it("opens an SVG image on demand and returns to its text diff", async () => {
+    const user = userEvent.setup();
+    const file = createStatusFile("assets/mark.svg", { isUnstaged: true, worktreeStatus: "M" });
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [file] }));
+    vi.mocked(githead.getFileDiff).mockResolvedValue(createTextDiff(file.path, "SVG source diff"));
+    const data = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+    vi.mocked(githead.getFilePreviewImage).mockResolvedValue({ data, byteLength: data.byteLength, mimeType: "image/svg+xml" });
+    const createUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:svg-preview");
+    const revokeUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+
+    render(<App />);
+    await user.click(await screen.findByRole("option", { name: /assets\/mark\.svg/ }));
+    expect(await screen.findByText("SVG source diff")).toBeTruthy();
+    expect(githead.getFilePreviewImage).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    expect(await screen.findByRole("img", { name: "Preview version of assets/mark.svg" })).toBeTruthy();
+    expect(createUrl).toHaveBeenCalledWith(expect.objectContaining({ type: "image/svg+xml" }));
+    expect(githead.getFilePreviewImage).toHaveBeenCalledWith(expect.objectContaining({
+      repoPath, path: file.path, source: { kind: "working" }
+    }));
+    await user.click(screen.getByRole("button", { name: "Show Diff" }));
+    expect(screen.getByText("SVG source diff")).toBeTruthy();
+    expect(revokeUrl).toHaveBeenCalledWith("blob:svg-preview");
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    expect(githead.getFilePreviewImage).toHaveBeenCalledTimes(1);
+  });
+
   it("renders GFM pipe tables as a semantic table constrained to the preview", async () => {
     const user = userEvent.setup();
     const file = createStatusFile("README.md", { isUnstaged: true, worktreeStatus: "M" });

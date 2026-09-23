@@ -186,6 +186,7 @@ import type {
   GitExecutableStatus,
   GitForceWithLeaseOffer,
   GitImageSide,
+  GitImageVersion,
   GitHubIssue,
   GitHubIssueQuery,
   GitHubConnectionStatus,
@@ -236,7 +237,7 @@ import type {
   StatusFileViewMode
 } from "../shared/types";
 import { AI_COMMIT_MESSAGE_PROVIDERS, DEFAULT_COMMIT_PLAN_GRANULARITY, DEFAULT_REMOTE_CHECK_LEASE_SECONDS, DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS, DEFAULT_TAG_PUSH_BEHAVIOR, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
-import { isMarkdownPath } from "../shared/filePreview";
+import { isMarkdownPath, isSvgPath } from "../shared/filePreview";
 import { parseCommitSubject, type ParsedCommitSubject } from "../shared/commitSubject";
 import { parseGitHubReferences } from "../shared/githubReference";
 import { getRepositoryWebUrl } from "../shared/remoteWebUrl";
@@ -303,7 +304,7 @@ import { attachCommitGraphHover } from "./commitGraphHover";
 import { VisualEffectsProvider, defaultVisualPreferences, useVisualEffects } from "./VisualEffects";
 import { StartLayout } from "./StartLayout";
 import { useGitStashes } from "./useGitStashes";
-import { useMarkdownFilePreview } from "./useMarkdownFilePreview";
+import { useImageFilePreview, useMarkdownFilePreview } from "./useFilePreview";
 import { useSelectionSafeValue } from "./useSelectionSafeValue";
 import { repositoryHistoryRoute, targetFromCommitFile, targetFromHistoryEntry, type HistoricalFileTarget, type HistoryRoute } from "./historyNavigation";
 import gitIconUrl from "./assets/git-icon-white.svg";
@@ -10953,7 +10954,7 @@ function StatusView({
           onDownloadImage={onDownloadImage}
           imageDownloadLoading={disabled}
           repoPath={summary?.repoPath ?? ""}
-          previewSource={selection && selectedFile && !selectedFile.submodule && isMarkdownPath(selection.path) && !isDeletedOnSide(selectedFile, selection.side)
+          previewSource={selection && selectedFile && !selectedFile.submodule && (isMarkdownPath(selection.path) || isSvgPath(selection.path)) && !isDeletedOnSide(selectedFile, selection.side)
             ? { kind: selection.side === "staged" ? "staged" : "working" }
             : undefined}
           hunkAction={hunkAction}
@@ -11425,7 +11426,10 @@ function DiffPanel({
   const readingPosition = useMemo(() => ({ scrollTop: 0 }), [previewKey]);
   const [selectedPreviewKey, setSelectedPreviewKey] = useState(previewKey);
   const previewVisible = showPreview && selectedPreviewKey === previewKey;
-  const preview = useMarkdownFilePreview(previewSource ? { repoPath, path: filePath, source: previewSource } : null, diff, previewVisible);
+  const svgFile = isSvgPath(filePath);
+  const previewRequest = previewSource ? { repoPath, path: filePath, source: previewSource } : null;
+  const preview = useMarkdownFilePreview(!svgFile ? previewRequest : null, diff, previewVisible && !svgFile);
+  const imagePreview = useImageFilePreview(svgFile ? previewRequest : null, diff, previewVisible && svgFile);
   const togglePreview = (): void => {
     setSelectedPreviewKey(previewKey);
     setShowPreview(!previewVisible);
@@ -11434,7 +11438,21 @@ function DiffPanel({
   let content: ReactNode = emptyMessage;
   let outputClass = "diff-output";
 
-  if (previewVisible && previewSource) {
+  if (previewVisible && previewSource && svgFile) {
+    outputClass = "diff-output image";
+    content = imagePreview.loading && !imagePreview.image
+      ? <LoadingState label="Loading SVG preview" className="h-full" />
+      : imagePreview.error && !imagePreview.image
+        ? <p className="markdown-preview-status bad selectable-text" role="alert">{imagePreview.error}</p>
+        : imagePreview.image
+          ? <div className="image-diff-wrap" aria-label={`SVG preview for ${filePath}`}>
+            {imagePreview.error ? <p className="markdown-preview-status bad selectable-text" role="alert">{imagePreview.error}</p> : null}
+            <div className="image-diff is-single">
+              <ImageDiffPane side="Preview" filePath={filePath} imageSide={{ status: "available", version: imagePreview.image }} missingMessage="SVG preview is unavailable." />
+            </div>
+          </div>
+          : null;
+  } else if (previewVisible && previewSource) {
     outputClass = "markdown-preview-output";
     content = preview.loading && preview.text === null
       ? <LoadingState label="Loading Markdown preview" className="h-full" />
@@ -11999,7 +12017,7 @@ function HistoryView({
               onDownloadImage={onDownloadImage}
               imageDownloadLoading={disabled}
               repoPath={summary?.repoPath ?? ""}
-              previewSource={selectedCommitHash && selectedCommitFile && selectedCommitFile.status !== "D" && isMarkdownPath(selectedCommitFile.path)
+              previewSource={selectedCommitHash && selectedCommitFile && selectedCommitFile.status !== "D" && (isMarkdownPath(selectedCommitFile.path) || isSvgPath(selectedCommitFile.path))
                 ? { kind: "commit", hash: selectedCommitHash }
                 : undefined}
               wrapLines={wrapLines}
@@ -14336,17 +14354,23 @@ function ImageDiffView({ filePath, before, after, onDownload, downloading }: { f
   );
 }
 
-function ImageDiffPane({ side, filePath, imageSide, missingMessage }: { side: "Before" | "After"; filePath: string; imageSide: GitImageSide; missingMessage: string }): ReactNode {
+function ImageDiffPane({ side, filePath, imageSide, missingMessage }: { side: "Before" | "After" | "Preview"; filePath: string; imageSide: GitImageSide; missingMessage: string }): ReactNode {
   const version = imageSide.status === "available" ? imageSide.version : null;
-  const objectUrl = useMemo(() => version ? URL.createObjectURL(new Blob([Uint8Array.from(version.data)], { type: version.mimeType })) : null, [version]);
-  useEffect(() => () => {
-    if (objectUrl) URL.revokeObjectURL(objectUrl);
-  }, [objectUrl]);
+  const [source, setSource] = useState<{ version: GitImageVersion; url: string } | null>(null);
+  const objectUrl = source?.version === version ? source.url : null;
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const failed = Boolean(objectUrl && failedUrl === objectUrl);
+  useEffect(() => {
+    if (!version) return;
+    const url = URL.createObjectURL(new Blob([Uint8Array.from(version.data)], { type: version.mimeType }));
+    setSource({ version, url });
+    return () => URL.revokeObjectURL(url);
+  }, [version]);
   return (
     <figure className="image-diff-pane">
       <figcaption className="image-diff-label">{side}</figcaption>
       <div className="image-diff-canvas">
-        {objectUrl ? <img className="image-diff-preview" src={objectUrl} alt={`${side} version of ${filePath}`} /> : imageSide.status === "lfs-missing" ? <p className="image-diff-missing">LFS image is not available locally.<br />{formatImageBytes(imageSide.byteLength)}</p> : <p className="image-diff-missing">{missingMessage}</p>}
+        {version && !objectUrl ? null : objectUrl && !failed ? <img className="image-diff-preview" src={objectUrl} alt={`${side} version of ${filePath}`} onError={() => setFailedUrl(objectUrl)} /> : <p className="image-diff-missing">{failed ? "Unable to display image." : imageSide.status === "lfs-missing" ? <>LFS image is not available locally.<br />{formatImageBytes(imageSide.byteLength)}</> : missingMessage}</p>}
       </div>
     </figure>
   );
