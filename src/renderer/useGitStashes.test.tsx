@@ -89,3 +89,23 @@ it("ignores details requested while a refresh is in flight", async () => {
   expect(result.current.state.details?.stash.hash).toBe("second");
   expect(result.current.state.selectedRef).toBe("stash@{0}");
 });
+
+it("keeps a stash detail error until the user retries", async () => {
+  const getStashes = vi.fn(async () => entries);
+  const getStashDetails = vi.fn<({ stashRef }: { stashRef: string }) => Promise<GitStashDetails>>()
+    .mockRejectedValueOnce(new Error("Unable to read stash objects"))
+    .mockImplementation(() => new Promise(() => undefined));
+  vi.stubGlobal("githead", { getStashes, getStashDetails });
+  const { result } = renderHook(() => useGitStashes("/repo", true, true));
+
+  await act(async () => undefined);
+  expect(getStashDetails).toHaveBeenCalledTimes(1);
+  expect(result.current.state.detailsError).toBe("Unable to read stash objects");
+  expect(result.current.state.detailsLoading).toBe(false);
+
+  getStashDetails.mockResolvedValueOnce({ stash: entries[0]!, files: [] });
+  await act(() => result.current.select(entries[0]!.ref));
+  expect(getStashDetails).toHaveBeenCalledTimes(2);
+  expect(result.current.state.details?.stash.hash).toBe("first");
+  expect(result.current.state.detailsError).toBe("");
+});

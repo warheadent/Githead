@@ -1393,10 +1393,16 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     }
   }, [updateState]);
 
-  const loadCommitDetails = useCallback(async (hash: string): Promise<void> => {
+  const invalidateCommitDetailReads = useCallback((): void => {
     cancelRepositoryRead("commit-details", requestIds.current.commitDetails);
-    const requestId = requestIds.current.commitDetails + 1;
-    requestIds.current.commitDetails = requestId;
+    cancelRepositoryRead("commit-file-diff", requestIds.current.commitFileDiff);
+    requestIds.current.commitDetails += 1;
+    requestIds.current.commitFileDiff += 1;
+  }, []);
+
+  const loadCommitDetails = useCallback(async (hash: string): Promise<void> => {
+    invalidateCommitDetailReads();
+    const requestId = requestIds.current.commitDetails;
     const previousFilePath = stateRef.current.selectedCommitFilePath;
     updateState({
       commitDetailsLoading: true,
@@ -1404,6 +1410,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       commitDetails: null,
       selectedCommitFilePath: null,
       commitFileDiff: null,
+      commitFileDiffLoading: false,
       commitFileDiffError: ""
     });
 
@@ -1442,11 +1449,12 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       }
     }
 
+    if (requestId !== requestIds.current.commitDetails) return;
     const latest = stateRef.current;
     if (latest.selectedCommitHash === hash && latest.selectedCommitFilePath) {
       await loadCommitFileDiff(hash, latest.selectedCommitFilePath);
     }
-  }, [loadCommitFileDiff, updateState]);
+  }, [invalidateCommitDetailReads, loadCommitFileDiff, updateState]);
 
   const loadCommitHistory = useCallback(async (
     force: boolean,
@@ -1512,6 +1520,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
         && latest.commitDetails?.hash !== selectedCommitHash
         && !(latest.commitDetailsLoading && latest.selectedCommitHash === selectedCommitHash);
 
+      if (selectionChanged && latest.selectedCommitHash) invalidateCommitDetailReads();
       updateState(selectionChanged ? {
         history,
         historyHasMore: loadedHistory.length > limit,
@@ -1519,9 +1528,11 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
         historyError: "",
         selectedCommitHash,
         commitDetails: null,
+        commitDetailsLoading: false,
         commitDetailsError: "",
         selectedCommitFilePath: null,
         commitFileDiff: null,
+        commitFileDiffLoading: false,
         commitFileDiffError: ""
       } : {
         history,
@@ -1569,7 +1580,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     }
 
     return true;
-  }, [loadCommitDetails, updateState]);
+  }, [invalidateCommitDetailReads, loadCommitDetails, updateState]);
 
   useEffect(() => {
     if (
@@ -1577,6 +1588,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       !state.summary?.isValid ||
       state.historyLoaded ||
       state.historyLoading ||
+      state.historyError ||
       typeof window.requestIdleCallback !== "function"
     ) {
       return;
@@ -1591,6 +1603,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
         latest.historyScope !== scope ||
         latest.historyLoaded ||
         latest.historyLoading ||
+        latest.historyError ||
         !latest.summary?.isValid
       ) {
         return;
@@ -1601,7 +1614,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     return () => {
       window.cancelIdleCallback(idleCallbackId);
     };
-  }, [loadCommitHistory, state.historyLoaded, state.historyLoading, state.historyScope, state.repoLoading, state.repoPath, state.summary?.isValid]);
+  }, [loadCommitHistory, state.historyError, state.historyLoaded, state.historyLoading, state.historyScope, state.repoLoading, state.repoPath, state.summary?.isValid]);
 
   const changeHistoryScope = useCallback(async (scope: CommitHistoryScope): Promise<void> => {
     let current = stateRef.current;
@@ -1613,10 +1626,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     current = stateRef.current;
     if (!isSameRepoPath(repoPath, current.repoPath) || current.historyScope === scope || current.summary?.kind !== "git") return;
 
-    cancelRepositoryRead("commit-details", requestIds.current.commitDetails);
-    cancelRepositoryRead("commit-file-diff", requestIds.current.commitFileDiff);
-    requestIds.current.commitDetails += 1;
-    requestIds.current.commitFileDiff += 1;
+    invalidateCommitDetailReads();
     updateState({
       historyScope: scope,
       history: [],
@@ -1634,7 +1644,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       commitFileDiffError: ""
     });
     void loadCommitHistory(false);
-  }, [ensureTrustedRepo, loadCommitHistory, updateState]);
+  }, [ensureTrustedRepo, invalidateCommitDetailReads, loadCommitHistory, updateState]);
 
   const loadSelectedDiff = useCallback(async (selectionOverride?: FileSelection): Promise<void> => {
     const selection = selectionOverride ?? stateRef.current.selection;

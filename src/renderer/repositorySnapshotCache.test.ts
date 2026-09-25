@@ -28,6 +28,20 @@ describe("RepositorySnapshotCache", () => {
     expect(cache.get("D:\\Repo")?.historyScope).toBe("all");
   });
 
+  it("retains selected paths in order and removes files absent from status", () => {
+    const cache = new RepositorySnapshotCache();
+    const entry = snapshot("D:\\Repo", 3);
+    entry.selection!.paths = ["file-2", "missing", "file-0", "file-1"];
+    cache.set("D:\\Repo", entry);
+
+    expect(cache.get("D:\\Repo")?.selection).toEqual({
+      path: "file-0", side: "unstaged", paths: ["file-2", "file-0", "file-1"], anchorPath: "file-0"
+    });
+    entry.selection!.path = "missing";
+    cache.set("D:\\Repo", entry);
+    expect(cache.get("D:\\Repo")?.selection).toBeNull();
+  });
+
   it("allows loading rows omitted by the cache budget", () => {
     const cache = new RepositorySnapshotCache();
     const commit: GitCommitGraphRow = {
