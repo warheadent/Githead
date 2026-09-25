@@ -441,166 +441,168 @@ export function RepositoryOrganizationDialog({
                 ) : null}
               </div>
             </div>
-            <div ref={tableScrollRef} className="repository-organizer-table-scroll">
-              <table className="repository-organizer-table">
-                <caption className="sr-only">Repositories in {filterName}</caption>
-                <thead>
-                  <tr>
-                    <th scope="col" className="repository-organizer-check-cell">
-                      <label className="repository-organizer-check">
-                        <input
-                          type="checkbox"
-                          aria-label="Select all shown repositories"
-                          disabled={!matchingPaths.length}
-                          checked={
-                            matchingPaths.length > 0 &&
-                            selectedPaths.length === matchingPaths.length
-                          }
-                          ref={(input) => {
-                            if (input)
-                              input.indeterminate =
-                                selectedPaths.length > 0 &&
-                                selectedPaths.length < matchingPaths.length;
-                          }}
-                          onChange={(event) =>
-                            setSelected(event.target.checked ? new Set(matchingPaths) : new Set())
-                          }
-                        />
-                      </label>
-                    </th>
-                    <th scope="col">Repository</th>
-                    <th scope="col" className="repository-organizer-group-cell">
-                      Group
-                    </th>
-                    <th scope="col" className="repository-organizer-state-cell">
-                      <span className="inline-flex items-center gap-1">
-                        Pinned
-                        <TooltipButton
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label="About pinned repositories"
-                          tooltip="Show in Pinned instead of its group. The group assignment is kept."
-                        >
-                          <Info />
-                        </TooltipButton>
-                      </span>
-                    </th>
-                    <th scope="col" className="repository-organizer-state-cell">
-                      Visible
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {matchingPaths.map((path) => {
-                    const preference = repositoryPreference(draft, path);
-                    const name = preference.alias || repositoryName(path);
-                    return (
-                      <tr key={path} data-selected={selected.has(path)}>
-                        <td>
-                          <label className="repository-organizer-check">
-                            <input
-                              type="checkbox"
-                              aria-label={`Select ${path}`}
-                              checked={selected.has(path)}
+            <div className="repository-organizer-table-frame">
+              <div ref={tableScrollRef} className="repository-organizer-table-scroll">
+                <table className="repository-organizer-table">
+                  <caption className="sr-only">Repositories in {filterName}</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col" className="repository-organizer-check-cell">
+                        <label className="repository-organizer-check">
+                          <input
+                            type="checkbox"
+                            aria-label="Select all shown repositories"
+                            disabled={!matchingPaths.length}
+                            checked={
+                              matchingPaths.length > 0 &&
+                              selectedPaths.length === matchingPaths.length
+                            }
+                            ref={(input) => {
+                              if (input)
+                                input.indeterminate =
+                                  selectedPaths.length > 0 &&
+                                  selectedPaths.length < matchingPaths.length;
+                            }}
+                            onChange={(event) =>
+                              setSelected(event.target.checked ? new Set(matchingPaths) : new Set())
+                            }
+                          />
+                        </label>
+                      </th>
+                      <th scope="col">Repository</th>
+                      <th scope="col" className="repository-organizer-group-cell">
+                        Group
+                      </th>
+                      <th scope="col" className="repository-organizer-state-cell">
+                        <span className="inline-flex items-center gap-1">
+                          Pinned
+                          <TooltipButton
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label="About pinned repositories"
+                            tooltip="Show in Pinned instead of its group. The group assignment is kept."
+                          >
+                            <Info />
+                          </TooltipButton>
+                        </span>
+                      </th>
+                      <th scope="col" className="repository-organizer-state-cell">
+                        Visible
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {matchingPaths.map((path) => {
+                      const preference = repositoryPreference(draft, path);
+                      const name = preference.alias || repositoryName(path);
+                      return (
+                        <tr key={path} data-selected={selected.has(path)}>
+                          <td>
+                            <label className="repository-organizer-check">
+                              <input
+                                type="checkbox"
+                                aria-label={`Select ${path}`}
+                                checked={selected.has(path)}
+                                onChange={(event) =>
+                                  setSelected((current) => {
+                                    const next = new Set(current);
+                                    if (event.target.checked) next.add(path);
+                                    else next.delete(path);
+                                    return next;
+                                  })
+                                }
+                              />
+                            </label>
+                          </td>
+                          <td>
+                            <div className="repository-organizer-name">
+                              <span className="truncate font-medium" title={name}>
+                                {name}
+                              </span>
+                              <TooltipButton
+                                variant="ghost"
+                                size="icon-xs"
+                                aria-label={`Rename ${path} in Githead`}
+                                tooltip="Rename repository"
+                                onClick={() =>
+                                  setEdit({ kind: "repository", path, name: preference.alias })
+                                }
+                              >
+                                <Pencil />
+                              </TooltipButton>
+                            </div>
+                            <p className="repository-organizer-path" title={path}>
+                              {path}
+                            </p>
+                          </td>
+                          <td>
+                            <select
+                              aria-label={`Group for ${path}`}
+                              className="repository-project-select"
+                              value={preference.projectId}
                               onChange={(event) =>
-                                setSelected((current) => {
-                                  const next = new Set(current);
-                                  if (event.target.checked) next.add(path);
-                                  else next.delete(path);
-                                  return next;
-                                })
-                              }
-                            />
-                          </label>
-                        </td>
-                        <td>
-                          <div className="repository-organizer-name">
-                            <span className="truncate font-medium" title={name}>
-                              {name}
-                            </span>
-                            <TooltipButton
-                              variant="ghost"
-                              size="icon-xs"
-                              aria-label={`Rename ${path} in Githead`}
-                              tooltip="Rename repository"
-                              onClick={() =>
-                                setEdit({ kind: "repository", path, name: preference.alias })
+                                setPreferences([path], { projectId: event.target.value })
                               }
                             >
-                              <Pencil />
-                            </TooltipButton>
-                          </div>
-                          <p className="repository-organizer-path" title={path}>
-                            {path}
-                          </p>
-                        </td>
-                        <td>
-                          <select
-                            aria-label={`Group for ${path}`}
-                            className="repository-project-select"
-                            value={preference.projectId}
-                            onChange={(event) =>
-                              setPreferences([path], { projectId: event.target.value })
-                            }
-                          >
-                            <option value="">Ungrouped</option>
-                            {draft.projects.map((project) => (
-                              <option key={project.id} value={project.id}>
-                                {project.name}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td>
-                          <label className="repository-organizer-check">
-                            <input
-                              type="checkbox"
-                              aria-label={`Pin ${path}`}
-                              checked={preference.pinned}
-                              onChange={(event) =>
-                                setPreferences([path], { pinned: event.target.checked })
-                              }
-                            />
-                          </label>
-                        </td>
-                        <td>
-                          <label className="repository-organizer-check">
-                            <input
-                              type="checkbox"
-                              aria-label={`Show ${path}`}
-                              checked={!preference.hidden}
-                              onChange={(event) =>
-                                setPreferences([path], { hidden: !event.target.checked })
-                              }
-                            />
-                          </label>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              {!matchingPaths.length ? (
-                <div className="repository-organizer-empty">
-                  <Folder />
-                  <p>
-                    {search
-                      ? "No repositories match your search."
-                      : filter === "hidden"
-                        ? "No hidden repositories."
-                        : "No repositories in this group."}
-                  </p>
-                  {search ? (
-                    <Button variant="outline" size="sm" onClick={() => setQuery("")}>
-                      Clear search
-                    </Button>
-                  ) : filter !== "all" && filter !== "hidden" ? (
-                    <Button variant="outline" size="sm" onClick={() => changeFilter("all")}>
-                      Choose from all repositories
-                    </Button>
-                  ) : null}
-                </div>
-              ) : null}
+                              <option value="">Ungrouped</option>
+                              {draft.projects.map((project) => (
+                                <option key={project.id} value={project.id}>
+                                  {project.name}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td>
+                            <label className="repository-organizer-check">
+                              <input
+                                type="checkbox"
+                                aria-label={`Pin ${path}`}
+                                checked={preference.pinned}
+                                onChange={(event) =>
+                                  setPreferences([path], { pinned: event.target.checked })
+                                }
+                              />
+                            </label>
+                          </td>
+                          <td>
+                            <label className="repository-organizer-check">
+                              <input
+                                type="checkbox"
+                                aria-label={`Show ${path}`}
+                                checked={!preference.hidden}
+                                onChange={(event) =>
+                                  setPreferences([path], { hidden: !event.target.checked })
+                                }
+                              />
+                            </label>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {!matchingPaths.length ? (
+                  <div className="repository-organizer-empty">
+                    <Folder />
+                    <p>
+                      {search
+                        ? "No repositories match your search."
+                        : filter === "hidden"
+                          ? "No hidden repositories."
+                          : "No repositories in this group."}
+                    </p>
+                    {search ? (
+                      <Button variant="outline" size="sm" onClick={() => setQuery("")}>
+                        Clear search
+                      </Button>
+                    ) : filter !== "all" && filter !== "hidden" ? (
+                      <Button variant="outline" size="sm" onClick={() => changeFilter("all")}>
+                        Choose from all repositories
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
             </div>
             <p className="repository-organizer-hint">
               Hidden repositories remain searchable. Groups include hidden and pinned members.
