@@ -6,18 +6,19 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { createCommit, createCommitDetails, createSummary, createTextDiff, defer, githead, repoPath, repositoryRecents, waitForRepositoryWorkspace, type RepoSummary } from "./AppTestHarness";
 import { App } from "./App";
 
+async function traverseHistory(direction: "back" | "forward"): Promise<void> {
+  await act(() => new Promise<void>((resolve) => {
+    window.addEventListener("popstate", () => resolve(), { once: true });
+    window.history[direction]();
+  }));
+}
+
 async function goBack(): Promise<void> {
-  await act(async () => {
-    window.history.back();
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  });
+  await traverseHistory("back");
 }
 
 async function goForward(): Promise<void> {
-  await act(async () => {
-    window.history.forward();
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  });
+  await traverseHistory("forward");
 }
 
 function selectedTab(name: RegExp): HTMLElement {
