@@ -8,8 +8,8 @@ const parent = "b".repeat(40);
 describe("gitFileHistory", () => {
   it("parses modified and renamed entries with NUL-delimited paths", () => {
     const text = [
-      `\x1e${hash}\x1faaaaaaa\x1f${parent}\x1fRename file\x1fTaylor\x1ft@example.test\x1f2026-01-01T00:00:00Z\x1fnow\0R100\0old name.ts\0new name.ts\0`,
-      `\x1e${parent}\x1fbbbbbbb\x1f\x1fCreate file\x1fTaylor\x1ft@example.test\x1f2025-01-01T00:00:00Z\x1fyear ago\0A\0old name.ts\0`
+      `\x1e${hash}\x1faaaaaaa\x1f${parent}\x1fRename file\x1fTaylor\x1ft@example.test\x1f2026-01-01T00:00:00Z\x1fnow\0\nR100\0old name.ts\0new name.ts\0`,
+      `\x1e${parent}\x1fbbbbbbb\x1f\x1fCreate file\x1fTaylor\x1ft@example.test\x1f2025-01-01T00:00:00Z\x1fyear ago\0\nA\0old name.ts\0`
     ].join("");
     expect(parseGitFileHistory(text)).toEqual([
       expect.objectContaining({ hash, path: "new name.ts", originalPath: "old name.ts", status: "R", parents: [parent] }),
@@ -28,5 +28,13 @@ describe("gitFileHistory", () => {
     expect(result.hasMore).toBe(true);
     expect(run).toHaveBeenCalledOnce();
     expect(run.mock.calls[0]?.[1]).toEqual(expect.arrayContaining(["log", "--follow", "--find-renames", "--max-count=2", hash, "--", "a.ts"]));
+  });
+
+  it.each(["\n", "\r\n"])("removes the %j status separator without changing path whitespace", (separator) => {
+    const filePath = " \nfile\tname.ts ";
+    const text = `\x1e${hash}\x1faaaaaaa\x1f\x1fModify file\x1fTaylor\x1ft@example.test\x1f2026-01-01T00:00:00Z\x1fnow\0${separator}M\0${filePath}\0`;
+    expect(parseGitFileHistory(text)).toEqual([
+      expect.objectContaining({ hash, status: "M", path: filePath })
+    ]);
   });
 });

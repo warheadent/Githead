@@ -34,8 +34,9 @@ export class RepositorySnapshotCache {
     const retainStatus = snapshot.summary.files.length <= REPOSITORY_SNAPSHOT_MAX_FILES_PER_ENTRY;
     const files = retainStatus ? snapshot.summary.files.slice() : [];
     const history = snapshot.history.slice(0, REPOSITORY_SNAPSHOT_MAX_HISTORY_PER_ENTRY);
-    const selection = retainStatus && snapshot.selection && files.some((file) => file.path === snapshot.selection?.path)
-      ? { ...snapshot.selection, paths: snapshot.selection.paths.filter((path) => files.some((file) => file.path === path)) }
+    const filePaths = snapshot.selection ? new Set(files.map((file) => file.path)) : null;
+    const selection = snapshot.selection && filePaths?.has(snapshot.selection.path)
+      ? { ...snapshot.selection, paths: snapshot.selection.paths.filter((path) => filePaths.has(path)) }
       : null;
     const entry: StoredSnapshot = {
       summary: { ...snapshot.summary, files, ...(retainStatus && snapshot.summary.submodules ? { submodules: snapshot.summary.submodules.slice() } : { submodules: [] }) },

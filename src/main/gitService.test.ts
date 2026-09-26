@@ -100,6 +100,21 @@ describe("GitService progressive Repository sections", () => {
 
     expect(runner.calls[0]?.args).toEqual(["-C", "D:\\Repo", "--no-optional-locks", "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all"]);
   });
+
+  it.each<ProcessResult & { expected: string }>([
+    { exitCode: 128, stdout: "", stderr: "fatal: index file corrupt", expected: "fatal: index file corrupt" },
+    { exitCode: -1, stdout: "? partial.txt\0", stderr: "", error: "Command timed out.", expected: "Command timed out." },
+    { exitCode: 0, stdout: "? partial.txt\0", stderr: "", exceededLimit: true, expected: "Unable to read repository file status." },
+    { exitCode: 0, stdout: "? partial.txt\0", stderr: "", error: "Command was cancelled.", terminationReason: "aborted", expected: "Command was cancelled." },
+    { exitCode: 0, stdout: "? partial.txt\0", stderr: "", error: "Command timed out.", terminationReason: "timedOut", expected: "Command timed out." }
+  ])("rejects failed or incomplete File Status reads: $expected", async ({ expected, ...result }) => {
+    const runner = new FakeRunner([result]);
+    const service = new GitService(runner);
+
+    await expect(service.getRepoStatus({ repoPath: "D:\\Repo", generation: 2 })).rejects.toThrow(expected);
+
+    expect(runner.calls).toHaveLength(1);
+  });
 });
 
 const failure = (stderr = "fatal: failed"): ProcessResult => ({

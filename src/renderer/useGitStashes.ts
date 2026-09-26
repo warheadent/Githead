@@ -140,12 +140,12 @@ export function useGitStashes(repoPath: string, enabled: boolean, active: boolea
   }, [enabled, refresh, repoPath]);
 
   useEffect(() => {
-    if (!active || state.loading || state.entries.length === 0) return;
+    if (!active || state.loading || state.detailsError || state.entries.length === 0) return;
     const selectedRef = state.selectedRef && state.entries.some((entry) => entry.ref === state.selectedRef)
       ? state.selectedRef
       : state.entries[0]!.ref;
     if (state.details?.stash.ref !== selectedRef && !state.detailsLoading) void select(selectedRef);
-  }, [active, select, state.details?.stash.ref, state.detailsLoading, state.entries, state.loading, state.selectedRef]);
+  }, [active, select, state.details?.stash.ref, state.detailsError, state.detailsLoading, state.entries, state.loading, state.selectedRef]);
 
   const selectFile = useCallback((path: string): void => {
     const stashRef = state.selectedRef;

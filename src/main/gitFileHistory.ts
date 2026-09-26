@@ -56,7 +56,8 @@ export function parseGitFileHistory(text: string): GitFileHistoryEntry[] {
     let status = "M";
     let path = "";
     let originalPath: string | undefined;
-    const rawStatus = statusTokens[0] ?? "";
+    // Git separates the formatted metadata from name-status output with a newline.
+    const rawStatus = (statusTokens[0] ?? "").replace(/^\r?\n/, "");
     if (/^[RC]\d+/.test(rawStatus)) {
       status = rawStatus[0] ?? rawStatus;
       originalPath = statusTokens[1] ?? "";
