@@ -307,6 +307,8 @@ import { useGitStashes } from "./useGitStashes";
 import { useImageFilePreview, useMarkdownFilePreview } from "./useFilePreview";
 import { useSelectionSafeValue } from "./useSelectionSafeValue";
 import { repositoryHistoryRoute, targetFromCommitFile, targetFromHistoryEntry, type HistoricalFileTarget, type HistoryRoute } from "./historyNavigation";
+import { useWorkspaceNavigation, type WorkspaceLocation, type WorkspaceView } from "./useWorkspaceNavigation";
+import { WorkspaceBreadcrumbs } from "./WorkspaceBreadcrumbs";
 import gitIconUrl from "./assets/git-icon-white.svg";
 import loreIconUrl from "./assets/lore-icon-white.svg";
 
@@ -322,7 +324,6 @@ const HISTORY_LIMIT = 200;
 
 type HistoryColumnId = "graph" | "description" | "date" | "author" | "commit" | "references" | "pullRequest" | "checks";
 
-type WorkspaceView = "status" | "stashes" | "history" | "workflows" | "pullRequests" | "issues" | "activity";
 type IntegrationDialogState = { kind: "merge" | "rebase" | "cherry-pick"; commitHash?: string } | null;
 
 interface FileSelection {
@@ -2129,7 +2130,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     };
   }, [loadRepoSyncStatuses, loadRepositoryGroups, refreshDirtyFileStatus]);
 
-  const switchRepo = useCallback(async (repoPath: string, options: { addToRecents?: boolean; recentAnchorPath?: string } = {}): Promise<void> => {
+  const switchRepo = useCallback(async (repoPath: string, options: { addToRecents?: boolean; recentAnchorPath?: string; location?: WorkspaceLocation } = {}): Promise<void> => {
     const nextRepoPath = repoPath.trim();
     if (!nextRepoPath) {
       return;
@@ -2254,7 +2255,8 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       diffLoading: false,
       diffChanged: false
       }));
-      return cached ? { ...reset, history: cached.history, historyScope: cached.historyScope, historyLoaded: cached.history.length > 0, historyHasMore: cached.historyHasMore, selection: cached.selection } : reset;
+      const restored = cached ? { ...reset, history: cached.history, historyScope: cached.historyScope, historyLoaded: cached.history.length > 0, historyHasMore: cached.historyHasMore, selection: cached.selection } : reset;
+      return options.location ? { ...restored, ...options.location } : restored;
     });
 
     await refreshRepo({
@@ -6098,7 +6100,11 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     if (view === "status") {
       void refreshDirtyFileStatus({ reason: "user" });
     }
-    if (view === "history" && !latest.historyLoading) {
+    if (view === "history" && latest.historyRoute.kind === "file") {
+      if (!latest.fileHistoryLoading && latest.fileHistoryEntries.length === 0) void loadFileHistory(latest.historyRoute.origin);
+    } else if (view === "history" && latest.historyRoute.kind === "blame") {
+      if (!latest.fileBlameLoading && !latest.fileBlame) void loadFileBlame(latest.historyRoute.target, latest.historyRoute.returnTo);
+    } else if (view === "history" && !latest.historyLoading) {
       if (
         latest.selectedCommitHash &&
         latest.commitDetails?.hash !== latest.selectedCommitHash &&
@@ -6115,7 +6121,84 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     if (view === "workflows") void github.ensure("workflowRuns");
     if (view === "pullRequests") void github.ensure("pullRequests");
     if (view === "issues") void github.ensure("issues");
-  }, [activityLogStore, github.ensure, loadCommitDetails, loadCommitHistory, refreshDirtyFileStatus, stashWorkspace.refresh, updateState]);
+  }, [activityLogStore, github.ensure, loadCommitDetails, loadCommitHistory, loadFileBlame, loadFileHistory, refreshDirtyFileStatus, stashWorkspace.refresh, updateState]);
+
+  const restoreWorkspaceLocation = useCallback((location: WorkspaceLocation): void => {
+    const previous = stateRef.current;
+    const changingRepositories = !isSameRepoPath(previous.repoPath, location.repoPath);
+    const restoreHistory = (): void => {
+      const latest = stateRef.current;
+      if (!isSameRepoPath(latest.repoPath, location.repoPath)
+        || latest.activeView !== location.activeView || latest.historyRoute !== location.historyRoute) return;
+      if (location.activeView !== "history") return;
+      if (location.historyRoute.kind === "file") {
+        const origin = location.historyRoute.origin;
+        if (!changingRepositories && previous.fileHistoryOrigin?.hash === origin.hash
+          && previous.fileHistoryOrigin.path === origin.path && previous.fileHistoryEntries.length > 0) {
+          const selected = previous.fileHistoryEntries.find((entry) => entry.hash === previous.selectedFileHistoryHash);
+          if (selected && (!previous.fileHistoryDiff || previous.fileHistoryDiffLoading)) void loadFileHistoryDiff(selected);
+          return;
+        }
+        void loadFileHistory(origin);
+      } else if (location.historyRoute.kind === "blame") {
+        void loadFileBlame(location.historyRoute.target, location.historyRoute.returnTo);
+      } else if (location.selectedCommitHash) {
+        if (latest.commitDetails?.hash !== location.selectedCommitHash && !latest.commitDetailsLoading) {
+          void loadCommitDetails(location.selectedCommitHash);
+        } else if (latest.commitDetails?.hash === location.selectedCommitHash
+          && location.selectedCommitFilePath && previous.selectedCommitFilePath !== location.selectedCommitFilePath) {
+          void loadCommitFileDiff(location.selectedCommitHash, location.selectedCommitFilePath);
+        }
+      }
+    };
+    if (changingRepositories) {
+      activityLogStore.setViewing(location.activeView === "activity");
+      void switchRepo(location.repoPath, { location }).then(restoreHistory);
+      return;
+    }
+    cancelRepositoryRead("file-history", requestIds.current.fileHistory);
+    cancelRepositoryRead("file-history-diff", requestIds.current.fileHistoryDiff);
+    cancelRepositoryRead("file-blame", requestIds.current.fileBlame);
+    requestIds.current.fileHistory += 1;
+    requestIds.current.fileHistoryDiff += 1;
+    requestIds.current.fileBlame += 1;
+    const commitChanged = previous.selectedCommitHash !== location.selectedCommitHash;
+    const commitFileChanged = commitChanged || previous.selectedCommitFilePath !== location.selectedCommitFilePath;
+    if (commitChanged) {
+      cancelRepositoryRead("commit-details", requestIds.current.commitDetails);
+      requestIds.current.commitDetails += 1;
+    }
+    if (commitFileChanged) {
+      cancelRepositoryRead("commit-file-diff", requestIds.current.commitFileDiff);
+      requestIds.current.commitFileDiff += 1;
+    }
+    updateState({
+      historyRoute: location.historyRoute,
+      fileHistoryOrigin: location.fileHistoryOrigin,
+      selectedCommitHash: location.selectedCommitHash,
+      selectedCommitFilePath: location.selectedCommitFilePath,
+      fileHistoryLoading: false,
+      fileHistoryDiffLoading: false,
+      fileBlameLoading: false,
+      ...(commitChanged ? { commitDetails: null, commitDetailsLoading: false, commitDetailsError: "" } : {}),
+      ...(commitFileChanged ? { commitFileDiff: null, commitFileDiffLoading: false, commitFileDiffError: "" } : {})
+    });
+    setWorkspaceView(location.activeView);
+    restoreHistory();
+  }, [activityLogStore, loadCommitDetails, loadCommitFileDiff, loadFileBlame, loadFileHistory, loadFileHistoryDiff, setWorkspaceView, switchRepo, updateState]);
+
+  const workspaceLocation: WorkspaceLocation = {
+    repoPath: state.repoPath,
+    activeView: state.activeView,
+    historyRoute: state.historyRoute,
+    fileHistoryOrigin: state.fileHistoryOrigin,
+    selectedCommitHash: state.selectedCommitHash,
+    selectedCommitFilePath: state.selectedCommitFilePath
+  };
+  const navigation = useWorkspaceNavigation(
+    state.startupStatus === "ready" && state.repoPath && !state.showSetup ? workspaceLocation : null,
+    restoreWorkspaceLocation
+  );
 
   useEffect(() => {
     if (
@@ -7330,6 +7413,15 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
           <ResizableHandle className="app-workspace-resize-handle" />
           <ResizablePanel minSize="520px" className="main-workspace-panel" data-layout-panel="workspace">
             <section className="app-workspace-main flex h-full min-w-0 flex-col overflow-hidden">
+              <WorkspaceBreadcrumbs
+                location={workspaceLocation}
+                repositoryName={getRepoDisplayName(state.repoPath)}
+                canGoBack={navigation.canGoBack}
+                canGoForward={navigation.canGoForward}
+                onBack={navigation.back}
+                onForward={navigation.forward}
+                onNavigate={restoreWorkspaceLocation}
+              />
               {state.summary?.isValid === false ? (
                 <RepositoryErrorView
                   key={state.repoPath}

@@ -265,6 +265,11 @@ async function createWindow(): Promise<void> {
     sendWindowState(mainWindow);
   });
   const outputWindow = mainWindow;
+  outputWindow.on("app-command", (_event, command) => {
+    const history = outputWindow.webContents.navigationHistory;
+    if (command === "browser-backward" && history.canGoBack()) history.goBack();
+    if (command === "browser-forward" && history.canGoForward()) history.goForward();
+  });
   outputWindow.on("close", () => {
     gitOutputBatcher.flushTarget(outputWindow.webContents);
   });
