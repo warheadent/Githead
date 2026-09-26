@@ -7650,6 +7650,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                   history={state.history}
                   historyHasMore={state.historyHasMore}
                   onLoadMoreHistory={() => { void loadCommitHistory(true, false, true); }}
+                  onRetryHistory={() => { void loadCommitHistory(true); }}
                   historyLoading={state.historyLoading}
                   historyLoadingMore={state.historyLoadingMore}
                   historyError={state.historyError}
@@ -11789,6 +11790,7 @@ function HistoryView({
   historyLoadingMore,
   historyHasMore,
   onLoadMoreHistory,
+  onRetryHistory,
   historyError,
   selectedCommitHash,
   commitDetails,
@@ -11824,6 +11826,7 @@ function HistoryView({
   historyLoadingMore: boolean;
   historyHasMore: boolean;
   onLoadMoreHistory: () => void;
+  onRetryHistory: () => void;
   historyError: string;
   selectedCommitHash: string | null;
   commitDetails: GitCommitDetails | null;
@@ -11930,11 +11933,16 @@ function HistoryView({
               </div>
             ) : insightsLoading ? <span className="sr-only" role="status">Loading GitHub annotations</span> : null}
             {history.length === 0 ? (
-              <div className="history-list" role="listbox" aria-label="Commit history">
+              <div className="history-list" role={historyError ? "group" : "listbox"} aria-label="Commit history">
                 {historyLoading ? (
                   <LoadingState label="Loading commit history" className="h-full" />
                 ) : historyError ? (
-                  <p className="empty-state bad selectable-text">{historyError}</p>
+                  <div className="space-y-3 p-4">
+                    <p className="bad selectable-text" role="alert">{historyError}</p>
+                    <Button type="button" variant="outline" size="sm" aria-label="Retry loading commit history" onClick={onRetryHistory}>
+                      Retry
+                    </Button>
+                  </div>
                 ) : summary?.isValid ? (
                   <p className="empty-state">No commits in this repository.</p>
                 ) : null}
