@@ -329,7 +329,7 @@ describe("App", { timeout: 10_000 }, () => {
     const drawer = await screen.findByRole("region", { name: /Add GitHub pull request tab/ });
     expect(githead.openExternalUrl).not.toHaveBeenCalled();
     expect(within(drawer).getByRole("tab", { name: /Overview/ }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByRole("listitem").getAttribute("aria-current")).toBe("true");
+    expect(within(screen.getByRole("list", { name: "Pull requests" })).getByRole("listitem").getAttribute("aria-current")).toBe("true");
 
     await user.click(within(drawer).getByRole("button", { name: /Open on GitHub/ }));
     expect(githead.openExternalUrl).toHaveBeenCalledWith({ url: "https://github.com/openai/githead/pull/24" });
@@ -715,7 +715,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     const drawer = await screen.findByRole("region", { name: /Add GitHub issue tab/ });
     expect(githead.openExternalUrl).not.toHaveBeenCalled();
-    expect(screen.getByRole("listitem").getAttribute("aria-current")).toBe("true");
+    expect(within(screen.getByRole("list", { name: "Issues" })).getByRole("listitem").getAttribute("aria-current")).toBe("true");
     await user.click(within(drawer).getByRole("button", { name: /Open on GitHub/ }));
     expect(githead.openExternalUrl).toHaveBeenCalledWith({ url: "https://github.com/openai/githead/issues/12" });
 

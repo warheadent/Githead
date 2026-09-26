@@ -818,7 +818,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await waitForRepositoryWorkspace();
     expect(screen.getByRole("button", { name: `Switch to ${recentRepo}` }).getAttribute("aria-current")).toBe("true");
-    expect(screen.getByText("Recent")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Repositories" })).getByText("Recent")).toBeTruthy();
     expect(screen.getByText("Other")).toBeTruthy();
     expect(screen.getByRole("button", { name: `Switch to ${otherRepo}` })).toBeTruthy();
     expect(screen.queryByText(otherRepo)).toBeNull();
@@ -1099,7 +1099,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    expect(screen.getByText("Recent")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Repositories" })).getByText("Recent")).toBeTruthy();
     expect(screen.getByText("Other")).toBeTruthy();
     expect(screen.queryByText(/\d+ ↑|\d+ ↓/)).toBeNull();
   });

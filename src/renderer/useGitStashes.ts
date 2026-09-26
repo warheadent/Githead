@@ -3,6 +3,7 @@ import { findStashEntry } from "./stashIdentity";
 import type { GitFileDiff, GitStashDetails, GitStashEntry } from "../shared/types";
 
 export interface GitStashWorkspaceState {
+  loadedRepoPath: string | null;
   entries: GitStashEntry[];
   loading: boolean;
   error: string;
@@ -17,6 +18,7 @@ export interface GitStashWorkspaceState {
 }
 
 const initialState: GitStashWorkspaceState = {
+  loadedRepoPath: null,
   entries: [],
   loading: false,
   error: "",
@@ -123,7 +125,7 @@ export function useGitStashes(repoPath: string, enabled: boolean, active: boolea
         const selectedEntry = current.entries.find((entry) => entry.ref === current.selectedRef);
         const selectedRef = findStashEntry(entries, selectedEntry, current.entries)?.ref
           ?? (active ? entries[0]?.ref ?? null : null);
-        return { ...initialState, entries, selectedRef };
+        return { ...initialState, loadedRepoPath: repoPath, entries, selectedRef };
       });
     } catch (error) {
       if (requestId !== requestIds.current.list || repoPathRef.current !== repoPath) return;
@@ -140,12 +142,12 @@ export function useGitStashes(repoPath: string, enabled: boolean, active: boolea
   }, [enabled, refresh, repoPath]);
 
   useEffect(() => {
-    if (!active || state.loading || state.detailsError || state.entries.length === 0) return;
+    if (!active || state.loadedRepoPath !== repoPath || state.loading || state.detailsError || state.entries.length === 0) return;
     const selectedRef = state.selectedRef && state.entries.some((entry) => entry.ref === state.selectedRef)
       ? state.selectedRef
       : state.entries[0]!.ref;
     if (state.details?.stash.ref !== selectedRef && !state.detailsLoading) void select(selectedRef);
-  }, [active, select, state.details?.stash.ref, state.detailsError, state.detailsLoading, state.entries, state.loading, state.selectedRef]);
+  }, [active, repoPath, select, state.details?.stash.ref, state.detailsError, state.detailsLoading, state.entries, state.loadedRepoPath, state.loading, state.selectedRef]);
 
   const selectFile = useCallback((path: string): void => {
     const stashRef = state.selectedRef;
