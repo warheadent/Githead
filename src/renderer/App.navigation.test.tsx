@@ -27,6 +27,69 @@ function selectedTab(name: RegExp): HTMLElement {
 }
 
 describe("workspace navigation", () => {
+  it("reloads the matching file history after Back crosses another file's cached history", async () => {
+    const user = userEvent.setup();
+    const commit = createCommit();
+    const files = ["src/first.ts", "src/second.ts"].map((path) => ({ path, status: "M", additions: 1, deletions: 0 }));
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash, { files }));
+    vi.mocked(githead.getCommitFileDiff).mockImplementation(async ({ path }) => createTextDiff(path, `diff for ${path}`));
+    vi.mocked(githead.getFileHistory).mockImplementation(async ({ path, startHash }) => ({
+      repoPath, startHash, requestedPath: path, hasMore: false,
+      entries: [{ ...commit, path, status: "M", subject: `change to ${path}` }]
+    }));
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /src\/first\.ts/ }));
+    await user.click(await screen.findByRole("menuitem", { name: "Log Selected" }));
+    const first = await screen.findByRole("region", { name: "File History for src/first.ts" });
+    await within(first).findByText("diff for src/first.ts");
+    await user.click(within(first).getByRole("button", { name: "Back" }));
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /src\/second\.ts/ }));
+    await user.click(await screen.findByRole("menuitem", { name: "Log Selected" }));
+    const second = await screen.findByRole("region", { name: "File History for src/second.ts" });
+    await within(second).findByText("diff for src/second.ts");
+
+    await goBack();
+    await goBack();
+    const restored = await screen.findByRole("region", { name: "File History for src/first.ts" });
+    expect(await within(restored).findByText("change to src/first.ts")).toBeTruthy();
+    expect(await within(restored).findByText("diff for src/first.ts")).toBeTruthy();
+    expect(within(restored).queryByText("change to src/second.ts")).toBeNull();
+  });
+
+  it("loads file history when leaving blame restored from another repository", async () => {
+    const user = userEvent.setup();
+    const otherPath = "D:\\Other";
+    const commit = createCommit();
+    const file = { path: "src/App.tsx", status: "M", additions: 1, deletions: 0 };
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherPath));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherPath));
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (path) => createSummary({ repoPath: path }));
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash, { files: [file] }));
+    vi.mocked(githead.getCommitFileDiff).mockResolvedValue(createTextDiff(file.path, "restored file diff"));
+    vi.mocked(githead.getFileHistory).mockResolvedValue({ repoPath, startHash: commit.hash, requestedPath: file.path, hasMore: false, entries: [{ ...commit, path: file.path, status: "M", subject: "restored file change" }] });
+    vi.mocked(githead.getFileBlame).mockResolvedValue({ kind: "text", repoPath, hash: commit.hash, path: file.path, byteLength: 0, commits: [], lines: [] });
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
+    await user.click(await screen.findByRole("menuitem", { name: "Log Selected" }));
+    await user.click(await screen.findByRole("button", { name: "Blame this version" }));
+    await screen.findByRole("region", { name: `Blame for ${file.path}` });
+    await user.click(screen.getByRole("button", { name: `Switch to ${otherPath}` }));
+    await waitFor(() => expect(screen.getByRole("button", { name: `Switch to ${otherPath}` }).getAttribute("aria-current")).toBe("true"));
+    await goBack();
+    const blame = await screen.findByRole("region", { name: `Blame for ${file.path}` });
+    await waitFor(() => expect(githead.getFileBlame).toHaveBeenCalledTimes(2));
+    await user.click(within(blame).getByRole("button", { name: "Back to File History" }));
+    const restored = await screen.findByRole("region", { name: `File History for ${file.path}` });
+    expect(await within(restored).findByText("restored file change")).toBeTruthy();
+    expect(await within(restored).findByText("restored file diff")).toBeTruthy();
+  });
+
   it("restores tabs through native history and discards the forward path after a new screen", async () => {
     const user = userEvent.setup();
     render(<StrictMode><App /></StrictMode>);

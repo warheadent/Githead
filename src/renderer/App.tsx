@@ -6164,6 +6164,8 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     requestIds.current.fileBlame += 1;
     const commitChanged = previous.selectedCommitHash !== location.selectedCommitHash;
     const commitFileChanged = commitChanged || previous.selectedCommitFilePath !== location.selectedCommitFilePath;
+    const fileHistoryChanged = previous.fileHistoryOrigin?.hash !== location.fileHistoryOrigin?.hash
+      || previous.fileHistoryOrigin?.path !== location.fileHistoryOrigin?.path;
     if (commitChanged) {
       cancelRepositoryRead("commit-details", requestIds.current.commitDetails);
       requestIds.current.commitDetails += 1;
@@ -6180,6 +6182,16 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       fileHistoryLoading: false,
       fileHistoryDiffLoading: false,
       fileBlameLoading: false,
+      // The saved origin is navigation context. Cached rows and diffs must not
+      // acquire that origin unless they were loaded for the same file version.
+      ...(fileHistoryChanged ? {
+        fileHistoryEntries: [],
+        fileHistoryError: "",
+        fileHistoryHasMore: false,
+        selectedFileHistoryHash: null,
+        fileHistoryDiff: null,
+        fileHistoryDiffError: ""
+      } : {}),
       ...(commitChanged ? { commitDetails: null, commitDetailsLoading: false, commitDetailsError: "" } : {}),
       ...(commitFileChanged ? { commitFileDiff: null, commitFileDiffLoading: false, commitFileDiffError: "" } : {})
     });
@@ -7713,9 +7725,12 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                     error={state.fileBlameError}
                     backLabel={state.historyRoute.returnTo === "file" ? "Back to File History" : "Back"}
                     onBack={() => {
-                      cancelRepositoryRead("file-blame", requestIds.current.fileBlame);
-                      requestIds.current.fileBlame += 1;
-                      updateState({ historyRoute: state.historyRoute.kind === "blame" && state.historyRoute.returnTo === "file" && state.fileHistoryOrigin ? { kind: "file", origin: state.fileHistoryOrigin } : repositoryHistoryRoute });
+                      restoreWorkspaceLocation({
+                        ...workspaceLocation,
+                        historyRoute: state.historyRoute.kind === "blame" && state.historyRoute.returnTo === "file" && state.fileHistoryOrigin
+                          ? { kind: "file", origin: state.fileHistoryOrigin }
+                          : repositoryHistoryRoute
+                      });
                     }}
                     onRetry={() => { if (state.historyRoute.kind === "blame") void loadFileBlame(state.historyRoute.target, state.historyRoute.returnTo); }}
                     onOpenCommit={(hash) => {
