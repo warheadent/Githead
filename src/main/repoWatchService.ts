@@ -42,6 +42,7 @@ export class RepoWatchService {
   private watchedRepoPath: string | null = null;
   private debounceTimer: NodeJS.Timeout | null = null;
   private maxWaitTimer: NodeJS.Timeout | null = null;
+  private pendingReason: RepoChangedReason | null = null;
   private watcherGeneration = 0;
 
   constructor(options: RepoWatchServiceOptions) {
@@ -109,6 +110,7 @@ export class RepoWatchService {
       clearTimeout(this.maxWaitTimer);
       this.maxWaitTimer = null;
     }
+    this.pendingReason = null;
 
     const watchers = this.watchers;
     this.watchers = [];
@@ -123,22 +125,28 @@ export class RepoWatchService {
 
   private scheduleChange(reason: RepoChangedReason, generation: number): void {
     if (!this.watchedRepoPath || generation !== this.watcherGeneration) return;
+    // A content event must not discard an earlier request to refresh metadata.
+    if (this.pendingReason === null || this.pendingReason === "filesystem" || reason === "filesystem-unknown") {
+      this.pendingReason = reason;
+    }
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.debounceTimer = setTimeout(() => {
-      this.flushChange(reason, generation);
+      this.flushChange(generation);
     }, this.debounceMs);
     this.maxWaitTimer ??= setTimeout(() => {
-      this.flushChange(reason, generation);
+      this.flushChange(generation);
     }, this.maxWaitMs);
   }
 
-  private flushChange(reason: RepoChangedReason, generation: number): void {
+  private flushChange(generation: number): void {
     if (generation !== this.watcherGeneration) return;
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     if (this.maxWaitTimer) clearTimeout(this.maxWaitTimer);
     this.debounceTimer = null;
     this.maxWaitTimer = null;
-    this.emitChange(reason);
+    const reason = this.pendingReason;
+    this.pendingReason = null;
+    if (reason) this.emitChange(reason);
   }
 
   private emitChange(reason: RepoChangedReason): void {

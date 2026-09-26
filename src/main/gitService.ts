@@ -277,6 +277,9 @@ export class GitService {
 
   async getRepoStatus(request: RepoSectionRequest): Promise<RepoStatusSection> {
     const result = await this.runGitStatus(request.repoPath, ["--porcelain=v2", "-z", "--branch", "--untracked-files=all"]);
+    if (result.exitCode !== 0 || result.exceededLimit || (result.terminationReason && result.terminationReason !== "exited")) {
+      throw new Error(result.stderr.trim() || result.error || "Unable to read repository file status.");
+    }
     const status = parsePorcelainStatus(result.stdout);
     const [submodules, operationState] = await Promise.all([
       this.getSubmodules(request.repoPath, status.files),

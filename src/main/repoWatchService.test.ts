@@ -71,6 +71,39 @@ describe("RepoWatchService", () => {
     expect(fixture.send).toHaveBeenCalledTimes(2);
   });
 
+  it.each([
+    [".git/refs/heads/main", "filesystem-metadata"],
+    [null, "filesystem-unknown"]
+  ] as const)("preserves broad invalidation for %s before a content event", async (filename, reason) => {
+    const fixture = createWatchFixture();
+    fixture.service.watchRepo(repoPath);
+    fixture.emitChange(0, filename);
+    fixture.emitChange();
+
+    await vi.advanceTimersByTimeAsync(750);
+
+    expect(fixture.send).toHaveBeenCalledTimes(1);
+    expect(fixture.send).toHaveBeenLastCalledWith(IPC_CHANNELS.repoChanged, expect.objectContaining({ reason }));
+
+    fixture.emitChange();
+    await vi.advanceTimersByTimeAsync(750);
+    expect(fixture.send).toHaveBeenLastCalledWith(IPC_CHANNELS.repoChanged, expect.objectContaining({ reason: "filesystem" }));
+  });
+
+  it("preserves metadata invalidation when sustained content activity reaches max wait", async () => {
+    const fixture = createWatchFixture();
+    fixture.service.watchRepo(repoPath);
+    fixture.emitChange();
+    await vi.advanceTimersByTimeAsync(700);
+    fixture.emitChange(0, ".git/refs/heads/main");
+    await vi.advanceTimersByTimeAsync(700);
+    fixture.emitChange();
+    await vi.advanceTimersByTimeAsync(600);
+
+    expect(fixture.send).toHaveBeenCalledTimes(1);
+    expect(fixture.send).toHaveBeenLastCalledWith(IPC_CHANNELS.repoChanged, expect.objectContaining({ reason: "filesystem-metadata" }));
+  });
+
   it("ignores git watcher events produced by status refreshes", async () => {
     const fixture = createWatchFixture();
 
@@ -148,11 +181,18 @@ describe("RepoWatchService", () => {
     const nextRepoPath = "D:\\Other";
 
     fixture.service.watchRepo(repoPath);
-    fixture.emitChange();
+    fixture.emitChange(0, ".git/refs/heads/main");
     fixture.service.watchRepo(nextRepoPath);
 
     await vi.advanceTimersByTimeAsync(750);
     expect(fixture.send).not.toHaveBeenCalled();
+
+    fixture.emitChange(1);
+    await vi.advanceTimersByTimeAsync(750);
+    expect(fixture.send).toHaveBeenCalledWith(IPC_CHANNELS.repoChanged, expect.objectContaining({
+      repoPath: path.resolve(nextRepoPath),
+      reason: "filesystem"
+    }));
   });
 
   it("ignores stale callbacks from a closed watcher", async () => {

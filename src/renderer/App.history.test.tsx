@@ -1001,7 +1001,9 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(screen.getByRole("tab", { name: /Commit History/ }));
 
     expect(await screen.findByText("initial history unavailable")).toBeTruthy();
-    expect(screen.queryByRole("listbox", { name: "Commit history" })?.querySelector(".history-rows")).toBeNull();
+    const historyError = within(screen.getByRole("group", { name: "Commit history" }));
+    expect(historyError.queryByRole("option")).toBeNull();
+    expect(historyError.getByRole("button", { name: "Retry loading commit history" })).toBeTruthy();
   });
 
   it("renders selected commit bodies as markdown", async () => {
