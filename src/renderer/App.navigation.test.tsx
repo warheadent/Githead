@@ -27,6 +27,44 @@ function selectedTab(name: RegExp): HTMLElement {
 }
 
 describe("workspace navigation", () => {
+  it.each(["loaded", "empty", "failed"] as const)("waits for the restored repository's stashes before handling a %s result", async (outcome) => {
+    const user = userEvent.setup();
+    const otherPath = "D:\\Other";
+    const stash = { ref: "stash@{0}", hash: "a".repeat(40), message: "saved navigation work", sourceBranch: "main", createdAt: "2026-09-26T00:00:00Z" };
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherPath));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherPath));
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (path) => createSummary({ repoPath: path }));
+    vi.mocked(githead.getStashes).mockImplementation(async ({ repoPath: path }) => path === repoPath ? [stash] : []);
+    vi.mocked(githead.getStashDetails).mockResolvedValue({ stash, files: [] });
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(await screen.findByRole("tab", { name: "Stashes 1" }));
+    await screen.findByRole("option", { name: /saved navigation work/ });
+    await user.click(screen.getByRole("button", { name: `Switch to ${otherPath}` }));
+    await waitFor(() => expect(githead.getStashes).toHaveBeenCalledWith(expect.objectContaining({ repoPath: otherPath })));
+    await waitFor(() => expect(screen.queryByRole("tab", { name: /Stashes/ })).toBeNull());
+
+    const pending = defer<(typeof stash)[]>();
+    vi.mocked(githead.getStashes).mockImplementation(({ repoPath: path }) => path === repoPath ? pending.promise : Promise.resolve([]));
+    await goBack();
+    selectedTab(/Stashes/);
+    expect(screen.getByRole("button", { name: "Go forward" }).hasAttribute("disabled")).toBe(false);
+    await act(async () => {
+      if (outcome === "failed") pending.reject(new Error("Stash list unavailable"));
+      else pending.resolve(outcome === "loaded" ? [stash] : []);
+    });
+    if (outcome === "empty") {
+      await waitFor(() => selectedTab(/File Status/));
+      expect(screen.queryByRole("tab", { name: /Stashes/ })).toBeNull();
+    } else {
+      selectedTab(/Stashes/);
+      if (outcome === "loaded") expect(await screen.findByRole("option", { name: /saved navigation work/ })).toBeTruthy();
+      else expect(await screen.findByText("Stash list unavailable")).toBeTruthy();
+      await goForward();
+      await waitFor(() => expect(screen.getByRole("button", { name: `Switch to ${otherPath}` }).getAttribute("aria-current")).toBe("true"));
+    }
+  });
+
   it("reloads the matching file history after Back crosses another file's cached history", async () => {
     const user = userEvent.setup();
     const commit = createCommit();

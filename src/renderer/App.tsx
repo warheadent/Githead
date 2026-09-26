@@ -6215,7 +6215,9 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
   useEffect(() => {
     if (
       state.activeView !== "stashes" ||
+      stashWorkspace.state.loadedRepoPath !== state.repoPath ||
       stashWorkspace.state.loading ||
+      stashWorkspace.state.error ||
       stashWorkspace.state.entries.length > 0
     ) {
       return;
@@ -6225,8 +6227,11 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
   }, [
     setWorkspaceView,
     stashWorkspace.state.entries.length,
+    stashWorkspace.state.loadedRepoPath,
     stashWorkspace.state.loading,
-    state.activeView
+    stashWorkspace.state.error,
+    state.activeView,
+    state.repoPath
   ]);
 
   const selectFile = useCallback((file: GitStatusFile, side: GitDiffSide, modifiers: FileSelectionModifiers): void => {
@@ -7180,7 +7185,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     : null;
   const showGitHubTabs = Boolean(state.summary?.githubRepository);
   const showStashesTab = Boolean(
-    state.summary?.capabilities.stashes && stashWorkspace.state.entries.length > 0
+    state.summary?.capabilities.stashes && (stashWorkspace.state.entries.length > 0 || state.activeView === "stashes")
   );
   const pullRequestTabCount = github.counts.data ? formatCompactCount(github.counts.data.pullRequests) : null;
   const issueTabCount = github.counts.data ? formatCompactCount(github.counts.data.issues) : null;
