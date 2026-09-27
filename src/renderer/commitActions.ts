@@ -1,6 +1,6 @@
 import type { RepoSummary } from "../shared/types";
 
-export type PrimaryCommitAction = "commit" | "push";
+export type PrimaryCommitAction = "commit" | "quick-commit" | "push";
 
 export interface AheadBehindCounts {
   ahead: number;
@@ -38,7 +38,10 @@ export function getPullableCommitCount(summary: RepoSummary | null): number {
   return getAheadBehindCounts(summary)?.behind ?? 0;
 }
 
-export function getPrimaryCommitAction(summary: RepoSummary | null): PrimaryCommitAction | null {
+export function getPrimaryCommitAction(summary: RepoSummary | null, quickCommitByDefault = false): PrimaryCommitAction | null {
+  if (quickCommitByDefault && summary?.kind === "git" && summary.files.length > 0) {
+    return "quick-commit";
+  }
   if (hasStagedChanges(summary)) {
     return "commit";
   }

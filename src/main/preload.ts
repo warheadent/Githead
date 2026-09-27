@@ -51,6 +51,7 @@ import type {
   GitCreateTagRequest,
   GitDeleteTagRequest,
   GitFileChangesRequest,
+  GenerateAndCommitRequest,
   GitDiscardSnapshotRequest,
   GitFileDiffRequest,
   GitFileHistoryRequest,
@@ -274,6 +275,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.restoreAmendRecovery, request) as ReturnType<GitheadApi["restoreAmendRecovery"]>,
   quickCommitFiles: (request: CoordinatedRequest<GitQuickCommitRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.quickCommitFiles, request) as ReturnType<GitheadApi["quickCommitFiles"]>,
+  generateAndCommit: (request: CoordinatedRequest<GenerateAndCommitRequest>) =>
+    ipcRenderer.invoke(IPC_CHANNELS.generateAndCommit, request) as ReturnType<GitheadApi["generateAndCommit"]>,
   createStash: (request: CoordinatedRequest<GitStashCreateRequest>) =>
     ipcRenderer.invoke(IPC_CHANNELS.createStash, request) as ReturnType<GitheadApi["createStash"]>,
   applyStash: (request: CoordinatedRequest<GitStashRefRequest>) =>

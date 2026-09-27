@@ -165,6 +165,19 @@ describe("AppSettingsService", () => {
     });
   });
 
+  it("persists and clears Quick Commit as the default across restarts", async () => {
+    await withTempDir(async (dir) => {
+      const service = new AppSettingsService(dir);
+      const settings = await service.getSettings();
+      expect(settings.gitBehaviors.quickCommitByDefault).toBeUndefined();
+      await service.saveSettings({ ...settings, gitBehaviors: { ...settings.gitBehaviors, quickCommitByDefault: true } });
+      expect((await new AppSettingsService(dir).getSettings()).gitBehaviors.quickCommitByDefault).toBe(true);
+      await service.saveSettings({ ...settings, gitBehaviors: { ...settings.gitBehaviors, quickCommitByDefault: false } });
+      expect((await new AppSettingsService(dir).getSettings()).gitBehaviors.quickCommitByDefault).toBeUndefined();
+      await expect(service.saveSettings({ ...settings, gitBehaviors: { ...settings.gitBehaviors, quickCommitByDefault: "true" as unknown as boolean } })).rejects.toThrow("Quick Commit default must be a Boolean value.");
+    });
+  });
+
   it("preserves Git Behaviors when an older save request omits the category", async () => {
     await withTempDir(async (dir) => {
       const service = new AppSettingsService(dir);

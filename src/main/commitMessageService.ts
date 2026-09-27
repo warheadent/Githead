@@ -47,6 +47,15 @@ export class CommitMessageService {
   ) {}
 
   async generateCommitMessage(request: GenerateCommitMessageRequest, signal?: AbortSignal, onWarning?: (warning: string) => void): Promise<GenerateCommitMessageResult> {
+    return this.generate(request, signal, onWarning);
+  }
+
+  /** Generate from a captured selection without modifying the index. The caller validates it before committing. */
+  async generateCommitMessageFromDiff(request: GenerateCommitMessageRequest, diff: string, signal?: AbortSignal, onWarning?: (warning: string) => void): Promise<GenerateCommitMessageResult> {
+    return this.generate(request, signal, onWarning, diff);
+  }
+
+  private async generate(request: GenerateCommitMessageRequest, signal?: AbortSignal, onWarning?: (warning: string) => void, selectedDiff?: string): Promise<GenerateCommitMessageResult> {
     let selectedProvider: AiCommitMessageProvider | undefined;
     let inputWarning = "";
     try {
@@ -73,7 +82,9 @@ export class CommitMessageService {
       const service = await this.resolveService(request.repoPath);
       const target = request.stashSelection ? "stash" : "commit";
       const [diffResult, recentCommits] = await Promise.all([
-        request.stashSelection
+        selectedDiff !== undefined
+          ? Promise.resolve({ repoPath: request.repoPath, exitCode: 0, stdout: selectedDiff, stderr: "" })
+          : request.stashSelection
           ? service.getStashDiff?.(request.repoPath, request.stashSelection)
             ?? Promise.resolve(createFailure(request.repoPath, "Stash message generation is not available for this repository."))
           : service.getStagedDiff(request.repoPath),
@@ -138,7 +149,7 @@ export class CommitMessageService {
         recordAiGenerationRecovery("commit-message", selectedProvider);
       }
 
-      const sourceChanged = target === "commit"
+      const sourceChanged = target === "commit" && selectedDiff === undefined
         ? await hasStagedDiffChanged(service, request.repoPath, diff, signal)
         : undefined;
 

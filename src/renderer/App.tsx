@@ -243,6 +243,7 @@ import { parseGitHubReferences } from "../shared/githubReference";
 import { getRepositoryWebUrl } from "../shared/remoteWebUrl";
 import { ActivityLogPanel } from "./ActivityLogPanel";
 import { CommitPlanView } from "./CommitPlanView";
+import { canStageStatusFile } from "../shared/statusFiles";
 import { BranchManagementDialog } from "./BranchManagementDialog";
 import { GitIntegrationDialog } from "./GitIntegrationDialog";
 import { AmendDialog } from "./AmendDialog";
@@ -537,7 +538,7 @@ interface CommitPushSafetyNotice {
 
 interface CommitMessageSuggestion {
   message: string;
-  reason: "draft-changed" | "repository-changed";
+  reason: "draft-changed" | "repository-changed" | "quick-commit-failed";
 }
 
 type AppStateUpdater = Partial<AppState> | ((state: AppState) => AppState);
@@ -738,6 +739,7 @@ const emptySettingsDraft: SettingsDraft = {
   zoomFactor: 1,
   tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR,
   requireUpToDateUpstreamBeforeCommit: false,
+  quickCommitByDefault: false,
   remoteCheckLeaseSeconds: DEFAULT_REMOTE_CHECK_LEASE_SECONDS,
   allowCherryPickingContainedCommits: false,
   shareAnonymousDiagnostics: DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS,
@@ -1285,7 +1287,10 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
 
   const appendLog = useCallback((event: GitOutputEvent): void => {
     activityLogStore.append({ ...event, repoPath: event.repoPath ?? stateRef.current.repoPath });
-  }, [activityLogStore]);
+    if (event.runId === stateRef.current.activeOperation?.operationId && event.action === "quick-commit-committing") {
+      updateState({ runningOperation: "Committing selected files" });
+    }
+  }, [activityLogStore, updateState]);
 
   const appendOperationLog = useCallback((label: string, result: GitOperationResult): void => {
     activityLogStore.appendOperationResult(label, result);
@@ -5508,6 +5513,30 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     return result;
   }, [ensureTrustedRepo, openGitIdentityPrompt, runRepoOperation]);
 
+  const quickCommitSelectedFiles = useCallback(async (paths: string[]): Promise<void> => {
+    const current = stateRef.current;
+    if (isOperationRunning(current) || getQuickCommitDisabledReason(current.summary, paths, canUseSelectedAiProvider(current.aiSettings))) return;
+    const repoPath = current.repoPath;
+    if (!(await ensureTrustedRepo(repoPath)) || !isSameRepoPath(repoPath, stateRef.current.repoPath)) return;
+    const latest = stateRef.current;
+    const namespace = getRepoPathKey(repoPath) || "setup";
+    const currentPaths = getQuickCommitSelectionPaths(
+      latest.summary, latest.selection,
+      workspacePanelStateStore.read(namespace, "status-file-query", ""),
+      workspacePanelStateStore.read<StatusFileFilter>(namespace, "status-file-filter", "all")
+    );
+    if (!areStringArraysEqual(paths, currentPaths) || getQuickCommitDisabledReason(latest.summary, paths, canUseSelectedAiProvider(latest.aiSettings))) return;
+    const result = await runRepoOperation("Generating quick commit message", null,
+      (operationId) => window.githead.generateAndCommit({ repoPath, paths, operationId }),
+      { successFeedback: { action: "commit", surface: "commit-panel" } }
+    );
+    if (!result || !isSameRepoPath(repoPath, stateRef.current.repoPath)) return;
+    if (result.exitCode !== 0 && "generatedMessage" in result && typeof result.generatedMessage === "string") {
+      updateState({ commitMessageSuggestion: { message: result.generatedMessage, reason: "quick-commit-failed" } });
+      if (result.errorKind === "missing-author-identity") await openGitIdentityPrompt(repoPath, result.generatedMessage);
+    }
+  }, [ensureTrustedRepo, openGitIdentityPrompt, runRepoOperation, updateState, workspacePanelStateStore]);
+
   const commitAndPush = useCallback(async (): Promise<void> => {
     const current = stateRef.current;
     if (!current.summary?.isValid || isOperationRunning(current) || !canCommit(current)) {
@@ -5830,6 +5859,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
         zoomFactor: appSettings?.zoomFactor ?? 1,
         tagPushBehavior: appSettings?.gitBehaviors?.tagPushBehavior ?? DEFAULT_TAG_PUSH_BEHAVIOR,
         requireUpToDateUpstreamBeforeCommit: appSettings?.gitBehaviors?.requireUpToDateUpstreamBeforeCommit ?? false,
+        quickCommitByDefault: appSettings?.gitBehaviors?.quickCommitByDefault ?? false,
         remoteCheckLeaseSeconds: appSettings?.gitBehaviors?.remoteCheckLeaseSeconds ?? DEFAULT_REMOTE_CHECK_LEASE_SECONDS,
         allowCherryPickingContainedCommits: appSettings?.gitBehaviors?.allowCherryPickingContainedCommits ?? false,
         shareAnonymousDiagnostics: appSettings?.privacy.shareAnonymousDiagnostics ?? DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS,
@@ -5946,6 +5976,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
           gitBehaviors: {
             tagPushBehavior: draft.tagPushBehavior,
             requireUpToDateUpstreamBeforeCommit: draft.requireUpToDateUpstreamBeforeCommit,
+            quickCommitByDefault: draft.quickCommitByDefault,
             remoteCheckLeaseSeconds: draft.remoteCheckLeaseSeconds,
             allowCherryPickingContainedCommits: draft.allowCherryPickingContainedCommits
           },
@@ -7172,7 +7203,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
   const disableActions = running || !isValid;
   const repositoryOperationActive = Boolean(state.summary?.operationState);
   const disableUnrelatedMutations = disableActions || repositoryOperationActive;
-  const primaryCommitAction = getPrimaryCommitAction(state.summary);
+  const primaryCommitAction = getPrimaryCommitAction(state.summary, state.appSettings?.gitBehaviors?.quickCommitByDefault);
   const actionHeading = getActionHeading(state);
   const cancellationTarget = state.activeOperation
     ? state.activeOperation.cancellable ? state.activeOperation : null
@@ -7901,7 +7932,6 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                 />
               </PersistentWorkspaceTabsContent>
               </Tabs>
-            </WorkspacePanelStateProvider>
 
             {state.activeView === "status" && statusWorkspaceMode === "files" && !repositoryOperationActive ? (
               <CommitPanel
@@ -7912,6 +7942,13 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                 generating={state.runningOperation === "Generating commit message"}
                 disabled={disableUnrelatedMutations}
                 primaryCommitAction={primaryCommitAction}
+                quickCommitByDefault={state.summary?.kind === "git" && state.appSettings?.gitBehaviors?.quickCommitByDefault === true}
+                summary={state.summary}
+                selection={state.selection}
+                quickCommitAiReady={canUseSelectedAiProvider(state.aiSettings)}
+                quickCommitPhase={state.activeOperation?.label === "Generating quick commit message" ? state.runningOperation === "Committing selected files" ? "committing" : "generating" : null}
+                onQuickCommit={(paths) => { void quickCommitSelectedFiles(paths); }}
+                onManualCommit={() => { void commitChanges(); }}
                 pushableCommitCount={getPushableCommitCount(state.summary)}
                 feedbackEvent={state.operationButtonFeedback?.repoPath === state.repoPath ? state.operationButtonFeedback : null}
                 canCommit={canCommit(state)}
@@ -7966,6 +8003,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                 }}
               />
             ) : null}
+            </WorkspacePanelStateProvider>
             </>}
             </section>
           </ResizablePanel>
@@ -13565,6 +13603,13 @@ function CommitPanel({
   generating,
   disabled,
   primaryCommitAction,
+  quickCommitByDefault,
+  summary,
+  selection,
+  quickCommitAiReady,
+  quickCommitPhase,
+  onQuickCommit,
+  onManualCommit,
   pushableCommitCount,
   feedbackEvent,
   canCommit: commitAllowed,
@@ -13590,7 +13635,14 @@ function CommitPanel({
   generationError: string;
   generating: boolean;
   disabled: boolean;
-  primaryCommitAction: "commit" | "push" | null;
+  primaryCommitAction: "commit" | "quick-commit" | "push" | null;
+  quickCommitByDefault: boolean;
+  summary: RepoSummary | null;
+  selection: FileSelection | null;
+  quickCommitAiReady: boolean;
+  quickCommitPhase: "generating" | "committing" | null;
+  onQuickCommit: (paths: string[]) => void;
+  onManualCommit: () => void;
   pushableCommitCount: number;
   feedbackEvent: OperationButtonFeedbackEvent | null;
   canCommit: boolean;
@@ -13610,10 +13662,18 @@ function CommitPanel({
   onApplyCommitMessageSuggestion: () => void;
   onDismissCommitMessageSuggestion: () => void;
 }): ReactNode {
+  const [query] = usePersistentWorkspacePanelState("status-file-query", "");
+  const [statusFilter] = usePersistentWorkspacePanelState<StatusFileFilter>("status-file-filter", "all");
+  const quickCommitPaths = useMemo(() => getQuickCommitSelectionPaths(summary, selection, query, statusFilter), [summary, selection, query, statusFilter]);
+  const quickCommitDisabledReason = useMemo(() => getQuickCommitDisabledReason(summary, quickCommitPaths, quickCommitAiReady), [summary, quickCommitPaths, quickCommitAiReady]);
+  const quickCommitDisabled = disabled || quickCommitDisabledReason !== null;
   const commitDisabled = disabled
     || primaryCommitAction === null
+    || (primaryCommitAction === "quick-commit" && quickCommitDisabled)
     || (primaryCommitAction === "commit" && !commitAllowed);
-  const primaryActionLabel = primaryCommitAction === "push" ? "Push" : "Commit";
+  const primaryActionLabel = quickCommitPhase === "generating" ? "Generating…"
+    : quickCommitPhase === "committing" ? "Committing…"
+    : primaryCommitAction === "push" ? "Push" : quickCommitByDefault ? "Quick Commit" : "Commit";
   const primaryActionAriaLabel = primaryCommitAction === "push" && pushableCommitCount > 0
     ? formatActionCountLabel("Push", pushableCommitCount)
     : undefined;
@@ -13627,7 +13687,7 @@ function CommitPanel({
     <section
       className="commit-panel grid min-h-0 gap-2.5 border-t bg-card px-6 py-4"
       aria-label="Commit staged files"
-      aria-busy={generating}
+      aria-busy={generating || quickCommitPhase !== null}
     >
       <label className="commit-message-label" htmlFor="commit-message">Commit message</label>
       {generating || commitMessageSuggestion ? (
@@ -13655,7 +13715,9 @@ function CommitPanel({
             </div>
             <p className="selectable-text text-sm leading-5">{commitMessageSuggestion.message}</p>
             <p className="text-xs text-muted-foreground">
-              {commitMessageSuggestion.reason === "repository-changed"
+              {commitMessageSuggestion.reason === "quick-commit-failed"
+                ? "Quick Commit did not complete. This message is saved here for review and retry. Your draft has been preserved."
+                : commitMessageSuggestion.reason === "repository-changed"
                 ? "Staged changes changed while this message was being generated. Review it before replacing your draft."
                 : "Your draft changed while this message was being generated. Review it before replacing your draft."}
             </p>
@@ -13721,13 +13783,19 @@ function CommitPanel({
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
+          <div className="flex min-w-0 items-center gap-2">
+          {summary?.kind === "git" && quickCommitPaths.length > 0 ? (
+            <span className="text-xs text-muted-foreground">{quickCommitByDefault ? "" : "Quick Commit: "}{quickCommitPaths.length} selected {quickCommitPaths.length === 1 ? "file" : "files"}</span>
+          ) : null}
           <div className="commit-submit-group">
-            <Button
+            <TooltipButton
               type="button"
               variant="ghost"
               disabled={commitDisabled}
-              onClick={onCommit}
+              onClick={() => primaryCommitAction === "quick-commit" ? onQuickCommit(quickCommitPaths) : onCommit()}
               aria-label={primaryActionAriaLabel}
+              tooltip={primaryCommitAction === "push" ? "Push commits" : quickCommitByDefault ? "Generate a message and immediately commit selected files" : "Commit staged changes using your message"}
+              disabledTooltip={quickCommitByDefault && primaryCommitAction !== "push" ? quickCommitDisabledReason : undefined}
               className="commit-submit-button"
             >
               <OperationButtonFeedback
@@ -13736,7 +13804,7 @@ function CommitPanel({
                 successLabel={feedbackAction === "push" ? "Pushed" : "Committed"}
                 surface="commit-panel"
               >
-                {primaryCommitAction === "push" ? <Upload /> : <CheckCircle2 />}
+                {quickCommitPhase ? <Loader2 className="animate-spin" /> : primaryCommitAction === "push" ? <Upload /> : quickCommitByDefault ? <Sparkles /> : <CheckCircle2 />}
                 {primaryActionLabel}
                 {primaryCommitAction === "push" && pushableCommitCount > 0 ? (
                   <SyncCountChip title={formatCommitCountLabel(pushableCommitCount, "ahead")}>
@@ -13744,7 +13812,7 @@ function CommitPanel({
                   </SyncCountChip>
                 ) : null}
               </OperationButtonFeedback>
-            </Button>
+            </TooltipButton>
             {primaryCommitAction === "commit" || showAmendAction ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -13760,6 +13828,19 @@ function CommitPanel({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" side="top">
+                  {summary?.kind === "git" ? <>
+                    <TooltipTarget content={quickCommitByDefault ? "Commit staged changes using your message" : quickCommitDisabledReason ?? "Generate a message and immediately commit selected files"} contentProps={{ side: "left", sideOffset: 8 }}>
+                      <DropdownMenuItem
+                        disabled={disabled || (quickCommitByDefault ? !commitAllowed : quickCommitDisabled)}
+                        className="data-[disabled]:pointer-events-auto"
+                        onSelect={() => quickCommitByDefault ? onManualCommit() : onQuickCommit(quickCommitPaths)}
+                      >
+                        {quickCommitByDefault ? <CheckCircle2 /> : <Sparkles />}
+                        {quickCommitByDefault ? "Commit" : "Quick Commit"}
+                      </DropdownMenuItem>
+                    </TooltipTarget>
+                    <DropdownMenuSeparator />
+                  </> : null}
                   <DropdownMenuItem disabled={disabled || !commitAllowed} onSelect={onCommitAndPush}>
                     <Upload />
                     Commit &amp; Push
@@ -13783,6 +13864,7 @@ function CommitPanel({
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : null}
+          </div>
           </div>
         </div>
       </div>
@@ -15052,10 +15134,6 @@ function canDiscardStatusFile(file: GitStatusFile): boolean {
   return !file.submodule && !file.isConflicted && getFileStatusVisuals(file, "unstaged").tone !== "untracked";
 }
 
-function canStageStatusFile(file: GitStatusFile): boolean {
-  return file.submodule?.canStage !== false;
-}
-
 function RemoteFact({ remotes, repositoryUrl, disabled, onOpen, onManage }: {
   remotes: string;
   repositoryUrl: string | null;
@@ -15305,6 +15383,7 @@ function hasAppSettingsChanges(draft: SettingsDraft, settings: AppSettings | nul
     || draft.zoomFactor !== settings.zoomFactor
     || draft.tagPushBehavior !== (settings.gitBehaviors?.tagPushBehavior ?? DEFAULT_TAG_PUSH_BEHAVIOR)
     || draft.requireUpToDateUpstreamBeforeCommit !== (settings.gitBehaviors?.requireUpToDateUpstreamBeforeCommit ?? false)
+    || draft.quickCommitByDefault !== (settings.gitBehaviors?.quickCommitByDefault ?? false)
     || draft.remoteCheckLeaseSeconds !== (settings.gitBehaviors?.remoteCheckLeaseSeconds ?? DEFAULT_REMOTE_CHECK_LEASE_SECONDS)
     || draft.allowCherryPickingContainedCommits !== (settings.gitBehaviors?.allowCherryPickingContainedCommits ?? false)
     || draft.shareAnonymousDiagnostics !== settings.privacy.shareAnonymousDiagnostics;
@@ -15317,6 +15396,23 @@ function hasGitIdentityChanges(draft: SettingsDraft, settings: GitIdentitySettin
 
   return draft.gitIdentityName !== settings.global.name
     || draft.gitIdentityEmail !== settings.global.email;
+}
+
+function getQuickCommitSelectionPaths(summary: RepoSummary | null, selection: FileSelection | null, query: string, statusFilter: StatusFileFilter): string[] {
+  if (!summary || selection?.side !== "unstaged") return [];
+  const visiblePaths = new Set(filterStatusFiles(getUnstagedFiles(summary), "unstaged", query, statusFilter).map((file) => file.path));
+  return getSelectionPaths(selection).filter((path) => visiblePaths.has(path));
+}
+
+function getQuickCommitDisabledReason(summary: RepoSummary | null, paths: string[], aiReady: boolean): string | null {
+  if (!summary?.isValid || summary.kind !== "git") return "Quick Commit is available for Git repositories.";
+  if (summary.operationState) return "Finish the current repository operation before using Quick Commit.";
+  if (hasStagedChanges(summary)) return "Commit or unstage existing changes before using Quick Commit.";
+  if (paths.length === 0) return "Select unstaged files to Quick Commit.";
+  const eligible = new Set(summary.files.filter((file) => file.isUnstaged && !file.isConflicted && canStageStatusFile(file)).map((file) => file.path));
+  if (paths.some((path) => !eligible.has(path))) return "Select files that can be staged without resolving conflicts.";
+  if (!aiReady) return "Configure an AI provider in Settings to use Quick Commit.";
+  return null;
 }
 
 function canCommit(state: AppState): boolean {

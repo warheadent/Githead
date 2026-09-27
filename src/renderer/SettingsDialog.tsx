@@ -87,6 +87,7 @@ export interface SettingsDraft {
   zoomFactor: number;
   tagPushBehavior: TagPushBehavior;
   requireUpToDateUpstreamBeforeCommit: boolean;
+  quickCommitByDefault: boolean;
   remoteCheckLeaseSeconds: RemoteCheckLeaseSeconds;
   allowCherryPickingContainedCommits: boolean;
   shareAnonymousDiagnostics: boolean;
@@ -293,7 +294,24 @@ export function SettingsDialog({
                   <GitConfigSettingsFields editor={gitConfig} disabled={saving} />
                 </SettingsPanel>
                 <SettingsPanel value="git-behaviors" title="Git behaviors" description="Choose how Githead handles Git operations by default.">
-                  <SettingsCard title="Commit" description="Control the network safety check used by commit operations.">
+                  <SettingsCard title="Commit" description="Choose the default commit action and upstream safety check.">
+                    <div className="settings-toggle">
+                      <input
+                        id="quick-commit-by-default"
+                        aria-describedby="quick-commit-by-default-description"
+                        type="checkbox"
+                        className="mt-1 shrink-0"
+                        checked={draft.quickCommitByDefault}
+                        disabled={saving}
+                        onChange={(event) => onDraftChange({ ...draft, quickCommitByDefault: event.currentTarget.checked })}
+                      />
+                      <div>
+                        <label htmlFor="quick-commit-by-default" className="text-sm font-medium">Use Quick Commit by default</label>
+                        <p id="quick-commit-by-default-description" className="mt-1 text-sm text-muted-foreground">
+                          Make Quick Commit the main compose button and move Commit into its menu. Quick Commit generates a message and immediately commits selected unstaged files. Requires AI setup and no staged changes.
+                        </p>
+                      </div>
+                    </div>
                     <div className="settings-toggle">
                       <input
                         id="require-up-to-date-upstream-before-commit"
@@ -677,6 +695,7 @@ function getDirtyCategories(baseline: string, draft: SettingsDraft): Record<Sett
     "git-configuration": false,
     "git-behaviors": saved.tagPushBehavior !== draft.tagPushBehavior
       || saved.requireUpToDateUpstreamBeforeCommit !== draft.requireUpToDateUpstreamBeforeCommit
+      || saved.quickCommitByDefault !== draft.quickCommitByDefault
       || saved.remoteCheckLeaseSeconds !== draft.remoteCheckLeaseSeconds
       || saved.allowCherryPickingContainedCommits !== draft.allowCherryPickingContainedCommits,
     sync: saved.autoFetchIntervalMinutes !== draft.autoFetchIntervalMinutes,

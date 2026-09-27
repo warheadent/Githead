@@ -68,6 +68,7 @@ import type {
   GitCreateTagRequest,
   GitDeleteTagRequest,
   GitFileChangesRequest,
+  GenerateAndCommitRequest,
   GitDiscardSnapshotRequest,
   GitFileDiffRequest,
   GitFileHistoryRequest,
@@ -135,6 +136,7 @@ import { AiSettingsService } from "./aiSettingsService";
 import { AiReasoningCapabilityService } from "./aiReasoningCapabilityService";
 import { AppSettingsService, normalizeZoomFactorForSave } from "./appSettingsService";
 import { CommitMessageService } from "./commitMessageService";
+import { QuickCommitService } from "./quickCommitService";
 import { CommitPlanService } from "./commitPlanService";
 import { CancellableProcessRunner } from "./cancellableProcessRunner";
 import {
@@ -1166,6 +1168,27 @@ ipcMain.handle(IPC_CHANNELS.quickCommitFiles, async (event, request: Coordinated
         ? remoteCheckLeaseDurationMs(settings)
         : undefined;
       return gitService.quickCommitFiles(request, onOutput, leaseDurationMs);
+    }),
+    repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS, true),
+    (failure) => failure,
+    () => createOperationFailure(request.repoPath, "Another git command is already running for this repository.")
+  );
+});
+
+ipcMain.handle(IPC_CHANNELS.generateAndCommit, async (event, request: CoordinatedRequest<GenerateAndCommitRequest>) => {
+  return runTrustedExclusiveRepositoryOperation(
+    (signal) => withOwnedGitOutput(event, request.repoPath, async (onOutput) => {
+      if ((await vcsRouter.resolveKind(request.repoPath)) !== "git") {
+        return createOperationFailure(request.repoPath, "Quick Commit is available only for Git repositories.");
+      }
+      const settings = await getAppSettingsService().getSettings();
+      const leaseDurationMs = settings.gitBehaviors?.requireUpToDateUpstreamBeforeCommit === true
+        ? remoteCheckLeaseDurationMs(settings) : undefined;
+      return new QuickCommitService(gitService, getCommitMessageService()).generateAndCommit(
+        request, signal, onOutput, leaseDurationMs,
+        (phase) => onOutput({ runId: request.operationId, action: `quick-commit-${phase}`, stream: "system", text: phase === "generating" ? "Generating commit message…\n" : "Committing selected files…\n", timestamp: new Date().toISOString() }),
+        (warning) => onOutput({ runId: request.operationId, action: "Quick Commit", stream: "stderr", text: `Warning: ${warning}\n`, timestamp: new Date().toISOString() })
+      );
     }),
     repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS, true),
     (failure) => failure,

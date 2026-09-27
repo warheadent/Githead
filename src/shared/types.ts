@@ -1216,6 +1216,15 @@ export interface GitQuickCommitRequest extends GitCommitRequest {
   changes?: GitQuickCommitChange[];
 }
 
+export interface GenerateAndCommitResult extends GitOperationResult {
+  generatedMessage?: string;
+}
+
+export interface GenerateAndCommitRequest {
+  repoPath: string;
+  paths: string[];
+}
+
 export interface GitCommitHashRequest {
   repoPath: string;
   hash: string;
@@ -1891,6 +1900,7 @@ export type RemoteCheckLeaseSeconds = (typeof REMOTE_CHECK_LEASE_SECONDS)[number
 export const DEFAULT_REMOTE_CHECK_LEASE_SECONDS: RemoteCheckLeaseSeconds = 120;
 
 export interface GitBehaviorSettings {
+  quickCommitByDefault?: boolean;
   tagPushBehavior: TagPushBehavior;
   allowCherryPickingContainedCommits?: boolean;
   requireUpToDateUpstreamBeforeCommit?: boolean;
@@ -2420,6 +2430,7 @@ export interface GitheadApi {
   amendLastCommit(request: CoordinatedRequest<GitAmendExecuteRequest>): Promise<GitAmendResult>;
   restoreAmendRecovery(request: CoordinatedRequest<GitAmendRestoreRequest>): Promise<GitAmendRestoreResult>;
   quickCommitFiles(request: CoordinatedRequest<GitQuickCommitRequest>): Promise<GitOperationResult>;
+  generateAndCommit(request: CoordinatedRequest<GenerateAndCommitRequest>): Promise<GenerateAndCommitResult>;
   createStash(request: CoordinatedRequest<GitStashCreateRequest>): Promise<GitOperationResult>;
   applyStash(request: CoordinatedRequest<GitStashRefRequest>): Promise<GitOperationResult>;
   popStash(request: CoordinatedRequest<GitStashRefRequest>): Promise<GitOperationResult>;

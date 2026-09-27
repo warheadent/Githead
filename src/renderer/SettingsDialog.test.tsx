@@ -30,6 +30,7 @@ const savedDraft: SettingsDraft = {
   zoomFactor: 1,
   tagPushBehavior: "all",
   requireUpToDateUpstreamBeforeCommit: false,
+  quickCommitByDefault: false,
   remoteCheckLeaseSeconds: 120,
   allowCherryPickingContainedCommits: false,
   shareAnonymousDiagnostics: true,

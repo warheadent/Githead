@@ -80,6 +80,7 @@ export const IPC_CHANNELS = {
   amendLastCommit: "git:amend-last-commit",
   restoreAmendRecovery: "git:amend-recovery-restore",
   quickCommitFiles: "git:quick-commit-files",
+  generateAndCommit: "git:generate-and-commit",
   createStash: "git:stash-create",
   applyStash: "git:stash-apply",
   popStash: "git:stash-pop",

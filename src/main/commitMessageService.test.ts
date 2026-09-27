@@ -225,6 +225,14 @@ function createService(params: {
 }
 
 describe("CommitMessageService", () => {
+  it("generates from a captured selection without reading staged changes", async () => {
+    const { service, calls } = createService({ diff: "Unrelated staged changes" });
+    const result = await service.generateCommitMessageFromDiff({ repoPath: "D:\\Repo" }, "Selected working-tree changes");
+    expect(result.exitCode).toBe(0);
+    expect(result.sourceChanged).toBeUndefined();
+    expect(String(calls[0]?.init?.body)).toContain("Selected working-tree changes");
+    expect(String(calls[0]?.init?.body)).not.toContain("Unrelated staged changes");
+  });
   it("reports whether the staged diff changed during commit message generation", async () => {
     const unchanged = createService({
       diff: ["diff --git a/a.ts b/a.ts\n+added\n", "diff --git a/a.ts b/a.ts\n+added\n"]

@@ -428,6 +428,7 @@ export function createGitheadMock(): GitheadApi {
       recoveryRef: "refs/githead/amend-recovery/test-restore"
     }),
     quickCommitFiles: vi.fn().mockResolvedValue(okOperation),
+    generateAndCommit: vi.fn().mockResolvedValue({ ...okOperation, generatedMessage: "Update selected files" }),
     createStash: vi.fn().mockResolvedValue(okOperation),
     applyStash: vi.fn().mockResolvedValue(okOperation),
     popStash: vi.fn().mockResolvedValue(okOperation),

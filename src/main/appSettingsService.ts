@@ -141,6 +141,7 @@ function parseStoredGitBehaviors(value: unknown): GitBehaviorSettings {
     tagPushBehavior?: unknown;
     allowCherryPickingContainedCommits?: unknown;
     requireUpToDateUpstreamBeforeCommit?: unknown;
+    quickCommitByDefault?: unknown;
     remoteCheckLeaseSeconds?: unknown;
   };
   const tagPushBehavior = stored.tagPushBehavior;
@@ -154,6 +155,7 @@ function parseStoredGitBehaviors(value: unknown): GitBehaviorSettings {
     ...(stored.requireUpToDateUpstreamBeforeCommit === true
       ? { requireUpToDateUpstreamBeforeCommit: true }
       : {}),
+    ...(stored.quickCommitByDefault === true ? { quickCommitByDefault: true } : {}),
     ...(REMOTE_CHECK_LEASE_SECONDS.includes(stored.remoteCheckLeaseSeconds as RemoteCheckLeaseSeconds)
       ? { remoteCheckLeaseSeconds: stored.remoteCheckLeaseSeconds as RemoteCheckLeaseSeconds }
       : {})
@@ -163,6 +165,9 @@ function parseStoredGitBehaviors(value: unknown): GitBehaviorSettings {
 function normalizeGitBehaviorsForSave(value: GitBehaviorSettings): GitBehaviorSettings {
   if (!value || !TAG_PUSH_BEHAVIORS.includes(value.tagPushBehavior)) {
     throw new Error("Unknown tag push behavior.");
+  }
+  if (value.quickCommitByDefault !== undefined && typeof value.quickCommitByDefault !== "boolean") {
+    throw new Error("Quick Commit default must be a Boolean value.");
   }
   if (
     value.allowCherryPickingContainedCommits !== undefined &&
@@ -190,6 +195,7 @@ function normalizeGitBehaviorsForSave(value: GitBehaviorSettings): GitBehaviorSe
     ...(value.requireUpToDateUpstreamBeforeCommit === true
       ? { requireUpToDateUpstreamBeforeCommit: true }
       : {}),
+    ...(value.quickCommitByDefault === true ? { quickCommitByDefault: true } : {}),
     ...(value.remoteCheckLeaseSeconds !== undefined
       ? { remoteCheckLeaseSeconds: value.remoteCheckLeaseSeconds }
       : {})

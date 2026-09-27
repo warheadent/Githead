@@ -1009,6 +1009,7 @@ describe("App", { timeout: 10_000 }, () => {
         gitBehaviors: {
           tagPushBehavior: "all",
           requireUpToDateUpstreamBeforeCommit: false,
+          quickCommitByDefault: false,
           remoteCheckLeaseSeconds: 120,
           allowCherryPickingContainedCommits: false
         },
@@ -1025,6 +1026,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(await screen.findByRole("button", { name: "Settings" }));
     await user.click(screen.getByRole("tab", { name: "Git behaviors" }));
     await user.click(screen.getByRole("checkbox", { name: /Check the upstream before committing/ }));
+    await user.click(screen.getByRole("checkbox", { name: "Use Quick Commit by default" }));
     await user.selectOptions(screen.getByRole("combobox", { name: "Reuse a remote check for" }), "300");
     await user.selectOptions(screen.getByRole("combobox", { name: "Tag push behavior" }), "none");
     await user.click(screen.getByRole("checkbox", { name: /Allow commits already contained/ }));
@@ -1044,6 +1046,7 @@ describe("App", { timeout: 10_000 }, () => {
       gitBehaviors: {
         tagPushBehavior: "none",
         requireUpToDateUpstreamBeforeCommit: true,
+        quickCommitByDefault: true,
         remoteCheckLeaseSeconds: 300,
         allowCherryPickingContainedCommits: true
       },
@@ -1234,6 +1237,7 @@ describe("App", { timeout: 10_000 }, () => {
       gitBehaviors: {
         tagPushBehavior: "all",
         requireUpToDateUpstreamBeforeCommit: false,
+          quickCommitByDefault: false,
         remoteCheckLeaseSeconds: 120,
         allowCherryPickingContainedCommits: false
       },

@@ -1619,7 +1619,7 @@ export class GitService {
   ): Promise<{ filePaths: string[]; hunkPatch: string } | { error: string }> {
     const changes = dedupeQuickCommitChanges(requestedChanges);
     if (changes.length === 0 || changes.length !== requestedChanges.length) {
-      return { error: "The planned changes are invalid. Generate the commit plan again." };
+      return { error: "The selected changes are invalid. Refresh the selection and try again." };
     }
 
     const paths = [...new Set(changes.map((change) => change.path))];
@@ -1636,9 +1636,9 @@ export class GitService {
 
     for (const change of changes) {
       const diff = diffByPath.get(change.path);
-      if (!diff) return { error: "The working-tree changes changed. Generate the commit plan again." };
+      if (!diff) return { error: "The selected changes changed. Review them and try again." };
       if (diff.kind === "error" || diff.kind === "empty") {
-        return { error: `Unable to validate ${change.path}. Refresh the commit plan.` };
+        return { error: `Unable to validate ${change.path}. Refresh the selected changes.` };
       }
       const key = `${change.path}\0${change.kind}`;
       let candidates = preparedByPath.get(key);
@@ -1648,7 +1648,7 @@ export class GitService {
         preparedByPath.set(key, candidates);
       }
       const match = candidates.get(`${change.kind}\0${change.fingerprint}`);
-      if (!match) return { error: "The working-tree changes changed. Generate the commit plan again." };
+      if (!match) return { error: "The selected changes changed. Review them and try again." };
       if (match.kind === "hunk") resolvedHunks.push(match);
       else filePaths.push(match.path);
     }
