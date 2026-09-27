@@ -4,7 +4,8 @@ import {
   DEFAULT_SOURCE_CONTROL_WRITING_STYLE
 } from "../shared/sourceControlWritingStyle";
 import type { SourceControlWritingStyle } from "../shared/types";
-import { MAX_DIFF_CHARS } from "./commitMessagePromptBuilder";
+
+const MAX_DIFF_CHARS = 60_000;
 
 export function createPrDescriptionSystemPrompt(
   style: SourceControlWritingStyle = DEFAULT_SOURCE_CONTROL_WRITING_STYLE,

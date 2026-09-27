@@ -24,6 +24,36 @@ const settings: AiSettings = {
 };
 
 describe("CommitPlanService", () => {
+  it("warns for the plan model before sending every selected change and retains the warning on failure", async () => {
+    for (const status of [200, 400]) {
+      const text = `diff --git a/a.ts b/a.ts\n${"+change\n".repeat(50_000)}+final change`;
+      const warnings: string[] = [];
+      const settingsService = {
+        getGenerationSettings: async () => settings,
+        getApiKey: async () => "sk-test"
+      } as unknown as AiSettingsService;
+      const service = new CommitPlanService(
+        () => ({
+          getCommitHistory: async () => [],
+          getFileDiff: async () => ({ path: "a.ts", side: "unstaged", kind: "text", text })
+        }),
+        settingsService,
+        async (_url, init) => {
+          expect(warnings).toHaveLength(1);
+          const body = JSON.parse(String(init?.body));
+          expect(body.model).toBe("openrouter/plan");
+          expect(body.messages.at(-1).content).toContain(text);
+          return new Response(JSON.stringify({ choices: [{ message: { content: '{"groups":[{"message":"Update file","changeIds":["change-1"]}]}' } }] }), { status });
+        }
+      );
+      const result = await service.generateCommitPlan({ repoPath: "/repo", paths: ["a.ts"] }, undefined, (warning) => warnings.push(warning));
+      expect(result.exitCode === 0).toBe(status === 200);
+      expect(warnings[0]).toContain("openrouter/plan");
+      expect(result.stderr).toContain(warnings[0]);
+      if (result.plan) expect(result.plan.changes[0]?.contextIncomplete).toBeUndefined();
+    }
+  });
+
   it("validates an unchanged hunk snapshot and rejects changed or added hunks", async () => {
     let diff: GitFileDiff = {
       path: "src/a.ts",
@@ -244,19 +274,19 @@ describe("CommitPlanService", () => {
 });
 
 
-describe("commit plan context budget", () => {
-  it("gives large changes a share and fully includes small changes regardless of order", () => {
+describe("commit plan diff context", () => {
+  it("includes every change in full regardless of size or order", () => {
     const prepared = createCommitPlanChanges([
       { path: "large-a.ts", side: "unstaged", kind: "text", text: "A".repeat(100_000) },
       { path: "small.ts", side: "unstaged", kind: "text", text: "+small change" },
       { path: "large-b.ts", side: "unstaged", kind: "text", text: "B".repeat(100_000) }
     ], "file");
     const context = createDiffContext(prepared);
-    expect(context.text.length).toBeLessThanOrEqual(80_000);
+    expect(context.text.length).toBeGreaterThan(200_000);
     expect(context.text).toContain("+small change");
-    expect(context.text.match(/A/g)?.length).toBeGreaterThan(30_000);
-    expect(context.text.match(/B/g)?.length).toBeGreaterThan(30_000);
-    expect([...context.incompleteChangeIds]).toEqual(["change-1", "change-3"]);
+    expect(context.text).toContain("A".repeat(100_000));
+    expect(context.text).toContain("B".repeat(100_000));
+    expect([...context.incompleteChangeIds]).toEqual([]);
   });
 
   it("reports already truncated and binary input as incomplete", () => {

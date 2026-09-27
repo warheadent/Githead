@@ -607,7 +607,7 @@ describe("CommitMessageService", () => {
     expect(prompt).not.toContain("  This preserves legacy project naming.  ");
   });
 
-  it("caps large staged diffs before sending them to providers", async () => {
+  it("sends complete large staged diffs to providers", async () => {
     const { service, calls } = createService({
       diff: `diff --git a/a.ts b/a.ts\n${"x".repeat(70_000)}`
     });
@@ -620,8 +620,26 @@ describe("CommitMessageService", () => {
       messages: Array<{ content: string }>;
     };
     const prompt = body.messages.at(-1)?.content ?? "";
-    expect(prompt).toContain("The diff was truncated");
-    expect(prompt.length).toBeLessThan(61_000);
+    expect(prompt).not.toContain("The diff was truncated");
+    expect(prompt).toContain("x".repeat(70_000));
+  });
+
+  it("warns before requesting a complete large diff and retains the warning on failure", async () => {
+    for (const responseOk of [true, false]) {
+      const diff = `diff --git a/a.ts b/a.ts\n${"+large change\n".repeat(25_000)}+final change\n`;
+      const { service, calls } = createService({ diff, responseOk });
+      const warnings: string[] = [];
+      const result = await service.generateCommitMessage({ repoPath: "D:\\Repo" }, undefined, (warning) => {
+        expect(calls).toHaveLength(0);
+        warnings.push(warning);
+      });
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain("openrouter/auto");
+      expect(result.stderr).toContain(warnings[0]);
+      expect(result.exitCode === 0).toBe(responseOk);
+      const body = JSON.parse(String(calls[0]?.init?.body));
+      expect(body.messages.at(-1).content).toContain(diff.trim());
+    }
   });
 
   it("fails without calling providers when no staged diff exists", async () => {

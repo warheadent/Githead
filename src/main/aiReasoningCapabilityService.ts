@@ -30,6 +30,8 @@ interface CachedCapabilities {
 interface OpenRouterModelsResponse {
   data?: Array<{
     id?: string;
+    context_length?: number;
+    top_provider?: { context_length?: number };
     reasoning?: {
       supported_efforts?: string[] | null;
     };
@@ -37,6 +39,7 @@ interface OpenRouterModelsResponse {
 }
 
 interface AnthropicModelResponse {
+  max_input_tokens?: number;
   capabilities?: {
     effort?: Partial<Record<AiReasoningEffort, { supported?: boolean }>> & {
       supported?: boolean;
@@ -111,6 +114,10 @@ const STATIC_CAPABILITIES: Partial<Record<AiCommitMessageProvider, Record<string
 };
 
 export class AiReasoningCapabilityService {
+  private readonly inputLimits = new Map<string, { value: number | null; expiresAt: number }>();
+  private readonly inputLimitsInFlight = new Map<string, Promise<number | null>>();
+  private openRouterCatalog: { value: OpenRouterModelsResponse; expiresAt: number } | null = null;
+  private openRouterCatalogInFlight: Promise<OpenRouterModelsResponse> | null = null;
   private readonly cache = new Map<string, CachedCapabilities>();
   private readonly inFlight = new Map<string, Promise<AiReasoningCapabilities>>();
   private codexCatalog: { value: NonNullable<CodexModelListResponse["data"]>; expiresAt: number } | null = null;
@@ -124,6 +131,40 @@ export class AiReasoningCapabilityService {
     private readonly runner?: ProcessRunner,
     private readonly now: () => number = Date.now
   ) {}
+
+  async getInputTokenLimit(request: GetAiReasoningCapabilitiesRequest, signal?: AbortSignal): Promise<number | null> {
+    throwIfAborted(signal);
+    const model = request.model.trim();
+    // CLI aliases and account-specific overrides do not expose a reliable input limit.
+    if (!model || (request.provider !== "openrouter" && request.provider !== "anthropic")) return null;
+    const key = `${request.provider}:${model}`;
+    const cached = this.inputLimits.get(key);
+    if (cached && cached.expiresAt > this.now()) return cached.value;
+    let lookup = this.inputLimitsInFlight.get(key);
+    if (!lookup) {
+      lookup = (async () => {
+        try {
+          let limit: number | undefined;
+          if (request.provider === "openrouter") {
+            const match = (await this.getOpenRouterModels()).data?.find((candidate) => candidate.id === model);
+            const limits = [match?.context_length, match?.top_provider?.context_length]
+              .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
+            limit = limits.length > 0 ? Math.min(...limits) : undefined;
+          } else {
+            limit = (await this.getAnthropicModel(model))?.max_input_tokens;
+          }
+          return typeof limit === "number" && Number.isFinite(limit) && limit > 0 ? limit : null;
+        } catch {
+          return null;
+        }
+      })().then((value) => {
+        this.inputLimits.set(key, { value, expiresAt: this.now() + (value === null ? UNKNOWN_CACHE_TTL_MS : CACHE_TTL_MS) });
+        return value;
+      }).finally(() => { this.inputLimitsInFlight.delete(key); });
+      this.inputLimitsInFlight.set(key, lookup);
+    }
+    return awaitWithAbort(lookup, signal);
+  }
 
   async getCapabilities(
     request: GetAiReasoningCapabilitiesRequest,
@@ -196,21 +237,7 @@ export class AiReasoningCapabilityService {
   }
 
   private async getOpenRouterCapabilities(model: string): Promise<AiReasoningCapabilities | null> {
-    const apiKey = await this.getOptionalApiKey("openrouter");
-    const init: RequestInit = apiKey
-      ? { headers: { "Authorization": `Bearer ${apiKey}` } }
-      : {};
-    const { response, payload } = await fetchJsonWithTimeout<OpenRouterModelsResponse>(
-      this.fetchImpl,
-      OPENROUTER_MODELS_URL,
-      init,
-      { timeoutMs: LOOKUP_TIMEOUT_MS }
-    );
-    if (!response.ok) {
-      throw new Error(`OpenRouter model lookup failed with status ${response.status}.`);
-    }
-
-    const match = payload.data?.find((candidate) => candidate.id === model);
+    const match = (await this.getOpenRouterModels()).data?.find((candidate) => candidate.id === model);
     if (!match) {
       return null;
     }
@@ -220,7 +247,34 @@ export class AiReasoningCapabilityService {
     return fromEffortStrings(match.reasoning.supported_efforts);
   }
 
+  private async getOpenRouterModels(): Promise<OpenRouterModelsResponse> {
+    if (this.openRouterCatalog && this.openRouterCatalog.expiresAt > this.now()) return this.openRouterCatalog.value;
+    this.openRouterCatalogInFlight ??= (async () => {
+      const apiKey = await this.getOptionalApiKey("openrouter");
+      const { response, payload } = await fetchJsonWithTimeout<OpenRouterModelsResponse>(
+        this.fetchImpl,
+        OPENROUTER_MODELS_URL,
+        apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {},
+        { timeoutMs: LOOKUP_TIMEOUT_MS }
+      );
+      if (!response.ok) throw new Error(`OpenRouter model lookup failed with status ${response.status}.`);
+      this.openRouterCatalog = { value: payload, expiresAt: this.now() + CACHE_TTL_MS };
+      return payload;
+    })().finally(() => { this.openRouterCatalogInFlight = null; });
+    return this.openRouterCatalogInFlight;
+  }
+
   private async getAnthropicCapabilities(model: string): Promise<AiReasoningCapabilities | null> {
+    const payload = await this.getAnthropicModel(model);
+    if (!payload) return null;
+    const effort = payload.capabilities?.effort;
+    if (!effort?.supported) {
+      return unsupported();
+    }
+    return fromEffortStrings(AI_REASONING_EFFORTS.filter((level) => effort[level]?.supported));
+  }
+
+  private async getAnthropicModel(model: string): Promise<AnthropicModelResponse | null> {
     const apiKey = await this.getOptionalApiKey("anthropic");
     if (!apiKey) {
       return null;
@@ -243,11 +297,7 @@ export class AiReasoningCapabilityService {
       throw new Error(`Anthropic model lookup failed with status ${response.status}.`);
     }
 
-    const effort = payload.capabilities?.effort;
-    if (!effort?.supported) {
-      return unsupported();
-    }
-    return fromEffortStrings(AI_REASONING_EFFORTS.filter((level) => effort[level]?.supported));
+    return payload;
   }
 
   private async getCodexCliCapabilities(model: string): Promise<AiReasoningCapabilities | null> {

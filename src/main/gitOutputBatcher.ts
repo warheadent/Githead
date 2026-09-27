@@ -23,7 +23,7 @@ export async function runWithGitOutputSink<T>(
 }
 
 /** Attach repository identity and explicit outcomes without parsing command text. */
-export async function runWithRepositoryGitOutput<T extends GitOperationResult>(
+export async function runWithRepositoryGitOutput<T extends Pick<GitOperationResult, "repoPath" | "exitCode">>(
   sink: GitOutputSink,
   repoPath: string,
   operation: (write: GitOutputSink["write"]) => Promise<T>

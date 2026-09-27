@@ -1,3 +1,4 @@
+import { createAiInputSizeWarning } from "./aiInputSizeWarning";
 import type {
   AiCommitMessageProvider,
   CommitPlanChange,
@@ -17,7 +18,6 @@ import { generateCompleteText } from "./commitMessageProviders";
 import {
   createCommitPlanSystemPrompt,
   createCommitPlanUserPrompt,
-  MAX_COMMIT_PLAN_DIFF_CHARS,
   MAX_COMMIT_PLAN_PATHS,
   parseCommitPlanResponse
 } from "./commitPlanPromptBuilder";
@@ -47,8 +47,9 @@ export class CommitPlanService {
     private readonly reasoningCapabilities?: AiReasoningCapabilityResolver
   ) {}
 
-  async generateCommitPlan(request: GenerateCommitPlanRequest, signal?: AbortSignal): Promise<GenerateCommitPlanResult> {
+  async generateCommitPlan(request: GenerateCommitPlanRequest, signal?: AbortSignal, onWarning?: (warning: string) => void): Promise<GenerateCommitPlanResult> {
     let selectedProvider: AiCommitMessageProvider | undefined;
+    let inputWarning = "";
     try {
       throwIfAborted(signal);
       const paths = [...new Set(request.paths.map((path) => path.trim()).filter(Boolean))];
@@ -106,19 +107,28 @@ export class CommitPlanService {
         signal
       );
       throwIfAborted(signal);
+      const systemPrompt = createCommitPlanSystemPrompt(settings.sourceControlWritingStyle);
+      const userPrompt = createCommitPlanUserPrompt(
+        changes,
+        context.text,
+        settings.sourceControlWritingStyle,
+        recentCommits.map((commit) => commit.subject)
+      );
+      inputWarning = await createAiInputSizeWarning(
+        { provider: selectedProvider, model },
+        `${systemPrompt}\n${userPrompt}`,
+        this.reasoningCapabilities,
+        signal
+      );
+      if (inputWarning) onWarning?.(inputWarning);
       const generation = await generateCompleteText(resolution.provider, {
         repoPath: request.repoPath,
         model,
         maxTokens: COMMIT_PLAN_MAX_TOKENS,
         ...(signal ? { signal } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
-        systemPrompt: createCommitPlanSystemPrompt(settings.sourceControlWritingStyle),
-        userPrompt: createCommitPlanUserPrompt(
-          changes,
-          context.text,
-          settings.sourceControlWritingStyle,
-          recentCommits.map((commit) => commit.subject)
-        )
+        systemPrompt,
+        userPrompt
       });
       throwIfAborted(signal);
       const plan = parseCommitPlanResponse(generation.text, changes, settings.commitPlanGranularity);
@@ -131,7 +141,7 @@ export class CommitPlanService {
         repoPath: request.repoPath,
         exitCode: 0,
         plan,
-        stderr: "",
+        stderr: inputWarning,
         ...(generation.retriedAfterLength ? { retriedAfterLength: true } : {})
       };
     } catch (error) {
@@ -139,7 +149,7 @@ export class CommitPlanService {
       reportAiGenerationFailure("commit-plan", selectedProvider, error);
       return failure(
         request.repoPath,
-        error instanceof Error ? error.message : "Unable to generate a commit plan."
+        [inputWarning, error instanceof Error ? error.message : "Unable to generate a commit plan."].filter(Boolean).join("\n")
       );
     }
   }
@@ -213,33 +223,10 @@ function validationResult(repoPath: string, valid: boolean, stderr = ""): Commit
 }
 
 export function createDiffContext(changes: PreparedCommitPlanChange[]): { text: string; incompleteChangeIds: Set<string> } {
-  const incompleteChangeIds = new Set<string>();
-  const marker = "\n[Diff shortened; review file]";
-  // Give every change a share first, then redistribute space left by small diffs.
-  const sections = changes.map((change) => ({
-    change,
-    heading: `### ${change.id}\n`,
-    budget: 0
-  }));
-  let remaining = Math.max(0, MAX_COMMIT_PLAN_DIFF_CHARS - sections.reduce((total, section) => total + section.heading.length + 2, 0));
-  let pending = [...sections];
-  while (remaining > 0 && pending.length > 0) {
-    const share = Math.max(1, Math.floor(remaining / pending.length));
-    for (const section of pending) {
-      const amount = Math.min(share, section.change.promptText.length - section.budget, remaining);
-      section.budget += amount;
-      remaining -= amount;
-    }
-    pending = pending.filter((section) => section.budget < section.change.promptText.length);
-  }
-  const text = sections.map(({ change, heading, budget }) => {
-    const shortened = budget < change.promptText.length;
-    if (shortened || change.contextIncomplete) incompleteChangeIds.add(change.id);
-    if (!shortened) return heading + change.promptText;
-    const contentBudget = Math.max(0, budget - marker.length);
-    return heading + change.promptText.slice(0, contentBudget) + marker.slice(0, budget - contentBudget);
-  }).join("\n\n");
-  return { text, incompleteChangeIds };
+  return {
+    text: changes.map((change) => `### ${change.id}\n${change.promptText}`).join("\n\n"),
+    incompleteChangeIds: new Set(changes.filter((change) => change.contextIncomplete).map((change) => change.id))
+  };
 }
 
 function assertReadableDiffs(diffs: GitFileDiff[]): void {

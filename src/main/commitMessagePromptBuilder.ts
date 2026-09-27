@@ -5,8 +5,6 @@ import {
 } from "../shared/sourceControlWritingStyle";
 import type { SourceControlWritingStyle } from "../shared/types";
 
-export const MAX_DIFF_CHARS = 60_000;
-
 export function createCommitMessageSystemPrompt(
   style: SourceControlWritingStyle = DEFAULT_SOURCE_CONTROL_WRITING_STYLE,
   target: "commit" | "stash" = "commit"
@@ -42,8 +40,6 @@ export function createCommitMessageUserPrompt(
   recentCommitSubjects: string[] = [],
   target: "commit" | "stash" = "commit"
 ): string {
-  const truncated = diff.length > MAX_DIFF_CHARS;
-  const promptDiff = truncated ? diff.slice(0, MAX_DIFF_CHARS) : diff;
   const instructions = target === "stash"
     ? "Write a concise Git stash message for these changes."
     : style
@@ -56,7 +52,6 @@ export function createCommitMessageUserPrompt(
 
   return [
     instructions,
-    truncated ? "The diff was truncated; summarize only the visible staged changes." : "",
     trimmedContext ? "Additional context from the user:" : "",
     trimmedContext,
     "",
@@ -64,7 +59,7 @@ export function createCommitMessageUserPrompt(
     ...conventionExamples.map((subject) => `- ${subject}`),
     conventionExamples.length > 0 ? "" : "",
     target === "stash" ? "Stash diff:" : "Staged diff:",
-    promptDiff
+    diff
   ].filter((line) => line.length > 0).join("\n");
 }
 

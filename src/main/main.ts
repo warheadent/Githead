@@ -1294,7 +1294,8 @@ ipcMain.handle(IPC_CHANNELS.setWindowZoomFactor, (event, zoomFactor: number) => 
 
 ipcMain.handle(IPC_CHANNELS.generateCommitMessage, async (event, request: CoordinatedRequest<GenerateCommitMessageRequest>) => {
   return runTrustedExclusiveGitOperation(
-    (signal) => getCommitMessageService().generateCommitMessage(request, signal),
+    (signal) => withGenerationWarnings(event, request.repoPath, "Generating commit message", (onWarning) =>
+      getCommitMessageService().generateCommitMessage(request, signal, onWarning)),
     repositoryOperationOptions(event, request.operationId, request.repoPath)
   );
 });
@@ -1506,7 +1507,8 @@ ipcMain.handle(IPC_CHANNELS.generateCommitPlan, async (event, request: Coordinat
       if ((await vcsRouter.resolveKind(request.repoPath)) !== "git") {
         return createCommitPlanFailure(request.repoPath, "Commit plans are available only for Git repositories.");
       }
-      return getCommitPlanService().generateCommitPlan(request, signal);
+      return withGenerationWarnings(event, request.repoPath, "Generating commit plan", (onWarning) =>
+        getCommitPlanService().generateCommitPlan(request, signal, onWarning));
     },
     repositoryOperationOptions(event, request.operationId, request.repoPath),
     (failure) => createCommitPlanFailure(request.repoPath, failure.stderr),
@@ -1719,7 +1721,19 @@ function runExclusiveGitOperation(
   );
 }
 
-async function withOwnedGitOutput<T extends GitOperationResult>(
+async function withGenerationWarnings<T extends Pick<GitOperationResult, "repoPath" | "exitCode">>(
+  event: Electron.IpcMainInvokeEvent,
+  repoPath: string,
+  action: string,
+  operation: (onWarning: (warning: string) => void) => Promise<T>
+): Promise<T> {
+  const runId = randomUUID();
+  return withOwnedGitOutput(event, repoPath, (onOutput) => operation((warning) => {
+    onOutput({ runId, action, stream: "stderr", text: `Warning: ${warning}\n`, timestamp: new Date().toISOString() });
+  }));
+}
+
+async function withOwnedGitOutput<T extends Pick<GitOperationResult, "repoPath" | "exitCode">>(
   event: Electron.IpcMainInvokeEvent,
   repoPath: string,
   operation: (onOutput: (output: GitOutputEvent) => void) => Promise<T>

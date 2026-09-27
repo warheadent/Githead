@@ -636,7 +636,7 @@ export class GitService {
         repoPath: request.repoPath,
         path: filePath,
         side: "unstaged"
-      }, result);
+      }, result, Number.MAX_SAFE_INTEGER);
       if (normalized.kind === "empty" && status?.submodule && (status.submodule.trackedChanges || status.submodule.untrackedChanges)) {
         return {
           path: filePath,
@@ -1709,13 +1709,13 @@ export class GitService {
       ? ["diff", "--cached", ...commonArgs]
       : ["diff", ...commonArgs, "HEAD"];
     if (request.scope === "selected") diffArgs.push("--", ...selection.paths);
-    let diff = await this.runGitOperation(repoPath, diffArgs);
+    let diff = await this.runGitOperation(repoPath, diffArgs, undefined, undefined, { maxOutputBytes: Number.MAX_SAFE_INTEGER });
 
     if (diff.exitCode !== 0 && request.scope !== "staged") {
       const pathArgs = request.scope === "selected" ? ["--", ...selection.paths] : [];
       const [staged, unstaged] = await Promise.all([
-        this.runGitOperation(repoPath, ["diff", "--cached", ...commonArgs, ...pathArgs]),
-        this.runGitOperation(repoPath, ["diff", ...commonArgs, ...pathArgs])
+        this.runGitOperation(repoPath, ["diff", "--cached", ...commonArgs, ...pathArgs], undefined, undefined, { maxOutputBytes: Number.MAX_SAFE_INTEGER }),
+        this.runGitOperation(repoPath, ["diff", ...commonArgs, ...pathArgs], undefined, undefined, { maxOutputBytes: Number.MAX_SAFE_INTEGER })
       ]);
       if (staged.exitCode !== 0) return staged;
       if (unstaged.exitCode !== 0) return unstaged;
@@ -2551,7 +2551,7 @@ export class GitService {
       "--no-color",
       "--no-ext-diff",
       "--no-textconv"
-    ]);
+    ], undefined, undefined, { maxOutputBytes: Number.MAX_SAFE_INTEGER });
   }
 
   async getBranchRangeContext(request: GitBranchRangeRequest): Promise<GitBranchRangeContext> {
@@ -3388,9 +3388,10 @@ export class GitService {
     onOutput?: (output: ProcessOutput) => void,
     stdin?: string | Buffer,
     env?: NodeJS.ProcessEnv,
-    timeoutMs?: number
+    timeoutMs?: number,
+    maxOutputBytes?: number
   ): Promise<ProcessResult> {
-    const options = createRunOptions(onOutput, stdin, env, timeoutMs);
+    const options = { ...createRunOptions(onOutput, stdin, env, timeoutMs), ...(maxOutputBytes === undefined ? {} : { maxOutputBytes }) };
 
     return this.runner.run("git", [
       "-C",
@@ -3603,8 +3604,7 @@ export class GitService {
     signal?: AbortSignal
   ): Promise<ProcessResult> {
     const options: ProcessRunOptions = {
-      maxOutputBytes: DIFF_TEXT_LIMIT,
-      outputMode: "truncate",
+      maxOutputBytes: Number.MAX_SAFE_INTEGER,
       ...(signal ? { signal } : {})
     };
     if (status?.indexStatus === "?") {
@@ -4125,13 +4125,13 @@ export class GitService {
     args: string[],
     paths?: string[],
     stdin?: string,
-    options?: { timeoutMs?: number; onOutput?: GitOutputHandler | undefined }
+    options?: { timeoutMs?: number; onOutput?: GitOutputHandler | undefined; maxOutputBytes?: number }
   ): Promise<GitOperationResult> {
     const input = paths ? createPathspecInput(paths) : stdin;
     const runId = randomUUID();
     const result = await this.runGit(repoPath, args, options?.onOutput
       ? (output) => options.onOutput?.(this.createOutputEvent(runId, args.slice(0, 2).join("-"), output.stream, output.text))
-      : undefined, input, undefined, options?.timeoutMs);
+      : undefined, input, undefined, options?.timeoutMs, options?.maxOutputBytes);
     const stderr = result.error ? `${result.stderr}${result.error}` : result.stderr;
     const errorKind = result.exitCode === 0 ? null : classifyGitOperationError(stderr);
 
@@ -5228,7 +5228,7 @@ function parseGitlinkCommits(text: string): Map<string, string> {
   return commits;
 }
 
-function normalizeDiffResult(request: GitFileDiffRequest, result: ProcessResult): GitFileDiff {
+function normalizeDiffResult(request: GitFileDiffRequest, result: ProcessResult, textLimit = DIFF_TEXT_LIMIT): GitFileDiff {
   const stderr = result.error ? `${result.stderr}${result.error}` : result.stderr;
 
   if (result.exitCode !== 0) {
@@ -5258,12 +5258,12 @@ function normalizeDiffResult(request: GitFileDiffRequest, result: ProcessResult)
     };
   }
 
-  const truncated = Boolean(result.stdoutTruncated) || result.stdout.length > DIFF_TEXT_LIMIT;
+  const truncated = Boolean(result.stdoutTruncated) || result.stdout.length > textLimit;
   return {
     path: request.path,
     side: request.side,
     kind: "text",
-    text: truncated ? result.stdout.slice(0, DIFF_TEXT_LIMIT) : result.stdout,
+    text: truncated ? result.stdout.slice(0, textLimit) : result.stdout,
     ...(truncated ? { truncated } : {})
   };
 }

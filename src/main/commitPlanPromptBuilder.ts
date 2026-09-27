@@ -4,7 +4,6 @@ import { MAX_COMMIT_PLAN_CHANGES } from "./commitPlanChanges";
 
 import { MAX_COMMIT_PLAN_GROUPS } from "../shared/commitPlanLimits";
 export { MAX_COMMIT_PLAN_PATHS, MAX_COMMIT_PLAN_GROUPS } from "../shared/commitPlanLimits";
-export const MAX_COMMIT_PLAN_DIFF_CHARS = 80_000;
 
 interface RawCommitPlanGroup {
   message?: unknown;

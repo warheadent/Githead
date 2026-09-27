@@ -577,7 +577,7 @@ export class LoreService implements VcsService {
         "diff",
         "--targets",
         targetsPath
-      ]);
+      ], { maxOutputBytes: Number.MAX_SAFE_INTEGER });
       return {
         repoPath,
         exitCode: result.exitCode,

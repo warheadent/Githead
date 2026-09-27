@@ -1,3 +1,4 @@
+import { createAiInputSizeWarning, type AiInputLimitResolver } from "./aiInputSizeWarning";
 import type { AiApiKeyProvider, AiCommitMessageProvider, AiReasoningEffort, AiSettings, GenerateCommitMessageRequest, GenerateCommitMessageResult, GetAiReasoningCapabilitiesRequest, GitOperationResult } from "../shared/types";
 import {
   recordAiGenerationRecovery,
@@ -29,7 +30,7 @@ type ChangeDiffProvider = Pick<VcsService, "getStagedDiff"> & Partial<Pick<VcsSe
 
 type Fetch = typeof fetch;
 
-export interface AiReasoningCapabilityResolver {
+export interface AiReasoningCapabilityResolver extends AiInputLimitResolver {
   getCapabilities(request: GetAiReasoningCapabilitiesRequest, signal?: AbortSignal): Promise<{
     status: "supported" | "unsupported" | "unknown";
     supportedEfforts: AiReasoningEffort[];
@@ -45,8 +46,9 @@ export class CommitMessageService {
     private readonly reasoningCapabilities?: AiReasoningCapabilityResolver
   ) {}
 
-  async generateCommitMessage(request: GenerateCommitMessageRequest, signal?: AbortSignal): Promise<GenerateCommitMessageResult> {
+  async generateCommitMessage(request: GenerateCommitMessageRequest, signal?: AbortSignal, onWarning?: (warning: string) => void): Promise<GenerateCommitMessageResult> {
     let selectedProvider: AiCommitMessageProvider | undefined;
+    let inputWarning = "";
     try {
       throwIfAborted(signal);
       const settings = await this.settingsService.getGenerationSettings(request.repoPath);
@@ -100,27 +102,36 @@ export class CommitMessageService {
         signal
       );
       throwIfAborted(signal);
+      const systemPrompt = createCommitMessageSystemPrompt(settings.sourceControlWritingStyle, target);
+      const userPrompt = createCommitMessageUserPrompt(
+        settings.commitMessagePrompt,
+        diff,
+        request.additionalContext,
+        settings.sourceControlWritingStyle,
+        recentCommits.map((commit) => commit.subject),
+        target
+      );
+      inputWarning = await createAiInputSizeWarning(
+        { provider: selectedProvider, model: providerSettings.model },
+        `${systemPrompt}\n${userPrompt}`,
+        this.reasoningCapabilities,
+        signal
+      );
+      if (inputWarning) onWarning?.(inputWarning);
       const generation = await generateCompleteText(resolution.provider, {
         repoPath: request.repoPath,
         model: providerSettings.model,
         ...(signal ? { signal } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
-        systemPrompt: createCommitMessageSystemPrompt(settings.sourceControlWritingStyle, target),
-        userPrompt: createCommitMessageUserPrompt(
-          settings.commitMessagePrompt,
-          diff,
-          request.additionalContext,
-          settings.sourceControlWritingStyle,
-          recentCommits.map((commit) => commit.subject),
-          target
-        )
+        systemPrompt,
+        userPrompt
       });
       const normalizedMessage = normalizeGeneratedMessage(generation.text);
       const message = target === "stash" ? normalizedMessage.split(/\r?\n/, 1)[0]?.trim() ?? "" : normalizedMessage;
       throwIfAborted(signal);
       if (!message) {
         reportAiEmptyResponse("commit-message", selectedProvider);
-        return createFailure(request.repoPath, `${providerLabel} returned an empty ${target} message.`);
+        return createFailure(request.repoPath, [inputWarning, `${providerLabel} returned an empty ${target} message.`].filter(Boolean).join("\n"));
       }
 
       if (generation.retriedAfterLength) {
@@ -136,9 +147,9 @@ export class CommitMessageService {
         exitCode: 0,
         stdout: message,
         ...(sourceChanged === undefined ? {} : { sourceChanged }),
-        stderr: generation.retriedAfterLength
+        stderr: [inputWarning, generation.retriedAfterLength
           ? "The first generation reached its output limit. Githead retried with a larger limit."
-          : ""
+          : ""].filter(Boolean).join("\n")
       };
     } catch (error) {
       if (signal?.aborted) {
@@ -147,7 +158,7 @@ export class CommitMessageService {
       reportAiGenerationFailure("commit-message", selectedProvider, error);
       return createFailure(
         request.repoPath,
-        error instanceof Error ? error.message : "Unable to generate commit message."
+        [inputWarning, error instanceof Error ? error.message : "Unable to generate commit message."].filter(Boolean).join("\n")
       );
     }
   }

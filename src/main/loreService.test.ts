@@ -102,8 +102,9 @@ describe("Lore AI context", () => {
     await withLoreRepo(async (repoPath) => {
       let targetsText: string | undefined;
       const runner: ProcessRunner = {
-        run: vi.fn(async (_command: string, args: string[]) => {
+        run: vi.fn(async (_command: string, args: string[], options?: ProcessRunOptions) => {
           if (args.includes("status")) return ok(STATUS_MIXED);
+          expect(options?.maxOutputBytes).toBe(Number.MAX_SAFE_INTEGER);
           const targetsIndex = args.indexOf("--targets");
           if (targetsIndex >= 0) {
             targetsText = await fs.readFile(args[targetsIndex + 1] ?? "", "utf8");

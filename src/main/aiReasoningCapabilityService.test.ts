@@ -28,6 +28,41 @@ afterEach(() => {
 });
 
 describe("AiReasoningCapabilityService", () => {
+  it("shares OpenRouter metadata between reasoning and input limits and caches limits", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async () => new Response(JSON.stringify({
+      data: [{ id: "vendor/model", context_length: 128_000, top_provider: { context_length: 64_000 }, reasoning: { supported_efforts: ["low"] } }]
+    })));
+    const service = new AiReasoningCapabilityService(createSettingsService(), fetchImpl);
+    const request = { provider: "openrouter", model: "vendor/model" } as const;
+    await expect(service.getCapabilities(request)).resolves.toMatchObject({ supportedEfforts: ["low"] });
+    await expect(service.getInputTokenLimit(request)).resolves.toBe(64_000);
+    await expect(service.getInputTokenLimit(request)).resolves.toBe(64_000);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads Anthropic input limits and treats absent metadata as unknown", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async () => new Response(JSON.stringify({ max_input_tokens: 200_000 })));
+    const service = new AiReasoningCapabilityService(createSettingsService({ anthropic: "key" }), fetchImpl);
+    await expect(service.getInputTokenLimit({ provider: "anthropic", model: "claude-example" })).resolves.toBe(200_000);
+    await expect(service.getInputTokenLimit({ provider: "claude-code", model: "sonnet" })).resolves.toBeNull();
+    await expect(service.getInputTokenLimit({ provider: "codex-cli", model: "custom-model" })).resolves.toBeNull();
+    await expect(service.getInputTokenLimit({ provider: "openai", model: "custom-model" })).resolves.toBeNull();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("deduplicates input limit lookups and retries missing metadata after a short cache lifetime", async () => {
+    let now = 0;
+    const fetchImpl = vi.fn<typeof fetch>().mockRejectedValue(new Error("offline"));
+    const service = new AiReasoningCapabilityService(createSettingsService(), fetchImpl, undefined, () => now);
+    const request = { provider: "openrouter", model: "vendor/model" } as const;
+    await expect(Promise.all([service.getInputTokenLimit(request), service.getInputTokenLimit(request)])).resolves.toEqual([null, null]);
+    await expect(service.getInputTokenLimit(request)).resolves.toBeNull();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    now = 31_000;
+    await expect(service.getInputTokenLimit(request)).resolves.toBeNull();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   it("uses static capabilities for known OpenAI and CLI models", async () => {
     const fetchImpl = vi.fn<typeof fetch>();
     const service = new AiReasoningCapabilityService(createSettingsService(), fetchImpl);

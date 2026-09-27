@@ -4337,6 +4337,24 @@ describe("GitService", () => {
     expect(diffs.every((diff) => diff.kind === "text")).toBe(true);
   });
 
+  it("preserves large commit-plan diffs beyond the viewer and process limits", async () => {
+    const text = `diff --git a/new.ts b/new.ts\n${"+change\n".repeat(1_300_000)}+tail\n`;
+    const runner = new FakeRunner([ok("true\n"), ok("? new.ts\0"), { ...ok(text), exitCode: 1 }]);
+    const service = new GitService(runner);
+    const diffs = await service.getCommitPlanDiffs({ repoPath: "D:\\Repo", paths: ["new.ts"] });
+    expect(diffs).toEqual([{ path: "new.ts", side: "unstaged", kind: "text", text }]);
+    expect(runner.calls.at(-1)?.options?.maxOutputBytes).toBe(Number.MAX_SAFE_INTEGER);
+    expect(runner.calls.at(-1)?.options?.outputMode).not.toBe("truncate");
+  });
+
+  it("reads complete staged diffs without the default process output cap", async () => {
+    const text = `diff --git a/a.ts b/a.ts\n${"+change\n".repeat(50_000)}+tail\n`;
+    const runner = new FakeRunner([ok("true\n"), ok(text)]);
+    const result = await new GitService(runner).getStagedDiff("D:\\Repo");
+    expect(result.stdout).toBe(text);
+    expect(runner.calls.at(-1)?.options?.maxOutputBytes).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
   it("fails commit-plan collection when File Status fails", async () => {
     const runner = new FakeRunner([
       ok("true\n"),
