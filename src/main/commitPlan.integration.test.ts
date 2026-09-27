@@ -51,19 +51,23 @@ describe("commit plan content validation", { timeout: 20_000 }, () => {
     });
   }
 
-  it("rejects an edit beyond a truncated text diff and accepts a fresh snapshot", async () => {
+  it("preserves a large text diff, rejects a stale tail, and accepts a fresh snapshot", async () => {
     await withRepository(async (repoPath, service, run) => {
       const file = path.join(repoPath, "large.txt");
       const prefix = "unchanged prefix line\n".repeat(20_000);
       await fs.writeFile(file, prefix + "first tail\n");
       const before = await service.getCommitPlanDiffs({ repoPath, paths: ["large.txt"] });
-      expect(before[0]).toMatchObject({ kind: "text", truncated: true });
+      expect(before[0]?.kind).toBe("text");
+      expect(before[0]?.truncated).toBeUndefined();
+      expect(before[0]?.text).toContain("+first tail\n");
       const changes = createCommitPlanChanges(before, "file");
       await fs.writeFile(file, prefix + "second tail\n");
       const stale = await service.quickCommitFiles({ repoPath, changes, message: "Use old tail" });
       expect(stale.exitCode).not.toBe(0);
       expect(await run(["diff", "--cached", "--name-only"])).toBe("");
-      const fresh = createCommitPlanChanges(await service.getCommitPlanDiffs({ repoPath, paths: ["large.txt"] }), "file");
+      const after = await service.getCommitPlanDiffs({ repoPath, paths: ["large.txt"] });
+      expect(after[0]?.text).toContain("+second tail\n");
+      const fresh = createCommitPlanChanges(after, "file");
       const committed = await service.quickCommitFiles({ repoPath, changes: fresh, message: "Use new tail" });
       expect(committed.exitCode, committed.stderr).toBe(0);
       expect(await run(["status", "--porcelain"])).toBe("");
