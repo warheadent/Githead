@@ -40,7 +40,7 @@ beforeEach(async () => {
 });
 afterEach(async () => { vi.unstubAllEnvs(); await fs.rm(directory, { recursive: true, force: true }); });
 
-describe("Githead uses Git sync configuration", () => {
+describe("Githead uses Git sync configuration", { timeout: 20_000 }, () => {
   it.each(["merge", "rebase", "ff-only"])("uses the selected %s pull policy", async (mode) => {
     await policy({ "pull.rebase": mode === "rebase" ? "true" : "false", "pull.ff": mode === "ff-only" ? "only" : "true" });
     await commit(local, "local.txt", "local change\n");

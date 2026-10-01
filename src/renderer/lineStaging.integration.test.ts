@@ -134,7 +134,7 @@ describe("line staging patches", { timeout: 20_000 }, () => {
       });
 
       expect(result.exitCode).toBe(-1);
-      expect(result.stderr).toContain("Generate the commit plan again");
+      expect(result.stderr).toContain("The selected changes changed. Review them and try again.");
       expect((await run(["diff", "--cached", "--quiet"])).exitCode).toBe(0);
     });
   });
