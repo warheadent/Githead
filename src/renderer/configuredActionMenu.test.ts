@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import type { GitConfiguredAction } from "../shared/types";
 import { buildConfiguredActionMenu } from "./configuredActionMenu";
 

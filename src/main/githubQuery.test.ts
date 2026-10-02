@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { buildIssueSearchPath, buildPullRequestSearchPath, buildWorkflowRunsPath } from "./githubQuery";
 
 const repository = { owner: "octo org", name: "répo", fullName: "octo/repo", webUrl: "https://github.com/octo/repo" };

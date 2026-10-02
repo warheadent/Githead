@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { GitStashDetails, GitStashEntry } from "../shared/types";
 import { StashesView } from "./StashesView";
 import { WorkspacePanelStateProvider, WorkspacePanelStateStore } from "./workspacePanelState";

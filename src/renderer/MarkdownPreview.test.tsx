@@ -110,7 +110,10 @@ describe("MarkdownPreview", () => {
     expect(initializeMermaid).toHaveBeenCalledWith(expect.objectContaining({
       securityLevel: "strict",
       startOnLoad: false,
-      suppressErrorRendering: true
+      suppressErrorRendering: true,
+      layout: "dagre",
+      look: "classic",
+      theme: "default"
     }));
     expect(renderMermaid.mock.calls[0]?.[1]).toBe("graph TD\n  A --> B");
     expect(screen.getByText("Rendered diagram")).toBeTruthy();

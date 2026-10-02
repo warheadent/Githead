@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { filterLoadedWorkflowRuns, sortLoadedWorkflowRuns } from "./githubViewQuery";
 
 const run = (id: string, name: string, startedAt: string) => ({

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { getRenderedColumnWidths, normalizeColumnLayout, reorderColumn, type ColumnDefinition } from "./columnLayout";
 
 const columns = [

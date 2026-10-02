@@ -56,6 +56,8 @@ function renderDiagram(id: string, definition: string, theme: "dark" | "default"
       startOnLoad: false,
       securityLevel: "strict",
       suppressErrorRendering: true,
+      layout: "dagre",
+      look: "classic",
       theme
     });
     return mermaid.render(id, definition);

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 vi.mock("@sentry/vite-plugin", () => ({ sentryVitePlugin: vi.fn((options) => options) }));
 
@@ -16,15 +16,15 @@ describe("build cache and source map policy", () => {
   it("caches local bundles without generating source maps by default", async () => {
     const config = await loadConfig();
     expect(config.buildSourceMaps).toBe(false);
-    expect(config.bundleTaskOptions.cache).toBe(true);
+    expect(config.bundleTaskOptions.cache).toEqual(expect.any(Object));
     expect(config.createSentryVitePlugin("dist/**/*.map").disable).toBe(true);
   });
 
   it("supports cached local debug maps", async () => {
     const config = await loadConfig({ GITHEAD_SOURCEMAP: "1" });
     expect(config.buildSourceMaps).toBe(true);
-    expect(config.bundleTaskOptions.cache).toBe(true);
-    expect(config.bundleTaskOptions.env).toContain("GITHEAD_SOURCEMAP");
+    expect(config.bundleTaskOptions.cache).toEqual(expect.any(Object));
+    expect(config.bundleTaskOptions.cache.env).toContain("GITHEAD_SOURCEMAP");
   });
 
   it("always generates maps and bypasses the cache for Sentry uploads", async () => {
@@ -42,8 +42,8 @@ describe("build cache and source map policy", () => {
   it("keeps incomplete upload configuration local and fingerprints embedded Sentry settings", async () => {
     const config = await loadConfig({ SENTRY_AUTH_TOKEN: "test-token" });
     expect(config.buildSourceMaps).toBe(false);
-    expect(config.bundleTaskOptions.cache).toBe(true);
-    expect(config.bundleTaskOptions.env).toEqual(expect.arrayContaining([
+    expect(config.bundleTaskOptions.cache).toEqual(expect.any(Object));
+    expect(config.bundleTaskOptions.cache.env).toEqual(expect.arrayContaining([
       "SENTRY_DSN", "SENTRY_ENVIRONMENT", "SENTRY_RELEASE", "SENTRY_ORG", "SENTRY_PROJECT"
     ]));
   });

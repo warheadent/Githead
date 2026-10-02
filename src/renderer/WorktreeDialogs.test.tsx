@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { GitOutputEvent, GitWorktree, GitWorktreeRemovalCheck, RepositoryGroup } from "../shared/types";
 import { WorktreeCreateDialog, WorktreeRemoveDialog } from "./WorktreeDialogs";
 

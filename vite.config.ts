@@ -15,17 +15,17 @@ const taskInputs = [{ auto: true }, "!dist/**", "!release/**", "!artifacts/**", 
 export default defineConfig({
   run: {
     tasks: {
-      "types:main": { command: "tsc --noEmit -p tsconfig.electron.json", input: taskInputs, output: [] },
-      "types:renderer": { command: "tsc --noEmit -p tsconfig.json", input: taskInputs, output: [] },
-      "types:tests": { command: "tsc --noEmit -p tsconfig.tests.json", input: taskInputs, output: [] },
+      "types:main": { command: "tsc --noEmit -p tsconfig.electron.json", cache: { input: taskInputs, output: [] } },
+      "types:renderer": { command: "tsc --noEmit -p tsconfig.json", cache: { input: taskInputs, output: [] } },
+      "types:tests": { command: "tsc --noEmit -p tsconfig.tests.json", cache: { input: taskInputs, output: [] } },
       "bundle:main": {
         ...bundleTaskOptions,
-        ...(bundleTaskOptions.cache ? { input: taskInputs } : {}),
+        cache: bundleTaskOptions.cache && { ...bundleTaskOptions.cache, input: taskInputs },
         command: "vp build --config vite.main.config.ts"
       },
       "bundle:renderer": {
         ...bundleTaskOptions,
-        ...(bundleTaskOptions.cache ? { input: taskInputs } : {}),
+        cache: bundleTaskOptions.cache && { ...bundleTaskOptions.cache, input: taskInputs },
         command: "vp build"
       }
     }

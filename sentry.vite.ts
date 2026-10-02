@@ -17,16 +17,17 @@ export const bundleTaskOptions = sentrySourceMapUploadEnabled
       cache: false as const
     }
   : {
-      cache: true as const,
-      env: [
-        "GITHEAD_SOURCEMAP",
-        "SENTRY_DSN",
-        "SENTRY_ENVIRONMENT",
-        "SENTRY_RELEASE",
-        "SENTRY_ORG",
-        "SENTRY_PROJECT"
-      ],
-      untrackedEnv: ["SENTRY_AUTH_TOKEN"]
+      cache: {
+        env: [
+          "GITHEAD_SOURCEMAP",
+          "SENTRY_DSN",
+          "SENTRY_ENVIRONMENT",
+          "SENTRY_RELEASE",
+          "SENTRY_ORG",
+          "SENTRY_PROJECT"
+        ],
+        untrackedEnv: ["SENTRY_AUTH_TOKEN"]
+      }
     };
 
 export const sentryBuildConfig = {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { GITHUB_REFERENCE_INPUT_LIMIT, GITHUB_REFERENCE_MATCH_LIMIT, parseGitHubReferences } from "./githubReference";
 
 const repository = { owner: "openai", name: "githead", fullName: "openai/githead", webUrl: "https://github.com/openai/githead" };

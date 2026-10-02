@@ -47,10 +47,23 @@ describe("Sentry privacy preference", () => {
 
     const options = sentry.init.mock.calls[0]?.[0] as {
       beforeSend: (event: { message: string }) => { message: string } | null;
-      sendDefaultPii: boolean;
+      dataCollection: Record<string, unknown>;
       tracesSampleRate: number;
     };
-    expect(options.sendDefaultPii).toBe(false);
+    expect(options.dataCollection).toEqual({
+      userInfo: false,
+      cookies: false,
+      httpHeaders: {
+        request: { deny: ["forwarded", "-ip", "remote-", "via", "-user"] },
+        response: { deny: ["forwarded", "-ip", "remote-", "via", "-user"] }
+      },
+      httpBodies: [],
+      urlQueryParams: { deny: ["forwarded", "-ip", "remote-", "via", "-user"] },
+      genAI: { inputs: false, outputs: false },
+      databaseQueryData: false,
+      queues: false,
+      graphQL: { document: false, variables: false }
+    });
     expect(options.tracesSampleRate).toBe(0);
     expect(options.beforeSend({ message: "allowed" })).toEqual({ message: "allowed" });
 

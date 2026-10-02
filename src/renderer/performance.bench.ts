@@ -1,4 +1,4 @@
-import { bench, describe } from "vite-plus/test";
+import { test, describe } from "vite-plus/test";
 import type { GitCommitGraphRow, GitStatusFile } from "../shared/types";
 import { appendActivityLogEvent, createActivityLogState, getActivityLogRawText } from "./activityLog";
 import { buildCommitGraphLayout } from "./commitGraph";
@@ -31,47 +31,65 @@ const commits: GitCommitGraphRow[] = Array.from({ length: 10_000 }, (_, index) =
 const chunk = "Build output line\n".repeat(64);
 
 describe("repository-sized workloads", () => {
-  bench("highlight addition with 1,000 context lines", () => { processDiff(addition); }, options);
-  bench("highlight replacement with 1,000 context lines", () => { processDiff(replacement); }, options);
-  bench("parse 1,000-line diff without highlighting", () => { processDiffPlain(addition); }, options);
-  bench("build and flatten 10,000 status files", () => { flattenStatusFileTree(buildStatusFileTree(files), new Set()); }, options);
-  bench("layout 10,000 linear commits", () => { buildCommitGraphLayout(commits); }, options);
-  bench("append 1,000 log chunks in one stream", () => {
-    let state = createActivityLogState();
-    for (let index = 0; index < 1_000; index += 1) {
-      state = appendActivityLogEvent(state, {
+  test("highlight addition with 1,000 context lines", async ({ bench }) => {
+    await bench("highlight addition with 1,000 context lines", () => { processDiff(addition); }).run(options);
+  });
+  test("highlight replacement with 1,000 context lines", async ({ bench }) => {
+    await bench("highlight replacement with 1,000 context lines", () => { processDiff(replacement); }).run(options);
+  });
+  test("parse 1,000-line diff without highlighting", async ({ bench }) => {
+    await bench("parse 1,000-line diff without highlighting", () => { processDiffPlain(addition); }).run(options);
+  });
+  test("build and flatten 10,000 status files", async ({ bench }) => {
+    await bench("build and flatten 10,000 status files", () => { flattenStatusFileTree(buildStatusFileTree(files), new Set()); }).run(options);
+  });
+  test("layout 10,000 linear commits", async ({ bench }) => {
+    await bench("layout 10,000 linear commits", () => { buildCommitGraphLayout(commits); }).run(options);
+  });
+  test("append 1,000 log chunks in one stream", async ({ bench }) => {
+    await bench("append 1,000 log chunks in one stream", () => {
+      let state = createActivityLogState();
+      for (let index = 0; index < 1_000; index += 1) {
+        state = appendActivityLogEvent(state, {
+          runId: "benchmark", action: "build", stream: "stdout", text: chunk, timestamp: "2026-01-01T00:00:00Z"
+        });
+      }
+      // Materialize retained output once, as when opening or copying a log after
+      // a command. This does not measure DOM updates while the log is visible.
+      if (!getActivityLogRawText(state).endsWith(chunk) || !state.blocks.map((block) => block.html).join("").endsWith(chunk)) {
+        throw new Error("Benchmark log output is incomplete.");
+      }
+    }).run(options);
+  });
+  test("append 200 log chunks after reaching the retention limit", async ({ bench }) => {
+    await bench("append 200 log chunks after reaching the retention limit", () => {
+      let state = appendActivityLogEvent(createActivityLogState(), {
+        runId: "benchmark", action: "build", stream: "stdout", text: "x".repeat(2_000_000), timestamp: "2026-01-01T00:00:00Z"
+      });
+      for (let index = 0; index < 200; index++) state = appendActivityLogEvent(state, {
         runId: "benchmark", action: "build", stream: "stdout", text: chunk, timestamp: "2026-01-01T00:00:00Z"
       });
-    }
-    // Materialize retained output once, as when opening or copying a log after
-    // a command. This does not measure DOM updates while the log is visible.
-    if (!getActivityLogRawText(state).endsWith(chunk) || !state.blocks.map((block) => block.html).join("").endsWith(chunk)) {
-      throw new Error("Benchmark log output is incomplete.");
-    }
-  }, options);
-  bench("append 200 log chunks after reaching the retention limit", () => {
-    let state = appendActivityLogEvent(createActivityLogState(), {
-      runId: "benchmark", action: "build", stream: "stdout", text: "x".repeat(2_000_000), timestamp: "2026-01-01T00:00:00Z"
-    });
-    for (let index = 0; index < 200; index++) state = appendActivityLogEvent(state, {
-      runId: "benchmark", action: "build", stream: "stdout", text: chunk, timestamp: "2026-01-01T00:00:00Z"
-    });
-    if (!getActivityLogRawText(state).endsWith(chunk)) throw new Error("Latest output was lost.");
-  }, options);
-  bench("append 200 chunks containing terminal hyperlinks", () => {
-    let state = createActivityLogState();
-    const text = "\u001b]8;;https://example.test\u0007link\u001b]8;;\u0007\n" + chunk;
-    for (let index = 0; index < 200; index++) state = appendActivityLogEvent(state, {
-      runId: "benchmark", action: "build", stream: "stdout", text, timestamp: "2026-01-01T00:00:00Z"
-    });
-    if (!getActivityLogRawText(state).endsWith(chunk)) throw new Error("Latest output was lost.");
-  }, options);
-  bench("append 2,000 interleaved chunks from four runs", () => {
-    let state = createActivityLogState();
-    for (let index = 0; index < 2_000; index++) state = appendActivityLogEvent(state, {
-      runId: `run-${index % 4}`, action: "build", stream: index % 2 ? "stderr" : "stdout", text: "progress\n", timestamp: "2026-01-01T00:00:00Z"
-    });
-    if (!getActivityLogRawText(state).endsWith("progress\n")) throw new Error("Latest output was lost.");
-  }, options);
+      if (!getActivityLogRawText(state).endsWith(chunk)) throw new Error("Latest output was lost.");
+    }).run(options);
+  });
+  test("append 200 chunks containing terminal hyperlinks", async ({ bench }) => {
+    await bench("append 200 chunks containing terminal hyperlinks", () => {
+      let state = createActivityLogState();
+      const text = "\u001b]8;;https://example.test\u0007link\u001b]8;;\u0007\n" + chunk;
+      for (let index = 0; index < 200; index++) state = appendActivityLogEvent(state, {
+        runId: "benchmark", action: "build", stream: "stdout", text, timestamp: "2026-01-01T00:00:00Z"
+      });
+      if (!getActivityLogRawText(state).endsWith(chunk)) throw new Error("Latest output was lost.");
+    }).run(options);
+  });
+  test("append 2,000 interleaved chunks from four runs", async ({ bench }) => {
+    await bench("append 2,000 interleaved chunks from four runs", () => {
+      let state = createActivityLogState();
+      for (let index = 0; index < 2_000; index++) state = appendActivityLogEvent(state, {
+        runId: `run-${index % 4}`, action: "build", stream: index % 2 ? "stderr" : "stdout", text: "progress\n", timestamp: "2026-01-01T00:00:00Z"
+      });
+      if (!getActivityLogRawText(state).endsWith("progress\n")) throw new Error("Latest output was lost.");
+    }).run(options);
+  });
 
 });

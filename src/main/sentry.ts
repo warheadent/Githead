@@ -32,7 +32,20 @@ export function initializeSentry(): boolean {
       (typeof __SENTRY_ENVIRONMENT__ === "string" ? __SENTRY_ENVIRONMENT__ : "") ||
       (app.isPackaged ? "production" : "development"),
     release: process.env.SENTRY_RELEASE?.trim() || (typeof __SENTRY_RELEASE__ === "string" ? __SENTRY_RELEASE__ : "") || `githead@${app.getVersion()}`,
-    sendDefaultPii: false,
+    dataCollection: {
+      userInfo: false,
+      cookies: false,
+      httpHeaders: {
+        request: { deny: ["forwarded", "-ip", "remote-", "via", "-user"] },
+        response: { deny: ["forwarded", "-ip", "remote-", "via", "-user"] }
+      },
+      httpBodies: [],
+      urlQueryParams: { deny: ["forwarded", "-ip", "remote-", "via", "-user"] },
+      genAI: { inputs: false, outputs: false },
+      databaseQueryData: false,
+      queues: false,
+      graphQL: { document: false, variables: false }
+    },
     tracesSampleRate: 0,
     attachScreenshot: false,
     enableRendererProfiling: false,

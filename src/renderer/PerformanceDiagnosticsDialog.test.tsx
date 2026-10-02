@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { GitheadApi, PerformanceDiagnosticsSnapshot } from "../shared/types";
 import { PerformanceDiagnosticsDialog } from "./PerformanceDiagnosticsDialog";
 

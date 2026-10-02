@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { createGitHubQueryStore, getGitHubQueryKey, type GitHubQueryDescriptor } from "./githubQueryStore";
 
 const repo = { repoPath: "C:\\work\\Repo", githubFullName: "Owner/Repo" };
