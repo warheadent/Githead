@@ -113,6 +113,55 @@ describe("RepoRecentsService", () => {
     });
   });
 
+  it("keeps a newly added repository when an older group scan finishes", async () => {
+    await withTempDir(async (dir) => {
+      const service = new RepoRecentsService(dir);
+      const repos = Array.from({ length: 12 }, (_value, index) => path.join(dir, `Repo${index}`));
+      for (const repo of repos) await service.addRecent(repo, repo);
+      const scannedGroups = repos.map((repo) => createGroup(repo, `${repo}-feature`));
+      const added = path.join(dir, "Added");
+      await service.addRecent(added, added);
+
+      await service.reconcileGroups(scannedGroups, repos[0]!);
+
+      expect(await service.getRecents()).toEqual(
+        [...repos, added].map((repo) => ({ anchorPath: repo, lastUsedPath: repo }))
+      );
+    });
+  });
+
+  it("does not restore a repository removed during a group scan", async () => {
+    await withTempDir(async (dir) => {
+      const service = new RepoRecentsService(dir);
+      const repo = path.join(dir, "Repo");
+      await service.addRecent(repo, repo);
+      await service.removeRecent(repo);
+
+      await expect(service.reconcileGroups([createGroup(repo, `${repo}-feature`)], repo)).resolves.toEqual([]);
+      await expect(service.getRecents()).resolves.toEqual([]);
+    });
+  });
+
+  it("preserves a manual reorder made during a group scan", async () => {
+    await withTempDir(async (dir) => {
+      const service = new RepoRecentsService(dir);
+      const first = path.join(dir, "First");
+      const second = path.join(dir, "Second");
+      await service.addRecent(first, first);
+      await service.addRecent(second, second);
+      await service.reorderRecents([second, first]);
+
+      const groups = await service.reconcileGroups([
+        createGroup(first, `${first}-feature`), createGroup(second, `${second}-feature`)
+      ], first);
+
+      expect(groups.map((group) => group.anchorPath)).toEqual([second, first]);
+      await expect(service.getRecents()).resolves.toEqual([
+        { anchorPath: second, lastUsedPath: second }, { anchorPath: first, lastUsedPath: first }
+      ]);
+    });
+  });
+
   it("removes repository anchors using platform path comparison", async () => {
     await withTempDir(async (dir) => {
       const service = new RepoRecentsService(dir);

@@ -106,14 +106,29 @@ export class RepoRecentsService {
     return this.enqueueMutation(async () => {
       const recents = await this.readRecents();
       const activePath = normalizeRepoPath(activeRepoPath ?? "");
-      const reconciled = groups.map((group) => {
+      const groupsByRecent = new Map<RepositoryRecent, RepositoryGroup>();
+      for (const group of groups) {
         const matching = recents.filter((recent) => recentMatchesGroup(recent, group));
         const activeWorktree = activePath ? findUsablePath(group, activePath) : null;
         const storedWorktree = matching.map((recent) => findUsablePath(group, recent.lastUsedPath)).find(Boolean) ?? null;
         const lastUsedPath = activeWorktree ?? storedWorktree ?? getFallbackPath(group);
-        return { ...group, lastUsedPath };
-      });
-      const next = reconciled.map((group) => ({ anchorPath: group.anchorPath, lastUsedPath: group.lastUsedPath }));
+        const reconciled = { ...group, lastUsedPath };
+        for (const recent of matching) groupsByRecent.set(recent, reconciled);
+      }
+      // Scans may finish after additions, removals, or reorders. Only reconcile
+      // entries that still exist, retaining unscanned entries and current order.
+      const reconciled: RepositoryGroup[] = [];
+      const seen = new Set<string>();
+      const next: RepositoryRecent[] = [];
+      for (const recent of recents) {
+        const group = groupsByRecent.get(recent);
+        const anchorPath = group?.anchorPath ?? recent.anchorPath;
+        const key = getRepoPathKey(anchorPath);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        next.push(group ? { anchorPath, lastUsedPath: group.lastUsedPath } : recent);
+        if (group) reconciled.push(group);
+      }
       if (!areRecentsEqual(recents, next)) await this.writeRecents(next);
       return reconciled;
     });

@@ -576,6 +576,7 @@ function cancelRepositoryRead(kind: RepositoryReadKind, generation: number): voi
 
 interface RequestIds {
   repo: number;
+  repositoryGroups: number;
   repoSyncStatuses: number;
   repositorySyncSettings: number;
   diff: number;
@@ -1041,6 +1042,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
   const appSettingsPreferenceSaveId = useRef(0);
   const requestIds = useRef<RequestIds>({
     repo: 0,
+    repositoryGroups: 0,
     repoSyncStatuses: 0,
     repositorySyncSettings: 0,
     diff: 0,
@@ -1786,6 +1788,9 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
 
   const loadRepositoryGroups = useCallback(async (repoPathsOverride?: string[]): Promise<void> => {
     const repoPaths = repoPathsOverride ?? stateRef.current.repoRecents;
+    const requestId = ++requestIds.current.repositoryGroups;
+    const isCurrent = (): boolean => requestId === requestIds.current.repositoryGroups
+      && areRepoPathListsEqual(repoPaths, stateRef.current.repoRecents);
     if (!repoPaths.length) {
       updateState({ repositoryGroups: [] });
       return;
@@ -1795,6 +1800,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
         repoPaths,
         activeRepoPath: stateRef.current.repoPath || null
       });
+      if (!isCurrent()) return;
       if (!groups.length) {
         updateState({ repositoryGroups: [] });
         return;
@@ -1808,7 +1814,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       }));
       void loadRepoSyncStatuses(getRepositoryWorkspacePaths(groups, anchors));
     } catch {
-      updateState({ repositoryGroups: [] });
+      if (isCurrent()) updateState({ repositoryGroups: [] });
     }
   }, [loadRepoSyncStatuses, updateState]);
 
@@ -9016,7 +9022,7 @@ function RepositoryList({
   const [showHidden, setShowHidden] = useState(false);
   const [organizerQuery, setOrganizerQuery] = useState<string | null>(null);
   const [renamePath, setRenamePath] = useState<string | null>(null);
-  const orderedPaths = useMemo(() => groups?.length ? groups.map((group) => group.anchorPath) : repoPaths, [groups, repoPaths]);
+  const orderedPaths = repoPaths;
   const groupsByPath = useMemo(() => new Map(groups?.map((group) => [getRepoPathKey(group.anchorPath), group]) ?? []), [groups]);
   const labels = useMemo(() => repositoryLabels(orderedPaths, organization), [orderedPaths, organization]);
   const sections = useMemo(() => organizeRepositories(orderedPaths, groups ?? [], organization, query, showHidden, repoPath), [orderedPaths, groups, organization, query, showHidden, repoPath]);
@@ -9030,9 +9036,7 @@ function RepositoryList({
   const [recoveryTarget, setRecoveryTarget] = useState<{ repoPath: string; reason: string } | null>(null);
   const [recoveryError, setRecoveryError] = useState("");
   const [recoveryRunning, setRecoveryRunning] = useState(false);
-  const repositoryOrderDependency = (groups?.length
-    ? groups.map((group) => getRepoPathKey(group.anchorPath))
-    : repoPaths.map(getRepoPathKey)).join("\u0000");
+  const repositoryOrderDependency = orderedPaths.map(getRepoPathKey).join("\u0000");
   useEffect(() => {
     const activeKey = repoPath ? getRepoPathKey(repoPath) : null;
     if (!activeKey) {

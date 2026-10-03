@@ -1746,6 +1746,45 @@ describe("App", { timeout: 10_000 }, () => {
     });
   });
 
+  it.each(["success", "empty", "error"])("keeps an added repository visible when an older group scan finishes: %s", async (outcome) => {
+    const existingRepos = [repoPath, ...Array.from({ length: 11 }, (_, index) => `D:\\Work\\Existing${index}`)];
+    const addedRepo = "D:\\Work\\Added";
+    const groupsFor = (paths: string[]) => paths.map((path) => ({
+      id: path, kind: "git" as const, anchorPath: path, lastUsedPath: path,
+      recentPaths: [path], commonDir: `${path}\\.git`, worktrees: [], error: ""
+    }));
+    const olderScan = defer<ReturnType<typeof groupsFor>>();
+    const newerScan = defer<ReturnType<typeof groupsFor>>();
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(...existingRepos));
+    vi.mocked(githead.getRepositoryGroups).mockImplementation(async (request) => groupsFor(request.repoPaths));
+    vi.mocked(githead.chooseRepo).mockResolvedValue(addedRepo);
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (path) => createSummary({ repoPath: path }));
+    vi.mocked(githead.addRepoRecent).mockImplementation(async (request) =>
+      repositoryRecents(...(request.repoPath === addedRepo ? [...existingRepos, addedRepo] : existingRepos))
+    );
+    render(<App />);
+    await flushRendererAsync();
+    await waitForRepositoryWorkspace();
+
+    vi.mocked(githead.getRepositoryGroups).mockReturnValueOnce(olderScan.promise).mockReturnValue(newerScan.promise);
+    fireEvent(window, new Event("blur"));
+    fireEvent(window, new Event("focus"));
+    await flushRendererAsync();
+    fireEvent.click(screen.getByRole("button", { name: "Add repository" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add existing" }));
+    await flushRendererAsync();
+    expect(screen.queryByRole("button", { name: `Switch to ${addedRepo}` })).not.toBeNull();
+
+    newerScan.resolve(groupsFor([...existingRepos, addedRepo]));
+    await flushRendererAsync();
+    if (outcome === "error") olderScan.reject(new Error("Group scan failed"));
+    else olderScan.resolve(outcome === "empty" ? [] : groupsFor(existingRepos));
+    await flushRendererAsync();
+    expect(screen.getByRole("button", { name: `Switch to ${addedRepo}` }).getAttribute("aria-current")).toBe("true");
+    expect(screen.getByRole("button", { name: "Expand worktrees for Added" })).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Repositories" })).getAllByRole("button", { name: /^Switch to / })).toHaveLength(13);
+  });
+
   it("adds a ninth browsed repository to the bottom and reveals its active row", async () => {
     const user = userEvent.setup();
     const browsedRepo = "D:\\Work\\Browsed";
