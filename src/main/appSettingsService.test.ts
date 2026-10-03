@@ -463,6 +463,165 @@ describe("AppSettingsService", () => {
     });
   });
 
+  it("recovers invalid stored fields without discarding valid fields in the same category", async () => {
+    await withTempDir(async (dir) => {
+      await fs.writeFile(path.join(dir, "app-settings.json"), JSON.stringify({
+        autoFetchIntervalMinutes: 15,
+        colorTheme: "copper",
+        appearanceMode: "sepia",
+        visualEffects: "full",
+        reduceMotion: null,
+        uiFont: "unknown",
+        codeFont: "fira-code",
+        zoomFactor: 1.25,
+        statusFileViewMode: "tree",
+        wrapDiffLines: "true",
+        gitBehaviors: {
+          tagPushBehavior: "invalid",
+          allowCherryPickingContainedCommits: true,
+          requireUpToDateUpstreamBeforeCommit: "true",
+          quickCommitByDefault: false,
+          remoteCheckLeaseSeconds: 0,
+          futurePreference: true
+        },
+        privacy: { shareAnonymousDiagnostics: false, futurePreference: true },
+        futureCategory: { enabled: true }
+      }), "utf8");
+
+      await expect(new AppSettingsService(dir).getSettings()).resolves.toEqual({
+        autoFetchIntervalMinutes: 15,
+        colorTheme: "copper",
+        appearanceMode: DEFAULT_APPEARANCE_MODE,
+        visualEffects: "full",
+        reduceMotion: "system",
+        uiFont: DEFAULT_UI_FONT,
+        codeFont: "fira-code",
+        zoomFactor: 1.25,
+        statusFileViewMode: "tree",
+        wrapDiffLines: DEFAULT_WRAP_DIFF_LINES,
+        gitBehaviors: {
+          tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR,
+          allowCherryPickingContainedCommits: true,
+          remoteCheckLeaseSeconds: 0
+        },
+        privacy: { shareAnonymousDiagnostics: false }
+      });
+    });
+  });
+
+  it("keeps the different omission rules for older save requests", async () => {
+    await withTempDir(async (dir) => {
+      const service = new AppSettingsService(dir);
+      await service.saveSettings({
+        ...await service.getSettings(),
+        visualEffects: "full",
+        reduceMotion: "always",
+        uiFont: "roboto",
+        codeFont: "fira-code",
+        statusFileViewMode: "tree",
+        wrapDiffLines: true,
+        gitBehaviors: { tagPushBehavior: "none", quickCommitByDefault: true, remoteCheckLeaseSeconds: 0 },
+        privacy: { shareAnonymousDiagnostics: false }
+      });
+
+      const saved = await service.saveSettings({
+        autoFetchIntervalMinutes: 20,
+        colorTheme: "orchid",
+        appearanceMode: "light",
+        zoomFactor: 1.1
+      });
+      expect(saved).toEqual({
+        autoFetchIntervalMinutes: 20,
+        colorTheme: "orchid",
+        appearanceMode: "light",
+        zoomFactor: 1.1,
+        visualEffects: "full",
+        reduceMotion: "always",
+        uiFont: DEFAULT_UI_FONT,
+        codeFont: DEFAULT_CODE_FONT,
+        statusFileViewMode: DEFAULT_STATUS_FILE_VIEW_MODE,
+        wrapDiffLines: DEFAULT_WRAP_DIFF_LINES,
+        gitBehaviors: { tagPushBehavior: "none", quickCommitByDefault: true, remoteCheckLeaseSeconds: 0 },
+        privacy: { shareAnonymousDiagnostics: false }
+      });
+      expect(await fs.readFile(path.join(dir, "app-settings.json"), "utf8")).toBe(`${JSON.stringify(saved, null, 2)}\n`);
+    });
+  });
+
+  it("omits disabled Git behavior flags from disk while preserving a zero lease", async () => {
+    await withTempDir(async (dir) => {
+      const service = new AppSettingsService(dir);
+      await service.saveSettings({
+        ...await service.getSettings(),
+        gitBehaviors: {
+          tagPushBehavior: "follow",
+          quickCommitByDefault: false,
+          allowCherryPickingContainedCommits: false,
+          requireUpToDateUpstreamBeforeCommit: false,
+          remoteCheckLeaseSeconds: 0
+        }
+      });
+      const stored = JSON.parse(await fs.readFile(path.join(dir, "app-settings.json"), "utf8"));
+      expect(stored.gitBehaviors).toEqual({ tagPushBehavior: "follow", remoteCheckLeaseSeconds: 0 });
+      expect((await new AppSettingsService(dir).getSettings()).gitBehaviors).toEqual(stored.gitBehaviors);
+    });
+  });
+
+  it.each<{ name: string; overrides: Record<string, unknown>; message: string }>([
+    { name: "missing theme", overrides: { colorTheme: undefined }, message: "Unknown color theme." },
+    { name: "missing appearance mode", overrides: { appearanceMode: undefined }, message: "Unknown appearance mode." },
+    { name: "missing zoom", overrides: { zoomFactor: undefined }, message: "Unsupported interface scale." },
+    { name: "null interface font", overrides: { uiFont: null }, message: "Unknown interface font." },
+    { name: "null code font", overrides: { codeFont: null }, message: "Unknown code font." },
+    { name: "null file view", overrides: { statusFileViewMode: null }, message: "Unknown status file view mode." },
+    { name: "null line wrap", overrides: { wrapDiffLines: null }, message: "Diff line wrap must be a Boolean value." },
+    { name: "null Git behaviors", overrides: { gitBehaviors: null }, message: "Unknown tag push behavior." },
+    { name: "null Quick Commit", overrides: { gitBehaviors: { tagPushBehavior: "all", quickCommitByDefault: null } }, message: "Quick Commit default must be a Boolean value." },
+    { name: "numeric cherry-pick preference", overrides: { gitBehaviors: { tagPushBehavior: "all", allowCherryPickingContainedCommits: 1 } }, message: "Cherry-pick contained commit behavior must be a Boolean value." },
+    { name: "string upstream preference", overrides: { gitBehaviors: { tagPushBehavior: "all", requireUpToDateUpstreamBeforeCommit: "true" } }, message: "Pre-commit upstream behavior must be a Boolean value." },
+    { name: "string lease duration", overrides: { gitBehaviors: { tagPushBehavior: "all", remoteCheckLeaseSeconds: "300" } }, message: "Unknown remote check reuse duration." },
+    { name: "null privacy", overrides: { privacy: null }, message: "Anonymous diagnostics preference must be a Boolean value." }
+  ])("rejects $name without changing the saved file", async ({ overrides, message }) => {
+    await withTempDir(async (dir) => {
+      const service = new AppSettingsService(dir);
+      const saved = await service.saveSettings(await service.getSettings());
+      const settingsPath = path.join(dir, "app-settings.json");
+      const original = await fs.readFile(settingsPath, "utf8");
+
+      await expect(service.saveSettings({ ...saved, ...overrides })).rejects.toThrow(new Error(message));
+      expect(await fs.readFile(settingsPath, "utf8")).toBe(original);
+    });
+  });
+
+  it("keeps the first validation error when several input fields are invalid", async () => {
+    await withTempDir(async (dir) => {
+      const service = new AppSettingsService(dir);
+      const settings = await service.getSettings();
+      const overrides: Record<string, unknown> = {
+        visualEffects: "ultra",
+        reduceMotion: "never",
+        autoFetchIntervalMinutes: -1,
+        gitBehaviors: {
+          tagPushBehavior: "none",
+          quickCommitByDefault: "true",
+          allowCherryPickingContainedCommits: "true"
+        },
+        privacy: null
+      };
+      await expect(service.saveSettings({ ...settings, ...overrides })).rejects.toThrow(new Error("Unknown visual effects level."));
+      delete overrides.visualEffects;
+      await expect(service.saveSettings({ ...settings, ...overrides })).rejects.toThrow(new Error("Unknown reduced motion preference."));
+      delete overrides.reduceMotion;
+      await expect(service.saveSettings({ ...settings, ...overrides })).rejects.toThrow(new Error("Auto-fetch interval cannot be negative."));
+      delete overrides.autoFetchIntervalMinutes;
+      await expect(service.saveSettings({ ...settings, ...overrides })).rejects.toThrow(new Error("Quick Commit default must be a Boolean value."));
+      overrides.gitBehaviors = { tagPushBehavior: "none", allowCherryPickingContainedCommits: "true" };
+      await expect(service.saveSettings({ ...settings, ...overrides })).rejects.toThrow(new Error("Cherry-pick contained commit behavior must be a Boolean value."));
+      delete overrides.gitBehaviors;
+      await expect(service.saveSettings({ ...settings, ...overrides })).rejects.toThrow(new Error("Anonymous diagnostics preference must be a Boolean value."));
+    });
+  });
+
   it("rejects an unknown theme when saving", async () => {
     await withTempDir(async (dir) => {
       const service = new AppSettingsService(dir);

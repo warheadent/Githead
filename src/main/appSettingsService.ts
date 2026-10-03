@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { APP_VISUAL_EFFECTS, APP_REDUCE_MOTION_MODES, DEFAULT_VISUAL_EFFECTS, DEFAULT_REDUCE_MOTION, type AppVisualEffects, type AppReduceMotion, APP_APPEARANCE_MODES, APP_CODE_FONTS, APP_COLOR_THEMES, APP_UI_FONTS, DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS, DEFAULT_TAG_PUSH_BEHAVIOR, REMOTE_CHECK_LEASE_SECONDS, STATUS_FILE_VIEW_MODES, TAG_PUSH_BEHAVIORS, isAppZoomFactor, type AppAppearanceMode, type AppCodeFont, type AppColorTheme, type AppSettings, type AppSettingsSaveRequest, type AppUiFont, type GitBehaviorSettings, type PrivacySettings, type RemoteCheckLeaseSeconds, type StatusFileViewMode, type TagPushBehavior } from "../shared/types";
+import * as Schema from "effect/Schema";
+import { APP_VISUAL_EFFECTS, APP_REDUCE_MOTION_MODES, DEFAULT_VISUAL_EFFECTS, DEFAULT_REDUCE_MOTION, APP_APPEARANCE_MODES, APP_CODE_FONTS, APP_COLOR_THEMES, APP_UI_FONTS, DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS, DEFAULT_TAG_PUSH_BEHAVIOR, REMOTE_CHECK_LEASE_SECONDS, STATUS_FILE_VIEW_MODES, TAG_PUSH_BEHAVIORS, isAppZoomFactor, type AppAppearanceMode, type AppCodeFont, type AppColorTheme, type AppSettings, type AppSettingsSaveRequest, type AppUiFont, type GitBehaviorSettings, type PrivacySettings, type StatusFileViewMode } from "../shared/types";
 import {
   normalizeAutoFetchIntervalForSave,
   parseStoredAutoFetchInterval
@@ -33,6 +34,41 @@ export const DEFAULT_WRAP_DIFF_LINES = false;
 export { DEFAULT_TAG_PUSH_BEHAVIOR } from "../shared/types";
 export { DEFAULT_ALLOW_CHERRY_PICKING_CONTAINED_COMMITS } from "../shared/types";
 
+// Reads recover each field separately. Saves use the same schema but reject invalid input.
+function settingField<A>(schema: Schema.Schema<A>, fallback: NoInfer<A>, message: string) {
+  const isValid = Schema.is(schema);
+  return {
+    read(value: unknown): A {
+      return isValid(value) ? value : fallback;
+    },
+    save(value: unknown): A {
+      if (!isValid(value)) throw new Error(message);
+      return value;
+    }
+  };
+}
+
+const fields = {
+  visualEffects: settingField(Schema.Literals(APP_VISUAL_EFFECTS), DEFAULT_VISUAL_EFFECTS, "Unknown visual effects level."),
+  reduceMotion: settingField(Schema.Literals(APP_REDUCE_MOTION_MODES), DEFAULT_REDUCE_MOTION, "Unknown reduced motion preference."),
+  colorTheme: settingField(Schema.Literals(APP_COLOR_THEMES), DEFAULT_COLOR_THEME, "Unknown color theme."),
+  appearanceMode: settingField(Schema.Literals(APP_APPEARANCE_MODES), DEFAULT_APPEARANCE_MODE, "Unknown appearance mode."),
+  uiFont: settingField(Schema.Literals(APP_UI_FONTS), DEFAULT_UI_FONT, "Unknown interface font."),
+  codeFont: settingField(Schema.Literals(APP_CODE_FONTS), DEFAULT_CODE_FONT, "Unknown code font."),
+  zoomFactor: settingField(Schema.Number.check(Schema.makeFilter(isAppZoomFactor)), DEFAULT_ZOOM_FACTOR, "Unsupported interface scale."),
+  statusFileViewMode: settingField(Schema.Literals(STATUS_FILE_VIEW_MODES), DEFAULT_STATUS_FILE_VIEW_MODE, "Unknown status file view mode."),
+  wrapDiffLines: settingField(Schema.Boolean, DEFAULT_WRAP_DIFF_LINES, "Diff line wrap must be a Boolean value."),
+  shareAnonymousDiagnostics: settingField(Schema.Boolean, DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS, "Anonymous diagnostics preference must be a Boolean value.")
+};
+
+const gitBehaviorFields = {
+  tagPushBehavior: settingField(Schema.Literals(TAG_PUSH_BEHAVIORS), DEFAULT_TAG_PUSH_BEHAVIOR, "Unknown tag push behavior."),
+  quickCommitByDefault: settingField(Schema.Boolean, false, "Quick Commit default must be a Boolean value."),
+  allowCherryPickingContainedCommits: settingField(Schema.Boolean, false, "Cherry-pick contained commit behavior must be a Boolean value."),
+  requireUpToDateUpstreamBeforeCommit: settingField(Schema.Boolean, false, "Pre-commit upstream behavior must be a Boolean value."),
+  remoteCheckLeaseSeconds: settingField(Schema.UndefinedOr(Schema.Literals(REMOTE_CHECK_LEASE_SECONDS)), undefined, "Unknown remote check reuse duration.")
+};
+
 export class AppSettingsService {
   private readonly settingsPath: string;
 
@@ -44,15 +80,15 @@ export class AppSettingsService {
     const stored = await this.readStoredSettings();
     return {
       autoFetchIntervalMinutes: parseStoredAutoFetchInterval(stored.autoFetchIntervalMinutes),
-      visualEffects: APP_VISUAL_EFFECTS.includes(stored.visualEffects as AppVisualEffects) ? stored.visualEffects as AppVisualEffects : DEFAULT_VISUAL_EFFECTS,
-      reduceMotion: APP_REDUCE_MOTION_MODES.includes(stored.reduceMotion as AppReduceMotion) ? stored.reduceMotion as AppReduceMotion : DEFAULT_REDUCE_MOTION,
-      colorTheme: parseStoredColorTheme(stored.colorTheme),
-      appearanceMode: parseStoredAppearanceMode(stored.appearanceMode),
-      uiFont: parseStoredUiFont(stored.uiFont),
-      codeFont: parseStoredCodeFont(stored.codeFont),
-      zoomFactor: parseStoredZoomFactor(stored.zoomFactor),
-      statusFileViewMode: parseStoredStatusFileViewMode(stored.statusFileViewMode),
-      wrapDiffLines: parseStoredWrapDiffLines(stored.wrapDiffLines),
+      visualEffects: fields.visualEffects.read(stored.visualEffects),
+      reduceMotion: fields.reduceMotion.read(stored.reduceMotion),
+      colorTheme: fields.colorTheme.read(stored.colorTheme),
+      appearanceMode: fields.appearanceMode.read(stored.appearanceMode),
+      uiFont: fields.uiFont.read(stored.uiFont),
+      codeFont: fields.codeFont.read(stored.codeFont),
+      zoomFactor: fields.zoomFactor.read(stored.zoomFactor),
+      statusFileViewMode: fields.statusFileViewMode.read(stored.statusFileViewMode),
+      wrapDiffLines: fields.wrapDiffLines.read(stored.wrapDiffLines),
       gitBehaviors: parseStoredGitBehaviors(stored.gitBehaviors),
       privacy: parseStoredPrivacySettings(stored.privacy)
     };
@@ -60,18 +96,16 @@ export class AppSettingsService {
 
   async saveSettings(request: AppSettingsSaveRequest): Promise<AppSettings> {
     const existing = await this.getSettings();
-    const visualEffects = request.visualEffects === undefined ? existing.visualEffects : request.visualEffects;
-    const reduceMotion = request.reduceMotion === undefined ? existing.reduceMotion : request.reduceMotion;
-    if (!APP_VISUAL_EFFECTS.includes(visualEffects)) throw new Error("Unknown visual effects level.");
-    if (!APP_REDUCE_MOTION_MODES.includes(reduceMotion)) throw new Error("Unknown reduced motion preference.");
+    const visualEffects = fields.visualEffects.save(request.visualEffects === undefined ? existing.visualEffects : request.visualEffects);
+    const reduceMotion = fields.reduceMotion.save(request.reduceMotion === undefined ? existing.reduceMotion : request.reduceMotion);
     const autoFetchIntervalMinutes = normalizeAutoFetchIntervalForSave(request.autoFetchIntervalMinutes);
-    const colorTheme = normalizeColorThemeForSave(request.colorTheme);
-    const appearanceMode = normalizeAppearanceModeForSave(request.appearanceMode);
-    const uiFont = normalizeUiFontForSave(request.uiFont);
-    const codeFont = normalizeCodeFontForSave(request.codeFont);
+    const colorTheme = fields.colorTheme.save(request.colorTheme);
+    const appearanceMode = fields.appearanceMode.save(request.appearanceMode);
+    const uiFont = fields.uiFont.save(request.uiFont === undefined ? DEFAULT_UI_FONT : request.uiFont);
+    const codeFont = fields.codeFont.save(request.codeFont === undefined ? DEFAULT_CODE_FONT : request.codeFont);
     const zoomFactor = normalizeZoomFactorForSave(request.zoomFactor);
-    const statusFileViewMode = normalizeStatusFileViewModeForSave(request.statusFileViewMode);
-    const wrapDiffLines = normalizeWrapDiffLinesForSave(request.wrapDiffLines);
+    const statusFileViewMode = fields.statusFileViewMode.save(request.statusFileViewMode === undefined ? DEFAULT_STATUS_FILE_VIEW_MODE : request.statusFileViewMode);
+    const wrapDiffLines = fields.wrapDiffLines.save(request.wrapDiffLines === undefined ? DEFAULT_WRAP_DIFF_LINES : request.wrapDiffLines);
     const gitBehaviors = request.gitBehaviors === undefined
       ? existing.gitBehaviors
       : normalizeGitBehaviorsForSave(request.gitBehaviors);
@@ -117,17 +151,12 @@ function parseStoredPrivacySettings(value: unknown): PrivacySettings {
   }
   const shareAnonymousDiagnostics = (value as { shareAnonymousDiagnostics?: unknown }).shareAnonymousDiagnostics;
   return {
-    shareAnonymousDiagnostics: typeof shareAnonymousDiagnostics === "boolean"
-      ? shareAnonymousDiagnostics
-      : DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS
+    shareAnonymousDiagnostics: fields.shareAnonymousDiagnostics.read(shareAnonymousDiagnostics)
   };
 }
 
 function normalizePrivacySettingsForSave(value: PrivacySettings): PrivacySettings {
-  if (!value || typeof value.shareAnonymousDiagnostics !== "boolean") {
-    throw new Error("Anonymous diagnostics preference must be a Boolean value.");
-  }
-  return { shareAnonymousDiagnostics: value.shareAnonymousDiagnostics };
+  return { shareAnonymousDiagnostics: fields.shareAnonymousDiagnostics.save(value?.shareAnonymousDiagnostics) };
 }
 
 function parseStoredGitBehaviors(value: unknown): GitBehaviorSettings {
@@ -144,136 +173,37 @@ function parseStoredGitBehaviors(value: unknown): GitBehaviorSettings {
     quickCommitByDefault?: unknown;
     remoteCheckLeaseSeconds?: unknown;
   };
-  const tagPushBehavior = stored.tagPushBehavior;
+  const remoteCheckLeaseSeconds = gitBehaviorFields.remoteCheckLeaseSeconds.read(stored.remoteCheckLeaseSeconds);
   return {
-    tagPushBehavior: TAG_PUSH_BEHAVIORS.includes(tagPushBehavior as TagPushBehavior)
-      ? tagPushBehavior as TagPushBehavior
-      : DEFAULT_TAG_PUSH_BEHAVIOR,
-    ...(stored.allowCherryPickingContainedCommits === true
+    tagPushBehavior: gitBehaviorFields.tagPushBehavior.read(stored.tagPushBehavior),
+    ...(gitBehaviorFields.allowCherryPickingContainedCommits.read(stored.allowCherryPickingContainedCommits)
       ? { allowCherryPickingContainedCommits: true }
       : {}),
-    ...(stored.requireUpToDateUpstreamBeforeCommit === true
+    ...(gitBehaviorFields.requireUpToDateUpstreamBeforeCommit.read(stored.requireUpToDateUpstreamBeforeCommit)
       ? { requireUpToDateUpstreamBeforeCommit: true }
       : {}),
-    ...(stored.quickCommitByDefault === true ? { quickCommitByDefault: true } : {}),
-    ...(REMOTE_CHECK_LEASE_SECONDS.includes(stored.remoteCheckLeaseSeconds as RemoteCheckLeaseSeconds)
-      ? { remoteCheckLeaseSeconds: stored.remoteCheckLeaseSeconds as RemoteCheckLeaseSeconds }
+    ...(gitBehaviorFields.quickCommitByDefault.read(stored.quickCommitByDefault) ? { quickCommitByDefault: true } : {}),
+    ...(remoteCheckLeaseSeconds !== undefined
+      ? { remoteCheckLeaseSeconds }
       : {})
   };
 }
 
 function normalizeGitBehaviorsForSave(value: GitBehaviorSettings): GitBehaviorSettings {
-  if (!value || !TAG_PUSH_BEHAVIORS.includes(value.tagPushBehavior)) {
-    throw new Error("Unknown tag push behavior.");
+  gitBehaviorFields.tagPushBehavior.save(value?.tagPushBehavior);
+  if (value.quickCommitByDefault !== undefined) {
+    gitBehaviorFields.quickCommitByDefault.save(value.quickCommitByDefault);
   }
-  if (value.quickCommitByDefault !== undefined && typeof value.quickCommitByDefault !== "boolean") {
-    throw new Error("Quick Commit default must be a Boolean value.");
+  if (value.allowCherryPickingContainedCommits !== undefined) {
+    gitBehaviorFields.allowCherryPickingContainedCommits.save(value.allowCherryPickingContainedCommits);
   }
-  if (
-    value.allowCherryPickingContainedCommits !== undefined &&
-    typeof value.allowCherryPickingContainedCommits !== "boolean"
-  ) {
-    throw new Error("Cherry-pick contained commit behavior must be a Boolean value.");
+  if (value.requireUpToDateUpstreamBeforeCommit !== undefined) {
+    gitBehaviorFields.requireUpToDateUpstreamBeforeCommit.save(value.requireUpToDateUpstreamBeforeCommit);
   }
-  if (
-    value.requireUpToDateUpstreamBeforeCommit !== undefined &&
-    typeof value.requireUpToDateUpstreamBeforeCommit !== "boolean"
-  ) {
-    throw new Error("Pre-commit upstream behavior must be a Boolean value.");
-  }
-  if (
-    value.remoteCheckLeaseSeconds !== undefined &&
-    !REMOTE_CHECK_LEASE_SECONDS.includes(value.remoteCheckLeaseSeconds)
-  ) {
-    throw new Error("Unknown remote check reuse duration.");
-  }
-  return {
-    tagPushBehavior: value.tagPushBehavior,
-    ...(value.allowCherryPickingContainedCommits === true
-      ? { allowCherryPickingContainedCommits: true }
-      : {}),
-    ...(value.requireUpToDateUpstreamBeforeCommit === true
-      ? { requireUpToDateUpstreamBeforeCommit: true }
-      : {}),
-    ...(value.quickCommitByDefault === true ? { quickCommitByDefault: true } : {}),
-    ...(value.remoteCheckLeaseSeconds !== undefined
-      ? { remoteCheckLeaseSeconds: value.remoteCheckLeaseSeconds }
-      : {})
-  };
-}
-
-function parseStoredStatusFileViewMode(value: unknown): StatusFileViewMode {
-  return STATUS_FILE_VIEW_MODES.includes(value as StatusFileViewMode) ? value as StatusFileViewMode : DEFAULT_STATUS_FILE_VIEW_MODE;
-}
-
-function normalizeStatusFileViewModeForSave(value: StatusFileViewMode | undefined): StatusFileViewMode {
-  if (value === undefined) return DEFAULT_STATUS_FILE_VIEW_MODE;
-  if (!STATUS_FILE_VIEW_MODES.includes(value)) throw new Error("Unknown status file view mode.");
-  return value;
-}
-
-function parseStoredWrapDiffLines(value: unknown): boolean {
-  return typeof value === "boolean" ? value : DEFAULT_WRAP_DIFF_LINES;
-}
-
-function normalizeWrapDiffLinesForSave(value: boolean | undefined): boolean {
-  if (value === undefined) return DEFAULT_WRAP_DIFF_LINES;
-  if (typeof value !== "boolean") throw new Error("Diff line wrap must be a Boolean value.");
-  return value;
-}
-
-function parseStoredColorTheme(value: unknown): AppColorTheme {
-  return APP_COLOR_THEMES.includes(value as AppColorTheme) ? value as AppColorTheme : DEFAULT_COLOR_THEME;
-}
-
-function normalizeColorThemeForSave(value: AppColorTheme): AppColorTheme {
-  if (!APP_COLOR_THEMES.includes(value)) {
-    throw new Error("Unknown color theme.");
-  }
-
-  return value;
-}
-
-function parseStoredAppearanceMode(value: unknown): AppAppearanceMode {
-  return APP_APPEARANCE_MODES.includes(value as AppAppearanceMode) ? value as AppAppearanceMode : DEFAULT_APPEARANCE_MODE;
-}
-
-function normalizeAppearanceModeForSave(value: AppAppearanceMode): AppAppearanceMode {
-  if (!APP_APPEARANCE_MODES.includes(value)) {
-    throw new Error("Unknown appearance mode.");
-  }
-
-  return value;
-}
-
-function parseStoredUiFont(value: unknown): AppUiFont {
-  return APP_UI_FONTS.includes(value as AppUiFont) ? value as AppUiFont : DEFAULT_UI_FONT;
-}
-
-function normalizeUiFontForSave(value: AppUiFont | undefined): AppUiFont {
-  if (value === undefined) return DEFAULT_UI_FONT;
-  if (!APP_UI_FONTS.includes(value)) throw new Error("Unknown interface font.");
-  return value;
-}
-
-function parseStoredCodeFont(value: unknown): AppCodeFont {
-  return APP_CODE_FONTS.includes(value as AppCodeFont) ? value as AppCodeFont : DEFAULT_CODE_FONT;
-}
-
-function normalizeCodeFontForSave(value: AppCodeFont | undefined): AppCodeFont {
-  if (value === undefined) return DEFAULT_CODE_FONT;
-  if (!APP_CODE_FONTS.includes(value)) throw new Error("Unknown code font.");
-  return value;
-}
-
-function parseStoredZoomFactor(value: unknown): number {
-  return isAppZoomFactor(value) ? value : DEFAULT_ZOOM_FACTOR;
+  gitBehaviorFields.remoteCheckLeaseSeconds.save(value.remoteCheckLeaseSeconds);
+  return parseStoredGitBehaviors(value);
 }
 
 export function normalizeZoomFactorForSave(value: number): number {
-  if (!isAppZoomFactor(value)) {
-    throw new Error("Unsupported interface scale.");
-  }
-
-  return value;
+  return fields.zoomFactor.save(value);
 }

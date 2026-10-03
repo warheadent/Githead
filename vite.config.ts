@@ -3,6 +3,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, lazyPlugins } from "vite-plus";
 import packageJson from "./package.json";
+import { testModuleCachePlugin } from "./test-cache.vite";
 import {
   createSentryVitePlugin,
   buildSourceMaps,
@@ -34,10 +35,12 @@ export default defineConfig({
   base: "./",
   define: {
     __APP_VERSION__: JSON.stringify(packageJson.version),
-    __APP_BUILD_DATE__: JSON.stringify(new Date().toISOString()),
+    // Tests need a stable value so transformed modules can be reused.
+    __APP_BUILD_DATE__: JSON.stringify(process.env.VITEST === "true" ? "2000-01-01T00:00:00.000Z" : new Date().toISOString()),
     __SENTRY_ENABLED__: JSON.stringify(Boolean(sentryBuildConfig.dsn))
   },
   plugins: lazyPlugins(() => [
+    testModuleCachePlugin(),
     react({}),
     tailwindcss(),
     createSentryVitePlugin("dist/renderer/**/*.map")
@@ -64,6 +67,7 @@ export default defineConfig({
     port: 5173
   },
   test: {
+    fsModuleCache: true,
     environment: "node",
     maxWorkers: 1,
     include: [
