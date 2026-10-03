@@ -14549,9 +14549,10 @@ function GitIdentityDialog({
 }
 
 function ImageDiffView({ filePath, before, after, onDownload, downloading }: { filePath: string; before: GitImageSide; after: GitImageSide; onDownload?: () => void; downloading: boolean }): ReactNode {
+  const isAdded = before.status === "absent";
   const canDownload = (before.status === "lfs-missing" && before.fetchable) || (after.status === "lfs-missing" && after.fetchable);
   return (
-    <div className="image-diff-wrap" aria-label={`Image comparison for ${filePath}`}>
+    <div className="image-diff-wrap" aria-label={`${isAdded ? "Image preview" : "Image comparison"} for ${filePath}`}>
       {canDownload && onDownload ? (
         <div className="image-diff-download">
           <Button type="button" variant="outline" size="sm" aria-label="Download missing Git LFS image preview" disabled={downloading} onClick={onDownload}>
@@ -14560,9 +14561,9 @@ function ImageDiffView({ filePath, before, after, onDownload, downloading }: { f
           </Button>
         </div>
       ) : null}
-      <div className="image-diff">
-        <ImageDiffPane side="Before" filePath={filePath} imageSide={before} missingMessage="Image did not exist." />
-        <ImageDiffPane side="After" filePath={filePath} imageSide={after} missingMessage="Image was deleted." />
+      <div className={`image-diff${isAdded ? " is-single" : ""}`}>
+        {!isAdded && <ImageDiffPane side="Before" filePath={filePath} imageSide={before} missingMessage="Image did not exist." />}
+        <ImageDiffPane side={isAdded ? "Preview" : "After"} filePath={filePath} imageSide={after} missingMessage="Image was deleted." />
       </div>
     </div>
   );
