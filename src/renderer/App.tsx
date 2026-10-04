@@ -14550,14 +14550,15 @@ function GitIdentityDialog({
 
 function ImageDiffView({ filePath, before, after, onDownload, downloading }: { filePath: string; before: GitImageSide; after: GitImageSide; onDownload?: () => void; downloading: boolean }): ReactNode {
   const isAdded = before.status === "absent";
-  const canDownload = (before.status === "lfs-missing" && before.fetchable) || (after.status === "lfs-missing" && after.fetchable);
+  const canDownload = [before, after].some((side) => (side.status === "lfs-missing" || side.status === "lfs-corrupt") && side.fetchable);
+  const needsRepair = [before, after].some((side) => side.status === "lfs-corrupt" && side.fetchable);
   return (
     <div className="image-diff-wrap" aria-label={`${isAdded ? "Image preview" : "Image comparison"} for ${filePath}`}>
       {canDownload && onDownload ? (
         <div className="image-diff-download">
-          <Button type="button" variant="outline" size="sm" aria-label="Download missing Git LFS image preview" disabled={downloading} onClick={onDownload}>
+          <Button type="button" variant="outline" size="sm" aria-label={needsRepair ? "Retry corrupt Git LFS image preview" : "Download missing Git LFS image preview"} disabled={downloading} onClick={onDownload}>
             {downloading ? <Loader2 className="animate-spin" /> : <Download />}
-            {downloading ? "Downloading..." : "Download Preview"}
+            {downloading ? "Downloading..." : needsRepair ? "Retry Preview" : "Download Preview"}
           </Button>
         </div>
       ) : null}
@@ -14575,6 +14576,10 @@ function ImageDiffPane({ side, filePath, imageSide, missingMessage }: { side: "B
   const objectUrl = source?.version === version ? source.url : null;
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const failed = Boolean(objectUrl && failedUrl === objectUrl);
+  const unavailableMessage = failed ? "Unable to display image."
+    : imageSide.status === "lfs-missing" || imageSide.status === "lfs-corrupt"
+      ? <>{imageSide.status === "lfs-corrupt" ? "Local LFS image is corrupt." : "LFS image is not available locally."}<br />{formatImageBytes(imageSide.byteLength)}</>
+      : imageSide.status === "unavailable" ? imageSide.message : missingMessage;
   useEffect(() => {
     if (!version) return;
     const url = URL.createObjectURL(new Blob([Uint8Array.from(version.data)], { type: version.mimeType }));
@@ -14585,7 +14590,7 @@ function ImageDiffPane({ side, filePath, imageSide, missingMessage }: { side: "B
     <figure className="image-diff-pane">
       <figcaption className="image-diff-label">{side}</figcaption>
       <div className="image-diff-canvas">
-        {version && !objectUrl ? null : objectUrl && !failed ? <img className="image-diff-preview" src={objectUrl} alt={`${side} version of ${filePath}`} onError={() => setFailedUrl(objectUrl)} /> : <p className="image-diff-missing">{failed ? "Unable to display image." : imageSide.status === "lfs-missing" ? <>LFS image is not available locally.<br />{formatImageBytes(imageSide.byteLength)}</> : missingMessage}</p>}
+        {version && !objectUrl ? null : objectUrl && !failed ? <img className="image-diff-preview" src={objectUrl} alt={`${side} version of ${filePath}`} onError={() => setFailedUrl(objectUrl)} /> : <p className="image-diff-missing">{unavailableMessage}</p>}
       </div>
     </figure>
   );

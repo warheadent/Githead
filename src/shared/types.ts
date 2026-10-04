@@ -2093,7 +2093,8 @@ export interface GitImageVersion {
 export type GitImageSide =
   | { status: "available"; version: GitImageVersion }
   | { status: "absent" }
-  | { status: "lfs-missing"; byteLength: number; fetchable: boolean };
+  | { status: "lfs-missing" | "lfs-corrupt"; byteLength: number; fetchable: boolean }
+  | { status: "unavailable"; reason: "oversized" | "lfs-setup"; message: string };
 
 export type GitLfsImageFetchRequest =
   | { context: "status"; repoPath: string; path: string; side: GitDiffSide }

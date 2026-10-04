@@ -22,6 +22,7 @@ import {
   defer,
   flushRendererAsync,
   githead,
+  gitOutputCallback,
   repoPath,
   repositoryRecents,
   waitForRepositoryWorkspace,
@@ -385,7 +386,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.queryByRole("button", { name: "Load more workflow runs" })).toBeNull();
   });
 
-  it("downloads a missing LFS image preview only after explicit activation", async () => {
+  it("downloads a missing LFS image preview on activation and shows live progress in Activity Log", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       files: [createStatusFile("assets/image.png", { isUnstaged: true, worktreeStatus: "M" })]
@@ -398,7 +399,8 @@ describe("App", { timeout: 10_000 }, () => {
       before: { status: "lfs-missing", byteLength: 76047, fetchable: true },
       after: { status: "lfs-missing", byteLength: 76047, fetchable: true }
     });
-    vi.mocked(githead.fetchLfsImageVersions).mockResolvedValue({ repoPath, exitCode: 0, stdout: "Downloaded LFS image preview.", stderr: "" });
+    const download = defer<Awaited<ReturnType<GitheadApi["fetchLfsImageVersions"]>> & { outputStreamed?: boolean }>();
+    vi.mocked(githead.fetchLfsImageVersions).mockReturnValue(download.promise);
 
     render(<App />);
     await user.click(await screen.findByRole("option", { name: /assets\/image\.png/ }));
@@ -409,6 +411,22 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => expect(githead.fetchLfsImageVersions).toHaveBeenCalledWith({
       context: "status", repoPath, path: "assets/image.png", side: "unstaged", operationId: expect.any(String)
     }));
+    act(() => gitOutputCallback?.({
+      repoPath, runId: "lfs-preview", action: "lfs-fetch", stream: "stdout",
+      text: "Downloading LFS objects: 50% (1/2), 38 KB | 10 KB/s\r", timestamp: new Date().toISOString()
+    }));
+    await user.click(screen.getByRole("tab", { name: /^Activity Log/ }));
+    expect((await screen.findByRole("log")).textContent).toContain("Downloading LFS objects: 50%");
+    expect(screen.getByRole("button", { name: "Cancel" }).hasAttribute("disabled")).toBe(false);
+    expect(githead.getFileDiff).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      gitOutputCallback?.({
+        repoPath, runId: "lfs-preview", action: "lfs-fetch", stream: "system",
+        text: "", timestamp: new Date().toISOString(), exitCode: 0
+      });
+      download.resolve({ repoPath, exitCode: 0, stdout: "", stderr: "", outputStreamed: true });
+    });
     await waitFor(() => expect(githead.getFileDiff).toHaveBeenCalledTimes(2));
   });
 

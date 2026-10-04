@@ -17,6 +17,8 @@ export type ImageReadResult =
   | { kind: "oversized" }
   | { kind: "invalid" }
   | { kind: "lfs-missing"; byteLength: number; fetchable: boolean }
+  | { kind: "lfs-corrupt"; byteLength: number; fetchable: boolean }
+  | { kind: "lfs-error"; message: string }
   | { kind: "error" };
 
 export function isPreviewableImagePath(filePath: string): boolean {
@@ -48,9 +50,13 @@ export async function readImageFile(filePath: string, displayPath: string): Prom
 }
 
 export function imageFallbackText(results: ImageReadResult[]): string {
-  return results.some((result) => result.kind === "oversized")
-    ? "Image is larger than the 10 MiB preview limit."
-    : "Image preview is unavailable.";
+  if (results.some((result) => result.kind === "oversized")) return "Image is larger than the 10 MiB preview limit. Open the file in an external image viewer.";
+  const setupFailure = results.find((result) => result.kind === "lfs-error");
+  if (setupFailure) return setupFailure.message;
+  if (results.some((result) => result.kind === "lfs-corrupt")) return "The local Git LFS image is corrupt. Download the preview again.";
+  if (results.some((result) => result.kind === "lfs-missing")) return "The Git LFS image is missing from local storage. Download the preview.";
+  if (results.some((result) => result.kind === "invalid")) return "The file does not contain a supported image.";
+  return "Image preview is unavailable.";
 }
 
 function detectMime(bytes: Uint8Array): string | null {

@@ -44,7 +44,7 @@ export function parseGitLfsPointer(data: Uint8Array): GitLfsPointer | null {
 export function isGitLfsPointerDiff(text: string): boolean {
   return /^[ +-]version https:\/\/git-lfs\.github\.com\/spec\/v1$/m.test(text)
     && /^[+-]oid sha256:[0-9a-f]{64}$/m.test(text)
-    && /^[+-]size (0|[1-9][0-9]*)$/m.test(text);
+    && /^[ +-]size (0|[1-9][0-9]*)$/m.test(text);
 }
 
 export function parseLocalMediaDir(text: string): string | null {
@@ -57,14 +57,15 @@ export async function resolveLocalLfsImage(mediaDir: string, pointer: GitLfsPoin
   const objectPath = path.join(mediaDir, pointer.oid.slice(0, 2), pointer.oid.slice(2, 4), pointer.oid);
   try {
     const stat = await fs.stat(objectPath);
-    if (!stat.isFile() || stat.size !== pointer.size) return { kind: "error" };
+    if (!stat.isFile()) return { kind: "lfs-error", message: "The Git LFS object path is not a file. Check the LFS storage directory, then refresh the preview." };
+    if (stat.size !== pointer.size) return { kind: "lfs-corrupt", byteLength: pointer.size, fetchable };
     const bytes = await fs.readFile(objectPath);
-    if (createHash("sha256").update(bytes).digest("hex") !== pointer.oid) return { kind: "error" };
+    if (bytes.byteLength !== pointer.size || createHash("sha256").update(bytes).digest("hex") !== pointer.oid) return { kind: "lfs-corrupt", byteLength: pointer.size, fetchable };
     return imageVersionFromBytes(filePath, bytes);
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === "ENOENT"
       ? { kind: "lfs-missing", byteLength: pointer.size, fetchable }
-      : { kind: "error" };
+      : { kind: "lfs-error", message: "The Git LFS object could not be read. Check the LFS storage directory and file permissions, then refresh the preview." };
   }
 }
 

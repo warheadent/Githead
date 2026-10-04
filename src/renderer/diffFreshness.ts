@@ -25,9 +25,10 @@ function areImageSidesEqual(left: GitImageSide, right: GitImageSide): boolean {
   if (left.status === "available" && right.status === "available") {
     return areImageVersionsEqual(left.version, right.version);
   }
-  if (left.status === "lfs-missing" && right.status === "lfs-missing") {
+  if ((left.status === "lfs-missing" || left.status === "lfs-corrupt") && (right.status === "lfs-missing" || right.status === "lfs-corrupt")) {
     return left.byteLength === right.byteLength && left.fetchable === right.fetchable;
   }
+  if (left.status === "unavailable" && right.status === "unavailable") return left.reason === right.reason && left.message === right.message;
   return left.status === "absent" && right.status === "absent";
 }
 

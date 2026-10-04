@@ -56,6 +56,7 @@ import type {
   GitFileBlameRequest,
   GitFileBlameResult,
   GitFilePreview,
+  GitImageSide,
   GitImageVersion,
   GitFilePreviewRequest,
   GitHunkRequest,
@@ -242,7 +243,6 @@ const GIT_STATUS_PATHSPEC_CHARACTER_BUDGET = 12_000;
 const REPOSITORY_ACCESS_CHECK_TIMEOUT_MS = 30_000;
 
 export class GitService {
-  private readonly lfsMediaDirs = new Map<string, string>();
   private readonly remoteCheckLeases = new Map<string, RemoteCheckLease>();
   private readonly operationRecovery: GitOperationRecoveryService;
   private readonly integration: GitIntegrationService;
@@ -2296,7 +2296,7 @@ export class GitService {
     return this.runGitOperation(request.repoPath, ["branch", request.force ? "-D" : "-d", branch.branchName]);
   }
 
-  async fetchLfsImageVersions(request: GitLfsImageFetchRequest): Promise<GitOperationResult> {
+  async fetchLfsImageVersions(request: GitLfsImageFetchRequest, onOutput?: GitOutputHandler): Promise<GitOperationResult> {
     const validation = await this.validateRepo(request.repoPath);
     if (!validation.isValid) return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
     const pathResult = sanitizeSingleRepoPath(request.path);
@@ -2312,28 +2312,58 @@ export class GitService {
     } else {
       specs.push({ ref: "HEAD", path: pathResult.path });
     }
-    const missing: Array<{ ref: string; path: string; pointer: GitLfsPointer }> = [];
+    const missing: Array<{ ref: string; path: string; pointer: GitLfsPointer; refetch: boolean }> = [];
     const mediaDir = await this.getLfsMediaDir(request.repoPath);
-    if (!mediaDir) return this.createOperationFailure(request.repoPath, "Git LFS is not installed or its storage could not be located.");
+    if (typeof mediaDir !== "string") return this.createOperationFailure(request.repoPath, mediaDir.error);
+    let imageCount = 0;
     for (const spec of specs) {
       const pointer = await this.readGitPointer(request.repoPath, `${spec.ref}:${spec.path}`);
-      if (!pointer || pointer.size > IMAGE_PREVIEW_LIMIT) continue;
+      if (!pointer) {
+        const version = await this.readGitImage(request.repoPath, `${spec.ref}:${spec.path}`, spec.path, true);
+        if (version.kind !== "image" && version.kind !== "missing") return this.createOperationFailure(request.repoPath, "No Git LFS image version is available for this path and revision. Refresh the preview and check the selected file.");
+        continue;
+      }
       const resolved = await resolveLocalLfsImage(mediaDir, pointer, spec.path, true);
-      if (resolved.kind === "lfs-missing") missing.push({ ...spec, pointer });
+      if (resolved.kind === "lfs-missing" || resolved.kind === "lfs-corrupt") missing.push({ ...spec, pointer, refetch: resolved.kind === "lfs-corrupt" });
+      else if (resolved.kind === "image") imageCount += 1;
+      else return this.createOperationFailure(request.repoPath, imageFallbackText([resolved]));
     }
+    if (missing.length === 0 && imageCount === 0) return this.createOperationFailure(request.repoPath, "No Git LFS image version is available for this path and revision. Refresh the preview and check the selected file.");
     if (missing.length === 0) return { repoPath: request.repoPath, exitCode: 0, stdout: "LFS image preview is already available locally.", stderr: "" };
     const remote = await this.resolveLfsRemote(request.repoPath);
-    if (!remote) return this.createOperationFailure(request.repoPath, "No remote is available for this LFS preview.");
+    if (!remote) return this.createOperationFailure(request.repoPath, "No remote is available for this LFS preview. Configure the current branch remote or remote.lfsdefault, then retry.");
+    if (missing.some((item) => item.refetch)) {
+      const help = await this.runGit(request.repoPath, ["lfs", "fetch", "--help"]);
+      if (help.exitCode !== 0 || !/--refetch\b/.test(help.stdout)) return this.createOperationFailure(request.repoPath, "Repairing a corrupt preview requires Git LFS 3.7 or later with --refetch support. Update Git LFS, then retry.");
+    }
     const unique = new Map(missing.map((item) => [`${item.ref}\0${item.path}`, item]));
+    const runId = randomUUID();
     let stdout = "";
+    const failVerification = (message: string): GitOperationResult => {
+      onOutput?.(this.createOutputEvent(runId, "lfs-fetch", "stderr", `${message}\n`));
+      return { repoPath: request.repoPath, exitCode: -1, stdout, stderr: message };
+    };
     for (const item of unique.values()) {
       const include = escapeLfsIncludePath(item.path);
       if (!include) return this.createOperationFailure(request.repoPath, "The selected path cannot be fetched safely with Git LFS.");
-      const result = await this.runner.run("git", ["-C", request.repoPath, "lfs", "fetch", `--include=${include}`, "--exclude=", remote, item.ref], { timeoutMs: 120_000 });
+      const result = await this.runNamedActionCommand(request.repoPath, "lfs-fetch", runId, [
+        "-c", "lfs.fetchrecentalways=false", "-c", "lfs.forceprogress=true",
+        "lfs", "fetch", ...(item.refetch ? ["--refetch"] : []), `--include=${include}`, "--exclude=", remote, item.ref
+      ], onOutput);
       stdout += result.stdout;
-      if (result.exitCode !== 0) return { repoPath: request.repoPath, exitCode: result.exitCode, stdout, stderr: result.stderr || result.error || "Unable to download the LFS image preview." };
-      const verified = await resolveLocalLfsImage(mediaDir, item.pointer, item.path, true);
-      if (verified.kind !== "image") return this.createOperationFailure(request.repoPath, "The downloaded LFS image failed integrity verification.");
+      const error = result.error || (result.terminationReason === "timedOut" ? "LFS image download timed out."
+        : result.terminationReason === "aborted" ? "LFS image download was cancelled." : undefined);
+      if (error) onOutput?.(this.createOutputEvent(runId, "lfs-fetch", "stderr", `${error}\n`));
+      if (result.exitCode !== 0 || error || result.exceededLimit) {
+        const stderr = [result.stderr.trimEnd(), error].filter(Boolean).join("\n") || "Unable to download the LFS image preview.";
+        return { repoPath: request.repoPath, exitCode: result.exitCode || -1, stdout, stderr };
+      }
+      const currentMediaDir = await this.getLfsMediaDir(request.repoPath);
+      if (typeof currentMediaDir !== "string") return failVerification(currentMediaDir.error);
+      const verified = await resolveLocalLfsImage(currentMediaDir, item.pointer, item.path, true);
+      if (verified.kind !== "image") return failVerification(verified.kind === "lfs-missing"
+        ? "The Git LFS image is still missing after the download. Check the remote and LFS storage settings, then retry."
+        : imageFallbackText([verified]));
     }
     return { repoPath: request.repoPath, exitCode: 0, stdout: stdout || "Downloaded LFS image preview.", stderr: "" };
   }
@@ -3649,10 +3679,10 @@ export class GitService {
     if (request.side === "staged") {
       before = isAdded ? { kind: "missing" } : await this.readGitImage(request.repoPath, `HEAD:${pathResult.path}`, pathResult.path, true);
       after = isDeleted ? { kind: "missing" } : await this.readGitImage(request.repoPath, `:${pathResult.path}`, pathResult.path, false);
-      if (after.kind === "lfs-missing" && await this.indexPointerMatchesHead(request.repoPath, pathResult.path)) after = { ...after, fetchable: true };
+      if ((after.kind === "lfs-missing" || after.kind === "lfs-corrupt") && await this.indexPointerMatchesHead(request.repoPath, pathResult.path)) after = { ...after, fetchable: true };
     } else {
       before = status?.indexStatus === "?" ? { kind: "missing" } : await this.readGitImage(request.repoPath, `:${pathResult.path}`, pathResult.path, false);
-      if (before.kind === "lfs-missing" && await this.indexPointerMatchesHead(request.repoPath, pathResult.path)) before = { ...before, fetchable: true };
+      if ((before.kind === "lfs-missing" || before.kind === "lfs-corrupt") && await this.indexPointerMatchesHead(request.repoPath, pathResult.path)) before = { ...before, fetchable: true };
       after = isDeleted ? { kind: "missing" } : await this.readWorkingImage(request.repoPath, pathResult.path);
     }
     return this.buildImageDiff(request.path, request.side, before, after);
@@ -3680,8 +3710,9 @@ export class GitService {
     let pointer: GitLfsPointer | null = null;
     try { pointer = parseGitLfsPointer(result.stdout); } catch { return { kind: "invalid" }; }
     if (!pointer) return direct;
+    if (pointer.size > IMAGE_PREVIEW_LIMIT) return { kind: "oversized" };
     const mediaDir = await this.getLfsMediaDir(repoPath);
-    return mediaDir ? await resolveLocalLfsImage(mediaDir, pointer, displayPath, fetchable) : { kind: "lfs-missing", byteLength: pointer.size, fetchable: false };
+    return typeof mediaDir === "string" ? await resolveLocalLfsImage(mediaDir, pointer, displayPath, fetchable) : { kind: "lfs-error", message: mediaDir.error };
   }
 
   private async readWorkingImage(repoPath: string, filePath: string): Promise<ImageReadResult> {
@@ -3695,8 +3726,9 @@ export class GitService {
       if (direct.kind === "image") return direct;
       const pointer = parseGitLfsPointer(bytes);
       if (!pointer) return direct;
+      if (pointer.size > IMAGE_PREVIEW_LIMIT) return { kind: "oversized" };
       const mediaDir = await this.getLfsMediaDir(repoPath);
-      return mediaDir ? await resolveLocalLfsImage(mediaDir, pointer, filePath, false) : { kind: "lfs-missing", byteLength: pointer.size, fetchable: false };
+      return typeof mediaDir === "string" ? await resolveLocalLfsImage(mediaDir, pointer, filePath, false) : { kind: "lfs-error", message: mediaDir.error };
     } catch (error) {
       return isNodeError(error) && error.code === "ENOENT" ? { kind: "missing" } : { kind: "error" };
     }
@@ -3722,33 +3754,41 @@ export class GitService {
     if (branch.exitCode === 0) {
       const configured = await this.runGit(repoPath, ["config", "--get", `branch.${branch.stdout.trim()}.remote`]);
       const name = configured.stdout.trim();
-      if (configured.exitCode === 0 && name && name !== ".") return name;
+      if (configured.exitCode === 0 && name) return name;
     }
+    const configured = await this.runGit(repoPath, ["config", "--get", "remote.lfsdefault"]);
+    const name = configured.stdout.trim();
+    if (configured.exitCode === 0 && name) return name;
     const remotes = await this.runGit(repoPath, ["remote"]);
     const names = remotes.stdout.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
     if (names.includes("origin")) return "origin";
     return names.length === 1 ? names[0]! : null;
   }
 
-  private async getLfsMediaDir(repoPath: string): Promise<string | null> {
-    const cached = this.lfsMediaDirs.get(repoPath);
-    if (cached) return cached;
+  private async getLfsMediaDir(repoPath: string): Promise<string | { error: string }> {
     const result = await this.runGit(repoPath, ["lfs", "env"]);
-    if (result.exitCode !== 0) return null;
-    const mediaDir = parseLocalMediaDir(result.stdout);
-    if (mediaDir) this.lfsMediaDirs.set(repoPath, mediaDir);
-    return mediaDir;
+    if (result.exitCode !== 0 || result.error || result.exceededLimit) {
+      const detail = [result.stderr.trim(), result.error].filter(Boolean).join("\n");
+      return { error: ["Git LFS setup could not be read. Check that Git LFS is installed and run git lfs env, then refresh the preview.", detail].filter(Boolean).join("\n") };
+    }
+    return parseLocalMediaDir(result.stdout) ?? { error: "Git LFS did not report a storage directory. Check lfs.storage and run git lfs env, then refresh the preview." };
   }
 
   private buildImageDiff(pathValue: string, side: GitDiffSide, before: ImageReadResult, after: ImageReadResult): GitFileDiff {
-    const acceptable = (result: ImageReadResult) => result.kind === "image" || result.kind === "missing" || result.kind === "lfs-missing";
+    const acceptable = (result: ImageReadResult): result is Exclude<ImageReadResult, { kind: "invalid" | "error" }> => result.kind !== "invalid" && result.kind !== "error";
     if (!acceptable(before) || !acceptable(after) || (before.kind === "missing" && after.kind === "missing")) {
       return { path: pathValue, side, kind: "binary", text: imageFallbackText([before, after]) };
     }
+    const imageSide = (result: Exclude<ImageReadResult, { kind: "invalid" | "error" }>): GitImageSide => {
+      if (result.kind === "image") return { status: "available", version: result.version };
+      if (result.kind === "missing") return { status: "absent" };
+      if (result.kind === "lfs-missing" || result.kind === "lfs-corrupt") return { status: result.kind, byteLength: result.byteLength, fetchable: result.fetchable };
+      return { status: "unavailable", reason: result.kind === "oversized" ? "oversized" : "lfs-setup", message: imageFallbackText([result]) };
+    };
     return {
       path: pathValue, side, kind: "image", text: "",
-      before: before.kind === "image" ? { status: "available", version: before.version } : before.kind === "lfs-missing" ? { status: "lfs-missing", byteLength: before.byteLength, fetchable: before.fetchable } : { status: "absent" },
-      after: after.kind === "image" ? { status: "available", version: after.version } : after.kind === "lfs-missing" ? { status: "lfs-missing", byteLength: after.byteLength, fetchable: after.fetchable } : { status: "absent" }
+      before: imageSide(before),
+      after: imageSide(after)
     };
   }
 

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vite-plus/test";
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -6,6 +7,10 @@ import type { BinaryProcessResult, ProcessResult, ProcessRunOptions, ProcessRunn
 import { NodeProcessRunner } from "./processRunner";
 import { createTerminalColorEnv, GitService, parsePorcelainStatus, parseWorktrees } from "./gitService";
 import { createCommitPlanChanges } from "./commitPlanChanges";
+import { CancellableProcessRunner } from "./cancellableProcessRunner";
+import { NETWORK_OPERATION_TIMEOUT_MS } from "./operationTimeouts";
+import { runWithRepositoryGitOutput } from "./gitOutputBatcher";
+import type { GitLfsImageFetchRequest, GitOutputEvent } from "../shared/types";
 
 interface RunnerCall {
   command: string;
@@ -225,6 +230,220 @@ function repoSummaryResults(repoRoot: string): ProcessResult[] {
     ok(`${repoRoot}\n`)
   ];
 }
+
+function createLfsFetchFixture(dir: string) {
+  const mediaDir = path.join(dir, "lfs", "objects");
+  const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const objectId = createHash("sha256").update(bytes).digest("hex");
+  const pointer = Buffer.from(`version https://git-lfs.github.com/spec/v1\noid sha256:${objectId}\nsize ${bytes.length}\n`);
+  const objectPath = path.join(mediaDir, objectId.slice(0, 2), objectId.slice(2, 4), objectId);
+  const parentHash = "a".repeat(40);
+  const fetch = vi.fn<(options?: ProcessRunOptions) => Promise<ProcessResult>>(async () => {
+    await fs.mkdir(path.dirname(objectPath), { recursive: true });
+    await fs.writeFile(objectPath, bytes);
+    return ok();
+  });
+  const runner = {
+    run: vi.fn<ProcessRunner["run"]>(async (_command, args, options) => {
+      if (args.includes("--is-inside-work-tree")) return ok("true\n");
+      if (args[2] === "rev-parse" && args[3] === "--verify") return ok(`${parentHash}\n`);
+      if (args[2] === "lfs" && args[3] === "env") return ok(`LocalMediaDir=${mediaDir}\n`);
+      if (args[2] === "symbolic-ref") return ok("main\n");
+      if (args[2] === "config") return args.at(-1) === "branch.main.remote" ? ok("origin\n") : failure();
+      if (args[2] === "remote") return ok("origin\n");
+      if (args.includes("--help")) return ok("--refetch  Also fetch objects that are already present locally.\n");
+      if (args.includes("fetch")) return fetch(options);
+      throw new Error(`Unexpected Git arguments: ${args.join(" ")}`);
+    }),
+    runBinary: vi.fn<NonNullable<ProcessRunner["runBinary"]>>(async () => ({ exitCode: 0, stdout: pointer, stderr: "" }))
+  };
+  return { runner, fetch, parentHash, bytes, pointer, objectPath };
+}
+
+describe("GitService LFS preview fetch", () => {
+  it("repairs an existing corrupt object with a scoped refetch", async () => {
+    await withTempDir(async (dir) => {
+      const { runner, bytes, objectPath } = createLfsFetchFixture(dir);
+      await fs.mkdir(path.dirname(objectPath), { recursive: true });
+      await fs.writeFile(objectPath, new Uint8Array(bytes.length));
+      const result = await new GitService(runner).fetchLfsImageVersions({ context: "status", repoPath: dir, path: "image.png", side: "unstaged" });
+      expect(result.exitCode).toBe(0);
+      expect(await fs.readFile(objectPath)).toEqual(bytes);
+      const fetchArgs = runner.run.mock.calls.find(([, args]) => args.includes("fetch") && !args.includes("--help"))?.[1];
+      expect(fetchArgs).toEqual(["-C", dir, "-c", "lfs.fetchrecentalways=false", "-c", "lfs.forceprogress=true", "lfs", "fetch", "--refetch", "--include=image.png", "--exclude=", "origin", "HEAD"]);
+    });
+  });
+
+  it("explains a corrupt-object retry when Git LFS does not support refetch", async () => {
+    await withTempDir(async (dir) => {
+      const { runner, fetch, bytes, objectPath } = createLfsFetchFixture(dir);
+      await fs.mkdir(path.dirname(objectPath), { recursive: true });
+      const corrupt = new Uint8Array(bytes.length);
+      await fs.writeFile(objectPath, corrupt);
+      const run = runner.run.getMockImplementation()!;
+      runner.run.mockImplementation((command, args, options) => args.includes("--help") ? Promise.resolve(ok("usage: git lfs fetch")) : run(command, args, options));
+      const result = await new GitService(runner).fetchLfsImageVersions({ context: "status", repoPath: dir, path: "image.png", side: "unstaged" });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain("Git LFS 3.7 or later");
+      expect(fetch).not.toHaveBeenCalled();
+      expect(await fs.readFile(objectPath)).toEqual(Buffer.from(corrupt));
+    });
+  });
+
+  it("reports the size limit without downloading an oversized pointer", async () => {
+    await withTempDir(async (dir) => {
+      const { runner, fetch, pointer } = createLfsFetchFixture(dir);
+      runner.runBinary.mockResolvedValue({ exitCode: 0, stdout: Buffer.from(pointer.toString().replace(/size \d+/, `size ${11 * 1024 * 1024}`)), stderr: "" });
+      const result = await new GitService(runner).fetchLfsImageVersions({ context: "status", repoPath: dir, path: "image.png", side: "unstaged" });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain("10 MiB preview limit");
+      expect(fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  it("does not report an absent or invalid pointer as an available preview", async () => {
+    await withTempDir(async (dir) => {
+      const { runner, fetch } = createLfsFetchFixture(dir);
+      runner.runBinary.mockResolvedValue({ exitCode: 0, stdout: Buffer.from("not an image or pointer"), stderr: "" });
+      const result = await new GitService(runner).fetchLfsImageVersions({ context: "status", repoPath: dir, path: "image.png", side: "unstaged" });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain("No Git LFS image version");
+      expect(fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  it("does not report an available preview when another selected version is invalid", async () => {
+    await withTempDir(async (dir) => {
+      const { runner, fetch, pointer, parentHash, objectPath, bytes } = createLfsFetchFixture(dir);
+      await fs.mkdir(path.dirname(objectPath), { recursive: true });
+      await fs.writeFile(objectPath, bytes);
+      runner.runBinary.mockImplementation(async (_command, args) => ({ exitCode: 0, stdout: args.at(-1)?.startsWith(parentHash) ? Buffer.from("invalid image") : pointer, stderr: "" }));
+      const result = await new GitService(runner).fetchLfsImageVersions({ context: "commit", repoPath: dir, path: "image.png", hash: oid });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stdout).not.toContain("already available");
+      expect(fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  it("reports setup errors separately from missing objects", async () => {
+    await withTempDir(async (dir) => {
+      const { runner, fetch } = createLfsFetchFixture(dir);
+      const run = runner.run.getMockImplementation()!;
+      runner.run.mockImplementation((command, args, options) => args[2] === "lfs" && args[3] === "env"
+        ? Promise.resolve(failure("git: 'lfs' is not a git command."))
+        : run(command, args, options));
+      const result = await new GitService(runner).fetchLfsImageVersions({ context: "status", repoPath: dir, path: "image.png", side: "unstaged" });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain("Check that Git LFS is installed");
+      expect(result.stderr).toContain("git: 'lfs' is not a git command.");
+      expect(fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  it("streams verification failures after a successful transfer", async () => {
+    await withTempDir(async (dir) => {
+      const { runner, fetch } = createLfsFetchFixture(dir);
+      fetch.mockResolvedValue(ok());
+      const output: GitOutputEvent[] = [];
+      const result = await new GitService(runner).fetchLfsImageVersions({ context: "status", repoPath: dir, path: "image.png", side: "unstaged" }, (event) => output.push(event));
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain("still missing");
+      expect(output).toContainEqual(expect.objectContaining({ action: "lfs-fetch", stream: "stderr", text: `${result.stderr}\n` }));
+    });
+  });
+
+  it.each<GitLfsImageFetchRequest["context"]>(["status", "commit"])("limits %s preview downloads to the selected paths and refs", async (context) => {
+    await withTempDir(async (dir) => {
+      const { runner, parentHash } = createLfsFetchFixture(dir);
+      const service = new GitService(runner);
+      const request: GitLfsImageFetchRequest = context === "status"
+        ? { context, repoPath: dir, path: "assets/image[1].png", side: "unstaged" }
+        : { context, repoPath: dir, hash: oid, path: "assets/image[1].png", originalPath: "assets/old[1].png" };
+
+      await expect(service.fetchLfsImageVersions(request)).resolves.toMatchObject({ exitCode: 0 });
+
+      const fetchCalls = runner.run.mock.calls.filter(([, args]) => args.includes("fetch"));
+      const expected = context === "status"
+        ? [["--include=assets/image\\[1\\].png", "HEAD"]]
+        : [["--include=assets/image\\[1\\].png", oid], ["--include=assets/old\\[1\\].png", parentHash]];
+      expect(fetchCalls).toHaveLength(expected.length);
+      for (const [index, [command, args]] of fetchCalls.entries()) {
+        expect(command).toBe("git");
+        expect(args.slice(0, 4)).toEqual(["-C", dir, "-c", "lfs.fetchrecentalways=false"]);
+        expect(args.slice(args.indexOf("lfs"))).toEqual(["lfs", "fetch", expected[index]![0], "--exclude=", "origin", expected[index]![1]]);
+      }
+      expect(runner.run.mock.calls.filter(([, args]) => args.includes("config")).every(([, args]) => args.includes("--get"))).toBe(true);
+    });
+  });
+
+  it("streams progress through repository activity before the download completes", async () => {
+    await withTempDir(async (dir) => {
+      const { runner, fetch } = createLfsFetchFixture(dir);
+      const download = fetch.getMockImplementation()!;
+      const output: GitOutputEvent[] = [];
+      const flush = vi.fn();
+      fetch.mockImplementationOnce(async (options) => {
+        expect(options?.timeoutMs).toBe(NETWORK_OPERATION_TIMEOUT_MS);
+        options?.onOutput?.({ stream: "stdout", text: "Downloading LFS objects: 50% (1/2), 4 KB | 1 KB/s\r" });
+        options?.onOutput?.({ stream: "stderr", text: "Fetching reference HEAD\n" });
+        expect(output).toEqual(expect.arrayContaining([
+          expect.objectContaining({ repoPath: dir, action: "lfs-fetch", stream: "stdout", text: "Downloading LFS objects: 50% (1/2), 4 KB | 1 KB/s\r" }),
+          expect.objectContaining({ repoPath: dir, action: "lfs-fetch", stream: "stderr", text: "Fetching reference HEAD\n" })
+        ]));
+        expect(output.every((event) => event.exitCode === undefined)).toBe(true);
+        return download(options);
+      });
+
+      const service = new GitService(runner);
+      const result = await runWithRepositoryGitOutput({ write: (event) => output.push(event), flush }, dir, (onOutput) =>
+        service.fetchLfsImageVersions({ context: "status", repoPath: dir, path: "image.png", side: "unstaged" }, onOutput));
+
+      expect(result).toMatchObject({ exitCode: 0, outputStreamed: true });
+      expect(runner.run.mock.calls.find(([, args]) => args.includes("fetch"))?.[1]).toContain("lfs.forceprogress=true");
+      expect(output.at(-1)).toMatchObject({ repoPath: dir, action: "lfs-fetch", exitCode: 0 });
+      expect(new Set(output.map((event) => event.runId)).size).toBe(1);
+      expect(flush).toHaveBeenCalledOnce();
+    });
+  });
+
+  it.each(["timedOut", "aborted"] as const)("keeps %s visible with existing transfer diagnostics", async (terminationReason) => {
+    await withTempDir(async (dir) => {
+      const { runner, fetch } = createLfsFetchFixture(dir);
+      const error = terminationReason === "timedOut" ? "Command timed out after 1800000ms." : "Command was cancelled.";
+      fetch.mockResolvedValueOnce({ exitCode: -1, stdout: "partial transfer", stderr: "Fetching reference HEAD", error, terminationReason });
+      const output: GitOutputEvent[] = [];
+      const service = new GitService(runner);
+
+      const result = await service.fetchLfsImageVersions({ context: "status", repoPath: dir, path: "image.png", side: "unstaged" }, (event) => output.push(event));
+
+      expect(result).toMatchObject({ exitCode: -1, stdout: "partial transfer", stderr: `Fetching reference HEAD\n${error}` });
+      expect(output).toContainEqual(expect.objectContaining({ stream: "stderr", text: `${error}\n` }));
+    });
+  });
+
+  it("keeps the repository cancellation signal on the preview transfer", async () => {
+    await withTempDir(async (dir) => {
+      const { runner, fetch } = createLfsFetchFixture(dir);
+      const controller = new AbortController();
+      const cancellable = new CancellableProcessRunner(runner);
+      const service = new GitService(cancellable);
+      fetch.mockImplementationOnce(async (options) => {
+        expect(options?.signal).toBe(controller.signal);
+        controller.abort();
+        expect(options?.signal?.aborted).toBe(true);
+        return { exitCode: 0, stdout: "", stderr: "partial transfer", error: "Command was cancelled.", terminationReason: "aborted" };
+      });
+
+      const result = await cancellable.runWithSignal(controller.signal, () => service.fetchLfsImageVersions({
+        context: "status", repoPath: dir, path: "image.png", side: "unstaged"
+      }));
+
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain("Command was cancelled.");
+      expect(fetch).toHaveBeenCalledOnce();
+    });
+  });
+});
 
 interface RealRecoveryFixture {
   writer: string;
