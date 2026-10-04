@@ -262,6 +262,8 @@ describe("App", { timeout: 10_000 }, () => {
 
   it("keeps a commit plan usable after a monitored no-content working-tree change", async () => {
     const user = userEvent.setup();
+    const validation = defer<Awaited<ReturnType<GitheadApi["validateCommitPlan"]>>>();
+    vi.mocked(githead.validateCommitPlan).mockReturnValue(validation.promise);
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       files: [createStatusFile("src/plan.ts", { worktreeStatus: "M", isUnstaged: true })]
     }));
@@ -290,8 +292,10 @@ describe("App", { timeout: 10_000 }, () => {
       granularity: "hunk",
       changes: [{ id: "change-1", path: "src/plan.ts", kind: "hunk", label: "@@ -1 +1 @@", fingerprint: "a".repeat(64) }]
     })));
+    expect(screen.getByRole("button", { name: "Quick Commit" }).hasAttribute("disabled")).toBe(true);
+    validation.resolve({ repoPath, valid: true, stderr: "" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Quick Commit" }).hasAttribute("disabled")).toBe(false));
     expect(screen.queryByText("The working tree changed. Generate the commit plan again.")).toBeNull();
-    expect(screen.getByRole("button", { name: "Quick Commit" }).hasAttribute("disabled")).toBe(false);
   });
 
   it("switches the maximize control to restore when the window is maximized", async () => {
