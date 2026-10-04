@@ -1621,6 +1621,7 @@ export interface GitHubCommitAssociation {
   commitSha: string;
   pullRequests: GitHubPullRequestAssociation[];
   checkState: GitHubCheckState;
+  checkCounts: { passed: number; total: number } | null;
 }
 
 export interface GitHubHistoryInsightsRequest extends GitHubRepositoryRequest {

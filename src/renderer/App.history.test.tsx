@@ -816,6 +816,36 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.getCommitHistory).toHaveBeenLastCalledWith(expect.objectContaining({ scope: "all" }));
   });
 
+  it("shows passed check counts with the overall status in history", async () => {
+    const user = userEvent.setup();
+    const commit = createCommit({ hash: "a".repeat(40), subject: "feat: counted checks" });
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      githubRepository: { owner: "openai", name: "githead", fullName: "openai/githead", webUrl: "https://github.com/openai/githead" }
+    }));
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getGitHubHistoryInsights).mockResolvedValue({
+      ok: true,
+      data: { currentBranchPullRequests: [], unavailableCommitShas: [], commits: [
+        { commitSha: commit.hash, pullRequests: [], checkState: "failure", checkCounts: { passed: 1, total: 2 } }
+      ] },
+      rateLimit: null
+    });
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+
+    try {
+      await user.click(screen.getByRole("button", { name: "Choose table columns" }));
+      await user.click(screen.getByRole("menuitemcheckbox", { name: "Checks" }));
+      await user.keyboard("{Escape}");
+      expect(await screen.findByText("1/2")).toBeTruthy();
+      expect(screen.getByRole("img", { name: "Checks failing: 1 of 2 passed" }).classList.contains("is-failure")).toBe(true);
+    } finally {
+      window.localStorage.removeItem("githead.column-layout.history");
+    }
+  });
+
   it("uses the decorated current branch as the GitHub head in all-history scope", async () => {
     const user = userEvent.setup();
     const currentCommit = createCommit({

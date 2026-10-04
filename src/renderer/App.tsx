@@ -13314,11 +13314,13 @@ function HistoryPullRequests({
 }
 
 function HistoryCheckState({ association, compact = false }: { association: GitHubCommitAssociation; compact?: boolean }): ReactNode {
-  const label = formatCheckStateLabel(association.checkState);
+  const stateLabel = formatCheckStateLabel(association.checkState);
+  const counts = association.checkCounts;
+  const label = counts ? `${stateLabel}: ${counts.passed} of ${counts.total} passed` : stateLabel;
   return (
-    <span className={compact ? undefined : "history-check-column"}>
+    <span className={compact ? undefined : "history-check-column"} title={label}>
       <span className={`history-check-state is-${association.checkState}`} aria-label={label} role="img" />
-      {!compact ? <span className="truncate">{label}</span> : null}
+      {!compact ? <span className="truncate">{counts ? `${counts.passed}/${counts.total}` : stateLabel}</span> : null}
     </span>
   );
 }

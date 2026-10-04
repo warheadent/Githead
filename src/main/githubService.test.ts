@@ -630,6 +630,23 @@ describe("GitHubService", () => {
     expect(result.ok && result.data.commits[1]).toMatchObject({ commitSha: shas[1], checkState: "failure" });
   });
 
+  it.each([
+    { state: "SUCCESS", contexts: { totalCount: 2, checkRunCountsByState: [{ state: "SUCCESS", count: 1 }], statusContextCountsByState: [{ state: "SUCCESS", count: 1 }] }, expected: { passed: 2, total: 2 } },
+    { state: "FAILURE", contexts: { totalCount: 3, checkRunCountsByState: [{ state: "SUCCESS", count: 1 }, { state: "FAILURE", count: 1 }], statusContextCountsByState: [{ state: "PENDING", count: 1 }] }, expected: { passed: 1, total: 3 } },
+    { state: "PENDING", contexts: { totalCount: 102, checkRunCountsByState: [{ state: "SUCCESS", count: 100 }, { state: "IN_PROGRESS", count: 1 }, { state: "SKIPPED", count: 1 }], statusContextCountsByState: [] }, expected: { passed: 100, total: 102 } },
+    { state: "SUCCESS", contexts: { totalCount: 0, checkRunCountsByState: [], statusContextCountsByState: [] }, expected: { passed: 0, total: 0 } },
+    { state: "SUCCESS", contexts: null, expected: null },
+    { state: "SUCCESS", contexts: { totalCount: 2, checkRunCountsByState: null, statusContextCountsByState: [] }, expected: null },
+    { state: "SUCCESS", contexts: { totalCount: 2, checkRunCountsByState: [{ state: "SUCCESS", count: 1 }], statusContextCountsByState: [] }, expected: null }
+  ])("reads complete check counts from the rollup: $state $expected", async ({ state, contexts, expected }) => {
+    const sha = "a".repeat(40);
+    const client = new FakeClient([{ data: { repository: { commit0: { oid: sha, statusCheckRollup: { state, contexts } } } } }]);
+    const result = await new GitHubService(provider(repository), client).getHistoryInsights({ repoPath: "D:\\Repo", currentBranch: "main", headSha: sha, commitShas: [sha] });
+    expect(result).toMatchObject({ ok: true, data: { commits: [{ checkCounts: expected }] } });
+    expect(client.calls).toHaveLength(1);
+    expect(client.calls[0]?.request?.body).toEqual(expect.objectContaining({ query: expect.stringContaining("checkRunCountsByState { state count }") }));
+  });
+
   it("returns missing commit objects as unavailable without REST fan-out", async () => {
     const sha = "a".repeat(40);
     const client = new FakeClient([{ data: { repository: { commit0: null } } }]);

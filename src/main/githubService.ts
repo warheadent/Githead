@@ -893,7 +893,14 @@ function createHistoryInsightsQuery(repository: GitHubRepository, shas: string[]
     commit${index}: object(oid:$sha${index}) {
       ... on Commit {
         oid
-        statusCheckRollup { state }
+        statusCheckRollup {
+          state
+          contexts {
+            totalCount
+            checkRunCountsByState { state count }
+            statusContextCountsByState { state count }
+          }
+        }
         associatedPullRequests(first:5) { nodes {
           number title state isDraft url headRefName headRefOid
           baseRepository { nameWithOwner }
@@ -915,8 +922,23 @@ function parseCommitAssociation(sha: string, raw: unknown, repository: GitHubRep
   return {
     commitSha: sha,
     checkState: mapCheckState(typeof rollup?.state === "string" ? rollup.state : null),
+    checkCounts: parseCheckCounts(rollup?.contexts),
     pullRequests: nodes.flatMap((node) => parsePullRequestAssociation(node, repository))
   };
+}
+
+function parseCheckCounts(raw: unknown): GitHubCommitAssociation["checkCounts"] {
+  if (!isRecord(raw) || typeof raw.totalCount !== "number" || !Number.isSafeInteger(raw.totalCount) || raw.totalCount < 0
+    || !Array.isArray(raw.checkRunCountsByState) || !Array.isArray(raw.statusContextCountsByState)) return null;
+  let passed = 0;
+  let total = 0;
+  for (const entry of [...raw.checkRunCountsByState, ...raw.statusContextCountsByState]) {
+    if (!isRecord(entry) || typeof entry.state !== "string" || typeof entry.count !== "number"
+      || !Number.isSafeInteger(entry.count) || entry.count < 0) return null;
+    total += entry.count;
+    if (entry.state === "SUCCESS") passed += entry.count;
+  }
+  return total === raw.totalCount ? { passed, total } : null;
 }
 
 function parsePullRequestAssociation(raw: unknown, repository: GitHubRepository): GitHubPullRequestAssociation[] {
