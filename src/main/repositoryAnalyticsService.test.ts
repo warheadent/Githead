@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -70,12 +71,16 @@ describe("RepositoryAnalyticsService with real Git", () => {
       expect(runner.logCommands()).toHaveLength(0);
       expect(runner.commands.some((args) => args.some((arg) => arg.includes("ahead-behind")))).toBe(false);
 
-      await fs.writeFile(path.join(repo, "untracked.txt"), "loose object\n");
+      // Incompressible data changes Git's KiB-rounded storage size on Windows too.
+      await fs.writeFile(path.join(repo, "untracked.txt"), randomBytes(16 * 1024));
       git("hash-object", "-w", "untracked.txt");
-      const changed = await service.getAnalytics({ ...query, knownInputKey: first.inputKey });
+      const changed = await service.getAnalytics({ ...query, knownInputKey: first.inputKey }, (event) => progress.push(event.phase));
+      expect(changed).not.toBeNull();
       expect(changed?.assets.packedBytes).toBeGreaterThan(first.assets.packedBytes!);
       expect(changed?.ranges).toBe(first.ranges);
       expect(changed?.branches).toBe(first.branches);
+      expect(runner.logCommands()).toHaveLength(0);
+      expect(runner.commands.some((args) => args.some((arg) => arg.includes("ahead-behind")))).toBe(false);
       expect(progress).toEqual([]);
     });
   });
