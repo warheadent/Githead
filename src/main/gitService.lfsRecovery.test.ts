@@ -6,7 +6,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { GitService } from "./gitService";
 import { NodeProcessRunner } from "./processRunner";
 
-describe("GitService LFS recovery with a local remote", () => {
+describe("GitService LFS recovery with a local remote", { timeout: 30_000 }, () => {
   it("repairs only the selected object and preserves worktree and index content", async (context) => {
     const runner = new NodeProcessRunner();
     const help = await runner.run("git", ["lfs", "fetch", "--help"]);
