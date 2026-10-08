@@ -37,6 +37,24 @@ describe("NodeProcessRunner.run", () => {
     expect(result).toMatchObject({ exitCode: 0, stdout: "HELLO" });
   });
 
+  it("streams stdout without retaining or limiting it", async () => {
+    const chunks: string[] = [];
+    const result = await new NodeProcessRunner().run(
+      process.execPath,
+      ["-e", "process.stdout.write('x'.repeat(4096)); process.stderr.write('warn')"],
+      {
+        streamStdout: true,
+        maxOutputBytes: 64,
+        onOutput: ({ stream, text }) => {
+          if (stream === "stdout") chunks.push(text);
+        }
+      }
+    );
+
+    expect(result).toMatchObject({ exitCode: 0, stdout: "", stderr: "warn", exceededLimit: false });
+    expect(chunks.join("")).toBe("x".repeat(4096));
+  });
+
   it("returns an aborted result without spawning for an already-aborted signal", async () => {
     const controller = new AbortController();
     const onOutput = vi.fn();

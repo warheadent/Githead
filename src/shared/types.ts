@@ -499,6 +499,7 @@ export interface RepoCapabilities {
   fileHistory: boolean;
   blame: boolean;
   stashes: boolean;
+  analytics: boolean;
 }
 
 export function gitCapabilities(): RepoCapabilities {
@@ -520,7 +521,8 @@ export function gitCapabilities(): RepoCapabilities {
     worktrees: true,
     fileHistory: true,
     blame: true,
-    stashes: true
+    stashes: true,
+    analytics: true
   };
 }
 
@@ -543,7 +545,8 @@ export function loreCapabilities(): RepoCapabilities {
     worktrees: false,
     fileHistory: false,
     blame: false,
-    stashes: false
+    stashes: false,
+    analytics: false
   };
 }
 
@@ -1636,6 +1639,223 @@ export interface GitHubHistoryInsights {
   unavailableCommitShas: string[];
 }
 
+/** Date windows that every history-based analytics section is computed for. */
+export type AnalyticsRangeKey = "d90" | "y1" | "all";
+export type AnalyticsBinUnit = "day" | "week" | "month";
+
+export interface RepositoryAnalyticsRequest extends RepositoryReadRequest {
+  repoPath: string;
+  /** Applies the repository's excluded path patterns to code and line statistics. */
+  excludePaths: boolean;
+}
+
+export interface RepositoryAnalyticsProgress {
+  requestId: string;
+  phase: "history" | "assets" | "branches";
+  processedCommits: number;
+  totalCommits: number | null;
+}
+
+export interface AnalyticsIdentity {
+  name: string;
+  email: string;
+  commits: number;
+}
+
+/** One person after merging identities that share an email address or name. */
+export interface AnalyticsPerson {
+  name: string;
+  commits: number;
+  identities: AnalyticsIdentity[];
+}
+
+export interface AnalyticsContributor {
+  /** Index into `RepositoryAnalytics.people`. */
+  person: number;
+  commits: number;
+  activeDays: number;
+  linesAdded: number;
+  linesRemoved: number;
+  assetRevisions: number;
+  firstCommitAt: number;
+  lastCommitAt: number;
+}
+
+export interface AnalyticsHotspot {
+  path: string;
+  commits: number;
+  linesAdded: number;
+  linesRemoved: number;
+  authors: number;
+}
+
+export interface AnalyticsBinaryHotspot {
+  path: string;
+  revisions: number;
+  /** Total LFS bytes stored across every revision, when the file uses LFS. */
+  lfsBytes: number | null;
+}
+
+export interface AnalyticsFolderOwnership {
+  folder: string;
+  /** File revisions per person slot; the last entry counts everyone else. */
+  revisions: number[];
+}
+
+export interface AnalyticsCoupledFiles {
+  pathA: string;
+  pathB: string;
+  together: number;
+  commitsA: number;
+  commitsB: number;
+}
+
+export interface AnalyticsRangeKpis {
+  commits: number;
+  previousCommits: number | null;
+  activeDays: number;
+  previousActiveDays: number | null;
+  linesAdded: number;
+  linesRemoved: number;
+  assetRevisions: number;
+  contributors: number;
+}
+
+export interface AnalyticsRange {
+  unit: AnalyticsBinUnit;
+  /** Inclusive start and exclusive end of the window, in Unix seconds. */
+  from: number;
+  to: number;
+  /** Start of each bin in Unix seconds. */
+  bins: number[];
+  /** Commits per bin and person slot. The last slot counts everyone else. */
+  commits: number[][];
+  /** Text lines added and removed per bin. */
+  lines: Array<[added: number, removed: number]>;
+  /** Commits by weekday (Monday first) and hour in each author's local time: 7 × 24 values. */
+  punchCard: number[];
+  /** Non-merge commits by text lines changed: none, 1–10, 11–50, 51–200, 201–1,000, more. */
+  commitSizes: number[];
+  kpis: AnalyticsRangeKpis;
+  contributors: AnalyticsContributor[];
+  hotspots: AnalyticsHotspot[];
+  ownership: AnalyticsFolderOwnership[];
+  coupling: AnalyticsCoupledFiles[];
+}
+
+export interface AnalyticsFileType {
+  extension: string;
+  files: number;
+  lfsFiles: number;
+  lfsBytes: number;
+  gitBytes: number;
+}
+
+export interface AnalyticsLargeFile {
+  path: string;
+  bytes: number;
+}
+
+export interface AnalyticsAssets {
+  treeFiles: number;
+  lfsFiles: number;
+  lfsBytes: number;
+  gitBytes: number;
+  packedBytes: number | null;
+  /** Largest file types by size; the remainder is folded into `otherTypes`. */
+  types: AnalyticsFileType[];
+  otherTypes: AnalyticsFileType | null;
+  /** LFS bytes committed per month across analyzed history; each version is stored in full. */
+  lfsGrowth: Array<{ month: number; bytes: number }>;
+  lfsHistoryBytes: number;
+  binaryHotspots: AnalyticsBinaryHotspot[];
+  /** Binary file types stored as regular Git blobs. */
+  binaryTypesOutsideLfs: Array<AnalyticsFileType & { example: string }>;
+  largeFilesOutsideLfs: AnalyticsLargeFile[];
+  largeFilesOutsideLfsCount: number;
+}
+
+export interface AnalyticsBranch {
+  name: string;
+  remote: boolean;
+  current: boolean;
+  lastCommitAt: number;
+  /** Commits on the branch that the base does not contain. */
+  ahead: number | null;
+  /** Commits on the base that the branch does not contain. */
+  behind: number | null;
+}
+
+export interface AnalyticsBranches {
+  base: string | null;
+  branches: AnalyticsBranch[];
+  truncated: boolean;
+}
+
+export interface RepositoryAnalytics {
+  repoPath: string;
+  headHash: string | null;
+  branch: string | null;
+  /** End of every date window, in Unix seconds. */
+  generatedAt: number;
+  excludePaths: boolean;
+  excludedPathPatterns: string[];
+  history: {
+    commits: number;
+    firstCommitAt: number | null;
+    lastCommitAt: number | null;
+    /** True when history exceeded the analysis limit and older commits were skipped. */
+    truncated: boolean;
+  };
+  people: AnalyticsPerson[];
+  /** Number of people with their own color slot; everyone else is grouped. */
+  personSlots: number;
+  ranges: Record<AnalyticsRangeKey, AnalyticsRange>;
+  tags: Array<{ name: string; time: number }>;
+  assets: AnalyticsAssets;
+  branches: AnalyticsBranches;
+}
+
+export interface RepositoryAnalyticsSettings {
+  repoPath: string;
+  /** Gitignore-style patterns for vendored or generated paths. */
+  excludedPaths: string[];
+}
+
+export type GitHubWorkflowAnalyticsRange = "d30" | "d90";
+
+export interface GitHubWorkflowAnalyticsRequest extends GitHubRepositoryRequest {
+  range: GitHubWorkflowAnalyticsRange;
+}
+
+export interface GitHubWorkflowAnalyticsWorkflow {
+  name: string;
+  runs: number;
+  failures: number;
+  medianDurationSeconds: number | null;
+  /** Median duration of successful runs per bin. */
+  medianDurations: Array<number | null>;
+}
+
+export interface GitHubWorkflowAnalytics {
+  unit: "day" | "week";
+  from: number;
+  to: number;
+  bins: number[];
+  /** Completed runs per bin: passed, failed, cancelled. */
+  outcomes: Array<[passed: number, failed: number, cancelled: number]>;
+  workflows: GitHubWorkflowAnalyticsWorkflow[];
+  passed: number;
+  failed: number;
+  cancelled: number;
+  successRate: number | null;
+  previousSuccessRate: number | null;
+  reruns: number;
+  failingBranches: Array<{ branch: string; failed: number; passed: number; runs: number }>;
+  /** True when the run limit was reached before the start of the window. */
+  sampled: boolean;
+}
+
 export type GitHubReferenceResolution = "exact" | "search" | "unsupported";
 export type GitHubReferenceKind = "issue-or-pull-request" | "issue" | "pull-request";
 
@@ -2410,6 +2630,8 @@ export interface GitheadApi {
   getCommitFileDiff(request: GitCommitFileDiffRequest): Promise<GitFileDiff>;
   getFileHistory(request: GitFileHistoryRequest): Promise<GitFileHistoryResult>;
   getFileBlame(request: GitFileBlameRequest): Promise<GitFileBlameResult>;
+  getRepositoryAnalytics(request: RepositoryAnalyticsRequest): Promise<RepositoryAnalytics>;
+  getGitHubWorkflowAnalytics(request: GitHubWorkflowAnalyticsRequest): Promise<GitHubOperationResult<GitHubWorkflowAnalytics>>;
   getFileDiff(request: GitFileDiffRequest): Promise<GitFileDiff>;
   getStashes(request: GitStashListRequest): Promise<GitStashEntry[]>;
   getStashDetails(request: GitStashDetailsRequest): Promise<GitStashDetails>;
@@ -2480,6 +2702,8 @@ export interface GitheadApi {
   saveRepositoryAiSettings(request: RepositoryAiSettingsSaveRequest): Promise<RepositoryAiSettings>;
   getRepositorySyncSettings(request: RepositorySyncSettingsRequest): Promise<RepositorySyncSettings>;
   saveRepositorySyncSettings(request: RepositorySyncSettingsSaveRequest): Promise<RepositorySyncSettings>;
+  getRepositoryAnalyticsSettings(request: RepositorySyncSettingsRequest): Promise<RepositoryAnalyticsSettings>;
+  saveRepositoryAnalyticsSettings(request: RepositoryAnalyticsSettings): Promise<RepositoryAnalyticsSettings>;
   getAiReasoningCapabilities(request: GetAiReasoningCapabilitiesRequest): Promise<AiReasoningCapabilities>;
   getAppSettings(): Promise<AppSettings>;
   saveAppSettings(request: AppSettingsSaveRequest): Promise<AppSettings>;
@@ -2521,6 +2745,7 @@ export interface GitheadApi {
   recordPerformanceRefresh(record: PerformanceRefreshRecord): void;
   onGitOutput(callback: (event: GitOutputEvent) => void): () => void;
   onRepoChanged(callback: (event: RepoChangedEvent) => void): () => void;
+  onRepositoryAnalyticsProgress(callback: (event: RepositoryAnalyticsProgress) => void): () => void;
   onUpdateState(callback: (state: AppUpdateState) => void): () => void;
   onWindowState(callback: (state: AppWindowState) => void): () => void;
 }

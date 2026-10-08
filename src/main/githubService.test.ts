@@ -8,6 +8,25 @@ const repository: GitHubRepository = {
 };
 
 describe("GitHubService", () => {
+  it("pages workflow runs for analytics from the start of the previous window", async () => {
+    const now = new Date(2026, 9, 8, 12).getTime();
+    const run = (id: number, conclusion: string, daysAgo: number) => {
+      const created = new Date(now - daysAgo * 86_400_000).toISOString();
+      return { id, name: "Build", status: "completed", conclusion, run_attempt: 1, head_branch: "main", created_at: created, run_started_at: created, updated_at: new Date(Date.parse(created) + 300_000).toISOString() };
+    };
+    const fullPage = Array.from({ length: 100 }, (_, index) => run(index + 1, index % 4 === 0 ? "failure" : "success", 1));
+    const client = new FakeClient([{ workflow_runs: fullPage }, { workflow_runs: [run(500, "success", 45), run(501, "skipped", 2)] }]);
+    const result = await new GitHubService(provider(repository), client, () => now).getWorkflowAnalytics({ repoPath: "D:\\Repo", range: "d30" });
+
+    expect(client.calls).toHaveLength(2);
+    const url = new URL(`https://api.github.com${client.calls[0]!.path}`);
+    expect(url.pathname).toBe("/repos/openai/githead/actions/runs");
+    expect(Object.fromEntries(url.searchParams)).toMatchObject({ per_page: "100", page: "1", exclude_pull_requests: "true" });
+    expect(url.searchParams.get("created")).toMatch(/^>=\d{4}-\d{2}-\d{2}$/);
+    expect(new URL(`https://api.github.com${client.calls[1]!.path}`).searchParams.get("page")).toBe("2");
+    expect(result).toMatchObject({ ok: true, data: { passed: 75, failed: 25, successRate: 0.75, previousSuccessRate: 1, sampled: false } });
+  });
+
   it("discovers default and named PR templates on the default branch in GitHub precedence order", async () => {
     const file = (path: string) => ({ type: "file", name: path.split("/").at(-1), path });
     const content = (body: string) => ({ encoding: "base64", content: Buffer.from(body).toString("base64") });

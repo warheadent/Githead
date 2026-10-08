@@ -17,6 +17,9 @@ import type {
   RepositoryAiSettingsSaveRequest,
   RepositorySyncSettingsRequest,
   RepositorySyncSettingsSaveRequest,
+  RepositoryAnalyticsRequest,
+  RepositoryAnalyticsSettings,
+  GitHubWorkflowAnalyticsRequest,
   GetAiReasoningCapabilitiesRequest,
   AppSettingsSaveRequest,
   AppSettings,
@@ -173,6 +176,8 @@ import { PrDescriptionService } from "./prDescriptionService";
 import { getOpenRepositoryFileError } from "./openFilePolicy";
 import { RepoRecentsService } from "./repoRecentsService";
 import { RepositorySyncSettingsService } from "./repositorySyncSettingsService";
+import { RepositoryAnalyticsService } from "./repositoryAnalyticsService";
+import { RepositoryAnalyticsSettingsService } from "./repositoryAnalyticsSettingsService";
 import { RepoTrustService } from "./repoTrustService";
 import { RepoWatchService, type RepoWatchTarget } from "./repoWatchService";
 import { isAllowedRendererNavigation } from "./rendererNavigation";
@@ -226,6 +231,8 @@ const readRequestOwners = new Set<number>();
 const repositoryOperationOwnerSessions = new WeakMap<Electron.WebContents, Set<string>>();
 let repoRecentsService: RepoRecentsService | null = null;
 let repositorySyncSettingsService: RepositorySyncSettingsService | null = null;
+let repositoryAnalyticsSettingsService: RepositoryAnalyticsSettingsService | null = null;
+let repositoryAnalyticsService: RepositoryAnalyticsService | null = null;
 let repoTrustService: RepoTrustService | null = null;
 let repoWatchService: RepoWatchService | null = null;
 let appUpdateService: AppUpdateService | null = null;
@@ -684,6 +691,8 @@ ipcMain.handle(IPC_CHANNELS.getGitHubIssueDetail, (event, request: GitHubIssueDe
   handleGitHubRead(event, request, (signal) => getGitHubService().getIssueDetail(request, signal)));
 ipcMain.handle(IPC_CHANNELS.getGitHubHistoryInsights, (event, request: GitHubHistoryInsightsRequest) =>
   handleGitHubRead(event, request, (signal) => getGitHubService().getHistoryInsights(request, signal)));
+ipcMain.handle(IPC_CHANNELS.getGitHubWorkflowAnalytics, (event, request: GitHubWorkflowAnalyticsRequest) =>
+  handleGitHubRead(event, request, (signal) => getGitHubService().getWorkflowAnalytics(request, signal)));
 
 ipcMain.handle(IPC_CHANNELS.createGitHubPullRequest, (event, request: CoordinatedRequest<CreatePullRequestRequest>) =>
   handleGitHubMutation(event, request, (signal) => getGitHubService().createPullRequest(request, signal)));
@@ -726,6 +735,22 @@ ipcMain.handle(IPC_CHANNELS.getFileBlame, (event, request: GitFileBlameRequest) 
   handleRead(event, request, async (signal) =>
     processRunner.runWithSignal(signal, async () =>
       (await vcsRouter.serviceForRepo(request.repoPath)).getFileBlame(request))));
+
+ipcMain.handle(IPC_CHANNELS.getRepositoryAnalytics, (event, request: RepositoryAnalyticsRequest) =>
+  handleRead(event, request, async (signal) =>
+    processRunner.runWithSignal(signal, async () => {
+      await assertTrustedRepo(request.repoPath);
+      if (await vcsRouter.resolveKind(request.repoPath) !== "git") throw new Error("Analytics is available for Git repositories.");
+      const settings = await getRepositoryAnalyticsSettingsService().getSettings(request.repoPath);
+      const requestId = request.requestId;
+      return getRepositoryAnalyticsService().getAnalytics({
+        repoPath: request.repoPath,
+        excludePaths: request.excludePaths === true,
+        excludedPathPatterns: settings.excludedPaths
+      }, (progress) => {
+        if (requestId && !event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.repositoryAnalyticsProgress, { requestId, ...progress });
+      });
+    })));
 
 ipcMain.handle(IPC_CHANNELS.getFileDiff, (event, request: GitFileDiffRequest) =>
   handleRead(event, request, async (signal) =>
@@ -1238,6 +1263,14 @@ ipcMain.handle(IPC_CHANNELS.getRepositorySyncSettings, async (_event, request: R
 
 ipcMain.handle(IPC_CHANNELS.saveRepositorySyncSettings, async (_event, request: RepositorySyncSettingsSaveRequest) => {
   return getRepositorySyncSettingsService().saveSettings(request);
+});
+
+ipcMain.handle(IPC_CHANNELS.getRepositoryAnalyticsSettings, async (_event, request: RepositorySyncSettingsRequest) => {
+  return getRepositoryAnalyticsSettingsService().getSettings(request.repoPath);
+});
+
+ipcMain.handle(IPC_CHANNELS.saveRepositoryAnalyticsSettings, async (_event, request: RepositoryAnalyticsSettings) => {
+  return getRepositoryAnalyticsSettingsService().saveSettings(request);
 });
 
 ipcMain.handle(IPC_CHANNELS.checkoutRemoteBranch, async (event, request: CoordinatedRequest<GitRemoteBranchCheckoutRequest>) => {
@@ -2114,6 +2147,16 @@ function remoteCheckLeaseDurationMs(settings: AppSettings): number {
 function getRepositorySyncSettingsService(): RepositorySyncSettingsService {
   repositorySyncSettingsService ??= new RepositorySyncSettingsService(app.getPath("userData"));
   return repositorySyncSettingsService;
+}
+
+function getRepositoryAnalyticsSettingsService(): RepositoryAnalyticsSettingsService {
+  repositoryAnalyticsSettingsService ??= new RepositoryAnalyticsSettingsService(app.getPath("userData"));
+  return repositoryAnalyticsSettingsService;
+}
+
+function getRepositoryAnalyticsService(): RepositoryAnalyticsService {
+  repositoryAnalyticsService ??= new RepositoryAnalyticsService(processRunner, { cacheDirectory: path.join(app.getPath("userData"), "analytics-cache") });
+  return repositoryAnalyticsService;
 }
 
 function getGitIdentityService(): GitIdentityService {

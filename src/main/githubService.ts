@@ -35,6 +35,8 @@ import type {
   GitHubWorkflowRunMutationResult,
   GitHubWorkflowRunRequest,
   GitHubWorkflowRunsRequest,
+  GitHubWorkflowAnalytics,
+  GitHubWorkflowAnalyticsRequest,
   GitHubViewer
 } from "../shared/types";
 import { GitHubHttpError, GitHubResponseBodyError, type GitHubApiClient } from "./githubClient";
@@ -42,8 +44,12 @@ import { reportGitHubFailure } from "./githubOperationReporter";
 import { emptyGitHubIssueTemplates, parseGitHubIssueTemplate, parseGitHubIssueTemplateConfig } from "./githubIssueTemplates";
 import { buildIssueSearchPath, buildPullRequestSearchPath, buildWorkflowRunsPath, hasIssueSearchFilters, hasPullRequestSearchFilters } from "./githubQuery";
 import { runEffect, tryPromise } from "../shared/effectRuntime";
+import { buildWorkflowAnalytics, workflowAnalyticsWindow } from "./githubWorkflowAnalytics";
 
 const WORKFLOW_RUN_LIMIT = 30;
+const WORKFLOW_ANALYTICS_PAGE_SIZE = 100;
+/** Caps API use for analytics at ten requests per refresh. */
+const WORKFLOW_ANALYTICS_MAX_PAGES = 10;
 const ISSUE_LIMIT = 50;
 const PULL_REQUEST_LIMIT = 50;
 const OBSERVED_COUNT_MAX_AGE_MS = 30_000;
@@ -184,6 +190,9 @@ export class GitHubService {
 
   async getWorkflowRuns(request: GitHubWorkflowRunsRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubPage<GitHubWorkflowRun>>> {
     return this.read(() => this.getWorkflowRunsData(request, signal));
+  }
+  async getWorkflowAnalytics(request: GitHubWorkflowAnalyticsRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubWorkflowAnalytics>> {
+    return this.read(() => this.getWorkflowAnalyticsData(request, signal));
   }
   async getWorkflowRunDetail(request: GitHubWorkflowRunRequest, signal?: AbortSignal): Promise<GitHubOperationResult<GitHubWorkflowRunDetail>> {
     return this.read(() => this.getWorkflowRunDetailData(request, signal));
@@ -336,6 +345,37 @@ export class GitHubService {
       return mapped ? [mapped] : [];
     });
     return { items, page, nextPage: getNextPage(headers, page, rawItems.length, WORKFLOW_RUN_LIMIT), totalCount: Number.isFinite(response.total_count) ? Number(response.total_count) : null };
+  }
+
+  /** Reads runs created since the start of the previous window, newest first, up to the page cap. */
+  private async getWorkflowAnalyticsData(request: GitHubWorkflowAnalyticsRequest, signal?: AbortSignal): Promise<GitHubWorkflowAnalytics> {
+    const range = request.range === "d90" ? "d90" : "d30";
+    const repository = await this.getRepository(request.repoPath);
+    const now = Math.floor(this.now() / 1000);
+    const { previousFrom } = workflowAnalyticsWindow(range, now);
+    const runs: GitHubWorkflowRun[] = [];
+    let sampled = false;
+    for (let page = 1; page <= WORKFLOW_ANALYTICS_MAX_PAGES; page += 1) {
+      const params = new URLSearchParams({
+        per_page: String(WORKFLOW_ANALYTICS_PAGE_SIZE),
+        page: String(page),
+        created: `>=${new Date(previousFrom * 1000).toISOString().slice(0, 10)}`,
+        exclude_pull_requests: "true"
+      });
+      const { payload } = await this.client.requestJson<GitHubApiWorkflowRunsResponse>(
+        repository,
+        `/repos/${encodePath(repository.owner)}/${encodePath(repository.name)}/actions/runs?${params}`,
+        { cache: { mode: "conditional" }, ...(signal ? { signal } : {}) }
+      );
+      const rawItems = payload.workflow_runs ?? [];
+      for (const run of rawItems) {
+        const mapped = mapWorkflowRun(run, repository);
+        if (mapped) runs.push(mapped);
+      }
+      if (rawItems.length < WORKFLOW_ANALYTICS_PAGE_SIZE) break;
+      if (page === WORKFLOW_ANALYTICS_MAX_PAGES) sampled = true;
+    }
+    return buildWorkflowAnalytics(runs, range, now, sampled);
   }
 
   private async getWorkflowRunDetailData(request: GitHubWorkflowRunRequest, signal?: AbortSignal): Promise<GitHubWorkflowRunDetail> {

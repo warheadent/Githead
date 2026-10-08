@@ -27,6 +27,7 @@ import {
   GripVertical,
   History,
   ListTree,
+  ChartColumnBig,
   List,
   Loader2,
   MapPinned,
@@ -300,6 +301,7 @@ const PerformanceDiagnosticsDialog = lazy(() => import("./PerformanceDiagnostics
 })));
 import { StashComposerDialog, type StashCreateDraft } from "./StashComposerDialog";
 import { StashesView } from "./StashesView";
+import { AnalyticsView } from "./AnalyticsView";
 import { StartupScreen } from "./StartupScreen";
 import { attachCommitGraphHover } from "./commitGraphHover";
 import { VisualEffectsProvider, defaultVisualPreferences, useVisualEffects } from "./VisualEffects";
@@ -6135,6 +6137,9 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     if (view === "stashes" && !stateRef.current.summary?.capabilities.stashes) {
       return;
     }
+    if (view === "analytics" && !stateRef.current.summary?.capabilities.analytics) {
+      return;
+    }
 
     activityLogStore.setViewing(view === "activity");
     updateState({
@@ -6169,6 +6174,18 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     if (view === "pullRequests") void github.ensure("pullRequests");
     if (view === "issues") void github.ensure("issues");
   }, [activityLogStore, github.ensure, loadCommitDetails, loadCommitHistory, loadFileBlame, loadFileHistory, refreshDirtyFileStatus, stashWorkspace.refresh, updateState]);
+
+  const openAnalyticsFileHistory = useCallback((path: string, headHash: string): void => {
+    if (!stateRef.current.summary?.capabilities.fileHistory) return;
+    void loadFileHistory({ hash: headHash, path, status: "M" });
+  }, [loadFileHistory]);
+
+  const openWorkflowRunsForBranch = useCallback((branch: string): void => {
+    setWorkflowSearch("");
+    setWorkflowPreset("custom");
+    setWorkflowQuery({ ...DEFAULT_WORKFLOW_QUERY, branch });
+    setWorkspaceView("workflows");
+  }, [setWorkspaceView]);
 
   const restoreWorkspaceLocation = useCallback((location: WorkspaceLocation): void => {
     const previous = stateRef.current;
@@ -7229,6 +7246,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     ? { kind: "active", token: cloneCancellation.token, operationId: cloneCancellation.operationId }
     : null;
   const showGitHubTabs = Boolean(state.summary?.githubRepository);
+  const showAnalyticsTab = Boolean(state.summary?.isValid && state.summary.capabilities.analytics);
   const showStashesTab = Boolean(
     state.summary?.capabilities.stashes && (stashWorkspace.state.entries.length > 0 || state.activeView === "stashes")
   );
@@ -7586,6 +7604,12 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                     <History />
                     Commit History
                   </TabsTrigger>
+                  {showAnalyticsTab ? (
+                    <TabsTrigger value="analytics" className="workspace-tab-trigger h-9 rounded-none">
+                      <ChartColumnBig />
+                      Analytics
+                    </TabsTrigger>
+                  ) : null}
                   {showGitHubTabs ? (
                     <>
                       <TabsTrigger value="workflows" className="workspace-tab-trigger h-9 rounded-none">
@@ -7829,6 +7853,34 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                   onWrapLinesChange={setWrapDiffLines}
                 />}
               </PersistentWorkspaceTabsContent>
+
+              {showAnalyticsTab ? (
+                <PersistentWorkspaceTabsContent panelKey="analytics" active={state.activeView === "analytics"} preserveMount value="analytics" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
+                  <OptionalFeatureBoundary name="analytics">
+                    <AnalyticsView
+                      active={state.activeView === "analytics"}
+                      repoPath={state.repoPath}
+                      enabled={showAnalyticsTab}
+                      githubAvailable={showGitHubTabs}
+                      canOpenFileHistory={Boolean(state.summary?.capabilities.fileHistory)}
+                      onOpenFileHistory={openAnalyticsFileHistory}
+                      onOpenBranchManager={openBranchManager}
+                      onOpenWorkflowRuns={openWorkflowRunsForBranch}
+                      renderGitHubFailure={(failure, retry) => (
+                        <GitHubFailureState
+                          failure={failure}
+                          fallback={failure.message}
+                          stale={false}
+                          onRetry={retry}
+                          onConnect={() => openSettingsDialog("integrations")}
+                          onReviewAccess={() => { void window.githead.openExternalUrl({ url: GITHUB_APP_INSTALL_URL }); }}
+                          onCheckRemote={openRemoteManager}
+                        />
+                      )}
+                    />
+                  </OptionalFeatureBoundary>
+                </PersistentWorkspaceTabsContent>
+              ) : null}
 
               {showGitHubTabs ? (
                 <>
@@ -14928,6 +14980,12 @@ function reconcileGitHubUiState(state: AppState, previousSummary: RepoSummary | 
   let next = previousGitHubKey === nextGitHubKey ? state : resetGitHubUiState(state);
 
   if (!nextGitHubKey && isGitHubView(next.activeView)) {
+    next = {
+      ...next,
+      activeView: "status"
+    };
+  }
+  if (next.activeView === "analytics" && state.summary && !state.summary.capabilities.analytics) {
     next = {
       ...next,
       activeView: "status"

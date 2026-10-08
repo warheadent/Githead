@@ -27,6 +27,12 @@ export interface ProcessRunOptions {
   signal?: AbortSignal;
   onOutput?: (output: ProcessOutput) => void;
   stdoutFilePath?: string;
+  /**
+   * Deliver stdout only through `onOutput`. The result's stdout is empty and
+   * `maxOutputBytes` does not apply to stdout, so callers can parse output of
+   * any size incrementally without buffering it.
+   */
+  streamStdout?: boolean;
   maxOutputBytes?: number;
   outputMode?: ProcessOutputMode;
   truncatedMarker?: string;
@@ -306,13 +312,14 @@ export class NodeProcessRunner implements ProcessRunner {
     }
     return new Promise<ProcessResult | BinaryProcessResult>((resolve) => {
       const stdout: Buffer[] = [];
+      const retainStdout = options.stdoutFilePath === undefined && !options.streamStdout;
       const stdoutText = binary
         ? undefined
         : new BoundedTextOutput(
-          options.stdoutFilePath === undefined ? textOutputLimit : undefined,
+          retainStdout ? textOutputLimit : undefined,
           outputMode,
           truncatedMarker,
-          options.stdoutFilePath === undefined
+          retainStdout
         );
       const stderrText = new BoundedTextOutput(textOutputLimit, outputMode, truncatedMarker);
       let stdoutLength = 0;

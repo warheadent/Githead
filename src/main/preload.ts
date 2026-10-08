@@ -8,6 +8,10 @@ import type {
   RepositoryAiSettingsSaveRequest,
   RepositorySyncSettingsRequest,
   RepositorySyncSettingsSaveRequest,
+  RepositoryAnalyticsProgress,
+  RepositoryAnalyticsRequest,
+  RepositoryAnalyticsSettings,
+  GitHubWorkflowAnalyticsRequest,
   GetAiReasoningCapabilitiesRequest,
   AppSettingsSaveRequest,
   ClipboardTextRequest,
@@ -231,6 +235,10 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getFileHistory, request) as ReturnType<GitheadApi["getFileHistory"]>,
   getFileBlame: (request: GitFileBlameRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getFileBlame, request) as ReturnType<GitheadApi["getFileBlame"]>,
+  getRepositoryAnalytics: (request: RepositoryAnalyticsRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getRepositoryAnalytics, request) as ReturnType<GitheadApi["getRepositoryAnalytics"]>,
+  getGitHubWorkflowAnalytics: (request: GitHubWorkflowAnalyticsRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getGitHubWorkflowAnalytics, request) as ReturnType<GitheadApi["getGitHubWorkflowAnalytics"]>,
   getFileDiff: (request: GitFileDiffRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getFileDiff, request) as ReturnType<GitheadApi["getFileDiff"]>,
   getStashes: (request: GitStashListRequest) =>
@@ -365,6 +373,10 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getRepositorySyncSettings, request) as ReturnType<GitheadApi["getRepositorySyncSettings"]>,
   saveRepositorySyncSettings: (request: RepositorySyncSettingsSaveRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.saveRepositorySyncSettings, request) as ReturnType<GitheadApi["saveRepositorySyncSettings"]>,
+  getRepositoryAnalyticsSettings: (request: RepositorySyncSettingsRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getRepositoryAnalyticsSettings, request) as ReturnType<GitheadApi["getRepositoryAnalyticsSettings"]>,
+  saveRepositoryAnalyticsSettings: (request: RepositoryAnalyticsSettings) =>
+    ipcRenderer.invoke(IPC_CHANNELS.saveRepositoryAnalyticsSettings, request) as ReturnType<GitheadApi["saveRepositoryAnalyticsSettings"]>,
   getAiReasoningCapabilities: (request: GetAiReasoningCapabilitiesRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getAiReasoningCapabilities, request) as ReturnType<GitheadApi["getAiReasoningCapabilities"]>,
   getAppSettings: () =>
@@ -464,6 +476,17 @@ const api: GitheadApi = {
 
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.repoChanged, listener);
+    };
+  },
+  onRepositoryAnalyticsProgress: (callback: (event: RepositoryAnalyticsProgress) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, progress: RepositoryAnalyticsProgress) => {
+      callback(progress);
+    };
+
+    ipcRenderer.on(IPC_CHANNELS.repositoryAnalyticsProgress, listener);
+
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.repositoryAnalyticsProgress, listener);
     };
   },
   onUpdateState: (callback: (state: AppUpdateState) => void) => {

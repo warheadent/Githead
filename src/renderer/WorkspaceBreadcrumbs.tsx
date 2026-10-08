@@ -7,6 +7,7 @@ const viewLabels: Record<WorkspaceView, string> = {
   status: "File Status",
   stashes: "Stashes",
   history: "Commit History",
+  analytics: "Analytics",
   workflows: "Workflows",
   pullRequests: "Pull Requests",
   issues: "Issues",

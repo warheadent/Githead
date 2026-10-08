@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import type { HistoryRoute, HistoricalFileTarget } from "./historyNavigation";
 import { getRepoPathKey } from "./repositorySnapshotCache";
 
-export type WorkspaceView = "status" | "stashes" | "history" | "workflows" | "pullRequests" | "issues" | "activity";
+export type WorkspaceView = "status" | "stashes" | "history" | "analytics" | "workflows" | "pullRequests" | "issues" | "activity";
 
 export interface WorkspaceLocation {
   repoPath: string;
