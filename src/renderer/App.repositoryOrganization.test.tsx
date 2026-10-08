@@ -51,6 +51,7 @@ describe("Repository organization", { timeout: 10_000 }, () => {
         .getByRole("button", { name: "Tools, 1 repositories" })
         .getAttribute("aria-expanded"),
     ).toBe("false");
+    await user.click(repositories().getByRole("button", { name: "Search repositories" }));
     await user.type(
       repositories().getByRole("searchbox", { name: "Search repositories" }),
       "builder",
@@ -121,10 +122,10 @@ describe("Repository organization", { timeout: 10_000 }, () => {
     );
     render(<App />);
     await waitForRepositoryWorkspace();
-    await userEvent.setup().type(repositories().getByRole("searchbox"), "archive");
-    await userEvent
-      .setup()
-      .click(repositories().getByRole("button", { name: `Switch to ${third}` }));
+    const user = userEvent.setup();
+    await user.click(repositories().getByRole("button", { name: "Search repositories" }));
+    await user.type(repositories().getByRole("searchbox"), "archive");
+    await user.click(repositories().getByRole("button", { name: `Switch to ${third}` }));
     await waitFor(() => expect(githead.addRepoRecent).toHaveBeenCalledWith({ repoPath: third }));
     expect(githead.removeRepoRecent).not.toHaveBeenCalled();
   });

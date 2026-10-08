@@ -9019,6 +9019,7 @@ function RepositoryList({
   const [dropTarget, setDropTarget] = useState<{ repoPath: string; position: RepositoryDropPosition } | null>(null);
   const { organization, update: updateOrganization, saveError } = useRepositoryOrganization();
   const [query, setQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
   const [organizerQuery, setOrganizerQuery] = useState<string | null>(null);
   const [renamePath, setRenamePath] = useState<string | null>(null);
@@ -9225,14 +9226,15 @@ function RepositoryList({
       <div className="repo-recents-heading">
         <p className="repo-recents-label">Repositories</p>
         <div className="flex items-center gap-1">
+          <TooltipButton type="button" variant="ghost" size="icon-sm" aria-label="Search repositories" tooltip="Search repositories" aria-expanded={searchOpen || Boolean(query)} onMouseDown={(event) => event.preventDefault()} onClick={() => { if (searchOpen || query) { setQuery(""); setSearchOpen(false); } else { setSearchOpen(true); } }}><Search /></TooltipButton>
           <TooltipButton type="button" variant="ghost" size="icon-sm" aria-label="Organize repositories" tooltip="Organize repositories" onClick={() => setOrganizerQuery("")}><SlidersHorizontal /></TooltipButton>
           {headingAction}
         </div>
       </div>
-      <div className="repository-search">
+      {searchOpen || query ? <div className="repository-search">
         <Search aria-hidden="true" />
-        <Input type="search" aria-label="Search repositories" placeholder="Search repositories…" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); setQuery(""); } }} />
-      </div>
+        <Input type="search" autoFocus aria-label="Search repositories" placeholder="Search repositories…" value={query} onChange={(event) => setQuery(event.target.value)} onBlur={() => { if (!query) setSearchOpen(false); }} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); setQuery(""); setSearchOpen(false); } }} />
+      </div> : null}
       {saveError ? <p role="alert" className="text-xs text-destructive">{saveError}</p> : null}
       <div
         className="repo-recents-list"
