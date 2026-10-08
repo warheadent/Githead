@@ -24,13 +24,14 @@ import {
 import type { ProcessRunner } from "./processRunner";
 import { getRepoPathKey } from "./repoPath";
 import { buildRepositoryAnalytics, type TreeSummary } from "./repositoryAnalytics";
+import { startOfLocalDay } from "./analyticsTime";
 
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
 
 export const DEFAULT_ANALYTICS_MAX_COMMITS = 50_000;
 export const DEFAULT_ANALYTICS_MAX_FILE_CHANGES = 1_500_000;
-const CACHE_FORMAT_VERSION = 1;
+const CACHE_FORMAT_VERSION = 2;
 const MEMORY_CACHE_ENTRIES = 3;
 const DISK_CACHE_ENTRIES = 20;
 const BRANCH_LIMIT = 200;
@@ -66,6 +67,14 @@ export interface RepositoryAnalyticsQuery {
   repoPath: string;
   excludePaths: boolean;
   excludedPathPatterns: string[];
+  knownInputKey?: string;
+}
+
+interface CachedAnalytics {
+  historyKey: string;
+  branchesKey: string;
+  tagsKey: string;
+  data: RepositoryAnalytics;
 }
 
 /**
@@ -76,6 +85,7 @@ export interface RepositoryAnalyticsQuery {
 export class RepositoryAnalyticsService {
   private readonly histories = new Map<string, AnalyticsHistory>();
   private readonly trees = new Map<string, { head: string; summary: TreeSummary }>();
+  private readonly results = new Map<string, CachedAnalytics>();
   private readonly now: () => number;
   private readonly maxCommits: number;
   private readonly maxFileChanges: number;
@@ -86,31 +96,87 @@ export class RepositoryAnalyticsService {
     this.maxFileChanges = options.maxFileChanges ?? DEFAULT_ANALYTICS_MAX_FILE_CHANGES;
   }
 
-  async getAnalytics(query: RepositoryAnalyticsQuery, onProgress?: AnalyticsProgressReporter): Promise<RepositoryAnalytics> {
+  getAnalytics(query: RepositoryAnalyticsQuery & { knownInputKey?: undefined }, onProgress?: AnalyticsProgressReporter): Promise<RepositoryAnalytics>;
+  getAnalytics(query: RepositoryAnalyticsQuery, onProgress?: AnalyticsProgressReporter): Promise<RepositoryAnalytics | null>;
+  async getAnalytics(query: RepositoryAnalyticsQuery, onProgress?: AnalyticsProgressReporter): Promise<RepositoryAnalytics | null> {
     const { repoPath } = query;
     await this.assertRepository(repoPath);
     const [head, branch] = await Promise.all([this.readHead(repoPath), this.readCurrentBranch(repoPath)]);
     const history = head ? await this.loadHistory(repoPath, head, onProgress) : null;
-    onProgress?.({ phase: "assets", processedCommits: history?.commits.length ?? 0, totalCommits: history?.commits.length ?? 0 });
-    const tree = head ? await this.loadTree(repoPath, head) : emptyTree();
-    onProgress?.({ phase: "branches", processedCommits: history?.commits.length ?? 0, totalCommits: history?.commits.length ?? 0 });
-    const [packedBytes, tags, branches] = await Promise.all([
+    const [packedBytes, refs, base, identities] = await Promise.all([
       this.readPackedBytes(repoPath),
-      this.readTags(repoPath),
-      head ? this.readBranches(repoPath, branch) : Promise.resolve<AnalyticsBranches>({ base: null, branches: [], truncated: false })
+      this.readRefs(repoPath),
+      this.resolveDriftBase(repoPath, branch),
+      this.mapIdentities(repoPath, history?.identities ?? [])
     ]);
-    return buildRepositoryAnalytics({
+    const now = Math.floor(this.now() / 1000);
+    const historyKey = inputKey([head, identities, query.excludePaths, query.excludedPathPatterns, startOfLocalDay(now)]);
+    const branchesKey = inputKey([branch, base, refs.branches]);
+    const tagsKey = inputKey(refs.tags);
+    const repoKey = getRepoPathKey(repoPath);
+    const key = inputKey([repoKey, historyKey, branchesKey, tagsKey, packedBytes]);
+    if (query.knownInputKey === key) return null;
+
+    const cached = this.results.get(repoKey);
+    if (cached?.data.inputKey === key) return cached.data;
+    const report = (phase: "assets" | "branches") => onProgress?.({ phase, processedCommits: history?.commits.length ?? 0, totalCommits: history?.commits.length ?? 0 });
+    const rebuildHistory = cached?.historyKey !== historyKey;
+    if (rebuildHistory) report("assets");
+    const tree = rebuildHistory ? (head ? await this.loadTree(repoPath, head) : emptyTree()) : null;
+    if (cached?.branchesKey !== branchesKey) report("branches");
+    const [tags, branches] = await Promise.all([
+      cached?.tagsKey === tagsKey ? cached.data.tags : this.readTags(repoPath),
+      cached?.branchesKey === branchesKey ? cached.data.branches
+        : head ? this.readBranches(repoPath, branch, base) : { base: null, branches: [], truncated: false }
+    ]);
+    const data = tree ? buildRepositoryAnalytics({
+      inputKey: key,
       repoPath,
       headHash: head,
       branch,
-      now: Math.floor(this.now() / 1000),
-      history,
+      now,
+      history: history ? { ...history, identities } : null,
       excludePaths: query.excludePaths,
       excludedPathPatterns: query.excludedPathPatterns,
       tree,
       packedBytes,
       branches,
       tags
+    }) : {
+      ...cached!.data,
+      inputKey: key,
+      branch,
+      tags,
+      branches,
+      assets: { ...cached!.data.assets, packedBytes }
+    };
+    this.results.delete(repoKey);
+    this.results.set(repoKey, { historyKey, branchesKey, tagsKey, data });
+    while (this.results.size > MEMORY_CACHE_ENTRIES) this.results.delete(this.results.keys().next().value!);
+    return data;
+  }
+
+  private async readRefs(repoPath: string): Promise<{ branches: string[]; tags: string[] }> {
+    const result = await this.git(repoPath, ["for-each-ref", "--sort=refname", "--format=%(refname)%00%(objectname)%00%(symref)", "refs/heads", "refs/remotes", "refs/tags"]);
+    if (result.exitCode !== 0) throw new Error(result.stderr.trim() || "Unable to read analytics refs.");
+    const rows = result.stdout.split("\n").filter(Boolean);
+    return { branches: rows.filter((row) => !row.startsWith("refs/tags/")), tags: rows.filter((row) => row.startsWith("refs/tags/")) };
+  }
+
+  private async mapIdentities(repoPath: string, identities: AnalyticsHistory["identities"]): Promise<AnalyticsHistory["identities"]> {
+    if (!identities.length) return [];
+    const result = await this.runner.run("git", ["-C", repoPath, "check-mailmap", "--stdin"], {
+      env: analyticsGitEnv(),
+      timeoutMs: 60_000,
+      stdin: identities.map(({ name, email }) => `${name.replace(/[\r\n]/g, " ")} <${email.replace(/[\r\n]/g, " ")}>\n`).join("")
+    });
+    if (result.exitCode !== 0) throw new Error(result.stderr.trim() || "Unable to read author mappings.");
+    const rows = result.stdout.trimEnd().split("\n");
+    if (rows.length !== identities.length) throw new Error("Incomplete author mappings.");
+    return rows.map((row) => {
+      const match = /^(?:(.*) )?<([^<>]*)>$/.exec(row);
+      if (!match) throw new Error("Invalid author mapping.");
+      return { name: match[1] ?? "", email: match[2]! };
     });
   }
 
@@ -268,8 +334,7 @@ export class RepositoryAnalyticsService {
     };
   }
 
-  private async readBranches(repoPath: string, currentBranch: string | null): Promise<AnalyticsBranches> {
-    const base = await this.resolveDriftBase(repoPath, currentBranch);
+  private async readBranches(repoPath: string, currentBranch: string | null, base: string | null): Promise<AnalyticsBranches> {
     const fields = ["%(refname)", "%(refname:short)", "%(committerdate:unix)", "%(symref)"];
     const run = (withDrift: boolean) => this.git(repoPath, [
       "for-each-ref",
@@ -486,4 +551,8 @@ export function fileExtension(filePath: string): string {
 
 function emptyTree(): TreeSummary {
   return { files: 0, lfsFiles: 0, lfsBytes: 0, gitBytes: 0, types: [], otherTypes: null, binaryTypesOutsideLfs: [], largeFilesOutsideLfs: [], largeFilesOutsideLfsCount: 0 };
+}
+
+function inputKey(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }

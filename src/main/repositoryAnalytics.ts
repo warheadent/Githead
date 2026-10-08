@@ -55,6 +55,7 @@ export interface TreeSummary {
 }
 
 export interface BuildRepositoryAnalyticsInput {
+  inputKey: string;
   repoPath: string;
   headHash: string | null;
   branch: string | null;
@@ -88,6 +89,7 @@ export function buildRepositoryAnalytics(input: BuildRepositoryAnalyticsInput): 
   };
 
   return {
+    inputKey: input.inputKey,
     repoPath: input.repoPath,
     headHash: input.headHash,
     branch: input.branch,

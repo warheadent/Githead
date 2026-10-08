@@ -62,7 +62,8 @@ export interface ParsedCommit {
   changes: ParsedFileChange[];
 }
 
-export const ANALYTICS_LOG_FORMAT = `${RECORD_SEPARATOR}%H${FIELD_SEPARATOR}%P${FIELD_SEPARATOR}%aN${FIELD_SEPARATOR}%aE${FIELD_SEPARATOR}%aI`;
+// Cache raw identities so a changed mailmap does not require rereading history.
+export const ANALYTICS_LOG_FORMAT = `${RECORD_SEPARATOR}%H${FIELD_SEPARATOR}%P${FIELD_SEPARATOR}%an${FIELD_SEPARATOR}%ae${FIELD_SEPARATOR}%aI`;
 
 /** Parses `git log -z --raw --numstat --no-renames` output incrementally. */
 export class GitAnalyticsLogParser {

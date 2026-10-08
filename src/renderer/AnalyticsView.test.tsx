@@ -41,6 +41,7 @@ function range(overrides: Partial<AnalyticsRange> = {}): AnalyticsRange {
 
 function analytics(overrides: Partial<RepositoryAnalytics> = {}): RepositoryAnalytics {
   return {
+    inputKey: "initial-inputs",
     repoPath,
     headHash: "a".repeat(40),
     branch: "main",
@@ -187,11 +188,105 @@ describe("AnalyticsView", () => {
     }
   });
 
+  it("keeps charts settled while unchanged metadata is checked, including events during a check", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let finish: (value: RepositoryAnalytics | null) => void = () => undefined;
+    try {
+      vi.mocked(githead.getRepositoryAnalytics).mockResolvedValueOnce(analytics()).mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+      renderView();
+      await screen.findByRole("heading", { name: "Commit activity" });
+      act(() => emitRepoChanged({ reason: "filesystem-metadata" }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+      expect(githead.getRepositoryAnalytics).toHaveBeenLastCalledWith(expect.objectContaining({ knownInputKey: "initial-inputs" }));
+      expect(screen.queryByText("Refreshing")).toBeNull();
+      act(() => emitRepoChanged({ reason: "filesystem-metadata" }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+      expect(githead.getRepositoryAnalytics).toHaveBeenCalledTimes(2);
+      await act(async () => finish(null));
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+      expect(githead.getRepositoryAnalytics).toHaveBeenCalledTimes(3);
+      expect(screen.queryByText("Refreshing")).toBeNull();
+      await act(async () => finish(null));
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+      expect(githead.getRepositoryAnalytics).toHaveBeenCalledTimes(3);
+      expect(screen.getByRole("heading", { name: "Commit activity" })).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows progress only when a background check finds changed inputs", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let finish: (value: RepositoryAnalytics | null) => void = () => undefined;
+    let progress: Parameters<typeof githead.onRepositoryAnalyticsProgress>[0] = () => undefined;
+    vi.mocked(githead.onRepositoryAnalyticsProgress).mockImplementation((callback) => { progress = callback; return () => undefined; });
+    try {
+      vi.mocked(githead.getRepositoryAnalytics).mockResolvedValueOnce(analytics()).mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+      renderView();
+      await screen.findByRole("heading", { name: "Commit activity" });
+      act(() => emitRepoChanged({ reason: "filesystem-metadata" }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+      expect(screen.queryByText("Refreshing")).toBeNull();
+      const request = vi.mocked(githead.getRepositoryAnalytics).mock.calls.at(-1)![0];
+      act(() => progress({ requestId: request.requestId!, phase: "branches", processedCommits: 120, totalCommits: 120 }));
+      expect(screen.getByText("Refreshing")).not.toBeNull();
+      await act(async () => finish(analytics({ inputKey: "new-inputs", branch: "feature" })));
+      expect(screen.getByText(/commits analyzed on feature/)).not.toBeNull();
+      expect(screen.queryByText("Refreshing")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not load while inactive", async () => {
     vi.mocked(githead.getRepositoryAnalytics).mockResolvedValue(analytics());
     renderView({ active: false });
     await act(async () => { await Promise.resolve(); });
     expect(githead.getRepositoryAnalytics).not.toHaveBeenCalled();
+  });
+
+  it("rechecks on focus and local day rollover without showing refresh progress", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(2026, 9, 8, 23, 59, 50));
+    try {
+      vi.mocked(githead.getRepositoryAnalytics).mockResolvedValueOnce(analytics()).mockResolvedValue(null);
+      renderView();
+      await screen.findByRole("heading", { name: "Commit activity" });
+      act(() => window.dispatchEvent(new Event("focus")));
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+      expect(githead.getRepositoryAnalytics).toHaveBeenCalledTimes(2);
+      await act(async () => { await vi.advanceTimersByTimeAsync(9_000); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+      expect(githead.getRepositoryAnalytics).toHaveBeenCalledTimes(3);
+      expect(screen.queryByText("Refreshing")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels a background check on repository switch and ignores its late result", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let finish: (value: RepositoryAnalytics | null) => void = () => undefined;
+    const nextRepo = `${repoPath}-other`;
+    try {
+      vi.mocked(githead.getRepositoryAnalytics)
+        .mockResolvedValueOnce(analytics())
+        .mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }))
+        .mockResolvedValue(analytics({ repoPath: nextRepo, branch: "other", inputKey: "other-inputs" }));
+      const view = renderView();
+      await screen.findByRole("heading", { name: "Commit activity" });
+      act(() => emitRepoChanged({ reason: "filesystem-metadata" }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+      const request = vi.mocked(githead.getRepositoryAnalytics).mock.calls.at(-1)![0];
+      view.rerender(<AnalyticsView active repoPath={nextRepo} enabled githubAvailable={false} canOpenFileHistory {...view} />);
+      await screen.findByText(/commits analyzed on other/);
+      expect(githead.cancelRepositoryRead).toHaveBeenCalledWith({ requestId: request.requestId });
+      await act(async () => finish(analytics({ branch: "stale-result" })));
+      expect(screen.getByText(/commits analyzed on other/)).not.toBeNull();
+      expect(screen.queryByText(/stale-result/)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("summarizes assets with LFS rules to copy", async () => {

@@ -51,6 +51,79 @@ async function withRepository(callback: (repo: string, git: (...args: string[]) 
 const pointer = (size: number) => `version https://git-lfs.github.com/spec/v1\noid sha256:${"e".repeat(64)}\nsize ${size}\n`;
 
 describe("RepositoryAnalyticsService with real Git", () => {
+  it("skips unchanged inputs and updates storage without rebuilding history or branch drift", async () => {
+    await withRepository(async (repo, git) => {
+      await fs.writeFile(path.join(repo, "a.txt"), "one\n");
+      git("add", ".");
+      git("commit", "-qm", "First");
+      const runner = new RecordingRunner();
+      const service = new RepositoryAnalyticsService(runner);
+      const query = { repoPath: repo, excludePaths: false, excludedPathPatterns: [] };
+      const first = await service.getAnalytics(query);
+      runner.commands.length = 0;
+      await fs.writeFile(path.join(repo, ".git", "FETCH_HEAD"), "background fetch\n");
+      await fs.mkdir(path.join(repo, ".git", "lfs", "tmp"), { recursive: true });
+      await fs.writeFile(path.join(repo, ".git", "lfs", "tmp", "probe"), "temporary\n");
+      const progress: string[] = [];
+      expect(await service.getAnalytics({ ...query, knownInputKey: first.inputKey }, (event) => progress.push(event.phase))).toBeNull();
+      expect(progress).toEqual([]);
+      expect(runner.logCommands()).toHaveLength(0);
+      expect(runner.commands.some((args) => args.some((arg) => arg.includes("ahead-behind")))).toBe(false);
+
+      await fs.writeFile(path.join(repo, "untracked.txt"), "loose object\n");
+      git("hash-object", "-w", "untracked.txt");
+      const changed = await service.getAnalytics({ ...query, knownInputKey: first.inputKey });
+      expect(changed?.assets.packedBytes).toBeGreaterThan(first.assets.packedBytes!);
+      expect(changed?.ranges).toBe(first.ranges);
+      expect(changed?.branches).toBe(first.branches);
+      expect(progress).toEqual([]);
+    });
+  });
+
+  it("detects refs, branch selection, mailmap, filters, and day rollover", async () => {
+    await withRepository(async (repo, git, cacheDirectory) => {
+      await fs.writeFile(path.join(repo, "a.txt"), "one\n");
+      git("add", ".");
+      git("commit", "-qm", "First");
+      let now = new Date(2026, 9, 8, 12).getTime();
+      const runner = new RecordingRunner();
+      const service = new RepositoryAnalyticsService(runner, { cacheDirectory, now: () => now });
+      const query = { repoPath: repo, excludePaths: false, excludedPathPatterns: [] };
+      let previous = await service.getAnalytics(query);
+      git("branch", "feature");
+      let next = await service.getAnalytics({ ...query, knownInputKey: previous.inputKey });
+      expect(next?.branches.branches.some((branch) => branch.name === "feature")).toBe(true);
+      expect(next?.ranges).toBe(previous.ranges);
+      previous = next!;
+      git("switch", "-q", "feature");
+      next = await service.getAnalytics({ ...query, knownInputKey: previous.inputKey });
+      expect(next?.branch).toBe("feature");
+      previous = next!;
+      git("tag", "v1");
+      next = await service.getAnalytics({ ...query, knownInputKey: previous.inputKey });
+      expect(next?.tags[0]?.name).toBe("v1");
+      previous = next!;
+      await fs.writeFile(path.join(repo, ".mailmap"), "Mapped Author <mapped@example.test> <githead@example.test>\n");
+      next = await service.getAnalytics({ ...query, knownInputKey: previous.inputKey });
+      expect(next?.people[0]?.name).toBe("Mapped Author");
+      expect(runner.logCommands()).toHaveLength(1);
+      previous = next!;
+      next = await service.getAnalytics({ ...query, excludePaths: true, excludedPathPatterns: ["*.txt"], knownInputKey: previous.inputKey });
+      expect(next?.ranges.all.hotspots).toEqual([]);
+      previous = next!;
+      now += 86_400_000;
+      next = await service.getAnalytics({ ...query, excludePaths: true, excludedPathPatterns: ["*.txt"], knownInputKey: previous.inputKey });
+      expect(next?.generatedAt).toBe(now / 1000);
+      expect(runner.logCommands()).toHaveLength(1);
+
+      await fs.writeFile(path.join(repo, ".mailmap"), "New Mapping <new@example.test> <githead@example.test>\n");
+      const restartedRunner = new RecordingRunner();
+      const restarted = new RepositoryAnalyticsService(restartedRunner, { cacheDirectory });
+      expect((await restarted.getAnalytics(query)).people[0]?.name).toBe("New Mapping");
+      expect(restartedRunner.logCommands()).toHaveLength(0);
+    });
+  });
+
   it("reads history once and then only new commits, across service instances", async () => {
     await withRepository(async (repo, git, cacheDirectory) => {
       await fs.writeFile(path.join(repo, "a.txt"), "one\n");

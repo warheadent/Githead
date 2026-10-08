@@ -745,6 +745,7 @@ ipcMain.handle(IPC_CHANNELS.getRepositoryAnalytics, (event, request: RepositoryA
       const requestId = request.requestId;
       return getRepositoryAnalyticsService().getAnalytics({
         repoPath: request.repoPath,
+        ...(request.knownInputKey !== undefined ? { knownInputKey: request.knownInputKey } : {}),
         excludePaths: request.excludePaths === true,
         excludedPathPatterns: settings.excludedPaths
       }, (progress) => {

@@ -26,11 +26,14 @@ function isSamePath(a: string, b: string): boolean {
 /**
  * Loads repository analytics while the view is active. Results stay on screen
  * while a refresh runs. Commits, branch changes, and fetches mark the data
- * stale; working tree edits do not affect analytics.
+ * stale. Background checks keep charts settled until an input changes.
  */
 export function useRepositoryAnalytics(repoPath: string, enabled: boolean, active: boolean, excludePaths: boolean) {
   const [state, setState] = useState<RepositoryAnalyticsState>(initialAnalyticsState);
   const [stale, setStale] = useState(false);
+  const [pending, setPending] = useState(false);
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const requestRef = useRef<{ id: string; repoPath: string } | null>(null);
   const counter = useRef(0);
 
@@ -40,52 +43,82 @@ export function useRepositoryAnalytics(repoPath: string, enabled: boolean, activ
     if (current) void window.githead.cancelRepositoryRead({ requestId: current.id });
   }, []);
 
-  const load = useCallback(async (): Promise<void> => {
+  const load = useCallback(async (background = false): Promise<void> => {
     if (!enabled || !repoPath) return;
     cancel();
     counter.current += 1;
     const request = { id: `analytics:${counter.current}`, repoPath };
     requestRef.current = request;
+    setPending(true);
     setStale(false);
-    setState((current) => ({ ...current, loading: true, error: "", progress: null }));
+    if (!background) setState((current) => ({ ...current, loading: true, error: "", progress: null }));
     try {
-      const data = await window.githead.getRepositoryAnalytics({ repoPath, excludePaths, requestId: request.id });
+      const data = await window.githead.getRepositoryAnalytics({
+        repoPath, excludePaths, requestId: request.id,
+        ...(background && stateRef.current.data ? { knownInputKey: stateRef.current.data.inputKey } : {})
+      });
       if (requestRef.current !== request) return;
       requestRef.current = null;
-      setState({ data, loading: false, error: "", progress: null });
+      setPending(false);
+      setState((current) => ({ data: data ?? current.data, loading: false, error: "", progress: null }));
     } catch (error) {
       if (requestRef.current !== request) return;
       requestRef.current = null;
+      setPending(false);
       setState((current) => ({ ...current, loading: false, progress: null, error: error instanceof Error ? error.message : "Unable to analyze the repository." }));
     }
   }, [cancel, enabled, excludePaths, repoPath]);
 
   useEffect(() => {
     setState(initialAnalyticsState);
+    setPending(false);
     setStale(false);
     return cancel;
   }, [cancel, repoPath]);
 
   useEffect(() => window.githead.onRepositoryAnalyticsProgress((progress) => {
     if (requestRef.current?.id !== progress.requestId) return;
-    setState((current) => ({ ...current, progress }));
+    setState((current) => ({ ...current, loading: true, error: "", progress }));
   }), []);
 
   useEffect(() => window.githead.onRepoChanged((event) => {
     if (event.reason !== "filesystem" && isSamePath(event.repoPath, repoPath)) setStale(true);
   }), [repoPath]);
 
-  const needsLoad = enabled && active && !state.loading && !state.error
+  // Recheck on return and at the next local day, including mailmap/config
+  // changes outside the watched working tree. No progress is shown for a hit.
+  useEffect(() => {
+    if (!enabled || !active) return;
+    const invalidate = () => { if (stateRef.current.data) setStale(true); };
+    const onVisible = () => { if (document.visibilityState === "visible") invalidate(); };
+    let timer: number;
+    const scheduleDay = () => {
+      const next = new Date();
+      next.setHours(24, 0, 0, 0);
+      timer = window.setTimeout(() => { invalidate(); scheduleDay(); }, Math.max(1, next.getTime() - Date.now()));
+    };
+    invalidate();
+    scheduleDay();
+    window.addEventListener("focus", invalidate);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("focus", invalidate);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [active, enabled, repoPath]);
+
+  const needsLoad = enabled && active && !pending && !state.error
     && (state.data === null || state.data.excludePaths !== excludePaths || !isSamePath(state.data.repoPath, repoPath));
   useEffect(() => {
     if (needsLoad) void load();
   }, [load, needsLoad]);
 
   useEffect(() => {
-    if (!stale || !active || !enabled || state.loading || state.data === null) return;
-    const timer = window.setTimeout(() => { void load(); }, STALE_RELOAD_DELAY_MS);
+    if (!stale || !active || !enabled || pending || state.data === null) return;
+    const timer = window.setTimeout(() => { void load(true); }, STALE_RELOAD_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [active, enabled, load, stale, state.data, state.loading]);
+  }, [active, enabled, load, stale, state.data, pending]);
 
   return { ...state, refresh: load };
 }

@@ -133,6 +133,7 @@ describe("RepoWatchService", () => {
   it.each([
     [null, "filesystem-unknown"],
     [".git\\refs\\heads\\main", "filesystem-metadata"],
+    [".mailmap", "filesystem-metadata"],
     [".githead\\actions.toml", "filesystem-metadata"],
     [".githead\\actions.local.toml", "filesystem-metadata"]
   ] as const)("falls back to broad invalidation for %s", async (filename, reason) => {

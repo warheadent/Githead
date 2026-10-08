@@ -16,7 +16,7 @@ function emptyRange(): RepositoryAnalytics["ranges"]["all"] {
 
 function analytics(): RepositoryAnalytics {
   return {
-    repoPath, headHash: "b".repeat(40), branch: "main", generatedAt: 1, excludePaths: true, excludedPathPatterns: [],
+    inputKey: "initial-inputs", repoPath, headHash: "b".repeat(40), branch: "main", generatedAt: 1, excludePaths: true, excludedPathPatterns: [],
     history: { commits: 1, firstCommitAt: 0, lastCommitAt: 0, truncated: false },
     people: [{ name: "Ada", commits: 1, identities: [{ name: "Ada", email: "ada@example.test", commits: 1 }] }],
     personSlots: 1,

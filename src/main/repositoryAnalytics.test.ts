@@ -44,6 +44,7 @@ function history(specs: CommitSpec[]): AnalyticsHistory {
 
 function analyze(specs: CommitSpec[], options: { excludePaths?: boolean; patterns?: string[] } = {}) {
   return buildRepositoryAnalytics({
+    inputKey: "test-inputs",
     repoPath: "/repo",
     headHash: "head",
     branch: "main",
@@ -130,6 +131,7 @@ describe("buildRepositoryAnalytics", () => {
 
   it("returns empty ranges for a repository without commits", () => {
     const result = buildRepositoryAnalytics({
+      inputKey: "test-inputs",
       repoPath: "/repo", headHash: null, branch: null, now: NOW, history: null, excludePaths: false, excludedPathPatterns: [],
       tree: emptyTree, packedBytes: null, branches: { base: null, branches: [], truncated: false }, tags: []
     });

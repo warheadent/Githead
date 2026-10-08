@@ -234,12 +234,14 @@ function classifyWatchReason(filename: string | Buffer | null): RepoChangedReaso
   if (!filename) return "filesystem-unknown";
   const normalized = filename.toString().replaceAll("\\", "/").toLocaleLowerCase();
   if (
+    normalized === ".mailmap" ||
     normalized === ".githead/actions.toml" ||
     normalized === ".githead/actions.local.toml" ||
     normalized.endsWith("/.githead/actions.toml") ||
     normalized.endsWith("/.githead/actions.local.toml")
   ) {
-    // Repository Actions are displayed from the metadata snapshot, but are
+    // Mailmap edits affect Analytics author totals. Repository Actions are
+    // displayed from the metadata snapshot, but are
     // resolved again when they run. Force a full snapshot refresh so the
     // command the user sees is always the command the main process resolves.
     return "filesystem-metadata";

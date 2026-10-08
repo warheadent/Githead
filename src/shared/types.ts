@@ -1647,6 +1647,8 @@ export interface RepositoryAnalyticsRequest extends RepositoryReadRequest {
   repoPath: string;
   /** Applies the repository's excluded path patterns to code and line statistics. */
   excludePaths: boolean;
+  /** Return null when the displayed analytics inputs are still current. */
+  knownInputKey?: string;
 }
 
 export interface RepositoryAnalyticsProgress {
@@ -1793,6 +1795,7 @@ export interface AnalyticsBranches {
 }
 
 export interface RepositoryAnalytics {
+  inputKey: string;
   repoPath: string;
   headHash: string | null;
   branch: string | null;
@@ -2630,7 +2633,7 @@ export interface GitheadApi {
   getCommitFileDiff(request: GitCommitFileDiffRequest): Promise<GitFileDiff>;
   getFileHistory(request: GitFileHistoryRequest): Promise<GitFileHistoryResult>;
   getFileBlame(request: GitFileBlameRequest): Promise<GitFileBlameResult>;
-  getRepositoryAnalytics(request: RepositoryAnalyticsRequest): Promise<RepositoryAnalytics>;
+  getRepositoryAnalytics(request: RepositoryAnalyticsRequest): Promise<RepositoryAnalytics | null>;
   getGitHubWorkflowAnalytics(request: GitHubWorkflowAnalyticsRequest): Promise<GitHubOperationResult<GitHubWorkflowAnalytics>>;
   getFileDiff(request: GitFileDiffRequest): Promise<GitFileDiff>;
   getStashes(request: GitStashListRequest): Promise<GitStashEntry[]>;
