@@ -338,6 +338,8 @@ export class NodeProcessRunner implements ProcessRunner {
       let outputSinkFinished = options.stdoutFilePath === undefined;
       let outputSinkClosed = options.stdoutFilePath === undefined;
       let outputSinkError: string | undefined;
+      let inputError: string | undefined;
+      let inputClosed = false;
       let stdoutEnded = options.stdoutFilePath === undefined;
       let processDrainDone = false;
       let frozenOutcome: { code: number; error?: string; reason: ProcessTerminationReason } | undefined;
@@ -402,9 +404,9 @@ export class NodeProcessRunner implements ProcessRunner {
           : stdoutEnded && outputSinkFinished
       );
       const maybeFinish = () => {
-        if (!frozenOutcome || !processDrainDone || !processTreeTerminationDone || !outputDrainDone()) return;
-        const error = outputSinkError ?? frozenOutcome.error;
-        finish(outputSinkError ? -1 : frozenOutcome.code, error, frozenOutcome.reason);
+        if (!frozenOutcome || !processDrainDone || !inputClosed || !processTreeTerminationDone || !outputDrainDone()) return;
+        const error = outputSinkError ?? inputError ?? frozenOutcome.error;
+        finish(outputSinkError || inputError ? -1 : frozenOutcome.code, error, frozenOutcome.reason);
       };
       const endOutputSink = () => {
         if (!outputSink || outputSinkFinished || outputSink.writableEnded) return;
@@ -478,6 +480,22 @@ export class NodeProcessRunner implements ProcessRunner {
       } catch (error) {
         finish(-1, error instanceof Error ? error.message : "Unable to start command.", "spawnFailed"); return;
       }
+      // A pending write can fail asynchronously, even after process exit or
+      // cancellation has settled. Keep this listener for the stream's lifetime;
+      // ChildProcess's error event does not handle errors from its stdin.
+      child.stdin.on("error", (error) => {
+        if (settled || requested || frozenOutcome?.reason === "spawnFailed") return;
+        inputError ??= `Command stdin failed: ${error.message}`;
+        stopAcceptingTerminationRequests();
+        requestProcessTermination();
+        maybeFinish();
+      });
+      // ChildProcess's close event waits for stdout and stderr, but not stdin.
+      // Wait for stdin too so a late write failure cannot turn into success.
+      child.stdin.once("close", () => {
+        inputClosed = true;
+        maybeFinish();
+      });
       if (options.stdoutFilePath !== undefined) {
         try {
           outputSink = createWriteStream(options.stdoutFilePath);
@@ -576,16 +594,18 @@ export class NodeProcessRunner implements ProcessRunner {
         freezeOutcome(code);
         finishProcessDrain();
       });
+      const canWriteInput = () => !settled && !requested && !frozenOutcome && !inputError
+        && !child.stdin.destroyed && !child.stdin.writableEnded;
       if (options.onInputReady) {
         try {
           options.onInputReady({
-            write: (data) => child.stdin.write(data),
-            end: (data) => child.stdin.end(data)
+            write: (data) => canWriteInput() && child.stdin.write(data),
+            end: (data) => { if (canWriteInput()) child.stdin.end(data); }
           });
         } catch (error) {
           stop("aborted", error instanceof Error ? error.message : "Unable to write process input.");
         }
-      } else {
+      } else if (canWriteInput()) {
         child.stdin.end(options.stdin);
       }
     });

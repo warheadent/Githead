@@ -5,7 +5,8 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import {
   DEFAULT_PROCESS_MAX_OUTPUT_BYTES,
   DEFAULT_PROCESS_TIMEOUT_MS,
-  NodeProcessRunner
+  NodeProcessRunner,
+  type ProcessInput
 } from "./processRunner";
 
 const processTreeParentFixture = path.resolve("src/main/testFixtures/processTreeParent.mjs");
@@ -35,6 +36,33 @@ describe("NodeProcessRunner.run", () => {
     );
 
     expect(result).toMatchObject({ exitCode: 0, stdout: "HELLO" });
+  });
+
+  it("reports a failed stdin write when the child closes its input", async () => {
+    let input: ProcessInput | undefined;
+    const result = await new NodeProcessRunner(25, 25).run(process.execPath, ["-e", [
+      "require('node:fs').closeSync(0);",
+      "process.stdout.write('closed'); setInterval(() => {}, 1000);"
+    ].join(" ")], {
+      timeoutMs: 2_000,
+      onInputReady: (ready) => { input = ready; },
+      onOutput: () => input?.end(Buffer.alloc(1024 * 1024))
+    });
+
+    expect(result.exitCode).toBe(-1);
+    expect(result.error).toContain("stdin");
+    expect(result.terminationReason).toBe("exited");
+  });
+
+  it("reports spawn failure with buffered stdin for a missing executable", async () => {
+    await withTempDir(async (directory) => {
+      const result = await new NodeProcessRunner().run(path.join(directory, "missing-command"), [], {
+        stdin: "payload"
+      });
+
+      expect(result).toMatchObject({ exitCode: -1, terminationReason: "spawnFailed" });
+      expect(result.error).toContain("ENOENT");
+    });
   });
 
   it("streams stdout without retaining or limiting it", async () => {
@@ -113,6 +141,20 @@ describe("NodeProcessRunner.run", () => {
       error: "Command was cancelled.",
       terminationReason: "aborted"
     });
+  });
+
+  it.each(["buffered", "response-driven"])("cancels with a pending %s stdin write", async (mode) => {
+    const controller = new AbortController();
+    const payload = Buffer.alloc(4 * 1024 * 1024);
+    const result = await new NodeProcessRunner(25, 25).run(process.execPath, [
+      "-e", "process.stdout.write('started'); setInterval(() => {}, 1000)"
+    ], {
+      signal: controller.signal,
+      ...(mode === "buffered" ? { stdin: payload } : { onInputReady: (input: ProcessInput) => input.end(payload) }),
+      onOutput: () => controller.abort()
+    });
+
+    expect(result).toMatchObject({ terminationReason: "aborted", error: "Command was cancelled." });
   });
 
   it("preserves a coordinator timeout reason from an abort signal", async () => {
