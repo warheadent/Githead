@@ -1843,6 +1843,16 @@ describe("GitService", () => {
     });
   });
 
+  it("can skip LFS downloads without losing the inherited process environment", async () => {
+    await withTempDir(async (parentPath) => {
+      const runner = new FakeRunner([ok()]);
+      const service = new GitService(runner);
+      const result = await service.cloneRepository({ source: "https://example.test/repo.git", parentPath, directoryName: "repo", skipLfs: true });
+      expect(result.exitCode).toBe(0);
+      expect(runner.calls[0]?.options?.env).toEqual({ ...process.env, GIT_LFS_SKIP_SMUDGE: "1" });
+    });
+  });
+
   it("checks repository access and parses branch details", async () => {
     const stdout = [
       "ref: refs/heads/main\tHEAD",

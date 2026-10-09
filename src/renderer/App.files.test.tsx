@@ -1721,7 +1721,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await screen.findByRole("option", { name: /src\/trust\.ts/ });
     await user.click(screen.getByRole("button", { name: "Add repository" }));
-    await user.click(await screen.findByRole("button", { name: "Add existing" }));
+    await user.click(await screen.findByRole("button", { name: "Open local folder…" }));
     await waitFor(() => expect(githead.chooseRepo).toHaveBeenCalledTimes(1));
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: trust A");
     await user.click(screen.getByRole("button", { name: /^Commit$/ }));
@@ -1819,7 +1819,7 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => expect(vi.mocked(githead.getGitIdentity).mock.calls.length).toBeGreaterThan(0));
     await flushRendererAsync();
     await user.click(screen.getByRole("button", { name: "Add repository" }));
-    await user.click(await screen.findByRole("button", { name: "Add existing" }));
+    await user.click(await screen.findByRole("button", { name: "Open local folder…" }));
     await waitFor(() => expect(githead.chooseRepo).toHaveBeenCalledTimes(1));
     const identityCallsBeforeCommit = vi.mocked(githead.getGitIdentity).mock.calls.length;
     waitForRepositoryAIdentity = true;
@@ -2301,7 +2301,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await screen.findByRole("option", { name: /src\/a\.ts/ });
     await user.click(screen.getByRole("button", { name: "Add repository" }));
-    await user.click(await screen.findByRole("button", { name: "Add existing" }));
+    await user.click(await screen.findByRole("button", { name: "Open local folder…" }));
     await waitFor(() => expect(githead.chooseRepo).toHaveBeenCalledTimes(1));
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: repository A");
     await user.click(screen.getByRole("button", { name: "More commit actions" }));

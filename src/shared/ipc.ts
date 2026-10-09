@@ -1,4 +1,8 @@
 export const IPC_CHANNELS = {
+  readRepositoryClipboard: "repo:clipboard-source",
+  getCloneDestination: "repo:clone-destination",
+  getGitHubRepositories: "github:repositories",
+  getGitHubCloneDetails: "github:clone-details",
   inspectGitIndexLock: "git:index-lock-inspect",
   removeGitIndexLock: "git:index-lock-remove",
   getGitExecutableStatus: "git:executable-status",

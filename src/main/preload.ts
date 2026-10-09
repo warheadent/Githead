@@ -120,6 +120,10 @@ import type {
 const api: GitheadApi = {
   getGitExecutableStatus: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getGitExecutableStatus) as ReturnType<GitheadApi["getGitExecutableStatus"]>,
+  readRepositoryClipboard: () => ipcRenderer.invoke(IPC_CHANNELS.readRepositoryClipboard) as ReturnType<GitheadApi["readRepositoryClipboard"]>,
+  getCloneDestination: (request) => ipcRenderer.invoke(IPC_CHANNELS.getCloneDestination, request) as ReturnType<GitheadApi["getCloneDestination"]>,
+  getGitHubRepositories: (request) => ipcRenderer.invoke(IPC_CHANNELS.getGitHubRepositories, request) as ReturnType<GitheadApi["getGitHubRepositories"]>,
+  getGitHubCloneDetails: (request) => ipcRenderer.invoke(IPC_CHANNELS.getGitHubCloneDetails, request) as ReturnType<GitheadApi["getGitHubCloneDetails"]>,
   chooseRepo: (defaultPath?: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.chooseRepo, defaultPath) as Promise<string | null>,
   chooseCloneParent: (defaultPath?: string) =>

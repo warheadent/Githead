@@ -513,6 +513,7 @@ export class GitService {
     ];
     const result = await this.runner.run("git", args, {
       cwd: validation.parentPath,
+      ...(request.skipLfs ? { env: { ...process.env, GIT_LFS_SKIP_SMUDGE: "1" } } : {}),
       timeoutMs: NETWORK_OPERATION_TIMEOUT_MS
     });
 

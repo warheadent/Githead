@@ -10,6 +10,7 @@ import {
 export { DEFAULT_AUTO_FETCH_INTERVAL_MINUTES } from "./autoFetchSettings";
 
 interface StoredAppSettings {
+  cloneParentPath?: unknown;
   visualEffects?: unknown;
   reduceMotion?: unknown;
   autoFetchIntervalMinutes?: unknown;
@@ -71,6 +72,7 @@ const gitBehaviorFields = {
 
 export class AppSettingsService {
   private readonly settingsPath: string;
+  private pendingSave: Promise<unknown> = Promise.resolve();
 
   constructor(userDataPath: string) {
     this.settingsPath = path.join(userDataPath, "app-settings.json");
@@ -79,6 +81,7 @@ export class AppSettingsService {
   async getSettings(): Promise<AppSettings> {
     const stored = await this.readStoredSettings();
     return {
+      ...(typeof stored.cloneParentPath === "string" && path.isAbsolute(stored.cloneParentPath) ? { cloneParentPath: stored.cloneParentPath } : {}),
       autoFetchIntervalMinutes: parseStoredAutoFetchInterval(stored.autoFetchIntervalMinutes),
       visualEffects: fields.visualEffects.read(stored.visualEffects),
       reduceMotion: fields.reduceMotion.read(stored.reduceMotion),
@@ -95,6 +98,24 @@ export class AppSettingsService {
   }
 
   async saveSettings(request: AppSettingsSaveRequest): Promise<AppSettings> {
+    return this.serializeSave(() => this.writeSettings(request));
+  }
+
+  async rememberCloneParent(parentPath: string): Promise<void> {
+    if (!path.isAbsolute(parentPath)) throw new Error("Select an absolute destination folder.");
+    await this.serializeSave(async () => {
+      const existing = await this.getSettings();
+      await this.writeSettings(existing, path.normalize(parentPath));
+    });
+  }
+
+  private serializeSave<T>(save: () => Promise<T>): Promise<T> {
+    const result = this.pendingSave.then(save);
+    this.pendingSave = result.catch(() => undefined);
+    return result;
+  }
+
+  private async writeSettings(request: AppSettingsSaveRequest, cloneParentPath?: string): Promise<AppSettings> {
     const existing = await this.getSettings();
     const visualEffects = fields.visualEffects.save(request.visualEffects === undefined ? existing.visualEffects : request.visualEffects);
     const reduceMotion = fields.reduceMotion.save(request.reduceMotion === undefined ? existing.reduceMotion : request.reduceMotion);
@@ -128,7 +149,8 @@ export class AppSettingsService {
       statusFileViewMode,
       wrapDiffLines,
       gitBehaviors,
-      privacy
+      privacy,
+      ...((cloneParentPath ?? existing.cloneParentPath) ? { cloneParentPath: cloneParentPath ?? existing.cloneParentPath } : {})
     } satisfies AppSettings, null, 2)}\n`, "utf8");
 
     return this.getSettings();

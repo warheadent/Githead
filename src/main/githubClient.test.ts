@@ -8,6 +8,35 @@ const repository: GitHubRepository = {
 };
 
 describe("DefaultGitHubClient", () => {
+  it("isolates cancellation for simultaneous requests to the same repository list", async () => {
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockImplementationOnce(async () => new Promise<Response>(() => undefined))
+      .mockResolvedValueOnce(jsonResponse({ items: ["new"] }));
+    const client = new DefaultGitHubClient(fetchImpl, undefined, { env: {} });
+    const firstController = new AbortController();
+    const secondController = new AbortController();
+    const first = client.requestJson(repository, "/user/repos", { signal: firstController.signal }).catch((error: unknown) => error);
+    const second = client.requestJson(repository, "/user/repos", { signal: secondController.signal });
+    await expect(second).resolves.toMatchObject({ payload: { items: ["new"] } });
+    firstController.abort();
+    expect(await first).toBeInstanceOf(Error);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not restore old credentials when reconnecting during auth discovery", async () => {
+    let resolveOld!: (value: string) => void;
+    const oldToken = new Promise<string>((resolve) => { resolveOld = resolve; });
+    const provider = { getToken: vi.fn().mockReturnValueOnce(oldToken).mockResolvedValue("new-token") };
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async () => jsonResponse({ login: "new-user" }));
+    const client = new DefaultGitHubClient(fetchImpl, undefined, { env: {}, appTokenProvider: provider });
+    const first = client.getConnectionStatus();
+    client.resetAuthentication();
+    await client.getConnectionStatus();
+    resolveOld("old-token");
+    await first;
+    for (const [, init] of fetchImpl.mock.calls) expect(new Headers(init?.headers).get("authorization")).toBe("Bearer new-token");
+  });
+
   it("reports anonymous connection state without making a request", async () => {
     const fetchImpl = vi.fn<typeof fetch>();
     const client = new DefaultGitHubClient(fetchImpl, undefined, { env: {} });

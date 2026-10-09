@@ -149,8 +149,8 @@ describe("App", { timeout: 10_000 }, () => {
     expect(within(sidebar).getAllByText("Repositories")).toHaveLength(1);
 
     await user.click(within(sidebar).getByRole("button", { name: "Add repository" }));
-    expect(await screen.findByRole("button", { name: "Add existing" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Clone new" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Open local folder…" })).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "Search repositories or paste a source" })).toBeTruthy();
   });
 
   it("marks file status badges with semantic tones", async () => {
@@ -2282,7 +2282,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await user.click(await screen.findByRole("option", { name: /src\/shared\.ts/ }));
     await user.click(screen.getByRole("button", { name: "Add repository" }));
-    await user.click(await screen.findByRole("button", { name: "Add existing" }));
+    await user.click(await screen.findByRole("button", { name: "Open local folder…" }));
     await waitFor(() => expect(githead.chooseRepo).toHaveBeenCalledTimes(1));
     blockRepositoryARefresh = true;
     await user.click(await screen.findByRole("button", { name: /^Stage Hunk$/ }));

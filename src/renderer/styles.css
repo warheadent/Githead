@@ -1264,37 +1264,135 @@ textarea,
   gap: 20px;
 }
 
-.clone-popout-content {
-  width: min(440px, calc(100vw - 32px));
-  max-height: calc(100vh - 24px);
-  overflow: auto;
-  padding: 20px;
+.repo-omnibox-popover {
+  width: min(580px, calc(100vw - 32px));
+  max-height: min(700px, var(--radix-popover-content-available-height));
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  border-radius: var(--radius);
 }
-
-.repo-add-popout-content {
-  width: min(240px, calc(100vw - 32px));
-  padding: 8px;
+.repo-omnibox-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
-
-.repo-add-menu {
-  display: grid;
-  gap: 4px;
+.repo-omnibox-header > svg { width: 20px; height: 20px; flex-shrink: 0; }
+.repo-omnibox-header > input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 15px;
 }
-
-.repo-add-title {
-  margin: 2px 8px 6px;
+.repo-omnibox-header > input::placeholder { color: var(--muted-foreground); }
+.repo-omnibox-popover kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 5px;
+  min-width: 24px;
+  height: 24px;
+  border: 1px solid var(--input);
+  border-radius: 5px;
+  background: var(--popover);
   color: var(--muted-foreground);
-  font-size: 0.75rem;
-  font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
 }
-
-.repo-add-option {
-  justify-content: flex-start;
-  width: 100%;
-  height: 36px;
-  padding-inline: 10px;
+.repo-omnibox-popover kbd svg { width: 14px; height: 14px; }
+.repo-omnibox-scroll { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 8px; }
+.repo-omnibox-group { display: flex; justify-content: space-between; gap: 12px; padding: 14px 12px 7px; color: var(--muted-foreground); font-size: 11px; }
+.repo-omnibox-group > span:first-child { text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+.repo-omnibox-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  min-height: 58px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.repo-omnibox-option[aria-selected="true"] { background: var(--accent); }
+.repo-omnibox-option[aria-disabled="true"] { opacity: 0.6; cursor: default; }
+.repo-omnibox-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-weight: 600;
+  font-size: 11px;
+}
+.repo-omnibox-avatar svg { width: 18px; height: 18px; }
+.repo-omnibox-option[aria-selected="true"] .repo-omnibox-avatar { background: var(--primary); color: var(--primary-foreground); }
+.repo-omnibox-option-copy { display: grid; gap: 3px; flex: 1; min-width: 0; }
+.repo-omnibox-identity { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 14px; overflow-wrap: anywhere; }
+.repo-omnibox-identity mark { background: transparent; color: var(--primary); font-weight: 600; }
+.repo-omnibox-meta { color: var(--muted-foreground); font-size: 12px; overflow-wrap: anywhere; }
+.repo-omnibox-badge { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-size: 11px; color: var(--muted-foreground); white-space: nowrap; }
+.repo-omnibox-badge svg { width: 13px; height: 13px; }
+.repo-omnibox-row-action { display: flex; align-items: center; justify-content: end; gap: 7px; min-width: 67px; color: var(--muted-foreground); font-size: 12px; }
+.repo-omnibox-option:not([aria-selected="true"]) .repo-omnibox-row-action { visibility: hidden; }
+.repo-omnibox-option.is-search { margin-top: 10px; border-top: 1px solid var(--border); border-radius: 0; }
+.repo-omnibox-option.is-search .repo-omnibox-row-action { visibility: visible; }
+.repo-omnibox-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; background: var(--sidebar); border-top: 1px solid var(--border); flex-shrink: 0; }
+.repo-omnibox-local, .repo-omnibox-hints { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.repo-omnibox-local > svg { width: 17px; height: 17px; }
+.repo-omnibox-hints { font-size: 12px; color: var(--muted-foreground); }
+.repo-omnibox-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 26px 12px; text-align: center; border-top: 1px solid var(--border); margin-top: 4px; }
+.repo-omnibox-empty h3 { font-size: 15px; font-weight: 500; }
+.repo-omnibox-empty p { color: var(--muted-foreground); font-size: 12px; }
+.repo-omnibox-empty-icon { display: flex; align-items: center; justify-content: center; width: 42px; height: 42px; border: 1px solid var(--border); border-radius: 7px; margin-bottom: 4px; }
+.repo-omnibox-empty-icon svg { width: 22px; height: 22px; }
+.repo-omnibox-notice { display: flex; align-items: center; gap: 8px; padding: 10px 12px; color: var(--muted-foreground); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.repo-omnibox-notice > svg { width: 15px; height: 15px; flex-shrink: 0; }
+.repo-omnibox-notice.is-error { color: var(--destructive); }
+.repo-omnibox-load-more { width: 100%; }
+.repo-composer { display: flex; flex-direction: column; overflow: hidden; min-height: 0; outline: none; }
+.repo-composer-source { flex: 1; min-width: 0; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; font-size: 14px; }
+.repo-composer-body { padding: 20px; min-height: 0; overflow: auto; }
+.repo-composer-identity { display: flex; gap: 14px; margin-bottom: 20px; }
+.repo-composer-identity .repo-omnibox-avatar { width: 44px; height: 44px; font-size: 15px; }
+.repo-composer-identity h3 { font-size: 19px; font-weight: 600; margin-bottom: 4px; overflow-wrap: anywhere; }
+.repo-composer-identity p { color: var(--muted-foreground); margin-bottom: 4px; line-height: 1.5; overflow-wrap: anywhere; }
+.repo-composer-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.repo-composer-destination { flex: 1 1 210px; min-width: 0; justify-content: flex-start; }
+.repo-composer-destination > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.repo-composer-destination > svg:last-child { margin-left: auto; }
+.repo-composer-destination.has-warning { border-color: var(--diff-notice-text); background: var(--diff-notice-bg); }
+.repo-composer-destination-editor { width: min(420px, calc(100vw - 32px)); display: grid; gap: 10px; }
+.repo-composer-warning { display: flex; align-items: start; gap: 7px; color: var(--diff-notice-text); font-size: 12px; margin-top: 10px; overflow-wrap: anywhere; }
+.repo-composer-warning svg { flex-shrink: 0; width: 16px; height: 16px; }
+.repo-composer-warning button { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; }
+.repo-composer-options { margin-top: 20px; border-top: 1px solid var(--border); }
+.repo-composer-options-summary { display: flex; align-items: center; gap: 8px; width: 100%; padding: 14px 0 0; text-align: left; }
+.repo-composer-options-summary > svg { width: 15px; height: 15px; color: var(--muted-foreground); }
+.repo-composer-options-summary .repo-omnibox-meta { margin-left: auto; text-align: right; }
+.repo-composer-options .setup-clone-advanced-body { padding-top: 12px; }
+.repo-composer-footer { flex-wrap: wrap; }
+.repo-composer-permission { display: flex; align-items: center; gap: 7px; margin-right: auto; color: var(--muted-foreground); font-size: 12px; }
+.repo-composer-permission svg { width: 15px; height: 15px; }
+.repo-composer-footer > button:last-child kbd { background: color-mix(in oklch, var(--primary-foreground) 15%, transparent); color: inherit; border-color: transparent; }
+.repo-omnibox-popover .is-lore { color: var(--syntax-keyword); background: color-mix(in oklch, var(--syntax-keyword) 10%, var(--popover)); }
+.repo-omnibox-popover button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+@media (max-width: 640px) {
+  .repo-omnibox-hints { display: none; }
+  .repo-omnibox-header { padding: 12px; }
+  .repo-composer-body { padding: 14px; }
 }
 
 .setup-clone-options {

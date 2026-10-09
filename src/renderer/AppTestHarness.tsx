@@ -258,6 +258,13 @@ export function createGitheadMock(): GitheadApi {
       available: true,
       version: "git version 2.51.0"
     }),
+    readRepositoryClipboard: vi.fn().mockResolvedValue(null),
+    getCloneDestination: vi.fn().mockImplementation(async (request) => ({ path: `${request.parentPath}\\${request.directoryName}`, exists: false, suggestedName: null, error: null })),
+    getGitHubRepositories: vi.fn().mockResolvedValue({ ok: true, rateLimit: null, data: {
+      repositories: [], hasMore: false, incomplete: false,
+      connection: { state: "anonymous", source: "anonymous", accountLogin: null, repositoryAccess: "unknown", message: "Not connected", failure: null }
+    } }),
+    getGitHubCloneDetails: vi.fn().mockResolvedValue({ ok: false, error: { kind: "offline", message: "GitHub metadata is unavailable.", retryable: true, retryAfterAt: null, outcomeUnknown: false, source: "rest", rateLimit: null } }),
     chooseRepo: vi.fn().mockResolvedValue(null),
     chooseCloneParent: vi.fn().mockResolvedValue(null),
     chooseWorktreeParent: vi.fn().mockResolvedValue(null),

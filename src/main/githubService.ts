@@ -1292,7 +1292,7 @@ function getMergeStatus(
   return "ready";
 }
 
-function classifyError(error: unknown, source: GitHubFailure["source"], mutation: boolean): GitHubFailure {
+export function classifyError(error: unknown, source: GitHubFailure["source"], mutation: boolean): GitHubFailure {
   const message = error instanceof Error ? error.message : "An unexpected GitHub error occurred.";
   const lower = message.toLowerCase();
   const httpError = error instanceof GitHubHttpError ? error : null;

@@ -9,6 +9,10 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { IPC_CHANNELS } from "../shared/ipc";
+import { isLoreSource, parseRepositorySource } from "../shared/repositorySource";
+import { inspectCloneDestination } from "./cloneValidation";
+import { GitHubRepositoryDiscoveryService } from "./githubRepositoryDiscovery";
+import { cloneRepositoryWithSource } from "./repositoryClone";
 import { DEFAULT_REMOTE_CHECK_LEASE_SECONDS, PERFORMANCE_REFRESH_KINDS } from "../shared/types";
 import type {
   GitIndexLockRemoveRequest,
@@ -210,10 +214,6 @@ const gitOutputBatcher = new GitOutputBatcher({
   getBroadcastTargets: () => BrowserWindow.getAllWindows().map((window) => window.webContents)
 });
 
-function isLoreSource(source: string): boolean {
-  return source.trim().toLowerCase().startsWith("lore://");
-}
-
 let mainWindow: BrowserWindow | null = null;
 let aiCliStatusService: AiCliStatusService | null = null;
 let aiSettingsService: AiSettingsService | null = null;
@@ -405,7 +405,8 @@ ipcMain.handle(IPC_CHANNELS.getGitExecutableStatus, async () => {
 });
 
 ipcMain.handle(IPC_CHANNELS.chooseRepo, async (_event, defaultPath?: string) => {
-  const normalizedDefaultPath = defaultPath?.trim();
+  const inputPath = defaultPath?.trim();
+  const normalizedDefaultPath = inputPath?.replace(/^~(?=[\\/])/, app.getPath("home"));
   const options: Electron.OpenDialogOptions = {
     title: "Select Git Repository",
     ...(normalizedDefaultPath ? { defaultPath: normalizedDefaultPath } : {}),
@@ -428,7 +429,7 @@ ipcMain.handle(IPC_CHANNELS.chooseRepo, async (_event, defaultPath?: string) => 
 ipcMain.handle(IPC_CHANNELS.chooseCloneParent, async (_event, defaultPath?: string) => {
   const options: Electron.OpenDialogOptions = {
     title: "Select Clone Destination Folder",
-    defaultPath: defaultPath?.trim() || app.getPath("documents"),
+    defaultPath: defaultPath?.trim() || (await getAppSettingsService().getSettings()).cloneParentPath || app.getPath("documents"),
     properties: [
       "openDirectory"
     ]
@@ -442,7 +443,9 @@ ipcMain.handle(IPC_CHANNELS.chooseCloneParent, async (_event, defaultPath?: stri
     return null;
   }
 
-  return result.filePaths[0] ?? null;
+  const parentPath = result.filePaths[0] ?? null;
+  if (parentPath) await getAppSettingsService().rememberCloneParent(parentPath);
+  return parentPath;
 });
 
 ipcMain.handle(IPC_CHANNELS.chooseWorktreeParent, async (_event, defaultPath?: string) => {
@@ -1470,6 +1473,13 @@ ipcMain.handle(IPC_CHANNELS.copyTextToClipboard, async (_event, request: Clipboa
   return createOperationSuccess("", "Text copied to clipboard.");
 });
 
+ipcMain.handle(IPC_CHANNELS.readRepositoryClipboard, async () => parseRepositorySource(await clipboard.readText(), { fromClipboard: true }));
+ipcMain.handle(IPC_CHANNELS.getCloneDestination, (_event, request: Pick<GitCloneRequest, "parentPath" | "directoryName">) => inspectCloneDestination(request));
+ipcMain.handle(IPC_CHANNELS.getGitHubRepositories, (event, request: import("../shared/types").GitHubRepositoryDiscoveryRequest) =>
+  handleRead(event, request, (signal) => new GitHubRepositoryDiscoveryService(getGitHubClient()).list(request, signal)));
+ipcMain.handle(IPC_CHANNELS.getGitHubCloneDetails, (event, request: { source: string; requestId?: string }) =>
+  handleRead(event, request, (signal) => new GitHubRepositoryDiscoveryService(getGitHubClient()).details(request.source, signal)));
+
 ipcMain.handle(IPC_CHANNELS.deleteFile, async (event, request: CoordinatedRequest<FileSystemPathRequest>) => {
   return runExclusiveGitOperation(() => deleteFiles({
     repoPath: request.repoPath,
@@ -1505,16 +1515,18 @@ ipcMain.handle(IPC_CHANNELS.addPathToIgnore, async (event, request: CoordinatedR
 });
 
 ipcMain.handle(IPC_CHANNELS.cloneRepository, async (event, request: CoordinatedRequest<GitCloneRequest>) => {
-  const service = isLoreSource(request.source) ? loreService : gitService;
   return runExclusiveGitOperation(
-    () => service.cloneRepository(request),
-    repositoryOperationOptions(event, request.operationId, request.parentPath, NETWORK_OPERATION_TIMEOUT_MS)
+    (signal) => cloneRepositoryWithSource(request, signal, {
+      git: gitService, lore: loreService, github: new GitHubRepositoryDiscoveryService(getGitHubClient()),
+      rememberParent: (parentPath) => getAppSettingsService().rememberCloneParent(parentPath)
+    }),
+    repositoryOperationOptions(event, request.operationId, request.parentPath, NETWORK_OPERATION_TIMEOUT_MS, request.fork === true)
   );
 });
 
 ipcMain.handle(IPC_CHANNELS.checkRepositoryAccess, async (event, request: CoordinatedRequest<GitRepositoryAccessCheckRequest>) => {
   return runExclusiveRepositoryOperation(
-    repositoryOperationOptions(event, request.operationId, request.source, NETWORK_OPERATION_TIMEOUT_MS),
+    { ...repositoryOperationOptions(event, request.operationId, request.source, NETWORK_OPERATION_TIMEOUT_MS), access: "read" },
     async () => {
       const service = isLoreSource(request.source) ? loreService : gitService;
       return service.checkRepositoryAccess(request);

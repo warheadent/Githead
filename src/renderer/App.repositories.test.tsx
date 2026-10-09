@@ -116,7 +116,7 @@ describe("App", { timeout: 10_000 }, () => {
     await flushRendererAsync();
     fireEvent.click(screen.getByRole("button", { name: "Add repository" }));
     await flushRendererAsync();
-    fireEvent.click(screen.getByRole("button", { name: "Add existing" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open local folder…" }));
     await flushRendererAsync();
 
     await act(async () => {
@@ -993,7 +993,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("button", { name: "Add repository" }));
-    await user.click(await screen.findByRole("button", { name: "Add existing" }));
+    await user.click(await screen.findByRole("button", { name: "Open local folder…" }));
     await waitFor(() => expect(githead.chooseRepo).toHaveBeenCalledTimes(1));
     await user.click(screen.getByRole("button", { name: "Switch branch" }));
     await user.click(await screen.findByRole("button", { name: "Add Worktree…" }));
@@ -1771,7 +1771,7 @@ describe("App", { timeout: 10_000 }, () => {
     fireEvent(window, new Event("focus"));
     await flushRendererAsync();
     fireEvent.click(screen.getByRole("button", { name: "Add repository" }));
-    fireEvent.click(screen.getByRole("button", { name: "Add existing" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open local folder…" }));
     await flushRendererAsync();
     expect(screen.queryByRole("button", { name: `Switch to ${addedRepo}` })).not.toBeNull();
 
@@ -1807,7 +1807,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.addRepoRecent).mockClear();
     scrollIntoView.mockClear();
     await user.click(screen.getByRole("button", { name: "Add repository" }));
-    await user.click(screen.getByRole("button", { name: "Add existing" }));
+    await user.click(screen.getByRole("button", { name: "Open local folder…" }));
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: `Switch to ${browsedRepo}` }).getAttribute("aria-current")).toBe("true");
@@ -1844,7 +1844,7 @@ describe("App", { timeout: 10_000 }, () => {
     await waitForRepositoryWorkspace();
     vi.mocked(githead.addRepoRecent).mockClear();
     await user.click(screen.getByRole("button", { name: "Add repository" }));
-    await user.click(screen.getByRole("button", { name: "Add existing" }));
+    await user.click(screen.getByRole("button", { name: "Open local folder…" }));
 
     expect(await screen.findByText("Selected folder is not a git repository.")).toBeTruthy();
     expect(screen.getByText(invalidRepo)).toBeTruthy();

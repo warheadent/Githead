@@ -250,7 +250,7 @@ describe("App", { timeout: 10_000 }, () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Add repository" }));
     await flushRendererAsync();
-    expect((screen.getByRole("button", { name: "Add existing" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Open local folder…" }) as HTMLButtonElement).disabled).toBe(false);
 
     pendingRefresh.resolve(createSummary({ repoPath: clonedRepo }));
     await flushRendererAsync();
@@ -306,103 +306,68 @@ describe("App", { timeout: 10_000 }, () => {
     });
   });
 
-  it("opens repository add choices from the repository sidebar", async () => {
+  it("opens the focused repository omnibox from the sidebar", async () => {
     const user = userEvent.setup();
-
     render(<App />);
-
     await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("button", { name: "Add repository" }));
-
-    expect(screen.getByRole("button", { name: "Add existing" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Clone new" })).toBeTruthy();
-    expect(screen.queryByLabelText("Repository URL or path")).toBeNull();
+    const input = screen.getByRole("combobox", { name: "Search repositories or paste a source" });
+    expect(document.activeElement).toBe(input);
+    expect(screen.getByRole("button", { name: /Open local folder/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Clone new" })).toBeNull();
+    await user.type(input, "openai/repo{Enter}");
+    expect(screen.getByRole("form", { name: "Clone repository" })).toBeTruthy();
+    await waitFor(() => expect(githead.checkRepositoryAccess).toHaveBeenCalledWith({
+      source: "https://github.com/openai/repo.git", operationId: expect.any(String)
+    }));
+    expect(screen.queryByRole("button", { name: "Check" })).toBeNull();
+    await user.keyboard("{Escape}");
+    expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Search repositories or paste a source" }));
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add repository" })));
   });
 
-  it("opens the clone form from the repository add popout", async () => {
-    const user = userEvent.setup();
-
-    render(<App />);
-
-    await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: "Add repository" }));
-    await user.click(screen.getByRole("button", { name: "Clone new" }));
-
-    expect(screen.getByRole("heading", { name: "Clone repository" })).toBeTruthy();
-    expect(screen.getByLabelText("Repository URL or path")).toBeTruthy();
-    expect(screen.getByLabelText("Destination folder")).toBeTruthy();
-  });
-
-  it("clones from the sidebar popout, switches repositories, and resets the clone draft", async () => {
+  it("clones from the composer and remembers the destination for the next clone", async () => {
     const user = userEvent.setup();
     const clonedRepo = "D:\\Work\\repo";
-    vi.mocked(githead.cloneRepository).mockResolvedValue(createOperationResult({
-      repoPath: clonedRepo,
-      stdout: "Repository cloned."
-    }));
-    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({
-      repoPath: requestedRepoPath
-    }));
+    vi.mocked(githead.cloneRepository).mockResolvedValue(createOperationResult({ repoPath: clonedRepo, stdout: "Repository cloned." }));
+    vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({ repoPath: requestedRepoPath }));
     vi.mocked(githead.addRepoRecent).mockImplementation(async (request) => repositoryRecents(repoPath, request.repoPath));
-
     render(<App />);
-
     await waitForRepositoryWorkspace();
-    vi.mocked(githead.addRepoRecent).mockClear();
     await user.click(screen.getByRole("button", { name: "Add repository" }));
-    await user.click(screen.getByRole("button", { name: "Clone new" }));
-    await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
-    await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
-    await user.click(screen.getByRole("button", { name: "Clone Repository" }));
-
-    await waitFor(() => {
-      expect(githead.cloneRepository).toHaveBeenCalledWith({
-        source: "https://github.com/openai/repo.git",
-        parentPath: "D:\\Work",
-        directoryName: "repo",
-        branchName: "",
-        depth: null,
-        recurseSubmodules: true,
-        operationId: expect.any(String)
-      });
-    });
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: `Switch to ${clonedRepo}` }).getAttribute("aria-current")).toBe("true");
-    });
-    await waitFor(() => {
-      expect(githead.addRepoRecent).toHaveBeenCalledWith({ repoPath: clonedRepo });
-    });
-    await waitFor(() => {
-      expect(screen.queryByLabelText("Repository URL or path")).toBeNull();
-    });
-
+    await user.type(screen.getByRole("combobox", { name: "Search repositories or paste a source" }), "openai/repo{Enter}");
+    await user.click(screen.getByRole("button", { name: "Destination folder" }));
+    await user.type(screen.getByRole("textbox", { name: "Destination folder" }), "D:\\Work");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect((screen.getByRole("button", { name: "Clone repository" }) as HTMLButtonElement).disabled).toBe(false));
+    await user.click(screen.getByRole("button", { name: "Clone repository" }));
+    await waitFor(() => expect(githead.cloneRepository).toHaveBeenCalledWith({
+      source: "https://github.com/openai/repo.git", parentPath: "D:\\Work", directoryName: "repo", branchName: "",
+      depth: null, recurseSubmodules: true, operationId: expect.any(String)
+    }));
+    await waitFor(() => expect(screen.getByRole("button", { name: `Switch to ${clonedRepo}` }).getAttribute("aria-current")).toBe("true"));
+    await waitFor(() => expect(screen.queryByRole("form", { name: "Clone repository" })).toBeNull());
     await user.click(screen.getByRole("button", { name: "Add repository" }));
-    await user.click(screen.getByRole("button", { name: "Clone new" }));
-    expect((screen.getByLabelText("Repository URL or path") as HTMLInputElement).value).toBe("");
-    expect((screen.getByLabelText("Depth") as HTMLInputElement).value).toBe("0");
+    await user.type(screen.getByRole("combobox", { name: "Search repositories or paste a source" }), "openai/next{Enter}");
+    expect(screen.getByRole("button", { name: "Destination folder" }).textContent).toContain("D:\\Work\\next");
   });
 
-  it("keeps the sidebar clone popout open when cloning fails", async () => {
+  it("keeps composer errors and cancellation in the popover", async () => {
     const user = userEvent.setup();
-    vi.mocked(githead.cloneRepository).mockResolvedValue(createOperationResult({
-      repoPath: "D:\\Work\\repo",
-      exitCode: 1,
-      stderr: "fatal: authentication failed"
-    }));
-
+    vi.mocked(githead.chooseCloneParent).mockResolvedValue("D:\\Work");
+    vi.mocked(githead.cloneRepository).mockResolvedValue(createOperationResult({ repoPath: "D:\\Work\\repo", exitCode: 1, stderr: "fatal: authentication failed" }));
     render(<App />);
-
     await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("button", { name: "Add repository" }));
-    await user.click(screen.getByRole("button", { name: "Clone new" }));
-    await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
-    await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
-    await user.click(screen.getByRole("button", { name: "Clone Repository" }));
-
+    await user.type(screen.getByRole("combobox", { name: "Search repositories or paste a source" }), "openai/repo{Enter}");
+    await user.click(screen.getByRole("button", { name: "Destination folder" }));
+    await user.click(screen.getByRole("button", { name: "Browse" }));
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect((screen.getByRole("button", { name: "Clone repository" }) as HTMLButtonElement).disabled).toBe(false));
+    await user.click(screen.getByRole("button", { name: "Clone repository" }));
     expect(await screen.findByText("fatal: authentication failed")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Clone repository" })).toBeTruthy();
-    expect(screen.getByLabelText("Repository URL or path")).toBeTruthy();
-    expect(githead.addRepoRecent).not.toHaveBeenCalledWith("D:\\Work\\repo");
+    expect(screen.getByRole("form", { name: "Clone repository" })).toBeTruthy();
   });
 
   it("ignores stale repository summaries when switching quickly", async () => {
@@ -1173,7 +1138,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("button", { name: "Add repository" }));
-    await user.click(await screen.findByRole("button", { name: "Add existing" }));
+    await user.click(await screen.findByRole("button", { name: "Open local folder…" }));
     await user.click(screen.getByRole("button", { name: "Settings" }));
     await user.type(screen.getByLabelText("Name"), "Repository A Draft");
 

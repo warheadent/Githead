@@ -2212,7 +2212,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("button", { name: "Add repository" }));
-    await user.click(await screen.findByRole("button", { name: "Add existing" }));
+    await user.click(await screen.findByRole("button", { name: "Open local folder…" }));
     await user.click(screen.getByRole("button", { name: "Repository actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
     await user.click(screen.getByRole("button", { name: "Add action" }));

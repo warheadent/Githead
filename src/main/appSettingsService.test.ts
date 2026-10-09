@@ -29,6 +29,22 @@ async function withTempDir<T>(callback: (dir: string) => Promise<T>): Promise<T>
   }
 }
 
+describe("remembered clone destination", () => {
+  it("survives service restarts and concurrent appearance saves", async () => {
+    await withTempDir(async (dir) => {
+      const service = new AppSettingsService(dir);
+      const settings = await service.getSettings();
+      const destination = path.join(dir, "Code");
+      await Promise.all([
+        service.rememberCloneParent(destination),
+        service.saveSettings({ ...settings, appearanceMode: "dark" })
+      ]);
+      expect(await new AppSettingsService(dir).getSettings()).toMatchObject({ cloneParentPath: destination, appearanceMode: "dark" });
+      await expect(service.rememberCloneParent("relative/path")).rejects.toThrow("absolute destination");
+    });
+  });
+});
+
 describe("AppSettingsService", () => {
   it("uses the default auto-fetch interval when no settings are stored", async () => {
     await withTempDir(async (dir) => {

@@ -1376,6 +1376,44 @@ export interface GitCloneRequest {
   branchName?: string;
   depth?: number | null;
   recurseSubmodules?: boolean;
+  skipLfs?: boolean;
+  fork?: boolean;
+}
+
+export type OperationCancelStatus = "idle" | "canceling" | "error";
+
+export interface CloneDestinationStatus {
+  path: string;
+  exists: boolean;
+  suggestedName: string | null;
+  error: string | null;
+}
+
+export interface GitHubCloneRepository extends GitHubRepository {
+  description: string;
+  private: boolean;
+  fork: boolean;
+  language: string | null;
+  pushedAt: string | null;
+  defaultBranch: string;
+  canPush: boolean | null;
+}
+
+export interface GitHubRepositoryDiscoveryRequest extends RepositoryReadRequest {
+  query?: string;
+  page?: number;
+}
+
+export interface GitHubRepositoryDiscovery {
+  repositories: GitHubCloneRepository[];
+  connection: GitHubConnectionStatus;
+  hasMore: boolean;
+  incomplete: boolean;
+}
+
+export interface GitHubCloneDetails {
+  repository: GitHubCloneRepository;
+  forkDisabledReason: string | null;
 }
 
 export interface GitSubmoduleRequest {
@@ -2144,6 +2182,7 @@ export function isAppZoomFactor(value: unknown): value is number {
 }
 
 export interface AppSettings {
+  cloneParentPath?: string;
   visualEffects: AppVisualEffects;
   reduceMotion: AppReduceMotion;
   autoFetchIntervalMinutes: number;
@@ -2576,6 +2615,10 @@ export interface PerformanceDiagnosticsSnapshot {
 }
 
 export interface GitheadApi {
+  readRepositoryClipboard(): Promise<import("./repositorySource").RepositorySource | null>;
+  getCloneDestination(request: Pick<GitCloneRequest, "parentPath" | "directoryName">): Promise<CloneDestinationStatus>;
+  getGitHubRepositories(request: GitHubRepositoryDiscoveryRequest): Promise<GitHubOperationResult<GitHubRepositoryDiscovery>>;
+  getGitHubCloneDetails(request: RepositoryReadRequest & { source: string }): Promise<GitHubOperationResult<GitHubCloneDetails>>;
   inspectGitIndexLock(request: CoordinatedRequest<{ repoPath: string }>): Promise<GitIndexLockInspection>;
   removeGitIndexLock(request: CoordinatedRequest<GitIndexLockRemoveRequest>): Promise<GitOperationResult>;
   getGitExecutableStatus(): Promise<GitExecutableStatus>;

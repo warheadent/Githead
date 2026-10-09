@@ -28,7 +28,7 @@ export interface GitHubApiClient {
 }
 
 export interface GitHubClient extends GitHubApiClient {
-  getConnectionStatus(repository?: GitHubRepository | null): Promise<GitHubConnectionStatus>;
+  getConnectionStatus(repository?: GitHubRepository | null, signal?: AbortSignal): Promise<GitHubConnectionStatus>;
   resetAuthentication(): void;
 }
 
@@ -129,7 +129,9 @@ export class DefaultGitHubClient implements GitHubClient {
     request.signal?.throwIfAborted();
     const generation = this.authGeneration;
     const key = this.createKey(generation, repository, method, path);
-    if (method !== "GET" || this.inFlight.size >= this.maxInFlightRequests) {
+    // A caller-owned signal must not cancel another caller's shared request,
+    // or attach a fresh request to one whose previous owner already cancelled.
+    if (request.signal || method !== "GET" || this.inFlight.size >= this.maxInFlightRequests) {
       return this.protectToken(this.performRequest<T>(repository, path, request, auth, generation, false), auth);
     }
 
@@ -150,11 +152,13 @@ export class DefaultGitHubClient implements GitHubClient {
 
   resetAuthentication(): void {
     this.authStrategy = undefined;
+    this.authInFlight = undefined;
     this.authGeneration += 1;
     this.responseCache.clear();
   }
 
-  async getConnectionStatus(repository: GitHubRepository | null = null): Promise<GitHubConnectionStatus> {
+  async getConnectionStatus(repository: GitHubRepository | null = null, signal?: AbortSignal): Promise<GitHubConnectionStatus> {
+    signal?.throwIfAborted();
     const auth = await this.resolveAuthStrategy();
     if (auth.kind === "anonymous") {
       return {
@@ -167,11 +171,11 @@ export class DefaultGitHubClient implements GitHubClient {
       };
     }
     try {
-      const viewer = await this.requestStatusJson<{ login?: string }>("/user", auth.token);
+      const viewer = await this.requestStatusJson<{ login?: string }>("/user", auth.token, false, signal);
       const accountLogin = viewer.payload.login?.trim() || null;
       if (repository) {
         try {
-          const access = await this.requestStatusJson(`/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}`, auth.token, true);
+          const access = await this.requestStatusJson(`/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}`, auth.token, true, signal);
           if (access.status === 404) {
             return {
               state: "unauthorized",
@@ -218,12 +222,16 @@ export class DefaultGitHubClient implements GitHubClient {
   private async resolveAuthStrategy(): Promise<GitHubAuthStrategy> {
     if (this.authStrategy) return this.authStrategy;
     if (this.authInFlight) return this.authInFlight;
-    this.authInFlight = this.discoverAuthStrategy();
+    const generation = this.authGeneration;
+    const inFlight = this.discoverAuthStrategy();
+    this.authInFlight = inFlight;
     try {
-      this.authStrategy = await this.authInFlight;
+      const strategy = await inFlight;
+      if (generation !== this.authGeneration) return this.resolveAuthStrategy();
+      this.authStrategy = strategy;
       return this.authStrategy;
     } finally {
-      this.authInFlight = undefined;
+      if (this.authInFlight === inFlight) this.authInFlight = undefined;
     }
   }
 
@@ -367,7 +375,7 @@ export class DefaultGitHubClient implements GitHubClient {
     this.responseCache.clear();
   }
 
-  private async requestStatusJson<T>(path: string, token: string, allowNotFound = false): Promise<{ payload: T; status: number; headers: Headers }> {
+  private async requestStatusJson<T>(path: string, token: string, allowNotFound = false, signal?: AbortSignal): Promise<{ payload: T; status: number; headers: Headers }> {
     const result = await this.fetchJsonWithTimeout(`${GITHUB_API_BASE_URL}${path}`, {
       method: "GET",
       headers: {
@@ -376,7 +384,7 @@ export class DefaultGitHubClient implements GitHubClient {
         "User-Agent": "Githead",
         "X-GitHub-Api-Version": GITHUB_API_VERSION
       }
-    }, undefined, this.requestTimeoutMs, false);
+    }, signal, this.requestTimeoutMs, false);
     const { response } = result;
     if (!result.hasPayload) throw new GitHubResponseBodyError(response.status);
     const payload = result.payload as T;
