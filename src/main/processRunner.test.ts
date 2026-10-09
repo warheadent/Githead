@@ -38,15 +38,13 @@ describe("NodeProcessRunner.run", () => {
     expect(result).toMatchObject({ exitCode: 0, stdout: "HELLO" });
   });
 
-  it("reports a failed stdin write when the child closes its input", async () => {
-    let input: ProcessInput | undefined;
-    const result = await new NodeProcessRunner(25, 25).run(process.execPath, ["-e", [
-      "require('node:fs').closeSync(0);",
-      "process.stdout.write('closed'); setInterval(() => {}, 1000);"
-    ].join(" ")], {
+  it.each(["buffered", "response-driven"])("reports a failed %s stdin write when the child exits without reading it", async (mode) => {
+    // Exiting closes stdin on every platform; fs.closeSync(0) is a no-op on Windows.
+    // Keep the write larger than the pipe buffer so it is pending when the child exits.
+    const payload = Buffer.alloc(4 * 1024 * 1024);
+    const result = await new NodeProcessRunner(25, 25).run(process.execPath, ["-e", "process.exit(0)"], {
       timeoutMs: 2_000,
-      onInputReady: (ready) => { input = ready; },
-      onOutput: () => input?.end(Buffer.alloc(1024 * 1024))
+      ...(mode === "buffered" ? { stdin: payload } : { onInputReady: (input: ProcessInput) => input.end(payload) })
     });
 
     expect(result.exitCode).toBe(-1);
