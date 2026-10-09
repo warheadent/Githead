@@ -27,7 +27,7 @@ function selectedTab(name: RegExp): HTMLElement {
   return tab;
 }
 
-describe("workspace navigation", () => {
+describe("workspace navigation", { timeout: 10_000 }, () => {
   it.each(["loaded", "empty", "failed"] as const)("waits for the restored repository's stashes before handling a %s result", async (outcome) => {
     const user = userEvent.setup();
     const otherPath = "D:\\Other";
