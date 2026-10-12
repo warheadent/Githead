@@ -112,14 +112,14 @@ export function RepositoryComposer(props: Props) {
       </div>
       <div className="repo-composer-chips">
         <Popover>
-          <PopoverTrigger asChild><Button type="button" variant="outline" className={`repo-composer-destination${destinationStatus?.exists ? " has-warning" : ""}`} disabled={cloneRunning} aria-label="Destination folder" title={displayPath}>
+          <PopoverTrigger asChild><Button type="button" variant="secondary" className={`repo-composer-destination${destinationStatus?.exists ? " has-warning" : ""}`} disabled={cloneRunning} aria-label="Destination folder" title={displayPath}>
             <FolderOpen /><span>{displayPath}</span><ChevronDown />
           </Button></PopoverTrigger>
           <PopoverContent className="repo-composer-destination-editor" align="start">
             <Label htmlFor={`${id}-parent`}>Destination folder</Label>
             <div className="setup-clone-input-row"><Input id={`${id}-parent`} value={draft.parentPath} placeholder="Choose a parent folder" disabled={cloneRunning}
               onChange={(event) => onCloneDraftChange({ ...draft, parentPath: event.target.value })} />
-              <Button type="button" variant="outline" disabled={cloneRunning} onClick={props.onChooseCloneParent}><FolderOpen />Browse</Button></div>
+              <Button type="button" variant="secondary" disabled={cloneRunning} onClick={props.onChooseCloneParent}><FolderOpen />Browse</Button></div>
             <Label htmlFor={`${id}-name`}>Folder name</Label>
             <Input id={`${id}-name`} value={draft.directoryName} disabled={cloneRunning}
               onChange={(event) => onCloneDraftChange({ ...draft, directoryName: event.target.value })} />
@@ -139,7 +139,7 @@ export function RepositoryComposer(props: Props) {
         </button>
         {optionsOpen ? <div id={`${id}-options`}><CloneOptions draft={draft} disabled={cloneRunning} idPrefix={id} onChange={onCloneDraftChange} /></div> : null}
       </div>}
-      {cloneCheckRunning ? <p className="repo-omnibox-notice" role="status"><Loader2 className="animate-spin" />Checking repository access and loading branches…</p> : props.cloneCheckStatus === "error" ? <div className="repo-omnibox-notice is-error" role="alert"><span>{props.cloneCheckMessage}</span><Button type="button" variant="outline" size="sm" onClick={onCheckRepositoryAccess}>Retry</Button></div> : null}
+      {cloneCheckRunning ? <p className="repo-omnibox-notice" role="status"><Loader2 className="animate-spin" />Checking repository access and loading branches…</p> : props.cloneCheckStatus === "error" ? <div className="repo-omnibox-notice is-error" role="alert"><span>{props.cloneCheckMessage}</span><Button type="button" variant="secondary" size="sm" onClick={onCheckRepositoryAccess}>Retry</Button></div> : null}
       {props.cloneError ? <p className="setup-error selectable-text" role="alert">{props.cloneError}</p> : null}
       {metadataError ? <p className="repo-omnibox-notice" role="status">{metadataError} You can still clone using Git.</p> : null}
       {props.cancelError ? <p className="setup-error" role="alert">{props.cancelError}</p> : null}
@@ -147,8 +147,8 @@ export function RepositoryComposer(props: Props) {
     </div>
     <div className="repo-omnibox-footer repo-composer-footer">
       <span className="repo-composer-permission">{cannotPush ? <><LockKeyhole />You can't push to this repo</> : lore ? <><kbd>Esc</kbd>Back to search</> : null}</span>
-      {busy ? <Button type="button" variant="outline" disabled={props.cancelStatus === "canceling"} onClick={props.onCancelOperation}>{props.cancelStatus === "canceling" ? <Loader2 className="animate-spin" /> : <X />}{props.cancelStatus === "canceling" ? "Cancelling" : cloneCheckRunning ? "Cancel Check" : "Cancel Clone"}</Button> : cannotPush ?
-        <Button type="button" variant="outline" disabled={!canClone || !details || !!forkReason} aria-describedby={forkReason ? `${id}-fork-reason` : undefined} title={forkReason ?? "Fork on GitHub and clone locally"} onClick={() => { forkRef.current = true; formRef.current?.requestSubmit(); }}><GitFork />Fork &amp; clone</Button> : null}
+      {busy ? <Button type="button" variant="secondary" disabled={props.cancelStatus === "canceling"} onClick={props.onCancelOperation}>{props.cancelStatus === "canceling" ? <Loader2 className="animate-spin" /> : <X />}{props.cancelStatus === "canceling" ? "Cancelling" : cloneCheckRunning ? "Cancel Check" : "Cancel Clone"}</Button> : cannotPush ?
+        <Button type="button" variant="secondary" disabled={!canClone || !details || !!forkReason} aria-describedby={forkReason ? `${id}-fork-reason` : undefined} title={forkReason ?? "Fork on GitHub and clone locally"} onClick={() => { forkRef.current = true; formRef.current?.requestSubmit(); }}><GitFork />Fork &amp; clone</Button> : null}
       <Button type="submit" disabled={!canClone} aria-label={cloneRunning ? "Cloning repository" : "Clone repository"} onClick={() => { forkRef.current = false; }}>
         {cloneRunning ? <><Loader2 className="animate-spin" />Cloning…</> : <>Clone<kbd><CornerDownLeft /></kbd></>}
       </Button>

@@ -1,5 +1,6 @@
 import { AlertTriangle } from "lucide-react";
 import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
 
 export type OperationBannerTone = "warning" | "danger";
 
@@ -18,6 +19,8 @@ export interface OperationBannerProps {
   busy?: boolean;
   /** An optional row under the title, for progress, details and errors. */
   children?: ReactNode;
+  /** "is-inline" draws the banner as a bordered card inside a column instead of a strip under the header. */
+  className?: string;
 }
 
 /**
@@ -32,10 +35,11 @@ export function OperationBanner({
   actions,
   actionsLabel,
   busy,
-  children
+  children,
+  className
 }: OperationBannerProps): ReactNode {
   return (
-    <section className="operation-banner" data-tone={tone} aria-label={ariaLabel} aria-busy={busy}>
+    <section className={cn("operation-banner", className)} data-tone={tone} aria-label={ariaLabel} aria-busy={busy}>
       <div className="operation-banner-main">
         <span className="operation-banner-icon" aria-hidden="true">{icon ?? <AlertTriangle />}</span>
         <div className="operation-banner-text">

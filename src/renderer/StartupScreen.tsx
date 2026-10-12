@@ -13,11 +13,12 @@ export function StartupScreen({ repositoryName }: { repositoryName: string }): R
           <Loader2 className="startup-spinner" aria-hidden="true" />
           <div className="startup-status-copy"><h2>{openingLabel}</h2><p>{detailLabel}</p></div>
         </div>
-        <div className="startup-placeholders" aria-hidden="true">
+        {/* The same card as the setup recents list, so startup resolves into setup without a jump. */}
+        <div className="start-card startup-skeleton" aria-hidden="true">
           {[0, 1, 2].map((row) => (
-            <div className="startup-placeholder" key={row}>
-              <span className="startup-placeholder-icon" />
-              <div><span /><span /></div>
+            <div className="startup-skeleton-row" key={row}>
+              <span />
+              <span />
             </div>
           ))}
         </div>

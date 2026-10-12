@@ -9,19 +9,19 @@ export function CloneOptions({ draft, disabled, idPrefix, onChange }: {
   onChange(draft: CloneDraft): void;
 }) {
   return <div className="setup-clone-advanced-body">
-    <div className="grid gap-2">
+    <div className="setup-clone-field">
       <Label htmlFor={`${idPrefix}-depth`}>Depth</Label>
       <Input id={`${idPrefix}-depth`} type="number" min="0" step="1" value={draft.depth} disabled={disabled}
         aria-describedby={`${idPrefix}-depth-hint`} onChange={(event) => onChange({ ...draft, depth: event.target.value })} />
       <span id={`${idPrefix}-depth-hint`} className="setup-clone-hint">0 for full history</span>
     </div>
-    <label className="flex items-center gap-2 text-sm">
+    <label className="clone-option-check">
       <input type="checkbox" checked={!draft.skipLfs} disabled={disabled}
         onChange={(event) => onChange({ ...draft, skipLfs: !event.target.checked })} />
       Download Git LFS files
     </label>
     <p className="setup-clone-hint">Uses the installed Git LFS filters.</p>
-    <label className="flex items-center gap-2 text-sm">
+    <label className="clone-option-check">
       <input type="checkbox" checked={draft.recurseSubmodules} disabled={disabled}
         onChange={(event) => onChange({ ...draft, recurseSubmodules: event.target.checked })} />
       Initialize submodules recursively

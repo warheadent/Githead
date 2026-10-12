@@ -245,6 +245,7 @@ import { AmendDialog } from "./AmendDialog";
 import { WorktreeCreateDialog, WorktreeRemoveDialog } from "./WorktreeDialogs";
 import { PullRecoveryDialog } from "./PullRecoveryDialog";
 import { GitOperationRecoveryBanner } from "./GitOperationRecoveryBanner";
+import { OperationBanner } from "./OperationBanner";
 import { ConflictResolutionDialog } from "./ConflictResolutionDialog";
 import { emptyPushToBranchDialog, type PushToBranchDialogState } from "./pushToBranchState";
 import { gitHubQueryStore, useGitHubQueries } from "./useGitHubQueries";
@@ -8884,18 +8885,8 @@ function AppChrome({
       <TooltipProvider>
         <main className="app-shell bg-background text-foreground" data-title-bar={titleBar ? "true" : "false"}>
           {titleBar ? (
+            // A bare drag strip: the brand lives in StartLayout, so the strip carries only the window controls.
             <header className="window-chrome" data-maximized={isMaximized ? "true" : "false"}>
-              <div className="window-title">
-                <svg className="window-title-mark" width="20" height="20" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-                  <rect className="window-title-mark-background" x="1" y="1" width="62" height="62" rx="16" strokeWidth="1.5" />
-                  <g transform="translate(13 13) scale(1.583333)" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M15 6a9 9 0 0 0-9 9V3" />
-                    <circle cx="18" cy="6" r="3" />
-                    <circle cx="6" cy="18" r="3" />
-                  </g>
-                </svg>
-                <span>Githead</span>
-              </div>
               <WindowControls
                 isMaximized={isMaximized}
                 onMinimize={onMinimize}
@@ -8929,30 +8920,28 @@ function GitRequiredScreen({
   return (
     <StartLayout>
       <section className="git-required-screen" aria-labelledby="git-required-title">
-        <div className="git-required-panel">
-          <div className="git-required-icon" aria-hidden="true">
-            <GitFork />
-          </div>
-          <div className="git-required-copy">
-            <h1 id="git-required-title">{unavailable ? "Git could not be started" : "Git is required"}</h1>
-            <p>
-              {unavailable
-                ? "Githead found Git, but the command failed. Reinstall Git or check your system PATH."
-                : "Githead could not find Git on this computer. Install Git before opening or cloning repositories."}
-            </p>
-            <p>After installation, check again. You do not need to restart Githead.</p>
-          </div>
-          <div className="git-required-actions">
-            <Button type="button" onClick={onInstall} disabled={checking}>
-              <Download />
-              Download Git
-              <ExternalLink />
-            </Button>
-            <Button type="button" variant="outline" onClick={onCheckAgain} disabled={checking}>
-              <RefreshCw className={checking ? "animate-spin" : undefined} />
-              {checking ? "Checking for Git" : "Check Again"}
-            </Button>
-          </div>
+        <span className={unavailable ? "notice-tile is-warning" : "notice-tile"} aria-hidden="true">
+          {unavailable ? <TriangleAlert /> : <GitFork />}
+        </span>
+        <div className="git-required-copy">
+          <h1 id="git-required-title">{unavailable ? "Git could not be started" : "Git is required"}</h1>
+          <p>
+            {unavailable
+              ? "Githead found Git, but the command failed. Reinstall Git or check your system PATH."
+              : "Githead could not find Git on this computer. Install Git before opening or cloning repositories."}
+          </p>
+          <p>After installation, check again. You do not need to restart Githead.</p>
+        </div>
+        <div className="git-required-actions">
+          <Button type="button" variant="secondary" onClick={onCheckAgain} disabled={checking}>
+            <RefreshCw className={checking ? "animate-spin" : undefined} />
+            {checking ? "Checking for Git" : "Check Again"}
+          </Button>
+          <Button type="button" onClick={onInstall} disabled={checking}>
+            <Download />
+            Download Git
+            <ExternalLink />
+          </Button>
         </div>
       </section>
     </StartLayout>
@@ -8973,22 +8962,21 @@ function RepositoryErrorView({ repoPath, error, safeDirectory, busy, onRetry, on
   const disabled = busy || recovering;
 
   return (
-    <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-8">
-      <section className="flex w-full max-w-lg flex-col items-start gap-4" aria-labelledby="repository-error-heading">
-        <TriangleAlert className="size-8 text-destructive" aria-hidden="true" />
-        <h2 id="repository-error-heading" className="text-xl font-semibold">Repository Unavailable</h2>
-        <p className="text-muted-foreground">Githead cannot open this repository. Try again or select another repository from the list.</p>
-        <p className="selectable-text break-all font-mono text-sm">{repoPath}</p>
-        <p className="selectable-text break-words text-sm text-destructive" role="alert">{recoveryError || error}</p>
-        {safeDirectory?.required ? <p className="text-sm text-muted-foreground">Git ownership check blocked this repository.</p> : null}
-        <div className="flex flex-wrap gap-2">
-          <Button disabled={disabled} onClick={onRetry}>
-            {busy ? <Loader2 className="animate-spin" /> : <RefreshCw />}Try Again
-          </Button>
+    <div className="repository-error">
+      <section className="repository-error-panel" aria-labelledby="repository-error-heading">
+        <span className="notice-tile is-destructive" aria-hidden="true"><TriangleAlert /></span>
+        <div className="repository-error-copy">
+          <h2 id="repository-error-heading">Repository Unavailable</h2>
+          <p>Githead cannot open this repository. Try again or select another repository from the list.</p>
+        </div>
+        <p className="dialog-code-block">{repoPath}</p>
+        <p className="repository-error-message selectable-text" role="alert">{recoveryError || error}</p>
+        {safeDirectory?.required ? <p className="repository-error-caption">Git ownership check blocked this repository.</p> : null}
+        <div className="repository-error-actions">
           {safeDirectory?.required ? (
-            <Button variant="outline" disabled={disabled} onClick={onAllowGitException}><ShieldAlert />Allow Git Exception</Button>
+            <Button variant="secondary" disabled={disabled} onClick={onAllowGitException}><ShieldAlert />Allow Git Exception</Button>
           ) : (
-            <Button variant="outline" disabled={disabled} onClick={() => {
+            <Button variant="secondary" disabled={disabled} onClick={() => {
               setRecovering(true);
               setRecoveryError("");
               void onRecover().then((result) => {
@@ -8999,6 +8987,9 @@ function RepositoryErrorView({ repoPath, error, safeDirectory, busy, onRetry, on
               {recovering ? "Checking Location" : "Choose New Location"}
             </Button>
           )}
+          <Button disabled={disabled} onClick={onRetry}>
+            {busy ? <Loader2 className="animate-spin" /> : <RefreshCw />}Try Again
+          </Button>
         </div>
       </section>
     </div>
@@ -9091,26 +9082,24 @@ function RepositorySetupScreen({
             <Button type="button" variant="ghost" className="setup-back" onClick={returnToWelcome} disabled={cloneBusy}>
               <ArrowLeft /> Back to repositories
             </Button>
-            <div className="setup-clone-card">
-                <CloneRepositoryForm
-                  idPrefix="clone"
-                  cloneDraft={cloneDraft}
-                  cloneError={cloneError}
-                  cloneRunning={cloneRunning}
-                  cloneCheckRunning={cloneCheckRunning}
-                  cloneCheckStatus={cloneCheckStatus}
-                  cloneCheckMessage={cloneCheckMessage}
-                  cloneBranches={cloneBranches}
-                  cancelStatus={cancelStatus}
-                  cancelError={cancelError}
-                  onCloneDraftChange={onCloneDraftChange}
-                  onCloneSourceChange={onCloneSourceChange}
-                  onChooseCloneParent={onChooseCloneParent}
-                  onCheckRepositoryAccess={onCheckRepositoryAccess}
-                  onClone={onClone}
-                  onCancelOperation={onCancelOperation}
-                />
-            </div>
+            <CloneRepositoryForm
+              idPrefix="clone"
+              cloneDraft={cloneDraft}
+              cloneError={cloneError}
+              cloneRunning={cloneRunning}
+              cloneCheckRunning={cloneCheckRunning}
+              cloneCheckStatus={cloneCheckStatus}
+              cloneCheckMessage={cloneCheckMessage}
+              cloneBranches={cloneBranches}
+              cancelStatus={cancelStatus}
+              cancelError={cancelError}
+              onCloneDraftChange={onCloneDraftChange}
+              onCloneSourceChange={onCloneSourceChange}
+              onChooseCloneParent={onChooseCloneParent}
+              onCheckRepositoryAccess={onCheckRepositoryAccess}
+              onClone={onClone}
+              onCancelOperation={onCancelOperation}
+            />
           </div>
         ) : (
           <>
@@ -9118,16 +9107,16 @@ function RepositorySetupScreen({
               <h2>{repoRecents.length ? "Pick up where you left off." : "Start with a repository."}</h2>
               <p>Open a local folder or clone a repository to this computer.</p>
             </header>
-            <div className="setup-actions">
-              <button type="button" className="setup-action is-primary" aria-label="Open repository" onClick={onChooseRepo} disabled={running}>
-                <span className="setup-action-icon"><FolderOpen aria-hidden="true" /></span>
+            <div className="start-card">
+              <button type="button" className="setup-action" aria-label="Open repository" onClick={onChooseRepo} disabled={running}>
+                <FolderOpen className="setup-action-icon" aria-hidden="true" />
                 <span className="setup-action-copy"><strong>Open repository</strong><span>Choose an existing folder on your computer</span></span>
-                <ArrowRight aria-hidden="true" />
+                <ChevronRight className="setup-action-chevron" aria-hidden="true" />
               </button>
               <button type="button" ref={cloneButtonRef} className="setup-action" aria-label="Clone a repository" onClick={() => setStep("clone")} disabled={running}>
-                <span className="setup-action-icon"><GitFork aria-hidden="true" /></span>
+                <GitFork className="setup-action-icon" aria-hidden="true" />
                 <span className="setup-action-copy"><strong>Clone a repository</strong><span>Download a repository from a URL or path</span></span>
-                <ArrowRight aria-hidden="true" />
+                <ChevronRight className="setup-action-chevron" aria-hidden="true" />
               </button>
             </div>
             {setupError ? (
@@ -9135,22 +9124,27 @@ function RepositorySetupScreen({
             ) : null}
             {safeDirectory?.required ? (
               <div className="setup-safe-directory" role="status">
-                <div className="setup-safe-directory-heading">
-                  <ShieldAlert />
-                  <span>Git ownership check blocked this repository.</span>
-                </div>
-                <p>Allow an exception for this folder to add it to Git's global safe.directory list.</p>
-                <p className="setup-safe-directory-path selectable-text">{safeDirectory.path}</p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="justify-center"
-                  onClick={onOpenSafeDirectoryDialog}
-                  disabled={running || safeDirectoryRunning}
+                <OperationBanner
+                  className="is-inline"
+                  ariaLabel="Git ownership check"
+                  icon={<ShieldAlert />}
+                  title="Git ownership check blocked this repository."
+                  description="Allow an exception for this folder to add it to Git's global safe.directory list."
+                  actions={(
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="xs"
+                      onClick={onOpenSafeDirectoryDialog}
+                      disabled={running || safeDirectoryRunning}
+                    >
+                      {safeDirectoryRunning ? <Loader2 className="animate-spin" /> : <ShieldAlert />}
+                      {safeDirectoryRunning ? "Adding Exception" : "Allow Git Exception"}
+                    </Button>
+                  )}
                 >
-                  {safeDirectoryRunning ? <Loader2 className="animate-spin" /> : <ShieldAlert />}
-                  {safeDirectoryRunning ? "Adding Exception" : "Allow Git Exception"}
-                </Button>
+                  <span className="operation-banner-path selectable-text">{safeDirectory.path}</span>
+                </OperationBanner>
               </div>
             ) : null}
             {selectedRepoPath ? (
@@ -9160,7 +9154,7 @@ function RepositorySetupScreen({
               <div className="setup-recent-title"><h3>Recent repositories</h3><span>{repoRecents.length}</span></div>
               {repoRecents.length > 0 ? (
                 <RepositoryList
-                  className="setup-recents"
+                  className="setup-recents start-card"
                   repoPath=""
                   repoPaths={repoRecents}
                   syncStatuses={repoSyncStatuses}
@@ -9173,10 +9167,12 @@ function RepositorySetupScreen({
                   onOpenRepositorySettings={onOpenRepositorySettings}
                 />
               ) : (
-                <div className="setup-recents-empty">
-                  <History aria-hidden="true" />
-                  <div><strong>Your repositories will appear here</strong><p>Open or clone your first repository to get started.</p></div>
-                </div>
+                <EmptyState
+                  className="start-card"
+                  icon={<History />}
+                  title="Your repositories will appear here"
+                  description="Open or clone your first repository to get started."
+                />
               )}
             </div>
           </>
@@ -9705,103 +9701,102 @@ function CloneRepositoryForm({
 
   return (
     <form className="setup-clone-form" onSubmit={onClone}>
-      <div className="setup-panel-heading">
-        <GitFork />
-        <div>
-          <h2>Clone repository</h2>
-          <p>Create a local copy of a repository.</p>
-        </div>
-      </div>
+      <header className="setup-header">
+        <h2>Clone repository</h2>
+        <p>Create a local copy of a repository.</p>
+      </header>
 
-      <div className="grid gap-2">
-        <Label htmlFor={sourceId}>Repository URL or path</Label>
-        <div className="setup-clone-input-row">
-          <Input
-            id={sourceId}
-            value={cloneDraft.source}
-            disabled={cloneBusy}
-            placeholder="https://github.com/owner/repo.git"
-            onChange={(event) => {
-              updateSource(event.target.value);
-            }}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onCheckRepositoryAccess}
-            disabled={cloneBusy || !cloneDraft.source.trim()}
-          >
-            {cloneCheckRunning ? <Loader2 className="animate-spin" /> : <CheckCircle2 />}
-            {cloneCheckRunning ? "Checking" : "Check"}
-          </Button>
+      <div className="start-card setup-clone-fields">
+        <div className="setup-clone-field">
+          <Label htmlFor={sourceId}>Repository URL or path</Label>
+          <div className="setup-clone-input-row">
+            <Input
+              id={sourceId}
+              value={cloneDraft.source}
+              disabled={cloneBusy}
+              placeholder="https://github.com/owner/repo.git"
+              onChange={(event) => {
+                updateSource(event.target.value);
+              }}
+            />
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={onCheckRepositoryAccess}
+              disabled={cloneBusy || !cloneDraft.source.trim()}
+            >
+              {cloneCheckRunning ? <Loader2 className="animate-spin" /> : <CheckCircle2 />}
+              {cloneCheckRunning ? "Checking" : "Check"}
+            </Button>
+          </div>
         </div>
-      </div>
 
-      <div className="grid gap-2">
-        <Label htmlFor={parentId}>Destination folder</Label>
-        <div className="setup-clone-input-row">
+        <div className="setup-clone-field">
+          <Label htmlFor={parentId}>Destination folder</Label>
+          <div className="setup-clone-input-row">
+            <Input
+              id={parentId}
+              value={cloneDraft.parentPath}
+              disabled={cloneRunning}
+              placeholder="Choose a parent folder"
+              onChange={(event) => {
+                onCloneDraftChange({
+                  ...cloneDraft,
+                  parentPath: event.target.value
+                });
+              }}
+            />
+            <Button type="button" variant="secondary" onClick={onChooseCloneParent} disabled={cloneRunning}>
+              <FolderOpen />
+              Browse
+            </Button>
+          </div>
+        </div>
+
+        <div className="setup-clone-field">
+          <Label htmlFor={directoryId}>Folder name</Label>
           <Input
-            id={parentId}
-            value={cloneDraft.parentPath}
+            id={directoryId}
+            value={cloneDraft.directoryName}
+            placeholder="From repository name"
             disabled={cloneRunning}
-            placeholder="Choose a parent folder"
             onChange={(event) => {
               onCloneDraftChange({
                 ...cloneDraft,
-                parentPath: event.target.value
+                directoryName: event.target.value
               });
             }}
           />
-          <Button type="button" variant="outline" onClick={onChooseCloneParent} disabled={cloneRunning}>
-            <FolderOpen />
-            Browse
-          </Button>
         </div>
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor={directoryId}>Folder name</Label>
-        <Input
-          id={directoryId}
-          value={cloneDraft.directoryName}
-          placeholder="From repository name"
-          disabled={cloneRunning}
-          onChange={(event) => {
-            onCloneDraftChange({
-              ...cloneDraft,
-              directoryName: event.target.value
-            });
-          }}
-        />
-      </div>
-      <details className="setup-clone-advanced">
-        <summary>Clone options<ChevronDown aria-hidden="true" /></summary>
-        <div className="setup-clone-advanced-body">
-          <div className="setup-clone-options">
-            <div className="grid gap-2">
-              <Label htmlFor={branchId}>Branch</Label>
-              <ReferencePicker
-                id={branchId}
-                value={cloneDraft.branchName}
-                {...(cloneDraft.branchName ? { displayValue: cloneDraft.branchName } : {})}
-                options={[
-                  { value: "", label: "Default branch", icon: <GitBranchIcon /> },
-                  ...cloneBranches.map((branch) => ({ value: branch, label: branch, icon: <GitBranchIcon /> }))
-                ]}
-                disabled={cloneRunning}
-                ariaLabel="Choose branch"
-                placeholder="Optional"
-                searchPlaceholder="Search or enter a branch..."
-                emptyMessage="No branches found."
-                triggerIcon={<GitBranchIcon />}
-                customValueLabel={(query) => `Use branch "${query}"`}
-                onValueChange={(branchName) => onCloneDraftChange({ ...cloneDraft, branchName })}
-              />
+        <details className="setup-clone-advanced">
+          <summary>Clone options<ChevronDown aria-hidden="true" /></summary>
+          <div className="setup-clone-advanced-body">
+            <div className="setup-clone-options">
+              <div className="setup-clone-field">
+                <Label htmlFor={branchId}>Branch</Label>
+                <ReferencePicker
+                  id={branchId}
+                  value={cloneDraft.branchName}
+                  {...(cloneDraft.branchName ? { displayValue: cloneDraft.branchName } : {})}
+                  options={[
+                    { value: "", label: "Default branch", icon: <GitBranchIcon /> },
+                    ...cloneBranches.map((branch) => ({ value: branch, label: branch, icon: <GitBranchIcon /> }))
+                  ]}
+                  disabled={cloneRunning}
+                  ariaLabel="Choose branch"
+                  placeholder="Optional"
+                  searchPlaceholder="Search or enter a branch..."
+                  emptyMessage="No branches found."
+                  triggerIcon={<GitBranchIcon />}
+                  customValueLabel={(query) => `Use branch "${query}"`}
+                  onValueChange={(branchName) => onCloneDraftChange({ ...cloneDraft, branchName })}
+                />
+              </div>
             </div>
+            {!isLoreSource(cloneDraft.source) ? <CloneOptions draft={cloneDraft} disabled={cloneRunning} idPrefix={idPrefix} onChange={onCloneDraftChange} /> : null}
           </div>
-          {!isLoreSource(cloneDraft.source) ? <CloneOptions draft={cloneDraft} disabled={cloneRunning} idPrefix={idPrefix} onChange={onCloneDraftChange} /> : null}
-        </div>
-      </details>
+        </details>
+      </div>
 
       {cloneError ? (
         <p className="setup-error selectable-text" role="alert">{cloneError}</p>
@@ -9819,30 +9814,31 @@ function CloneRepositoryForm({
         presenceClassName="clone-check-message-presence"
         initialY={-2}
       />
-
-      <Button type="submit" className="w-full justify-center" disabled={cloneBusy}>
-        {cloneRunning ? <Loader2 className="animate-spin" /> : <Download />}
-        {cloneRunning ? "Cloning" : "Clone Repository"}
-      </Button>
-      {cloneBusy ? (
-        <Button
-          type="button"
-          variant="destructive"
-          className="w-full justify-center"
-          disabled={cancelStatus === "canceling"}
-          onClick={onCancelOperation}
-        >
-          {cancelStatus === "canceling" ? <Loader2 className="animate-spin" /> : <X />}
-          {cancelStatus === "canceling"
-            ? "Cancelling"
-            : cloneCheckRunning
-              ? "Cancel Check"
-              : "Cancel Clone"}
-        </Button>
-      ) : null}
       {cancelError ? (
         <p className="setup-error selectable-text" role="alert">{cancelError}</p>
       ) : null}
+
+      <div className="setup-clone-footer">
+        {cloneBusy ? (
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={cancelStatus === "canceling"}
+            onClick={onCancelOperation}
+          >
+            {cancelStatus === "canceling" ? <Loader2 className="animate-spin" /> : <X />}
+            {cancelStatus === "canceling"
+              ? "Cancelling"
+              : cloneCheckRunning
+                ? "Cancel Check"
+                : "Cancel Clone"}
+          </Button>
+        ) : null}
+        <Button type="submit" disabled={cloneBusy}>
+          {cloneRunning ? <Loader2 className="animate-spin" /> : <Download />}
+          {cloneRunning ? "Cloning" : "Clone Repository"}
+        </Button>
+      </div>
     </form>
   );
 }

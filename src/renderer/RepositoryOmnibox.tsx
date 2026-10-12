@@ -260,12 +260,12 @@ function RepositoryPicker({ inputRef, query, onQueryChange, disabled, onSelect, 
       </div>
       {loading ? <p className="repo-omnibox-notice" role="status"><Loader2 className="animate-spin" />Loading repositories…</p> : null}
       {failure ? <DiscoveryFailure failure={failure} onRetry={() => setRetry((value) => value + 1)} /> : null}
-      {failure?.kind === "authentication" || failure?.kind === "authorization" ? <div className="repo-omnibox-notice"><Button type="button" variant="outline" onClick={onConnectGitHub}><GitFork />Reconnect GitHub</Button></div> : null}
+      {failure?.kind === "authentication" || failure?.kind === "authorization" ? <div className="repo-omnibox-notice"><Button type="button" variant="secondary" onClick={onConnectGitHub}><GitFork />Reconnect GitHub</Button></div> : null}
       {notConnected ? <div className="repo-omnibox-empty">
         <span className="repo-omnibox-empty-icon"><GitFork /></span>
         <h3>Your repositories will appear here</h3>
         <p>URLs, owner/repo and local paths still work without connecting.</p>
-        <Button type="button" variant="outline" onClick={onConnectGitHub}><GitFork />Connect GitHub</Button>
+        <Button type="button" variant="secondary" onClick={onConnectGitHub}><GitFork />Connect GitHub</Button>
       </div> : !loading && !failure && !choices.length ? <p className="repo-omnibox-notice">No repositories available. Paste a URL or open a local folder.</p> : null}
       {discovery?.connection.source === "githubApp" ? <p className="repo-omnibox-notice">Only repositories available to the Githead GitHub App are listed. Check the app's installation access if a repository is missing.</p> : null}
       {discovery?.hasMore ? <Button type="button" variant="ghost" className="repo-omnibox-load-more" disabled={loading || !!failure} onClick={() => setPage((value) => value + 1)}>Load more repositories</Button> : null}
@@ -283,7 +283,7 @@ function RepositoryPicker({ inputRef, query, onQueryChange, disabled, onSelect, 
 function DiscoveryFailure({ failure, onRetry }: { failure: GitHubFailure; onRetry(): void }) {
   return <div className="repo-omnibox-notice is-error" role="alert">
     <span>{failure.message}{failure.retryAfterAt ? ` Retry after ${new Date(failure.retryAfterAt).toLocaleTimeString()}.` : ""}</span>
-    <Button type="button" variant="outline" size="sm" onClick={onRetry}>Retry</Button>
+    <Button type="button" variant="secondary" size="sm" onClick={onRetry}>Retry</Button>
   </div>;
 }
 

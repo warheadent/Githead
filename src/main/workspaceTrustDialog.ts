@@ -105,7 +105,8 @@ function createDevDialogUrl(devServerUrl: string, query: Record<string, string>)
   return url.href;
 }
 
+/** The default theme's --popover, light oklch(1 0 0) and dark oklch(0.23 0.02 255), so the window does not flash. */
 function getDialogBackground(appearanceMode: WorkspaceTrustDialogContext["appearanceMode"]): string {
   const dark = appearanceMode === "dark" || (appearanceMode === "system" && nativeTheme.shouldUseDarkColors);
-  return dark ? "#20242b" : "#ffffff";
+  return dark ? "#171d26" : "#ffffff";
 }

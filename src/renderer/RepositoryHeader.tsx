@@ -298,7 +298,6 @@ function HeaderCancelButton({
   );
 }
 
-/** The dark repository tile used by the header switcher and the start screens. */
 /**
  * Focuses the selected tab of the header's view switch, or its first tab when none is selected. Without a list it
  * uses the view switch in the document. Returns whether a tab took focus.
@@ -311,6 +310,7 @@ export function focusActiveViewTab(list: ParentNode | null = document.querySelec
   return document.activeElement === target;
 }
 
+/** The dark repository tile used by the header switcher and the start screens. */
 export function RepositoryTile({ className }: { className?: string }): ReactNode {
   return (
     <span className={cn("repo-switcher-tile", className)} aria-hidden="true">
