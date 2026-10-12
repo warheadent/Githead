@@ -1527,13 +1527,15 @@ textarea,
   overflow: hidden;
 }
 
+/* Pin each child to its row so the body always gets the 1fr row, also when the banner slot is empty. */
+.app-workspace-shell > .repository-header {
+  grid-row: 1;
+}
+
 .operation-banner-slot {
   display: grid;
   min-width: 0;
-}
-
-.operation-banner-slot:empty {
-  display: none;
+  grid-row: 2;
 }
 
 .operation-banner-alert {
@@ -1547,6 +1549,7 @@ textarea,
 
 .app-workspace-body {
   display: flex;
+  grid-row: 3;
   min-width: 0;
   min-height: 0;
   flex-direction: column;
