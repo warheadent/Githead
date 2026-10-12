@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { GitIndexLockInspection, GitOperationResult } from "../shared/types";
@@ -79,17 +80,20 @@ function IndexLockDialog({ repoPath, busy, onClose, onRemove }: Pick<Props, "rep
       </DialogHeader>
       {checking ? <p role="status" className="text-sm text-muted-foreground">Checking the lock and running Git processes…</p> : null}
       {inspection?.lock ? <>
-        <div className="rounded-md border p-3 text-sm">
-          <p className="selectable-text break-all font-mono">{inspection.lock.path}</p>
-          <p className="mt-2 text-muted-foreground">Last modified {new Date(inspection.lock.modifiedAt).toLocaleString()}</p>
+        <div className="grid gap-1.5">
+          <p className="dialog-code-block">{inspection.lock.path}</p>
+          <p className="text-xs text-muted-foreground">Last modified {new Date(inspection.lock.modifiedAt).toLocaleString()}</p>
         </div>
-        <p className="text-sm text-muted-foreground">No running Git process was detected. This does not prove the lock is unused. Deleting an active lock can interfere with another Git operation.</p>
-        <label className="flex items-start gap-2 text-sm">
-          <input type="checkbox" className="mt-1" checked={confirmed} disabled={deleting || busy} onChange={(event) => setConfirmed(event.target.checked)} />
-          No Git operation is running for this repository.
+        <p className="dialog-notice" data-tone="warning">
+          <AlertTriangle aria-hidden="true" />
+          <span>No running Git process was detected. This does not prove the lock is unused. Deleting an active lock can interfere with another Git operation.</span>
+        </p>
+        <label className="choice-card">
+          <input type="checkbox" checked={confirmed} disabled={deleting || busy} onChange={(event) => setConfirmed(event.target.checked)} />
+          <span>No Git operation is running for this repository.</span>
         </label>
       </> : null}
-      {error ? <p role="alert" className="selectable-text text-sm text-destructive">{error}</p> : null}
+      {error ? <p role="alert" className="dialog-error">{error}</p> : null}
       <p className="text-sm text-muted-foreground">Only the lock file will be deleted. Your staged changes will be kept. Retry the failed action after recovery.</p>
       <DialogFooter>
         <Button variant="outline" disabled={deleting} onClick={onClose}>Cancel</Button>

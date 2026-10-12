@@ -1,4 +1,4 @@
-import { ArrowLeft, CircleDot, ExternalLink, FileText, Loader2, MessageCircleQuestion, Plus } from "lucide-react";
+import { ArrowLeft, CircleDot, ExternalLink, FileText, Loader2, MessageCircleQuestion, Plus, TriangleAlert } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -153,7 +153,7 @@ export function CreateIssueDialog(props: Props): ReactNode {
 
         {templates && mode !== "chooser" ? <div className="create-issue-form-scroll">
           {selectedTemplate ? <div className="create-issue-template-heading"><FileText /><div><strong>{selectedTemplate.name}</strong>{selectedTemplate.description ? <p>{selectedTemplate.description}</p> : null}</div></div> : null}
-          {selectedHasUnsupportedFeatures ? <div className="create-issue-warning" role="alert">This template uses {selectedTemplate?.unsupportedFeatures.join(", ")}. Complete it on GitHub so no template behavior is lost.</div> : null}
+          {selectedHasUnsupportedFeatures ? <div className="dialog-notice" data-tone="warning" role="alert"><TriangleAlert aria-hidden="true" /><span>This template uses {selectedTemplate?.unsupportedFeatures.join(", ")}. Complete it on GitHub so no template behavior is lost.</span></div> : null}
           <div className="grid gap-2">
             <Label htmlFor="create-issue-title">Title</Label>
             <Input id="create-issue-title" autoFocus value={title} disabled={props.busy || selectedHasUnsupportedFeatures} placeholder="Briefly describe the problem or request" onChange={(event) => { setTitle(event.currentTarget.value); setValidationError(""); props.onClearError(); }} />
@@ -164,7 +164,7 @@ export function CreateIssueDialog(props: Props): ReactNode {
         </div> : null}
 
         <div className="grid min-h-5 gap-2">
-          {visibleError ? <p className="text-sm text-destructive" role="alert">{visibleError}</p> : null}
+          {visibleError ? <p className="dialog-error" role="alert">{visibleError}</p> : null}
           {props.outcomeUnknown && !props.unknownOutcomeReviewed ? <Button type="button" variant="outline" className="w-fit" onClick={props.onReviewUnknownOutcome}><ExternalLink />Open Issues</Button> : null}
         </div>
         <DialogFooter>
@@ -195,7 +195,7 @@ function IssueFormField({ field, value, disabled, onChange }: { field: GitHubIss
     {field.description ? <p id={descriptionId} className="text-xs text-muted-foreground">{field.description}</p> : null}
     {field.kind === "input" ? <Input id={`create-issue-${field.id}`} value={typeof value === "string" ? value : ""} required={field.required} aria-describedby={descriptionId} placeholder={field.placeholder} onChange={(event) => onChange(field.id, event.currentTarget.value)} /> : null}
     {field.kind === "textarea" ? <Textarea id={`create-issue-${field.id}`} className="resize-y field-sizing-fixed" rows={5} value={typeof value === "string" ? value : ""} required={field.required} aria-describedby={descriptionId} placeholder={field.placeholder} onChange={(event) => onChange(field.id, event.currentTarget.value)} /> : null}
-    {field.kind === "dropdown" && !field.multiple ? <select id={`create-issue-${field.id}`} className="create-issue-select" required={field.required} aria-describedby={descriptionId} value={typeof value === "string" ? value : ""} onChange={(event) => onChange(field.id, event.currentTarget.value)}><option value="">Select an option</option>{field.options.map((option) => <option key={option} value={option}>{option}</option>)}</select> : null}
+    {field.kind === "dropdown" && !field.multiple ? <select id={`create-issue-${field.id}`} className="form-select" required={field.required} aria-describedby={descriptionId} value={typeof value === "string" ? value : ""} onChange={(event) => onChange(field.id, event.currentTarget.value)}><option value="">Select an option</option>{field.options.map((option) => <option key={option} value={option}>{option}</option>)}</select> : null}
     {field.kind === "dropdown" && field.multiple ? <div className="create-issue-checkboxes" id={`create-issue-${field.id}`}>{field.options.map((option) => <CheckOption key={option} label={option} checked={Array.isArray(value) && value.includes(option)} onChange={(checked) => onChange(field.id, toggleList(value, option, checked))} />)}</div> : null}
     {field.kind === "checkboxes" ? <div className="create-issue-checkboxes" id={`create-issue-${field.id}`}>{field.options.map((option) => <CheckOption key={option.label} label={option.label} required={option.required} checked={Array.isArray(value) && value.includes(option.label)} onChange={(checked) => onChange(field.id, toggleList(value, option.label, checked))} />)}</div> : null}
   </fieldset>;

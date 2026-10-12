@@ -39,7 +39,7 @@ export function PullRecoveryDialog({
       <DialogContent className="max-w-2xl" aria-busy={busy}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <AlertTriangle className="size-5 text-destructive" />
+            <AlertTriangle className="size-4 shrink-0 text-status-modified" aria-hidden="true" />
             {isConflict ? "Reapply paused because of conflicts" : "Remote branch history changed"}
           </DialogTitle>
           <DialogDescription>
@@ -51,18 +51,20 @@ export function PullRecoveryDialog({
 
         {recovery ? (
           <div className="grid gap-4">
-            <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-2 rounded-md border bg-muted/20 p-4 text-sm">
-              <dt className="text-muted-foreground">Branch</dt>
-              <dd className="min-w-0 truncate font-medium">{recovery.branchName}</dd>
-              <dt className="text-muted-foreground">Remote change</dt>
-              <dd className="font-mono text-xs">{shortOid(recovery.oldUpstreamOid)} → {shortOid(recovery.newUpstreamOid)}</dd>
-              <dt className="text-muted-foreground">Local work</dt>
-              <dd>{localCommitLabel}</dd>
-              <dt className="text-muted-foreground">Working files</dt>
-              <dd>{recovery.hasWorkingChanges ? "Changes present" : "Clean"}</dd>
-            </dl>
+            <div className="dialog-notice" data-tone="neutral">
+              <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-2">
+                <dt className="text-muted-foreground">Branch</dt>
+                <dd className="min-w-0 truncate font-medium">{recovery.branchName}</dd>
+                <dt className="text-muted-foreground">Remote change</dt>
+                <dd className="font-mono text-xs">{shortOid(recovery.oldUpstreamOid)} → {shortOid(recovery.newUpstreamOid)}</dd>
+                <dt className="text-muted-foreground">Local work</dt>
+                <dd>{localCommitLabel}</dd>
+                <dt className="text-muted-foreground">Working files</dt>
+                <dd>{recovery.hasWorkingChanges ? "Changes present" : "Clean"}</dd>
+              </dl>
+            </div>
 
-            {error ? <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive" role="alert">{error}</p> : null}
+            {error ? <p className="dialog-error" role="alert">{error}</p> : null}
 
             {isConflict ? (
               <div className="grid gap-2">
@@ -82,8 +84,9 @@ export function PullRecoveryDialog({
             ) : (
               <div className="grid gap-2">
                 {recovery.hasWorkingChanges ? (
-                  <p className="rounded-md border bg-muted/40 p-3 text-sm" role="status">
-                    Commit or stash working-file changes before recovery. Githead will not discard them.
+                  <p className="dialog-notice" data-tone="warning" role="status">
+                    <AlertTriangle aria-hidden="true" />
+                    <span>Commit or stash working-file changes before recovery. Githead will not discard them.</span>
                   </p>
                 ) : null}
                 <Button type="button" onClick={() => onAction(recovery.localCommitCount > 0 ? "reapply" : "match")} disabled={busy || (recovery.localCommitCount > 0 ? !canReapply : !canMatch)} className="justify-start">

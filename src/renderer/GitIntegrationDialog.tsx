@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowDown, CheckCircle2, ChevronDown, GitMerge, Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, ArrowDown, CheckCircle2, ChevronDown, CircleAlert, GitMerge, Loader2, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -148,7 +148,7 @@ export function GitIntegrationDialog(props: GitIntegrationDialogProps): ReactNod
               <Label htmlFor="integration-ref">{kind === "merge" ? "Branch to merge" : "New base"}</Label>
               <select
                 id="integration-ref"
-                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                className="form-select"
                 value={selectedValue}
                 disabled={busy || loading}
                 onChange={(event) => { setSelectedValue(event.target.value); setRewriteAcknowledged(false); }}
@@ -161,7 +161,7 @@ export function GitIntegrationDialog(props: GitIntegrationDialogProps): ReactNod
           ) : null}
 
           {kind === "cherry-pick" ? (
-            <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 rounded-md border bg-muted/25 p-3" aria-label="Integration direction">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 rounded-lg border bg-surface p-3" aria-label="Integration direction">
               <div className="min-w-0"><p className="text-xs text-muted-foreground">Source</p><p className="truncate font-medium">{commit ? `${commit.shortHash} ${commit.subject}` : "Selected commit"}</p></div>
               <ArrowDown className="size-4 -rotate-90 text-muted-foreground" aria-hidden="true" />
               <div className="min-w-0"><p className="text-xs text-muted-foreground">Destination</p><p className="truncate font-medium">{currentBranch ?? "Detached HEAD"}</p></div>
@@ -173,8 +173,8 @@ export function GitIntegrationDialog(props: GitIntegrationDialogProps): ReactNod
           {!loading && preview ? (
             <>
               {preview.kind === "cherry-pick" ? <PreviewFacts preview={preview} /> : null}
-              {preview.blockingReasons.map((reason) => <p key={reason} className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive" role="alert">{reason} {reason.includes("stash") ? "Open File Status to use the stash action." : ""}</p>)}
-              {preview.kind === "rebase" ? null : preview.warnings.map((warning) => <p key={warning} className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm" role="status"><AlertTriangle className="mr-2 inline size-4" />{warning}</p>)}
+              {preview.blockingReasons.map((reason) => <p key={reason} className="dialog-notice" data-tone="danger" role="alert"><CircleAlert aria-hidden="true" /><span>{reason} {reason.includes("stash") ? "Open File Status to use the stash action." : ""}</span></p>)}
+              {preview.kind === "rebase" ? null : preview.warnings.map((warning) => <p key={warning} className="dialog-notice" data-tone="warning" role="status"><AlertTriangle aria-hidden="true" /><span>{warning}</span></p>)}
               {preview.kind === "merge" ? (
                 <MergePreview preview={preview} mode={mergeMode} busy={busy} onModeChange={setMergeMode} />
               ) : preview.kind === "rebase" ? (
@@ -189,13 +189,13 @@ export function GitIntegrationDialog(props: GitIntegrationDialogProps): ReactNod
               ) : (
                 <>
                   <CommitPreview preview={preview} />
-                  <label className="flex items-start gap-3 rounded-md border p-3"><input type="checkbox" className="mt-1" checked={noCommit} disabled={busy} onChange={(event) => setNoCommit(event.target.checked)} /><span><span className="block font-medium">Apply without committing</span><span className="block text-sm text-muted-foreground">Stage the selected commit’s changes so you can review or combine them before committing.</span></span></label>
+                  <label className="choice-card"><input type="checkbox" checked={noCommit} disabled={busy} onChange={(event) => setNoCommit(event.target.checked)} /><span><strong>Apply without committing</strong><small>Stage the selected commit’s changes so you can review or combine them before committing.</small></span></label>
                 </>
               )}
             </>
           ) : null}
 
-          {error ? <p className="error-text" role="alert">{error}</p> : null}
+          {error ? <p className="dialog-error" role="alert">{error}</p> : null}
           <p className="sr-only" aria-live="polite">{loading ? "Integration preview loading" : preview ? `${preview.commits.length} commits in preview` : error}</p>
         </div>
 
@@ -239,7 +239,7 @@ function MergePreview({
       <AdvancedSection summary={mode === "normal" ? "Git’s default merge behavior" : mergeModeLabel(mode)}>
           <div className="grid gap-2">
             <Label htmlFor="merge-mode">Merge behavior</Label>
-            <select id="merge-mode" className="h-9 rounded-md border bg-background px-3 text-sm" value={mode} disabled={busy} onChange={(event) => onModeChange(event.target.value as GitMergeMode)}>
+            <select id="merge-mode" className="form-select" value={mode} disabled={busy} onChange={(event) => onModeChange(event.target.value as GitMergeMode)}>
               <option value="normal">Default, use this repository's Git settings</option>
               <option value="ff-only">Fast-forward only, stop if histories diverged</option>
               <option value="no-ff">Always create a merge commit</option>
@@ -291,27 +291,30 @@ function RebasePreview({
       />
 
       {publishedRewrite ? (
-        <label className="flex items-start gap-3 rounded-md border border-amber-500/45 bg-amber-500/10 p-3 font-normal normal-case">
-          <input type="checkbox" className="mt-1" checked={rewriteAcknowledged} disabled={busy} onChange={(event) => onRewriteAcknowledgedChange(event.target.checked)} />
-          <span>
-            <span className="block text-sm font-medium normal-case">Allow rewriting {preview.upstream ?? "the published branch"}</span>
-            <span className="block text-xs font-normal normal-case text-muted-foreground">Publishing later needs a separate force-with-lease push. Plain force is never used.</span>
-          </span>
-        </label>
+        <div className="dialog-notice" data-tone="warning">
+          <AlertTriangle aria-hidden="true" />
+          <label className="flex items-start gap-3 text-sm font-normal text-foreground">
+            <input type="checkbox" className="mt-0.5 size-4 shrink-0 accent-primary" checked={rewriteAcknowledged} disabled={busy} onChange={(event) => onRewriteAcknowledgedChange(event.target.checked)} />
+            <span>
+              <span className="block font-medium">Allow rewriting {preview.upstream ?? "the published branch"}</span>
+              <span className="block text-xs text-muted-foreground">Publishing later needs a separate force-with-lease push. Plain force is never used.</span>
+            </span>
+          </label>
+        </div>
       ) : null}
 
       <AdvancedSection summary={preview.alreadyUpToDate ? "Options and details" : `${commitCount} ${commitCount === 1 ? "commit" : "commits"} and options`}>
-        <label className="flex items-start gap-3 rounded-md border p-3 font-normal normal-case">
-          <input type="checkbox" className="mt-1" checked={preserveMerges} disabled={busy} onChange={(event) => onPreserveMergesChange(event.target.checked)} />
+        <label className="choice-card">
+          <input type="checkbox" checked={preserveMerges} disabled={busy} onChange={(event) => onPreserveMergesChange(event.target.checked)} />
           <span>
-            <span className="block text-sm font-medium normal-case">Keep merge commits</span>
-            <span className="block text-xs font-normal normal-case text-muted-foreground">Keep the branch’s existing merge structure.</span>
+            <strong>Keep merge commits</strong>
+            <small>Keep the branch’s existing merge structure.</small>
           </span>
         </label>
         {preview.warnings.length > 0 ? (
           <div className="grid gap-2">
             <Label>Notes</Label>
-            <ul className="grid gap-2 rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
+            <ul className="grid gap-2 rounded-md border bg-muted p-3 text-xs text-muted-foreground">
               {preview.warnings.map((warning) => <li key={warning} className="flex items-start gap-2"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" /><span>{warning}</span></li>)}
             </ul>
           </div>
@@ -324,7 +327,7 @@ function RebasePreview({
 
 function IntegrationSummaryCard({ headline, explanation, outcome, meta }: { headline: string; explanation: string; outcome: string; meta: string | null }): ReactNode {
   return (
-    <div className="rounded-md border bg-muted/20 p-4">
+    <div className="rounded-lg border bg-surface p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="font-medium leading-snug">{headline}</p>

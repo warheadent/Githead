@@ -166,7 +166,7 @@ export function PerformanceDiagnosticsDialog({
               />
             </div>
 
-            {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+            {error ? <p role="alert" className="dialog-error">{error}</p> : null}
             {!error && loading ? <p className="text-sm text-muted-foreground">Githead loads diagnostics.</p> : null}
 
             {snapshot ? (
@@ -176,10 +176,10 @@ export function PerformanceDiagnosticsDialog({
                   description="The table groups bounded command samples by command type."
                 >
                   {commandSummaries.length > 0 ? (
-                    <div className="overflow-x-auto rounded-md border">
+                    <div className="overflow-x-auto rounded-lg border bg-surface">
                       <table className="w-full min-w-[680px] text-left text-sm">
                         <caption className="sr-only">Command performance summary</caption>
-                        <thead className="border-b bg-muted/40 text-xs text-muted-foreground">
+                        <thead className="border-b">
                           <tr>
                             <TableHeading>Type</TableHeading>
                             <TableHeading align="right">Runs</TableHeading>
@@ -213,10 +213,10 @@ export function PerformanceDiagnosticsDialog({
                   description="The table groups refresh requests and merged requests by refresh type."
                 >
                   {refreshSummaries.length > 0 ? (
-                    <div className="overflow-x-auto rounded-md border">
+                    <div className="overflow-x-auto rounded-lg border bg-surface">
                       <table className="w-full min-w-[480px] text-left text-sm">
                         <caption className="sr-only">Refresh performance summary</caption>
-                        <thead className="border-b bg-muted/40 text-xs text-muted-foreground">
+                        <thead className="border-b">
                           <tr>
                             <TableHeading>Type</TableHeading>
                             <TableHeading align="right">Requests</TableHeading>
@@ -244,10 +244,10 @@ export function PerformanceDiagnosticsDialog({
                   description="The table shows the current Electron process metrics."
                 >
                   {snapshot.processMetricsStatus === "available" && processMetrics.length > 0 ? (
-                    <div className="overflow-x-auto rounded-md border">
+                    <div className="overflow-x-auto rounded-lg border bg-surface">
                       <table className="w-full min-w-[680px] text-left text-sm">
                         <caption className="sr-only">Electron process performance summary</caption>
-                        <thead className="border-b bg-muted/40 text-xs text-muted-foreground">
+                        <thead className="border-b">
                           <tr>
                             <TableHeading>Type</TableHeading>
                             <TableHeading align="right">CPU</TableHeading>
@@ -302,9 +302,9 @@ export function PerformanceDiagnosticsDialog({
 
 function SummaryCard({ label, value }: { label: string; value: string }): ReactNode {
   return (
-    <div className="rounded-lg border bg-card p-3">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 text-sm font-semibold tabular-nums">{value}</p>
+    <div className="min-w-0 rounded-lg border bg-surface px-3.5 py-3">
+      <p className="eyebrow">{label}</p>
+      <p className="mt-1 truncate text-title tabular-nums">{value}</p>
     </div>
   );
 }
@@ -334,7 +334,7 @@ function EmptySummary({ children }: { children: ReactNode }): ReactNode {
 }
 
 function TableHeading({ children, align = "left" }: { children: ReactNode; align?: "left" | "right" }): ReactNode {
-  return <th scope="col" className={`px-3 py-2 font-medium ${align === "right" ? "text-right" : "text-left"}`}>{children}</th>;
+  return <th scope="col" className={`eyebrow h-8 px-3 ${align === "right" ? "text-right" : "text-left"}`}>{children}</th>;
 }
 
 function TableCell({ children, align = "left" }: { children: ReactNode; align?: "left" | "right" }): ReactNode {

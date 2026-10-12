@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, GitCommitHorizontal, Loader2, RotateCcw } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleAlert, GitCommitHorizontal, Info, Loader2, RotateCcw } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -187,17 +187,20 @@ export function AmendDialog({
             </div>
           ) : result?.outcome === "completed" ? (
             <div className="grid gap-4" role="status" aria-live="polite">
-              <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-4">
-                <p className="font-medium"><CheckCircle2 className="mr-2 inline size-4" />{result.message}</p>
-                <dl className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
-                  <dt className="text-muted-foreground">Old commit</dt><dd><code>{result.previousHeadOid?.slice(0, 12)}</code></dd>
-                  <dt className="text-muted-foreground">Current commit</dt><dd><code>{result.headOid?.slice(0, 12)}</code></dd>
-                  <dt className="text-muted-foreground">Recovery</dt><dd className="truncate"><code>{shortRecoveryRef(result.recoveryRef)}</code></dd>
-                </dl>
+              <div className="dialog-notice" data-tone="success">
+                <CheckCircle2 aria-hidden="true" />
+                <div className="min-w-0">
+                  <p className="dialog-notice-title">{result.message}</p>
+                  <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
+                    <dt className="text-muted-foreground">Old commit</dt><dd><code>{result.previousHeadOid?.slice(0, 12)}</code></dd>
+                    <dt className="text-muted-foreground">Current commit</dt><dd><code>{result.headOid?.slice(0, 12)}</code></dd>
+                    <dt className="text-muted-foreground">Recovery</dt><dd className="truncate"><code>{shortRecoveryRef(result.recoveryRef)}</code></dd>
+                  </dl>
+                </div>
               </div>
               {"viewRefreshWarning" in result && result.viewRefreshWarning ? (
-                <p className="rounded-md border border-amber-500/45 bg-amber-500/10 p-3 text-sm" role="alert">
-                  <AlertTriangle className="mr-2 inline size-4" />{result.viewRefreshWarning}
+                <p className="dialog-notice" data-tone="warning" role="alert">
+                  <AlertTriangle aria-hidden="true" /><span>{result.viewRefreshWarning}</span>
                 </p>
               ) : null}
               {successRecovery ? (
@@ -260,7 +263,7 @@ export function AmendDialog({
                   <p className="text-sm font-medium">Staged files that can be added</p>
                   <Badge variant="outline">{preview.stagedFiles.length}</Badge>
                 </div>
-                <div className="max-h-32 overflow-auto rounded-md border">
+                <div className="max-h-32 overflow-auto rounded-md border bg-surface">
                   {preview.stagedFiles.length === 0 ? (
                     <p className="p-3 text-sm text-muted-foreground">No staged files.</p>
                   ) : (
@@ -287,19 +290,24 @@ export function AmendDialog({
           ) : null}
 
           {restoreTarget ? (
-            <div className="mt-4 grid gap-3 rounded-md border border-amber-500/45 bg-amber-500/10 p-4" role="alertdialog" aria-label="Confirm amend recovery restore">
-              <p className="font-medium">Restore {restoreTarget.shortOid} as HEAD?</p>
-              <p className="text-sm">Githead will use a soft reset. It will keep the index and working files. Changes from newer commits may become staged. Githead will not use a hard reset.</p>
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" disabled={busy} onClick={() => setRestoreTarget(null)}>Keep current commit</Button>
-                <Button type="button" variant="destructive" disabled={busy} onClick={() => { void restore(); }}>
-                  {busy ? <Loader2 className="animate-spin" /> : <RotateCcw />}Restore old commit
-                </Button>
+            <div className="dialog-notice mt-4" data-tone="warning" role="alertdialog" aria-label="Confirm amend recovery restore">
+              <AlertTriangle aria-hidden="true" />
+              <div className="grid gap-3">
+                <div>
+                  <p className="dialog-notice-title">Restore {restoreTarget.shortOid} as HEAD?</p>
+                  <p className="mt-1">Githead will use a soft reset. It will keep the index and working files. Changes from newer commits may become staged. Githead will not use a hard reset.</p>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="outline" disabled={busy} onClick={() => setRestoreTarget(null)}>Keep current commit</Button>
+                  <Button type="button" variant="destructive" disabled={busy} onClick={() => { void restore(); }}>
+                    {busy ? <Loader2 className="animate-spin" /> : <RotateCcw />}Restore old commit
+                  </Button>
+                </div>
               </div>
             </div>
           ) : null}
 
-          {error ? <p className="mt-4 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive" role="alert">{error}</p> : null}
+          {error ? <p className="dialog-notice mt-4" data-tone="danger" role="alert"><CircleAlert aria-hidden="true" /><span>{error}</span></p> : null}
         </div>
 
         <DialogFooter>
@@ -320,7 +328,7 @@ export function AmendDialog({
 
 function CommitFacts({ preview }: { preview: GitAmendPreview }): ReactNode {
   return (
-    <div className="rounded-md border p-4">
+    <div className="rounded-lg border bg-surface p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate font-medium">{preview.subject || "Untitled commit"}</p>
@@ -341,20 +349,23 @@ function CommitFacts({ preview }: { preview: GitAmendPreview }): ReactNode {
 function PublicationNotice({ preview }: { preview: GitAmendPreview }): ReactNode {
   if (preview.publication === "published") {
     return (
-      <div className="rounded-md border border-destructive/50 bg-destructive/10 p-4" role="alert">
-        <p className="font-medium"><AlertTriangle className="mr-2 inline size-4" />Published history</p>
-        <p className="mt-1 text-sm">Amending this commit rewrites published history. Pushing it again may require Force with Lease.</p>
-        {preview.publishedRefs.length > 0 ? <p className="mt-2 text-xs text-muted-foreground">Fetched remote refs: {preview.publishedRefs.join(", ")}</p> : null}
+      <div className="dialog-notice" data-tone="danger" role="alert">
+        <AlertTriangle aria-hidden="true" />
+        <div className="min-w-0">
+          <p className="dialog-notice-title">Published history</p>
+          <p className="mt-1">Amending this commit rewrites published history. Pushing it again may require Force with Lease.</p>
+          {preview.publishedRefs.length > 0 ? <p className="mt-2 text-xs text-muted-foreground">Fetched remote refs: {preview.publishedRefs.join(", ")}</p> : null}
+        </div>
       </div>
     );
   }
   if (preview.publication === "local-ahead") {
-    return <p className="rounded-md border border-sky-500/40 bg-sky-500/10 p-3 text-sm" role="status">This commit appears local and ahead of {preview.upstream}. Amend will not push it.</p>;
+    return <p className="dialog-notice" data-tone="info" role="status"><Info aria-hidden="true" /><span>This commit appears local and ahead of {preview.upstream}. Amend will not push it.</span></p>;
   }
   if (!preview.currentBranch) {
-    return <p className="rounded-md border border-amber-500/45 bg-amber-500/10 p-3 text-sm" role="status"><AlertTriangle className="mr-2 inline size-4" />HEAD is detached. Amend replaces the detached commit and does not move a branch.</p>;
+    return <p className="dialog-notice" data-tone="warning" role="status"><AlertTriangle aria-hidden="true" /><span>HEAD is detached. Amend replaces the detached commit and does not move a branch.</span></p>;
   }
-  return <p className="rounded-md border p-3 text-sm text-muted-foreground" role="status">This commit does not appear in a fetched remote ref. Amend will not push it.</p>;
+  return <p className="dialog-notice" data-tone="neutral" role="status"><Info aria-hidden="true" /><span>This commit does not appear in a fetched remote ref. Amend will not push it.</span></p>;
 }
 
 function ModeOption({
@@ -373,19 +384,18 @@ function ModeOption({
   onChange: (mode: GitAmendMode) => void;
 }): ReactNode {
   return (
-    <label className="flex items-start gap-3 rounded-md border p-3 has-checked:border-primary has-checked:bg-primary/5">
+    <label className="choice-card">
       <input
         type="radio"
         name="amend-mode"
         value={mode}
         checked={selected === mode}
         disabled={disabled}
-        className="mt-1"
         onChange={() => onChange(mode)}
       />
       <span>
-        <span className="block text-sm font-medium">{title}</span>
-        <span className="mt-0.5 block text-xs text-muted-foreground">{detail}</span>
+        <strong>{title}</strong>
+        <small>{detail}</small>
       </span>
     </label>
   );
@@ -393,7 +403,7 @@ function ModeOption({
 
 function RecoveryCard({ point, onRestore }: { point: GitAmendRecoveryPoint; onRestore: () => void }): ReactNode {
   return (
-    <div className="flex items-center gap-3 rounded-md border p-3">
+    <div className="flex items-center gap-3 rounded-lg border bg-surface p-3">
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{point.subject || "Untitled commit"}</p>
         <p className="mt-1 text-xs text-muted-foreground"><code>{point.shortOid}</code> · {formatDate(point.commitDate)}</p>

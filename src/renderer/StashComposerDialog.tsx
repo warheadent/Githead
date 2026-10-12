@@ -1,6 +1,6 @@
 import { Archive, Loader2, Sparkles } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Button } from "@/components/ui/button";
+import { Button, TooltipButton } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -118,9 +118,9 @@ export function StashComposerDialog({
               <Label htmlFor="stash-message">Message</Label>
               <div className="flex gap-2">
                 <Input ref={messageInputRef} id="stash-message" value={message} placeholder="Describe these changes" onChange={(event) => setMessage(event.target.value)} disabled={disabled || submitting || generating} />
-                <Button type="button" variant="outline" size="icon" aria-label="Generate stash message" title={generateTitle} disabled={disabled || submitting || generating || !canGenerateMessage} onClick={() => { void generateMessage(); }}>
+                <TooltipButton type="button" variant="outline" size="icon" aria-label="Generate stash message" tooltip={generateTitle} disabled={disabled || submitting || generating || !canGenerateMessage} onClick={() => { void generateMessage(); }}>
                   {generating ? <Loader2 className="animate-spin" /> : <Sparkles />}
-                </Button>
+                </TooltipButton>
               </div>
             </div>
 
@@ -150,11 +150,11 @@ export function StashComposerDialog({
             <fieldset className="grid gap-2">
               <legend className="text-sm font-medium">Options</legend>
               <div className="stash-options-grid">
-                <label className={`stash-option ${scope === "staged" ? "is-disabled" : ""}`}>
+                <label className="choice-card">
                   <input type="checkbox" checked={scope !== "staged" && includeUntracked} disabled={disabled || submitting || scope === "staged"} onChange={(event) => setIncludeUntracked(event.target.checked)} />
                   <span><strong>Include untracked files</strong><small>Save files that Git does not track.</small></span>
                 </label>
-                <label className={`stash-option ${scope === "staged" ? "is-disabled" : ""}`}>
+                <label className="choice-card">
                   <input type="checkbox" checked={scope !== "staged" && keepIndex} disabled={disabled || submitting || scope === "staged"} onChange={(event) => setKeepIndex(event.target.checked)} />
                   <span><strong>Keep staged changes</strong><small>Leave staged changes in the working tree.</small></span>
                 </label>
@@ -162,7 +162,7 @@ export function StashComposerDialog({
             </fieldset>
 
             <p className="text-xs text-muted-foreground">Ignored files always stay in the working tree.</p>
-            {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
+            {error ? <p className="dialog-error" role="alert">{error}</p> : null}
           </div>
 
           <footer className="stash-composer-footer">
@@ -186,7 +186,7 @@ function StashScopeChoice({ checked, label, description, disabled, onChange }: {
   onChange: () => void;
 }): ReactNode {
   return (
-    <label className={`stash-scope-choice ${disabled ? "is-disabled" : ""}`}>
+    <label className="choice-card">
       <input type="radio" name="stash-scope" checked={checked} disabled={disabled} onChange={onChange} />
       <span><strong>{label}</strong><small>{description}</small></span>
     </label>

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { Download, FolderOpen, GitBranch as GitBranchIcon, GitFork, Loader2, Trash2 } from "lucide-react";
+import { CircleAlert, Download, FolderOpen, GitBranch as GitBranchIcon, GitFork, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Segmented } from "@/components/ui/segmented";
 import { getRepoPathKey } from "./repositorySnapshotCache";
 import { ReferencePicker } from "./ReferencePicker";
 import type { GitBranch, GitRemoteBranch, GitWorktree, GitWorktreeCreateDraft, GitWorktreeRemovalCheck, RepositoryGroup } from "../shared/types";
@@ -103,10 +104,20 @@ export function WorktreeCreateDialog({ open, group, branches, remoteBranches, bu
         </DialogHeader>
         <form className="flex min-h-0 flex-col gap-5" onSubmit={(event) => { void submit(event); }}>
           <div className="grid min-h-0 gap-4 overflow-y-auto">
-            <div className="grid grid-cols-2 gap-2" role="group" aria-label="Worktree branch mode">
-              <Button type="button" variant={mode === "new-branch" ? "secondary" : "outline"} aria-pressed={mode === "new-branch"} disabled={saving || busy} onClick={() => { setMode("new-branch"); setBranchName(""); setDestinationEdited(false); }}>New branch</Button>
-              <Button type="button" variant={mode === "existing-branch" ? "secondary" : "outline"} aria-pressed={mode === "existing-branch"} disabled={saving || busy} onClick={() => { setMode("existing-branch"); setBranchName(existingBranches[0]?.name ?? ""); setDestinationEdited(false); }}>Existing branch</Button>
-            </div>
+            <Segmented
+              label="Worktree branch mode"
+              className="grid w-full grid-cols-2"
+              value={mode}
+              options={[
+                { value: "new-branch", label: "New branch", disabled: saving || busy },
+                { value: "existing-branch", label: "Existing branch", disabled: saving || busy }
+              ]}
+              onChange={(nextMode) => {
+                setMode(nextMode);
+                setBranchName(nextMode === "existing-branch" ? existingBranches[0]?.name ?? "" : "");
+                setDestinationEdited(false);
+              }}
+            />
             <div className="grid gap-2">
               <Label htmlFor="worktree-branch">Branch</Label>
               {mode === "existing-branch" ? (
@@ -149,17 +160,20 @@ export function WorktreeCreateDialog({ open, group, branches, remoteBranches, bu
               <div className="flex gap-2"><Input id="worktree-destination" value={destinationPath} onChange={(event) => { setDestinationPath(event.target.value); setDestinationEdited(true); }} disabled={saving || busy} /><Button type="button" variant="outline" size="icon" onClick={() => { void chooseParent(); }} disabled={saving || busy} aria-label="Choose worktree parent"><FolderOpen /></Button></div>
             </div>
             <p className="text-xs text-muted-foreground">Githead opens the new worktree when creation is complete.</p>
-            {active ? <div className="grid gap-2 rounded-lg border bg-muted/40 p-4" role="status" aria-live="polite">
+            {active ? <div className="dialog-notice" data-tone="neutral" role="status" aria-live="polite">
               <p className="flex items-center gap-2 text-sm font-medium"><Loader2 className="size-4 animate-spin motion-reduce:animate-none" />{cancelling ? "Cancelling worktree creation..." : "Creating worktree..."}</p>
               <p className="break-words text-sm text-muted-foreground">{cancelling ? "Waiting for Git to stop. Keep this dialog open." : progress || "Preparing the branch and checking out files."}</p>
               {!cancelling ? <p className="text-xs text-muted-foreground">Large repositories can take several minutes. You can cancel at any time.</p> : null}
             </div> : null}
-            {error && !active ? <div className="grid gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-4" role="alert">
-              <p className="text-sm font-medium">{error.includes("Worktree creation was cancelled.") ? "Worktree creation cancelled" : "Unable to create worktree"}</p>
-              <p className="max-h-24 overflow-y-auto break-words text-sm text-muted-foreground">{summarizeWorktreeError(error)}</p>
-              <details className="min-w-0 text-xs"><summary className="cursor-pointer text-muted-foreground">Show details</summary><pre className="mt-2 max-h-36 select-text overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3">{error.slice(-16_384)}</pre></details>
+            {error && !active ? <div className="dialog-notice" data-tone="danger" role="alert">
+              <CircleAlert aria-hidden="true" />
+              <div className="grid min-w-0 gap-2">
+                <p className="dialog-notice-title">{error.includes("Worktree creation was cancelled.") ? "Worktree creation cancelled" : "Unable to create worktree"}</p>
+                <p className="max-h-24 overflow-y-auto break-words text-muted-foreground">{summarizeWorktreeError(error)}</p>
+                <details className="min-w-0 text-xs"><summary className="cursor-pointer text-muted-foreground">Show details</summary><pre className="dialog-code-block mt-2 max-h-36 overflow-auto whitespace-pre-wrap">{error.slice(-16_384)}</pre></details>
+              </div>
             </div> : null}
-            {cancelError ? <p className="text-sm text-destructive" role="alert">{cancelError}</p> : null}
+            {cancelError ? <p className="dialog-error" role="alert">{cancelError}</p> : null}
           </div>
           <DialogFooter className="shrink-0 border-t pt-4"><Button type="button" variant="outline" disabled={cancelling} onClick={() => { if (active) onCancel(); else onOpenChange(false); }}>{cancelling ? "Cancelling..." : active ? "Cancel operation" : "Cancel"}</Button><Button type="submit" disabled={active || !effectiveBranch || !destinationPath.trim()}>{active ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : <GitFork />}{active ? "Creating Worktree..." : "Create Worktree"}</Button></DialogFooter>
         </form>
@@ -199,7 +213,7 @@ export function WorktreeRemoveDialog({ target, check, checking, busy, onClose, o
   const forceRemovalArmed = secondsRemaining === 0;
   const canRemove = Boolean(check?.canRemove || (check?.canForceRemove && forceRemovalArmed));
   const removeLabel = check?.canForceRemove && !forceRemovalArmed ? `Remove Worktree (${secondsRemaining})` : "Remove Worktree";
-  return <Dialog open={Boolean(target)} onOpenChange={(open) => { if (!open) onClose(); }}><DialogContent aria-busy={busy}><DialogHeader><DialogTitle>Remove worktree?</DialogTitle><DialogDescription>This deletes the worktree folder from your computer. Its branch and committed changes remain in the repository.</DialogDescription></DialogHeader><div className="rounded-md border p-3"><p className="font-medium">{target?.branch ?? "Detached worktree"}</p><p className="break-all text-sm text-muted-foreground">{target?.path}</p></div>{checking ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Checking worktree…</p> : check?.reason ? <div className="grid gap-1 text-sm text-destructive" role="alert"><p>{check.reason}</p>{check.canForceRemove && forceRemovalArmed ? <p>Removing it will permanently discard those files.</p> : null}</div> : <p className="text-sm text-muted-foreground">This worktree is clean and can be removed safely.</p>}<DialogFooter><Button type="button" variant="outline" onClick={onClose}>{busy ? "Cancel operation" : "Cancel"}</Button><Button type="button" variant="destructive" onClick={onRemove} disabled={busy || checking || !canRemove}>{busy ? <Loader2 className="animate-spin" /> : <Trash2 />}{removeLabel}</Button></DialogFooter></DialogContent></Dialog>;
+  return <Dialog open={Boolean(target)} onOpenChange={(open) => { if (!open) onClose(); }}><DialogContent aria-busy={busy}><DialogHeader><DialogTitle>Remove worktree?</DialogTitle><DialogDescription>This deletes the worktree folder from your computer. Its branch and committed changes remain in the repository.</DialogDescription></DialogHeader><div className="grid gap-1 rounded-lg border bg-surface p-3"><p className="font-medium">{target?.branch ?? "Detached worktree"}</p><p className="selectable-text break-all font-mono text-xs text-muted-foreground">{target?.path}</p></div>{checking ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Checking worktree…</p> : check?.reason ? <div className="dialog-notice" data-tone="danger" role="alert"><CircleAlert aria-hidden="true" /><div className="grid gap-1"><p>{check.reason}</p>{check.canForceRemove && forceRemovalArmed ? <p>Removing it will permanently discard those files.</p> : null}</div></div> : <p className="text-sm text-muted-foreground">This worktree is clean and can be removed safely.</p>}<DialogFooter><Button type="button" variant="outline" onClick={onClose}>{busy ? "Cancel operation" : "Cancel"}</Button><Button type="button" variant="destructive" onClick={onRemove} disabled={busy || checking || !canRemove}>{busy ? <Loader2 className="animate-spin" /> : <Trash2 />}{removeLabel}</Button></DialogFooter></DialogContent></Dialog>;
 }
 
 function suggestWorktreePath(mainPath: string, branchName: string): string {

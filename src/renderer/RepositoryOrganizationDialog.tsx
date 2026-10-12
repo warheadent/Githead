@@ -104,13 +104,13 @@ export function RepositoryAliasDialog({
           if (onSave(name.trim())) onClose();
           else setError("Unable to save repository name. Try again.");
         }}>
-          <p className="break-all font-mono text-xs text-muted-foreground">{path}</p>
+          <p className="dialog-code-block">{path}</p>
           <div className="grid gap-2">
             <Label htmlFor={id}>Display name</Label>
             <Input id={id} value={name} maxLength={120} placeholder={repositoryName(path)}
               onChange={(event) => setName(event.target.value)} />
           </div>
-          {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+          {error ? <p role="alert" className="dialog-error">{error}</p> : null}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
             <Button type="submit">Save name</Button>
@@ -538,7 +538,7 @@ export function RepositoryOrganizationDialog({
                           <td>
                             <select
                               aria-label={`Group for ${path}`}
-                              className="repository-project-select"
+                              className="form-select"
                               value={preference.projectId}
                               onChange={(event) =>
                                 setPreferences([path], { projectId: event.target.value })
@@ -614,7 +614,7 @@ export function RepositoryOrganizationDialog({
             <p>{hasChanges ? "Unsaved changes" : "No unsaved changes"}</p>
             {notice ? <p className="mt-1">{notice}</p> : null}
             {error ? (
-              <p role="alert" className="mt-1 text-destructive">
+              <p role="alert" className="dialog-error mt-1">
                 {error}
               </p>
             ) : null}
@@ -687,7 +687,7 @@ export function RepositoryOrganizationDialog({
                   }
                 />
                 {editName && duplicateName ? (
-                  <p id={`${id}-name-error`} role="alert" className="text-sm text-destructive">
+                  <p id={`${id}-name-error`} role="alert" className="dialog-error">
                     A group with this name already exists.
                   </p>
                 ) : null}

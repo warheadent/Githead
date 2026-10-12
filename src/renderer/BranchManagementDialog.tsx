@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { TooltipTarget } from "@/components/ui/tooltip";
 import type { GitBranch, RepoCapabilities, VcsKind } from "../shared/types";
+import { EmptyState } from "./EmptyState";
 import { MotionPresence } from "./motion";
 
 type Action = { kind: "rename"; branchName: string } | { kind: "remove"; branchName: string };
@@ -88,20 +89,13 @@ export function BranchManagementDialog(props: BranchManagementDialogProps): Reac
         if (action && !busy) { event.preventDefault(); reset(); }
       }}
     >
-      <DialogHeader className="gap-4 border-b px-6 py-5 text-left">
-        <div className="flex items-start gap-3 pr-6">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-primary/15 bg-primary/10 text-primary">
-            <GitBranchIcon className="size-5" aria-hidden="true" />
-          </div>
-          <div className="grid min-w-0 gap-1.5">
-            <DialogTitle className="leading-6">Manage Branches</DialogTitle>
-            <DialogDescription className="text-pretty leading-5">{capabilities.renameBranches ? `Rename or ${removeVerb.toLocaleLowerCase()} local branches.` : `${removeVerb} local branches you no longer need.`}</DialogDescription>
-          </div>
-        </div>
+      <DialogHeader className="border-b px-6 py-5 pr-14">
+        <DialogTitle>Manage Branches</DialogTitle>
+        <DialogDescription className="text-pretty">{capabilities.renameBranches ? `Rename or ${removeVerb.toLocaleLowerCase()} local branches.` : `${removeVerb} local branches you no longer need.`}</DialogDescription>
         <TooltipTarget content={repoPath}>
-          <p className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+          <p className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
             <FolderGit2 className="size-3.5 shrink-0" aria-hidden="true" />
-            <span className="selectable-text truncate">{repoPath}</span>
+            <span className="selectable-text truncate font-mono">{repoPath}</span>
           </p>
         </TooltipTarget>
       </DialogHeader>
@@ -109,17 +103,17 @@ export function BranchManagementDialog(props: BranchManagementDialogProps): Reac
       <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3 px-6 py-5">
         {branches.length ? <div className="flex items-center gap-3">
           <div className="relative min-w-0 flex-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-            <Input aria-label="Search branches" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search branches" className="pl-9" autoFocus />
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+            <Input aria-label="Search branches" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search branches" className="pl-8" autoFocus />
           </div>
           <Badge variant="secondary" className="tabular-nums">{query.trim() ? `${visibleBranches.length} of ${branches.length}` : `${branches.length} ${branches.length === 1 ? "branch" : "branches"}`}</Badge>
         </div> : <span />}
-        <div className="min-h-0 overflow-y-auto rounded-lg border" role="list" aria-label="Local branches">
-          {!visibleBranches.length ? <div className="flex flex-col items-center gap-2 px-6 py-10 text-center">
-            <GitBranchIcon className="mb-1 size-6 text-muted-foreground" aria-hidden="true" />
-            <p className="text-sm font-medium">{branches.length ? "No matching branches" : "No local branches"}</p>
-            <p className="text-sm text-muted-foreground">{branches.length ? "Try a different search." : "Create a branch from the branch picker to see it here."}</p>
-          </div> : visibleBranches.map((branch) => <BranchRow
+        <div className="min-h-0 overflow-y-auto rounded-lg border bg-surface" role="list" aria-label="Local branches">
+          {!visibleBranches.length ? <EmptyState
+            icon={<GitBranchIcon />}
+            title={branches.length ? "No matching branches" : "No local branches"}
+            description={branches.length ? "Try a different search." : "Create a branch from the branch picker to see it here."}
+          /> : visibleBranches.map((branch) => <BranchRow
             key={branch.name}
             {...rowProps}
             branch={branch}
@@ -134,7 +128,7 @@ export function BranchManagementDialog(props: BranchManagementDialogProps): Reac
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-4 border-t bg-muted/20 px-6 py-4">
+      <div className="flex items-center justify-between gap-4 border-t px-6 py-4">
         <p className="flex items-start gap-2 text-xs leading-5 text-muted-foreground">
           <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
           <span>{archive ? "Archived branches are hidden from normal Lore branch lists." : "Only local branches change. Remote branches are kept."}</span>
@@ -178,7 +172,7 @@ function BranchRow({ branch, action, capabilities, busy, mutationBlocked, archiv
   }, [action]);
 
   if (action === "rename") {
-    return <form role="listitem" aria-label={`Rename ${branch.name}`} className="grid gap-2 border-b bg-muted/30 px-4 py-3 last:border-b-0" onSubmit={onSubmit}>
+    return <form role="listitem" aria-label={`Rename ${branch.name}`} className="grid gap-2 border-b bg-selected px-4 py-3 last:border-b-0" onSubmit={onSubmit}>
       <div className="flex items-center gap-2">
         <Pencil className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         <Input
@@ -197,12 +191,12 @@ function BranchRow({ branch, action, capabilities, busy, mutationBlocked, archiv
         <Button type="button" variant="ghost" size="sm" onClick={onCancel}>{cancelLabel}</Button>
         <Button type="submit" size="sm" disabled={busy || mutationBlocked}>{busy ? <Loader2 className="animate-spin" /> : null}Rename Branch</Button>
       </div>
-      {error ? <p id={errorId} className="selectable-text break-words pl-6 text-xs text-destructive" role="alert">{error}</p> : <p className="pl-6 text-xs text-muted-foreground">Renaming <span className="font-mono">{branch.name}</span>. Its remote branch is not changed.</p>}
+      {error ? <p id={errorId} className="dialog-error pl-6" role="alert">{error}</p> : <p className="pl-6 text-xs text-muted-foreground">Renaming <span className="font-mono">{branch.name}</span>. Its remote branch is not changed.</p>}
     </form>;
   }
 
-  return <div ref={rowRef} role="listitem" aria-label={branch.name} className={`border-b last:border-b-0 ${action === "remove" ? "bg-destructive/5" : ""}`}>
-    <div className="group flex min-h-14 items-center gap-3 px-4 py-2.5">
+  return <div ref={rowRef} role="listitem" aria-label={branch.name} className={`border-b last:border-b-0 ${action === "remove" ? "bg-selected" : ""}`}>
+    <div className="group flex min-h-12 items-center gap-3 px-4 py-2">
       <GitBranchIcon className={`size-4 shrink-0 ${branch.current ? "text-primary" : "text-muted-foreground"}`} aria-hidden="true" />
       <div className="grid min-w-0 flex-1 gap-0.5">
         <div className="flex min-w-0 items-center gap-2">
@@ -219,18 +213,18 @@ function BranchRow({ branch, action, capabilities, busy, mutationBlocked, archiv
     </div>
     <MotionPresence present={action === "remove"} className="overflow-hidden" initialY={-2}>
       <form className="grid gap-3 px-4 pb-4 pl-11" onSubmit={onSubmit} aria-label={`${removeVerb} ${branch.name}`}>
-        <div className="flex items-start gap-2.5">
-          <TriangleAlert className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden="true" />
+        <div className="dialog-notice" data-tone="danger">
+          <TriangleAlert aria-hidden="true" />
           <div className="min-w-0">
-            <p className="text-sm font-medium">{removeVerb} this branch?</p>
+            <p className="dialog-notice-title">{removeVerb} this branch?</p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">{archive ? "The branch will be archived and hidden from normal Lore branch lists." : forceDelete ? "The local branch will be deleted even if it contains unmerged commits. This cannot be undone." : "Only the local branch is deleted. If it has unmerged commits, Git keeps it and nothing is lost."}</p>
           </div>
         </div>
-        {!archive ? <label className="flex items-start gap-2.5 text-sm">
-          <input type="checkbox" className="mt-0.5" checked={forceDelete} onChange={(event) => onForceDeleteChange(event.target.checked)} disabled={busy} />
-          <span><span className="font-medium">Force delete</span><span className="block text-xs leading-5 text-muted-foreground">Delete even when it has commits that haven’t been merged.</span></span>
+        {!archive ? <label className="choice-card" data-tone="danger">
+          <input type="checkbox" checked={forceDelete} onChange={(event) => onForceDeleteChange(event.target.checked)} disabled={busy} />
+          <span><strong>Force delete</strong><small>Delete even when it has commits that haven’t been merged.</small></span>
         </label> : null}
-        {error ? <p className="selectable-text break-words rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">{error}</p> : null}
+        {error ? <p className="dialog-error" role="alert">{error}</p> : null}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" size="sm" autoFocus onClick={onCancel}>{cancelLabel}</Button>
           <Button type="submit" variant="destructive" size="sm" disabled={busy || mutationBlocked}>{busy ? <Loader2 className="animate-spin" /> : null}{removeVerb} Branch</Button>

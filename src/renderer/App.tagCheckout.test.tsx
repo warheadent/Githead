@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vite-plus/test";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { App } from "./App";
 import { CheckoutTagDialog } from "./CheckoutTagDialog";
 import { createPullRecovery, createSummary, defer, flushRendererAsync, githead, repoPath, waitForRepositoryWorkspace } from "./AppTestHarness";
@@ -48,7 +49,7 @@ describe("tag checkout UI", () => {
   it("ignores an old tag response after changing the source", async () => {
     const old = defer<GitCheckoutTag[]>();
     vi.mocked(githead.getCheckoutTags).mockReturnValueOnce(old.promise).mockResolvedValueOnce([tag]);
-    render(<CheckoutTagDialog repoPath={repoPath} remotes={[{ name: "origin", url: "remote", direction: "fetch" }]} busy={false} onClose={vi.fn()} onCheckout={vi.fn()} />);
+    render(<CheckoutTagDialog repoPath={repoPath} remotes={[{ name: "origin", url: "remote", direction: "fetch" }]} busy={false} onClose={vi.fn()} onCheckout={vi.fn()} />, { wrapper: TooltipProvider });
     fireEvent.change(screen.getByLabelText("Tags from"), { target: { value: "origin" } });
     await waitFor(() => expect(screen.getByRole("button", { name: "Select tag" }).hasAttribute("disabled")).toBe(false));
     old.resolve([{ ...tag, name: "stale" }]);
@@ -60,7 +61,7 @@ describe("tag checkout UI", () => {
   it("submits a new branch name and keeps errors visible", async () => {
     vi.mocked(githead.getCheckoutTags).mockResolvedValue([tag]);
     const checkout = vi.fn().mockResolvedValue("Branch already exists.");
-    render(<CheckoutTagDialog repoPath={repoPath} remotes={[]} busy={false} onClose={vi.fn()} onCheckout={checkout} />);
+    render(<CheckoutTagDialog repoPath={repoPath} remotes={[]} busy={false} onClose={vi.fn()} onCheckout={checkout} />, { wrapper: TooltipProvider });
     await waitFor(() => expect(screen.getByRole("button", { name: "Select tag" }).hasAttribute("disabled")).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: "Select tag" }));
     fireEvent.click(screen.getByRole("option", { name: /v2/ }));
