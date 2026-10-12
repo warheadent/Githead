@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import {
   createCommit, createCommitDetails, createRunResult,
   createStatusFile, createSummary, createRepositoryOperationState, defer, githead,
-  repoPath, repositoryRecents, waitForRepositoryWorkspace
+  openSettings, repoPath, repositoryRecents, waitForRepositoryWorkspace
 } from "./AppTestHarness";
 import { App } from "./App";
 
@@ -91,7 +91,7 @@ describe("unrelated tasks during Git operations", { timeout: 20_000 }, () => {
   it("saves appearance preferences while fetch retains its progress and cancellation", async () => {
     const user = userEvent.setup();
     const fetch = await startFetch();
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "Appearance" }));
     await user.selectOptions(screen.getByLabelText("Interface font"), "roboto");
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -190,7 +190,9 @@ describe("unrelated tasks during Git operations", { timeout: 20_000 }, () => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ operationState: createRepositoryOperationState("merge") }));
     render(<App />);
     await screen.findByText("Finish this merge");
-    expect(screen.getByRole("button", { name: "Settings" }).hasAttribute("disabled")).toBe(false);
+    expect(await openSettings()).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "Settings" }), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull());
     expect(screen.getByRole("button", { name: `Reorder ${repoPath}` }).hasAttribute("disabled")).toBe(false);
   });
 });

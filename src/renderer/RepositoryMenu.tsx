@@ -1,4 +1,4 @@
-import { FolderOpen, Loader2, MapPinned, Settings, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, FolderOpen, Loader2, MapPinned, Settings, Trash2 } from "lucide-react";
 import { useCallback, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
@@ -32,7 +32,12 @@ export interface RepositoryMenuTarget {
   group?: RepositoryGroup;
   /** The worktree row that owns the menu. Its own path is used for every action. */
   worktree?: GitWorktree;
+  /** Adds "Move up" and "Move down" for a saved repository. Needs the onReorder option. */
+  reorder?: boolean;
 }
+
+export type RepositoryDropPosition = "before" | "after";
+export type RepositoryMoveDirection = "up" | "down";
 
 export type RenderRepositoryMenuItems = (path: string, target?: RepositoryMenuTarget) => ReactNode;
 
@@ -48,6 +53,13 @@ export interface RepositoryRowActionsOptions {
   onShowInExplorer: (repoPath: string) => void;
   onOpenRepositorySettings: (repoPath: string) => void;
   onRemoveWorktree?: (worktree: GitWorktree) => void;
+  /** Saves a new repository order. Required for the "Move up" and "Move down" items. */
+  onReorder?: (repoPaths: string[]) => void;
+  /**
+   * Runs before a menu action opens a dialog, a settings page or another window, so a surface that owns the menu,
+   * such as the quick switcher, can close first. Pin, hide and move keep that surface open.
+   */
+  onBeforeOpen?: () => void;
 }
 
 export interface RepositoryRowActions {
@@ -70,7 +82,9 @@ export function useRepositoryRowActions({
   onRecover,
   onShowInExplorer,
   onOpenRepositorySettings,
-  onRemoveWorktree
+  onRemoveWorktree,
+  onReorder,
+  onBeforeOpen
 }: RepositoryRowActionsOptions): RepositoryRowActions {
   const [organizerQuery, setOrganizerQuery] = useState<string | null>(null);
   const [renamePath, setRenamePath] = useState<string | null>(null);
@@ -96,15 +110,19 @@ export function useRepositoryRowActions({
     setOrganizerQuery(initialQuery);
   }, []);
 
-  const renderMenuItems = useCallback<RenderRepositoryMenuItems>((path, { group, worktree } = {}) => {
+  const renderMenuItems = useCallback<RenderRepositoryMenuItems>((path, { group, worktree, reorder = false } = {}) => {
+    const open = (action: () => void) => (): void => {
+      onBeforeOpen?.();
+      action();
+    };
     if (worktree) {
       const unavailable = worktree.isBare || worktree.prunable;
       const workspaceActive = isSamePath(worktree.path, activeRepoPath);
       return (
         <>
-          <ContextMenuItem disabled={unavailable} onSelect={() => onOpenRepositorySettings(worktree.path)}><Settings />Repository Settings…</ContextMenuItem>
-          <ContextMenuItem disabled={unavailable} onSelect={() => onShowInExplorer(worktree.path)}><MapPinned />Show in Explorer</ContextMenuItem>
-          {!worktree.isMain && !workspaceActive && onRemoveWorktree ? <ContextMenuItem disabled={disabled || unavailable || worktree.locked} onSelect={() => onRemoveWorktree(worktree)}><Trash2 />Remove Worktree…</ContextMenuItem> : null}
+          <ContextMenuItem disabled={unavailable} onSelect={open(() => onOpenRepositorySettings(worktree.path))}><Settings />Repository Settings…</ContextMenuItem>
+          <ContextMenuItem disabled={unavailable} onSelect={open(() => onShowInExplorer(worktree.path))}><MapPinned />Show in Explorer</ContextMenuItem>
+          {!worktree.isMain && !workspaceActive && onRemoveWorktree ? <ContextMenuItem disabled={disabled || unavailable || worktree.locked} onSelect={open(() => onRemoveWorktree(worktree))}><Trash2 />Remove Worktree…</ContextMenuItem> : null}
         </>
       );
     }
@@ -112,30 +130,55 @@ export function useRepositoryRowActions({
     const navigationWorktree = group?.worktrees.find((candidate) => isSamePath(candidate.path, group.lastUsedPath));
     const navigationUnavailable = Boolean(navigationWorktree?.isBare || navigationWorktree?.prunable);
     const settingsPath = group?.lastUsedPath ?? path;
+    const moveTargets = reorder && onReorder
+      ? {
+          up: getRepositoryMoveTarget(repoPaths, organization, path, "up"),
+          down: getRepositoryMoveTarget(repoPaths, organization, path, "down")
+        }
+      : null;
+    const move = (direction: RepositoryMoveDirection): void => {
+      const target = moveTargets?.[direction];
+      if (!target || !onReorder) return;
+      const next = moveRepoPath(repoPaths, path, target, direction === "up" ? "before" : "after");
+      if (next !== repoPaths) onReorder(next);
+    };
     return (
       <>
         <RepositoryOrganizationMenu
           preference={repositoryPreference(organization, path)}
           onChange={(patch) => { changePreference(path, patch); }}
-          onOrganize={() => setOrganizerQuery(path)}
-          onRename={() => setRenamePath(path)}
+          onOrganize={open(() => setOrganizerQuery(path))}
+          onRename={open(() => setRenamePath(path))}
         />
-        <ContextMenuItem disabled={navigationUnavailable} onSelect={() => onOpenRepositorySettings(settingsPath)}>
+        {moveTargets ? (
+          <>
+            <ContextMenuItem disabled={!moveTargets.up} onSelect={() => move("up")}>
+              <ArrowUp />
+              Move up
+            </ContextMenuItem>
+            <ContextMenuItem disabled={!moveTargets.down} onSelect={() => move("down")}>
+              <ArrowDown />
+              Move down
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+          </>
+        ) : null}
+        <ContextMenuItem disabled={navigationUnavailable} onSelect={open(() => onOpenRepositorySettings(settingsPath))}>
           <Settings />
           Repository Settings…
         </ContextMenuItem>
-        <ContextMenuItem disabled={navigationUnavailable} onSelect={() => onShowInExplorer(path)}>
+        <ContextMenuItem disabled={navigationUnavailable} onSelect={open(() => onShowInExplorer(path))}>
           <MapPinned />
           Show in Explorer
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem variant="destructive" onSelect={() => setRemoveTarget(path)}>
+        <ContextMenuItem variant="destructive" onSelect={open(() => setRemoveTarget(path))}>
           <Trash2 />
           Remove Repository
         </ContextMenuItem>
       </>
     );
-  }, [activeRepoPath, changePreference, disabled, onOpenRepositorySettings, onRemoveWorktree, onShowInExplorer, organization]);
+  }, [activeRepoPath, changePreference, disabled, onBeforeOpen, onOpenRepositorySettings, onRemoveWorktree, onReorder, onShowInExplorer, organization, repoPaths]);
 
   const dialogs = (
     <>
@@ -211,6 +254,49 @@ export function useRepositoryRowActions({
   );
 
   return { renderMenuItems, changePreference, openRemove, openRecovery, openOrganizer, dialogs };
+}
+
+/**
+ * The saved repository that a row moves past: the next one up or down among the repositories with the same pinned
+ * state, in saved order. A visible repository skips hidden ones, so a move always changes what the user sees.
+ */
+export function getRepositoryMoveTarget(
+  repoPaths: readonly string[],
+  organization: RepositoryOrganization,
+  path: string,
+  direction: RepositoryMoveDirection
+): string | null {
+  const preference = repositoryPreference(organization, path);
+  const peers = repoPaths.filter((candidate) => {
+    const candidatePreference = repositoryPreference(organization, candidate);
+    return candidatePreference.pinned === preference.pinned && (preference.hidden || !candidatePreference.hidden);
+  });
+  const index = peers.findIndex((candidate) => isSamePath(candidate, path));
+  if (index < 0) return null;
+  return peers[direction === "up" ? index - 1 : index + 1] ?? null;
+}
+
+/** Moves a saved repository before or after another one. Returns the same array when nothing moves. */
+export function moveRepoPath(repoPaths: string[], fromRepoPath: string, toRepoPath: string, position: RepositoryDropPosition): string[] {
+  const fromIndex = repoPaths.findIndex((repoPath) => isSamePath(repoPath, fromRepoPath));
+  const toIndex = repoPaths.findIndex((repoPath) => isSamePath(repoPath, toRepoPath));
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
+    return repoPaths;
+  }
+
+  const next = [...repoPaths];
+  const [moved] = next.splice(fromIndex, 1);
+  if (!moved) {
+    return repoPaths;
+  }
+
+  const adjustedToIndex = next.findIndex((repoPath) => isSamePath(repoPath, toRepoPath));
+  if (adjustedToIndex < 0) {
+    return repoPaths;
+  }
+
+  next.splice(position === "before" ? adjustedToIndex : adjustedToIndex + 1, 0, moved);
+  return next;
 }
 
 function isSamePath(left: string, right: string): boolean {

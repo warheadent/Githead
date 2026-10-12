@@ -18,6 +18,8 @@ import {
   flushRendererAsync,
   gitOutputCallback,
   githead,
+  openAddRepository,
+  openWorkspaceView,
   repoPath,
   repositoryRecents,
   updateStateCallback,
@@ -800,7 +802,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getStashFileDiff).mockResolvedValue(createTextDiff("src/cache.ts", "cached-change"));
 
     render(<App />);
-    await user.click(await screen.findByRole("tab", { name: "Stashes 1" }));
+    await openWorkspaceView("Stashes", user);
 
     expect(await screen.findByRole("option", { name: /cache cleanup/ })).toBeTruthy();
     expect(await screen.findByText("cached-change")).toBeTruthy();
@@ -1100,7 +1102,7 @@ describe("App", { timeout: 10_000 }, () => {
     });
 
     expect(screen.getByLabelText("Commit staged files").querySelector(".status-text")).toBeNull();
-    await user.click(screen.getByRole("tab", { name: /^Activity log/ }));
+    await openWorkspaceView("Activity log", user);
     expect(await screen.findByText("Output Available")).toBeTruthy();
     expect(screen.getByText(/create mode 100644 src\/renderer\/App\.tsx/)).toBeTruthy();
   });
@@ -1276,7 +1278,7 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => expect(within(commitPanel).getByRole("button", { name: /^Generate$/ })).toBeTruthy());
     expect(within(commitPanel).queryByRole("alert")).toBeNull();
 
-    await user.click(screen.getByRole("tab", { name: /^Activity log/ }));
+    await openWorkspaceView("Activity log", user);
     expect(screen.queryByText(/Operation was cancelled/)).toBeNull();
     expect(screen.queryByText(/Generating commit message exited with code/)).toBeNull();
   });
@@ -1561,7 +1563,7 @@ describe("App", { timeout: 10_000 }, () => {
     await flushRendererAsync();
     expect(githead.getCommitHistory).toHaveBeenCalledTimes(1);
 
-    await user.click(screen.getByRole("tab", { name: /^Activity log/ }));
+    await openWorkspaceView("Activity log", user);
     expect(screen.queryByText(/Operation was cancelled/)).toBeNull();
     expect(screen.queryByText(/Generating commit plan exited with code/)).toBeNull();
   });
@@ -1720,7 +1722,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await screen.findByRole("option", { name: /src\/trust\.ts/ });
-    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository(user);
     await user.click(await screen.findByRole("button", { name: "Open local folder…" }));
     await waitFor(() => expect(githead.chooseRepo).toHaveBeenCalledTimes(1));
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: trust A");
@@ -1818,7 +1820,7 @@ describe("App", { timeout: 10_000 }, () => {
     await screen.findByRole("option", { name: /src\/identity-a\.ts/ });
     await waitFor(() => expect(vi.mocked(githead.getGitIdentity).mock.calls.length).toBeGreaterThan(0));
     await flushRendererAsync();
-    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository(user);
     await user.click(await screen.findByRole("button", { name: "Open local folder…" }));
     await waitFor(() => expect(githead.chooseRepo).toHaveBeenCalledTimes(1));
     const identityCallsBeforeCommit = vi.mocked(githead.getGitIdentity).mock.calls.length;
@@ -2300,7 +2302,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await screen.findByRole("option", { name: /src\/a\.ts/ });
-    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository(user);
     await user.click(await screen.findByRole("button", { name: "Open local folder…" }));
     await waitFor(() => expect(githead.chooseRepo).toHaveBeenCalledTimes(1));
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: repository A");
@@ -2553,7 +2555,7 @@ describe("App", { timeout: 10_000 }, () => {
       timestamp: new Date().toISOString()
     });
 
-    await user.click(screen.getByRole("tab", { name: /^Activity log/ }));
+    await openWorkspaceView("Activity log", user);
     expect(screen.getByText(/fetch output/)).toBeTruthy();
 
     const clearButton = screen.getByRole("button", { name: /Clear Log/ }) as HTMLButtonElement;
@@ -2590,7 +2592,7 @@ describe("App", { timeout: 10_000 }, () => {
       timestamp: new Date().toISOString()
     });
 
-    await user.click(screen.getByRole("tab", { name: /^Activity log/ }));
+    await openWorkspaceView("Activity log", user);
 
     expect((await screen.findByRole("log")).textContent).toContain("colored output");
     expect(screen.queryByText(String.fromCharCode(0x1b))).toBeNull();
@@ -2612,7 +2614,7 @@ describe("App", { timeout: 10_000 }, () => {
       timestamp: new Date().toISOString()
     });
 
-    await user.click(screen.getByRole("tab", { name: /^Activity log/ }));
+    await openWorkspaceView("Activity log", user);
     await user.click(await screen.findByRole("button", { name: "Copy Raw" }));
 
     expect(githead.copyTextToClipboard).toHaveBeenCalledWith({
@@ -2635,7 +2637,7 @@ describe("App", { timeout: 10_000 }, () => {
       timestamp: new Date().toISOString()
     });
 
-    await user.click(screen.getByRole("tab", { name: /^Activity log/ }));
+    await openWorkspaceView("Activity log", user);
     const wrapButton = await screen.findByRole("button", { name: "Enable line wrap" });
     expect(wrapButton.getAttribute("aria-pressed")).toBe("false");
 
@@ -2659,7 +2661,7 @@ describe("App", { timeout: 10_000 }, () => {
       timestamp: new Date().toISOString()
     });
 
-    await user.click(screen.getByRole("tab", { name: /^Activity log/ }));
+    await openWorkspaceView("Activity log", user);
     const output = await screen.findByRole("log");
     Object.defineProperty(output, "scrollHeight", {
       configurable: true,

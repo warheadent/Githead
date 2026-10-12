@@ -10,6 +10,11 @@ import { OptionalFeatureBoundary } from "./OptionalFeatureBoundary";
 
 const BasicMarkdown = lazy(() => import("./BasicMarkdown.js").then((module) => ({ default: module.BasicMarkdown })));
 
+/** Asks before the restart that installs a downloaded update. */
+export function confirmAppUpdateInstall(): boolean {
+  return window.confirm("Restart Githead now to install the downloaded update?");
+}
+
 export function AppUpdateControl({
   state,
   onCheck,
@@ -51,7 +56,7 @@ export function AppUpdateControl({
       return;
     }
 
-    if (window.confirm("Restart Githead now to install the downloaded update?")) {
+    if (confirmAppUpdateInstall()) {
       onInstall();
     }
   };

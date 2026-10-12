@@ -72,6 +72,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
   type MouseEvent,
+  type ReactElement,
   type ReactNode
 } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -284,8 +285,25 @@ import {
 } from "./workspacePanelState";
 import { getAheadBehindCounts, getPrimaryCommitAction, getPullableCommitCount, getPushableCommitCount, hasStagedChanges, hasUnpushedCommits } from "./commitActions";
 import { buildConfiguredActionMenu, type ConfiguredActionMenuEntry, type ConfiguredActionRun } from "./configuredActionMenu";
-import { AppUpdateControl } from "./AppUpdateControl";
-import { useRepositoryRowActions, type RenderRepositoryMenuItems, type RepositoryRecoveryResult } from "./RepositoryMenu";
+import { AppUpdateControl, confirmAppUpdateInstall } from "./AppUpdateControl";
+import { QuickSwitcher } from "./QuickSwitcher";
+import { buildQuickSwitcherSections, type QuickSwitcherItem, type QuickSwitcherMode } from "./quickSwitcherItems";
+import { useAppShortcuts } from "./useAppShortcuts";
+import {
+  buildBranchItems,
+  buildUpstreamItems,
+  getBranchDisplayValue,
+  getUpstreamDisabledReason,
+  resolveBranchChoice
+} from "./branchOptions";
+import {
+  moveRepoPath,
+  useRepositoryRowActions,
+  type RenderRepositoryMenuItems,
+  type RepositoryDropPosition,
+  type RepositoryMoveDirection,
+  type RepositoryRecoveryResult
+} from "./RepositoryMenu";
 import { WindowControls } from "./WindowControls";
 import { formatRepoSyncStatusDescription, RecentRepositoryVcsIcon, RepoSyncStatusChips, SyncCountChip } from "./SyncCountChip";
 import {
@@ -7260,6 +7278,284 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
   const hasUnreadActivityLog = activityLogAttentionState !== "none";
   const hasUnviewedOperationError = activityLogAttentionState === "error";
 
+  const [quickSwitcherMode, setQuickSwitcherMode] = useState<QuickSwitcherMode | null>(null);
+  const [quickSwitcherQuery, setQuickSwitcherQuery] = useState("");
+  const [showHiddenRepositories, setShowHiddenRepositories] = useState(false);
+  const pendingSwitcherNavigationRef = useRef<"back" | "forward" | null>(null);
+  const navigationRef = useRef(navigation);
+  navigationRef.current = navigation;
+  const repositoryOrganization = useRepositoryOrganization();
+  const workspaceRoute = state.startupStatus === "ready" && Boolean(state.repoPath) && !state.showSetup
+    && state.gitExecutableStatus?.available !== false;
+  const quickSwitcherSearching = quickSwitcherQuery.trim().length > 0;
+
+  /** Opens the switcher in a mode, or changes the mode of the open switcher, with an empty query. */
+  const openQuickSwitcher = useCallback((mode: QuickSwitcherMode): void => {
+    setQuickSwitcherQuery("");
+    setQuickSwitcherMode(mode);
+  }, []);
+
+  const closeQuickSwitcher = useCallback((): void => {
+    setQuickSwitcherMode(null);
+    setQuickSwitcherQuery("");
+  }, []);
+
+  // Leaving the workspace (setup screen, Git missing) closes the switcher so it never reappears on return.
+  useEffect(() => {
+    if (!workspaceRoute) closeQuickSwitcher();
+  }, [closeQuickSwitcher, workspaceRoute]);
+
+  const removeRepositoryFromSwitcher = useCallback((repoPath: string): void => {
+    void removeRecentRepo(repoPath);
+  }, [removeRecentRepo]);
+  const showRepositoryInExplorerFromSwitcher = useCallback((repoPath: string): void => {
+    void showRecentRepositoryInExplorer(repoPath);
+  }, [showRecentRepositoryInExplorer]);
+  const removeWorktreeFromSwitcher = useCallback((worktree: GitWorktree): void => {
+    void openWorktreeRemoval(worktree);
+  }, [openWorktreeRemoval]);
+  const reorderRepositoriesFromSwitcher = useCallback((repoPaths: string[]): void => {
+    void reorderRepositories(repoPaths);
+  }, [reorderRepositories]);
+
+  // Row actions of the switcher's repository rows. Their dialogs mount beside the workspace dialogs, never inside the
+  // switcher, and every action that opens one closes the switcher first.
+  const switcherRepositoryActions = useRepositoryRowActions({
+    repoPaths: state.repoRecents,
+    activeRepoPath: state.repoPath,
+    disabled: running || repositoryOperationActive,
+    organization: repositoryOrganization,
+    onRemove: removeRepositoryFromSwitcher,
+    onRecover: recoverRecentRepo,
+    onShowInExplorer: showRepositoryInExplorerFromSwitcher,
+    onOpenRepositorySettings: setRepositorySettingsPath,
+    onRemoveWorktree: removeWorktreeFromSwitcher,
+    onReorder: reorderRepositoriesFromSwitcher,
+    onBeforeOpen: closeQuickSwitcher
+  });
+  const { renderMenuItems: renderSwitcherRepositoryMenuItems, openRecovery: openSwitcherRepositoryRecovery, openOrganizer: openSwitcherRepositoryOrganizer } = switcherRepositoryActions;
+
+  // Sections are built only while the switcher is open.
+  const quickSwitcherSections = useMemo(() => quickSwitcherMode ? buildQuickSwitcherSections(quickSwitcherMode, {
+    repoPath: state.repoPath,
+    repoRecents: state.repoRecents,
+    repositoryGroups: state.repositoryGroups,
+    organization: repositoryOrganization.organization,
+    repoSyncStatuses: state.repoSyncStatuses,
+    showHidden: showHiddenRepositories,
+    searching: quickSwitcherSearching,
+    running,
+    summary: state.summary,
+    stashCount: stashWorkspace.state.entries.length,
+    pullRequestCount: pullRequestTabCount,
+    issueCount: issueTabCount,
+    activityAttention: activityLogAttentionState,
+    activeView: state.activeView,
+    branchPullRequests: historyInsights.data.currentBranchPullRequests,
+    hasPullRequestData: historyInsights.loaded,
+    appUpdate: state.appUpdate,
+    canGoBack: navigation.canGoBack,
+    canGoForward: navigation.canGoForward
+  }) : null, [
+    activityLogAttentionState,
+    historyInsights.data.currentBranchPullRequests,
+    historyInsights.loaded,
+    issueTabCount,
+    navigation.canGoBack,
+    navigation.canGoForward,
+    pullRequestTabCount,
+    quickSwitcherMode,
+    quickSwitcherSearching,
+    repositoryOrganization.organization,
+    running,
+    showHiddenRepositories,
+    stashWorkspace.state.entries.length,
+    state.activeView,
+    state.appUpdate,
+    state.repoPath,
+    state.repoRecents,
+    state.repoSyncStatuses,
+    state.repositoryGroups,
+    state.summary
+  ]);
+
+  // useWorkspaceNavigation reverts history moves while a dialog is open, so Go back and Go forward wait until the
+  // switcher has unmounted.
+  useEffect(() => {
+    if (quickSwitcherMode !== null) return;
+    const direction = pendingSwitcherNavigationRef.current;
+    if (!direction) return;
+    pendingSwitcherNavigationRef.current = null;
+    if (direction === "back") navigationRef.current.back();
+    else navigationRef.current.forward();
+  }, [quickSwitcherMode]);
+
+  const runQuickSwitcherItem = useCallback((item: QuickSwitcherItem): void => {
+    if (item.disabled) return;
+    // These items change the switcher itself and keep it open.
+    if (item.kind === "notice") return;
+    if (item.kind === "toggle-hidden-repositories") {
+      setShowHiddenRepositories(item.payload.showHidden);
+      return;
+    }
+    if (item.kind === "branch-action" && item.payload.action === "change-upstream") {
+      openQuickSwitcher("upstream");
+      return;
+    }
+    if (item.kind === "upstream") {
+      // The switcher stays open so a failure shows in it, and closes once the upstream changed.
+      void setBranchUpstream(item.payload.upstream).then(() => {
+        if (!stateRef.current.upstreamError) setQuickSwitcherMode((mode) => mode === "upstream" ? null : mode);
+      });
+      return;
+    }
+
+    // Everything else closes the switcher before it opens a dialog, a view or another repository.
+    closeQuickSwitcher();
+    switch (item.kind) {
+      case "repository":
+        void selectRecentRepo(item.payload.path);
+        return;
+      case "repair":
+        openSwitcherRepositoryRecovery(item.payload.path, item.payload.reason);
+        return;
+      case "add-repository":
+        setClonePanelOpen(true);
+        return;
+      case "organize-repositories":
+        openSwitcherRepositoryOrganizer();
+        return;
+      case "branch": {
+        const choice = item.payload.choice;
+        if (choice?.kind === "switch") void switchBranch(choice.branchName);
+        else if (choice?.kind === "open-worktree") void selectRecentRepo(choice.worktreePath);
+        else if (choice?.kind === "checkout-remote") checkoutRemoteBranch(choice.remoteBranch);
+        return;
+      }
+      case "branch-action":
+        switch (item.payload.action) {
+          case "new-branch":
+            openBranchDialog();
+            return;
+          case "merge":
+            setIntegrationDialog({ kind: "merge" });
+            return;
+          case "rebase":
+            setIntegrationDialog({ kind: "rebase" });
+            return;
+          case "checkout-tag":
+            void openTagCheckout();
+            return;
+          case "add-worktree":
+            openWorktreeDialog();
+            return;
+          case "manage-branches":
+            openBranchManager();
+            return;
+          default:
+            return;
+        }
+      case "open-remote":
+        if (item.payload.url) openExternalUrl(item.payload.url);
+        return;
+      case "manage-remotes":
+        openRemoteManager();
+        return;
+      case "repository-action":
+        void runConfiguredAction(item.payload.action);
+        return;
+      case "view":
+        setWorkspaceView(item.payload.view);
+        return;
+      case "settings":
+        openSettingsDialog();
+        return;
+      case "open-pull-request":
+        openExternalUrl(item.payload.pullRequest.url);
+        return;
+      case "create-pull-request":
+        openCreatePrDialog();
+        return;
+      case "repository-settings":
+        setRepositorySettingsPath(item.payload.path);
+        return;
+      case "app-update":
+        if (item.payload.action === "check") void checkForAppUpdates();
+        else if (item.payload.action === "download") void downloadAppUpdate();
+        else if (confirmAppUpdateInstall()) void installAppUpdate();
+        return;
+      case "performance-diagnostics":
+        setPerformanceDiagnosticsOpen(true);
+        return;
+      case "navigate":
+        pendingSwitcherNavigationRef.current = item.payload.direction;
+        return;
+      case "manage-repository-actions":
+        openActionManager();
+        return;
+      case "push-to-branch":
+        openPushToBranchDialog();
+        return;
+      default:
+        return;
+    }
+  }, [
+    checkForAppUpdates,
+    checkoutRemoteBranch,
+    closeQuickSwitcher,
+    downloadAppUpdate,
+    installAppUpdate,
+    openActionManager,
+    openBranchDialog,
+    openBranchManager,
+    openCreatePrDialog,
+    openExternalUrl,
+    openPushToBranchDialog,
+    openQuickSwitcher,
+    openRemoteManager,
+    openSettingsDialog,
+    openSwitcherRepositoryOrganizer,
+    openSwitcherRepositoryRecovery,
+    openTagCheckout,
+    openWorktreeDialog,
+    runConfiguredAction,
+    selectRecentRepo,
+    setBranchUpstream,
+    setClonePanelOpen,
+    setWorkspaceView,
+    switchBranch
+  ]);
+
+  const renderQuickSwitcherContextMenu = useCallback((item: QuickSwitcherItem, row: ReactElement): ReactNode => {
+    if (item.kind !== "repository" && item.kind !== "repair") return row;
+    const { menuPath, group, worktree } = item.payload;
+    return (
+      <ContextMenu>
+        <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+        <ContextMenuContent className="w-72">
+          <ContextMenuLabel className="repo-recent-menu-path">{menuPath}</ContextMenuLabel>
+          <ContextMenuSeparator />
+          {renderSwitcherRepositoryMenuItems(menuPath, worktree
+            ? { ...(group ? { group } : {}), worktree }
+            : { ...(group ? { group } : {}), reorder: true })}
+        </ContextMenuContent>
+      </ContextMenu>
+    );
+  }, [renderSwitcherRepositoryMenuItems]);
+
+  useAppShortcuts(workspaceRoute, {
+    quickSwitcherOpen: quickSwitcherMode !== null,
+    workspaceValid: Boolean(state.summary?.isValid),
+    onToggleQuickSwitcher: () => {
+      if (quickSwitcherMode !== null) closeQuickSwitcher();
+      else openQuickSwitcher("all");
+    },
+    onCloseQuickSwitcher: closeQuickSwitcher,
+    onOpenSettings: () => openSettingsDialog(),
+    onNewBranch: openBranchDialog,
+    onAddRepository: () => setClonePanelOpen(true)
+  });
+
   const visualPreferences = state.settingsOpen ? state.settingsDraft : state.appSettings ?? defaultVisualPreferences;
   if (state.startupStatus === "loading") {
     return (
@@ -8074,6 +8370,21 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
           </ResizablePanel>
         </ResizablePanelGroup>
       </div>
+
+      {quickSwitcherMode && quickSwitcherSections ? (
+        <QuickSwitcher
+          mode={quickSwitcherMode}
+          sections={quickSwitcherSections}
+          query={quickSwitcherQuery}
+          onQueryChange={setQuickSwitcherQuery}
+          onSelect={runQuickSwitcherItem}
+          onClose={closeQuickSwitcher}
+          onModeChange={openQuickSwitcher}
+          renderItemContextMenu={renderQuickSwitcherContextMenu}
+          upstreamError={state.upstreamError}
+        />
+      ) : null}
+      {switcherRepositoryActions.dialogs}
 
       <GitIndexLockRecovery
         key={state.repoPath}
@@ -8969,9 +9280,6 @@ interface RecentRepositoryRowProps {
   onRecover: (repoPath: string, reason: string) => void;
 }
 
-type RepositoryDropPosition = "before" | "after";
-type RepositoryMoveDirection = "up" | "down";
-
 function RepositoryList({
   className = "repo-recents",
   disabled,
@@ -9771,7 +10079,9 @@ function RepositoryPanel({
             error={upstreamError}
             currentBranch={summary?.branch ?? null}
             remoteBranches={summary?.remoteBranches ?? []}
-            disabled={running || !summary?.isValid}
+            running={running}
+            operationState={summary?.operationState ?? null}
+            isValid={Boolean(summary?.isValid)}
             onChangeUpstream={onChangeUpstream}
           />
         ) : null}
@@ -9839,39 +10149,16 @@ function BranchFact({
   onMerge: () => void;
   onRebase: () => void;
 }): ReactNode {
-  const switchableBranches = branches.filter((branch) => !branch.current && branch.name !== currentBranch);
-  const activeBranch = branches.find((branch) => branch.current || branch.name === currentBranch) ?? null;
-  const localUpstreams = new Set(branches.flatMap((branch) => branch.upstream ? [branch.upstream] : []));
-  const checkoutableRemoteBranches = remoteBranches.filter((remoteBranch) => !localUpstreams.has(remoteBranch.name));
+  const branchItems = buildBranchItems({ repoPath, currentBranch, branches, remoteBranches });
   const activeBranchValue = currentBranch ? `local:${currentBranch}` : "";
-  const branchOptions: ReferencePickerOption[] = [
-    ...(activeBranch ? [{
-      value: `local:${activeBranch.name}`,
-      label: activeBranch.name,
-      detail: "current",
-      group: "Local branches",
-      icon: <GitBranchIcon />
-    }] : []),
-    ...switchableBranches.map((branch) => {
-      const occupiedElsewhere = Boolean(branch.worktreePath && !isSameRepoPath(branch.worktreePath, repoPath));
-      return {
-        value: `local:${branch.name}`,
-        label: branch.name,
-        ...(occupiedElsewhere
-          ? { detail: getRepoDisplayName(branch.worktreePath ?? "") }
-          : branch.upstream ? { detail: branch.upstream } : {}),
-        group: "Local branches",
-        icon: occupiedElsewhere ? <FolderOpen /> : <GitBranchIcon />
-      };
-    }),
-    ...checkoutableRemoteBranches.map((remoteBranch) => ({
-      value: `remote:${remoteBranch.name}`,
-      label: remoteBranch.branch,
-      detail: remoteBranch.remote,
-      group: "Remote branches",
-      icon: <Download />
-    }))
-  ];
+  const branchOptions: ReferencePickerOption[] = branchItems.map((item) => ({
+    value: item.value,
+    label: item.label,
+    ...(item.detail ? { detail: item.detail } : {}),
+    group: item.group,
+    icon: item.icon === "remote" ? <Download /> : item.icon === "worktree" ? <FolderOpen /> : <GitBranchIcon />
+  }));
+  const displayValue = getBranchDisplayValue(currentBranch, currentTag);
 
   return (
     <div className="repo-branch-fact">
@@ -9882,24 +10169,18 @@ function BranchFact({
           options={branchOptions}
           disabled={disabled}
           ariaLabel="Switch branch"
-          placeholder={currentBranch ?? (currentTag ? `Tag: ${currentTag}` : "Detached HEAD")}
-          displayValue={currentBranch ?? (currentTag ? `Tag: ${currentTag}` : "Detached HEAD")}
+          placeholder={displayValue}
+          displayValue={displayValue}
           searchPlaceholder="Search branches..."
           emptyMessage="No branches found."
           triggerIcon={!currentBranch && currentTag ? <Tag /> : <GitBranchIcon />}
           compact
           onValueChange={(value) => {
-            if (value.startsWith("local:")) {
-              const name = value.slice("local:".length);
-              const branch = branches.find((candidate) => candidate.name === name);
-              if (!branch || branch.name === currentBranch) return;
-              const occupiedElsewhere = Boolean(branch.worktreePath && !isSameRepoPath(branch.worktreePath, repoPath));
-              if (occupiedElsewhere && branch.worktreePath) onOpenWorktree(branch.worktreePath);
-              else onSwitchBranch(branch.name);
-              return;
-            }
-            const remoteBranch = remoteBranches.find((candidate) => `remote:${candidate.name}` === value);
-            if (remoteBranch) onCheckoutRemoteBranch(remoteBranch);
+            const item = branchItems.find((candidate) => candidate.value === value);
+            const choice = item ? resolveBranchChoice(item) : null;
+            if (choice?.kind === "switch") onSwitchBranch(choice.branchName);
+            else if (choice?.kind === "open-worktree") onOpenWorktree(choice.worktreePath);
+            else if (choice?.kind === "checkout-remote") onCheckoutRemoteBranch(choice.remoteBranch);
           }}
           actions={[
             ...(integrationEnabled ? [{ label: "Check out tag…", icon: <Tag />, onSelect: onCheckoutTag }] : []),
@@ -9936,48 +10217,39 @@ function UpstreamFact({
   error,
   currentBranch,
   remoteBranches,
-  disabled,
+  running,
+  operationState,
+  isValid,
   onChangeUpstream
 }: {
   upstream: string | null;
   error: string;
   currentBranch: string | null;
   remoteBranches: GitRemoteBranch[];
-  disabled: boolean;
+  running: boolean;
+  operationState: RepoSummary["operationState"];
+  isValid: boolean;
   onChangeUpstream: (upstream: string | null) => void;
 }): ReactNode {
-  const canChange = !disabled && Boolean(currentBranch) && (remoteBranches.length > 0 || Boolean(upstream));
-  const options: ReferencePickerOption[] = [
-    ...remoteBranches.map((remoteBranch) => ({
-      value: remoteBranch.name,
-      label: remoteBranch.name,
-      detail: remoteBranch.branch,
-      group: remoteBranch.remote,
-      icon: <GitBranchIcon />
-    })),
-    {
-      value: "",
-      label: "No upstream",
-      detail: upstream ? `Stop tracking ${upstream}` : "Do not track a remote branch",
-      group: "Tracking",
-      icon: <Minus />
-    }
-  ];
+  const disabledReason = getUpstreamDisabledReason({ currentBranch, upstream, remoteBranches, running, operationState, isValid });
+  const options: ReferencePickerOption[] = buildUpstreamItems(remoteBranches, upstream).map((option) => ({
+    value: option.value,
+    label: option.label,
+    detail: option.detail,
+    group: option.group,
+    icon: option.upstream === null ? <Minus /> : <GitBranchIcon />
+  }));
 
   return (
     <div className="repo-upstream-fact">
       <dt>Upstream</dt>
       <dd>
-        <TooltipTarget content={!canChange
-          ? !currentBranch
-            ? "Select a branch before changing its upstream"
-            : "Add a remote before setting an upstream"
-          : upstream}>
+        <TooltipTarget content={disabledReason ?? upstream}>
           <span className="min-w-0">
             <ReferencePicker
               value={upstream ?? ""}
               options={options}
-              disabled={!canChange}
+              disabled={disabledReason !== null}
               ariaLabel="Change upstream"
               placeholder="-"
               searchPlaceholder="Search remote branches..."
@@ -15126,28 +15398,6 @@ function createRepoSyncStatusFromSummary(summary: RepoSummary): RepoSyncStatus {
     behind: counts?.behind ?? 0,
     error: summary.isValid ? "" : summary.validationErrors.join(" ")
   };
-}
-
-function moveRepoPath(repoPaths: string[], fromRepoPath: string, toRepoPath: string, position: RepositoryDropPosition): string[] {
-  const fromIndex = repoPaths.findIndex((repoPath) => isSameRepoPath(repoPath, fromRepoPath));
-  const toIndex = repoPaths.findIndex((repoPath) => isSameRepoPath(repoPath, toRepoPath));
-  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
-    return repoPaths;
-  }
-
-  const next = [...repoPaths];
-  const [moved] = next.splice(fromIndex, 1);
-  if (!moved) {
-    return repoPaths;
-  }
-
-  const adjustedToIndex = next.findIndex((repoPath) => isSameRepoPath(repoPath, toRepoPath));
-  if (adjustedToIndex < 0) {
-    return repoPaths;
-  }
-
-  next.splice(position === "before" ? adjustedToIndex : adjustedToIndex + 1, 0, moved);
-  return next;
 }
 
 function getDropPosition(clientY: number, element: HTMLElement): RepositoryDropPosition {

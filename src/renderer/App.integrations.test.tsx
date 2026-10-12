@@ -23,6 +23,9 @@ import {
   flushRendererAsync,
   githead,
   gitOutputCallback,
+  openAddRepository,
+  openCreatePullRequest,
+  openWorkspaceView,
   repoPath,
   repositoryRecents,
   waitForRepositoryWorkspace,
@@ -50,7 +53,7 @@ describe("App", { timeout: 10_000 }, () => {
     setupPrFlow();
     const user = userEvent.setup();
     const view = render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Create PR" }));
+    await openCreatePullRequest(user);
     await waitFor(() => expect((screen.getByLabelText("Description") as HTMLTextAreaElement).value).toBe(prTemplate.body));
     const notes = `${prTemplate.body}\nManually checked on Linux.`;
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: notes } });
@@ -63,7 +66,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(screen.getByRole("button", { name: "Close draft" }));
     view.unmount();
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Create PR" }));
+    await openCreatePullRequest(user);
     await waitFor(() => expect((screen.getByLabelText("Description") as HTMLTextAreaElement).value).toBe(notes));
     expect((screen.getByRole("checkbox", { name: "Create as draft" }) as HTMLInputElement).checked).toBe(true);
   });
@@ -74,10 +77,10 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getGitHubPullRequestTemplates).mockReturnValueOnce(pending.promise);
     const user = userEvent.setup();
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Create PR" }));
+    await openCreatePullRequest(user);
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Keep my notes" } });
     await user.click(screen.getByRole("button", { name: "Close draft" }));
-    await user.click(screen.getByRole("button", { name: "Create PR" }));
+    await openCreatePullRequest(user);
     await act(async () => pending.resolve({ ok: true, data: [{ ...prTemplate, body: "Late response" }], rateLimit: null }));
     await waitFor(() => expect((screen.getByLabelText("Description") as HTMLTextAreaElement).value).toBe("Keep my notes"));
     expect(githead.cancelGitHubRequest).toHaveBeenCalled();
@@ -89,7 +92,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getGitHubPullRequestTemplates).mockResolvedValue({ ok: true, data: [prTemplate, alternate], rateLimit: null });
     const user = userEvent.setup();
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Create PR" }));
+    await openCreatePullRequest(user);
     await waitFor(() => expect((screen.getByLabelText("Description") as HTMLTextAreaElement).value).toBe(prTemplate.body));
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "My answer" } });
     await user.click(screen.getByRole("button", { name: "Select pull request template" }));
@@ -102,7 +105,7 @@ describe("App", { timeout: 10_000 }, () => {
     savePullRequestDraft(repoPath, "feature/templates", { title: "Recovered", body: "Notes", baseBranch: "main", draft: true, templateId: "", undoBody: null, outcomeUnknown: true, applyDefaultTemplate: false });
     const user = userEvent.setup();
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Create PR" }));
+    await openCreatePullRequest(user);
     expect(await screen.findByText(/previous creation may have reached GitHub/)).toBeTruthy();
     expect((within(screen.getByRole("dialog")).getByRole("button", { name: "Create Pull Request" }) as HTMLButtonElement).disabled).toBe(true);
     expect(loadPullRequestDraft(repoPath, "feature/templates")?.outcomeUnknown).toBe(true);
@@ -192,7 +195,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: /^Workflow runs/ }));
+    await openWorkspaceView("Workflow runs", user);
 
     await waitFor(() => {
       expect(githead.getGitHubWorkflowRuns).toHaveBeenCalledWith(expect.objectContaining({
@@ -234,7 +237,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: /^Workflow runs/ }));
+    await openWorkspaceView("Workflow runs", user);
     await user.click(await screen.findByRole("button", { name: "CI: Release failed" }));
     await user.click(await screen.findByRole("button", { name: "Re-run all jobs" }));
 
@@ -255,7 +258,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: /^Workflow runs/ }));
+    await openWorkspaceView("Workflow runs", user);
     await user.click(await screen.findByRole("button", { name: "CI: Deploy preview" }));
     await user.click(await screen.findByRole("button", { name: "Cancel run" }));
     expect(screen.getByRole("group", { name: "Confirm workflow cancellation" })).toBeTruthy();
@@ -296,7 +299,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: /^Pull requests/ }));
+    await openWorkspaceView("Pull requests", user);
 
     await waitFor(() => {
       expect(githead.getGitHubPullRequests).toHaveBeenCalledWith({
@@ -353,7 +356,7 @@ describe("App", { timeout: 10_000 }, () => {
     }));
 
     render(<App />);
-    await user.click(await screen.findByRole("tab", { name: /^Pull requests/ }));
+    await openWorkspaceView("Pull requests", user);
     expect(await screen.findByRole("button", { name: "Only ready pull request" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Filters, 0 active" }));
@@ -377,7 +380,7 @@ describe("App", { timeout: 10_000 }, () => {
       .mockResolvedValueOnce({ ok: true, data: { items: [createWorkflowRun({ id: "2", name: "Second" })], page: 2, nextPage: null, totalCount: 2 }, rateLimit: null });
 
     render(<App />);
-    await user.click(await screen.findByRole("tab", { name: /^Workflow runs/ }));
+    await openWorkspaceView("Workflow runs", user);
     await user.click(await screen.findByRole("button", { name: "Load more workflow runs" }));
 
     expect(await screen.findByText("First")).toBeTruthy();
@@ -415,7 +418,7 @@ describe("App", { timeout: 10_000 }, () => {
       repoPath, runId: "lfs-preview", action: "lfs-fetch", stream: "stdout",
       text: "Downloading LFS objects: 50% (1/2), 38 KB | 10 KB/s\r", timestamp: new Date().toISOString()
     }));
-    await user.click(screen.getByRole("tab", { name: /^Activity log/ }));
+    await openWorkspaceView("Activity log", user);
     expect((await screen.findByRole("log")).textContent).toContain("Downloading LFS objects: 50%");
     expect(screen.getByRole("button", { name: "Cancel" }).hasAttribute("disabled")).toBe(false);
     expect(githead.getFileDiff).toHaveBeenCalledTimes(1);
@@ -465,7 +468,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Create PR" }));
+    await openCreatePullRequest(user);
 
     const dialog = screen.getByRole("dialog", { name: "Create Pull Request" });
     await user.click(within(dialog).getByRole("button", { name: "Generate pull request title" }));
@@ -501,7 +504,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Create PR" }));
+    await openCreatePullRequest(user);
     const dialog = screen.getByRole("dialog", { name: "Create Pull Request" });
     await user.click(within(dialog).getByRole("button", { name: "Create Pull Request" }));
     await waitFor(() => expect(githead.createGitHubPullRequest).toHaveBeenCalledWith(expect.objectContaining({
@@ -540,7 +543,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Create PR" }));
+    await openCreatePullRequest(user);
     const dialog = screen.getByRole("dialog", { name: "Create Pull Request" });
     await user.click(within(dialog).getByRole("button", { name: "Create Pull Request" }));
 
@@ -569,7 +572,7 @@ describe("App", { timeout: 10_000 }, () => {
     });
 
     render(<App />);
-    await user.click(await screen.findByRole("tab", { name: /Issues/ }));
+    await openWorkspaceView("Issues", user);
     await user.click(await screen.findByRole("button", { name: "Connect GitHub" }));
 
     expect(await screen.findByRole("tabpanel", { name: "Integrations" })).toBeTruthy();
@@ -581,7 +584,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getGitHubIssues).mockResolvedValue({ ok: true, data: { items: [], page: 1, nextPage: null, totalCount: 0 }, rateLimit: null });
 
     render(<App />);
-    await user.click(await screen.findByRole("tab", { name: /Issues/ }));
+    await openWorkspaceView("Issues", user);
     await waitFor(() => expect(githead.getGitHubIssues).toHaveBeenCalled());
     const issueLoadsBeforeCreate = vi.mocked(githead.getGitHubIssues).mock.calls.length;
     const countLoadsBeforeCreate = vi.mocked(githead.getGitHubOpenCounts).mock.calls.length;
@@ -629,7 +632,7 @@ describe("App", { timeout: 10_000 }, () => {
     } });
 
     render(<App />);
-    await user.click(await screen.findByRole("tab", { name: /Issues/ }));
+    await openWorkspaceView("Issues", user);
     await user.click(await screen.findByRole("button", { name: "New issue" }));
     const dialog = screen.getByRole("dialog", { name: "New issue" });
     await user.click(await within(dialog).findByRole("button", { name: /Bug report/ }));
@@ -669,7 +672,7 @@ describe("App", { timeout: 10_000 }, () => {
     });
 
     render(<App />);
-    await user.click(await screen.findByRole("tab", { name: /Issues/ }));
+    await openWorkspaceView("Issues", user);
     await user.click(await screen.findByRole("button", { name: "New issue" }));
     const dialog = screen.getByRole("dialog", { name: "New issue" });
     await user.type(within(dialog).getByLabelText("Title"), "Possibly created issue");
@@ -706,7 +709,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: /Issues/ }));
+    await openWorkspaceView("Issues", user);
 
     await waitFor(() => {
       expect(githead.getGitHubIssues).toHaveBeenCalledWith(expect.objectContaining({
@@ -753,7 +756,7 @@ describe("App", { timeout: 10_000 }, () => {
     }));
 
     render(<App />);
-    await user.click(await screen.findByRole("tab", { name: /Issues/ }));
+    await openWorkspaceView("Issues", user);
     expect(await screen.findByRole("button", { name: "Assigned issue" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Filters, 0 active" }));
@@ -2211,7 +2214,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository(user);
     await user.click(await screen.findByRole("button", { name: "Open local folder…" }));
     await user.click(screen.getByRole("button", { name: "Repository actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));

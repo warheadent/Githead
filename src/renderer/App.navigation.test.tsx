@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { createCommit, createCommitDetails, createSummary, createTextDiff, defer, githead, repoPath, repositoryRecents, waitForRepositoryWorkspace, type RepoSummary } from "./AppTestHarness";
+import { createCommit, createCommitDetails, createSummary, createTextDiff, defer, githead, openSettings, openWorkspaceView, repoPath, repositoryRecents, waitForRepositoryWorkspace, type RepoSummary } from "./AppTestHarness";
 import { App } from "./App";
 
 async function traverseHistory(direction: "back" | "forward"): Promise<void> {
@@ -39,7 +39,7 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     vi.mocked(githead.getStashDetails).mockResolvedValue({ stash, files: [] });
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(await screen.findByRole("tab", { name: "Stashes 1" }));
+    await openWorkspaceView("Stashes", user);
     await screen.findByRole("option", { name: /saved navigation work/ });
     await user.click(screen.getByRole("button", { name: `Switch to ${otherPath}` }));
     await waitFor(() => expect(githead.getStashes).toHaveBeenCalledWith(expect.objectContaining({ repoPath: otherPath })));
@@ -135,7 +135,7 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     await waitForRepositoryWorkspace();
     expect(screen.getByRole("button", { name: "Go back" }).hasAttribute("disabled")).toBe(true);
     await user.click(screen.getByRole("tab", { name: /^History$/ }));
-    await user.click(screen.getByRole("tab", { name: /^Activity log/ }));
+    await openWorkspaceView("Activity log", user);
     await goBack();
     selectedTab(/^History$/);
     await goBack();
@@ -199,7 +199,7 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     vi.mocked(githead.getRepoSummary).mockImplementation(async (path) => createSummary({ repoPath: path }));
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /^Activity log/ }));
+    await openWorkspaceView("Activity log", user);
     await user.click(screen.getByRole("button", { name: `Switch to ${otherPath}` }));
     await waitFor(() => expect(githead.getRepoIdentity).toHaveBeenCalledWith(expect.objectContaining({ repoPath: otherPath })));
     await user.click(screen.getByRole("tab", { name: /^History$/ }));
@@ -214,7 +214,7 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     render(<App />);
     await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /^History$/ }));
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await screen.findByRole("dialog");
     const before = window.history.state;
     await goBack();
@@ -234,7 +234,7 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     await goBack();
     await waitFor(() => expect(window.history.state).toEqual(initial));
     selectedTab(/^Changes/);
-    await user.click(screen.getByRole("tab", { name: /^Activity log/ }));
+    await openWorkspaceView("Activity log", user);
     await goBack();
     selectedTab(/^Changes/);
     expect(screen.getByRole("button", { name: "Go back" }).hasAttribute("disabled")).toBe(true);
@@ -263,7 +263,7 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     const pending = defer<RepoSummary>();
     vi.mocked(githead.getRepoSummary).mockImplementation((path) => path === repoPath ? pending.promise : Promise.resolve(createSummary({ repoPath: path })));
     await goBack();
-    await user.click(screen.getByRole("tab", { name: /^Activity log/ }));
+    await openWorkspaceView("Activity log", user);
     await act(async () => pending.resolve(createSummary()));
     selectedTab(/^Activity log/);
     expect(githead.getFileHistory).toHaveBeenCalledTimes(1);

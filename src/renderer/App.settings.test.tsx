@@ -12,6 +12,8 @@ import {
   defer,
   flushRendererAsync,
   githead,
+  openAddRepository,
+  openSettings,
   repoPath,
   repositoryRecents,
   waitForRepositoryWorkspace,
@@ -248,7 +250,7 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => {
       expect(githead.getRepoSummary).toHaveBeenCalledWith(clonedRepo);
     });
-    fireEvent.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository();
     await flushRendererAsync();
     expect((screen.getByRole("button", { name: "Open local folder…" }) as HTMLButtonElement).disabled).toBe(false);
 
@@ -310,7 +312,7 @@ describe("App", { timeout: 10_000 }, () => {
     const user = userEvent.setup();
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository(user);
     const input = screen.getByRole("combobox", { name: "Search repositories or paste a source" });
     expect(document.activeElement).toBe(input);
     expect(screen.getByRole("button", { name: /Open local folder/ })).toBeTruthy();
@@ -335,7 +337,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.addRepoRecent).mockImplementation(async (request) => repositoryRecents(repoPath, request.repoPath));
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository(user);
     await user.type(screen.getByRole("combobox", { name: "Search repositories or paste a source" }), "openai/repo{Enter}");
     await user.click(screen.getByRole("button", { name: "Destination folder" }));
     await user.type(screen.getByRole("textbox", { name: "Destination folder" }), "D:\\Work");
@@ -348,7 +350,7 @@ describe("App", { timeout: 10_000 }, () => {
     }));
     await waitFor(() => expect(screen.getByRole("button", { name: `Switch to ${clonedRepo}` }).getAttribute("aria-current")).toBe("true"));
     await waitFor(() => expect(screen.queryByRole("form", { name: "Clone repository" })).toBeNull());
-    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository(user);
     await user.type(screen.getByRole("combobox", { name: "Search repositories or paste a source" }), "openai/next{Enter}");
     expect(screen.getByRole("button", { name: "Destination folder" }).textContent).toContain("D:\\Work\\next");
   });
@@ -359,7 +361,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.cloneRepository).mockResolvedValue(createOperationResult({ repoPath: "D:\\Work\\repo", exitCode: 1, stderr: "fatal: authentication failed" }));
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository(user);
     await user.type(screen.getByRole("combobox", { name: "Search repositories or paste a source" }), "openai/repo{Enter}");
     await user.click(screen.getByRole("button", { name: "Destination folder" }));
     await user.click(screen.getByRole("button", { name: "Browse" }));
@@ -599,8 +601,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: "Settings" });
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await waitForRepositoryWorkspace();
+    await openSettings(user);
 
     expect(screen.queryByLabelText("Site URL")).toBeNull();
     expect(screen.queryByLabelText("Site Title")).toBeNull();
@@ -697,8 +699,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: "Settings" });
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await waitForRepositoryWorkspace();
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "AI" }));
 
     expect((screen.getByLabelText("Writing style") as HTMLSelectElement).value).toBe("custom");
@@ -721,8 +723,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: "Settings" });
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await waitForRepositoryWorkspace();
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "AI" }));
 
     const provider = await screen.findByLabelText("Provider");
@@ -809,8 +811,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: "Settings" });
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await waitForRepositoryWorkspace();
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "AI" }));
 
     const reasoning = await screen.findByLabelText("Reasoning") as HTMLSelectElement;
@@ -845,8 +847,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: "Settings" });
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await waitForRepositoryWorkspace();
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "AI" }));
 
     const reasoning = await screen.findByLabelText("Reasoning") as HTMLSelectElement;
@@ -864,8 +866,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: "Settings" });
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await waitForRepositoryWorkspace();
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "AI" }));
     await waitFor(() => expect(githead.getAiReasoningCapabilities).toHaveBeenCalledTimes(1));
 
@@ -902,11 +904,11 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: "Settings" });
+    await waitForRepositoryWorkspace();
     await waitFor(() => {
       expect(githead.getGitIdentity).toHaveBeenCalled();
     });
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings(user);
 
     const settingsDialog = screen.getByRole("dialog", { name: "Settings" });
     expect(settingsDialog.className).toContain("sm:max-w-[880px]");
@@ -950,8 +952,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: "Settings" });
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await waitForRepositoryWorkspace();
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "Sync" }));
 
     const interval = screen.getByLabelText("Auto-fetch interval");
@@ -988,7 +990,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "Git behaviors" }));
     await user.click(screen.getByRole("checkbox", { name: /Check the upstream before committing/ }));
     await user.click(screen.getByRole("checkbox", { name: "Use Quick Commit by default" }));
@@ -1031,7 +1033,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "Privacy" }));
     const checkbox = screen.getByRole("checkbox", { name: "Share anonymous diagnostics" }) as HTMLInputElement;
     expect(checkbox.checked).toBe(true);
@@ -1054,7 +1056,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "AI" }));
     const model = screen.getByLabelText("Model");
     await user.clear(model);
@@ -1082,9 +1084,9 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: "Settings" });
+    await waitForRepositoryWorkspace();
     vi.mocked(githead.getRepoTrust).mockClear();
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings(user);
     const name = screen.getByLabelText("Name");
     await user.type(name, "Global Identity");
     await user.type(screen.getByLabelText("Email"), "global@example.test");
@@ -1102,7 +1104,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await openSettings(user);
     expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
 
     await user.click(screen.getByRole("tab", { name: "Sync" }));
@@ -1137,16 +1139,16 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository(user);
     await user.click(await screen.findByRole("button", { name: "Open local folder…" }));
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.type(screen.getByLabelText("Name"), "Repository A Draft");
 
     pendingRepositoryChoice.resolve(otherRepo);
     await waitFor(() => expect(githead.getRepoSummary).toHaveBeenCalledWith(otherRepo));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull());
 
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings(user);
     expect((screen.getByLabelText("Name") as HTMLInputElement).value).not.toContain("Repository A Draft");
     expect(githead.saveGitIdentity).not.toHaveBeenCalled();
   });
@@ -1155,9 +1157,9 @@ describe("App", { timeout: 10_000 }, () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await screen.findByRole("button", { name: "Settings" });
+    await waitForRepositoryWorkspace();
     await waitFor(() => expect(document.documentElement.dataset.theme).toBe("githead"));
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "Appearance" }));
 
     const themes = within(screen.getByRole("group", { name: "Color theme" })).getAllByRole("radio");
@@ -1182,7 +1184,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(document.documentElement.dataset.theme).toBe("githead");
     expect(document.documentElement.classList.contains("dark")).toBe(false);
 
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "Appearance" }));
     await user.click(screen.getByRole("radio", { name: /Ember/ }));
     await user.click(screen.getByRole("radio", { name: "Light" }));
@@ -1214,7 +1216,7 @@ describe("App", { timeout: 10_000 }, () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "Appearance" }));
 
     const uiFont = screen.getByLabelText("Interface font") as HTMLSelectElement;
@@ -1232,7 +1234,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(document.documentElement.dataset.uiFont).toBe("inter");
     expect(document.documentElement.dataset.codeFont).toBe("system-mono");
 
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "Appearance" }));
     await user.selectOptions(screen.getByLabelText("Interface font"), "roboto");
     await user.selectOptions(screen.getByLabelText("Code font"), "source-code-pro");
@@ -1260,7 +1262,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.saveAiSettings).mockRejectedValue(new Error("Enter an OpenRouter API key."));
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "Appearance" }));
 
     const slider = screen.getByRole("slider", { name: "Interface scale" }) as HTMLInputElement;
@@ -1281,7 +1283,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(screen.getByRole("button", { name: "Discard changes" }));
     await waitFor(() => expect(githead.setWindowZoomFactor).toHaveBeenLastCalledWith(1));
 
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "Appearance" }));
     fireEvent.change(screen.getByRole("slider", { name: "Interface scale" }), { target: { value: "5" } });
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -1386,7 +1388,7 @@ describe("visual effect preferences", () => {
   it("previews, cancels, and saves effects and reduced motion", async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "Appearance" }));
     await user.click(screen.getByRole("radio", { name: /^Full/ }));
     await user.click(screen.getByRole("radio", { name: "Always" }));
@@ -1399,7 +1401,7 @@ describe("visual effect preferences", () => {
     expect(document.documentElement.dataset.reduceMotion).toBe("false");
     expect(githead.saveAppSettings).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "Appearance" }));
     await user.click(screen.getByRole("radio", { name: /^Off/ }));
     await user.click(screen.getByRole("radio", { name: "Always" }));
@@ -1418,7 +1420,7 @@ it("keeps startup visual preferences if the later settings refresh fails", async
   render(<App initialAppSettings={{ ...initialAppSettings, visualEffects: "off", reduceMotion: "always" }} />);
   expect(document.documentElement.dataset.visualEffects).toBe("off");
   expect(document.documentElement.dataset.reduceMotion).toBe("true");
-  await screen.findByRole("button", { name: "Settings" });
+  await waitForRepositoryWorkspace();
   expect(document.documentElement.dataset.visualEffects).toBe("off");
   expect(document.documentElement.dataset.reduceMotion).toBe("true");
 });

@@ -3,7 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { loreCapabilities, type RepositoryAnalytics } from "../shared/types";
-import { createSummary, githead, repoPath, waitForRepositoryWorkspace } from "./AppTestHarness";
+import { createSummary, githead, openWorkspaceView, repoPath, waitForRepositoryWorkspace } from "./AppTestHarness";
 import { App } from "./App";
 
 function emptyRange(): RepositoryAnalytics["ranges"]["all"] {
@@ -33,7 +33,7 @@ describe("analytics workspace tab", () => {
     vi.mocked(githead.getRepositoryAnalytics).mockResolvedValue(analytics());
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(await screen.findByRole("tab", { name: "Analytics" }));
+    await openWorkspaceView("Analytics", user);
     await waitFor(() => expect(githead.getRepositoryAnalytics).toHaveBeenCalledWith(expect.objectContaining({ repoPath, excludePaths: true })));
     await user.click(await screen.findByRole("tab", { name: "Code" }));
     await user.click(await screen.findByRole("button", { name: "Open file history for src/app.ts" }));

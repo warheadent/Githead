@@ -20,7 +20,13 @@ interface RepositoryOmniboxProps extends CloneRepositoryControls {
 export function RepositoryOmnibox(props: RepositoryOmniboxProps) {
   const [selected, setSelected] = useState<{ source: RepositorySource; repository?: GitHubCloneRepository } | null>(null);
   const [query, setQuery] = useState("");
+  const [wasOpen, setWasOpen] = useState(props.open);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Every opening starts from an empty search, whether the trigger, a shortcut or the quick switcher opened it.
+  if (props.open !== wasOpen) {
+    setWasOpen(props.open);
+    if (props.open) { setSelected(null); setQuery(""); }
+  }
 
   const back = () => {
     if (props.cloneRunning) return;
@@ -30,7 +36,6 @@ export function RepositoryOmnibox(props: RepositoryOmniboxProps) {
   const changeOpen = (open: boolean) => {
     if (!open && props.cloneRunning) return;
     if (!open) props.onAbandonCheck();
-    if (open) { setSelected(null); setQuery(""); }
     props.onOpenChange(open);
   };
   const openLocal = (path?: string) => {

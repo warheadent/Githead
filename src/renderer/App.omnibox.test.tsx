@@ -5,7 +5,7 @@ import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { GitHubCloneRepository, GitHubRepositoryDiscovery, GitRepositoryAccessCheckResult } from "../shared/types";
 import { parseRepositorySource } from "../shared/repositorySource";
-import { createOperationResult, defer, githead, waitForRepositoryWorkspace } from "./AppTestHarness";
+import { createOperationResult, defer, githead, openAddRepository, waitForRepositoryWorkspace } from "./AppTestHarness";
 import { App } from "./App";
 
 const inputName = "Search repositories or paste a source";
@@ -21,7 +21,7 @@ async function openPicker() {
   const user = userEvent.setup();
   render(<App />);
   await waitForRepositoryWorkspace();
-  await user.click(screen.getByRole("button", { name: "Add repository" }));
+  await openAddRepository(user);
   return user;
 }
 
@@ -49,12 +49,12 @@ describe("repository omnibox", () => {
     vi.mocked(githead.readRepositoryClipboard).mockReturnValueOnce(first.promise).mockResolvedValue(null);
     const user = await openPicker();
     await user.keyboard("{Escape}");
-    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository(user);
     await act(async () => first.resolve(parseRepositorySource("me/old-clipboard")));
     expect(screen.queryByText("From clipboard")).toBeNull();
     await user.keyboard("{Escape}");
     vi.mocked(githead.readRepositoryClipboard).mockResolvedValue(parseRepositorySource("me/current"));
-    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository(user);
     expect(await screen.findByText("From clipboard")).toBeTruthy();
     expect(within(screen.getByRole("listbox", { name: "Repositories" })).getByRole("option").textContent).toContain("me/current");
   });
@@ -121,7 +121,7 @@ describe("repository composer", () => {
     const user = userEvent.setup();
     render(<StrictMode><App /></StrictMode>);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository(user);
     await user.type(screen.getByRole("combobox", { name: inputName }), "org/repo{Enter}");
     await waitFor(() => expect((screen.getByRole("button", { name: "Clone repository" }) as HTMLButtonElement).disabled).toBe(false));
     expect(githead.checkRepositoryAccess).toHaveBeenCalledTimes(1);

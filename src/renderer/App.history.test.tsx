@@ -15,6 +15,7 @@ import {
   flushRendererAsync,
   getStatusTone,
   githead,
+  openAddRepository,
   repoPath,
   repositoryRecents,
   waitForRepositoryWorkspace,
@@ -2281,7 +2282,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await user.click(await screen.findByRole("option", { name: /src\/shared\.ts/ }));
-    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository(user);
     await user.click(await screen.findByRole("button", { name: "Open local folder…" }));
     await waitFor(() => expect(githead.chooseRepo).toHaveBeenCalledTimes(1));
     blockRepositoryARefresh = true;
