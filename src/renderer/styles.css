@@ -6734,15 +6734,17 @@ textarea,
   flex-wrap: nowrap;
   align-items: center;
   gap: 4px;
+  /* The trailing ghost icon button already insets its glyph by 8px. */
+  padding-right: 12px;
 }
 
+/* The search field takes only the space the preset trigger and icon buttons leave, so the preset label stays whole. */
 .github-compact-search {
   position: relative;
   display: flex;
-  min-width: 96px;
-  flex: 1 1 auto;
+  min-width: 80px;
+  flex: 1 1 0;
   align-items: center;
-  margin-right: 4px;
 }
 
 .github-compact-search > svg {
@@ -6760,7 +6762,7 @@ textarea,
   min-width: 0;
   border: 1px solid var(--input);
   border-radius: calc(var(--radius) - 2px);
-  padding: 0 8px 0 30px;
+  padding: 0 6px 0 30px;
   color: var(--foreground);
   background: var(--surface);
   font-size: 0.8125rem;
@@ -6768,16 +6770,20 @@ textarea,
 
 .github-compact-search input::placeholder { color: var(--muted-foreground); }
 
+/* The hidden clear button still reserves width and clips the placeholder; show it only once there is a query. */
+.github-compact-search input:placeholder-shown::-webkit-search-cancel-button { display: none; }
+
 .github-compact-search input:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
 
+/* Content width; it shrinks only when the search field is already at its minimum width. */
 .github-filter-trigger {
-  max-width: 50%;
   min-width: 0;
   flex: 0 1 auto;
-  padding-inline: 8px;
+  gap: 4px;
+  padding-inline: 6px;
   color: var(--foreground);
 }
 
