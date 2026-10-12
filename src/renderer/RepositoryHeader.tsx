@@ -767,7 +767,7 @@ function RemoteActionsGroup({
   const pushIdle = !pushRunning && !publishInsteadOfPush && !usesSync && pushableCommitCount === 0;
 
   return (
-    <div className="remote-actions">
+    <div className="remote-actions" data-running={fetchRunning || pullRunning || pushRunning ? "true" : undefined}>
       {showFetch ? (
         <TooltipButton
           type="button"
@@ -775,6 +775,7 @@ function RemoteActionsGroup({
           className="remote-actions-segment"
           data-action="fetch"
           data-idle="false"
+          data-running={fetchRunning ? "true" : undefined}
           disabled={disabled}
           tooltip="Fetch"
           aria-label="Fetch"
@@ -792,6 +793,7 @@ function RemoteActionsGroup({
         className="remote-actions-segment"
         data-action="pull"
         data-idle={pullIdle ? "true" : "false"}
+        data-running={pullRunning ? "true" : undefined}
         data-recovery={pullRecovery ? "true" : undefined}
         disabled={pullDisabled}
         tooltip={pullName}
@@ -825,6 +827,7 @@ function RemoteActionsGroup({
         className="remote-actions-segment"
         data-action="push"
         data-idle={pushIdle ? "true" : "false"}
+        data-running={pushRunning ? "true" : undefined}
         disabled={disabled}
         tooltip={pushName}
         aria-label={pushName}

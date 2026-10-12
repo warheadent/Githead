@@ -593,6 +593,10 @@ describe("RepositoryHeader", () => {
       expect(running.querySelector(".animate-spin")).toBeTruthy();
       expect(running.getAttribute("data-idle")).toBe("false");
       expect((running as HTMLButtonElement).disabled).toBe(true);
+      // Only the running segment keeps its label, so the group does not widen and move the view switch.
+      expect(running.getAttribute("data-running")).toBe("true");
+      expect(running.closest(".remote-actions")?.getAttribute("data-running")).toBe("true");
+      expect(running.closest(".remote-actions")?.querySelectorAll('[data-running="true"]')).toHaveLength(1);
     });
 
     it("keeps operation feedback inside the segment buttons", () => {

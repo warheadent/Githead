@@ -902,7 +902,8 @@ textarea,
   /* With the header's bottom border the strip is 52px tall. */
   height: 51px;
   min-height: 51px;
-  padding-left: 16px;
+  /* Equal side padding keeps the 1fr tracks, and so the view switch, centred in the window. */
+  padding-inline: 16px;
 }
 
 .repository-header :is(button, a, input, [role="tab"], [role="tablist"], [data-no-drag], [data-slot="tooltip-button-trigger"]) {
@@ -940,6 +941,11 @@ textarea,
 .repository-header .window-controls,
 .repository-header .window-control {
   height: 52px;
+}
+
+/* The window controls sit flush with the window edge, over the bar's right padding. */
+.repository-header .window-controls {
+  margin-right: -16px;
 }
 
 .repo-switcher-anchor {
@@ -1303,6 +1309,18 @@ textarea,
   color: var(--muted-foreground);
 }
 
+/*
+ * While one segment runs, the others show icon and count only. That pays for the longer running
+ * label and the Cancel button, so the right cluster keeps its width and the view switch stays put.
+ */
+.remote-actions[data-running="true"] .remote-actions-segment:not([data-running="true"], .remote-actions-more) {
+  padding-inline: 8px;
+}
+
+.remote-actions[data-running="true"] .remote-actions-segment:not([data-running="true"]) .remote-actions-label {
+  display: none;
+}
+
 .remote-actions-segment[data-recovery="true"] svg {
   color: var(--status-modified);
 }
@@ -1333,8 +1351,30 @@ textarea,
  * header can be as narrow as 430 CSS px. Every control must stay reachable down to that width.
  * Visually hidden labels still name their buttons and still serve aria-describedby.
  */
+/*
+ * Cancel shows its label only where the right cluster can grow by it and the view switch, with
+ * any guest view, still stays centred. Below that the icon and tooltip carry it.
+ */
+@container repository-header (max-width: 1640px) {
+  .header-cancel {
+    width: 32px;
+    padding-inline: 0;
+  }
+
+  .header-cancel-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    border: 0;
+    white-space: nowrap;
+  }
+}
+
 @container repository-header (max-width: 1280px) {
-  .header-cancel-label,
   .app-update-control.is-compact .app-update-label,
   .app-update-control.is-compact .app-update-release-notes-label {
     position: absolute;
