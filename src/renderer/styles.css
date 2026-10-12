@@ -2743,11 +2743,16 @@ textarea,
 }
 
 .commit-plan-file-name span {
+  /* The name stays whole; only the directory truncates. */
+  flex: 0 0 auto;
+  max-width: 100%;
   font-size: 12px;
   font-weight: 550;
 }
 
 .commit-plan-file-name small {
+  flex: 1 1 0;
+  min-width: 0;
   color: var(--muted-foreground);
   font-size: 11px;
 }
@@ -4437,6 +4442,7 @@ textarea,
 
 .status-file-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -4446,18 +4452,19 @@ textarea,
 
 .status-file-search {
   position: relative;
-  min-width: 0;
-  flex: 1 1 auto;
+  /* Keeps the "Filter files…" placeholder whole; the toolbar wraps instead. */
+  min-width: 120px;
+  flex: 1 1 0;
 }
 
-.status-file-filter {
-  width: 112px;
-  min-width: 88px;
-  flex: 0 1 112px;
+/* The status filter keeps its full label; the search field takes the shrink. */
+.status-file-toolbar .status-file-filter {
+  width: auto;
+  flex: 0 0 auto;
 }
 
-/* A narrow column gives the search field its own row. */
-@container (max-width: 340px) {
+/* A column too narrow for search, status filter and view mode in one row gives the search field its own row. */
+@container (max-width: 400px) {
   .status-file-toolbar {
     flex-wrap: wrap;
   }
@@ -4646,8 +4653,9 @@ textarea,
 }
 
 .status-file-name {
-  flex: 0 1 auto;
-  min-width: 0;
+  /* The name stays whole; only the directory truncates. */
+  flex: 0 0 auto;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -4655,7 +4663,7 @@ textarea,
 }
 
 .status-file-directory {
-  flex: 0 10 auto;
+  flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

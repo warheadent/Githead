@@ -10071,7 +10071,7 @@ function StatusView({
         {workspaceMode === "files" ? <>
           <div className="status-file-search">
             <Search className="pointer-events-none absolute left-2 top-2 size-4 text-muted-foreground" aria-hidden="true" />
-            <Input aria-label="Search changed files" placeholder="Filter files…" spellCheck={false} value={query} className="h-8 pl-8 pr-8"
+            <Input aria-label="Search changed files" placeholder="Filter files…" spellCheck={false} value={query} className={`h-8 pl-8${query ? " pr-8" : ""}`}
               onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setQuery(""); }} />
             {query ? <TooltipButton type="button" variant="ghost" size="icon-xs" aria-label="Clear file search" tooltip="Clear file search" className="absolute right-1 top-1" onClick={() => setQuery("")}><X /></TooltipButton> : null}
           </div>
