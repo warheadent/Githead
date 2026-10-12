@@ -125,7 +125,7 @@ describe("commit graph layout", () => {
       toLane: 1,
       continues: true
     });
-    expect(layout.edges.find((edge) => edge.toHash === "hidden-parent")?.path).toMatch(/ 56$/);
+    expect(layout.edges.find((edge) => edge.toHash === "hidden-parent")?.path.endsWith(` ${2 * COMMIT_GRAPH_ROW_HEIGHT}`)).toBe(true);
     expect(layout.nodes).toHaveLength(2);
   });
 
@@ -151,7 +151,7 @@ describe("commit graph layout", () => {
     expect(layout.edges).toHaveLength(2);
     for (const edge of layout.edges) {
       expect(edge).toMatchObject({ fromRow: 0, toRow: 1, continues: true });
-      expect(edge.path).toMatch(/ 28$/);
+      expect(edge.path.endsWith(` ${COMMIT_GRAPH_ROW_HEIGHT}`)).toBe(true);
     }
   });
 
@@ -167,7 +167,7 @@ describe("commit graph layout", () => {
     const edge = layout.edges.find((candidate) => candidate.fromHash === "topic");
     expect(edge).toMatchObject({ fromLane: 1, toLane: 0, colorLane: 1 });
     // Stay in the topic lane across the unrelated row, then bend into base.
-    expect(edge?.path).toBe("M 32 70 L 32 112 C 32 119, 14 119, 14 126");
+    expect(edge?.path).toBe("M 32 120 L 32 192 C 32 204, 14 204, 14 216");
   });
 
   it("reuses lanes after a shared ancestor and after disconnected roots", () => {

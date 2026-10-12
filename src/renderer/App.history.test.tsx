@@ -28,6 +28,9 @@ import {
   type RepoSummary,
   type RepositoryRecent
 } from "./AppTestHarness";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { buildCommitGraphLayout, COMMIT_GRAPH_PADDING_X, COMMIT_GRAPH_ROW_HEIGHT } from "./commitGraph";
 import { App } from "./App";
 
 describe("App", { timeout: 10_000 }, () => {
@@ -618,20 +621,6 @@ describe("App", { timeout: 10_000 }, () => {
     expect(detailsPanel.querySelector(".commit-type-badge")).toBeNull();
   });
 
-  it("keeps table headings and rows together when either scrolls horizontally", async () => {
-    const user = userEvent.setup();
-    vi.mocked(githead.getCommitHistory).mockResolvedValue([createCommit()]);
-    render(<App />);
-    await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /^History$/ }));
-    const list = await screen.findByRole("listbox", { name: "Commit history" });
-    const header = screen.getByRole("region", { name: "Commit list" }).querySelector<HTMLElement>(".history-table-header")!;
-    fireEvent.scroll(list, { target: { scrollLeft: 100 } });
-    expect(header.scrollLeft).toBe(100);
-    fireEvent.scroll(header, { target: { scrollLeft: 40 } });
-    expect(list.scrollLeft).toBe(40);
-  });
-
   it("keeps graph geometry aligned with virtual rows while scrolling and selecting", async () => {
     const user = userEvent.setup();
     const commits = Array.from({ length: 80 }, (_, index) => createCommit({
@@ -645,26 +634,29 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(screen.getByRole("tab", { name: "History" }));
     const list = await screen.findByRole("listbox", { name: "Commit history" });
     const svg = screen.getByTestId("commit-graph-svg");
-    expect(Number(svg.getAttribute("height"))).toBeLessThan(commits.length * 28);
+    const row = COMMIT_GRAPH_ROW_HEIGHT;
+    const center = row / 2;
+    const laneX = COMMIT_GRAPH_PADDING_X;
+    expect(Number(svg.getAttribute("height"))).toBeLessThan(commits.length * row);
 
-    fireEvent.scroll(list, { target: { scrollTop: 28 * 40 } });
-    await waitFor(() => expect(svg.style.top).toBe(`${28 * 34}px`));
-    expect(svg.getAttribute("viewBox")?.split(" ")[1]).toBe(String(28 * 34));
+    fireEvent.scroll(list, { target: { scrollTop: row * 40 } });
+    await waitFor(() => expect(svg.style.top).toBe(`${row * 34}px`));
+    expect(svg.getAttribute("viewBox")?.split(" ")[1]).toBe(String(row * 34));
     const node = screen.getAllByTestId("commit-graph-node")[0]!;
-    expect(node.getAttribute("cy")).toBe(String(28 * 34 + 14));
-    expect(list.querySelector('[data-virtual-index="34"]')?.getAttribute("style")).toContain(`top: ${28 * 34}px`);
+    expect(node.getAttribute("cy")).toBe(String(row * 34 + center));
+    expect(list.querySelector('[data-virtual-index="34"]')?.getAttribute("style")).toContain(`top: ${row * 34}px`);
 
     // A segment whose child is outside the mounted rows still enters the viewport.
     const incomingPaths = svg.querySelectorAll(".commit-graph-edge > path:not(.commit-graph-edge-clearance)");
-    expect(Array.from(incomingPaths).some((path) => path.getAttribute("d")?.startsWith(`M 14 ${28 * 33 + 14}`))).toBe(true);
+    expect(Array.from(incomingPaths).some((path) => path.getAttribute("d")?.startsWith(`M ${laneX} ${row * 33 + center}`))).toBe(true);
     await user.click(screen.getByRole("option", { name: /History row 40/ }));
-    expect(svg.querySelector(".commit-graph-selection")?.getAttribute("cy")).toBe(String(28 * 40 + 14));
+    expect(svg.querySelector(".commit-graph-selection")?.getAttribute("cy")).toBe(String(row * 40 + center));
     expect(screen.getByRole("option", { name: /History row 40/ }).getAttribute("aria-selected")).toBe("true");
 
-    fireEvent.scroll(list, { target: { scrollTop: 28 * 79 } });
+    fireEvent.scroll(list, { target: { scrollTop: row * 79 } });
     await waitFor(() => expect(svg.querySelectorAll(".commit-graph-edge > path:not(.commit-graph-edge-clearance)").length).toBeGreaterThan(0));
     expect(Array.from(svg.querySelectorAll(".commit-graph-edge > path")).some((path) => (
-      path.getAttribute("d") === `M 14 ${28 * 79 + 14} L 14 ${28 * 80}`
+      path.getAttribute("d") === `M ${laneX} ${row * 79 + center} L ${laneX} ${row * 80}`
     ))).toBe(true);
   });
 
@@ -724,6 +716,41 @@ describe("App", { timeout: 10_000 }, () => {
     } finally {
       window.localStorage.removeItem(storageKey);
     }
+  });
+
+  it("caps a wide commit graph so the subject keeps its room", async () => {
+    const user = userEvent.setup();
+    // Each commit waits for a different unloaded parent, so every row opens another lane.
+    const history = Array.from({ length: 16 }, (_, index) => createCommit({
+      hash: `wide-${index}`.padEnd(40, "0"),
+      shortHash: `wide-${index}`,
+      subject: `feat: wide graph row ${index}`,
+      parents: [`missing-parent-${index}`]
+    }));
+    const layout = buildCommitGraphLayout(history);
+    expect(layout.width).toBeGreaterThan(200);
+    vi.mocked(githead.getCommitHistory).mockResolvedValue(history);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(history[0]!.hash));
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
+
+    const svg = await screen.findByTestId("commit-graph-svg");
+    expect(screen.getByRole("region", { name: "Commit list" }).style.getPropertyValue("--history-graph-width")).toBe(`${layout.width}px`);
+    expect(svg.getAttribute("width")).toBe(String(layout.width));
+    // A capped overlay clips the outer lanes at their real scale.
+    expect(svg.getAttribute("preserveAspectRatio")).toBe("xMinYMin slice");
+
+    // jsdom has no layout, so the cap is checked in the stylesheet: the gutter and the overlay share it.
+    const styles = readFileSync(join(process.cwd(), "src/renderer/styles.css"), "utf8");
+    const ruleBody = (selector: string): string => {
+      const start = styles.indexOf(`\n${selector} {`);
+      expect(start).toBeGreaterThanOrEqual(0);
+      return styles.slice(start, styles.indexOf("}", start));
+    };
+    expect(ruleBody(".history-graph-cell")).toMatch(/max-width: max\(40%, 100% - var\(--history-text-min-width\)\)/);
+    expect(ruleBody(".commit-graph-svg")).toMatch(/max-width: max\(\s*\(100% - var\(--history-row-padding-inline, 12px\)\) \* 0\.4,/);
   });
 
   it("switches between current and all commit history with an accessible scope control", async () => {
@@ -1206,6 +1233,60 @@ describe("App", { timeout: 10_000 }, () => {
         hash: secondCommit.hash
       });
     });
+  });
+
+  it("offers the row context menu actions in the commit card menu", async () => {
+    const user = userEvent.setup();
+    const headCommit = createCommit({ hash: "a".repeat(40), shortHash: "aaaaaaa", subject: "feat: head commit" });
+    const olderCommit = createCommit({ hash: "b".repeat(40), shortHash: "bbbbbbb", subject: "fix: older commit" });
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([headCommit, olderCommit]);
+    vi.mocked(githead.getCommitDetails).mockImplementation(async ({ hash }) => createCommitDetails(hash));
+    const readMenu = async (): Promise<Array<[string, string | null]>> => {
+      const menu = await screen.findByRole("menu");
+      return within(menu).getAllByRole("menuitem").map((item) => [item.textContent ?? "", item.getAttribute("aria-disabled")]);
+    };
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
+
+    for (const commit of [headCommit, olderCommit]) {
+      const row = await screen.findByRole("option", { name: new RegExp(commit.subject.split(": ")[1]!) });
+      fireEvent.contextMenu(row);
+      const rowItems = await readMenu();
+      await user.keyboard("{Escape}");
+      await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+      await waitFor(() => expect(githead.getCommitDetails).toHaveBeenLastCalledWith(expect.objectContaining({ hash: commit.hash })));
+
+      const details = screen.getByRole("region", { name: "Commit details" });
+      await user.click(await within(details).findByRole("button", { name: "Commit actions" }));
+      expect(await readMenu()).toEqual(rowItems);
+      await user.keyboard("{Escape}");
+      await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+      expect(rowItems.some(([label]) => label === "Amend last commit…")).toBe(commit === headCommit);
+    }
+  });
+
+  it("runs commit card actions for a parent commit outside the loaded history", async () => {
+    const user = userEvent.setup();
+    const commitHash = "c".repeat(40);
+    const parentHash = "p".repeat(40);
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([createCommit({ hash: commitHash, parents: [parentHash], subject: "feat: child commit" })]);
+    vi.mocked(githead.getCommitDetails).mockImplementation(async ({ hash }) => createCommitDetails(hash, {
+      parents: hash === commitHash ? [parentHash] : [],
+      subject: hash === commitHash ? "feat: child commit" : "fix: unloaded parent"
+    }));
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
+    await user.click(await screen.findByText("Commit details", { selector: "summary" }));
+    await user.click(await screen.findByRole("link", { name: parentHash.slice(0, 10) }));
+    await screen.findByText("unloaded parent");
+
+    await user.click(within(screen.getByRole("region", { name: "Commit details" })).getByRole("button", { name: "Commit actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Copy SHA to clipboard" }));
+    await waitFor(() => expect(githead.copyCommitShaToClipboard).toHaveBeenCalledWith({ repoPath, hash: parentHash }));
   });
 
   it("does not lock repository actions while a clipboard request is pending", async () => {

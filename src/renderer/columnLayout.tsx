@@ -12,7 +12,7 @@ import {
   type RefObject
 } from "react";
 import { Columns3, GripVertical } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button, TooltipButton } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -355,19 +355,34 @@ export function AdjustableColumnHeader<Id extends string>({
 export function ColumnVisibilityMenu<Id extends string>({
   columns,
   controller,
-  buttonSize = "xs"
+  buttonSize = "xs",
+  iconOnly = false
 }: {
   columns: readonly ColumnDefinition<Id>[];
   controller: PersistentColumnLayout<Id>;
   buttonSize?: "xs" | "sm";
+  /** Shows a ghost icon button with a tooltip instead of the outlined "Columns" button. */
+  iconOnly?: boolean;
 }): ReactNode {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button type="button" variant="outline" size={buttonSize} aria-label="Choose table columns">
-          <Columns3 aria-hidden="true" />
-          Columns
-        </Button>
+        {iconOnly ? (
+          <TooltipButton
+            type="button"
+            variant="ghost"
+            size={buttonSize === "xs" ? "icon-xs" : "icon-sm"}
+            aria-label="Choose table columns"
+            tooltip="Choose columns"
+          >
+            <Columns3 aria-hidden="true" />
+          </TooltipButton>
+        ) : (
+          <Button type="button" variant="outline" size={buttonSize} aria-label="Choose table columns">
+            <Columns3 aria-hidden="true" />
+            Columns
+          </Button>
+        )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-44">
         <DropdownMenuLabel>Show columns</DropdownMenuLabel>
@@ -385,12 +400,4 @@ export function ColumnVisibilityMenu<Id extends string>({
       </DropdownMenuContent>
     </DropdownMenu>
   );
-}
-
-export function OrderedCells<Id extends string>({ order, cells }: { order: readonly Id[]; cells: Record<Id, ReactNode> }): ReactNode {
-  return <>{order.map((id) => <FragmentWithKey key={id}>{cells[id]}</FragmentWithKey>)}</>;
-}
-
-function FragmentWithKey({ children }: { children: ReactNode }): ReactNode {
-  return <>{children}</>;
 }

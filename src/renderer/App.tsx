@@ -18,6 +18,7 @@ import {
   CircleDot,
   Clipboard,
   Download,
+  Ellipsis,
   ExternalLink,
   Eye,
   FileCode2,
@@ -118,13 +119,8 @@ import {
   PopoverContent,
   PopoverTrigger
 } from "@/components/ui/popover";
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup
-} from "@/components/ui/resizable";
 import { Tabs } from "@/components/ui/tabs";
-import { Segmented } from "@/components/ui/segmented";
+import { Segmented, type SegmentedOption } from "@/components/ui/segmented";
 import { Textarea } from "@/components/ui/textarea";
 import { motion } from "motion/react";
 import { TagDialog, type TagDialogState } from "./TagDialog";
@@ -258,12 +254,17 @@ import { WorkflowDuration } from "./WorkflowDuration";
 import { DEFAULT_ISSUE_QUERY, DEFAULT_PULL_REQUEST_QUERY, DEFAULT_WORKFLOW_QUERY, filterLoadedWorkflowRuns, sortLoadedWorkflowRuns } from "./githubViewQuery";
 import { useGitHubHistoryInsights } from "./useGitHubHistoryInsights";
 import {
-  AdjustableColumnHeader,
   ColumnVisibilityMenu,
-  OrderedCells,
   usePersistentColumnLayout,
   type ColumnDefinition
 } from "./columnLayout";
+import {
+  CommitActionContextMenuItems,
+  CommitActionDropdownMenuItems,
+  getCommitActionItems,
+  type CommitActionItem,
+  type CommitContextActionKind
+} from "./commitActionMenu";
 import { RepositorySnapshotCache, getRepoPathKey } from "./repositorySnapshotCache";
 import {
   RepositoryRefreshCoordinator,
@@ -10257,7 +10258,6 @@ function StatusView({
 }
 
 type ContextActionKind = "open" | "show" | "copy" | "toggle-stage" | "stash" | "delete" | "revert" | "ignore" | "update-submodule";
-type CommitContextActionKind = "amend" | "tag" | "reset" | "revert" | "cherry-pick" | "copy";
 type CommitFileContextActionKind = "log" | "blame" | "reset" | "open-current" | "open-selected" | "copy";
 
 const STATUS_FILE_ROW_HEIGHT = 32;
@@ -11319,168 +11319,170 @@ function HistoryView({
     graphMainBranch && graphMainRemote ? [graphMainBranch, graphMainRemote] : undefined
   ), [history, graphMainBranch, graphMainRemote]);
   const associations = useMemo(() => createCommitAssociationMap(insights), [insights]);
-  const historyColumns = useMemo(() => [
-    { id: "graph", label: "Graph", defaultWidth: Math.max(82, graphLayout.width), minWidth: graphLayout.width },
-    { id: "description", label: "Description", defaultWidth: 360, minWidth: 180 },
-    { id: "date", label: "Date", defaultWidth: 112, minWidth: 90 },
-    { id: "author", label: "Author", defaultWidth: 150, minWidth: 90 },
-    { id: "commit", label: "Commit", defaultWidth: 80, minWidth: 72 },
-    { id: "references", label: "References", defaultWidth: 220, minWidth: 120, defaultVisible: false },
-    { id: "pullRequest", label: "Pull request", defaultWidth: 120, minWidth: 92, defaultVisible: false },
-    { id: "checks", label: "Checks", defaultWidth: 110, minWidth: 82, defaultVisible: false }
-  ] as const satisfies readonly ColumnDefinition<HistoryColumnId>[], [graphLayout.width]);
-  const columnLayout = usePersistentColumnLayout("githead.column-layout.history", historyColumns, { fillColumn: "description", gap: 10, padding: 24 });
+  const columnLayout = usePersistentColumnLayout("githead.column-layout.history", HISTORY_COLUMNS);
+  const columnVisibility = columnLayout.layout.visibility;
+  const [narrowDetailOpen, setNarrowDetailOpen] = useState(false);
+  const openDetail = useCallback(() => setNarrowDetailOpen(true), []);
+  const closeDetail = useCallback(() => setNarrowDetailOpen(false), []);
   const selectedCommitFile = selectedCommitFilePath
     ? commitDetails?.files.find((file) => file.path === selectedCommitFilePath) ?? null
     : null;
+  const selectedHistoryCommit = useMemo(
+    () => selectedCommitHash ? history.find((commit) => commit.hash === selectedCommitHash) ?? null : null,
+    [history, selectedCommitHash]
+  );
+  // A parent opened from the card can be outside the loaded rows, so the card falls back to the details.
+  const detailsCommit = useMemo(() => commitDetails ? createCommitRowFromDetails(commitDetails) : null, [commitDetails]);
+  const cardCommit = commitDetails
+    ? selectedHistoryCommit?.hash === commitDetails.hash ? selectedHistoryCommit : detailsCommit
+    : null;
+  const tagsEnabled = summary?.capabilities.tags ?? true;
+  const containedInCurrentBranch = historyScope === "current";
   const showHistoryScope = summary?.isValid && summary.kind === "git";
-  const graphVisible = columnLayout.layout.visibility.graph;
-  const graphColumnIndex = columnLayout.layout.order.indexOf("graph");
-  const graphOffset = ["12px", ...columnLayout.layout.order
-    .slice(0, graphColumnIndex)
-    .filter((id) => columnLayout.layout.visibility[id])
-    .map((id) => `var(--data-grid-width-${id}) + 10px`)].join(" + ");
+  const graphVisible = columnVisibility.graph;
   const historyStyle = {
-    ...columnLayout.style,
-    "--history-graph-offset": `calc(${graphOffset})`
+    // The list padding (8px) plus the row padding (4px), measured from the list column edge.
+    "--history-graph-offset": "calc(12px)",
+    "--history-graph-width": `${graphLayout.width}px`
   } as CSSProperties;
 
-  return (
-    <ResizablePanelGroup orientation="vertical" className="h-full min-h-0 bg-background">
-      <ResizablePanel defaultSize="44%" minSize="180px">
-        <section ref={columnLayout.containerRef} style={historyStyle} className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] border-b bg-card" aria-label="Commit list" onScrollCapture={(event) => {
-          const source = event.target;
-          if (!(source instanceof HTMLElement)) return;
-          if (source.classList.contains("history-list") && source.scrollTop > 0
-            && source.scrollHeight - source.scrollTop - source.clientHeight < COMMIT_GRAPH_ROW_HEIGHT * 8
-            && historyHasMore && !historyLoading && !historyError) onLoadMoreHistory();
-          const targetClass = source.classList.contains("history-list") ? ".history-table-header"
-            : source.classList.contains("history-table-header") ? ".history-list" : null;
-          const target = targetClass ? event.currentTarget.querySelector<HTMLElement>(targetClass) : null;
-          if (target && target.scrollLeft !== source.scrollLeft) target.scrollLeft = source.scrollLeft;
-        }}>
-          <div className="history-scope-toolbar">
-            {showHistoryScope ? (
-              <>
-              <div className="history-scope-control" role="group" aria-label="Commit history scope">
-                {(["current", "all"] as const).map((scope) => (
-                  <Button
-                    key={scope}
-                    type="button"
-                    size="xs"
-                    variant={historyScope === scope ? "secondary" : "ghost"}
-                    aria-pressed={historyScope === scope}
-                    onClick={() => onHistoryScopeChange(scope)}
-                  >
-                    {scope === "current" ? "Current branch" : "All branches"}
-                  </Button>
-                ))}
+  const list = (
+    <section style={historyStyle} className="history-list-column grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]" aria-label="Commit list" onScrollCapture={(event) => {
+      const source = event.target;
+      if (!(source instanceof HTMLElement)) return;
+      if (source.classList.contains("history-list") && source.scrollTop > 0
+        && source.scrollHeight - source.scrollTop - source.clientHeight < COMMIT_GRAPH_ROW_HEIGHT * 8
+        && historyHasMore && !historyLoading && !historyError) onLoadMoreHistory();
+    }}>
+      <div className="history-scope-toolbar">
+        {showHistoryScope ? (
+          <Segmented<CommitHistoryScope>
+            label="Commit history scope"
+            size="sm"
+            value={historyScope}
+            options={HISTORY_SCOPE_OPTIONS}
+            onChange={onHistoryScopeChange}
+          />
+        ) : null}
+        <ColumnVisibilityMenu columns={HISTORY_COLUMNS} controller={columnLayout} iconOnly />
+      </div>
+      <div className="history-list-shell">
+        {insightsError ? (
+          <div className="history-insights-error" role="status">
+            <span>GitHub annotations unavailable.</span>
+            <Button type="button" variant="ghost" size="sm" onClick={onRetryInsights}>Retry</Button>
+          </div>
+        ) : insightsLoading ? <span className="sr-only" role="status">Loading GitHub annotations</span> : null}
+        {history.length === 0 ? (
+          <div className="history-list" role={historyError ? "group" : "listbox"} aria-label="Commit history">
+            {historyLoading ? (
+              <LoadingState label="Loading commit history" className="h-full" />
+            ) : historyError ? (
+              <div className="space-y-3 p-4">
+                <p className="bad selectable-text" role="alert">{historyError}</p>
+                <Button type="button" variant="outline" size="sm" aria-label="Retry loading commit history" onClick={onRetryHistory}>
+                  Retry
+                </Button>
               </div>
-              </>
+            ) : summary?.isValid ? (
+              <EmptyState title="No commits in this repository." />
             ) : null}
-            <ColumnVisibilityMenu columns={historyColumns} controller={columnLayout} />
           </div>
-          <div className="history-list-shell">
-            <AdjustableColumnHeader columns={historyColumns} controller={columnLayout} className="history-table-header" />
-            {insightsError ? (
-              <div className="history-insights-error" role="status">
-                <span>GitHub annotations unavailable.</span>
-                <Button type="button" variant="ghost" size="sm" onClick={onRetryInsights}>Retry</Button>
+        ) : (
+          <>
+            {historyLoading ? <span className="sr-only" role="status">Refreshing commit history</span> : null}
+            {historyError ? (
+              <div className="history-refresh-error selectable-text" role="status">
+                Unable to load commit history: {historyError}
               </div>
-            ) : insightsLoading ? <span className="sr-only" role="status">Loading GitHub annotations</span> : null}
-            {history.length === 0 ? (
-              <div className="history-list" role={historyError ? "group" : "listbox"} aria-label="Commit history">
-                {historyLoading ? (
-                  <LoadingState label="Loading commit history" className="h-full" />
-                ) : historyError ? (
-                  <div className="space-y-3 p-4">
-                    <p className="bad selectable-text" role="alert">{historyError}</p>
-                    <Button type="button" variant="outline" size="sm" aria-label="Retry loading commit history" onClick={onRetryHistory}>
-                      Retry
-                    </Button>
-                  </div>
-                ) : summary?.isValid ? (
-                  <EmptyState title="No commits in this repository." />
-                ) : null}
-              </div>
-            ) : (
-              <>
-                {historyLoading ? <span className="sr-only" role="status">Refreshing commit history</span> : null}
-                {historyError ? (
-                  <div className="history-refresh-error selectable-text" role="status">
-                    Unable to load commit history: {historyError}
-                  </div>
-                ) : null}
-                <FixedSizeVirtualList
-                  items={history}
-                  itemKey={(commit) => commit.hash}
-                  rowHeight={COMMIT_GRAPH_ROW_HEIGHT}
-                  overscan={6}
-                  ariaLabel="Commit history"
-                  selectedKey={selectedCommitHash}
-                  className="history-list"
-                  multiSelectable={false}
-                  renderOverlay={(range) => graphVisible ? (
-                    <CommitGraphSvg
-                      layout={graphLayout}
-                      selectedCommitHash={selectedCommitHash}
-                      visibleStartRow={range.start}
-                      visibleEndRow={range.end}
-                    />
-                  ) : null}
-                  renderItem={(commit, _index, virtualRowProps) => (
-                    <HistoryRow
-                      commit={commit}
-                      selected={commit.hash === selectedCommitHash}
-                      tagsEnabled={summary?.capabilities.tags ?? true}
-                      containedInCurrentBranch={historyScope === "current"}
-                      allowCherryPickingContainedCommits={allowCherryPickingContainedCommits}
-                      isHead={commit.hash === currentHeadHash}
-                      amendDisabled={disabled}
-                      amendDisabledReason={amendDisabledReason}
-                      {...(associations.get(commit.hash) ? { association: associations.get(commit.hash)! } : {})}
-                      onOpenExternalUrl={onOpenExternalUrl}
-                      onSelectCommit={onSelectCommit}
-                      onCommitContextAction={onCommitContextAction}
-                      columnOrder={columnLayout.visibleOrder}
-                      virtualRowProps={virtualRowProps}
-                    />
-                  )}
+            ) : null}
+            <FixedSizeVirtualList
+              items={history}
+              itemKey={(commit) => commit.hash}
+              rowHeight={COMMIT_GRAPH_ROW_HEIGHT}
+              overscan={6}
+              ariaLabel="Commit history"
+              selectedKey={selectedCommitHash}
+              className="history-list"
+              multiSelectable={false}
+              renderOverlay={(range) => graphVisible ? (
+                <CommitGraphSvg
+                  layout={graphLayout}
+                  selectedCommitHash={selectedCommitHash}
+                  visibleStartRow={range.start}
+                  visibleEndRow={range.end}
                 />
-                {historyHasMore ? (
-                  <div className="flex items-center justify-center border-t px-3 py-1">
-                    <Button type="button" variant="ghost" size="sm" disabled={historyLoading} onClick={onLoadMoreHistory}>
-                      {historyLoadingMore ? "Loading commits…" : historyError ? "Retry loading commits" : "Load more commits"}
-                    </Button>
-                  </div>
-                ) : null}
-              </>
-            )}
-          </div>
-        </section>
-      </ResizablePanel>
-      <ResizableHandle />
-      <ResizablePanel minSize="260px">
-        <ResizablePanelGroup orientation="horizontal" className="h-full min-h-0">
-          <ResizablePanel defaultSize="42%" minSize="300px" className="min-w-[300px]">
-            <CommitDetailsPanel
-              onCopyCommit={onCopyCommit}
-              details={commitDetails}
-              loading={commitDetailsLoading}
-              error={commitDetailsError}
-              repository={summary?.githubRepository ?? null}
-              onOpenExternalUrl={onOpenExternalUrl}
-              selectedFilePath={selectedCommitFilePath}
-              disabled={disabled}
-              fileHistoryEnabled={Boolean(summary?.capabilities.fileHistory)}
-              blameEnabled={Boolean(summary?.capabilities.blame)}
-              onSelectCommit={onSelectCommit}
-              onSelectCommitFile={onSelectCommitFile}
-              onCommitFileContextAction={onCommitFileContextAction}
+              ) : null}
+              renderItem={(commit, _index, virtualRowProps) => (
+                <HistoryRow
+                  commit={commit}
+                  selected={commit.hash === selectedCommitHash}
+                  tagsEnabled={tagsEnabled}
+                  containedInCurrentBranch={containedInCurrentBranch}
+                  allowCherryPickingContainedCommits={allowCherryPickingContainedCommits}
+                  isHead={commit.hash === currentHeadHash}
+                  amendDisabled={disabled}
+                  amendDisabledReason={amendDisabledReason}
+                  {...(associations.get(commit.hash) ? { association: associations.get(commit.hash)! } : {})}
+                  onOpenExternalUrl={onOpenExternalUrl}
+                  onSelectCommit={onSelectCommit}
+                  onOpenDetail={openDetail}
+                  onCommitContextAction={onCommitContextAction}
+                  columnVisibility={columnVisibility}
+                  virtualRowProps={virtualRowProps}
+                />
+              )}
             />
-          </ResizablePanel>
-          <ResizableHandle />
-          <ResizablePanel minSize="240px">
+            {historyHasMore ? (
+              <div className="history-load-more">
+                <Button type="button" variant="ghost" size="sm" disabled={historyLoading} onClick={onLoadMoreHistory}>
+                  {historyLoadingMore ? "Loading commits…" : historyError ? "Retry loading commits" : "Load more commits"}
+                </Button>
+              </div>
+            ) : null}
+          </>
+        )}
+      </div>
+    </section>
+  );
+
+  return (
+    <ListDetailLayout
+      id="history"
+      listLabel="commit list"
+      list={list}
+      detailOpen={narrowDetailOpen && selectedCommitHash !== null}
+      onBack={closeDetail}
+      detailCard={false}
+      detail={
+        <CommitDetailsPanel
+          onCopyCommit={onCopyCommit}
+          details={commitDetails}
+          loading={commitDetailsLoading}
+          error={commitDetailsError}
+          repository={summary?.githubRepository ?? null}
+          onOpenExternalUrl={onOpenExternalUrl}
+          selectedFilePath={selectedCommitFilePath}
+          disabled={disabled}
+          fileHistoryEnabled={Boolean(summary?.capabilities.fileHistory)}
+          blameEnabled={Boolean(summary?.capabilities.blame)}
+          onSelectCommit={onSelectCommit}
+          onSelectCommitFile={onSelectCommitFile}
+          onCommitFileContextAction={onCommitFileContextAction}
+          actions={cardCommit ? (
+            <CommitActionsMenu
+              commit={cardCommit}
+              items={getCommitActionItems({
+                tagsEnabled,
+                cherryPickDisabled: containedInCurrentBranch && !allowCherryPickingContainedCommits,
+                isHead: cardCommit.hash === currentHeadHash,
+                amendDisabled: disabled,
+                amendDisabledReason
+              })}
+              onAction={onCommitContextAction}
+            />
+          ) : null}
+          diff={
             <DiffPanel
               title={selectedCommitFilePath ?? "Select a file"}
               eyebrow="Commit diff"
@@ -11496,11 +11498,67 @@ function HistoryView({
                 : undefined}
               wrapLines={wrapLines}
               onWrapLinesChange={onWrapLinesChange}
+              variant="embedded"
+              status={selectedCommitFile ? getCommitFileStatusVisuals(selectedCommitFile.status) : undefined}
             />
-          </ResizablePanel>
-        </ResizablePanelGroup>
-      </ResizablePanel>
-    </ResizablePanelGroup>
+          }
+        />
+      }
+    />
+  );
+}
+
+const HISTORY_SCOPE_OPTIONS = [
+  { value: "current", label: "Current branch" },
+  { value: "all", label: "All branches" }
+] as const satisfies readonly SegmentedOption<CommitHistoryScope>[];
+
+/** The widths only keep the stored layout readable. The two-line rows use the visibility alone. */
+const HISTORY_COLUMNS = [
+  { id: "graph", label: "Graph", defaultWidth: 82, minWidth: 28 },
+  { id: "description", label: "Description", defaultWidth: 360, minWidth: 180 },
+  { id: "date", label: "Date", defaultWidth: 112, minWidth: 90 },
+  { id: "author", label: "Author", defaultWidth: 150, minWidth: 90 },
+  { id: "commit", label: "Commit", defaultWidth: 80, minWidth: 72 },
+  { id: "references", label: "References", defaultWidth: 220, minWidth: 120, defaultVisible: false },
+  { id: "pullRequest", label: "Pull request", defaultWidth: 120, minWidth: 92, defaultVisible: false },
+  { id: "checks", label: "Checks", defaultWidth: 110, minWidth: 82, defaultVisible: false }
+] as const satisfies readonly ColumnDefinition<HistoryColumnId>[];
+
+function createCommitRowFromDetails(details: GitCommitDetails): GitCommitGraphRow {
+  return {
+    hash: details.hash,
+    shortHash: details.shortHash,
+    parents: details.parents,
+    refs: details.refs,
+    subject: details.subject,
+    authorName: details.authorName,
+    authorEmail: details.authorEmail,
+    authorDate: details.authorDate,
+    relativeDate: ""
+  };
+}
+
+function CommitActionsMenu({
+  commit,
+  items,
+  onAction
+}: {
+  commit: GitCommitGraphRow;
+  items: readonly CommitActionItem[];
+  onAction: (commit: GitCommitGraphRow, action: CommitContextActionKind) => void;
+}): ReactNode {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <TooltipButton type="button" variant="ghost" size="icon-xs" className="commit-actions-trigger" aria-label="Commit actions" tooltip="Commit actions">
+          <Ellipsis />
+        </TooltipButton>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64">
+        <CommitActionDropdownMenuItems items={items} commit={commit} onAction={onAction} />
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -12384,6 +12442,10 @@ function GitHubListFooter({ label, nextPage, loading, error, disabled, onLoadMor
   );
 }
 
+/** Nodes are hollow rings in the lane colour; the selected node is filled and ringed. */
+const COMMIT_GRAPH_DOT_RADIUS = 4.5;
+const COMMIT_GRAPH_SELECTION_RADIUS = 7;
+
 const CommitGraphSvg = memo(function CommitGraphSvg({
   layout,
   selectedCommitHash,
@@ -12421,6 +12483,8 @@ const CommitGraphSvg = memo(function CommitGraphSvg({
       height={height}
       style={{ top, "--commit-graph-hover-filter": `url("#${glowId}")` } as CSSProperties}
       viewBox={`0 ${top} ${layout.width} ${height}`}
+      // The stylesheet caps a wide graph, and slicing clips the lanes past the cap instead of shrinking it.
+      preserveAspectRatio="xMinYMin slice"
       aria-hidden="true"
     >
       {hoverEnabled ? <defs>
@@ -12450,11 +12514,11 @@ const CommitGraphSvg = memo(function CommitGraphSvg({
             data-graph-hash={node.hash}
             className={`commit-graph-node lane-${node.lane % COMMIT_GRAPH_COLOR_COUNT} ${node.isMerge ? "is-merge" : ""} ${node.hash === selectedCommitHash ? "is-selected" : ""}`}
           >
-            {node.hash === selectedCommitHash ? <circle className="commit-graph-selection" cx={node.x} cy={node.y} r="7" /> : null}
-            <circle data-testid="commit-graph-node" className="commit-graph-dot" cx={node.x} cy={node.y} r={node.isMerge ? 4.5 : 3.25} />
+            {node.hash === selectedCommitHash ? <circle className="commit-graph-selection" cx={node.x} cy={node.y} r={COMMIT_GRAPH_SELECTION_RADIUS} /> : null}
+            <circle data-testid="commit-graph-node" className="commit-graph-dot" cx={node.x} cy={node.y} r={COMMIT_GRAPH_DOT_RADIUS} />
             {hoverEnabled ? <g className="commit-graph-glow">
-              {node.hash === selectedCommitHash ? <circle className="commit-graph-selection" cx={node.x} cy={node.y} r="7" /> : null}
-              <circle className="commit-graph-dot" cx={node.x} cy={node.y} r={node.isMerge ? 4.5 : 3.25} />
+              {node.hash === selectedCommitHash ? <circle className="commit-graph-selection" cx={node.x} cy={node.y} r={COMMIT_GRAPH_SELECTION_RADIUS} /> : null}
+              <circle className="commit-graph-dot" cx={node.x} cy={node.y} r={COMMIT_GRAPH_DOT_RADIUS} />
             </g> : null}
           </g>
         ))}
@@ -12475,8 +12539,10 @@ interface HistoryRowProps {
   association?: GitHubCommitAssociation;
   onOpenExternalUrl: (url: string) => void;
   onSelectCommit: (hash: string) => void;
+  /** Shows the commit card in a narrow window. A context menu selects without opening it. */
+  onOpenDetail: () => void;
   onCommitContextAction: (commit: GitCommitGraphRow, action: CommitContextActionKind) => void;
-  columnOrder: readonly HistoryColumnId[];
+  columnVisibility: Readonly<Record<HistoryColumnId, boolean>>;
   virtualRowProps: VirtualRowProps;
 }
 
@@ -12492,11 +12558,22 @@ const HistoryRow = memo(function HistoryRow({
   association,
   onOpenExternalUrl,
   onSelectCommit,
+  onOpenDetail,
   onCommitContextAction,
-  columnOrder,
+  columnVisibility,
   virtualRowProps
 }: HistoryRowProps): ReactNode {
-  const cherryPickDisabled = containedInCurrentBranch && !allowCherryPickingContainedCommits;
+  const showAuthor = columnVisibility.author;
+  const showDate = columnVisibility.date;
+  const expandedPullRequests = columnVisibility.pullRequest && association && association.pullRequests.length > 0;
+  const expandedChecks = columnVisibility.checks && association;
+  const compactPullRequests = association && !columnVisibility.pullRequest;
+  const compactChecks = association && !columnVisibility.checks;
+  const showCaption = showAuthor || showDate || expandedPullRequests || expandedChecks;
+  const openCommit = (): void => {
+    onSelectCommit(commit.hash);
+    onOpenDetail();
+  };
   return (
     <ContextMenu>
       <ContextMenuTrigger
@@ -12515,7 +12592,7 @@ const HistoryRow = memo(function HistoryRow({
           data-commit-hash={commit.hash}
           data-virtual-index={virtualRowProps["aria-posinset"] - 1}
           {...virtualRowProps}
-          onClick={() => onSelectCommit(commit.hash)}
+          onClick={openCommit}
           onKeyDown={(event) => {
             if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
               event.preventDefault();
@@ -12530,101 +12607,78 @@ const HistoryRow = memo(function HistoryRow({
             }
             if (event.key === "Enter" || event.key === " ") {
               event.preventDefault();
-              onSelectCommit(commit.hash);
+              openCommit();
             }
           }}
         >
-          <OrderedCells order={columnOrder} cells={{
-            graph: <span className="history-graph-cell" aria-hidden="true" />,
-            description: <span className="history-description">
-              <TooltipTarget content={commit.subject || undefined}>
-                <span className="history-subject-tooltip">
-                  <CommitSubject
-                    subject={commit.subject}
-                    className="history-subject"
-                    scopeClassName="history-scope"
-                    descriptionClassName="history-description-text"
-                  />
-                </span>
-              </TooltipTarget>
-              {!columnOrder.includes("references") ? <HistoryReferences commit={commit} compact /> : null}
-              {association && (!columnOrder.includes("pullRequest") || !columnOrder.includes("checks")) ? (
+          {columnVisibility.graph ? <span className="history-graph-cell" aria-hidden="true" /> : null}
+          <span className="history-row-content">
+            <span className="history-description">
+              {columnVisibility.references ? <HistoryReferences commit={commit} /> : <HistoryReferences commit={commit} compact />}
+              {columnVisibility.description ? (
+                <TooltipTarget content={commit.subject || undefined}>
+                  <span className="history-subject-tooltip">
+                    <CommitSubject
+                      subject={commit.subject}
+                      className="history-subject"
+                      scopeClassName="history-scope"
+                      descriptionClassName="history-description-text"
+                    />
+                  </span>
+                </TooltipTarget>
+              ) : null}
+              {compactPullRequests || compactChecks ? (
                 <span className="history-github-badges">
-                  {!columnOrder.includes("pullRequest") ? <HistoryPullRequests association={association} onOpenExternalUrl={onOpenExternalUrl} /> : null}
-                  {!columnOrder.includes("checks") ? <HistoryCheckState association={association} compact /> : null}
+                  {compactPullRequests ? <HistoryPullRequests association={association} onOpenExternalUrl={onOpenExternalUrl} /> : null}
+                  {compactChecks ? <HistoryCheckState association={association} compact /> : null}
                 </span>
               ) : null}
-              </span>,
-            date: <TooltipTarget content={formatDate(commit.authorDate)}>
-              <span className="history-date">{commit.relativeDate || formatDate(commit.authorDate)}</span>
-            </TooltipTarget>,
-            author: <TooltipTarget content={commit.authorEmail}><span className="history-author">{commit.authorName}</span></TooltipTarget>,
-            commit: <TooltipTarget content={commit.hash}><span className="history-hash">{commit.shortHash}</span></TooltipTarget>,
-            references: <HistoryReferences commit={commit} showEmpty />,
-            pullRequest: association ? <HistoryPullRequests association={association} onOpenExternalUrl={onOpenExternalUrl} showEmpty /> : <span className="github-secondary-text">-</span>,
-            checks: association ? <HistoryCheckState association={association} /> : <span className="github-secondary-text">-</span>
-          }} />
+            </span>
+            {showCaption ? (
+              <span className="history-row-caption">
+                {showAuthor ? <TooltipTarget content={commit.authorEmail}><span className="history-author">{commit.authorName}</span></TooltipTarget> : null}
+                {showAuthor && showDate ? <span className="history-caption-separator" aria-hidden="true">·</span> : null}
+                {showDate ? (
+                  <TooltipTarget content={formatDate(commit.authorDate)}>
+                    <span className="history-date">{commit.relativeDate || formatDate(commit.authorDate)}</span>
+                  </TooltipTarget>
+                ) : null}
+                {expandedPullRequests ? <HistoryPullRequests association={association} onOpenExternalUrl={onOpenExternalUrl} /> : null}
+                {expandedChecks ? <HistoryCheckState association={association} /> : null}
+              </span>
+            ) : null}
+          </span>
+          {columnVisibility.commit ? (
+            <TooltipTarget content={commit.hash}><span className="history-hash">{commit.shortHash}</span></TooltipTarget>
+          ) : null}
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-64">
-        {tagsEnabled ? (
-          <ContextMenuItem onSelect={() => onCommitContextAction(commit, "tag")}>
-            <Tag />
-            Tag
-          </ContextMenuItem>
-        ) : null}
-        <TooltipTarget
-          content={cherryPickDisabled ? "This commit is already included in the current branch." : undefined}
-          contentProps={{ side: "right", sideOffset: 8 }}
-        >
-          <ContextMenuItem
-            disabled={cherryPickDisabled}
-            className={cherryPickDisabled ? "data-[disabled]:pointer-events-auto" : undefined}
-            onSelect={() => onCommitContextAction(commit, "cherry-pick")}
-          >
-            <GitFork />
-            Cherry-pick commit…
-          </ContextMenuItem>
-        </TooltipTarget>
-        <ContextMenuSeparator />
-        <ContextMenuItem onSelect={() => onCommitContextAction(commit, "reset")}>
-          <GitBranchIcon />
-          Reset current branch to this commit
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={() => onCommitContextAction(commit, "revert")}>
-          <RotateCcw />
-          Reverse commit
-        </ContextMenuItem>
-        {isHead ? (
-          <TooltipTarget
-            content={amendDisabled ? amendDisabledReason ?? "Wait for the current Git operation to finish." : undefined}
-            contentProps={{ side: "right", sideOffset: 8 }}
-          >
-            <ContextMenuItem
-              disabled={amendDisabled}
-              className={amendDisabled ? "data-[disabled]:pointer-events-auto" : undefined}
-              onSelect={() => onCommitContextAction(commit, "amend")}
-            >
-              <GitCommitHorizontal />
-              Amend last commit…
-            </ContextMenuItem>
-          </TooltipTarget>
-        ) : null}
-        <ContextMenuSeparator />
-        <ContextMenuItem onSelect={() => onCommitContextAction(commit, "copy")}>
-          <Clipboard />
-          Copy SHA to clipboard
-        </ContextMenuItem>
+        <CommitActionContextMenuItems
+          items={getCommitActionItems({
+            tagsEnabled,
+            cherryPickDisabled: containedInCurrentBranch && !allowCherryPickingContainedCommits,
+            isHead,
+            amendDisabled,
+            amendDisabledReason
+          })}
+          commit={commit}
+          onAction={onCommitContextAction}
+        />
       </ContextMenuContent>
     </ContextMenu>
   );
 }, areHistoryRowPropsEqual);
 
-function HistoryReferences({ commit, showEmpty = false, compact = false }: { commit: GitCommitGraphRow; showEmpty?: boolean; compact?: boolean }): ReactNode {
-  if (commit.refs.length === 0) return showEmpty ? <span className="github-secondary-text">-</span> : null;
+function HistoryReferences({ commit, compact = false, className }: {
+  commit: Pick<GitCommitGraphRow, "hash" | "refs">;
+  compact?: boolean;
+  className?: string;
+}): ReactNode {
+  if (commit.refs.length === 0) return null;
   const visibleRefs = compact ? [commit.refs.find((ref) => ref.kind === "branch") ?? commit.refs[0]!] : commit.refs;
   return (
-    <span className={`history-refs ${compact ? "is-compact" : ""}`}>
+    <span className={["history-refs", compact ? "is-compact" : "", className ?? ""].filter(Boolean).join(" ")}>
       {visibleRefs.map((ref) => (
         <span key={`${commit.hash}:${ref.kind}:${ref.name}`} className={`ref-badge ${ref.kind}`}>
           {ref.kind === "tag" ? <Tag aria-hidden="true" /> : null}
@@ -12652,14 +12706,12 @@ function HistoryReferences({ commit, showEmpty = false, compact = false }: { com
 
 function HistoryPullRequests({
   association,
-  onOpenExternalUrl,
-  showEmpty = false
+  onOpenExternalUrl
 }: {
   association: GitHubCommitAssociation;
   onOpenExternalUrl: (url: string) => void;
-  showEmpty?: boolean;
 }): ReactNode {
-  if (association.pullRequests.length === 0) return showEmpty ? <span className="github-secondary-text">-</span> : null;
+  if (association.pullRequests.length === 0) return null;
   if (association.pullRequests.length === 1) {
     const pullRequest = association.pullRequests[0]!;
     return (
@@ -12746,7 +12798,9 @@ function CommitDetailsPanel({
   blameEnabled,
   onSelectCommit,
   onSelectCommitFile,
-  onCommitFileContextAction
+  onCommitFileContextAction,
+  actions,
+  diff
 }: {
   details: GitCommitDetails | null;
   onCopyCommit: (commit: Pick<GitCommitGraphRow, "hash">) => Promise<void>;
@@ -12761,105 +12815,109 @@ function CommitDetailsPanel({
   onSelectCommit: (hash: string) => void;
   onSelectCommitFile: (filePath: string) => void;
   onCommitFileContextAction: (file: GitCommitChangedFile, action: CommitFileContextActionKind) => void;
+  /** The card's commit actions menu, shown beside the title. */
+  actions: ReactNode;
+  /** The embedded diff for the selected file. The card shows it once the details load. */
+  diff: ReactNode;
 }): ReactNode {
-  let meta: ReactNode;
-  let files: ReactNode;
-  let fileCount = "No files";
-  let changeSummary: ReactNode = null;
-
-  if (loading) {
-    meta = <LoadingState label="Loading commit details" />;
-    files = null;
-  } else if (error) {
-    meta = <EmptyState tone="error" className="selectable-text" title={error} />;
-    files = null;
-  } else if (!details) {
-    meta = <EmptyState title="Select a commit." />;
-    files = null;
-  } else {
-    fileCount = `${details.files.length} ${details.files.length === 1 ? "file" : "files"}`;
-    const totals = details.files.reduce((sum, file) => ({ additions: sum.additions + file.additions, deletions: sum.deletions + file.deletions }), { additions: 0, deletions: 0 });
-    changeSummary = <span className="commit-change-summary"><span className="good">+{totals.additions}</span><span className="bad">−{totals.deletions}</span></span>;
-    const parsedSubject = parseCommitSubject(details.subject);
-    const references = parseGitHubReferences(`${details.subject}\n${details.body}`, repository);
-    meta = (
-      <div className="commit-meta-card selectable-text">
-        <TooltipTarget content={details.subject || undefined}>
-          <h2 className="commit-title text-sm font-semibold">
-            <CommitSubject
-              subject={details.subject}
-              className="commit-title-subject"
-              scopeClassName="commit-title-scope"
-              descriptionClassName="commit-title-description"
-              showType={false}
-            />
-          </h2>
-        </TooltipTarget>
-        <div className="commit-summary-meta">
-          <TooltipTarget content={details.authorEmail}><span>{details.authorName}</span></TooltipTarget>
-          <time dateTime={details.authorDate}>{formatDate(details.authorDate)}</time>
-          <TooltipButton type="button" variant="ghost" size="xs" className="commit-copy-hash" aria-label="Copy commit SHA" tooltip="Copy full commit SHA" onClick={() => { void onCopyCommit(details); }}>
-            <Clipboard />{details.shortHash}
-          </TooltipButton>
-          {parsedSubject ? <CommitTypeBadge {...parsedSubject} /> : null}
+  if (loading || error || !details) {
+    return (
+      <section className="commit-details-panel" aria-label="Commit details">
+        <div className="commit-meta-scroll">
+          {loading ? (
+            <LoadingState label="Loading commit details" />
+          ) : error ? (
+            <EmptyState tone="error" className="selectable-text" title={error} />
+          ) : (
+            <EmptyState title="Select a commit." />
+          )}
         </div>
-        <details key={details.hash} className="commit-expanded-details">
-          <summary>Commit details</summary>
-          <dl className="commit-facts">
-            <Fact label="Commit" value={details.hash} />
-            <Fact label="Parents" value={<ParentCommitLinks parents={details.parents} onSelectCommit={onSelectCommit} />} />
-            <Fact label="Author" value={`${details.authorName} <${details.authorEmail}>`} />
-            {references.length > 0 ? (
-              <Fact label="References" value={
-                <span className="commit-reference-list">
-                  {references.map((reference) => (
-                    <button key={`${reference.owner}/${reference.repository}#${reference.number}:${reference.kind}`} type="button" className="commit-reference-link" onClick={() => {
-                      if (reference.targetUrl) onOpenExternalUrl(reference.targetUrl);
-                    }}>{reference.displayText}</button>
-                  ))}
-                </span>
-              } />
-            ) : null}
-          </dl>
-        </details>
-        {details.body ? (
-          <div className="commit-body">
-            <OptionalFeatureBoundary name="commit message">
-              <BasicMarkdown externalLinks>{details.body}</BasicMarkdown>
-            </OptionalFeatureBoundary>
-          </div>
-        ) : null}
-      </div>
-    );
-    files = details.files.length === 0 ? (
-      <EmptyState title="No changed files." />
-    ) : (
-      details.files.map((file) => (
-        <CommitFileRow
-          key={file.path}
-          file={file}
-          selected={file.path === selectedFilePath}
-          disabled={disabled}
-          fileHistoryEnabled={fileHistoryEnabled}
-          blameEnabled={blameEnabled}
-          onSelectCommitFile={onSelectCommitFile}
-          onContextAction={onCommitFileContextAction}
-        />
-      ))
+      </section>
     );
   }
 
+  const fileCount = `${details.files.length} ${details.files.length === 1 ? "file" : "files"}`;
+  const totals = details.files.reduce((sum, file) => ({ additions: sum.additions + file.additions, deletions: sum.deletions + file.deletions }), { additions: 0, deletions: 0 });
+  const parsedSubject = parseCommitSubject(details.subject);
+  const references = parseGitHubReferences(`${details.subject}\n${details.body}`, repository);
+
   return (
-    <section className="commit-details-panel grid h-full min-h-0 border-r bg-card" aria-label="Commit details">
-      <div className="commit-meta-scroll border-b">{meta}</div>
-      <div className="commit-file-list-header flex min-h-10 items-center justify-between gap-3 border-b px-4 text-sm">
-        <span className="text-muted-foreground">{fileCount}</span>
+    <section className="commit-details-panel" aria-label="Commit details">
+      <div className="commit-meta-scroll">
+        <div className="commit-meta-card selectable-text">
+          <div className="commit-title-row">
+            <TooltipTarget content={details.subject || undefined}>
+              <h2 className="commit-title">
+                <CommitSubject
+                  subject={details.subject}
+                  className="commit-title-subject"
+                  scopeClassName="commit-title-scope"
+                  descriptionClassName="commit-title-description"
+                  showType={false}
+                />
+              </h2>
+            </TooltipTarget>
+            {actions}
+          </div>
+          <div className="commit-summary-meta">
+            <TooltipTarget content={details.authorEmail}><span>{details.authorName}</span></TooltipTarget>
+            <time dateTime={details.authorDate}>{formatDate(details.authorDate)}</time>
+            <TooltipButton type="button" variant="ghost" size="xs" className="commit-copy-hash" aria-label="Copy commit SHA" tooltip="Copy full commit SHA" onClick={() => { void onCopyCommit(details); }}>
+              <Clipboard />{details.shortHash}
+            </TooltipButton>
+            {parsedSubject ? <CommitTypeBadge {...parsedSubject} /> : null}
+          </div>
+          {details.refs.length > 0 ? <HistoryReferences commit={details} className="commit-refs" /> : null}
+          <details key={details.hash} className="commit-expanded-details">
+            <summary>Commit details</summary>
+            <dl className="commit-facts">
+              <Fact label="Commit" value={details.hash} />
+              <Fact label="Parents" value={<ParentCommitLinks parents={details.parents} onSelectCommit={onSelectCommit} />} />
+              <Fact label="Author" value={`${details.authorName} <${details.authorEmail}>`} />
+              {references.length > 0 ? (
+                <Fact label="References" value={
+                  <span className="commit-reference-list">
+                    {references.map((reference) => (
+                      <button key={`${reference.owner}/${reference.repository}#${reference.number}:${reference.kind}`} type="button" className="commit-reference-link" onClick={() => {
+                        if (reference.targetUrl) onOpenExternalUrl(reference.targetUrl);
+                      }}>{reference.displayText}</button>
+                    ))}
+                  </span>
+                } />
+              ) : null}
+            </dl>
+          </details>
+          {details.body ? (
+            <div className="commit-body">
+              <OptionalFeatureBoundary name="commit message">
+                <BasicMarkdown externalLinks>{details.body}</BasicMarkdown>
+              </OptionalFeatureBoundary>
+            </div>
+          ) : null}
+        </div>
+      </div>
+      <div className="commit-file-list-header">
+        <span>{fileCount}</span>
         <span className="sr-only">Sorted by file status</span>
-        {changeSummary}
+        <span className="commit-change-summary"><span className="good">+{totals.additions}</span><span className="bad">−{totals.deletions}</span></span>
       </div>
       <div className="commit-file-list" role="listbox" aria-label="Changed files">
-        {files}
+        {details.files.length === 0 ? (
+          <EmptyState title="No changed files." />
+        ) : details.files.map((file) => (
+          <CommitFileRow
+            key={file.path}
+            file={file}
+            selected={file.path === selectedFilePath}
+            disabled={disabled}
+            fileHistoryEnabled={fileHistoryEnabled}
+            blameEnabled={blameEnabled}
+            onSelectCommitFile={onSelectCommitFile}
+            onContextAction={onCommitFileContextAction}
+          />
+        ))}
       </div>
+      {diff}
     </section>
   );
 }
@@ -14238,14 +14296,25 @@ function areHistoryRowPropsEqual(previous: HistoryRowProps, next: HistoryRowProp
     && previous.tagsEnabled === next.tagsEnabled
     && previous.containedInCurrentBranch === next.containedInCurrentBranch
     && previous.allowCherryPickingContainedCommits === next.allowCherryPickingContainedCommits
+    && previous.isHead === next.isHead
+    && previous.amendDisabled === next.amendDisabled
+    && previous.amendDisabledReason === next.amendDisabledReason
     && previous.association === next.association
     && previous.onOpenExternalUrl === next.onOpenExternalUrl
     && previous.onSelectCommit === next.onSelectCommit
+    && previous.onOpenDetail === next.onOpenDetail
     && previous.onCommitContextAction === next.onCommitContextAction
-    && areStringArraysEqual(previous.columnOrder, next.columnOrder)
+    && areHistoryColumnVisibilityEqual(previous.columnVisibility, next.columnVisibility)
     && previous.virtualRowProps["aria-posinset"] === next.virtualRowProps["aria-posinset"]
     && previous.virtualRowProps["aria-setsize"] === next.virtualRowProps["aria-setsize"]
     && previous.virtualRowProps.style.top === next.virtualRowProps.style.top;
+}
+
+function areHistoryColumnVisibilityEqual(
+  left: Readonly<Record<HistoryColumnId, boolean>>,
+  right: Readonly<Record<HistoryColumnId, boolean>>
+): boolean {
+  return left === right || HISTORY_COLUMNS.every((column) => left[column.id] === right[column.id]);
 }
 
 function resolvePostHunkSelection(summary: RepoSummary | null, selection: FileSelection): FileSelection | null {

@@ -4652,14 +4652,17 @@ textarea,
   padding: 0 0.35rem;
 }
 
-.history-list,
-.commit-file-list {
+.history-list {
   min-height: 0;
   overflow: auto;
   content-visibility: auto;
 }
 
+/* Bounded to about seven rows, so the diff below keeps most of the card. */
 .commit-file-list {
+  min-height: 0;
+  max-height: calc(32px * 7 + var(--space-2) * 2);
+  overflow: auto;
   padding: var(--space-2);
 }
 
@@ -5807,24 +5810,9 @@ textarea,
   color: var(--success);
 }
 
-.history-table-header,
-.history-row {
-  display: grid;
-  grid-template-columns: var(--data-grid-columns);
-  align-items: center;
-  gap: 10px;
-}
-
-.history-table-header {
-  overflow: hidden;
-  z-index: 3;
-  min-height: 30px;
-  border-bottom: 1px solid var(--border);
-  padding: 0 12px;
-  color: var(--muted-foreground);
-  font-size: 0.75rem;
-  font-weight: 700;
-  background: var(--card);
+/* The commit list column: a scope toolbar over the virtual list of two-line rows. */
+.history-list-column {
+  min-width: 0;
 }
 
 .history-list-shell {
@@ -5838,49 +5826,94 @@ textarea,
   flex: 1 1 auto;
 }
 
+/* --history-graph-offset is measured from the list column edge, so the graph subtracts the list padding. */
+.history-list {
+  --history-list-padding: 8px;
+  /* The row's start and end padding (4px + 8px), which the graph overlay subtracts to match the gutter. */
+  --history-row-padding-inline: 12px;
+  /* The room a capped graph keeps for the subject, the references and the SHA. */
+  --history-text-min-width: 260px;
+  padding: 0 var(--history-list-padding) var(--history-list-padding);
+}
+
 .history-row {
   position: relative;
+  display: flex;
   width: 100%;
-  height: 28px;
-  min-height: 28px;
+  height: 48px;
+  min-height: 48px;
+  align-items: center;
+  gap: 8px;
   border: 0;
-  border-radius: 0;
-  padding: 0 12px;
+  border-radius: var(--radius-md);
+  padding: 4px 8px 4px 4px;
   background: transparent;
   text-align: left;
   cursor: default;
 }
 
+/* The scroller clips an outside ring at the column edges. */
+.history-row:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+/* Many lanes would squeeze the subject to nothing, so the gutter takes at most 40% of the row,
+   or more while the text keeps its minimum. The graph overlay clips to the same width. */
+.history-graph-cell {
+  flex: 0 0 var(--history-graph-width, 28px);
+  max-width: max(40%, 100% - var(--history-text-min-width));
+  align-self: stretch;
+}
+
+.history-row-content {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 2px;
+}
+
+.history-row-caption {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.history-caption-separator {
+  flex: none;
+}
+
+.history-row-caption > .history-github-badge,
+.history-row-caption > .history-check-column {
+  flex: none;
+}
+
 .history-scope-toolbar {
   min-width: 0;
   display: flex;
-  min-height: 44px;
+  min-height: 40px;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  border-bottom: 1px solid var(--border);
-  padding: 8px 12px;
+  padding: 0 8px 0 12px;
 }
 
-.history-scope-control {
-  margin-right: auto;
-  display: inline-flex;
+.history-scope-toolbar > :last-child {
+  margin-left: auto;
+}
+
+.history-load-more {
+  display: flex;
   align-items: center;
-  gap: 2px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  padding: 2px;
-  background: var(--muted);
-}
-
-.history-scope-control button {
-  color: var(--muted-foreground);
-}
-
-.history-scope-control button[aria-pressed="true"] {
-  color: var(--foreground);
-  background: var(--surface);
-  box-shadow: 0 0 0 1px var(--border);
+  justify-content: center;
+  border-top: 1px solid var(--border);
+  padding: 4px 12px;
 }
 
 .history-description,
@@ -5888,7 +5921,7 @@ textarea,
 .commit-reference-list { display: flex; min-width: 0; align-items: center; gap: 5px; }
 .history-github-badges { margin-left: auto; flex: 0 0 auto; }
 .history-github-badge,
-.commit-reference-link { border: 1px solid var(--border); border-radius: 999px; padding: 1px 5px; background: var(--muted); color: inherit; font-size: .68rem; line-height: 1.1rem; }
+.commit-reference-link { border: 1px solid var(--border); border-radius: 999px; padding: 0 5px; background: var(--muted); color: inherit; font-size: .6875rem; line-height: 1rem; }
 .history-check-state { width: 8px; height: 8px; border-radius: 50%; background: var(--muted-foreground); }
 .history-check-state.is-success { background: var(--status-added); }
 .history-check-state.is-failure { background: var(--status-deleted); }
@@ -5904,21 +5937,17 @@ textarea,
   background: var(--selected);
 }
 
-.history-rows {
-  position: relative;
-}
-
-.history-graph-cell {
-  min-width: 0;
-  min-height: 28px;
-}
-
 .commit-graph-svg {
   --graph-lightness: 0.51;
   position: absolute;
   z-index: 1;
   top: 0;
-  left: var(--history-graph-offset, 12px);
+  left: calc(var(--history-graph-offset, 12px) - var(--history-list-padding, 0px));
+  /* The rows fill the spacer, so this is the gutter cap measured against the row content box. */
+  max-width: max(
+    (100% - var(--history-row-padding-inline, 12px)) * 0.4,
+    100% - var(--history-row-padding-inline, 12px) - var(--history-text-min-width, 260px)
+  );
   overflow: hidden;
   pointer-events: none;
 }
@@ -5941,7 +5970,7 @@ textarea,
 }
 
 .commit-graph-edge-clearance {
-  stroke: var(--card);
+  stroke: var(--history-row-bg, var(--background));
   stroke-width: 5px;
 }
 
@@ -5980,27 +6009,26 @@ textarea,
   color: oklch(var(--graph-lightness) 0.13 110);
 }
 
+/* Hollow rings in the lane colour. A merge ring is heavier; the selected node is filled. */
 .commit-graph-dot {
-  fill: currentColor;
-  stroke: var(--card);
-  stroke-width: 1.5px;
-}
-
-.commit-graph-node.is-merge .commit-graph-dot {
-  fill: var(--card);
+  fill: var(--history-row-bg, var(--background));
   stroke: currentColor;
   stroke-width: 2px;
 }
 
+.commit-graph-node.is-merge .commit-graph-dot {
+  stroke-width: 3px;
+}
+
+/* Only the selected row draws this ring, so it fills with the selected row colour. */
 .commit-graph-selection {
-  fill: var(--card);
+  fill: var(--selected);
   stroke: currentColor;
   stroke-width: 1.5px;
 }
 
 .commit-graph-node.is-selected .commit-graph-dot {
   fill: currentColor;
-  stroke: var(--card);
 }
 
 .history-description,
@@ -6015,8 +6043,16 @@ textarea,
 
 .history-description {
   display: flex;
+  min-height: 20px;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.history-date,
+.history-author {
+  flex: 0 1 auto;
 }
 
 .history-subject-tooltip {
@@ -6092,11 +6128,13 @@ textarea,
   --commit-type-color: oklch(0.66 0.12 330);
 }
 
-.history-date,
-.history-author,
 .history-hash {
+  flex: none;
+  align-self: flex-start;
   color: var(--muted-foreground);
-  font-size: 0.75rem;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 20px;
 }
 
 .history-scope,
@@ -6132,24 +6170,24 @@ textarea,
   min-width: 0;
 }
 
-.history-row > .history-refs {
-  max-width: 100%;
-}
-
+/* Outlined pills tinted by kind. The tokens keep them legible in every theme. */
 .ref-badge {
+  --ref-color: var(--primary);
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
   gap: 3px;
   max-width: 160px;
   overflow: hidden;
-  border: 1px solid color-mix(in oklch, oklch(1 0 0) 40%, transparent);
-  border-radius: 4px;
-  padding: 1px 6px;
-  color: white;
-  background: oklch(0.48 0.12 245);
-  font-size: 0.72rem;
-  font-weight: 700;
+  border: 1px solid color-mix(in oklch, var(--ref-color) 60%, transparent);
+  border-radius: 999px;
+  padding: 0 6px;
+  color: var(--ref-color);
+  background: color-mix(in oklch, var(--ref-color) 8%, transparent);
+  font-family: var(--font-code);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -6161,19 +6199,20 @@ textarea,
 }
 
 .ref-badge.remote {
-  background: oklch(0.48 0.1 292);
+  --ref-color: var(--muted-foreground);
+  border-style: dashed;
 }
 
 .ref-badge.tag {
-  background: oklch(0.58 0.12 65);
+  --ref-color: var(--status-modified);
 }
 
 .ref-badge.head {
-  background: var(--destructive);
+  --ref-color: var(--destructive);
 }
 
 .ref-badge.other {
-  background: var(--muted-foreground);
+  --ref-color: var(--muted-foreground);
 }
 
 .history-hash,
@@ -6181,9 +6220,17 @@ textarea,
   font-family: var(--font-code);
 }
 
+/* The one detail card: summary, then the bounded file list, then the diff. It hugs short diffs. */
 .commit-details-panel {
-  --commit-files-min-height: 128px;
-  grid-template-rows: minmax(0, auto) auto minmax(var(--commit-files-min-height), 1fr);
+  display: grid;
+  min-height: 0;
+  max-height: 100%;
+  align-self: start;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
 }
 
 .commit-meta-scroll {
@@ -6193,19 +6240,50 @@ textarea,
 }
 
 .commit-file-list-header {
+  display: flex;
   min-width: 0;
+  min-height: 36px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--border);
+  padding: 0 16px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
 }
 
 .commit-meta-card {
   display: grid;
-  gap: 12px;
+  gap: 8px;
   padding: 16px;
 }
 
-.commit-title {
+.commit-title-row {
+  display: flex;
   min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.commit-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
   overflow-wrap: anywhere;
-  line-height: 1.5;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.commit-actions-trigger {
+  margin: -2px -4px 0 0;
+}
+
+.commit-refs {
+  flex-wrap: wrap;
+  max-width: 100%;
 }
 
 .commit-title-subject,
@@ -6229,7 +6307,8 @@ textarea,
   align-items: center;
   gap: 4px 12px;
   color: var(--muted-foreground);
-  font-size: 0.75rem;
+  font-size: 12px;
+  line-height: 16px;
 }
 
 .commit-copy-hash {
@@ -6395,22 +6474,30 @@ textarea,
 
 .commit-file-row {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   width: 100%;
-  min-height: 48px;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  padding: 4px 8px;
+  height: 32px;
+  min-height: 32px;
+  border: 0;
+  border-radius: var(--radius-md);
+  padding: 0 8px;
   background: transparent;
   text-align: left;
 }
 
+/* The list scroller clips an outside ring at its edges. */
+.commit-file-row:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
 .commit-file-name {
-  display: grid;
+  display: flex;
   min-width: 0;
-  gap: 2px;
+  align-items: baseline;
+  gap: 8px;
 }
 
 .commit-file-basename,
@@ -6421,14 +6508,16 @@ textarea,
 }
 
 .commit-file-basename {
-  font-size: 0.8125rem;
+  flex: 0 1 auto;
+  font-size: 13px;
   font-weight: 500;
 }
 
 .commit-file-directory {
+  flex: 1 1 0;
+  min-width: 0;
   color: var(--muted-foreground);
-  font-family: var(--font-code);
-  font-size: 0.6875rem;
+  font-size: 12px;
 }
 
 .commit-file-stats,
