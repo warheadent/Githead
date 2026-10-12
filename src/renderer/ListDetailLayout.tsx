@@ -320,7 +320,13 @@ function NarrowListDetailLayout({ id, list, detail, detailOpen, onBack, classNam
           {detail}
         </div>
       ) : (
-        <div ref={listColumnRef} id={`${id}-list`} tabIndex={-1} className="list-column h-full min-h-0 overflow-auto bg-background">
+        <div
+          ref={listColumnRef}
+          id={`${id}-list`}
+          tabIndex={-1}
+          // The column fills the view, so an outside focus ring would be clipped.
+          className="list-column h-full min-h-0 overflow-auto bg-background focus-visible:-outline-offset-2"
+        >
           {list}
         </div>
       )}
