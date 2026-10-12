@@ -8,7 +8,7 @@ export interface ColorThemeOption {
 }
 
 export const COLOR_THEME_OPTIONS: readonly ColorThemeOption[] = [
-  { id: "githead", name: "Githead", description: "Neutral green", swatches: ["oklch(0.517141 0.105719 157.892586)", "oklch(0.943724 0.007526 164.933046)", "oklch(0.307344 0.023506 246.095172)"] },
+  { id: "githead", name: "Githead", description: "Slate and blue", swatches: ["oklch(0.46 0.14 255)", "oklch(0.94 0.008 255)", "oklch(0.21 0.018 255)"] },
   { id: "tidepool", name: "Tidepool", description: "Ocean blue and cyan", swatches: ["oklch(0.55453 0.106867 228.395373)", "oklch(0.954644 0.023247 203.373832)", "oklch(0.316517 0.052031 241.52267)"] },
   { id: "ember", name: "Ember", description: "Amber and coral", swatches: ["oklch(0.58348 0.153088 38.942245)", "oklch(0.962469 0.02774 70.950177)", "oklch(0.321315 0.051761 34.460316)"] },
   { id: "orchid", name: "Orchid", description: "Violet and magenta", swatches: ["oklch(0.534251 0.156964 304.475121)", "oklch(0.9441 0.026186 310.401865)", "oklch(0.306427 0.063262 307.441082)"] },

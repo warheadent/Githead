@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import * as Schema from "effect/Schema";
-import { APP_VISUAL_EFFECTS, APP_REDUCE_MOTION_MODES, DEFAULT_VISUAL_EFFECTS, DEFAULT_REDUCE_MOTION, APP_APPEARANCE_MODES, APP_CODE_FONTS, APP_COLOR_THEMES, APP_UI_FONTS, DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS, DEFAULT_TAG_PUSH_BEHAVIOR, REMOTE_CHECK_LEASE_SECONDS, STATUS_FILE_VIEW_MODES, TAG_PUSH_BEHAVIORS, isAppZoomFactor, type AppAppearanceMode, type AppCodeFont, type AppColorTheme, type AppSettings, type AppSettingsSaveRequest, type AppUiFont, type GitBehaviorSettings, type PrivacySettings, type StatusFileViewMode } from "../shared/types";
+import { APP_VISUAL_EFFECTS, APP_REDUCE_MOTION_MODES, DEFAULT_VISUAL_EFFECTS, DEFAULT_REDUCE_MOTION, APP_APPEARANCE_MODES, APP_CODE_FONTS, APP_COLOR_THEMES, APP_UI_FONTS, DEFAULT_CODE_FONT, DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS, DEFAULT_TAG_PUSH_BEHAVIOR, DEFAULT_UI_FONT, REMOTE_CHECK_LEASE_SECONDS, STATUS_FILE_VIEW_MODES, TAG_PUSH_BEHAVIORS, isAppZoomFactor, type AppAppearanceMode, type AppCodeFont, type AppColorTheme, type AppSettings, type AppSettingsSaveRequest, type AppUiFont, type GitBehaviorSettings, type PrivacySettings, type StatusFileViewMode } from "../shared/types";
 import {
   normalizeAutoFetchIntervalForSave,
   parseStoredAutoFetchInterval
@@ -10,6 +10,7 @@ import {
 export { DEFAULT_AUTO_FETCH_INTERVAL_MINUTES } from "./autoFetchSettings";
 
 interface StoredAppSettings {
+  settingsVersion?: unknown;
   cloneParentPath?: unknown;
   visualEffects?: unknown;
   reduceMotion?: unknown;
@@ -27,13 +28,19 @@ interface StoredAppSettings {
 
 export const DEFAULT_COLOR_THEME: AppColorTheme = "githead";
 export const DEFAULT_APPEARANCE_MODE: AppAppearanceMode = "system";
-export const DEFAULT_UI_FONT: AppUiFont = "inter";
-export const DEFAULT_CODE_FONT: AppCodeFont = "system-mono";
+export { DEFAULT_CODE_FONT, DEFAULT_UI_FONT } from "../shared/types";
 export const DEFAULT_ZOOM_FACTOR = 1;
 export const DEFAULT_STATUS_FILE_VIEW_MODE: StatusFileViewMode = "list";
 export const DEFAULT_WRAP_DIFF_LINES = false;
 export { DEFAULT_TAG_PUSH_BEHAVIOR } from "../shared/types";
 export { DEFAULT_ALLOW_CHERRY_PICKING_CONTAINED_COMMITS } from "../shared/types";
+
+/** Written with every save. Version 1 made IBM Plex the default fonts. */
+export const APP_SETTINGS_VERSION = 1;
+const LEGACY_DEFAULT_UI_FONT: AppUiFont = "inter";
+const LEGACY_DEFAULT_CODE_FONT: AppCodeFont = "system-mono";
+
+type AppSettingsFile = AppSettings & { settingsVersion: typeof APP_SETTINGS_VERSION };
 
 // Reads recover each field separately. Saves use the same schema but reject invalid input.
 function settingField<A>(schema: Schema.Schema<A>, fallback: NoInfer<A>, message: string) {
@@ -79,7 +86,7 @@ export class AppSettingsService {
   }
 
   async getSettings(): Promise<AppSettings> {
-    const stored = await this.readStoredSettings();
+    const stored = migrateStoredSettings(await this.readStoredSettings());
     return {
       ...(typeof stored.cloneParentPath === "string" && path.isAbsolute(stored.cloneParentPath) ? { cloneParentPath: stored.cloneParentPath } : {}),
       autoFetchIntervalMinutes: parseStoredAutoFetchInterval(stored.autoFetchIntervalMinutes),
@@ -138,6 +145,7 @@ export class AppSettingsService {
       recursive: true
     });
     await fs.writeFile(this.settingsPath, `${JSON.stringify({
+      settingsVersion: APP_SETTINGS_VERSION,
       autoFetchIntervalMinutes,
       visualEffects,
       reduceMotion,
@@ -151,7 +159,7 @@ export class AppSettingsService {
       gitBehaviors,
       privacy,
       ...((cloneParentPath ?? existing.cloneParentPath) ? { cloneParentPath: cloneParentPath ?? existing.cloneParentPath } : {})
-    } satisfies AppSettings, null, 2)}\n`, "utf8");
+    } satisfies AppSettingsFile, null, 2)}\n`, "utf8");
 
     return this.getSettings();
   }
@@ -165,6 +173,19 @@ export class AppSettingsService {
       return {};
     }
   }
+}
+
+/**
+ * Files written before versioning always stored both fonts, so the old default fonts there were never a
+ * deliberate choice and move to the current defaults. Every other stored font is kept.
+ */
+function migrateStoredSettings(stored: StoredAppSettings): StoredAppSettings {
+  if (typeof stored.settingsVersion === "number" && Number.isInteger(stored.settingsVersion) && stored.settingsVersion >= 1) return stored;
+  return {
+    ...stored,
+    ...(stored.uiFont === LEGACY_DEFAULT_UI_FONT ? { uiFont: DEFAULT_UI_FONT } : {}),
+    ...(stored.codeFont === LEGACY_DEFAULT_CODE_FONT ? { codeFont: DEFAULT_CODE_FONT } : {})
+  };
 }
 
 function parseStoredPrivacySettings(value: unknown): PrivacySettings {

@@ -2132,8 +2132,10 @@ export type AppReduceMotion = (typeof APP_REDUCE_MOTION_MODES)[number];
 export const DEFAULT_REDUCE_MOTION: AppReduceMotion = "system";
 export const APP_UI_FONTS = ["system", "inter", "ibm-plex-sans", "roboto"] as const;
 export type AppUiFont = (typeof APP_UI_FONTS)[number];
+export const DEFAULT_UI_FONT: AppUiFont = "ibm-plex-sans";
 export const APP_CODE_FONTS = ["system-mono", "jetbrains-mono", "fira-code", "source-code-pro", "ibm-plex-mono"] as const;
 export type AppCodeFont = (typeof APP_CODE_FONTS)[number];
+export const DEFAULT_CODE_FONT: AppCodeFont = "ibm-plex-mono";
 export type WorkspaceTrustResponse = "trust" | "cancel";
 
 export interface WorkspaceTrustDialogContext {

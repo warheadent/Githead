@@ -7,12 +7,14 @@ import {
 } from "motion/react";
 import { type Key, type ReactNode } from "react";
 
-import { useVisualEffects } from "./VisualEffects";
+import { EASE_OUT, useVisualEffects } from "./VisualEffects";
+
+export { EASE_OUT };
 
 const DEFAULT_DURATION_SECONDS = 0.12;
 const DEFAULT_TRANSITION: Transition = {
   duration: DEFAULT_DURATION_SECONDS,
-  ease: "easeOut"
+  ease: EASE_OUT
 };
 
 type MotionElement = "article" | "div" | "section";

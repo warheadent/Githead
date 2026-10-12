@@ -130,7 +130,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { motion } from "motion/react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { TagDialog, type TagDialogState } from "./TagDialog";
-import { MotionPresence, MotionSwap } from "./motion";
+import { EASE_OUT, MotionPresence, MotionSwap } from "./motion";
 import {
   RepositoryActionsDialog,
   type RepositoryActionDraft,
@@ -241,7 +241,7 @@ import type {
   RepositoryGroup,
   StatusFileViewMode
 } from "../shared/types";
-import { AI_COMMIT_MESSAGE_PROVIDERS, DEFAULT_COMMIT_PLAN_GRANULARITY, DEFAULT_REMOTE_CHECK_LEASE_SECONDS, DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS, DEFAULT_TAG_PUSH_BEHAVIOR, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
+import { AI_COMMIT_MESSAGE_PROVIDERS, DEFAULT_CODE_FONT, DEFAULT_COMMIT_PLAN_GRANULARITY, DEFAULT_REMOTE_CHECK_LEASE_SECONDS, DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS, DEFAULT_TAG_PUSH_BEHAVIOR, DEFAULT_UI_FONT, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
 import { isMarkdownPath, isSvgPath } from "../shared/filePreview";
 import { parseCommitSubject, type ParsedCommitSubject } from "../shared/commitSubject";
 import { parseGitHubReferences } from "../shared/githubReference";
@@ -731,8 +731,8 @@ const emptySettingsDraft: SettingsDraft = {
   colorTheme: "githead",
   appearanceMode: "system",
   ...defaultVisualPreferences,
-  uiFont: "inter",
-  codeFont: "system-mono",
+  uiFont: DEFAULT_UI_FONT,
+  codeFont: DEFAULT_CODE_FONT,
   zoomFactor: 1,
   tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR,
   requireUpToDateUpstreamBeforeCommit: false,
@@ -1019,8 +1019,8 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     ? state.settingsDraft.appearanceMode
     : state.appSettings?.appearanceMode ?? "system";
   useAppearanceModeClass(appearanceMode);
-  const uiFont = state.settingsOpen ? state.settingsDraft.uiFont : state.appSettings?.uiFont ?? "inter";
-  const codeFont = state.settingsOpen ? state.settingsDraft.codeFont : state.appSettings?.codeFont ?? "system-mono";
+  const uiFont = state.settingsOpen ? state.settingsDraft.uiFont : state.appSettings?.uiFont ?? DEFAULT_UI_FONT;
+  const codeFont = state.settingsOpen ? state.settingsDraft.codeFont : state.appSettings?.codeFont ?? DEFAULT_CODE_FONT;
   useFontPreferences(uiFont, codeFont);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -2355,8 +2355,8 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
           colorTheme: "githead",
           appearanceMode: "system",
           ...defaultVisualPreferences,
-          uiFont: "inter",
-          codeFont: "system-mono",
+          uiFont: DEFAULT_UI_FONT,
+          codeFont: DEFAULT_CODE_FONT,
           zoomFactor: 1,
           statusFileViewMode: "list",
           wrapDiffLines: false,
@@ -5864,8 +5864,8 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
         appearanceMode: appSettings?.appearanceMode ?? "system",
         visualEffects: appSettings?.visualEffects ?? defaultVisualPreferences.visualEffects,
         reduceMotion: appSettings?.reduceMotion ?? defaultVisualPreferences.reduceMotion,
-        uiFont: appSettings?.uiFont ?? "inter",
-        codeFont: appSettings?.codeFont ?? "system-mono",
+        uiFont: appSettings?.uiFont ?? DEFAULT_UI_FONT,
+        codeFont: appSettings?.codeFont ?? DEFAULT_CODE_FONT,
         zoomFactor: appSettings?.zoomFactor ?? 1,
         tagPushBehavior: appSettings?.gitBehaviors?.tagPushBehavior ?? DEFAULT_TAG_PUSH_BEHAVIOR,
         requireUpToDateUpstreamBeforeCommit: appSettings?.gitBehaviors?.requireUpToDateUpstreamBeforeCommit ?? false,
@@ -9434,7 +9434,7 @@ function RepositoryGroupRow({ searchExpanded, label, organizationMenu, hidden, g
       onKeyboardMove(group.anchorPath, event.key === "ArrowUp" ? "up" : "down");
     }
   };
-  return <motion.div ref={rowRef} layout="position" layoutDependency={layoutDependency} transition={{ layout: { duration: 0.12, ease: "easeOut" } }} className={rowClassName} data-repo-path={group.anchorPath}>
+  return <motion.div ref={rowRef} layout="position" layoutDependency={layoutDependency} transition={{ layout: { duration: 0.12, ease: EASE_OUT } }} className={rowClassName} data-repo-path={group.anchorPath}>
     <ContextMenu><ContextMenuTrigger asChild><div className="repo-group-heading">
       <button type="button" className="repo-recent-drag-handle" draggable onDragStart={(event) => onDragStart(event, group.anchorPath)} onMouseDown={() => onPointerDragStart(group.anchorPath)} onDragEnd={onDragEnd} onKeyDown={handleKeyDown} aria-label={`Reorder ${group.anchorPath}`}><GripVertical /></button>
       <button type="button" className="repo-group-toggle" disabled={searchExpanded} title={searchExpanded ? "Clear search to collapse worktrees" : undefined} onClick={onToggle} aria-expanded={expanded} aria-controls={worktreeListId} aria-label={`${expanded ? "Collapse" : "Expand"} worktrees for ${displayName}`}><ChevronRight className="repo-group-chevron" /></button>
@@ -9499,7 +9499,7 @@ function RecentRepositoryRow({
           ref={rowRef}
           layout="position"
           layoutDependency={layoutDependency}
-          transition={{ layout: { duration: 0.12, ease: "easeOut" } }}
+          transition={{ layout: { duration: 0.12, ease: EASE_OUT } }}
           className={rowClassName}
           data-repo-path={repoPath}
         >

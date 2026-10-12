@@ -7,25 +7,33 @@
 @import "@fontsource-variable/fira-code/wght.css";
 @import "@fontsource-variable/source-code-pro/wght.css";
 @import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
 @import "@fontsource/ibm-plex-mono/latin-600.css";
 @import "@fontsource/ibm-plex-mono/latin-700.css";
+@import "@fontsource/ibm-plex-mono/latin-400-italic.css";
+@import "@fontsource/ibm-plex-mono/latin-500-italic.css";
+@import "@fontsource/ibm-plex-mono/latin-600-italic.css";
+@import "@fontsource/ibm-plex-mono/latin-700-italic.css";
 
 @custom-variant dark (&:is(.dark *));
 
 :root {
   color-scheme: light;
-  --font-ui: "Inter Variable", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-code: "Cascadia Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --font-ui: "IBM Plex Sans Variable", "Segoe UI", system-ui, sans-serif;
+  --font-code: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --duration-hover: 120ms;
+  --duration-overlay: 180ms;
   --radius: 0.5rem;
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
   --space-4: 1rem;
-  --success: oklch(0.46 0.12 155);
   --background: oklch(0.975 0.005 255);
   --foreground: oklch(0.21 0.018 255);
-  --card: oklch(1 0 0);
+  /* The one raised plane. --card is declared only here so every theme's --surface flows through it. */
+  --surface: oklch(1 0 0);
+  --card: var(--surface);
   --card-foreground: var(--foreground);
   --popover: oklch(1 0 0);
   --popover-foreground: var(--foreground);
@@ -37,10 +45,25 @@
   --muted-foreground: oklch(0.48 0.025 255);
   --accent: oklch(0.92 0.013 255);
   --accent-foreground: oklch(0.22 0.018 255);
-  --destructive: oklch(0.55 0.19 27);
+  /* L 0.51 keeps destructive and status-deleted text at 4.5:1 or more on --hover, --selected and --muted in every theme. */
+  --destructive: oklch(0.51 0.19 27);
+  --destructive-foreground: oklch(0.985 0.004 255);
   --border: oklch(0.91 0.008 255);
   --input: oklch(0.86 0.014 255);
   --ring: var(--primary);
+  --hover: oklch(0.92 0.013 255);
+  --selected: oklch(0.93 0.034 245);
+  --faint-foreground: oklch(0.6 0.02 255);
+  /* Status colours are fixed across hue themes. */
+  --status-added: oklch(0.46 0.12 155);
+  --status-modified: oklch(0.5 0.11 70);
+  --status-deleted: var(--destructive);
+  --status-renamed: oklch(0.46 0.14 255);
+  --status-conflict: oklch(0.5 0.18 330);
+  --success: var(--status-added);
+  --warning: var(--status-modified);
+  --warning-surface: oklch(0.96 0.055 92);
+  --shadow-overlay: 0 12px 32px rgb(15 23 42 / 0.14), 0 0 0 1px rgb(15 23 42 / 0.06);
   --scrollbar-thumb: color-mix(in oklch, var(--muted-foreground) 48%, transparent);
   --scrollbar-thumb-hover: color-mix(in oklch, var(--muted-foreground) 68%, transparent);
   --scrollbar-thumb-active: color-mix(in oklch, var(--foreground) 72%, transparent);
@@ -60,7 +83,7 @@
   --diff-delete-border: oklch(0.58 0.15 25);
   --diff-delete-bg: oklch(0.94 0.035 25);
   --diff-notice-text: oklch(0.48 0.09 85);
-  --diff-notice-bg: oklch(0.96 0.055 92);
+  --diff-notice-bg: var(--warning-surface);
   --diff-line-number-bg: oklch(1 0 0 / 0.56);
   --syntax-comment: oklch(0.56628 0.019529 256.330153);
   --syntax-keyword: oklch(0.573656 0.257924 294.891285);
@@ -108,25 +131,34 @@
 
 .dark {
   color-scheme: dark;
-  --success: oklch(0.73 0.13 155);
   --background: oklch(0.17 0.017 255);
   --foreground: oklch(0.92 0.01 255);
-  --card: oklch(0.21 0.018 255);
+  --surface: oklch(0.2 0.018 255);
   --card-foreground: var(--foreground);
   --popover: oklch(0.23 0.02 255);
   --popover-foreground: var(--foreground);
-  --primary: oklch(0.57 0.14 255);
-  --primary-foreground: oklch(0.99 0.004 255);
+  --primary: oklch(0.7 0.12 255);
+  --primary-foreground: oklch(0.17 0.017 255);
   --secondary: oklch(0.28 0.021 255);
   --secondary-foreground: var(--foreground);
   --muted: oklch(0.28 0.021 255);
   --muted-foreground: oklch(0.68 0.025 255);
   --accent: oklch(0.31 0.025 255);
   --accent-foreground: var(--foreground);
-  --destructive: oklch(0.7 0.17 27);
+  --destructive: oklch(0.72 0.17 27);
+  --destructive-foreground: oklch(0.17 0.017 255);
   --border: oklch(0.29 0.018 255);
   --input: oklch(0.34 0.025 255);
   --ring: oklch(0.7 0.12 255);
+  --hover: oklch(0.31 0.025 255);
+  --selected: oklch(0.26 0.052 245);
+  --faint-foreground: oklch(0.55 0.02 255);
+  --status-added: oklch(0.73 0.13 155);
+  --status-modified: oklch(0.8 0.11 80);
+  --status-renamed: oklch(0.7 0.12 255);
+  --status-conflict: oklch(0.75 0.15 330);
+  --warning-surface: oklch(0.28 0.06 88);
+  --shadow-overlay: 0 12px 32px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(255 255 255 / 0.06);
   --sidebar: oklch(0.16 0.018 255);
   --sidebar-foreground: var(--foreground);
   --diff-code: oklch(0.145 0.016 255);
@@ -143,7 +175,6 @@
   --diff-delete-border: oklch(0.68 0.14 25);
   --diff-delete-bg: oklch(0.27 0.055 25);
   --diff-notice-text: oklch(0.82 0.1 88);
-  --diff-notice-bg: oklch(0.28 0.06 88);
   --diff-line-number-bg: oklch(1 0 0 / 0.04);
   --syntax-comment: oklch(0.674601 0.02801 253.640968);
   --syntax-keyword: oklch(0.786229 0.129743 301.369216);
@@ -194,16 +225,23 @@
 :root[data-theme]:not([data-theme="githead"]) {
   --background: oklch(0.975 0.012 var(--theme-hue));
   --foreground: oklch(0.21 0.025 var(--theme-hue));
-  --card: oklch(0.995 0.006 var(--theme-hue));
-  --popover: var(--card);
+  --surface: oklch(0.995 0.006 var(--theme-hue));
+  --popover: var(--surface);
   --primary: oklch(0.44 var(--theme-chroma) var(--theme-hue));
   --secondary: oklch(0.935 0.025 var(--theme-accent-hue));
   --muted: oklch(0.94 0.018 var(--theme-hue));
   --muted-foreground: oklch(0.46 0.035 var(--theme-hue));
   --accent: oklch(0.91 0.045 var(--theme-accent-hue));
   --border: oklch(0.9 0.018 var(--theme-hue));
-  --input: color-mix(in oklch, var(--foreground) 28%, var(--card));
+  --input: color-mix(in oklch, var(--foreground) 28%, var(--surface));
   --ring: var(--primary);
+  /*
+   * Hover stays near-neutral and selected carries the tint at a lower lightness, so the two fills stay apart
+   * even in low-chroma themes such as Graphite. Chroma 0.044 is the sRGB limit for blue hues at L 0.91.
+   */
+  --hover: oklch(0.92 min(0.015, calc(var(--theme-chroma) * 0.15)) var(--theme-hue));
+  --selected: oklch(0.91 0.044 var(--theme-hue));
+  --faint-foreground: oklch(0.6 0.03 var(--theme-hue));
   --sidebar: oklch(0.925 0.028 var(--theme-hue));
   --diff-code: oklch(0.982 0.008 var(--theme-hue));
   --diff-file-border: oklch(0.5 0.055 var(--theme-hue));
@@ -226,16 +264,20 @@
 :root.dark[data-theme]:not([data-theme="githead"]) {
   --background: oklch(0.16 0.025 var(--theme-hue));
   --foreground: oklch(0.93 0.018 var(--theme-hue));
-  --card: oklch(0.205 0.032 var(--theme-hue));
+  --surface: oklch(0.205 0.032 var(--theme-hue));
   --popover: oklch(0.225 0.035 var(--theme-hue));
-  --primary: oklch(0.64 var(--theme-chroma) var(--theme-hue));
+  --primary: oklch(0.7 var(--theme-chroma) var(--theme-hue));
   --secondary: oklch(0.275 0.045 var(--theme-hue));
   --muted: oklch(0.27 0.038 var(--theme-hue));
   --muted-foreground: oklch(0.7 0.045 var(--theme-hue));
   --accent: oklch(0.31 0.06 var(--theme-accent-hue));
   --border: oklch(0.3 0.028 var(--theme-hue));
-  --input: color-mix(in oklch, var(--foreground) 28%, var(--card));
+  --input: color-mix(in oklch, var(--foreground) 28%, var(--surface));
   --ring: var(--primary);
+  /* Mirror every token of the light hue block: its 0,3,0 specificity beats .dark. */
+  --hover: oklch(0.31 calc(var(--theme-chroma) * 0.25) var(--theme-hue));
+  --selected: oklch(0.26 max(0.04, calc(var(--theme-chroma) * 0.4)) var(--theme-hue));
+  --faint-foreground: oklch(0.55 0.03 var(--theme-hue));
   --sidebar: oklch(0.145 0.032 var(--theme-hue));
   --diff-code: oklch(0.135 0.025 var(--theme-hue));
   --diff-file-border: oklch(0.62 0.065 var(--theme-hue));
@@ -259,7 +301,7 @@
 :root[data-theme="glacier"]:not([data-theme="githead"]) {
   --background: oklch(0.975 0.006 185);
   --foreground: oklch(0.21 0.012 220);
-  --card: oklch(0.995 0.003 185);
+  --surface: oklch(0.995 0.003 185);
   --sidebar: oklch(0.93 0.018 185);
   --syntax-keyword: oklch(0.49 0.18 350);
 }
@@ -267,7 +309,7 @@
 :root.dark[data-theme="glacier"]:not([data-theme="githead"]) {
   --background: oklch(0.16 0.008 220);
   --foreground: oklch(0.93 0.008 185);
-  --card: oklch(0.21 0.012 220);
+  --surface: oklch(0.21 0.012 220);
   --popover: oklch(0.23 0.012 220);
   --sidebar: oklch(0.145 0.008 220);
   --primary: oklch(0.76 0.125 185);
@@ -298,16 +340,59 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-surface: var(--surface);
+  --color-hover: var(--hover);
+  --color-selected: var(--selected);
+  --color-faint-foreground: var(--faint-foreground);
+  --color-success: var(--success);
+  --color-status-added: var(--status-added);
+  --color-status-modified: var(--status-modified);
+  --color-status-deleted: var(--status-deleted);
+  --color-status-renamed: var(--status-renamed);
+  --color-status-conflict: var(--status-conflict);
+  --color-warning-surface: var(--warning-surface);
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-code);
+  /*
+   * V2 type scale. text-sm is the 13/20 body size; --shadow-overlay is not registered here (name cycle).
+   * Line heights are unitless so descendants that change font-size inherit a ratio, not a fixed pitch.
+   * Each ratio is rounded up so it never computes below the target pixel height after minification.
+   */
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.5385; /* 20px */
+  --text-title: 1.125rem;
+  --text-title--line-height: 1.3334; /* 24px */
+  --text-title--font-weight: 600;
+  --text-heading: 0.875rem;
+  --text-heading--line-height: 1.4286; /* 20px */
+  --text-heading--font-weight: 600;
+  --text-body: 0.8125rem;
+  --text-body--line-height: 1.5385; /* 20px */
+  --text-body-strong: 0.8125rem;
+  --text-body-strong--line-height: 1.5385; /* 20px */
+  --text-body-strong--font-weight: 500;
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1.3334; /* 16px */
+  --text-label: 0.6875rem;
+  --text-label--line-height: 1.2728; /* 14px */
+  --text-label--font-weight: 500;
+  --text-label--letter-spacing: 0.02em;
+  --text-code: 0.75rem;
+  --text-code--line-height: 1.6667; /* 20px */
+  --text-code-meta: 0.6875rem;
+  --text-code-meta--line-height: 1.4546; /* 16px */
+  --text-code-meta--font-weight: 500;
 }
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border outline-ring;
     box-sizing: border-box;
     scrollbar-color: var(--scrollbar-thumb) transparent;
     scrollbar-width: thin;
@@ -367,8 +452,9 @@
     background: var(--background);
     color: var(--foreground);
     font-family: var(--font-ui);
-    font-size: 0.875rem;
-    line-height: 1.5;
+    font-size: 0.8125rem;
+    /* 13/20, unitless so larger headings and smaller chips keep a proportional line pitch. */
+    line-height: 1.5385;
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-tap-highlight-color: transparent;
@@ -382,13 +468,26 @@
   }
 
   dt,
-  label,
-  .eyebrow {
+  label {
     color: var(--muted-foreground);
     font-size: 0.75rem;
     font-weight: 500;
     letter-spacing: 0;
     text-transform: none;
+  }
+
+  .eyebrow {
+    color: var(--muted-foreground);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    line-height: 1.2728;
+    letter-spacing: 0.02em;
+    text-transform: none;
+  }
+
+  :where(button, a, input, select, textarea, [role="tab"], [role="option"], [tabindex]):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
   }
 
   dd {
@@ -501,7 +600,7 @@
   font-weight: 600;
   text-transform: none;
   cursor: pointer;
-  transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
+  transition: border-color 120ms var(--ease-out), background-color 120ms var(--ease-out), color 120ms var(--ease-out), box-shadow 120ms var(--ease-out);
 }
 
 .appearance-mode-options svg {
@@ -511,7 +610,7 @@
 
 .appearance-mode-options label:hover {
   border-color: var(--ring);
-  background: var(--accent);
+  background: var(--hover);
   color: var(--foreground);
 }
 
@@ -638,12 +737,12 @@
   background: var(--card);
   cursor: pointer;
   text-transform: none;
-  transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+  transition: border-color 120ms var(--ease-out), background-color 120ms var(--ease-out), box-shadow 120ms var(--ease-out);
 }
 
 .theme-option:hover {
   border-color: var(--ring);
-  background: var(--accent);
+  background: var(--hover);
 }
 
 .theme-option:has(input:focus-visible) {
@@ -757,7 +856,7 @@ textarea,
 .window-control:hover,
 .window-control:focus-visible {
   color: var(--foreground);
-  background: var(--accent);
+  background: var(--hover);
 }
 
 .window-control-close:hover,
@@ -801,7 +900,7 @@ textarea,
   .repository-drawer-toggle:hover,
   .repository-drawer-toggle:focus-visible {
     color: var(--foreground);
-    background: var(--accent);
+    background: var(--hover);
   }
 
   .repository-drawer-toggle svg {
@@ -818,7 +917,7 @@ textarea,
     background: color-mix(in oklch, var(--background) 38%, transparent);
     opacity: 0;
     pointer-events: none;
-    transition: opacity 140ms ease;
+    transition: opacity 140ms var(--ease-out);
   }
 
   .app-workspace > [data-panel][data-layout-panel="repository"] {
@@ -832,7 +931,7 @@ textarea,
     transform: translateX(-100%);
     visibility: hidden;
     box-shadow: 14px 0 32px color-mix(in oklch, var(--background) 52%, transparent);
-    transition: transform 160ms ease, visibility 0s linear 160ms;
+    transition: transform 160ms var(--ease-out), visibility 0s linear 160ms;
   }
 
   .repository-panel-shell {
@@ -1322,7 +1421,7 @@ textarea,
   border-radius: 7px;
   cursor: pointer;
 }
-.repo-omnibox-option[aria-selected="true"] { background: var(--accent); }
+.repo-omnibox-option[aria-selected="true"] { background: var(--selected); }
 .repo-omnibox-option[aria-disabled="true"] { opacity: 0.6; cursor: default; }
 .repo-omnibox-avatar {
   display: inline-flex;
@@ -1626,7 +1725,6 @@ textarea,
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--background);
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--foreground) 5%, transparent);
 }
 
 .commit-plan-inbox-header {
@@ -1665,7 +1763,7 @@ textarea,
 }
 
 .commit-plan-inbox-chevron {
-  transition: transform 140ms ease;
+  transition: transform 140ms var(--ease-out);
 }
 
 .commit-plan-inbox-chevron.is-collapsed {
@@ -1711,7 +1809,6 @@ textarea,
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--background);
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--foreground) 5%, transparent);
 }
 
 .commit-plan-group-header {
@@ -1769,9 +1866,12 @@ textarea,
   border-bottom: 0;
 }
 
-.commit-plan-file:hover,
+.commit-plan-file:hover {
+  background: var(--hover);
+}
+
 .commit-plan-file.is-selected {
-  background: var(--accent);
+  background: var(--selected);
 }
 
 .commit-plan-file input[type="checkbox"] {
@@ -2240,10 +2340,14 @@ textarea,
 }
 
 .reference-picker-option:hover,
-.reference-picker-option.is-active,
 .reference-picker-actions button:hover {
-  background: var(--accent);
-  color: var(--accent-foreground);
+  background: var(--hover);
+  color: var(--foreground);
+}
+
+.reference-picker-option.is-active {
+  background: var(--selected);
+  color: var(--foreground);
 }
 
 .reference-picker-option-icon,
@@ -2627,7 +2731,7 @@ textarea,
 
 .stash-scope-choice:hover,
 .stash-option:hover {
-  background: var(--accent);
+  background: var(--hover);
 }
 
 .stash-scope-choice:has(input:checked) {
@@ -2731,13 +2835,11 @@ textarea,
 }
 
 .stash-list-row:hover {
-  background: color-mix(in oklch, var(--accent) 50%, transparent);
+  background: var(--hover);
 }
 
 .stash-list-row.is-selected {
-  border-color: color-mix(in oklch, var(--primary) 36%, var(--border));
-  background: color-mix(in oklch, var(--primary) 10%, var(--card));
-  box-shadow: inset 3px 0 0 var(--primary);
+  background: var(--selected);
 }
 
 .stash-list-row-top,
@@ -2873,12 +2975,11 @@ textarea,
 }
 
 .stash-file-row:hover {
-  background: var(--accent);
+  background: var(--hover);
 }
 
 .stash-file-row.is-selected {
-  border-color: var(--border);
-  background: var(--accent);
+  background: var(--selected);
 }
 
 .stash-file-name {
@@ -2997,7 +3098,7 @@ textarea,
 .repo-group:hover,
 .repo-group:focus-within {
   border-color: var(--border);
-  background: color-mix(in oklch, var(--accent) 35%, transparent);
+  background: color-mix(in oklch, var(--hover) 35%, transparent);
 }
 
 .repo-group.is-dragging { opacity: 0.56; }
@@ -3047,7 +3148,7 @@ textarea,
   cursor: pointer;
 }
 
-.repo-group-toggle:hover:not(:disabled) { background: var(--accent); color: var(--accent-foreground); }
+.repo-group-toggle:hover:not(:disabled) { background: var(--hover); color: var(--foreground); }
 .repo-group-toggle:disabled { cursor: default; }
 .repo-group-toggle:focus-visible,
 .repo-group-main:focus-visible {
@@ -3059,7 +3160,7 @@ textarea,
 
 .repo-group-chevron {
   transform: rotate(0deg);
-  transition: transform 120ms ease;
+  transition: transform 120ms var(--ease-out);
 }
 
 .repo-group-toggle[aria-expanded="true"] .repo-group-chevron {
@@ -3125,7 +3226,7 @@ textarea,
 
 .repo-worktree-row:hover:not(.is-active),
 .repo-worktree-row:focus-within:not(.is-active) {
-  background: color-mix(in oklch, var(--accent) 72%, transparent);
+  background: color-mix(in oklch, var(--hover) 72%, transparent);
 }
 
 .repo-worktree-row.is-active {
@@ -3504,13 +3605,12 @@ textarea,
 .file-row:hover,
 .commit-file-row:hover,
 .history-row:hover {
-  background: var(--accent);
+  background: var(--hover);
 }
 
 .file-row.is-selected,
 .commit-file-row.is-selected {
-  border-color: color-mix(in oklch, var(--primary) 28%, transparent);
-  background: color-mix(in oklab, var(--primary) 10%, var(--card));
+  background: var(--selected);
 }
 
 .status-chip {
@@ -3553,7 +3653,7 @@ textarea,
 }
 
 .file-tree-folder-row:hover {
-  background: var(--accent);
+  background: var(--hover);
 }
 
 .file-tree-folder-trigger {
@@ -4061,7 +4161,7 @@ textarea,
   font: inherit;
   line-height: 20px;
   cursor: pointer;
-  transition: background-color 120ms ease, box-shadow 120ms ease;
+  transition: background-color 120ms var(--ease-out), box-shadow 120ms var(--ease-out);
 }
 
 .diff-line-action:hover:not(:disabled) {
@@ -4404,8 +4504,8 @@ textarea,
 
 .history-scope-control button[aria-pressed="true"] {
   color: var(--foreground);
-  background: var(--card);
-  box-shadow: 0 1px 2px var(--border);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--border);
 }
 
 .history-description,
@@ -4426,8 +4526,7 @@ textarea,
 
 .history-row.is-selected {
   color: var(--foreground);
-  background: color-mix(in oklab, var(--primary) 12%, var(--card));
-  box-shadow: inset 3px 0 var(--primary);
+  background: var(--selected);
 }
 
 .history-rows {
@@ -5154,7 +5253,7 @@ textarea,
 }
 
 .github-row:hover {
-  background: var(--accent);
+  background: var(--hover);
 }
 
 .github-row > * {
@@ -5330,7 +5429,6 @@ textarea,
   border: 1px solid var(--input);
   border-radius: 12px;
   background: var(--background);
-  box-shadow: 0 2px 6px rgb(0 0 0 / 3%);
 }
 
 .commit-compose-box:focus-within {
@@ -6018,8 +6116,7 @@ textarea,
 .github-row.is-selected,
 .github-row.is-selected:hover {
   position: relative;
-  background: color-mix(in oklch, var(--primary) 13%, var(--card));
-  box-shadow: inset 3px 0 0 var(--primary);
+  background: var(--selected);
 }
 
 .review-console {
@@ -6602,12 +6699,11 @@ textarea,
 }
 
 .review-console-file-list > button:hover {
-  background: var(--accent);
+  background: var(--hover);
 }
 
 .review-console-file-list > button[aria-selected="true"] {
-  background: color-mix(in oklab, var(--primary) 12%, var(--card));
-  box-shadow: inset 3px 0 0 var(--primary);
+  background: var(--selected);
 }
 
 .review-console-file-list > button:focus-visible {
@@ -7330,8 +7426,8 @@ textarea,
   text-align: left;
 }
 
-.file-history-row:hover { background: var(--accent); }
-.file-history-row.is-selected { border-color: var(--ring); background: color-mix(in oklch, var(--ring) 18%, transparent); }
+.file-history-row:hover { background: var(--hover); }
+.file-history-row.is-selected { background: var(--selected); }
 .file-history-subject,
 .file-history-meta,
 .file-history-rename { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -7351,7 +7447,7 @@ textarea,
   font-size: .78rem;
   text-align: left;
 }
-.blame-row:hover { background: var(--accent); }
+.blame-row:hover { background: var(--hover); }
 .blame-commit { overflow: hidden; padding: 4px 8px; color: var(--primary); text-align: left; text-overflow: ellipsis; }
 .blame-author { overflow: hidden; padding: 4px 8px; color: var(--muted-foreground); text-overflow: ellipsis; white-space: nowrap; }
 .blame-line-number { padding: 4px 10px; color: var(--muted-foreground); background: var(--diff-line-number-bg); text-align: right; user-select: none; }
@@ -7363,7 +7459,7 @@ textarea,
 }
 
 .activity-log-jump {
-  box-shadow: 0 12px 28px oklch(0 0 0 / 0.22);
+  box-shadow: var(--shadow-overlay);
 }
 
 .clone-check-message-swap {
@@ -7557,12 +7653,12 @@ textarea,
   background: var(--card);
   color: var(--foreground);
   text-align: left;
-  transition: border-color 120ms ease, background-color 120ms ease;
+  transition: border-color 120ms var(--ease-out), background-color 120ms var(--ease-out);
 }
 
 .create-issue-choice:hover {
   border-color: color-mix(in oklab, var(--primary) 45%, var(--border));
-  background: var(--accent);
+  background: var(--hover);
 }
 
 .create-issue-choice:focus-visible {
@@ -7882,7 +7978,7 @@ textarea,
 @media (hover: hover) and (pointer: fine) {
   :root:is([data-visual-effects="standard"], [data-visual-effects="full"]) .commit-graph-glow {
     filter: var(--commit-graph-hover-filter);
-    transition: opacity 160ms ease;
+    transition: opacity 160ms var(--ease-out);
   }
 
   :root:is([data-visual-effects="standard"], [data-visual-effects="full"]) [data-graph-hover] > .commit-graph-glow {
@@ -7935,7 +8031,7 @@ textarea,
 .markdown-source { flex: 1; min-height: 0; }
 .markdown-source-list { height: 100%; overflow: auto; }
 .markdown-source-line { display: flex; gap: 12px; white-space: pre; font-size: 0.8rem; line-height: 28px; min-width: max-content; padding-right: 16px; }
-.markdown-source-line[aria-selected="true"] { background: var(--accent); box-shadow: inset 3px 0 var(--primary); }
+.markdown-source-line[aria-selected="true"] { background: var(--selected); }
 .markdown-source-number { display: inline-block; flex-shrink: 0; width: 48px; text-align: right; color: var(--muted-foreground); user-select: none; }
 .markdown-document-body.is-split .markdown-preview { padding: 20px 24px 40px; }
 @container (max-width: 700px) {
@@ -8001,7 +8097,7 @@ textarea,
   text-align: left;
 }
 button.repository-section-heading { cursor: pointer; }
-button.repository-section-heading:hover { background: var(--accent); color: var(--foreground); }
+button.repository-section-heading:hover { background: var(--hover); color: var(--foreground); }
 .repository-section-heading > svg { width: 12px; height: 12px; flex-shrink: 0; }
 .repository-section-heading > span:first-of-type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .repository-section-count { margin-left: auto; font-variant-numeric: tabular-nums; }
@@ -8009,7 +8105,7 @@ button.repository-section-heading:hover { background: var(--accent); color: var(
 .repository-hidden-icon { flex-shrink: 0; width: 12px; height: 12px; color: var(--muted-foreground); }
 .repository-empty-group { padding: 6px 10px; margin: 0; color: var(--muted-foreground); font-size: 0.75rem; }
 .repository-show-hidden { flex-shrink: 0; align-self: flex-start; border: 0; border-radius: 4px; background: transparent; padding: 3px 6px; color: var(--muted-foreground); font-size: 0.7rem; cursor: pointer; }
-.repository-show-hidden:hover { color: var(--foreground); background: var(--accent); }
+.repository-show-hidden:hover { color: var(--foreground); background: var(--hover); }
 .repository-section-heading:focus-visible,
 .repository-show-hidden:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .repo-recents-list .repo-group { padding: 1px 2px; }
@@ -8144,13 +8240,13 @@ button.repository-section-heading:hover { background: var(--accent); color: var(
 .analytics-segmented { display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--muted); }
 .analytics-segmented button { padding: 3px 10px; border-radius: 6px; color: var(--muted-foreground); font-size: 12px; font-weight: 500; }
 .analytics-segmented button:hover { color: var(--foreground); }
-.analytics-segmented button[aria-pressed="true"] { background: var(--background); color: var(--foreground); box-shadow: 0 0 0 1px var(--border), 0 1px 2px rgb(0 0 0 / 0.06); }
+.analytics-segmented button[aria-pressed="true"] { background: var(--background); color: var(--foreground); box-shadow: 0 0 0 1px var(--border); }
 .analytics-segmented button:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .analytics-check { display: inline-flex; align-items: center; gap: 6px; color: var(--muted-foreground); font-size: 12px; cursor: pointer; }
 .analytics-check input { width: 14px; height: 14px; accent-color: var(--primary); }
 .analytics-check:hover { color: var(--foreground); }
 .analytics-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
-.analytics-content { max-width: 1480px; margin: 0 auto; padding: 16px; transition: opacity 120ms ease; }
+.analytics-content { max-width: 1480px; margin: 0 auto; padding: 16px; transition: opacity 120ms var(--ease-out); }
 .analytics-content.is-refreshing { opacity: 0.6; }
 .analytics-stack { display: grid; gap: 16px; }
 .analytics-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
@@ -8204,7 +8300,7 @@ button.analytics-legend-item:focus-visible { outline: 2px solid var(--ring); out
 .analytics-legend-swatch { width: 10px; height: 10px; flex: none; border-radius: 2px; }
 .analytics-legend-line { width: 14px; height: 2px; flex: none; border-radius: 1px; }
 .analytics-status-icon { width: 13px; height: 13px; flex: none; }
-.analytics-tooltip { position: fixed; z-index: 80; max-width: 320px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--popover); color: var(--popover-foreground); font-size: 12px; box-shadow: 0 8px 28px rgb(0 0 0 / 0.18); pointer-events: none; }
+.analytics-tooltip { position: fixed; z-index: 80; max-width: 320px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--popover); color: var(--popover-foreground); font-size: 12px; box-shadow: var(--shadow-overlay); pointer-events: none; }
 .analytics-tooltip-title { margin-bottom: 4px; color: var(--muted-foreground); overflow-wrap: anywhere; }
 .analytics-tooltip-row { display: flex; align-items: center; gap: 8px; line-height: 1.6; }
 .analytics-tooltip-key { width: 12px; height: 2px; flex: none; border-radius: 1px; }
@@ -8290,7 +8386,7 @@ button.analytics-legend-item:focus-visible { outline: 2px solid var(--ring); out
 .analytics-empty p { margin: 0; font-size: 12px; }
 .analytics-empty-hint { opacity: 0.8; }
 .analytics-progress { width: 280px; height: 4px; overflow: hidden; border-radius: 2px; background: var(--analytics-empty); }
-.analytics-progress span { display: block; height: 100%; background: var(--primary); transition: width 200ms ease; }
+.analytics-progress span { display: block; height: 100%; background: var(--primary); transition: width 200ms var(--ease-out); }
 @media (prefers-reduced-motion: reduce) {
   .analytics-progress span, .analytics-content { transition: none; }
 }

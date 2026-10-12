@@ -2,9 +2,15 @@ import { StrictMode, useCallback, useEffect, useRef, useState, type ReactNode } 
 import { createRoot } from "react-dom/client";
 import { ShieldCheck, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type {
-  WorkspaceTrustDialogContext,
-  WorkspaceTrustResponse
+import {
+  APP_APPEARANCE_MODES,
+  APP_CODE_FONTS,
+  APP_COLOR_THEMES,
+  APP_UI_FONTS,
+  DEFAULT_CODE_FONT,
+  DEFAULT_UI_FONT,
+  type WorkspaceTrustDialogContext,
+  type WorkspaceTrustResponse
 } from "../shared/types";
 import "./workspaceTrust.css";
 
@@ -87,10 +93,10 @@ function WorkspaceTrustDialog({ dialogContext }: { dialogContext: WorkspaceTrust
 function readContext(params: URLSearchParams): WorkspaceTrustDialogContext {
   return {
     repoPath: params.get("repoPath") ?? "",
-    appearanceMode: readEnum(params.get("appearanceMode"), ["system", "light", "dark"], "system"),
-    colorTheme: readEnum(params.get("colorTheme"), ["githead", "tidepool", "ember", "orchid", "evergreen", "rosewood", "glacier", "sunbeam", "graphite", "copper", "sakura", "midnight"], "githead"),
-    uiFont: readEnum(params.get("uiFont"), ["system", "inter", "ibm-plex-sans", "roboto"], "inter"),
-    codeFont: readEnum(params.get("codeFont"), ["system-mono", "jetbrains-mono", "fira-code", "source-code-pro", "ibm-plex-mono"], "system-mono"),
+    appearanceMode: readEnum(params.get("appearanceMode"), APP_APPEARANCE_MODES, "system"),
+    colorTheme: readEnum(params.get("colorTheme"), APP_COLOR_THEMES, "githead"),
+    uiFont: readEnum(params.get("uiFont"), APP_UI_FONTS, DEFAULT_UI_FONT),
+    codeFont: readEnum(params.get("codeFont"), APP_CODE_FONTS, DEFAULT_CODE_FONT),
     zoomFactor: readZoomFactor(params.get("zoomFactor"))
   };
 }
