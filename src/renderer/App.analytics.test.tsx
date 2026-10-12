@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { loreCapabilities, type RepositoryAnalytics } from "../shared/types";
-import { createSummary, githead, openWorkspaceView, repoPath, waitForRepositoryWorkspace } from "./AppTestHarness";
+import { createSummary, githead, openQuickSwitcher, openWorkspaceView, repoPath, waitForRepositoryWorkspace } from "./AppTestHarness";
 import { App } from "./App";
 
 function emptyRange(): RepositoryAnalytics["ranges"]["all"] {
@@ -47,6 +47,9 @@ describe("analytics workspace tab", () => {
     await waitForRepositoryWorkspace();
     await screen.findByRole("tab", { name: /^Changes/ });
     expect(screen.queryByRole("tab", { name: "Analytics" })).toBeNull();
+    const switcher = await openQuickSwitcher();
+    expect(within(switcher).getByRole("option", { name: /^Activity log/ })).toBeTruthy();
+    expect(within(switcher).queryByRole("option", { name: /^Analytics/ })).toBeNull();
     expect(githead.getRepositoryAnalytics).not.toHaveBeenCalled();
   });
 });

@@ -251,7 +251,6 @@ export const RepositoryHeader = memo(function RepositoryHeader({
               </div>
               <AppUpdateControl
                 state={appUpdate}
-                variant="compact"
                 onCheck={onCheckForUpdates}
                 onDownload={onDownloadUpdate}
                 onInstall={onInstallUpdate}

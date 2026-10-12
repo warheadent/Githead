@@ -18,6 +18,7 @@ import {
   openAddRepository,
   repoPath,
   repositoryRecents,
+  switchToRepository,
   waitForRepositoryWorkspace,
   windowStateCallback,
   type AppSettings,
@@ -63,7 +64,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     expect(await screen.findByText("Opening Githead…")).toBeTruthy();
     expect(screen.queryByText("Open a local folder or clone a repository to this computer.")).toBeNull();
-    expect(screen.queryByRole("region", { name: "Repositories" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Switch repository/ })).toBeNull();
 
     pendingSettings.resolve({
       visualEffects: "standard",
@@ -137,21 +138,25 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.minimizeWindow).toHaveBeenCalledTimes(1);
   });
 
-  it("renders a compact repository heading with the add action", async () => {
+  it("names the repository in the header and anchors the add repository popover to it", async () => {
     const user = userEvent.setup();
 
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    const sidebar = screen.getByRole("complementary");
-    expect(within(sidebar).queryByRole("heading", { name: "Githead" })).toBeNull();
-    expect(within(sidebar).queryByText("Repository ready")).toBeNull();
-    expect(within(sidebar).queryByText("Checking repository...")).toBeNull();
-    expect(within(sidebar).getAllByText("Repositories")).toHaveLength(1);
+    expect(screen.queryByRole("complementary")).toBeNull();
+    const header = screen.getByRole("navigation", { name: "Workspace navigation" });
+    const repositorySwitcher = within(header).getByRole("button", { name: "Switch repository: Githead" });
+    expect(screen.queryByRole("heading", { name: "Githead" })).toBeNull();
+    expect(screen.queryByText("Repository ready")).toBeNull();
+    expect(screen.queryByText("Checking repository...")).toBeNull();
 
-    await user.click(within(sidebar).getByRole("button", { name: "Add repository" }));
+    await openAddRepository(user);
     expect(await screen.findByRole("button", { name: "Open local folder…" })).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "Search repositories or paste a source" })).toBeTruthy();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add repository" })).toBeNull());
+    expect(document.activeElement).toBe(repositorySwitcher);
   });
 
   it("marks file status badges with semantic tones", async () => {
@@ -1519,7 +1524,7 @@ describe("App", { timeout: 10_000 }, () => {
     fireEvent.contextMenu(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
     await user.click(await screen.findByRole("menuitem", { name: "Blame Selected" }));
     await screen.findByText("Loading blame");
-    await user.click(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
+    await switchToRepository(otherRepo, user);
     pendingBlame.resolve({
       kind: "text", repoPath, hash: commit.hash, path: file.path, byteLength: 4,
       commits: [{ hash: commit.hash, shortHash: commit.shortHash, authorName: "Stale", authorEmail: "", authorDate: "", summary: "" }],
@@ -2291,7 +2296,7 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => expect(vi.mocked(githead.getRepoSummary).mock.calls.length).toBeGreaterThan(1));
 
     pendingRepositoryChoice.resolve(otherRepo);
-    await waitFor(() => expect(screen.getByRole("button", { name: `Switch to ${otherRepo}` }).getAttribute("aria-current")).toBe("true"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Switch repository: Hunk-B" })).toBeTruthy());
 
     pendingRepositoryARefresh.resolve(createSummary({ repoPath, files: [file] }));
     await flushRendererAsync();

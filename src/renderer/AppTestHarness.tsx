@@ -1,5 +1,5 @@
 import { emptyGitConfigValues } from "../shared/gitConfig";
-import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { UserEvent } from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, vi } from "vite-plus/test";
@@ -1108,6 +1108,18 @@ export async function openQuickSwitcher(user?: UserEvent): Promise<HTMLElement> 
   return screen.findByRole("dialog", { name: "Quick switcher" });
 }
 
+/** Closes the open quick switcher with its Esc button and waits until it unmounts. */
+export async function closeQuickSwitcher(user?: UserEvent): Promise<void> {
+  const dialog = screen.queryByRole("dialog", { name: "Quick switcher" });
+  if (!dialog) return;
+  const close = within(dialog).getByRole("button", { name: "Close quick switcher" });
+  if (user) await user.click(close);
+  else fireEvent.click(close);
+  await waitFor(() => {
+    if (screen.queryByRole("dialog", { name: "Quick switcher" })) throw new Error("The quick switcher is still open.");
+  });
+}
+
 /** Opens the quick switcher if needed and chooses the option with this accessible name. */
 export async function chooseSwitcherOption(name: string | RegExp, user?: UserEvent): Promise<void> {
   const dialog = await openQuickSwitcher(user);
@@ -1127,6 +1139,22 @@ export async function switchToRepository(path: string, user?: UserEvent): Promis
   const option = await repositoryOption(path, user);
   if (user) await user.click(option);
   else fireEvent.click(option);
+}
+
+/** Clicks the header's repository switcher and returns the quick switcher it opens. */
+export async function openRepositorySwitcher(user?: UserEvent): Promise<HTMLElement> {
+  const button = await screen.findByRole("button", { name: /^Switch repository/ });
+  if (user) await user.click(button);
+  else fireEvent.click(button);
+  return screen.findByRole("dialog", { name: "Quick switcher" });
+}
+
+/** Clicks the header's branch pill and returns the quick switcher, which then shows only branch content. */
+export async function openBranchSwitcher(user?: UserEvent): Promise<HTMLElement> {
+  const button = await screen.findByRole("button", { name: "Switch branch" });
+  if (user) await user.click(button);
+  else fireEvent.click(button);
+  return screen.findByRole("dialog", { name: "Quick switcher" });
 }
 
 /** Opens a view from the switcher's Go to section and returns its selected tab. */

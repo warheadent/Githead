@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import {
   createCommit, createCommitDetails, createRunResult,
   createStatusFile, createSummary, createRepositoryOperationState, defer, githead,
-  openSettings, repoPath, repositoryRecents, waitForRepositoryWorkspace
+  openBranchSwitcher, openQuickSwitcher, openSettings, repoPath, repositoryOption, repositoryRecents, waitForRepositoryWorkspace
 } from "./AppTestHarness";
 import { App } from "./App";
 
@@ -29,7 +29,7 @@ async function startFetch() {
 async function editAction() {
   const user = userEvent.setup();
   await user.click(screen.getByRole("button", { name: "Repository actions" }));
-  await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Manage repository actions…" }));
   await user.click(screen.getByRole("button", { name: "Add action" }));
   await user.type(screen.getByLabelText("Name"), "Build");
   await user.type(screen.getByLabelText("Command"), "npm run build");
@@ -165,18 +165,25 @@ describe("unrelated tasks during Git operations", { timeout: 20_000 }, () => {
     vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
     vi.mocked(githead.reorderRepoRecents).mockImplementation(async (paths) => repositoryRecents(...paths));
     const fetch = await startFetch();
-    expect(screen.getByRole("button", { name: `Reorder ${repoPath}` }).hasAttribute("disabled")).toBe(false);
-    fireEvent.keyDown(screen.getByRole("button", { name: `Reorder ${otherRepo}` }), { key: "ArrowUp" });
+    fireEvent.contextMenu(await repositoryOption(otherRepo, user));
+    const moveUp = await screen.findByRole("menuitem", { name: "Move up" });
+    expect(moveUp.hasAttribute("data-disabled")).toBe(false);
+    await user.click(moveUp);
     await waitFor(() => expect(githead.reorderRepoRecents).toHaveBeenCalledWith([otherRepo, repoPath]));
-    fireEvent.contextMenu(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
-    await user.click(screen.getByRole("menuitem", { name: "Repository Settings…" }));
+    fireEvent.contextMenu(await repositoryOption(otherRepo, user));
+    await user.click(await screen.findByRole("menuitem", { name: "Repository Settings…" }));
     expect(await screen.findByRole("dialog", { name: "Repository Settings" })).toBeTruthy();
     await user.keyboard("{Escape}");
-    await user.click(screen.getByRole("button", { name: "Manage branches" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Repository Settings" })).toBeNull());
+    const manageBranches = within(await openBranchSwitcher(user)).getByRole("option", { name: "Manage branches…" });
+    expect(manageBranches.getAttribute("aria-disabled")).toBeNull();
+    await user.click(manageBranches);
     expect(await screen.findByRole("dialog", { name: "Manage Branches" })).toBeTruthy();
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Manage Branches" })).toBeNull());
-    await user.click(screen.getByRole("button", { name: "Manage remotes" }));
+    const manageRemotes = within(await openBranchSwitcher(user)).getByRole("option", { name: /^Manage remotes…/ });
+    expect(manageRemotes.getAttribute("aria-disabled")).toBeNull();
+    await user.click(manageRemotes);
     expect(await screen.findByRole("dialog", { name: "Manage Remotes" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Add Remote" }));
     await user.type(screen.getByLabelText("Name", { exact: true }), "backup");
@@ -187,12 +194,17 @@ describe("unrelated tasks during Git operations", { timeout: 20_000 }, () => {
   });
 
   it("keeps settings and repository list controls available during conflict recovery", async () => {
+    const otherRepo = "D:\\OtherRepo";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ operationState: createRepositoryOperationState("merge") }));
     render(<App />);
     await screen.findByText("Finish this merge");
     expect(await openSettings()).toBeTruthy();
     fireEvent.keyDown(screen.getByRole("dialog", { name: "Settings" }), { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull());
-    expect(screen.getByRole("button", { name: `Reorder ${repoPath}` }).hasAttribute("disabled")).toBe(false);
+    const switcher = await openQuickSwitcher();
+    expect(within(switcher).getByRole("option", { name: /^Settings/ }).getAttribute("aria-disabled")).toBeNull();
+    fireEvent.contextMenu(await repositoryOption(otherRepo));
+    expect((await screen.findByRole("menuitem", { name: "Move up" })).hasAttribute("data-disabled")).toBe(false);
   });
 });

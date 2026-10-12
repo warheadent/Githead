@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { createCommit, createCommitDetails, createSummary, createTextDiff, defer, githead, openSettings, openWorkspaceView, repoPath, repositoryRecents, waitForRepositoryWorkspace, type RepoSummary } from "./AppTestHarness";
+import { chooseSwitcherOption, closeQuickSwitcher, createCommit, createCommitDetails, createSummary, createTextDiff, defer, githead, openQuickSwitcher, openSettings, openWorkspaceView, repoPath, repositoryRecents, switchToRepository, waitForRepositoryWorkspace, type RepoSummary } from "./AppTestHarness";
 import { App } from "./App";
 
 async function traverseHistory(direction: "back" | "forward"): Promise<void> {
@@ -19,6 +19,19 @@ async function goBack(): Promise<void> {
 
 async function goForward(): Promise<void> {
   await traverseHistory("forward");
+}
+
+/** Checks the quick switcher's Go back or Go forward command, then closes the switcher so history can move again. */
+async function expectNavigationCommand(name: "Go back" | "Go forward", enabled: boolean, user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  const dialog = await openQuickSwitcher(user);
+  const option = within(dialog).getByRole("option", { name });
+  expect(option.getAttribute("aria-disabled")).toBe(enabled ? null : "true");
+  await closeQuickSwitcher(user);
+}
+
+/** The header names the open repository on its switcher button. */
+function currentRepositoryButton(name: string): HTMLElement {
+  return within(screen.getByRole("navigation", { name: "Workspace navigation" })).getByRole("button", { name: `Switch repository: ${name}` });
 }
 
 function selectedTab(name: RegExp): HTMLElement {
@@ -41,7 +54,7 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     await waitForRepositoryWorkspace();
     await openWorkspaceView("Stashes", user);
     await screen.findByRole("option", { name: /saved navigation work/ });
-    await user.click(screen.getByRole("button", { name: `Switch to ${otherPath}` }));
+    await switchToRepository(otherPath, user);
     await waitFor(() => expect(githead.getStashes).toHaveBeenCalledWith(expect.objectContaining({ repoPath: otherPath })));
     await waitFor(() => expect(screen.queryByRole("tab", { name: /Stashes/ })).toBeNull());
 
@@ -49,7 +62,8 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     vi.mocked(githead.getStashes).mockImplementation(({ repoPath: path }) => path === repoPath ? pending.promise : Promise.resolve([]));
     await goBack();
     selectedTab(/Stashes/);
-    expect(screen.getByRole("button", { name: "Go forward" }).hasAttribute("disabled")).toBe(false);
+    await expectNavigationCommand("Go forward", true, user);
+    selectedTab(/Stashes/);
     await act(async () => {
       if (outcome === "failed") pending.reject(new Error("Stash list unavailable"));
       else pending.resolve(outcome === "loaded" ? [stash] : []);
@@ -62,7 +76,7 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
       if (outcome === "loaded") expect(await screen.findByRole("option", { name: /saved navigation work/ })).toBeTruthy();
       else expect(await screen.findByText("Stash list unavailable")).toBeTruthy();
       await goForward();
-      await waitFor(() => expect(screen.getByRole("button", { name: `Switch to ${otherPath}` }).getAttribute("aria-current")).toBe("true"));
+      await waitFor(() => expect(currentRepositoryButton("Other")).toBeTruthy());
     }
   });
 
@@ -118,8 +132,8 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     await user.click(await screen.findByRole("menuitem", { name: "Log Selected" }));
     await user.click(await screen.findByRole("button", { name: "Blame this version" }));
     await screen.findByRole("region", { name: `Blame for ${file.path}` });
-    await user.click(screen.getByRole("button", { name: `Switch to ${otherPath}` }));
-    await waitFor(() => expect(screen.getByRole("button", { name: `Switch to ${otherPath}` }).getAttribute("aria-current")).toBe("true"));
+    await switchToRepository(otherPath, user);
+    await waitFor(() => expect(currentRepositoryButton("Other")).toBeTruthy());
     await goBack();
     const blame = await screen.findByRole("region", { name: `Blame for ${file.path}` });
     await waitFor(() => expect(githead.getFileBlame).toHaveBeenCalledTimes(2));
@@ -133,7 +147,7 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     const user = userEvent.setup();
     render(<StrictMode><App /></StrictMode>);
     await waitForRepositoryWorkspace();
-    expect(screen.getByRole("button", { name: "Go back" }).hasAttribute("disabled")).toBe(true);
+    await expectNavigationCommand("Go back", false, user);
     await user.click(screen.getByRole("tab", { name: /^History$/ }));
     await openWorkspaceView("Activity log", user);
     await goBack();
@@ -143,12 +157,30 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     await goForward();
     selectedTab(/^History$/);
     await user.click(screen.getByRole("tab", { name: /^Changes/ }));
-    expect(screen.getByRole("button", { name: "Go forward" }).hasAttribute("disabled")).toBe(true);
+    await expectNavigationCommand("Go forward", false, user);
     await goBack();
     selectedTab(/^History$/);
   });
 
-  it("supports toolbar buttons and Alt+Left/Right without recording the same tab twice", async () => {
+  it("keeps one guest view beside Changes and History until it is closed", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    expect(screen.getAllByRole("tab").map((tab) => tab.getAttribute("aria-label") ?? tab.textContent)).toEqual(["Changes", "History"]);
+
+    await openWorkspaceView("Activity log", user);
+    await user.click(screen.getByRole("tab", { name: /^Changes/ }));
+    // The guest keeps its segment while a permanent view is active.
+    expect(screen.getByRole("tab", { name: "Activity log", selected: false })).toBeTruthy();
+
+    await user.click(screen.getByRole("tab", { name: "Activity log" }));
+    await user.click(screen.getByRole("button", { name: "Close Activity log view" }));
+    await waitFor(() => selectedTab(/^Changes/));
+    expect(screen.queryByRole("tab", { name: /^Activity log/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Close Activity log view" })).toBeNull();
+  });
+
+  it("supports the quick switcher commands and Alt+Left/Right without recording the same tab twice", async () => {
     const user = userEvent.setup();
     render(<App />);
     await waitForRepositoryWorkspace();
@@ -158,9 +190,9 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     await waitFor(() => selectedTab(/^Changes/));
     fireEvent.keyDown(window, { key: "ArrowRight", altKey: true });
     await waitFor(() => selectedTab(/^History$/));
-    await user.click(screen.getByRole("button", { name: "Go back" }));
+    await chooseSwitcherOption("Go back", user);
     await waitFor(() => selectedTab(/^Changes/));
-    await user.click(screen.getByRole("button", { name: "Go forward" }));
+    await chooseSwitcherOption("Go forward", user);
     await waitFor(() => selectedTab(/^History$/));
   });
 
@@ -200,13 +232,13 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     render(<App />);
     await waitForRepositoryWorkspace();
     await openWorkspaceView("Activity log", user);
-    await user.click(screen.getByRole("button", { name: `Switch to ${otherPath}` }));
+    await switchToRepository(otherPath, user);
     await waitFor(() => expect(githead.getRepoIdentity).toHaveBeenCalledWith(expect.objectContaining({ repoPath: otherPath })));
     await user.click(screen.getByRole("tab", { name: /^History$/ }));
     await goBack();
     await goBack();
     await waitFor(() => selectedTab(/^Activity log/));
-    expect(within(screen.getByRole("navigation", { name: "Workspace navigation" })).getByRole("button", { name: "Githead" })).toBeTruthy();
+    expect(currentRepositoryButton("Githead")).toBeTruthy();
   });
 
   it("does not leave the screen or reload while a dialog is open", async () => {
@@ -237,7 +269,7 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     await openWorkspaceView("Activity log", user);
     await goBack();
     selectedTab(/^Changes/);
-    expect(screen.getByRole("button", { name: "Go back" }).hasAttribute("disabled")).toBe(true);
+    await expectNavigationCommand("Go back", false, user);
   });
 
   it("does not reopen a restored file screen after the user leaves during a repository refresh", async () => {
@@ -257,8 +289,8 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     fireEvent.contextMenu(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
     await user.click(await screen.findByRole("menuitem", { name: "Log Selected" }));
     await screen.findByRole("region", { name: `File History for ${file.path}` });
-    await user.click(screen.getByRole("button", { name: `Switch to ${otherPath}` }));
-    await waitFor(() => expect(screen.getByRole("button", { name: `Switch to ${otherPath}` }).getAttribute("aria-current")).toBe("true"));
+    await switchToRepository(otherPath, user);
+    await waitFor(() => expect(currentRepositoryButton("Other")).toBeTruthy());
 
     const pending = defer<RepoSummary>();
     vi.mocked(githead.getRepoSummary).mockImplementation((path) => path === repoPath ? pending.promise : Promise.resolve(createSummary({ repoPath: path })));

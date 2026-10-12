@@ -18,7 +18,9 @@ import {
   flushRendererAsync,
   gitOutputCallback,
   githead,
+  chooseSwitcherOption,
   openAddRepository,
+  openQuickSwitcher,
   openWorkspaceView,
   repoPath,
   repositoryRecents,
@@ -810,11 +812,14 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => expect(githead.applyStash).toHaveBeenCalledWith({ repoPath, stashRef: "stash@{0}", operationId: expect.any(String) }));
   });
 
-  it("hides the Stashes tab when the repository has no stashes", async () => {
+  it("offers no Stashes view when the repository has no stashes", async () => {
     render(<App />);
 
     await waitFor(() => expect(githead.getStashes).toHaveBeenCalled());
-    expect(screen.queryByRole("tab", { name: "Stashes" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: /^Stashes/ })).toBeNull();
+    const switcher = await openQuickSwitcher();
+    expect(within(switcher).getByRole("option", { name: /^Activity log/ })).toBeTruthy();
+    expect(within(switcher).queryByRole("option", { name: /^Stashes/ })).toBeNull();
   });
 
   it("uses only an unselected context-menu row instead of the previous multi-selection", async () => {
@@ -1731,7 +1736,7 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => expect(githead.addRepoTrust).toHaveBeenCalledWith({ repoPath }));
     pendingRepositoryChoice.resolve(otherRepo);
 
-    await waitFor(() => expect(screen.getByRole("button", { name: `Switch to ${otherRepo}` }).getAttribute("aria-current")).toBe("true"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Switch repository: Trust-B" })).toBeTruthy());
     pendingTrust.resolve({ trusted: true });
     await flushRendererAsync();
 
@@ -2179,7 +2184,9 @@ describe("App", { timeout: 10_000 }, () => {
 
     await waitFor(() => expect((message as HTMLTextAreaElement).value).toBe(""));
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByRole("tab", { name: "Activity log, unread error details available" })).toBeTruthy();
+    const more = screen.getByRole("button", { name: "More" });
+    expect(more.getAttribute("data-attention")).toBe("error");
+    expect(more.querySelector(".activity-log-attention-indicator")?.getAttribute("data-attention")).toBe("error");
   });
 
   it("shows a safety warning without creating a commit when the fetched remote is ahead", async () => {
@@ -2350,10 +2357,12 @@ describe("App", { timeout: 10_000 }, () => {
       timestamp: new Date().toISOString()
     });
 
-    const activityLogTab = await waitFor(() => screen.getByRole("tab", { name: "Activity log, unread output available" }));
-    expect(activityLogTab.getAttribute("data-attention")).toBe("unread");
-    await user.click(activityLogTab);
-    await waitFor(() => expect(activityLogTab.getAttribute("data-attention")).toBe("none"));
+    const more = screen.getByRole("button", { name: "More" });
+    await waitFor(() => expect(more.getAttribute("data-attention")).toBe("unread"));
+    expect(more.querySelector(".activity-log-attention-indicator")).not.toBeNull();
+    await chooseSwitcherOption("Activity log, unread output available", user);
+    await waitFor(() => expect(more.getAttribute("data-attention")).toBe("none"));
+    expect(screen.getByRole("tab", { name: "Activity log", selected: true })).toBeTruthy();
     expect(await screen.findByText("Output Available")).toBeTruthy();
     expect(screen.getByText(/fetch output/)).toBeTruthy();
 

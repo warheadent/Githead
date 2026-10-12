@@ -1,16 +1,20 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
+  chooseSwitcherOption,
+  closeQuickSwitcher,
   createSummary,
   githead,
+  openQuickSwitcher,
   repoPath,
+  repositoryOption,
   repositoryRecents,
   waitForRepositoryWorkspace,
 } from "./AppTestHarness";
 import { App } from "./App";
-import { readRepositoryOrganization, REPOSITORY_ORGANIZATION_KEY } from "./repositoryOrganization";
+import { readRepositoryOrganization, repositoryPreference, REPOSITORY_ORGANIZATION_KEY } from "./repositoryOrganization";
 
 const other = "D:\\Work\\Other";
 const third = "D:\\Archive\\Other";
@@ -19,15 +23,23 @@ beforeEach(() => {
   vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, other, third));
 });
 afterEach(() => window.localStorage.removeItem(REPOSITORY_ORGANIZATION_KEY));
-const repositories = () => within(screen.getByRole("region", { name: "Repositories" }));
+/** The open quick switcher, which lists the saved repositories. */
+const repositories = () => within(screen.getByRole("dialog", { name: "Quick switcher" }));
+const searchBox = () => repositories().getByRole("combobox", { name: "Switch repository, branch or view…" });
+const optionPattern = (path: string) => new RegExp(`^Switch to ${path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:,|$)`);
+
+async function openRename(path: string, user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  fireEvent.contextMenu(await repositoryOption(path, user));
+  await user.click(await screen.findByRole("menuitem", { name: "Rename repository" }));
+}
 
 describe("Repository organization", { timeout: 10_000 }, () => {
   it("saves groups, aliases, pins and hidden state and restores them after remount", async () => {
     const user = userEvent.setup();
     const mounted = render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: "Organize repositories" }));
-    const dialog = within(screen.getByRole("dialog"));
+    await chooseSwitcherOption("Organize repositories…", user);
+    const dialog = within(await screen.findByRole("dialog", { name: "Organize repositories" }));
     await user.click(dialog.getByRole("button", { name: "New group" }));
     await user.type(screen.getByRole("textbox", { name: "Group name" }), "Tools");
     await user.click(screen.getByRole("button", { name: "Create group" }));
@@ -38,52 +50,56 @@ describe("Repository organization", { timeout: 10_000 }, () => {
     await user.click(dialog.getByRole("checkbox", { name: `Pin ${repoPath}` }));
     await user.click(dialog.getByRole("checkbox", { name: `Show ${third}` }));
     await user.click(dialog.getByRole("button", { name: "Save changes" }));
-    expect(repositories().getByText("Pinned")).toBeTruthy();
-    expect(repositories().getByText("Builder")).toBeTruthy();
-    expect(repositories().queryByRole("button", { name: `Switch to ${third}` })).toBeNull();
-    await user.click(repositories().getByRole("button", { name: "Tools, 1 repositories" }));
-    expect(repositories().queryByText("Builder")).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Organize repositories" })).toBeNull());
+
+    // Projects stay in the saved organization; the switcher lists pinned repositories first and leaves hidden ones out.
+    const saved = readRepositoryOrganization();
+    expect(saved.projects.map((project) => project.name)).toEqual(["Tools"]);
+    expect(repositoryPreference(saved, other)).toMatchObject({ alias: "Builder", projectId: saved.projects[0]!.id });
+    expect(repositoryPreference(saved, repoPath).pinned).toBe(true);
+    expect(repositoryPreference(saved, third).hidden).toBe(true);
+    await openQuickSwitcher(user);
+    const rows = repositories().getAllByRole("option", { name: /^Switch to / });
+    expect(rows[0]!.getAttribute("aria-label")).toMatch(optionPattern(repoPath));
+    expect(repositories().getByRole("option", { name: optionPattern(other) }).textContent).toContain("Builder");
+    expect(repositories().queryByRole("option", { name: optionPattern(third) })).toBeNull();
+    await closeQuickSwitcher(user);
+
     mounted.unmount();
     render(<App />);
     await waitForRepositoryWorkspace();
-    expect(
-      repositories()
-        .getByRole("button", { name: "Tools, 1 repositories" })
-        .getAttribute("aria-expanded"),
-    ).toBe("false");
-    await user.click(repositories().getByRole("button", { name: "Search repositories" }));
-    await user.type(
-      repositories().getByRole("searchbox", { name: "Search repositories" }),
-      "builder",
-    );
-    expect(repositories().getByText("Builder")).toBeTruthy();
-    await user.clear(repositories().getByRole("searchbox", { name: "Search repositories" }));
-    expect(repositories().queryByText("Builder")).toBeNull();
-    await user.click(repositories().getByRole("button", { name: "Show hidden (1)" }));
-    expect(repositories().getByRole("button", { name: `Switch to ${third}` })).toBeTruthy();
+    await openQuickSwitcher(user);
+    await user.type(searchBox(), "builder");
+    expect(repositories().getByRole("option", { name: optionPattern(other) }).textContent).toContain("Builder");
+    expect(repositories().queryByRole("option", { name: optionPattern(repoPath) })).toBeNull();
+    await user.clear(searchBox());
+    expect(repositories().queryByRole("option", { name: optionPattern(third) })).toBeNull();
+    await user.click(repositories().getByRole("option", { name: "Show hidden repositories (1)" }));
+    expect(repositories().getByRole("option", { name: optionPattern(third) })).toBeTruthy();
   });
 
   it("renames from the context menu, persists the alias, and restores the folder name", async () => {
     const user = userEvent.setup();
     const mounted = render(<App />);
     await waitForRepositoryWorkspace();
-    fireEvent.contextMenu(repositories().getByRole("button", { name: `Switch to ${other}` }));
-    await user.click(screen.getByRole("menuitem", { name: "Rename repository" }));
+    await openRename(other, user);
     await user.type(screen.getByRole("textbox", { name: "Display name" }), "  Builder  ");
     await user.click(screen.getByRole("button", { name: "Save name" }));
-    expect(repositories().getByText("Builder")).toBeTruthy();
-    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect((await repositoryOption(other, user)).textContent).toContain("Builder");
+    await closeQuickSwitcher(user);
     mounted.unmount();
     render(<App />);
     await waitForRepositoryWorkspace();
-    expect(repositories().getByText("Builder")).toBeTruthy();
-    fireEvent.contextMenu(repositories().getByRole("button", { name: `Switch to ${other}` }));
-    await user.click(screen.getByRole("menuitem", { name: "Rename repository" }));
+    expect((await repositoryOption(other, user)).textContent).toContain("Builder");
+    await openRename(other, user);
     expect((screen.getByRole("textbox", { name: "Display name" }) as HTMLInputElement).value).toBe("Builder");
     await user.clear(screen.getByRole("textbox", { name: "Display name" }));
     await user.keyboard("{Enter}");
-    expect(repositories().queryByText("Builder")).toBeNull();
-    expect(repositories().getByRole("button", { name: `Switch to ${other}` }).textContent).toContain("Other");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Rename repository" })).toBeNull());
+    const row = await repositoryOption(other, user);
+    expect(row.textContent).not.toContain("Builder");
+    expect(row.textContent).toContain("Other");
     expect(githead.removeRepoRecent).not.toHaveBeenCalled();
   });
 
@@ -91,15 +107,11 @@ describe("Repository organization", { timeout: 10_000 }, () => {
     const user = userEvent.setup();
     render(<App />);
     await waitForRepositoryWorkspace();
-    const openRename = async () => {
-      fireEvent.contextMenu(repositories().getByRole("button", { name: `Switch to ${other}` }));
-      await user.click(screen.getByRole("menuitem", { name: "Rename repository" }));
-    };
-    await openRename();
+    await openRename(other, user);
     await user.type(screen.getByRole("textbox", { name: "Display name" }), "Temporary");
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(readRepositoryOrganization().repositories).toEqual({});
-    await openRename();
+    await openRename(other, user);
     await user.type(screen.getByRole("textbox", { name: "Display name" }), "Builder");
     const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("Storage full");
@@ -109,7 +121,8 @@ describe("Repository organization", { timeout: 10_000 }, () => {
     expect(readRepositoryOrganization().repositories).toEqual({});
     write.mockRestore();
     await user.click(screen.getByRole("button", { name: "Save name" }));
-    expect(repositories().getByText("Builder")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Rename repository" })).toBeNull());
+    expect((await repositoryOption(other, user)).textContent).toContain("Builder");
   });
 
   it("searches hidden paths and switches without removing them", async () => {
@@ -123,9 +136,10 @@ describe("Repository organization", { timeout: 10_000 }, () => {
     render(<App />);
     await waitForRepositoryWorkspace();
     const user = userEvent.setup();
-    await user.click(repositories().getByRole("button", { name: "Search repositories" }));
-    await user.type(repositories().getByRole("searchbox"), "archive");
-    await user.click(repositories().getByRole("button", { name: `Switch to ${third}` }));
+    await openQuickSwitcher(user);
+    expect(repositories().queryByRole("option", { name: optionPattern(third) })).toBeNull();
+    await user.type(searchBox(), "archive");
+    await user.click(repositories().getByRole("option", { name: optionPattern(third) }));
     await waitFor(() => expect(githead.addRepoRecent).toHaveBeenCalledWith({ repoPath: third }));
     expect(githead.removeRepoRecent).not.toHaveBeenCalled();
   });
@@ -134,8 +148,8 @@ describe("Repository organization", { timeout: 10_000 }, () => {
     const user = userEvent.setup();
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: "Organize repositories" }));
-    await user.click(screen.getByRole("button", { name: "New group" }));
+    await chooseSwitcherOption("Organize repositories…", user);
+    await user.click(await screen.findByRole("button", { name: "New group" }));
     await user.type(screen.getByRole("textbox", { name: "Group name" }), "Temporary");
     await user.clear(screen.getByRole("textbox", { name: "Group name" }));
     expect(screen.getByRole("button", { name: "Create group" }).hasAttribute("disabled")).toBe(
@@ -151,8 +165,8 @@ describe("Repository organization", { timeout: 10_000 }, () => {
     const user = userEvent.setup();
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: "Organize repositories" }));
-    await user.click(screen.getByRole("button", { name: `Rename ${repoPath} in Githead` }));
+    await chooseSwitcherOption("Organize repositories…", user);
+    await user.click(await screen.findByRole("button", { name: `Rename ${repoPath} in Githead` }));
     await user.type(screen.getByRole("textbox", { name: "Display name" }), "Daily");
     await user.click(screen.getByRole("button", { name: "Apply name" }));
     const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
@@ -165,10 +179,13 @@ describe("Repository organization", { timeout: 10_000 }, () => {
     expect(readRepositoryOrganization().repositories).toEqual({});
     write.mockRestore();
     await user.click(screen.getByRole("button", { name: "Save changes" }));
-    expect(repositories().getByText("Daily")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Organize repositories" })).toBeNull());
+    expect(repositoryPreference(readRepositoryOrganization(), repoPath).alias).toBe("Daily");
+    expect(screen.getByRole("button", { name: "Switch repository: Daily" })).toBeTruthy();
   });
 
-  it("reorders within the visible project across unrelated repositories", async () => {
+  // The switcher lists repositories in saved order without project sections, so a move steps over the next listed row.
+  it("moves a repository past the next switcher row even when projects group it elsewhere", async () => {
     window.localStorage.setItem(
       REPOSITORY_ORGANIZATION_KEY,
       JSON.stringify({
@@ -177,13 +194,14 @@ describe("Repository organization", { timeout: 10_000 }, () => {
         repositories: { [repoPath]: { projectId: "tools" }, [third]: { projectId: "tools" } },
       }),
     );
+    const user = userEvent.setup();
     render(<App />);
     await waitForRepositoryWorkspace();
-    await act(async () =>
-      fireEvent.keyDown(repositories().getByRole("button", { name: `Reorder ${repoPath}` }), {
-        key: "ArrowDown",
-      }),
-    );
-    expect(githead.reorderRepoRecents).toHaveBeenCalledWith([other, third, repoPath]);
+    const row = await repositoryOption(repoPath, user);
+    const rows = repositories().getAllByRole("option", { name: /^Switch to / }).map((option) => option.getAttribute("aria-label"));
+    expect(rows).toEqual([`Switch to ${repoPath}`, `Switch to ${other}`, `Switch to ${third}`]);
+    fireEvent.contextMenu(row);
+    await user.click(await screen.findByRole("menuitem", { name: "Move down" }));
+    await waitFor(() => expect(githead.reorderRepoRecents).toHaveBeenCalledWith([other, repoPath, third]));
   });
 });

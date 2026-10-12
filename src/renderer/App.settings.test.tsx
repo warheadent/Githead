@@ -13,9 +13,12 @@ import {
   flushRendererAsync,
   githead,
   openAddRepository,
+  openBranchSwitcher,
   openSettings,
   repoPath,
+  repositoryOption,
   repositoryRecents,
+  switchToRepository,
   waitForRepositoryWorkspace,
   type AiReasoningCapabilities,
   type AiSettings,
@@ -79,7 +82,7 @@ describe("App", { timeout: 10_000 }, () => {
       });
     });
     await waitForRepositoryWorkspace();
-    expect(screen.getByRole("button", { name: `Switch to ${clonedRepo}` }).getAttribute("aria-current")).toBe("true");
+    expect((await repositoryOption(clonedRepo, user)).getAttribute("aria-current")).toBe("true");
     await waitFor(() => {
       expect(githead.addRepoRecent).toHaveBeenCalledWith({ repoPath: clonedRepo });
     });
@@ -308,7 +311,7 @@ describe("App", { timeout: 10_000 }, () => {
     });
   });
 
-  it("opens the focused repository omnibox from the sidebar", async () => {
+  it("opens the focused repository omnibox below the repository switcher", async () => {
     const user = userEvent.setup();
     render(<App />);
     await waitForRepositoryWorkspace();
@@ -326,7 +329,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.keyboard("{Escape}");
     expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Search repositories or paste a source" }));
     await user.keyboard("{Escape}");
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add repository" })));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Switch repository/ })));
   });
 
   it("clones from the composer and remembers the destination for the next clone", async () => {
@@ -348,7 +351,7 @@ describe("App", { timeout: 10_000 }, () => {
       source: "https://github.com/openai/repo.git", parentPath: "D:\\Work", directoryName: "repo", branchName: "",
       depth: null, recurseSubmodules: true, operationId: expect.any(String)
     }));
-    await waitFor(() => expect(screen.getByRole("button", { name: `Switch to ${clonedRepo}` }).getAttribute("aria-current")).toBe("true"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Switch repository: repo" })).toBeTruthy());
     await waitFor(() => expect(screen.queryByRole("form", { name: "Clone repository" })).toBeNull());
     await openAddRepository(user);
     await user.type(screen.getByRole("combobox", { name: "Search repositories or paste a source" }), "openai/next{Enter}");
@@ -397,15 +400,15 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: `Switch to ${firstRepo}` }));
-    await user.click(screen.getByRole("button", { name: `Switch to ${secondRepo}` }));
+    await switchToRepository(firstRepo, user);
+    await switchToRepository(secondRepo, user);
 
     secondSummary.resolve(createSummary({
       repoPath: secondRepo,
       branch: "second"
     }));
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: `Switch to ${secondRepo}` }).getAttribute("aria-current")).toBe("true");
+      expect(screen.getByRole("button", { name: "Switch repository: Second" })).toBeTruthy();
     });
     expect(await screen.findByText("second")).toBeTruthy();
 
@@ -418,7 +421,7 @@ describe("App", { timeout: 10_000 }, () => {
     });
   });
 
-  it("switches branches from the repository panel", async () => {
+  it("switches branches from the branch switcher", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       branches: [
@@ -453,14 +456,14 @@ describe("App", { timeout: 10_000 }, () => {
     });
   });
 
-  it("creates a branch from the repository panel", async () => {
+  it("creates a branch from the branch switcher", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary());
 
     render(<App />);
 
     await screen.findByText("main");
-    await user.click(screen.getByRole("button", { name: "Create branch" }));
+    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: /^New branch…/ }));
     await user.type(await screen.findByLabelText("Branch name"), "feature/new");
     await user.click(screen.getByRole("button", { name: "Create branch" }));
 
@@ -485,7 +488,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await screen.findByText("main");
-    await user.click(screen.getByRole("button", { name: "Create branch" }));
+    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: /^New branch…/ }));
     await user.type(await screen.findByLabelText("Branch name"), "main");
     await user.click(screen.getByRole("button", { name: "Create branch" }));
 
@@ -493,7 +496,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.getByLabelText("Branch name")).toBeTruthy();
   });
 
-  it("changes the current branch upstream from the repository panel", async () => {
+  it("changes the current branch upstream from the branch switcher", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       remoteBranches: [
@@ -512,8 +515,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByText("origin/main");
-    await user.click(screen.getByRole("button", { name: "Change upstream" }));
+    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: "Change upstream…, origin/main" }));
     await user.click(await screen.findByRole("option", { name: /origin\/feature/ }));
 
     await waitFor(() => {
@@ -526,14 +528,13 @@ describe("App", { timeout: 10_000 }, () => {
     });
   });
 
-  it("clears the current branch upstream from the repository panel", async () => {
+  it("clears the current branch upstream from the branch switcher", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary());
 
     render(<App />);
 
-    await screen.findByText("origin/main");
-    await user.click(screen.getByRole("button", { name: "Change upstream" }));
+    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: "Change upstream…, origin/main" }));
     await user.click(await screen.findByRole("option", { name: /No upstream/ }));
 
     await waitFor(() => {
@@ -571,13 +572,12 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByText("origin/main");
-    await user.click(screen.getByRole("button", { name: "Change upstream" }));
+    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: "Change upstream…, origin/main" }));
     await user.click(await screen.findByRole("option", { name: /origin\/feature/ }));
 
-    expect(await screen.findByText("Unable to set upstream.")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Change upstream" }));
-    expect(await screen.findByRole("option", { name: /origin\/feature/ })).toBeTruthy();
+    const switcher = screen.getByRole("dialog", { name: "Quick switcher" });
+    expect((await within(switcher).findByRole("alert")).textContent).toBe("Unable to set upstream.");
+    expect(within(switcher).getByRole("option", { name: /origin\/feature/ })).toBeTruthy();
   });
 
   it("saves OpenRouter settings with custom source control writing instructions", async () => {
@@ -735,7 +735,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.getByText("Claude Code was not detected.")).toBeTruthy();
   });
 
-  it("checks out a fetched remote branch from the repository panel", async () => {
+  it("checks out a fetched remote branch from the branch switcher", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       remoteBranches: [{ name: "origin/feature/review", remote: "origin", branch: "feature/review" }]
@@ -763,9 +763,9 @@ describe("App", { timeout: 10_000 }, () => {
     }));
     render(<App />);
     await screen.findByText("main");
-    await user.click(screen.getByRole("button", { name: "Switch branch" }));
-    expect(screen.queryByRole("option", { name: /main.*origin/ })).toBeNull();
-    expect(await screen.findByRole("option", { name: /release.*origin/ })).toBeTruthy();
+    const remoteBranches = within(await openBranchSwitcher(user)).getByRole("group", { name: "Remote" });
+    expect(within(remoteBranches).queryByRole("option", { name: /main.*origin/ })).toBeNull();
+    expect(within(remoteBranches).getByRole("option", { name: /release.*origin/ })).toBeTruthy();
   });
 
   it("manages branches and explains safe-delete refusals", async () => {
@@ -776,8 +776,7 @@ describe("App", { timeout: 10_000 }, () => {
     ] }));
     render(<App />);
     await screen.findByText("main");
-    await user.click(screen.getByRole("button", { name: "Switch branch" }));
-    await user.click(await screen.findByRole("button", { name: "Manage Branches…" }));
+    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: "Manage branches…" }));
     expect(screen.getByRole("button", { name: "Delete main" }).hasAttribute("disabled")).toBe(true);
     await user.click(screen.getByRole("button", { name: "Rename feature/old" }));
     const input = screen.getByLabelText("New name");
@@ -1295,13 +1294,14 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.saveGitIdentity).not.toHaveBeenCalled();
   });
 
-  it("opens remote management from the sidebar and adds a local remote without fetching", async () => {
+  it("opens remote management from the branch switcher and adds a local remote without fetching", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ remotes: [], upstream: null, remoteBranches: [] }));
     vi.mocked(githead.getRemoteConfigs).mockResolvedValue([]);
 
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Manage remotes" }));
+    await waitForRepositoryWorkspace();
+    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: "Manage remotes…" }));
 
     expect(await screen.findByRole("dialog", { name: "Manage Remotes" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Add Remote" }));
@@ -1318,14 +1318,15 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.runGitAction).not.toHaveBeenCalled();
   });
 
-  it("opens the hosted repository from the remote fact", async () => {
+  it("opens the hosted repository from the branch switcher", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       remotes: [{ name: "origin", url: "git@github.com:openai/codex.git", direction: "fetch" }]
     }));
 
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Open remote repository" }));
+    await waitForRepositoryWorkspace();
+    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: "Open remote repository" }));
 
     expect(githead.openExternalUrl).toHaveBeenCalledWith({
       url: "https://github.com/openai/codex"
@@ -1344,7 +1345,8 @@ describe("App", { timeout: 10_000 }, () => {
     ]);
 
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Manage remotes" }));
+    await waitForRepositoryWorkspace();
+    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: /^Manage remotes…/ }));
 
     expect(await screen.findByText("Advanced")).toBeTruthy();
     expect(screen.getByText("https://mirror.test/repo.git")).toBeTruthy();
@@ -1374,7 +1376,8 @@ describe("App", { timeout: 10_000 }, () => {
     ]);
 
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Manage remotes" }));
+    await waitForRepositoryWorkspace();
+    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: /^Manage remotes…/ }));
     await user.click(await screen.findByRole("button", { name: "Remove" }));
 
     expect(screen.getByText("Branch tracking will be cleared")).toBeTruthy();

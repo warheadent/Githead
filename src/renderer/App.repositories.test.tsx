@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { gitCapabilities } from "../shared/types";
 import {
+  closeQuickSwitcher,
   createActionsConfig,
   createCommit,
   createCommitDetails,
@@ -19,9 +20,14 @@ import {
   flushRendererAsync,
   githead,
   openAddRepository,
+  openBranchSwitcher,
+  openQuickSwitcher,
+  openSettings,
+  openWorkspaceView,
   repoPath,
+  repositoryOption,
   repositoryRecents,
-  scrollIntoView,
+  switchToRepository,
   waitForRepositoryWorkspace,
   type GitFileDiff,
   type GitheadApi,
@@ -31,6 +37,21 @@ import {
   type RepoSummary
 } from "./AppTestHarness";
 import { App } from "./App";
+
+type User = ReturnType<typeof userEvent.setup>;
+
+/** Checks that the quick switcher marks this saved repository as the open one, then closes the switcher. */
+async function expectCurrentRepository(path: string, user?: User): Promise<void> {
+  expect((await repositoryOption(path, user)).getAttribute("aria-current")).toBe("true");
+  await closeQuickSwitcher(user);
+}
+
+/** The repository rows of the open quick switcher, in order. */
+function switcherRepositoryNames(): Array<string | null> {
+  return within(screen.getByRole("dialog", { name: "Quick switcher" }))
+    .getAllByRole("option", { name: /^Switch to / })
+    .map((option) => option.getAttribute("aria-label"));
+}
 
 describe("App", { timeout: 10_000 }, () => {
   it("refreshes File Status after active repository file changes", async () => {
@@ -140,7 +161,7 @@ describe("App", { timeout: 10_000 }, () => {
     await flushRendererAsync();
     await flushRendererAsync();
     expect(githead.getRepoSummary).toHaveBeenCalledWith(nextRepoPath);
-    expect(screen.getByRole("button", { name: `Switch to ${nextRepoPath}` }).getAttribute("aria-current")).toBe("true");
+    expect(screen.getByRole("button", { name: "Switch repository: Picked" })).toBeTruthy();
     expect((screen.getByRole("button", { name: /^Fetch$/ }) as HTMLButtonElement).disabled).toBe(false);
 
     pendingFetch.resolve(createRunResult("fetch", { repoPath }));
@@ -822,11 +843,15 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    expect(screen.getByRole("button", { name: `Switch to ${recentRepo}` }).getAttribute("aria-current")).toBe("true");
-    expect(within(screen.getByRole("region", { name: "Repositories" })).getByText("Recent")).toBeTruthy();
-    expect(screen.getByText("Other")).toBeTruthy();
-    expect(screen.getByRole("button", { name: `Switch to ${otherRepo}` })).toBeTruthy();
-    expect(screen.queryByText(otherRepo)).toBeNull();
+    expect(screen.getByRole("button", { name: "Switch repository: Recent" })).toBeTruthy();
+    const current = await repositoryOption(recentRepo);
+    expect(current.getAttribute("aria-current")).toBe("true");
+    expect(within(current).getByText("Recent")).toBeTruthy();
+    const other = await repositoryOption(otherRepo);
+    expect(other.getAttribute("aria-current")).toBeNull();
+    // Rows lead with the display name; the full path is the secondary detail.
+    expect(within(other).getByText("Other")).toBeTruthy();
+    expect(within(other).getByText(otherRepo).classList.contains("quick-switcher-option-detail")).toBe(true);
     expect(githead.getRepoSummary).toHaveBeenCalledWith(recentRepo);
   });
 
@@ -857,22 +882,22 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    const disclosure = await screen.findByRole("button", { name: "Expand worktrees for Githead" });
-    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByText("feature/worktrees")).toBeNull();
-    await user.click(disclosure);
-    expect(await screen.findByText("feature/worktrees")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Collapse worktrees for Githead" }).getAttribute("aria-expanded")).toBe("true");
-    expect(screen.queryByRole("button", { name: "Add worktree" })).toBeNull();
+    // Worktrees nest under their repository row in the quick switcher.
+    const switcher = await openQuickSwitcher(user);
+    const linkedRow = await within(switcher).findByRole("option", { name: `Switch to worktree feature/worktrees at ${linked}` });
+    expect(linkedRow.getAttribute("data-depth")).toBe("1");
+    const mainRow = within(switcher).getByRole("option", { name: `Switch to worktree main at ${repoPath}` });
+    expect(mainRow.getAttribute("aria-current")).toBe("true");
+    await closeQuickSwitcher(user);
 
-    await user.click(screen.getByRole("button", { name: "Switch branch" }));
-    expect(await screen.findByRole("button", { name: "Add Worktree…" })).toBeTruthy();
-    await user.click(await screen.findByRole("option", { name: /feature\/worktrees/ }));
+    const branches = await openBranchSwitcher(user);
+    expect(within(branches).getByRole("option", { name: "Add worktree…" })).toBeTruthy();
+    await user.click(within(branches).getByRole("option", { name: /feature\/worktrees/ }));
     await waitFor(() => expect(githead.getRepoSummary).toHaveBeenCalledWith(linked));
     expect(githead.switchBranch).not.toHaveBeenCalled();
   });
 
-  it("opens a repository's last-used worktree without expanding its worktree list", async () => {
+  it("opens a repository's last-used worktree from its repository row", async () => {
     const user = userEvent.setup();
     const linked = "D:\\Githead-feature";
     vi.mocked(githead.getRepositoryGroups).mockResolvedValue([{
@@ -893,14 +918,10 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    const disclosure = await screen.findByRole("button", { name: "Expand worktrees for Githead" });
-    expect(screen.queryByText("feature/worktrees")).toBeNull();
-    await user.click(screen.getByRole("button", { name: `Switch to ${repoPath}` }));
+    await switchToRepository(repoPath, user);
 
     await waitFor(() => expect(githead.getRepoSummary).toHaveBeenCalledWith(linked));
     expect(githead.addRepoRecent).toHaveBeenCalledWith({ repoPath: linked, anchorPath: repoPath });
-    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByText("feature/worktrees")).toBeNull();
   });
 
   it("creates a new worktree with the guided sibling destination", async () => {
@@ -918,8 +939,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: "Switch branch" }));
-    await user.click(await screen.findByRole("button", { name: "Add Worktree…" }));
+    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: "Add worktree…" }));
     await user.type(screen.getByLabelText("Branch"), "feature/worktrees");
     await waitFor(() => expect((screen.getByLabelText("Destination") as HTMLInputElement).value).toBe("D:\\Githead-feature-worktrees"));
     await user.click(screen.getByRole("button", { name: "Create Worktree" }));
@@ -953,8 +973,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: "Switch branch" }));
-    await user.click(await screen.findByRole("button", { name: "Add Worktree…" }));
+    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: "Add worktree…" }));
     await user.type(screen.getByLabelText("Branch"), "feature/worktrees");
     await waitFor(() => expect((screen.getByLabelText("Destination") as HTMLInputElement).value).toBe("D:\\Githead-feature-worktrees"));
     await user.click(screen.getByRole("button", { name: "Create Worktree" }));
@@ -1000,8 +1019,7 @@ describe("App", { timeout: 10_000 }, () => {
     await openAddRepository(user);
     await user.click(await screen.findByRole("button", { name: "Open local folder…" }));
     await waitFor(() => expect(githead.chooseRepo).toHaveBeenCalledTimes(1));
-    await user.click(screen.getByRole("button", { name: "Switch branch" }));
-    await user.click(await screen.findByRole("button", { name: "Add Worktree…" }));
+    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: "Add worktree…" }));
     await user.type(screen.getByLabelText("Branch"), "feature/late");
     await user.clear(screen.getByLabelText("Destination"));
     await user.type(screen.getByLabelText("Destination"), destinationPath);
@@ -1045,8 +1063,9 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    const recentButton = await screen.findByRole("button", { name: `Switch to ${recentRepo}, 1 commit ahead, 4 commits behind` });
-    const otherButton = screen.getByRole("button", { name: `Switch to ${otherRepo}, 2 commits behind` });
+    const switcher = await openQuickSwitcher();
+    const recentButton = await within(switcher).findByRole("option", { name: `Switch to ${recentRepo}, 1 commit ahead, 4 commits behind` });
+    const otherButton = within(switcher).getByRole("option", { name: `Switch to ${otherRepo}, 2 commits behind` });
     expect(recentButton).toBeTruthy();
     expect(otherButton).toBeTruthy();
     expect(within(recentButton).getByText("1 ↑").classList.contains("is-ahead")).toBe(true);
@@ -1076,10 +1095,10 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    const repositories = within(screen.getByRole("region", { name: "Repositories" }));
-    expect(repositories.getByLabelText("Lore repository")).toBeTruthy();
-    expect(repositories.getByLabelText("Git repository")).toBeTruthy();
-    expect(repositories.queryByText("Lore")).toBeNull();
+    const switcher = await openQuickSwitcher();
+    expect(within(await repositoryOption(loreRepo)).getByLabelText("Lore repository")).toBeTruthy();
+    expect(within(await repositoryOption(gitRepo)).getByLabelText("Git repository")).toBeTruthy();
+    expect(within(switcher).queryByText("Lore")).toBeNull();
   });
 
   it("leaves recent repository names unchanged when sync counts are zero or unavailable", async () => {
@@ -1104,9 +1123,11 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    expect(within(screen.getByRole("region", { name: "Repositories" })).getByText("Recent")).toBeTruthy();
-    expect(screen.getByText("Other")).toBeTruthy();
-    expect(screen.queryByText(/\d+ ↑|\d+ ↓/)).toBeNull();
+    const switcher = await openQuickSwitcher();
+    expect(within(await repositoryOption(recentRepo)).getByText("Recent")).toBeTruthy();
+    // A repository that failed its sync check offers its repair row, still under its folder name.
+    expect(within(within(switcher).getByRole("option", { name: `Repair repository location for ${otherRepo}` })).getByText("Other")).toBeTruthy();
+    expect(within(switcher).queryByText(/\d+ ↑|\d+ ↓/)).toBeNull();
   });
 
   it("shows the setup screen on first run without probing the old hard-coded fallback", async () => {
@@ -1170,18 +1191,21 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: `Switch to ${missingRepo}` }));
+    await switchToRepository(missingRepo, user);
 
     expect(await screen.findByRole("heading", { name: "Repository Unavailable" })).toBeTruthy();
     expect(screen.queryByText("Open a local folder or clone a repository to this computer.")).toBeNull();
-    expect(screen.getByRole("region", { name: "Repositories" })).toBeTruthy();
+    // The header keeps only the repository switcher, so another repository stays one click away.
+    const header = screen.getByRole("navigation", { name: "Workspace navigation" });
+    expect(within(header).getByRole("button", { name: "Switch repository: MissingRepo" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Switch branch" })).toBeNull();
     expect(screen.getByRole("alert").textContent).toContain(reason);
 
     vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({ repoPath: requestedRepoPath }));
     await user.click(screen.getByRole("button", { name: "Try Again" }));
     await waitForRepositoryWorkspace();
-    expect(screen.queryByRole("heading", { name: "Repository Unavailable" })).toBeNull();
-    expect(screen.getByRole("button", { name: `Switch to ${missingRepo}` }).getAttribute("aria-current")).toBe("true");
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Repository Unavailable" })).toBeNull());
+    await expectCurrentRepository(missingRepo, user);
   });
 
   it("can select another repository after a recent repository fails to open", async () => {
@@ -1195,12 +1219,11 @@ describe("App", { timeout: 10_000 }, () => {
     }));
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: `Switch to ${missingRepo}` }));
+    await switchToRepository(missingRepo, user);
     await screen.findByRole("heading", { name: "Repository Unavailable" });
-    await user.click(screen.getByRole("button", { name: `Switch to ${repoPath}` }));
-    await waitForRepositoryWorkspace();
-    expect(screen.queryByRole("heading", { name: "Repository Unavailable" })).toBeNull();
-    expect(screen.getByRole("button", { name: `Switch to ${repoPath}` }).getAttribute("aria-current")).toBe("true");
+    await switchToRepository(repoPath, user);
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Repository Unavailable" })).toBeNull());
+    await expectCurrentRepository(repoPath, user);
   });
 
   it("can allow a Git ownership exception after opening a recent repository fails", async () => {
@@ -1211,7 +1234,7 @@ describe("App", { timeout: 10_000 }, () => {
       requestedRepoPath === blockedRepo ? createSafeDirectorySummary(blockedRepo) : createSummary());
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: `Switch to ${blockedRepo}` }));
+    await switchToRepository(blockedRepo, user);
     await screen.findByRole("heading", { name: "Repository Unavailable" });
     await user.click(screen.getByRole("button", { name: "Allow Git Exception" }));
     expect(await screen.findByRole("dialog")).toBeTruthy();
@@ -1301,7 +1324,7 @@ describe("App", { timeout: 10_000 }, () => {
       replacementRepoPath: replacementRepo
     }));
     await waitForRepositoryWorkspace();
-    expect(screen.getByRole("button", { name: `Switch to ${replacementRepo}` }).getAttribute("aria-current")).toBe("true");
+    await expectCurrentRepository(replacementRepo, user);
   });
 
   it("shows a safe.directory prompt for an initial recent repository blocked by dubious ownership", async () => {
@@ -1328,18 +1351,14 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
+    await switchToRepository(otherRepo, user);
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: `Switch to ${otherRepo}` }).getAttribute("aria-current")).toBe("true");
-    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Switch repository: Other" })).toBeTruthy());
     await waitFor(() => {
       expect(githead.addRepoRecent).toHaveBeenCalledWith({ repoPath: otherRepo });
     });
-    const repositories = within(screen.getByRole("region", { name: "Repositories" })).getAllByRole("button", {
-      name: /^Switch to /
-    });
-    expect(repositories.map((button) => button.getAttribute("aria-label"))).toEqual([
+    expect((await repositoryOption(otherRepo, user)).getAttribute("aria-current")).toBe("true");
+    expect(switcherRepositoryNames()).toEqual([
       `Switch to ${repoPath}`,
       `Switch to ${otherRepo}`
     ]);
@@ -1364,11 +1383,11 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(screen.getByRole("button", { name: "All branches" }));
     await screen.findByText(`all history for ${repoPath}`);
 
-    await user.click(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
+    await switchToRepository(otherRepo, user);
     await screen.findByText(`current history for ${otherRepo}`);
     expect(screen.getByRole("button", { name: "Current branch" }).getAttribute("aria-pressed")).toBe("true");
 
-    await user.click(screen.getByRole("button", { name: `Switch to ${repoPath}` }));
+    await switchToRepository(repoPath, user);
     await screen.findByText(`all history for ${repoPath}`);
     expect(screen.getByRole("button", { name: "All branches" }).getAttribute("aria-pressed")).toBe("true");
     await waitFor(() => expect(githead.getCommitHistory).toHaveBeenLastCalledWith(expect.objectContaining({
@@ -1394,8 +1413,8 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await screen.findByRole("option", { name: /src\/initial-a\.ts/ });
 
-    await user.click(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
-    await user.click(screen.getByRole("button", { name: `Switch to ${repoPath}` }));
+    await switchToRepository(otherRepo, user);
+    await switchToRepository(repoPath, user);
     expect(screen.getByRole("option", { name: /src\/initial-a\.ts/ })).toBeTruthy();
     pendingReturn.resolve(createSummary({
       files: [createStatusFile("src/final-a.ts", { isUnstaged: true, worktreeStatus: "M" })]
@@ -1408,7 +1427,7 @@ describe("App", { timeout: 10_000 }, () => {
     }));
     await flushRendererAsync();
 
-    expect(screen.getByRole("button", { name: `Switch to ${repoPath}` }).getAttribute("aria-current")).toBe("true");
+    expect(screen.getByRole("button", { name: "Switch repository: Githead" })).toBeTruthy();
     expect(screen.queryByRole("option", { name: /src\/stale-b\.ts/ })).toBeNull();
     expect(vi.mocked(githead.getRepoSummary).mock.calls.map(([path]) => path)).toEqual([
       repoPath,
@@ -1446,9 +1465,12 @@ describe("App", { timeout: 10_000 }, () => {
       githubRepository: { owner: "example", name: "repo", fullName: "example/repo", webUrl: "https://github.com/example/repo" },
       actionsConfig: createActionsConfig()
     });
+    const user = userEvent.setup();
     render(<App />);
-    expect(await screen.findByRole("tab", { name: /^Workflow runs/ })).toBeTruthy();
+    await waitForRepositoryWorkspace();
+    expect(await openWorkspaceView("Workflow runs", user)).toBeTruthy();
     pendingStatus.resolve({ repoPath, generation: 1, ahead: null, behind: null, files: [createStatusFile("src/later.ts", { isUnstaged: true, worktreeStatus: "M" })], operationState: null });
+    await user.click(screen.getByRole("tab", { name: /^Changes/ }));
     expect(await screen.findByRole("option", { name: /src\/later\.ts/ })).toBeTruthy();
     expect(screen.getByRole("tab", { name: /^Workflow runs/ })).toBeTruthy();
   });
@@ -1471,13 +1493,13 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await user.click(await screen.findByRole("option", { name: /src\/a\.ts/ }));
     expect(githead.getFileDiff).toHaveBeenCalledTimes(1);
-    await user.click(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
+    await switchToRepository(otherRepo, user);
     await screen.findByRole("option", { name: /src\/b\.ts/ });
 
     pendingDiff.resolve(createTextDiff("src/a.ts", "stale-a-diff"));
     await flushRendererAsync();
 
-    expect(screen.getByRole("button", { name: `Switch to ${otherRepo}` }).getAttribute("aria-current")).toBe("true");
+    expect(screen.getByRole("button", { name: "Switch repository: Other" })).toBeTruthy();
     expect(screen.queryByText(/stale-a-diff/)).toBeNull();
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(2);
     expect(githead.getFileDiff).toHaveBeenCalledTimes(1);
@@ -1507,12 +1529,12 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
+    await switchToRepository(otherRepo, user);
     await waitFor(() => expect(githead.getGitIdentity).toHaveBeenCalledWith(otherRepo));
     pendingIdentity.resolve(identity("Stale Repository A"));
     await flushRendererAsync();
 
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "Git identity" }));
     expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Global");
   });
@@ -1528,7 +1550,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await waitForRepositoryWorkspace();
     vi.mocked(githead.getRepoSummary).mockClear();
-    fireEvent.contextMenu(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
+    fireEvent.contextMenu(await repositoryOption(otherRepo, user));
     await user.click(await screen.findByRole("menuitem", { name: "Remove Repository" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Remove Repository?" });
@@ -1540,7 +1562,7 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => {
       expect(githead.removeRepoRecent).toHaveBeenCalledWith(otherRepo);
     });
-    expect(screen.getByRole("button", { name: `Switch to ${repoPath}` }).getAttribute("aria-current")).toBe("true");
+    await expectCurrentRepository(repoPath, user);
     expect(githead.getRepoSummary).not.toHaveBeenCalledWith(otherRepo);
   });
 
@@ -1560,12 +1582,8 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    const groupHeading = await waitFor(() => {
-      const heading = screen.getByRole("button", { name: `Switch to ${repoPath}` }).closest(".repo-group-heading");
-      if (!heading) throw new Error("Expected grouped repository heading.");
-      return heading;
-    });
-    fireEvent.contextMenu(groupHeading);
+    await waitFor(() => expect(githead.getRepositoryGroups).toHaveBeenCalled());
+    fireEvent.contextMenu(await repositoryOption(repoPath, user));
     await user.click(await screen.findByRole("menuitem", { name: "Remove Repository" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Remove Repository?" });
@@ -1574,7 +1592,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.removeRepoRecent).not.toHaveBeenCalled();
   });
 
-  it("reorders repositories with the keyboard handle", async () => {
+  it("reorders repositories from the switcher row menu", async () => {
     const user = userEvent.setup();
     const otherRepo = "D:\\Work\\Other";
     vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
@@ -1584,8 +1602,12 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: `Reorder ${otherRepo}` }));
-    await user.keyboard("{ArrowUp}");
+    fireEvent.contextMenu(await repositoryOption(repoPath, user));
+    expect((await screen.findByRole("menuitem", { name: "Move up" })).hasAttribute("data-disabled")).toBe(true);
+    await user.keyboard("{Escape}");
+    fireEvent.contextMenu(await repositoryOption(otherRepo, user));
+    expect((await screen.findByRole("menuitem", { name: "Move down" })).hasAttribute("data-disabled")).toBe(true);
+    await user.click(screen.getByRole("menuitem", { name: "Move up" }));
 
     await waitFor(() => {
       expect(githead.reorderRepoRecents).toHaveBeenCalledWith([
@@ -1593,51 +1615,11 @@ describe("App", { timeout: 10_000 }, () => {
         repoPath
       ]);
     });
-    const repositories = within(screen.getByRole("region", { name: "Repositories" })).getAllByRole("button", {
-      name: /^Switch to /
-    });
-    expect(repositories.map((button) => button.getAttribute("aria-label"))).toEqual([
+    // Moving keeps the switcher open on the new order.
+    await waitFor(() => expect(switcherRepositoryNames()).toEqual([
       `Switch to ${otherRepo}`,
       `Switch to ${repoPath}`
-    ]);
-    expect(githead.getRepoSummary).not.toHaveBeenCalledWith(otherRepo);
-  });
-
-  it("reorders repositories with drag and drop", async () => {
-    const otherRepo = "D:\\Work\\Other";
-    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
-    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
-    vi.mocked(githead.reorderRepoRecents).mockImplementation(async (repoPaths) => repositoryRecents(...repoPaths));
-
-    render(<App />);
-
-    await waitForRepositoryWorkspace();
-    const dragHandle = screen.getByRole("button", { name: `Reorder ${otherRepo}` });
-    const targetRow = screen.getByRole("button", { name: `Switch to ${repoPath}` }).closest(".repo-recent-row");
-    if (!targetRow) {
-      throw new Error("Expected repository row.");
-    }
-
-    vi.spyOn(targetRow, "getBoundingClientRect").mockReturnValue({
-      x: 0,
-      y: 0,
-      top: 0,
-      left: 0,
-      right: 260,
-      bottom: 40,
-      width: 260,
-      height: 40,
-      toJSON: () => ({})
-    });
-    fireEvent.mouseDown(dragHandle);
-    fireEvent.mouseUp(targetRow, { clientY: 1 });
-
-    await waitFor(() => {
-      expect(githead.reorderRepoRecents).toHaveBeenCalledWith([
-        otherRepo,
-        repoPath
-      ]);
-    });
+    ]));
     expect(githead.getRepoSummary).not.toHaveBeenCalledWith(otherRepo);
   });
 
@@ -1651,8 +1633,8 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: `Reorder ${otherRepo}` }));
-    await user.keyboard("{ArrowUp}");
+    fireEvent.contextMenu(await repositoryOption(otherRepo, user));
+    await user.click(await screen.findByRole("menuitem", { name: "Move up" }));
 
     await waitFor(() => {
       expect(githead.reorderRepoRecents).toHaveBeenCalledWith([
@@ -1660,15 +1642,10 @@ describe("App", { timeout: 10_000 }, () => {
         repoPath
       ]);
     });
-    await waitFor(() => {
-      const repositories = within(screen.getByRole("region", { name: "Repositories" })).getAllByRole("button", {
-        name: /^Switch to /
-      });
-      expect(repositories.map((button) => button.getAttribute("aria-label"))).toEqual([
-        `Switch to ${repoPath}`,
-        `Switch to ${otherRepo}`
-      ]);
-    });
+    await waitFor(() => expect(switcherRepositoryNames()).toEqual([
+      `Switch to ${repoPath}`,
+      `Switch to ${otherRepo}`
+    ]));
   });
 
   it("shows a recent repository in Explorer from the context menu", async () => {
@@ -1680,8 +1657,8 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    fireEvent.contextMenu(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
-    expect(await screen.findByText(otherRepo)).toBeTruthy();
+    fireEvent.contextMenu(await repositoryOption(otherRepo, user));
+    expect((await screen.findByRole("menu")).querySelector(".repo-recent-menu-path")?.textContent).toBe(otherRepo);
     await user.click(await screen.findByRole("menuitem", { name: "Show in Explorer" }));
 
     await waitFor(() => {
@@ -1699,7 +1676,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    fireEvent.contextMenu(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
+    fireEvent.contextMenu(await repositoryOption(otherRepo, user));
     await user.click(await screen.findByRole("menuitem", { name: "Repository Settings…" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Repository Settings" });
@@ -1724,7 +1701,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    fireEvent.contextMenu(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
+    fireEvent.contextMenu(await repositoryOption(otherRepo, user));
     await user.click(await screen.findByRole("menuitem", { name: "Repository Settings…" }));
     const dialog = await screen.findByRole("dialog", { name: "Repository Settings" });
 
@@ -1778,19 +1755,20 @@ describe("App", { timeout: 10_000 }, () => {
     await openAddRepository();
     fireEvent.click(screen.getByRole("button", { name: "Open local folder…" }));
     await flushRendererAsync();
-    expect(screen.queryByRole("button", { name: `Switch to ${addedRepo}` })).not.toBeNull();
+    expect(await repositoryOption(addedRepo)).toBeTruthy();
+    await closeQuickSwitcher();
 
     newerScan.resolve(groupsFor([...existingRepos, addedRepo]));
     await flushRendererAsync();
     if (outcome === "error") olderScan.reject(new Error("Group scan failed"));
     else olderScan.resolve(outcome === "empty" ? [] : groupsFor(existingRepos));
     await flushRendererAsync();
-    expect(screen.getByRole("button", { name: `Switch to ${addedRepo}` }).getAttribute("aria-current")).toBe("true");
-    expect(screen.getByRole("button", { name: "Expand worktrees for Added" })).toBeTruthy();
-    expect(within(screen.getByRole("region", { name: "Repositories" })).getAllByRole("button", { name: /^Switch to / })).toHaveLength(13);
+    expect(screen.getByRole("button", { name: "Switch repository: Added" })).toBeTruthy();
+    expect((await repositoryOption(addedRepo)).getAttribute("aria-current")).toBe("true");
+    expect(switcherRepositoryNames()).toHaveLength(13);
   });
 
-  it("adds a ninth browsed repository to the bottom and reveals its active row", async () => {
+  it("adds a ninth browsed repository to the bottom and marks it current", async () => {
     const user = userEvent.setup();
     const browsedRepo = "D:\\Work\\Browsed";
     const existingRepos = [
@@ -1810,26 +1788,18 @@ describe("App", { timeout: 10_000 }, () => {
 
     await waitForRepositoryWorkspace();
     vi.mocked(githead.addRepoRecent).mockClear();
-    scrollIntoView.mockClear();
     await openAddRepository(user);
     await user.click(screen.getByRole("button", { name: "Open local folder…" }));
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: `Switch to ${browsedRepo}` }).getAttribute("aria-current")).toBe("true");
-    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Switch repository: Browsed" })).toBeTruthy());
     await waitFor(() => {
       expect(githead.addRepoRecent).toHaveBeenCalledWith({ repoPath: browsedRepo });
     });
-    const repositories = within(screen.getByRole("region", { name: "Repositories" })).getAllByRole("button", {
-      name: /^Switch to /
-    });
-    expect(repositories.map((button) => button.getAttribute("aria-label"))).toEqual([
+    expect((await repositoryOption(browsedRepo, user)).getAttribute("aria-current")).toBe("true");
+    expect(switcherRepositoryNames()).toEqual([
       ...existingRepos.map((existingRepo) => `Switch to ${existingRepo}`),
       `Switch to ${browsedRepo}`
     ]);
-    expect(scrollIntoView).toHaveBeenCalledWith({
-      block: "nearest"
-    });
   });
 
   it("does not add an invalid browsed repository to repositories", async () => {

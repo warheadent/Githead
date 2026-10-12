@@ -1507,136 +1507,53 @@ textarea,
   overflow: hidden;
 }
 
+/* The workspace has no window title strip: its repository header is the title bar. */
+.app-shell[data-title-bar="false"] {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+/*
+ * The repository header, the operation banner slot and the view body. The header is 52px but
+ * wraps to two rows in narrow windows, so its row sizes to its content. This also overrides the
+ * Tabs root's flex column and gap.
+ */
 .app-workspace-shell {
   position: relative;
+  display: grid;
   height: 100%;
   min-height: 0;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 0;
   overflow: hidden;
 }
 
-.repository-panel-scrim,
-.repository-drawer-toggle {
+.operation-banner-slot {
+  display: grid;
+  min-width: 0;
+}
+
+.operation-banner-slot:empty {
   display: none;
 }
 
+.operation-banner-alert {
+  margin: 0;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--destructive);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.app-workspace-body {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 @media (max-width: 839px) {
-  .repository-drawer-toggle {
-    -webkit-app-region: no-drag;
-    display: grid;
-    width: 30px;
-    height: 30px;
-    flex: 0 0 auto;
-    place-items: center;
-    border: 0;
-    border-radius: 5px;
-    color: var(--muted-foreground);
-    background: transparent;
-  }
-
-  .repository-drawer-toggle:hover,
-  .repository-drawer-toggle:focus-visible {
-    color: var(--foreground);
-    background: var(--hover);
-  }
-
-  .repository-drawer-toggle svg {
-    width: 17px;
-    height: 17px;
-  }
-
-  .repository-panel-scrim {
-    position: absolute;
-    z-index: 39;
-    inset: 0;
-    display: block;
-    border: 0;
-    background: color-mix(in oklch, var(--background) 38%, transparent);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 140ms var(--ease-out);
-  }
-
-  .app-workspace > [data-panel][data-layout-panel="repository"] {
-    position: absolute !important;
-    z-index: 40;
-    inset: 0 auto 0 0;
-    width: min(360px, calc(100% - 44px)) !important;
-    min-width: 0 !important;
-    max-width: none !important;
-    flex: none !important;
-    transform: translateX(-100%);
-    visibility: hidden;
-    box-shadow: 14px 0 32px color-mix(in oklch, var(--background) 52%, transparent);
-    transition: transform 160ms var(--ease-out), visibility 0s linear 160ms;
-  }
-
-  .repository-panel-shell {
-    width: 100%;
-    height: 100%;
-    min-width: 0 !important;
-  }
-
-  .app-workspace-shell[data-repository-panel-open="true"] .repository-panel-scrim {
-    opacity: 1;
-    pointer-events: auto;
-  }
-
-  .app-workspace-shell[data-repository-panel-open="true"]
-    .app-workspace
-    > [data-panel][data-layout-panel="repository"] {
-    transform: translateX(0);
-    visibility: visible;
-    transition-delay: 0s;
-  }
-
-  .app-workspace-resize-handle {
-    display: none;
-  }
-
-  .app-workspace > [data-panel][data-layout-panel="workspace"] {
-    width: 100% !important;
-    min-width: 0 !important;
-    max-width: none !important;
-    flex: 1 1 100% !important;
-  }
-
-  .main-workspace-panel {
-    width: 100%;
-    height: 100%;
-    min-width: 0 !important;
-  }
-
-  .app-workspace-main {
-    overflow-y: auto !important;
-    overscroll-behavior: contain;
-  }
-
-  .action-bar {
-    flex: 0 0 auto;
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 8px;
-    padding: 10px 12px;
-  }
-
-  .action-bar-actions {
-    width: 100%;
-    flex-wrap: nowrap;
-    justify-content: flex-start;
-    padding-bottom: 3px;
-    overflow-x: auto;
-  }
-
-  .workspace-tabs {
-    min-height: 320px;
-    flex: 0 0 320px;
-  }
-
-  .workspace-tabs-bar {
-    padding-right: 12px;
-    padding-left: 12px;
-  }
-
   .commit-panel {
     flex: 0 0 auto;
     padding: 12px;
@@ -1664,13 +1581,6 @@ textarea,
 
   .status-workspace-resize-handle {
     flex: 0 0 1px;
-  }
-}
-
-@media (max-width: 839px) and (prefers-reduced-motion: reduce) {
-  .repository-panel-scrim,
-  .app-workspace > [data-panel][data-layout-panel="repository"] {
-    transition: none;
   }
 }
 
@@ -2368,46 +2278,6 @@ textarea,
 .setup-recents > .repo-recents-heading { display: none; }
 .setup-recents .repo-recents-list { max-height: 240px; overflow: auto; padding: 3px; }
 
-.repo-facts {
-  display: grid;
-  gap: 0;
-  margin: 0;
-  overflow: hidden;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-}
-
-.repo-facts div {
-  display: grid;
-  gap: 4px;
-  padding: var(--space-3) var(--space-2);
-}
-
-.repo-facts div + div {
-  border-top: 1px solid var(--border);
-}
-
-.repo-branch-fact dd,
-.repo-upstream-fact dd {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-}
-
-.repo-upstream-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.repo-remote-actions {
-  display: flex;
-  gap: 4px;
-}
-
 .commit-plan-view {
   display: flex;
   flex-direction: column;
@@ -2668,49 +2538,11 @@ textarea,
   font-size: 11px;
 }
 
-.repo-upstream-error {
-  grid-column: 1 / -1;
-  margin: 0;
-  color: var(--destructive);
-  font-size: 0.75rem;
-}
-
-.repo-branch-actions {
-  display: inline-flex;
-  gap: 6px;
-}
-
-.app-update-control {
-  display: grid;
-  gap: 6px;
-  padding: 10px;
-  border: 1px solid color-mix(in oklch, var(--primary) 35%, var(--border));
-  border-radius: 8px;
-  background: color-mix(in oklch, var(--primary) 9%, transparent);
-}
-
-.app-update-control.is-error {
-  border-color: color-mix(in oklch, var(--destructive) 45%, var(--border));
-  background: color-mix(in oklch, var(--destructive) 8%, transparent);
-}
-
-.app-update-control > button {
-  width: 100%;
-  justify-content: center;
-}
-
+/* The header's compact app update control. */
 .app-update-control.is-compact {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: none;
-}
-
-.app-update-control.is-compact > button {
-  width: auto;
 }
 
 .app-update-control.is-compact.is-error .app-update-compact-button {
@@ -2722,25 +2554,6 @@ textarea,
   padding-inline: 8px;
   color: var(--muted-foreground);
   font-size: 13px;
-}
-
-.app-update-version-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-}
-
-.app-update-version,
-.app-update-message {
-  margin: 0;
-  font-size: 0.75rem;
-  line-height: 1.35;
-}
-
-.app-update-version {
-  min-width: 0;
-  color: var(--muted-foreground);
 }
 
 .app-update-release-notes-trigger {
@@ -2865,11 +2678,6 @@ textarea,
 
 .app-update-release-notes-error {
   color: var(--destructive);
-}
-
-.app-update-message {
-  color: var(--destructive);
-  overflow-wrap: anywhere;
 }
 
 .reference-picker-trigger {
@@ -4362,10 +4170,6 @@ textarea,
   .loading-state { animation: none; }
 }
 
-.workspace-tab-trigger {
-  flex: 0 0 auto;
-}
-
 .workspace-tab-count {
   display: inline-flex;
   min-width: 1.3rem;
@@ -4379,16 +4183,6 @@ textarea,
   font-weight: 700;
   line-height: 1;
   padding: 0 0.35rem;
-}
-
-.workspace-tabs-bar {
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding-bottom: 5px;
-}
-
-.workspace-tab-trigger-end {
-  margin-left: auto;
 }
 
 .file-list,
@@ -8482,46 +8276,23 @@ textarea,
   transform: translateY(0);
 }
 
-.activity-log-tab {
-  position: relative;
-  transition: color 180ms var(--ease-out);
+/*
+ * Activity log attention while the log is not open: a dot in the ⋯ button, and in the guest
+ * segment when the log holds the guest slot. .header-attention-dot draws both dots.
+ */
+.header-more[data-attention="error"] .activity-log-attention-indicator,
+.view-switch-guest[data-attention="error"] .header-attention-dot {
+  background: var(--destructive);
 }
 
-.activity-log-tab[data-attention="error"] {
+.view-switch-guest[data-attention="error"] {
   color: var(--destructive);
 }
 
-.activity-log-tab > svg {
-  position: relative;
-  z-index: 1;
-}
-
 .activity-log-attention-indicator {
-  position: absolute;
-  z-index: 2;
-  right: 0.35rem;
-  top: 0.35rem;
-  width: 0.375rem;
-  height: 0.375rem;
-  border-radius: 999px;
-  background: var(--primary);
-  box-shadow: 0 0 0 2px var(--card);
-  opacity: 0;
-  pointer-events: none;
-  transform: scale(0.95);
   transition:
     opacity 180ms var(--ease-out),
     transform 180ms var(--ease-out);
-}
-
-.activity-log-tab[data-attention="unread"] .activity-log-attention-indicator,
-.activity-log-tab[data-attention="error"] .activity-log-attention-indicator {
-  opacity: 1;
-  transform: scale(1);
-}
-
-.activity-log-tab[data-attention="error"] .activity-log-attention-indicator {
-  background: var(--destructive);
 }
 
 .ansi-black-fg { color: var(--ansi-black); }
@@ -8987,22 +8758,6 @@ textarea,
 .markdown-media-canvas { min-height: 0; overflow: auto; padding: 16px; background: var(--muted); border-radius: 6px; }
 .markdown-media-canvas img { display: block; max-width: none; height: auto; margin: 0 auto; }
 
-.repository-sidebar > .repo-recents {
-  display: flex;
-  flex-direction: column;
-  min-height: 120px;
-  flex: 0 1 auto;
-  overflow: hidden;
-}
-.repository-sidebar > dl,
-.repository-sidebar > div:last-child { flex-shrink: 0; }
-.repository-sidebar .repo-recents-list {
-  min-height: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-  align-content: start;
-}
 .repository-search { position: relative; flex-shrink: 0; }
 .repository-search > svg {
   position: absolute;

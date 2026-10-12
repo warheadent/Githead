@@ -1,4 +1,4 @@
-import { repositoryName as getRepoDisplayName, organizeRepositories, repositoryLabels, repositoryPreference, useRepositoryOrganization } from "./repositoryOrganization";
+import { repositoryName as getRepoDisplayName, organizeRepositories, repositoryLabels, repositoryPreference, useRepositoryOrganization, type RepositoryOrganization } from "./repositoryOrganization";
 import { CheckoutTagDialog } from "./CheckoutTagDialog";
 import { RepositoryOmnibox } from "./RepositoryOmnibox";
 import { CloneOptions } from "./CloneOptions";
@@ -15,7 +15,6 @@ import {
   ChevronRight,
   CircleDot,
   Clipboard,
-  CloudDownload,
   Download,
   ExternalLink,
   Eye,
@@ -33,7 +32,6 @@ import {
   Loader2,
   MapPinned,
   MessageSquare,
-  Minus,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -43,7 +41,6 @@ import {
   SlidersHorizontal,
   Pin,
   EyeOff,
-  Settings,
   ShieldAlert,
   Sparkles,
   Tag,
@@ -106,9 +103,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -123,7 +117,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup
 } from "@/components/ui/resizable";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { motion } from "motion/react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
@@ -137,16 +131,10 @@ import {
 import { SettingsDialog as RedesignedSettingsDialog, type SettingsCategory, type SettingsDraft as SettingsDialogDraft } from "./SettingsDialog";
 import { publishTelemetryPreference } from "./telemetryPreference";
 import { RepositorySettingsDialog } from "./RepositorySettingsDialog";
-import { ReferencePicker, type ReferencePickerOption } from "./ReferencePicker";
+import { ReferencePicker } from "./ReferencePicker";
 import { GitIdentityFields } from "./GitIdentityFields";
 import { getAiProviderLabel, isApiKeyProvider, isCliProvider } from "../shared/aiProvider";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTarget,
-  TooltipTrigger
-} from "@/components/ui/tooltip";
+import { TooltipProvider, TooltipTarget } from "@/components/ui/tooltip";
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import { DEFAULT_PR_DESCRIPTION_PROMPT } from "../shared/prDescriptionPrompt";
 import { DEFAULT_SOURCE_CONTROL_WRITING_STYLE } from "../shared/sourceControlWritingStyle";
@@ -165,7 +153,6 @@ import type {
   CommitPlanValidationRequest,
   CommitPlanValidationResult,
   GenerateCommitPlanResult,
-  GitBranch,
   GitAction,
   GitAmendEntryPoint,
   GitAmendExecuteRequest,
@@ -196,7 +183,6 @@ import type {
   GitHubDeviceFlow,
   GitHubFailure,
   GitHubCommitAssociation,
-  GitHubPullRequestAssociation,
   GitHubRepository,
   GitHubPullRequest,
   GitHubPullRequestQuery,
@@ -243,7 +229,6 @@ import { AI_COMMIT_MESSAGE_PROVIDERS, DEFAULT_CODE_FONT, DEFAULT_COMMIT_PLAN_GRA
 import { isMarkdownPath, isSvgPath } from "../shared/filePreview";
 import { parseCommitSubject, type ParsedCommitSubject } from "../shared/commitSubject";
 import { parseGitHubReferences } from "../shared/githubReference";
-import { getRepositoryWebUrl } from "../shared/remoteWebUrl";
 import { ActivityLogPanel } from "./ActivityLogPanel";
 import { CommitPlanView } from "./CommitPlanView";
 import { canStageStatusFile } from "../shared/statusFiles";
@@ -283,22 +268,17 @@ import {
   WorkspacePanelStateStore,
   usePersistentWorkspacePanelState
 } from "./workspacePanelState";
-import { getAheadBehindCounts, getPrimaryCommitAction, getPullableCommitCount, getPushableCommitCount, hasStagedChanges, hasUnpushedCommits } from "./commitActions";
-import { buildConfiguredActionMenu, type ConfiguredActionMenuEntry, type ConfiguredActionRun } from "./configuredActionMenu";
-import { AppUpdateControl, confirmAppUpdateInstall } from "./AppUpdateControl";
+import { getAheadBehindCounts, getPrimaryCommitAction, getPushableCommitCount, hasStagedChanges, hasUnpushedCommits } from "./commitActions";
+import type { ConfiguredActionOutcome, ConfiguredActionRun } from "./configuredActionMenu";
+import { confirmAppUpdateInstall } from "./AppUpdateControl";
 import { QuickSwitcher } from "./QuickSwitcher";
+import { RepositoryHeader, type ConfiguredActionCancelTarget } from "./RepositoryHeader";
 import { buildQuickSwitcherSections, type QuickSwitcherItem, type QuickSwitcherMode } from "./quickSwitcherItems";
 import { useAppShortcuts } from "./useAppShortcuts";
 import {
-  buildBranchItems,
-  buildUpstreamItems,
-  getBranchDisplayValue,
-  getUpstreamDisabledReason,
-  resolveBranchChoice
-} from "./branchOptions";
-import {
   moveRepoPath,
   useRepositoryRowActions,
+  type RepositoryMenuTarget,
   type RenderRepositoryMenuItems,
   type RepositoryDropPosition,
   type RepositoryMoveDirection,
@@ -309,14 +289,12 @@ import { formatRepoSyncStatusDescription, RecentRepositoryVcsIcon, RepoSyncStatu
 import {
   formatActionCountLabel,
   formatCommitCountLabel,
-  formatPullRequestAssociationState,
   getPushRemotes,
   getRemoteDefaultBranch,
   getRepositoryActionKey,
   shouldPublishInsteadOfPush,
-  shouldShowCreatePullRequest
 } from "./remoteActions";
-import { isGitHubView, WORKSPACE_VIEW_ICONS, WORKSPACE_VIEW_LABELS } from "./workspaceViews";
+import { isGitHubView, isGuestView, type GuestView } from "./workspaceViews";
 import { buildCommitGraphLayout, COMMIT_GRAPH_COLOR_COUNT, COMMIT_GRAPH_ROW_HEIGHT, type CommitGraphLayout } from "./commitGraph";
 import { createLinePatch, isTechnicalFileHeader, type DiffRow, type DiffRowGroup } from "./diffParser";
 import { createDiffProcessingSession, type ProcessedDiff } from "./diffProcessingClient";
@@ -345,7 +323,6 @@ import { useImageFilePreview, useMarkdownFilePreview } from "./useFilePreview";
 import { useSelectionSafeValue } from "./useSelectionSafeValue";
 import { repositoryHistoryRoute, targetFromCommitFile, targetFromHistoryEntry, type HistoricalFileTarget, type HistoryRoute } from "./historyNavigation";
 import { useWorkspaceNavigation, type WorkspaceLocation, type WorkspaceView } from "./useWorkspaceNavigation";
-import { WorkspaceBreadcrumbs } from "./WorkspaceBreadcrumbs";
 
 const BasicMarkdown = lazy(() => import("./BasicMarkdown.js").then((module) => ({ default: module.BasicMarkdown })));
 const BlameView = lazy(() => import("./BlameView.js").then((module) => ({ default: module.BlameView })));
@@ -484,6 +461,8 @@ interface AppState {
   createPrDialog: CreatePrDialogState;
   runningAction: string | null;
   configuredActionRuns: ConfiguredActionRun[];
+  /** The last configured action run that settled in this repository, for the header's Actions button. */
+  configuredActionOutcome: ConfiguredActionOutcome | null;
   runningOperation: string | null;
   activeOperation: ActiveRendererOperation | null;
   lastResult: GitRunResult | null;
@@ -521,6 +500,8 @@ interface AppState {
   actionManager: RepositoryActionManagerState;
   remoteManager: RemoteManagerState;
   activeView: WorkspaceView;
+  /** The view in the single guest slot of the view switch. It stays while Changes or History is active. */
+  guestView: GuestView | null;
   historyScope: CommitHistoryScope;
   history: GitCommitGraphRow[];
   historyLoading: boolean;
@@ -904,6 +885,7 @@ const initialState: AppState = {
   createPrDialog: emptyCreatePrDialog,
   runningAction: null,
   configuredActionRuns: [],
+  configuredActionOutcome: null,
   runningOperation: null,
   activeOperation: null,
   lastResult: null,
@@ -941,6 +923,7 @@ const initialState: AppState = {
   actionManager: emptyActionManager,
   remoteManager: emptyRemoteManager,
   activeView: "status",
+  guestView: null,
   historyScope: "current",
   history: [],
   historyLoading: false,
@@ -992,7 +975,6 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
   const [performanceDiagnosticsOpen, setPerformanceDiagnosticsOpen] = useState(false);
   const [conflictResolverPath, setConflictResolverPath] = useState<string | null>(null);
   const [statusWorkspaceMode, setStatusWorkspaceMode] = useState<"files" | "plan">("files");
-  const [repositoryPanelOpen, setRepositoryPanelOpen] = useState(false);
   const [workingTreeChangeVersion, setWorkingTreeChangeVersion] = useState(0);
   const [stashComposer, setStashComposer] = useState<StashComposerState>(emptyStashComposer);
   const [repositorySettingsPath, setRepositorySettingsPath] = useState("");
@@ -1099,17 +1081,18 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
   const windowFocusedRef = useRef(true);
   const updateState = useCallback((updater: AppStateUpdater): void => {
     const base = stateRef.current;
-    const optimistic = typeof updater === "function" ? updater(base) : {
+    // Every write goes through the guest reconcile, so any path that activates a guest view also puts it in the slot.
+    const optimistic = reconcileGuestView(typeof updater === "function" ? updater(base) : {
       ...base,
       ...updater
-    };
+    });
     stateRef.current = optimistic;
     setState((current) => {
       const next = current === base
         ? optimistic
-        : typeof updater === "function"
+        : reconcileGuestView(typeof updater === "function"
           ? updater(current)
-          : { ...current, ...updater };
+          : { ...current, ...updater });
       stateRef.current = next;
       return next;
     });
@@ -2277,6 +2260,9 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       actionManager: changingRepositories ? emptyActionManager : base.actionManager,
       remoteManager: emptyRemoteManager,
       activeView: cached?.activeView ?? (isGitHubView(current.activeView) || current.activeView === "stashes" ? "status" : current.activeView),
+      // Another repository starts without a guest view; the reconcile restores one that stays active.
+      guestView: changingRepositories ? null : base.guestView,
+      configuredActionOutcome: changingRepositories ? null : base.configuredActionOutcome,
       selection: cached?.selection ?? null,
       diff: null,
       diffLoading: false,
@@ -3409,7 +3395,8 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       if (!invocationIsTracked()) return;
       updateState((latest) => isSameRepoPath(repoPath, latest.repoPath) ? {
         ...latest,
-        lastResult
+        lastResult,
+        configuredActionOutcome: createConfiguredActionOutcome(invocation, lastResult.exitCode)
       } : latest);
     } catch (error) {
       if (!invocationIsTracked()) return;
@@ -3425,7 +3412,11 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
         endedAt: new Date().toISOString()
       };
       activityLogStore.completeRun(lastResult);
-      updateState((latest) => isSameRepoPath(repoPath, latest.repoPath) ? { ...latest, lastResult } : latest);
+      updateState((latest) => isSameRepoPath(repoPath, latest.repoPath) ? {
+        ...latest,
+        lastResult,
+        configuredActionOutcome: createConfiguredActionOutcome(invocation, lastResult.exitCode)
+      } : latest);
     } finally {
       const completionIsTracked = invocationIsTracked();
       if (completionIsTracked) {
@@ -6197,6 +6188,13 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     if (view === "issues") void github.ensure("issues");
   }, [activityLogStore, github.ensure, loadCommitDetails, loadCommitHistory, loadFileBlame, loadFileHistory, refreshDirtyFileStatus, stashWorkspace.refresh, updateState]);
 
+  /** Empties the guest slot. A guest that is the active view hands over to Changes first. */
+  const closeGuestView = useCallback((): void => {
+    const current = stateRef.current;
+    if (current.guestView && current.activeView === current.guestView) setWorkspaceView("status");
+    updateState({ guestView: null });
+  }, [setWorkspaceView, updateState]);
+
   const openAnalyticsFileHistory = useCallback((path: string, headHash: string): void => {
     if (!stateRef.current.summary?.capabilities.fileHistory) return;
     void loadFileHistory({ hash: headHash, path, status: "M" });
@@ -6307,9 +6305,9 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       return;
     }
 
-    setWorkspaceView("status");
+    closeGuestView();
   }, [
-    setWorkspaceView,
+    closeGuestView,
     stashWorkspace.state.entries.length,
     stashWorkspace.state.loadedRepoPath,
     stashWorkspace.state.loading,
@@ -7269,14 +7267,14 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     : null;
   const showGitHubTabs = Boolean(state.summary?.githubRepository);
   const showAnalyticsTab = Boolean(state.summary?.isValid && state.summary.capabilities.analytics);
+  // The stashes panel stays mounted while it holds the guest slot, even when it is not the active view.
   const showStashesTab = Boolean(
-    state.summary?.capabilities.stashes && (stashWorkspace.state.entries.length > 0 || state.activeView === "stashes")
+    state.summary?.capabilities.stashes
+      && (stashWorkspace.state.entries.length > 0 || state.activeView === "stashes" || state.guestView === "stashes")
   );
   const pullRequestTabCount = github.counts.data ? formatCompactCount(github.counts.data.pullRequests) : null;
   const issueTabCount = github.counts.data ? formatCompactCount(github.counts.data.issues) : null;
   const activityLogAttentionState = state.activeView === "activity" ? "none" : activityLogAttention;
-  const hasUnreadActivityLog = activityLogAttentionState !== "none";
-  const hasUnviewedOperationError = activityLogAttentionState === "error";
 
   const [quickSwitcherMode, setQuickSwitcherMode] = useState<QuickSwitcherMode | null>(null);
   const [quickSwitcherQuery, setQuickSwitcherQuery] = useState("");
@@ -7556,6 +7554,121 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     onAddRepository: () => setClonePanelOpen(true)
   });
 
+  const changeWorkspaceTab = useCallback((value: string): void => {
+    setWorkspaceView(value as WorkspaceView);
+  }, [setWorkspaceView]);
+  const headerRepository = useMemo(
+    () => getHeaderRepository(state.repoPath, state.repoRecents, state.repositoryGroups, repositoryOrganization.organization),
+    [repositoryOrganization.organization, state.repoPath, state.repoRecents, state.repositoryGroups]
+  );
+  const renderHeaderRepositoryMenuItems = useCallback(
+    (): ReactNode => renderSwitcherRepositoryMenuItems(headerRepository.menuPath, headerRepository.menuTarget),
+    [headerRepository, renderSwitcherRepositoryMenuItems]
+  );
+  const headerGuestCount = state.guestView === "stashes"
+    ? stashWorkspace.state.entries.length
+    : state.guestView === "pullRequests"
+      ? pullRequestTabCount
+      : state.guestView === "issues" ? issueTabCount : null;
+  const repoSwitcherRef = useRef<HTMLButtonElement>(null);
+  const repositoryAdditionDisabled = running || repositoryOperationActive;
+  const cloneCancelStatus = cloneCancellation?.cancelStatus ?? "idle";
+  const cloneCancelError = cloneCancellation?.cancelError ?? "";
+  const cancelCloneOperation = useCallback((): void => {
+    const operation = stateRef.current.activeOperation;
+    if (operation?.kind !== "clone" && operation?.kind !== "clone-check") return;
+    void cancelRunningOperation({ kind: "active", token: operation.token, operationId: operation.operationId });
+  }, [cancelRunningOperation]);
+  const openLocalRepository = useCallback((path?: string): void => { void chooseRepo(path); }, [chooseRepo]);
+  const connectGitHubFromOmnibox = useCallback((): void => {
+    openSettingsDialog("integrations");
+    void connectGitHub();
+  }, [connectGitHub, openSettingsDialog]);
+  const changeCloneSource = useCallback((draft: CloneDraft): void => {
+    updateCloneDraft(draft);
+    resetCloneCheckState();
+  }, [resetCloneCheckState, updateCloneDraft]);
+  const chooseCloneParentFromOmnibox = useCallback((): void => { void chooseCloneParent(); }, [chooseCloneParent]);
+  const submitClone = useCallback((event: FormEvent<HTMLFormElement>, fork?: boolean): void => {
+    event.preventDefault();
+    void cloneRepository(fork);
+  }, [cloneRepository]);
+  // The add-repository popover opens below the repository switcher and returns focus to it. Its callbacks stay
+  // stable, because the composer starts its automatic access check when they change.
+  const wrapRepoSwitcher = useCallback((node: ReactNode): ReactNode => (
+    <RepositoryOmnibox
+      anchor={node}
+      returnFocusRef={repoSwitcherRef}
+      open={state.clonePanelOpen}
+      disabled={repositoryAdditionDisabled}
+      onOpenChange={setClonePanelOpen}
+      onOpenLocal={openLocalRepository}
+      onConnectGitHub={connectGitHubFromOmnibox}
+      onAbandonCheck={abandonCloneCheck}
+      cloneDraft={state.cloneDraft}
+      cloneError={state.cloneError}
+      cloneRunning={state.cloneRunning}
+      cloneCheckRunning={state.cloneCheckRunning}
+      cloneCheckStatus={state.cloneCheckStatus}
+      cloneCheckMessage={state.cloneCheckMessage}
+      cloneBranches={state.cloneBranches}
+      cancelStatus={cloneCancelStatus}
+      cancelError={cloneCancelError}
+      onCloneDraftChange={updateCloneDraft}
+      onCloneSourceChange={changeCloneSource}
+      onChooseCloneParent={chooseCloneParentFromOmnibox}
+      onCheckRepositoryAccess={checkRepositoryAccess}
+      onClone={submitClone}
+      onCancelOperation={cancelCloneOperation}
+    />
+  ), [
+    abandonCloneCheck,
+    cancelCloneOperation,
+    changeCloneSource,
+    checkRepositoryAccess,
+    chooseCloneParentFromOmnibox,
+    cloneCancelError,
+    cloneCancelStatus,
+    connectGitHubFromOmnibox,
+    openLocalRepository,
+    repositoryAdditionDisabled,
+    setClonePanelOpen,
+    state.cloneBranches,
+    state.cloneCheckMessage,
+    state.cloneCheckRunning,
+    state.cloneCheckStatus,
+    state.cloneDraft,
+    state.cloneError,
+    state.clonePanelOpen,
+    state.cloneRunning,
+    submitClone,
+    updateCloneDraft
+  ]);
+  const runHeaderAction = useCallback((action: GitAction): void => {
+    // Pull during a pull recovery reopens the recovery instead of pulling again.
+    if (action === "pull" && stateRef.current.pullRecovery) {
+      updateState({ pullRecoveryOpen: true, pullRecoveryError: "" });
+    } else {
+      void runAction(action, undefined, "action-bar");
+    }
+  }, [runAction, updateState]);
+  const runHeaderPullWithAction = useCallback((action: GitConfiguredAction): void => {
+    void runPullWithConfiguredAction(action);
+  }, [runPullWithConfiguredAction]);
+  const runHeaderConfiguredAction = useCallback((action: GitConfiguredAction): void => {
+    void runConfiguredAction(action);
+  }, [runConfiguredAction]);
+  // Without a target, cancellation picks the running operation the header shows Cancel for.
+  const cancelHeaderOperation = useCallback((): void => {
+    void cancelRunningOperation();
+  }, [cancelRunningOperation]);
+  const cancelHeaderConfiguredAction = useCallback((target: ConfiguredActionCancelTarget): void => {
+    void cancelRunningOperation(target);
+  }, [cancelRunningOperation]);
+  const checkForHeaderAppUpdates = useCallback((): void => { void checkForAppUpdates(); }, [checkForAppUpdates]);
+  const downloadHeaderAppUpdate = useCallback((): void => { void downloadAppUpdate(); }, [downloadAppUpdate]);
+  const installHeaderAppUpdate = useCallback((): void => { void installAppUpdate(); }, [installAppUpdate]);
+
   const visualPreferences = state.settingsOpen ? state.settingsDraft : state.appSettings ?? defaultVisualPreferences;
   if (state.startupStatus === "loading") {
     return (
@@ -7675,291 +7788,89 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     <AppChrome
       visualPreferences={visualPreferences}
       isMaximized={windowState.isMaximized}
+      titleBar={false}
       onMinimize={minimizeWindow}
       onToggleMaximize={toggleMaximizeWindow}
       onClose={closeWindow}
-      repositoryPanelOpen={repositoryPanelOpen}
-      onToggleRepositoryPanel={() => setRepositoryPanelOpen((open) => !open)}
     >
-      <div className="app-workspace-shell" data-repository-panel-open={repositoryPanelOpen ? "true" : "false"}>
-        <button
-          type="button"
-          className="repository-panel-scrim"
-          aria-label="Close repositories"
-          aria-hidden={!repositoryPanelOpen}
-          tabIndex={repositoryPanelOpen ? 0 : -1}
-          onClick={() => setRepositoryPanelOpen(false)}
+      {/* The header's view switch and the view panels share this Tabs root. */}
+      <Tabs value={state.activeView} onValueChange={changeWorkspaceTab} className="app-workspace-shell">
+        {/* The header sits outside the repository-keyed panel provider, so switching repositories never remounts it. */}
+        <RepositoryHeader
+          repoPath={state.repoPath}
+          displayName={headerRepository.displayName}
+          summary={state.summary}
+          isMaximized={windowState.isMaximized}
+          changesCount={pendingFileCount}
+          guestView={state.guestView}
+          guestCount={headerGuestCount}
+          activityAttention={activityLogAttentionState}
+          actionHeading={actionHeading}
+          runningAction={state.runningAction}
+          feedbackEvent={state.operationButtonFeedback?.repoPath === state.repoPath ? state.operationButtonFeedback : null}
+          configuredActionRuns={state.configuredActionRuns}
+          configuredActionOutcome={state.configuredActionOutcome}
+          disabled={disableUnrelatedMutations}
+          pullRecovery={state.pullRecovery}
+          cancellable={Boolean(cancellationTarget)}
+          cancelStatus={cancellationTarget?.cancelStatus ?? "idle"}
+          cancelLabel={state.runningOperation === "Generating commit message" ? "Stop" : "Cancel"}
+          cancelingLabel={state.runningOperation === "Generating commit message" ? "Stopping…" : "Cancelling"}
+          appUpdate={state.appUpdate}
+          repoSwitcherRef={repoSwitcherRef}
+          wrapRepoSwitcher={wrapRepoSwitcher}
+          renderRepositoryMenuItems={renderHeaderRepositoryMenuItems}
+          onOpenSwitcher={openQuickSwitcher}
+          onCloseGuest={closeGuestView}
+          onRunAction={runHeaderAction}
+          onPullWithAction={runHeaderPullWithAction}
+          onOpenPushToBranch={openPushToBranchDialog}
+          onRunConfiguredAction={runHeaderConfiguredAction}
+          onManageActions={openActionManager}
+          onCancel={cancelHeaderOperation}
+          onCancelOperation={cancelHeaderConfiguredAction}
+          onCheckForUpdates={checkForHeaderAppUpdates}
+          onDownloadUpdate={downloadHeaderAppUpdate}
+          onInstallUpdate={installHeaderAppUpdate}
+          onMinimize={minimizeWindow}
+          onToggleMaximize={toggleMaximizeWindow}
+          onCloseWindow={closeWindow}
         />
-        <ResizablePanelGroup orientation="horizontal" className="app-workspace h-full min-h-0">
-          <ResizablePanel
-            defaultSize="27%"
-            minSize="292px"
-            maxSize="460px"
-            className="repository-panel-shell min-w-[292px]"
-            data-layout-panel="repository"
-            id="repository-panel"
-          >
-            <RepositoryPanel
+        <div className="operation-banner-slot">
+          {state.summary?.isValid !== false && cancellationTarget?.cancelError ? (
+            <p className="operation-banner-alert selectable-text" role="alert">{cancellationTarget.cancelError}</p>
+          ) : null}
+          {state.summary?.isValid !== false && state.summary?.operationState ? (
+            <GitOperationRecoveryBanner
+              state={state.summary.operationState}
+              busy={running}
+              cancellable={Boolean(cancellationRequestTarget)}
+              error={state.repositoryOperationError}
+              onAction={(action) => { void resolveRepositoryOperation(action); }}
+              onOpenConflict={openRepositoryOperationConflict}
+              onOpenConflictFile={openRepositoryOperationConflictFile}
+              onCancel={cancelHeaderOperation}
+            />
+          ) : null}
+        </div>
+        <div className="app-workspace-body">
+          {state.summary?.isValid === false ? (
+            <RepositoryErrorView
+              key={state.repoPath}
               repoPath={state.repoPath}
-              repoRecents={state.repoRecents}
-              repositoryGroups={state.repositoryGroups}
-              repoSyncStatuses={state.repoSyncStatuses}
-              summary={state.summary}
-              upstreamError={state.upstreamError}
-              running={running || repositoryOperationActive}
-              appUpdate={state.appUpdate}
-              clonePanelOpen={state.clonePanelOpen}
-              cloneDraft={state.cloneDraft}
-              cloneError={state.cloneError}
-              cloneRunning={state.cloneRunning}
-              cloneCheckRunning={state.cloneCheckRunning}
-              cloneCheckStatus={state.cloneCheckStatus}
-              cloneCheckMessage={state.cloneCheckMessage}
-              cloneBranches={state.cloneBranches}
-              cancelStatus={cloneCancellation?.cancelStatus ?? "idle"}
-              cancelError={cloneCancellation?.cancelError ?? ""}
-              onClonePanelOpenChange={setClonePanelOpen}
-              onChooseRepo={(path) => {
-                setRepositoryPanelOpen(false);
-                void chooseRepo(path);
-              }}
-              onSelectRecent={(repoPath) => {
-                setRepositoryPanelOpen(false);
-                void selectRecentRepo(repoPath);
-              }}
-              onRemoveRecent={(repoPath) => {
-                void removeRecentRepo(repoPath);
-              }}
-              onRecoverRecent={recoverRecentRepo}
-              onReorderRepositories={(repoPaths) => {
-                void reorderRepositories(repoPaths);
-              }}
-              onShowInExplorer={(repoPath) => {
-                void showRecentRepositoryInExplorer(repoPath);
-              }}
-              onOpenRepositorySettings={(repoPath) => {
-                setRepositoryPanelOpen(false);
-                setRepositorySettingsPath(repoPath);
-              }}
-              onAddWorktree={openWorktreeDialog}
-              onRemoveWorktree={(worktree) => { void openWorktreeRemoval(worktree); }}
-              onSwitchBranch={(branchName) => {
-                void switchBranch(branchName);
-              }}
-              onCheckoutTag={() => { void openTagCheckout(); }}
-              onCheckoutRemoteBranch={checkoutRemoteBranch}
-              onOpenBranchDialog={openBranchDialog}
-              onOpenBranchManager={openBranchManager}
-              onOpenMerge={() => setIntegrationDialog({ kind: "merge" })}
-              onOpenRebase={() => setIntegrationDialog({ kind: "rebase" })}
-              onChangeUpstream={(upstream) => {
-                void setBranchUpstream(upstream);
-              }}
-              onOpenRemoteManager={openRemoteManager}
-              onOpenExternalUrl={openExternalUrl}
-              onOpenSettings={() => {
-                setRepositoryPanelOpen(false);
-                openSettingsDialog();
-              }}
-              onConnectGitHub={() => {
-                openSettingsDialog("integrations");
-                void connectGitHub();
-              }}
-              onAbandonCheck={abandonCloneCheck}
-              onCloneDraftChange={updateCloneDraft}
-              onCloneSourceChange={(draft) => {
-                updateCloneDraft(draft);
-                resetCloneCheckState();
-              }}
-              onChooseCloneParent={() => {
-                void chooseCloneParent();
-              }}
-              onCheckRepositoryAccess={checkRepositoryAccess}
-              onClone={(event, fork) => {
-                event.preventDefault();
-                void cloneRepository(fork);
-              }}
-              onCancelOperation={() => {
-                if (cloneCancellationRequestTarget) void cancelRunningOperation(cloneCancellationRequestTarget);
-              }}
-              onCheckForUpdates={() => {
-                void checkForAppUpdates();
-              }}
-              onDownloadUpdate={() => {
-                void downloadAppUpdate();
-              }}
-              onInstallUpdate={() => {
-                void installAppUpdate();
-              }}
+              error={state.setupError || state.summary.validationErrors.join(" ")}
+              safeDirectory={state.summary.safeDirectory}
+              busy={running || state.repoLoading}
+              onRetry={() => { void refreshRepo({ reason: "user", addToRecents: true }); }}
+              onRecover={() => recoverRecentRepo(state.repoPath)}
+              onAllowGitException={openSafeDirectoryDialog}
             />
-          </ResizablePanel>
-          <ResizableHandle className="app-workspace-resize-handle" />
-          <ResizablePanel minSize="520px" className="main-workspace-panel" data-layout-panel="workspace">
-            <section className="app-workspace-main flex h-full min-w-0 flex-col overflow-hidden">
-              <WorkspaceBreadcrumbs
-                location={workspaceLocation}
-                repositoryName={getRepoDisplayName(state.repoPath)}
-                canGoBack={navigation.canGoBack}
-                canGoForward={navigation.canGoForward}
-                onBack={navigation.back}
-                onForward={navigation.forward}
-                onNavigate={restoreWorkspaceLocation}
-              />
-              {state.summary?.isValid === false ? (
-                <RepositoryErrorView
-                  key={state.repoPath}
-                  repoPath={state.repoPath}
-                  error={state.setupError || state.summary.validationErrors.join(" ")}
-                  safeDirectory={state.summary.safeDirectory}
-                  busy={running || state.repoLoading}
-                  onRetry={() => { void refreshRepo({ reason: "user", addToRecents: true }); }}
-                  onRecover={() => recoverRecentRepo(state.repoPath)}
-                  onAllowGitException={openSafeDirectoryDialog}
-                />
-              ) : <>
-              <ActionBar
-              heading={actionHeading}
-              summary={state.summary}
-              runningAction={state.runningAction}
-              feedbackEvent={state.operationButtonFeedback?.repoPath === state.repoPath ? state.operationButtonFeedback : null}
-              configuredActionRuns={state.configuredActionRuns}
-              disabled={disableUnrelatedMutations}
-              cancellable={Boolean(cancellationTarget)}
-              cancelStatus={cancellationTarget?.cancelStatus ?? "idle"}
-              cancelError={cancellationTarget?.cancelError ?? ""}
-              cancelLabel={state.runningOperation === "Generating commit message" ? "Stop" : "Cancel"}
-              cancelingLabel={state.runningOperation === "Generating commit message" ? "Stopping…" : "Cancelling"}
-              showCreatePullRequest={shouldShowCreatePullRequest(state.summary, historyInsights.data.currentBranchPullRequests, historyInsights.loaded)}
-              branchPullRequests={historyInsights.data.currentBranchPullRequests}
-              pullRecovery={state.pullRecovery}
-              onOpenExternalUrl={openExternalUrl}
-              onRunAction={(action) => {
-                if (action === "pull" && stateRef.current.pullRecovery) {
-                  updateState({ pullRecoveryOpen: true, pullRecoveryError: "" });
-                } else {
-                  void runAction(action, undefined, "action-bar");
-                }
-              }}
-              onOpenPushToBranch={openPushToBranchDialog}
-              onRunConfiguredAction={(action) => {
-                void runConfiguredAction(action);
-              }}
-              onPullWithAction={(action) => {
-                void runPullWithConfiguredAction(action);
-              }}
-              onManageActions={openActionManager}
-              onCreatePullRequest={openCreatePrDialog}
-              onCancel={() => {
-                if (cancellationRequestTarget) void cancelRunningOperation(cancellationRequestTarget);
-              }}
-            />
-
-            {state.summary?.operationState ? (
-              <GitOperationRecoveryBanner
-                state={state.summary.operationState}
-                busy={running}
-                cancellable={Boolean(cancellationRequestTarget)}
-                error={state.repositoryOperationError}
-                onAction={(action) => { void resolveRepositoryOperation(action); }}
-                onOpenConflict={openRepositoryOperationConflict}
-                onOpenConflictFile={openRepositoryOperationConflictFile}
-                onCancel={() => {
-                  if (cancellationRequestTarget) void cancelRunningOperation(cancellationRequestTarget);
-                }}
-              />
-            ) : null}
-
+          ) : (
             <WorkspacePanelStateProvider
               key={getRepoPathKey(state.repoPath) || "setup"}
               store={workspacePanelStateStore}
               namespace={getRepoPathKey(state.repoPath) || "setup"}
             >
-              <Tabs
-                value={state.activeView}
-                onValueChange={(value) => {
-                  setWorkspaceView(value as WorkspaceView);
-                }}
-                className="workspace-tabs flex min-h-0 flex-1 flex-col"
-              >
-              <div className="workspace-tabs-bar border-b bg-card px-4 pt-2">
-                <TabsList variant="line" className="h-9 w-max min-w-full bg-transparent p-0">
-                  <TabsTrigger
-                    value="status"
-                    aria-label={pendingFileCount ? `${WORKSPACE_VIEW_LABELS.status} ${pendingFileCount}` : WORKSPACE_VIEW_LABELS.status}
-                    className="workspace-tab-trigger h-9 rounded-none"
-                  >
-                    <WORKSPACE_VIEW_ICONS.status />
-                    {WORKSPACE_VIEW_LABELS.status}
-                    {pendingFileCount ? <span className="workspace-tab-count">{pendingFileCount}</span> : null}
-                  </TabsTrigger>
-                  {showStashesTab ? (
-                    <TabsTrigger
-                      value="stashes"
-                      aria-label={stashWorkspace.state.entries.length ? `${WORKSPACE_VIEW_LABELS.stashes} ${stashWorkspace.state.entries.length}` : WORKSPACE_VIEW_LABELS.stashes}
-                      className="workspace-tab-trigger h-9 rounded-none"
-                    >
-                      <WORKSPACE_VIEW_ICONS.stashes />
-                      {WORKSPACE_VIEW_LABELS.stashes}
-                      {stashWorkspace.state.entries.length ? <span className="workspace-tab-count">{stashWorkspace.state.entries.length}</span> : null}
-                    </TabsTrigger>
-                  ) : null}
-                  <TabsTrigger value="history" className="workspace-tab-trigger h-9 rounded-none">
-                    <WORKSPACE_VIEW_ICONS.history />
-                    {WORKSPACE_VIEW_LABELS.history}
-                  </TabsTrigger>
-                  {showAnalyticsTab ? (
-                    <TabsTrigger value="analytics" className="workspace-tab-trigger h-9 rounded-none">
-                      <WORKSPACE_VIEW_ICONS.analytics />
-                      {WORKSPACE_VIEW_LABELS.analytics}
-                    </TabsTrigger>
-                  ) : null}
-                  {showGitHubTabs ? (
-                    <>
-                      <TabsTrigger value="workflows" className="workspace-tab-trigger h-9 rounded-none">
-                        <WORKSPACE_VIEW_ICONS.workflows />
-                        {WORKSPACE_VIEW_LABELS.workflows}
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="pullRequests"
-                        aria-label={pullRequestTabCount ? `${WORKSPACE_VIEW_LABELS.pullRequests} ${pullRequestTabCount}` : WORKSPACE_VIEW_LABELS.pullRequests}
-                        className="workspace-tab-trigger h-9 rounded-none"
-                      >
-                        <WORKSPACE_VIEW_ICONS.pullRequests />
-                        {WORKSPACE_VIEW_LABELS.pullRequests}
-                        {pullRequestTabCount ? <span className="workspace-tab-count">{pullRequestTabCount}</span> : null}
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="issues"
-                        aria-label={issueTabCount ? `${WORKSPACE_VIEW_LABELS.issues} ${issueTabCount}` : WORKSPACE_VIEW_LABELS.issues}
-                        className="workspace-tab-trigger h-9 rounded-none"
-                      >
-                        <WORKSPACE_VIEW_ICONS.issues />
-                        {WORKSPACE_VIEW_LABELS.issues}
-                        {issueTabCount ? <span className="workspace-tab-count">{issueTabCount}</span> : null}
-                      </TabsTrigger>
-                    </>
-                  ) : null}
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <TabsTrigger
-                        value="activity"
-                        aria-label={hasUnviewedOperationError
-                          ? `${WORKSPACE_VIEW_LABELS.activity}, unread error details available`
-                          : hasUnreadActivityLog ? `${WORKSPACE_VIEW_LABELS.activity}, unread output available` : WORKSPACE_VIEW_LABELS.activity}
-                        className="workspace-tab-trigger workspace-tab-trigger-end activity-log-tab h-9 rounded-none"
-                        data-attention={hasUnviewedOperationError ? "error" : hasUnreadActivityLog ? "unread" : "none"}
-                      >
-                        <WORKSPACE_VIEW_ICONS.activity />
-                        <span className="activity-log-attention-indicator" aria-hidden="true" />
-                      </TabsTrigger>
-                    </TooltipTrigger>
-                    <TooltipContent>{hasUnviewedOperationError
-                      ? "View unread error details in the activity log"
-                      : hasUnreadActivityLog ? "View unread activity log output" : WORKSPACE_VIEW_LABELS.activity}</TooltipContent>
-                  </Tooltip>
-                </TabsList>
-              </div>
-
               <PersistentWorkspaceTabsContent panelKey="status" active={state.activeView === "status"} value="status" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
                 <StatusView
                   stagedFiles={stagedFiles}
@@ -8292,7 +8203,6 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                   onCopyRawLog={copyActivityLogRawText}
                 />
               </PersistentWorkspaceTabsContent>
-              </Tabs>
 
             {state.activeView === "status" && statusWorkspaceMode === "files" && !repositoryOperationActive ? (
               <CommitPanel
@@ -8365,11 +8275,9 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
               />
             ) : null}
             </WorkspacePanelStateProvider>
-            </>}
-            </section>
-          </ResizablePanel>
-        </ResizablePanelGroup>
-      </div>
+          )}
+        </div>
+      </Tabs>
 
       {quickSwitcherMode && quickSwitcherSections ? (
         <QuickSwitcher
@@ -8908,58 +8816,47 @@ interface AppChromeProps {
   visualPreferences: Pick<AppSettings, "visualEffects" | "reduceMotion">;
   children: ReactNode;
   isMaximized: boolean;
-  repositoryPanelOpen?: boolean;
+  /** The window title strip. The workspace turns it off because its repository header is the title bar. */
+  titleBar?: boolean;
   onMinimize(): void;
   onToggleMaximize(): void;
   onClose(): void;
-  onToggleRepositoryPanel?(): void;
 }
 
 function AppChrome({
   visualPreferences,
   children,
   isMaximized,
-  repositoryPanelOpen = false,
+  titleBar = true,
   onMinimize,
   onToggleMaximize,
-  onClose,
-  onToggleRepositoryPanel
+  onClose
 }: AppChromeProps): ReactNode {
   return (
     <VisualEffectsProvider effects={visualPreferences.visualEffects} motionPreference={visualPreferences.reduceMotion}>
       <TooltipProvider>
-        <main className="app-shell bg-background text-foreground">
-          <header className="window-chrome" data-maximized={isMaximized ? "true" : "false"}>
-            <div className="window-title">
-              <svg className="window-title-mark" width="20" height="20" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-                <rect className="window-title-mark-background" x="1" y="1" width="62" height="62" rx="16" strokeWidth="1.5" />
-                <g transform="translate(13 13) scale(1.583333)" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M15 6a9 9 0 0 0-9 9V3" />
-                  <circle cx="18" cy="6" r="3" />
-                  <circle cx="6" cy="18" r="3" />
-                </g>
-              </svg>
-              <span>Githead</span>
-              {onToggleRepositoryPanel ? (
-                <button
-                  type="button"
-                  className="repository-drawer-toggle"
-                  aria-label={repositoryPanelOpen ? "Hide repositories" : "Show repositories"}
-                  aria-expanded={repositoryPanelOpen}
-                  aria-controls="repository-panel"
-                  onClick={onToggleRepositoryPanel}
-                >
-                  {repositoryPanelOpen ? <X /> : <List />}
-                </button>
-              ) : null}
-            </div>
-            <WindowControls
-              isMaximized={isMaximized}
-              onMinimize={onMinimize}
-              onToggleMaximize={onToggleMaximize}
-              onClose={onClose}
-            />
-          </header>
+        <main className="app-shell bg-background text-foreground" data-title-bar={titleBar ? "true" : "false"}>
+          {titleBar ? (
+            <header className="window-chrome" data-maximized={isMaximized ? "true" : "false"}>
+              <div className="window-title">
+                <svg className="window-title-mark" width="20" height="20" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+                  <rect className="window-title-mark-background" x="1" y="1" width="62" height="62" rx="16" strokeWidth="1.5" />
+                  <g transform="translate(13 13) scale(1.583333)" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M15 6a9 9 0 0 0-9 9V3" />
+                    <circle cx="18" cy="6" r="3" />
+                    <circle cx="6" cy="18" r="3" />
+                  </g>
+                </svg>
+                <span>Githead</span>
+              </div>
+              <WindowControls
+                isMaximized={isMaximized}
+                onMinimize={onMinimize}
+                onToggleMaximize={onToggleMaximize}
+                onClose={onClose}
+              />
+            </header>
+          ) : null}
           <section className="app-content">
             {children}
           </section>
@@ -9903,369 +9800,6 @@ function CloneRepositoryForm({
   );
 }
 
-function RepositoryPanel({
-  repoPath,
-  repoRecents,
-  repositoryGroups,
-  repoSyncStatuses,
-  summary,
-  upstreamError,
-  running,
-  appUpdate,
-  clonePanelOpen,
-  cloneDraft,
-  cloneError,
-  cloneRunning,
-  cloneCheckRunning,
-  cloneCheckStatus,
-  cloneCheckMessage,
-  cloneBranches,
-  cancelStatus,
-  cancelError,
-  onClonePanelOpenChange,
-  onChooseRepo,
-  onConnectGitHub,
-  onAbandonCheck,
-  onSelectRecent,
-  onRemoveRecent,
-  onRecoverRecent,
-  onReorderRepositories,
-  onShowInExplorer,
-  onOpenRepositorySettings,
-  onAddWorktree,
-  onRemoveWorktree,
-  onSwitchBranch,
-  onCheckoutRemoteBranch,
-  onCheckoutTag,
-  onOpenBranchDialog,
-  onOpenBranchManager,
-  onOpenMerge,
-  onOpenRebase,
-  onChangeUpstream,
-  onOpenRemoteManager,
-  onOpenExternalUrl,
-  onOpenSettings,
-  onCloneDraftChange,
-  onCloneSourceChange,
-  onChooseCloneParent,
-  onCheckRepositoryAccess,
-  onClone,
-  onCancelOperation,
-  onCheckForUpdates,
-  onDownloadUpdate,
-  onInstallUpdate
-}: {
-  repoPath: string;
-  repoRecents: string[];
-  repositoryGroups: RepositoryGroup[];
-  repoSyncStatuses: Record<string, RepoSyncStatus>;
-  summary: RepoSummary | null;
-  upstreamError: string;
-  running: boolean;
-  appUpdate: AppUpdateState;
-  clonePanelOpen: boolean;
-  cloneDraft: CloneDraft;
-  cloneError: string;
-  cloneRunning: boolean;
-  cloneCheckRunning: boolean;
-  cloneCheckStatus: "idle" | "success" | "error";
-  cloneCheckMessage: string;
-  cloneBranches: string[];
-  cancelStatus: OperationCancelStatus;
-  cancelError: string;
-  onClonePanelOpenChange: (open: boolean) => void;
-  onChooseRepo: (path?: string) => void;
-  onConnectGitHub: () => void;
-  onAbandonCheck: () => void;
-  onSelectRecent: (repoPath: string) => void;
-  onRemoveRecent: (repoPath: string) => void;
-  onRecoverRecent: (repoPath: string) => Promise<RepositoryRecoveryResult>;
-  onReorderRepositories: (repoPaths: string[]) => void;
-  onShowInExplorer: (repoPath: string) => void;
-  onOpenRepositorySettings: (repoPath: string) => void;
-  onAddWorktree: () => void;
-  onRemoveWorktree: (worktree: GitWorktree) => void;
-  onSwitchBranch: (branchName: string) => void;
-  onCheckoutRemoteBranch: (remoteBranch: GitRemoteBranch) => void;
-  onCheckoutTag: () => void;
-  onOpenBranchDialog: () => void;
-  onOpenBranchManager: () => void;
-  onOpenMerge: () => void;
-  onOpenRebase: () => void;
-  onChangeUpstream: (upstream: string | null) => void;
-  onOpenRemoteManager: () => void;
-  onOpenExternalUrl: (url: string) => void;
-  onOpenSettings: () => void;
-  onCloneDraftChange: (draft: CloneDraft) => void;
-  onCloneSourceChange: (draft: CloneDraft) => void;
-  onChooseCloneParent: () => void;
-  onCheckRepositoryAccess: () => void;
-  onClone: (event: FormEvent<HTMLFormElement>, fork?: boolean) => void;
-  onCancelOperation: () => void;
-  onCheckForUpdates: () => void;
-  onDownloadUpdate: () => void;
-  onInstallUpdate: () => void;
-}): ReactNode {
-  const remotes = summary?.remotes.length
-    ? [...new Set(summary.remotes.map((remote) => remote.name))].join(", ")
-    : "-";
-  const repositoryUrl = getRepositoryWebUrl(summary?.remotes ?? []);
-
-  return (
-    <aside className="repository-sidebar flex h-full min-h-0 flex-col gap-4 overflow-hidden border-r bg-sidebar p-4 text-sidebar-foreground">
-      <RepositoryList
-        repoPath={repoPath}
-        repoPaths={repoRecents}
-        groups={repositoryGroups}
-        syncStatuses={repoSyncStatuses}
-        disabled={running}
-        onSelect={onSelectRecent}
-        onRemove={onRemoveRecent}
-        onRecover={onRecoverRecent}
-        onReorder={onReorderRepositories}
-        onShowInExplorer={onShowInExplorer}
-        onOpenRepositorySettings={onOpenRepositorySettings}
-        onRemoveWorktree={onRemoveWorktree}
-        headingAction={(
-          <RepositoryOmnibox
-            open={clonePanelOpen}
-            disabled={running}
-            onOpenChange={onClonePanelOpenChange}
-            onOpenLocal={onChooseRepo}
-            onConnectGitHub={onConnectGitHub}
-            onAbandonCheck={onAbandonCheck}
-            trigger={<TooltipButton type="button" variant="outline" size="icon-sm" aria-label="Add repository" tooltip="Add repository"><Plus /></TooltipButton>}
-            cloneDraft={cloneDraft}
-            cloneError={cloneError}
-            cloneRunning={cloneRunning}
-            cloneCheckRunning={cloneCheckRunning}
-            cloneCheckStatus={cloneCheckStatus}
-            cloneCheckMessage={cloneCheckMessage}
-            cloneBranches={cloneBranches}
-            cancelStatus={cancelStatus}
-            cancelError={cancelError}
-            onCloneDraftChange={onCloneDraftChange}
-            onCloneSourceChange={onCloneSourceChange}
-            onChooseCloneParent={onChooseCloneParent}
-            onCheckRepositoryAccess={onCheckRepositoryAccess}
-            onClone={onClone}
-            onCancelOperation={onCancelOperation}
-          />
-        )}
-      />
-
-      <dl className="repo-facts">
-        <BranchFact
-          repoPath={repoPath}
-          currentBranch={summary?.branch ?? null}
-          branches={summary?.branches ?? []}
-          remoteBranches={summary?.remoteBranches ?? []}
-          integrationEnabled={summary?.kind === "git"}
-          disabled={running || !summary?.isValid}
-          onSwitchBranch={onSwitchBranch}
-          onOpenWorktree={onSelectRecent}
-          onCheckoutRemoteBranch={onCheckoutRemoteBranch}
-          onCheckoutTag={onCheckoutTag}
-          currentTag={summary?.currentTag ?? null}
-          onCreateBranch={onOpenBranchDialog}
-          onCreateWorktree={onAddWorktree}
-          onManageBranches={onOpenBranchManager}
-          onMerge={onOpenMerge}
-          onRebase={onOpenRebase}
-        />
-        {(summary?.capabilities.setUpstream ?? true) ? (
-          <UpstreamFact
-            upstream={summary?.upstream ?? null}
-            error={upstreamError}
-            currentBranch={summary?.branch ?? null}
-            remoteBranches={summary?.remoteBranches ?? []}
-            running={running}
-            operationState={summary?.operationState ?? null}
-            isValid={Boolean(summary?.isValid)}
-            onChangeUpstream={onChangeUpstream}
-          />
-        ) : null}
-        {(summary?.capabilities.manageRemotes ?? false) ? (
-          <RemoteFact
-            remotes={remotes}
-            repositoryUrl={repositoryUrl}
-            disabled={!summary?.isValid}
-            onOpen={onOpenExternalUrl}
-            onManage={onOpenRemoteManager}
-          />
-        ) : (
-          <Fact label={(summary?.capabilities.multipleRemotes ?? true) ? "Remotes" : "Remote"} value={remotes} />
-        )}
-      </dl>
-
-      <div className="mt-auto grid gap-2">
-        <AppUpdateControl
-          state={appUpdate}
-          onCheck={onCheckForUpdates}
-          onDownload={onDownloadUpdate}
-          onInstall={onInstallUpdate}
-        />
-        <Button type="button" variant="secondary" onClick={onOpenSettings}>
-          <Settings />
-          Settings
-        </Button>
-      </div>
-    </aside>
-  );
-}
-
-function BranchFact({
-  repoPath,
-  currentBranch,
-  currentTag,
-  branches,
-  remoteBranches,
-  integrationEnabled,
-  disabled,
-  onSwitchBranch,
-  onOpenWorktree,
-  onCheckoutRemoteBranch,
-  onCheckoutTag,
-  onCreateBranch,
-  onCreateWorktree,
-  onManageBranches,
-  onMerge,
-  onRebase
-}: {
-  repoPath: string;
-  currentBranch: string | null;
-  currentTag: string | null;
-  branches: GitBranch[];
-  remoteBranches: GitRemoteBranch[];
-  integrationEnabled: boolean;
-  disabled: boolean;
-  onSwitchBranch: (branchName: string) => void;
-  onOpenWorktree: (repoPath: string) => void;
-  onCheckoutRemoteBranch: (remoteBranch: GitRemoteBranch) => void;
-  onCheckoutTag: () => void;
-  onCreateBranch: () => void;
-  onCreateWorktree: () => void;
-  onManageBranches: () => void;
-  onMerge: () => void;
-  onRebase: () => void;
-}): ReactNode {
-  const branchItems = buildBranchItems({ repoPath, currentBranch, branches, remoteBranches });
-  const activeBranchValue = currentBranch ? `local:${currentBranch}` : "";
-  const branchOptions: ReferencePickerOption[] = branchItems.map((item) => ({
-    value: item.value,
-    label: item.label,
-    ...(item.detail ? { detail: item.detail } : {}),
-    group: item.group,
-    icon: item.icon === "remote" ? <Download /> : item.icon === "worktree" ? <FolderOpen /> : <GitBranchIcon />
-  }));
-  const displayValue = getBranchDisplayValue(currentBranch, currentTag);
-
-  return (
-    <div className="repo-branch-fact">
-      <dt>Branch</dt>
-      <dd>
-        <ReferencePicker
-          value={activeBranchValue}
-          options={branchOptions}
-          disabled={disabled}
-          ariaLabel="Switch branch"
-          placeholder={displayValue}
-          displayValue={displayValue}
-          searchPlaceholder="Search branches..."
-          emptyMessage="No branches found."
-          triggerIcon={!currentBranch && currentTag ? <Tag /> : <GitBranchIcon />}
-          compact
-          onValueChange={(value) => {
-            const item = branchItems.find((candidate) => candidate.value === value);
-            const choice = item ? resolveBranchChoice(item) : null;
-            if (choice?.kind === "switch") onSwitchBranch(choice.branchName);
-            else if (choice?.kind === "open-worktree") onOpenWorktree(choice.worktreePath);
-            else if (choice?.kind === "checkout-remote") onCheckoutRemoteBranch(choice.remoteBranch);
-          }}
-          actions={[
-            ...(integrationEnabled ? [{ label: "Check out tag…", icon: <Tag />, onSelect: onCheckoutTag }] : []),
-            { label: "New Branch", icon: <Plus />, onSelect: onCreateBranch },
-            ...(integrationEnabled ? [
-              { label: "Add Worktree…", icon: <GitFork />, onSelect: onCreateWorktree },
-              { label: "Merge Branch…", icon: <GitFork />, onSelect: onMerge },
-              { label: "Rebase Branch…", icon: <History />, onSelect: onRebase }
-            ] : []),
-            { label: "Manage Branches…", icon: <Settings />, onSelect: onManageBranches }
-          ]}
-        />
-        <span className="repo-branch-actions">
-          <TooltipButton type="button" variant="outline" size="icon-xs" onClick={onManageBranches} aria-label="Manage branches" tooltip="Manage branches"><Settings /></TooltipButton>
-          <TooltipButton
-            type="button"
-            variant="outline"
-            size="icon-xs"
-            disabled={disabled}
-            onClick={onCreateBranch}
-            aria-label="Create branch"
-            tooltip="Create branch"
-          >
-            <Plus />
-          </TooltipButton>
-        </span>
-      </dd>
-    </div>
-  );
-}
-
-function UpstreamFact({
-  upstream,
-  error,
-  currentBranch,
-  remoteBranches,
-  running,
-  operationState,
-  isValid,
-  onChangeUpstream
-}: {
-  upstream: string | null;
-  error: string;
-  currentBranch: string | null;
-  remoteBranches: GitRemoteBranch[];
-  running: boolean;
-  operationState: RepoSummary["operationState"];
-  isValid: boolean;
-  onChangeUpstream: (upstream: string | null) => void;
-}): ReactNode {
-  const disabledReason = getUpstreamDisabledReason({ currentBranch, upstream, remoteBranches, running, operationState, isValid });
-  const options: ReferencePickerOption[] = buildUpstreamItems(remoteBranches, upstream).map((option) => ({
-    value: option.value,
-    label: option.label,
-    detail: option.detail,
-    group: option.group,
-    icon: option.upstream === null ? <Minus /> : <GitBranchIcon />
-  }));
-
-  return (
-    <div className="repo-upstream-fact">
-      <dt>Upstream</dt>
-      <dd>
-        <TooltipTarget content={disabledReason ?? upstream}>
-          <span className="min-w-0">
-            <ReferencePicker
-              value={upstream ?? ""}
-              options={options}
-              disabled={disabledReason !== null}
-              ariaLabel="Change upstream"
-              placeholder="-"
-              searchPlaceholder="Search remote branches..."
-              emptyMessage="No remote branches found."
-              triggerIcon={<GitBranchIcon />}
-              compact
-              onValueChange={(value) => onChangeUpstream(value || null)}
-            />
-          </span>
-        </TooltipTarget>
-        {error ? <p className="repo-upstream-error" role="alert">{error}</p> : null}
-      </dd>
-    </div>
-  );
-}
-
 function Fact({ label, value }: { label: string; value: ReactNode }): ReactNode {
   return (
     <div>
@@ -10273,331 +9807,6 @@ function Fact({ label, value }: { label: string; value: ReactNode }): ReactNode 
       <dd>{value}</dd>
     </div>
   );
-}
-
-function ActionBar({
-  heading,
-  summary,
-  runningAction,
-  feedbackEvent,
-  configuredActionRuns,
-  disabled,
-  cancellable,
-  cancelStatus,
-  cancelError,
-  cancelLabel,
-  cancelingLabel,
-  showCreatePullRequest,
-  branchPullRequests,
-  pullRecovery,
-  onRunAction,
-  onOpenPushToBranch,
-  onRunConfiguredAction,
-  onPullWithAction,
-  onManageActions,
-  onCreatePullRequest,
-  onCancel,
-  onOpenExternalUrl
-}: {
-  heading: string;
-  summary: RepoSummary | null;
-  runningAction: string | null;
-  feedbackEvent: OperationButtonFeedbackEvent | null;
-  configuredActionRuns: ConfiguredActionRun[];
-  disabled: boolean;
-  cancellable: boolean;
-  cancelStatus: OperationCancelStatus;
-  cancelError: string;
-  cancelLabel: string;
-  cancelingLabel: string;
-  showCreatePullRequest: boolean;
-  branchPullRequests: GitHubPullRequestAssociation[];
-  pullRecovery: GitPullRecovery | null;
-  onRunAction: (action: GitAction) => void;
-  onOpenPushToBranch: () => void;
-  onRunConfiguredAction: (action: GitConfiguredAction) => void;
-  onPullWithAction: (action: GitConfiguredAction) => void;
-  onManageActions: () => void;
-  onCreatePullRequest: () => void;
-  onCancel: () => void;
-  onOpenExternalUrl: (url: string) => void;
-}): ReactNode {
-  const capabilities = summary?.capabilities ?? null;
-  // Lore is centralized: it has no "fetch", and "pull" maps to `lore sync`.
-  const showFetch = capabilities?.fetch ?? true;
-  const usesSync = capabilities?.sync ?? false;
-  const pullableCommitCount = getPullableCommitCount(summary);
-  const pullLabel = pullRecovery ? "Resolve" : usesSync ? "Sync" : "Pull";
-  const pullAriaLabel = pullRecovery
-    ? "Resolve remote history change"
-    : !usesSync && pullableCommitCount > 0
-    ? formatActionCountLabel("Pull", pullableCommitCount)
-    : undefined;
-  const publishInsteadOfPush = shouldPublishInsteadOfPush(summary);
-  const pushableCommitCount = getPushableCommitCount(summary);
-  const pushVariant = runningAction === "push"
-    ? "secondary"
-    : publishInsteadOfPush || pushableCommitCount > 0
-    ? "default"
-    : "outline";
-  const pushAriaLabel = publishInsteadOfPush
-    ? "Publish branch"
-    : pushableCommitCount > 0
-    ? formatActionCountLabel("Push", pushableCommitCount)
-    : undefined;
-  const showPushMenu = capabilities?.pushToBranch ?? false;
-  const pushMenuDisabled = disabled || !summary?.branch || getPushRemotes(summary).length === 0;
-  const actionsConfig = summary?.actionsConfig;
-  const configuredActions = actionsConfig?.actions ?? [];
-  const actionsConfigError = actionsConfig?.error.trim() ?? "";
-  const hasConfiguredActions = configuredActions.length > 0;
-  const pullBoundActions = !usesSync && !pullRecovery
-    ? configuredActions.filter((action) => action.bindToPull)
-    : [];
-  const pullDisabled = disabled || (summary?.kind === "git" && !summary.branch && !pullRecovery);
-  const pullDisabledReason = summary?.kind === "git" && !summary.branch && !pullRecovery ? "Switch to a branch before pulling." : undefined;
-  const showPullMenu = pullBoundActions.length > 0;
-  const runningConfiguredAction = configuredActionRuns.length > 0;
-  const actionsMenuDisabled = !summary?.isValid;
-
-  return (
-    <header className="action-bar flex items-center justify-between gap-4 border-b bg-card px-4 py-4">
-      <div className="min-w-0">
-        <p className="eyebrow">Sync</p>
-        <h2 className="truncate text-base font-semibold">{heading}</h2>
-        {cancelError ? <p className="mt-1 max-w-xl text-xs text-destructive" role="alert">{cancelError}</p> : null}
-      </div>
-      <div className="action-bar-actions flex flex-wrap justify-end gap-2" role="group" aria-label="Git actions">
-        {cancellable ? (
-          <Button type="button" variant="destructive" disabled={cancelStatus === "canceling"} onClick={onCancel}>
-            {cancelStatus === "canceling" ? <Loader2 className="animate-spin" /> : <X />}
-            {cancelStatus === "canceling" ? cancelingLabel : cancelStatus === "error" ? `Retry ${cancelLabel}` : cancelLabel}
-          </Button>
-        ) : null}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant={runningConfiguredAction ? "secondary" : "ghost"}
-              disabled={actionsMenuDisabled}
-              aria-label="Repository actions"
-              className="min-w-28"
-            >
-              {runningConfiguredAction ? <Loader2 className="animate-spin" /> : <Workflow />}
-              Actions
-              {configuredActionRuns.length > 1 ? ` ${configuredActionRuns.length}` : null}
-              <ChevronDown />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {actionsConfigError ? (
-              <DropdownMenuItem disabled className="max-w-80 whitespace-normal">
-                {actionsConfigError}
-              </DropdownMenuItem>
-            ) : hasConfiguredActions ? (
-              <ConfiguredActionMenuItems
-                entries={buildConfiguredActionMenu(configuredActions)}
-                onRunConfiguredAction={onRunConfiguredAction}
-              />
-            ) : (
-              <DropdownMenuItem disabled>
-                No configured actions
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={onManageActions}>
-              <Settings />
-              Manage Repository Actions
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        {showFetch ? (
-          <Button
-            type="button"
-            variant={runningAction === "fetch" ? "secondary" : "ghost"}
-            disabled={disabled}
-            onClick={() => onRunAction("fetch")}
-            className="min-w-24"
-          >
-            <OperationButtonFeedback
-              action="fetch"
-              event={feedbackEvent}
-              successLabel="Fetched"
-              surface="action-bar"
-            >
-              {runningAction === "fetch" ? <Loader2 className="animate-spin" /> : <CloudDownload />}
-              Fetch
-            </OperationButtonFeedback>
-          </Button>
-        ) : null}
-        <div className="flex items-stretch">
-          <TooltipButton
-            type="button"
-            variant={runningAction === "pull" ? "secondary" : "outline"}
-            disabled={pullDisabled}
-            tooltip={pullLabel}
-            disabledTooltip={pullDisabledReason}
-            onClick={() => onRunAction("pull")}
-            aria-label={pullAriaLabel}
-            className={`min-w-24 ${showPullMenu ? "rounded-r-none" : ""}`}
-          >
-            <OperationButtonFeedback
-              action="pull"
-              event={feedbackEvent}
-              successLabel={usesSync ? "Synced" : "Pulled"}
-              surface="action-bar"
-            >
-              {runningAction === "pull" ? <Loader2 className="animate-spin" /> : pullRecovery ? <ShieldAlert /> : <Download />}
-              {pullLabel}
-              {!pullRecovery && !usesSync && pullableCommitCount > 0 ? (
-                <SyncCountChip title={formatCommitCountLabel(pullableCommitCount, "behind")}>
-                  {pullableCommitCount}
-                </SyncCountChip>
-              ) : null}
-            </OperationButtonFeedback>
-          </TooltipButton>
-          {showPullMenu ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <TooltipButton
-                  type="button"
-                  variant={runningAction === "pull" ? "secondary" : "outline"}
-                  disabled={pullDisabled}
-                  tooltip="Pull with action"
-                  disabledTooltip={pullDisabledReason}
-                  aria-label="Pull with action"
-                  className="rounded-l-none border-l-border px-2"
-                >
-                  <ChevronDown />
-                </TooltipButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {pullBoundActions.map((action) => (
-                  <DropdownMenuItem key={getRepositoryActionKey(action.name)} onSelect={() => onPullWithAction(action)}>
-                    <Workflow />
-                    {action.name}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-        </div>
-        <div className="flex items-stretch">
-          <Button
-            type="button"
-            variant={pushVariant}
-            disabled={disabled}
-            onClick={() => onRunAction("push")}
-            aria-label={pushAriaLabel}
-            className={`min-w-24 ${showPushMenu ? "rounded-r-none" : ""}`}
-          >
-            <OperationButtonFeedback
-              action="push"
-              event={feedbackEvent}
-              successLabel="Pushed"
-              surface="action-bar"
-            >
-              {runningAction === "push" ? <Loader2 className="animate-spin" /> : <Upload />}
-              {publishInsteadOfPush ? "Publish" : "Push"}
-              {!publishInsteadOfPush && pushableCommitCount > 0 ? (
-                <SyncCountChip title={formatCommitCountLabel(pushableCommitCount, "ahead")}>
-                  {pushableCommitCount}
-                </SyncCountChip>
-              ) : null}
-            </OperationButtonFeedback>
-          </Button>
-          {showPushMenu ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant={pushVariant}
-                  disabled={pushMenuDisabled}
-                  aria-label="More push actions"
-                  className="rounded-l-none border-l-border px-2"
-                >
-                  <ChevronDown />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={onOpenPushToBranch}>
-                  <GitBranchIcon />
-                  Push to another branch…
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-        </div>
-        {branchPullRequests.length === 1 ? (
-          <Button type="button" variant="outline" onClick={() => onOpenExternalUrl(branchPullRequests[0]!.url)} className="min-w-24">
-            <GitPullRequest />
-            PR #{branchPullRequests[0]!.number} · {formatPullRequestAssociationState(branchPullRequests[0]!)}
-          </Button>
-        ) : branchPullRequests.length > 1 ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button type="button" variant="outline"><GitPullRequest />Multiple pull requests<ChevronDown /></Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {branchPullRequests.map((pullRequest) => (
-                <DropdownMenuItem key={`${pullRequest.headRepositoryFullName}:${pullRequest.number}`} onSelect={() => onOpenExternalUrl(pullRequest.url)}>
-                  {pullRequest.headRepositoryFullName ?? pullRequest.baseRepositoryFullName} #{pullRequest.number} · {formatPullRequestAssociationState(pullRequest)}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : showCreatePullRequest ? (
-          <Button
-            type="button"
-            variant="outline"
-            disabled={disabled}
-            onClick={onCreatePullRequest}
-            className="min-w-24"
-          >
-            <GitPullRequest />
-            Create PR
-          </Button>
-        ) : null}
-      </div>
-    </header>
-  );
-}
-
-function ConfiguredActionMenuItems({
-  entries,
-  onRunConfiguredAction
-}: {
-  entries: ConfiguredActionMenuEntry[];
-  onRunConfiguredAction: (action: GitConfiguredAction) => void;
-}): ReactNode {
-  return entries.map((entry) => {
-    if (entry.type === "group") {
-      return (
-        <DropdownMenuSub key={entry.key}>
-          <DropdownMenuSubTrigger>
-            <Workflow />
-            {entry.label}
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent>
-            <ConfiguredActionMenuItems entries={entry.entries} onRunConfiguredAction={onRunConfiguredAction} />
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-      );
-    }
-
-    const item = (
-      <DropdownMenuItem onSelect={() => onRunConfiguredAction(entry.action)}>
-        <Workflow />
-        {entry.label}
-      </DropdownMenuItem>
-    );
-    return entry.action.description ? (
-      <Tooltip key={entry.key}>
-        <TooltipTrigger asChild>{item}</TooltipTrigger>
-        <TooltipContent side="left">{entry.action.description}</TooltipContent>
-      </Tooltip>
-    ) : <Fragment key={entry.key}>{item}</Fragment>;
-  });
 }
 
 function StatusView({
@@ -14753,6 +13962,13 @@ function resetGitHubUiState(state: AppState): AppState {
   };
 }
 
+/** Puts an active guest view into the guest slot. Returns the same state when nothing changes. */
+function reconcileGuestView(state: AppState): AppState {
+  return isGuestView(state.activeView) && state.activeView !== state.guestView
+    ? { ...state, guestView: state.activeView }
+    : state;
+}
+
 function reconcileGitHubUiState(state: AppState, previousSummary: RepoSummary | null): AppState {
   const previousGitHubKey = previousSummary?.githubRepository?.fullName.toLowerCase() ?? "";
   const nextGitHubKey = state.summary?.githubRepository?.fullName.toLowerCase() ?? "";
@@ -14764,11 +13980,17 @@ function reconcileGitHubUiState(state: AppState, previousSummary: RepoSummary | 
       activeView: "status"
     };
   }
+  if (!nextGitHubKey && next.guestView && isGitHubView(next.guestView)) {
+    next = { ...next, guestView: null };
+  }
   if (next.activeView === "analytics" && state.summary && !state.summary.capabilities.analytics) {
     next = {
       ...next,
       activeView: "status"
     };
+  }
+  if (next.guestView === "analytics" && state.summary && !state.summary.capabilities.analytics) {
+    next = { ...next, guestView: null };
   }
 
   return next;
@@ -14919,50 +14141,6 @@ function getFilesForSide(summary: RepoSummary | null, side: GitDiffSide): GitSta
 
 function canDiscardStatusFile(file: GitStatusFile): boolean {
   return !file.submodule && !file.isConflicted && getFileStatusVisuals(file, "unstaged").tone !== "untracked";
-}
-
-function RemoteFact({ remotes, repositoryUrl, disabled, onOpen, onManage }: {
-  remotes: string;
-  repositoryUrl: string | null;
-  disabled: boolean;
-  onOpen: (url: string) => void;
-  onManage: () => void;
-}): ReactNode {
-  return (
-    <div className="repo-upstream-fact">
-      <dt>Remotes</dt>
-      <dd>
-        <TooltipTarget content={remotes === "-" ? undefined : remotes}><span className="repo-upstream-name">{remotes}</span></TooltipTarget>
-        <span className="repo-remote-actions">
-          <TooltipButton
-            type="button"
-            variant="outline"
-            size="icon-xs"
-            disabled={disabled || !repositoryUrl}
-            onClick={() => {
-              if (repositoryUrl) onOpen(repositoryUrl);
-            }}
-            aria-label="Open remote repository"
-            tooltip="Open remote repository"
-            disabledTooltip={!repositoryUrl ? "No hosted repository URL available" : undefined}
-          >
-            <ExternalLink />
-          </TooltipButton>
-          <TooltipButton
-            type="button"
-            variant="outline"
-            size="icon-xs"
-            disabled={disabled}
-            onClick={onManage}
-            aria-label="Manage remotes"
-            tooltip="Manage remotes"
-          >
-            <Settings />
-          </TooltipButton>
-        </span>
-      </dd>
-    </div>
-  );
 }
 
 function buildFileSelection(
@@ -15344,6 +14522,36 @@ function getRepositoryWorkspacePaths(groups: RepositoryGroup[], fallback: string
   return [...new Map(paths.map((repoPath) => [getRepoPathKey(repoPath), repoPath])).values()];
 }
 
+interface HeaderRepository {
+  displayName: string;
+  /** The path the repository context menu acts on, with the row it belongs to. */
+  menuPath: string;
+  menuTarget: RepositoryMenuTarget;
+}
+
+/** Names the open repository like its quick switcher row: a saved repository by its alias, a worktree by its folder. */
+function getHeaderRepository(
+  repoPath: string,
+  repoRecents: string[],
+  groups: RepositoryGroup[],
+  organization: RepositoryOrganization
+): HeaderRepository {
+  const group = findRepositoryGroup(groups, repoPath);
+  const worktree = group && !isSameRepoPath(group.anchorPath, repoPath)
+    ? group.worktrees.find((candidate) => isSameRepoPath(candidate.path, repoPath)) ?? null
+    : null;
+  if (group && worktree) {
+    return { displayName: getRepoDisplayName(repoPath), menuPath: worktree.path, menuTarget: { group, worktree } };
+  }
+  const savedPath = group?.anchorPath ?? repoRecents.find((path) => isSameRepoPath(path, repoPath)) ?? null;
+  const labelPath = savedPath ?? repoPath;
+  return {
+    displayName: repositoryPreference(organization, labelPath).alias || getRepoDisplayName(labelPath),
+    menuPath: labelPath,
+    menuTarget: { ...(group ? { group } : {}), ...(savedPath ? { reorder: true } : {}) }
+  };
+}
+
 function findRepositoryGroup(groups: RepositoryGroup[], repoPath: string): RepositoryGroup | null {
   return groups.find((group) => group.worktrees.some((worktree) => isSameRepoPath(worktree.path, repoPath)) || group.recentPaths.some((recent) => isSameRepoPath(recent, repoPath))) ?? null;
 }
@@ -15458,6 +14666,10 @@ function getActivityLogOperationStatus(state: AppState): string | null {
   }
 
   return null;
+}
+
+function createConfiguredActionOutcome(run: ConfiguredActionRun, exitCode: number): ConfiguredActionOutcome {
+  return { name: run.name, exitCode, operationId: run.operationId, finishedAt: Date.now() };
 }
 
 function getConfiguredActionRunningHeading(runs: ConfiguredActionRun[]): string {
