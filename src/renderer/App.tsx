@@ -8516,7 +8516,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
               The rebased branch no longer fast-forwards its upstream. Publishing is a separate, explicit action and uses force-with-lease so Git refuses if the remote changed.
             </DialogDescription>
           </DialogHeader>
-          {forceLeaseOffer ? <div className="rounded-md border border-amber-500/45 bg-amber-500/10 p-3 text-sm"><p className="font-medium">{forceLeaseOffer.branchName} → {forceLeaseOffer.remoteName}/{forceLeaseOffer.remoteBranchName}</p><p className="mt-1 text-muted-foreground">Plain force is never used. No push has happened yet.</p></div> : null}
+          {forceLeaseOffer ? <div className="dialog-notice" data-tone="warning"><TriangleAlert aria-hidden="true" /><div><p className="dialog-notice-title">{forceLeaseOffer.branchName} → {forceLeaseOffer.remoteName}/{forceLeaseOffer.remoteBranchName}</p><p className="text-muted-foreground">Plain force is never used. No push has happened yet.</p></div></div> : null}
           <DialogFooter>
             <Button type="button" variant="outline" disabled={running} onClick={() => setForceLeaseOffer(null)}>Not now</Button>
             <Button type="button" variant="destructive" disabled={running || !forceLeaseOffer} onClick={() => { void publishRebasedBranch(); }}>{running ? <Loader2 className="animate-spin" /> : <Upload />}Publish with force-with-lease</Button>
@@ -10190,10 +10190,10 @@ function StatusView({
             <DialogTitle>{fileActionLabel("Discard changes in", discardTarget?.paths.length ?? 0)}?</DialogTitle>
             <DialogDescription>Discard the {discardTarget?.side} changes in these files. This cannot be undone.</DialogDescription>
           </DialogHeader>
-          <ul className="max-h-48 overflow-auto text-sm">{discardTarget?.paths.slice(0, 100).map((path) => <li key={path} className="break-all font-mono">{path}</li>)}</ul>
+          <ul className="dialog-code-block max-h-48 overflow-auto">{discardTarget?.paths.slice(0, 100).map((path) => <li key={path}>{path}</li>)}</ul>
           {discardTarget && discardTarget.paths.length > 100 ? <p className="text-sm text-muted-foreground">Showing the first 100 of {discardTarget.paths.length} files.</p> : null}
           {discardChecking ? <p role="status" className="text-sm text-muted-foreground">Checking selected files…</p> : null}
-          {discardError ? <p role="alert" className="text-sm text-destructive">{discardError}</p> : null}
+          {discardError ? <p role="alert" className="dialog-error">{discardError}</p> : null}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setDiscardTarget(null)}>Cancel</Button>
             <Button type="button" variant="destructive" disabled={disabled || recoveryMode || !discardCurrent} onClick={() => {
@@ -12977,7 +12977,7 @@ function GenerateWithContextDialog({
             />
           </div>
 
-          {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
+          {error ? <p className="dialog-error" role="alert">{error}</p> : null}
 
           <DialogFooter>
             <Button
@@ -13043,7 +13043,7 @@ function BranchDialog({
             />
           </div>
 
-          <p className="min-h-5 text-sm text-destructive" role="alert">{error}</p>
+          <p className="dialog-error min-h-5" role="alert">{error}</p>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
@@ -13163,6 +13163,7 @@ function ResetCommitFileDialog({
               id="reset-file-paths"
               value={filesText}
               readOnly
+              className="dialog-code-block resize-none"
               rows={Math.max(1, Math.min(6, state.paths.length))}
             />
           </div>
@@ -13280,7 +13281,7 @@ function PublishBranchDialog({
             />
           </div>
 
-          <p className="min-h-5 text-sm text-destructive" role="alert">{error}</p>
+          <p className="dialog-error min-h-5" role="alert">{error}</p>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
@@ -13469,14 +13470,14 @@ function CreatePullRequestDialog({
               </div>
             </div>
 
-            {templateUnavailable && !state.templatesLoading ? <p className="text-sm text-muted-foreground" role="status">Select an available template or No template before generating. Your text is preserved.</p> : null}
-            {state.templateError ? <div className="flex items-center gap-2 text-sm text-destructive" role="alert">
+            {templateUnavailable && !state.templatesLoading ? <p className="dialog-notice" data-tone="neutral" role="status">Select an available template or No template before generating. Your text is preserved.</p> : null}
+            {state.templateError ? <div className="dialog-error flex items-center gap-2" role="alert">
               <span>{state.templateError}</span>
               <Button type="button" variant="outline" size="sm" disabled={busy || generating || state.templatesLoading}
                 onClick={() => onStateChange({ ...state, templateRequest: state.templateRequest + 1 })}>Retry</Button>
             </div> : null}
-            {state.draftSaveError ? <p className="text-sm text-destructive" role="alert">Unable to save this draft on this device. Keep this window open or copy your text.</p> : null}
-            {state.error ? <p className="text-sm text-destructive" role="alert">{state.error}</p> : null}
+            {state.draftSaveError ? <p className="dialog-error" role="alert">Unable to save this draft on this device. Keep this window open or copy your text.</p> : null}
+            {state.error ? <p className="dialog-error" role="alert">{state.error}</p> : null}
             {state.failure?.outcomeUnknown && !state.unknownOutcomeReviewed ? (
               <Button type="button" variant="outline" className="w-fit" onClick={onReviewUnknownOutcome}><ExternalLink />Open Pull Requests</Button>
             ) : null}
@@ -13529,7 +13530,7 @@ function SafeDirectoryDialog({
         </DialogHeader>
 
         {safeDirectory?.path ? (
-          <p className="rounded-md border bg-muted/50 px-3 py-2 text-sm font-medium text-muted-foreground">
+          <p className="dialog-code-block">
             {safeDirectory.path}
           </p>
         ) : null}
@@ -13590,7 +13591,7 @@ function GitIdentityDialog({
             })}
           />
 
-          <p id="git-identity-prompt-error" className="min-h-5 text-sm text-destructive" role="alert">{state.error}</p>
+          <p id="git-identity-prompt-error" className="dialog-error min-h-5" role="alert">{state.error}</p>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
@@ -13613,11 +13614,15 @@ function ImageDiffView({ filePath, before, after, onDownload, downloading }: { f
   return (
     <div className="image-diff-wrap" aria-label={`${isAdded ? "Image preview" : "Image comparison"} for ${filePath}`}>
       {canDownload && onDownload ? (
-        <div className="image-diff-download">
-          <Button type="button" variant="outline" size="sm" aria-label={needsRepair ? "Retry corrupt Git LFS image preview" : "Download missing Git LFS image preview"} disabled={downloading} onClick={onDownload}>
-            {downloading ? <Loader2 className="animate-spin" /> : <Download />}
-            {downloading ? "Downloading..." : needsRepair ? "Retry Preview" : "Download Preview"}
-          </Button>
+        <div className="dialog-notice image-diff-notice" data-tone="warning">
+          <TriangleAlert aria-hidden="true" />
+          <div className="image-diff-notice-body">
+            <span>{needsRepair ? "The Git LFS copy of this image on this device is damaged." : "This Git LFS image has not been downloaded to this device."}</span>
+            <Button type="button" variant="outline" size="xs" aria-label={needsRepair ? "Retry corrupt Git LFS image preview" : "Download missing Git LFS image preview"} disabled={downloading} onClick={onDownload}>
+              {downloading ? <Loader2 className="animate-spin" /> : <Download />}
+              {downloading ? "Downloading..." : needsRepair ? "Retry Preview" : "Download Preview"}
+            </Button>
+          </div>
         </div>
       ) : null}
       <div className={`image-diff${isAdded ? " is-single" : ""}`}>

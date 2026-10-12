@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, FolderOpen, Loader2, MapPinned, Settings, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, CircleAlert, FolderOpen, Loader2, MapPinned, Settings, Trash2 } from "lucide-react";
 import { useCallback, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
@@ -192,7 +192,7 @@ export function useRepositoryRowActions({
               This repository will no longer be tracked by Githead. The repository and all of its files will remain on disk.
             </DialogDescription>
           </DialogHeader>
-          <p className="break-all rounded-md border bg-muted/30 p-3 text-sm">{removeTarget}</p>
+          <p className="dialog-code-block">{removeTarget}</p>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setRemoveTarget(null)}>Cancel</Button>
             <Button type="button" variant="destructive" onClick={() => {
@@ -216,11 +216,9 @@ export function useRepositoryRowActions({
               Githead cannot open this saved repository. Choose its new location if it still exists, or remove it from Githead.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid min-w-0 max-w-full gap-2 overflow-hidden rounded-md border bg-muted/30 p-3 text-sm">
-            <p className="break-all font-medium">{recoveryTarget?.repoPath}</p>
-            <p className="break-words text-destructive">{recoveryTarget?.reason}</p>
-          </div>
-          {recoveryError ? <p className="text-sm text-destructive" role="alert">{recoveryError}</p> : null}
+          <p className="dialog-code-block">{recoveryTarget?.repoPath}</p>
+          <p className="dialog-notice" data-tone="danger"><CircleAlert aria-hidden="true" /><span>{recoveryTarget?.reason}</span></p>
+          {recoveryError ? <p className="dialog-error" role="alert">{recoveryError}</p> : null}
           <DialogFooter className="min-w-0 sm:flex-wrap">
             <Button type="button" variant="outline" disabled={recoveryRunning} onClick={() => {
               setRecoveryTarget(null);

@@ -1587,6 +1587,207 @@ textarea,
   line-height: 16px;
 }
 
+/*
+ * The one operation banner under the header. Markup: a main row (icon, bold title, one-sentence
+ * description, then small action buttons with the primary last) and an optional details row.
+ */
+.operation-banner {
+  --operation-banner-accent: var(--status-modified);
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  border-bottom: 1px solid color-mix(in oklab, var(--operation-banner-accent) 30%, var(--border));
+  padding: 8px 16px;
+  background: var(--warning-surface);
+  color: var(--foreground);
+  font-size: 0.8125rem;
+  line-height: 1.5385;
+}
+
+.operation-banner[data-tone="danger"] {
+  --operation-banner-accent: var(--destructive);
+  background: color-mix(in oklab, var(--destructive) 8%, var(--surface));
+}
+
+.operation-banner-main {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+
+.operation-banner-icon {
+  display: flex;
+  flex: 0 0 auto;
+  color: var(--operation-banner-accent);
+}
+
+.operation-banner-icon > svg {
+  width: 16px;
+  height: 16px;
+}
+
+.operation-banner-text {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 240px;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.operation-banner-title {
+  flex: 0 0 auto;
+  margin: 0;
+  font-size: inherit;
+  font-weight: 600;
+}
+
+.operation-banner-description {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.operation-banner-actions {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.operation-banner-hint {
+  color: var(--operation-banner-accent);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+/* Starts under the title: the icon is 16px and the main row gap is 12px. */
+.operation-banner-details {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding-left: 28px;
+  font-size: 0.75rem;
+  line-height: 1.3333;
+}
+
+.operation-banner-meta,
+.operation-banner-muted {
+  color: var(--muted-foreground);
+}
+
+.operation-banner-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.operation-banner-step {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  padding: 0 8px 0 3px;
+  background: var(--surface);
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+.operation-banner-step[data-status="current"] {
+  border-color: color-mix(in oklab, var(--operation-banner-accent) 55%, var(--border));
+  color: var(--foreground);
+}
+
+.operation-banner-step-marker {
+  display: flex;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  font-size: 0.625rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.operation-banner-step-marker > svg {
+  width: 10px;
+  height: 10px;
+}
+
+.operation-banner-step[data-status="complete"] .operation-banner-step-marker {
+  border-color: transparent;
+  background: var(--status-added);
+  color: var(--background);
+}
+
+.operation-banner-step[data-status="current"] .operation-banner-step-marker {
+  border-color: transparent;
+  background: var(--operation-banner-accent);
+  color: var(--background);
+}
+
+.operation-banner-step-title {
+  font-weight: 600;
+}
+
+.operation-banner-note {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  gap: 6px;
+}
+
+.operation-banner-note > svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: var(--operation-banner-accent);
+}
+
+.operation-banner-note[data-tone="success"] > svg {
+  color: var(--status-added);
+}
+
+.operation-banner-note > strong {
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+
+.operation-banner-path {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-code);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Raised specificity: the shared .dialog-error rule comes later in this file. */
+.operation-banner-details > .operation-banner-error {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.75rem;
+}
+
 .app-workspace-body {
   display: flex;
   grid-row: 3;
@@ -2758,7 +2959,7 @@ textarea,
   gap: 12px;
   min-width: 0;
   padding: 8px 12px;
-  border-radius: 6px;
+  border-radius: calc(var(--radius) - 2px);
   background: var(--muted);
   font-size: 13px;
 }
@@ -2814,9 +3015,9 @@ textarea,
 
 .create-pr-editor {
   overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--background);
+  border: 1px solid var(--input);
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--surface);
 }
 
 .create-pr-body {
@@ -4682,7 +4883,9 @@ textarea,
 
 .markdown-preview-status.bad { color: var(--destructive); }
 .image-diff-wrap { display: grid; min-height: 100%; grid-template-rows: auto minmax(0, 1fr); }
-.image-diff-download { display: flex; justify-content: center; border-bottom: 1px solid var(--border); padding: 10px; }
+.image-diff-notice { margin: 12px; }
+.dialog-notice.image-diff-notice { align-items: center; }
+.image-diff-notice-body { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
 .image-diff { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; min-height: 100%; }
 .image-diff.is-single { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
 .image-diff-pane { display: grid; min-width: 0; min-height: 0; margin: 0; grid-template-rows: auto minmax(0, 1fr); border-right: 1px solid var(--border); }
