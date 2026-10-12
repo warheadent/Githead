@@ -103,7 +103,7 @@ export function WorktreeCreateDialog({ open, group, branches, remoteBranches, bu
           <DialogDescription>Check out another branch in a separate folder without disturbing this workspace.</DialogDescription>
         </DialogHeader>
         <form className="flex min-h-0 flex-col gap-5" onSubmit={(event) => { void submit(event); }}>
-          <div className="grid min-h-0 gap-4 overflow-y-auto">
+          <div className="-m-1 grid min-h-0 gap-4 overflow-y-auto p-1">
             <Segmented
               label="Worktree branch mode"
               className="grid w-full grid-cols-2"

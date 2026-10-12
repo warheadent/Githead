@@ -142,7 +142,7 @@ export function GitIntegrationDialog(props: GitIntegrationDialogProps): ReactNod
           <DialogDescription>{kind === "merge" ? "Choose a branch to bring into the branch you’re on." : kind === "rebase" ? "Choose a new base for this branch." : dialogDescription(kind)}</DialogDescription>
         </DialogHeader>
 
-        <div className="grid min-h-0 gap-4 overflow-y-auto pr-1">
+        <div className="-m-1 grid min-h-0 gap-4 overflow-y-auto p-1 pr-2">
           {kind !== "cherry-pick" ? (
             <div className="grid gap-2">
               <Label htmlFor="integration-ref">{kind === "merge" ? "Branch to merge" : "New base"}</Label>

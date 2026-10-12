@@ -179,7 +179,7 @@ export function AmendDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="min-h-0 overflow-y-auto pr-1">
+        <div className="-m-1 min-h-0 overflow-y-auto p-1 pr-2">
           {loading && !preview ? (
             <div className="flex min-h-52 items-center justify-center gap-2 text-sm text-muted-foreground" role="status">
               <Loader2 className="size-4 animate-spin" />
