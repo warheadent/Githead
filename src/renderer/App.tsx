@@ -272,7 +272,7 @@ import { getAheadBehindCounts, getPrimaryCommitAction, getPushableCommitCount, h
 import type { ConfiguredActionOutcome, ConfiguredActionRun } from "./configuredActionMenu";
 import { confirmAppUpdateInstall } from "./AppUpdateControl";
 import { QuickSwitcher } from "./QuickSwitcher";
-import { RepositoryHeader, type ConfiguredActionCancelTarget } from "./RepositoryHeader";
+import { focusActiveViewTab, RepositoryHeader, type ConfiguredActionCancelTarget } from "./RepositoryHeader";
 import { buildQuickSwitcherSections, type QuickSwitcherItem, type QuickSwitcherMode } from "./quickSwitcherItems";
 import { useAppShortcuts } from "./useAppShortcuts";
 import {
@@ -7280,6 +7280,8 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
   const [quickSwitcherQuery, setQuickSwitcherQuery] = useState("");
   const [showHiddenRepositories, setShowHiddenRepositories] = useState(false);
   const pendingSwitcherNavigationRef = useRef<"back" | "forward" | null>(null);
+  // Set when the chosen switcher item changes the view, so focus lands on the active tab instead of the opener.
+  const switcherFocusesViewRef = useRef(false);
   const navigationRef = useRef(navigation);
   navigationRef.current = navigation;
   const repositoryOrganization = useRepositoryOrganization();
@@ -7289,6 +7291,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
 
   /** Opens the switcher in a mode, or changes the mode of the open switcher, with an empty query. */
   const openQuickSwitcher = useCallback((mode: QuickSwitcherMode): void => {
+    switcherFocusesViewRef.current = false;
     setQuickSwitcherQuery("");
     setQuickSwitcherMode(mode);
   }, []);
@@ -7463,6 +7466,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
         void runConfiguredAction(item.payload.action);
         return;
       case "view":
+        switcherFocusesViewRef.current = true;
         setWorkspaceView(item.payload.view);
         return;
       case "settings":
@@ -7523,6 +7527,11 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     setWorkspaceView,
     switchBranch
   ]);
+
+  const restoreQuickSwitcherFocus = useCallback(
+    (): boolean => switcherFocusesViewRef.current && focusActiveViewTab(),
+    []
+  );
 
   const renderQuickSwitcherContextMenu = useCallback((item: QuickSwitcherItem, row: ReactElement): ReactNode => {
     if (item.kind !== "repository" && item.kind !== "repair") return row;
@@ -8289,6 +8298,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
           onClose={closeQuickSwitcher}
           onModeChange={openQuickSwitcher}
           renderItemContextMenu={renderQuickSwitcherContextMenu}
+          restoreFocus={restoreQuickSwitcherFocus}
           upstreamError={state.upstreamError}
         />
       ) : null}

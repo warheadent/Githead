@@ -49,6 +49,11 @@ export interface QuickSwitcherProps {
   renderItemContextMenu?: ((item: QuickSwitcherItem, row: ReactElement) => ReactNode) | undefined;
   /** Shown as an alert in upstream mode only. */
   upstreamError?: string | undefined;
+  /**
+   * Moves focus after the switcher closed and dropped it. Returns whether it placed focus; otherwise focus returns to
+   * the control that had it when the switcher opened.
+   */
+  restoreFocus?: (() => boolean) | undefined;
 }
 
 /**
@@ -64,11 +69,17 @@ export function QuickSwitcher({
   onClose,
   onModeChange,
   renderItemContextMenu,
-  upstreamError
+  upstreamError,
+  restoreFocus
 }: QuickSwitcherProps): ReactNode {
   const id = useId();
   const listId = `${id}-list`;
   const inputRef = useRef<HTMLInputElement>(null);
+  // The control that had focus when the switcher opened, such as the header's branch pill. Mode changes keep it.
+  const [opener] = useState(() => {
+    const focused = document.activeElement;
+    return focused instanceof HTMLElement && focused !== document.body ? focused : null;
+  });
   const [activeId, setActiveId] = useState<string | null>(null);
   const visibleSections = useMemo(() => filterQuickSwitcherItems(sections, query), [query, sections]);
   const items = useMemo(() => visibleSections.flatMap((section) => section.items), [visibleSections]);
@@ -136,6 +147,15 @@ export function QuickSwitcher({
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           inputRef.current?.focus();
+        }}
+        onCloseAutoFocus={(event) => {
+          // The switcher has no trigger, so Radix would leave focus on the document body.
+          event.preventDefault();
+          // A dialog or view opened from the switcher may already hold focus; only recover focus that was dropped.
+          const focused = document.activeElement;
+          if (focused && focused !== document.body && focused.isConnected) return;
+          if (restoreFocus?.()) return;
+          if (opener?.isConnected) opener.focus();
         }}
         onEscapeKeyDown={(event) => {
           if (mode === "upstream") {

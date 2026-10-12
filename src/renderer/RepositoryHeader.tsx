@@ -299,6 +299,18 @@ function HeaderCancelButton({
 }
 
 /** The dark repository tile used by the header switcher and the start screens. */
+/**
+ * Focuses the selected tab of the header's view switch, or its first tab when none is selected. Without a list it
+ * uses the view switch in the document. Returns whether a tab took focus.
+ */
+export function focusActiveViewTab(list: ParentNode | null = document.querySelector(".view-switch-list")): boolean {
+  const tabs = list?.querySelectorAll<HTMLElement>('[role="tab"]');
+  const target = Array.from(tabs ?? []).find((tab) => tab.getAttribute("aria-selected") === "true") ?? tabs?.[0];
+  if (!target) return false;
+  target.focus();
+  return document.activeElement === target;
+}
+
 export function RepositoryTile({ className }: { className?: string }): ReactNode {
   return (
     <span className={cn("repo-switcher-tile", className)} aria-hidden="true">
@@ -421,9 +433,7 @@ function ViewSwitch({
     closingGuestRef.current = null;
     // Another control may have taken focus in the meantime; only recover focus that was dropped.
     if (guestView !== null || (document.activeElement && document.activeElement !== document.body)) return;
-    const tabs = listRef.current?.querySelectorAll<HTMLElement>('[role="tab"]');
-    const target = Array.from(tabs ?? []).find((tab) => tab.getAttribute("aria-selected") === "true") ?? tabs?.[0];
-    target?.focus();
+    focusActiveViewTab(listRef.current);
   }, [guestView]);
 
   return (

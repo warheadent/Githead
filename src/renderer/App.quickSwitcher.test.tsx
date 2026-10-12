@@ -116,6 +116,23 @@ describe("quick switcher", { timeout: 10_000 }, () => {
     expect((await within(dialog).findByRole("alert")).textContent).toContain("Unable to set upstream.");
   });
 
+  it("returns focus to the header control that opened it, or to the tab of the chosen view", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForRepositoryWorkspace();
+
+    const branchPill = screen.getByRole("button", { name: "Switch branch" });
+    await user.click(branchPill);
+    await screen.findByRole("dialog", { name: "Quick switcher" });
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Quick switcher" })).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(branchPill));
+
+    await user.click(screen.getByRole("button", { name: "More" }));
+    await chooseSwitcherOption(/^Activity log/, user);
+    await waitFor(() => expect(document.activeElement).toBe(selectedTab(/^Activity log/)));
+  });
+
   it("goes back after the switcher closes", async () => {
     const user = userEvent.setup();
     render(<App />);
