@@ -216,6 +216,32 @@ describe("ReviewConsole", () => {
     expect((screen.getByRole("textbox", { name: "Write a comment" }) as HTMLTextAreaElement).value).toBe("");
   });
 
+  it("submits issue comments from the footer Comment button and focuses an empty composer", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getGitHubIssueDetail).mockResolvedValue({ ok: true, data: createIssueDetail({ number: 12, title: "Issue console" }), rateLimit: null });
+    renderConsole({ selection: { itemType: "issue", item: createIssue({ number: 12, title: "Issue console" }) } });
+
+    const drawer = within(await screen.findByRole("region", { name: "Issue console" }));
+    const input = await drawer.findByRole("textbox", { name: "Write a comment" });
+    expect(drawer.queryByRole("button", { name: "Add comment" })).toBeNull();
+    const commentButton = drawer.getByRole("button", { name: "Comment" });
+
+    await user.click(commentButton);
+    expect(document.activeElement).toBe(input);
+    expect(githead.commentOnGitHubItem).not.toHaveBeenCalled();
+
+    await user.type(input, "Reproduced on Windows.");
+    await user.click(commentButton);
+    await waitFor(() => expect(githead.commentOnGitHubItem).toHaveBeenCalledWith(expect.objectContaining({
+      repoPath,
+      itemType: "issue",
+      number: 12,
+      body: "Reproduced on Windows."
+    })));
+    await waitFor(() => expect((input as HTMLTextAreaElement).value).toBe(""));
+    expect(githead.commentOnGitHubItem).toHaveBeenCalledTimes(1);
+  });
+
   it("shows supported issue metadata and backed external links", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getGitHubIssueDetail).mockResolvedValue({ ok: true, data: createIssueDetail({

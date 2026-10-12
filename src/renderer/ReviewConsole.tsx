@@ -88,6 +88,7 @@ export function ReviewConsole({
   const [mutation, setMutation] = useState<MutationState>(IDLE_MUTATION);
   const [confirmMerge, setConfirmMerge] = useState(false);
   const commentRef = useRef<HTMLTextAreaElement>(null);
+  const commentFormId = useId();
   const mutationGeneration = useRef(0);
   const itemKey = `${repoPath}\0${githubFullName}\0${selection.itemType}:${selection.item.number}`;
   const pullRequestDetail = selection.itemType === "pullRequest" && detail.data ? detail.data as GitHubPullRequestDetail : null;
@@ -215,7 +216,7 @@ export function ReviewConsole({
       ) : (
         <div className="review-console-tabs">
           <GitHubDetailStatus detail={detail} />
-          {issueDetail ? <IssueOverview detail={issueDetail} comment={comment} commentRef={commentRef} mutation={mutation} onCommentChange={setComment} onSubmitComment={submitComment} onOpenExternalUrl={onOpenExternalUrl} /> : null}
+          {issueDetail ? <IssueOverview detail={issueDetail} comment={comment} commentRef={commentRef} commentFormId={commentFormId} mutation={mutation} onCommentChange={setComment} onSubmitComment={submitComment} onOpenExternalUrl={onOpenExternalUrl} /> : null}
         </div>
       )}
 
@@ -252,7 +253,12 @@ export function ReviewConsole({
         ) : (
           <>
             <span className="github-detail-footer-spacer" />
-            <Button type="button" size="sm" disabled={Boolean(mutation.kind)} onClick={() => commentRef.current?.focus()}>Comment</Button>
+            {/* Submits the issue composer; with an empty draft it moves focus to the composer instead. */}
+            <Button type="submit" form={commentFormId} size="sm" disabled={Boolean(mutation.kind) || !issueDetail} onClick={(event) => {
+              if (comment.trim()) return;
+              event.preventDefault();
+              commentRef.current?.focus();
+            }}>{mutation.kind === "comment" ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : null}Comment</Button>
           </>
         )}
       </footer>
@@ -380,10 +386,11 @@ function CommitsTab({ detail }: { detail: GitHubPullRequestDetail }): ReactNode 
   return <div className="review-console-commits">{detail.commits.length ? detail.commits.map((commit) => <article key={commit.sha}><GitCommitHorizontal /><div><strong>{commit.message || "Untitled commit"}</strong><span>{commit.author} committed {formatDateTime(commit.authoredAt)}</span></div><code>{commit.shortSha}</code></article>) : <p className="review-console-empty">No commits were returned.</p>}</div>;
 }
 
-function IssueOverview({ detail, comment, commentRef, mutation, onCommentChange, onSubmitComment, onOpenExternalUrl }: {
+function IssueOverview({ detail, comment, commentRef, commentFormId, mutation, onCommentChange, onSubmitComment, onOpenExternalUrl }: {
   detail: GitHubIssueDetail;
   comment: string;
   commentRef: React.RefObject<HTMLTextAreaElement | null>;
+  commentFormId: string;
   mutation: MutationState;
   onCommentChange: (value: string) => void;
   onSubmitComment: (event: FormEvent) => void;
@@ -399,7 +406,7 @@ function IssueOverview({ detail, comment, commentRef, mutation, onCommentChange,
           <span>{detail.comments.length} {detail.comments.length === 1 ? "comment" : "comments"}</span>
         </div>
         {detail.comments.map((commentEntry) => <article className="review-console-timeline-entry" key={commentEntry.id}><PersonHeader user={commentEntry.author} date={commentEntry.createdAt} /><Markdown text={commentEntry.body || "No comment body."} /></article>)}
-        <CommentComposer value={comment} inputRef={commentRef} busy={mutation.kind === "comment"} onChange={onCommentChange} onSubmit={onSubmitComment} />
+        <CommentComposer formId={commentFormId} value={comment} inputRef={commentRef} busy={mutation.kind === "comment"} submitInFooter onChange={onCommentChange} onSubmit={onSubmitComment} />
       </main>
       <FactsSidebar label="Issue metadata" heading="Issue details">
         <FactRow label="State"><span className={detail.state === "open" ? "capitalize is-good" : "capitalize"}>{detail.state}</span></FactRow>
@@ -436,19 +443,22 @@ function IssueLabels({ labels }: { labels: GitHubIssueDetail["labels"] }): React
   </span>;
 }
 
-function CommentComposer({ value, inputRef, busy, onChange, onSubmit }: {
+// With submitInFooter the detail footer's Comment button submits this form through formId, so the composer has no button of its own.
+function CommentComposer({ formId, value, inputRef, busy, submitInFooter = false, onChange, onSubmit }: {
+  formId?: string;
   value: string;
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
   busy: boolean;
+  submitInFooter?: boolean;
   onChange: (value: string) => void;
   onSubmit: (event: FormEvent) => void;
 }): ReactNode {
   const inputId = useId();
   return (
-    <form className="review-console-composer" aria-label="Add a comment" onSubmit={onSubmit}>
+    <form id={formId} className="review-console-composer" aria-label="Add a comment" onSubmit={onSubmit}>
       <label htmlFor={inputId} className="sr-only">Write a comment</label>
       <textarea id={inputId} ref={inputRef} value={value} disabled={busy} placeholder="Write a comment" onChange={(event) => onChange(event.target.value)} />
-      <div><span>Markdown supported</span><Button type="submit" variant="outline" size="sm" disabled={busy || !value.trim()}>{busy ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : null}Add comment</Button></div>
+      <div><span>Markdown supported</span>{submitInFooter ? null : <Button type="submit" variant="outline" size="sm" disabled={busy || !value.trim()}>{busy ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : null}Add comment</Button>}</div>
     </form>
   );
 }
