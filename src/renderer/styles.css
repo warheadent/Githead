@@ -2752,8 +2752,8 @@ textarea,
 
 /* A checked risky option reads as a warning instead of a plain selection. */
 .choice-card[data-tone="danger"]:has(input:checked) {
-  border-color: color-mix(in oklch, var(--destructive) 50%, var(--border));
-  background: color-mix(in oklch, var(--destructive) 8%, var(--surface));
+  border-color: color-mix(in oklab, var(--destructive) 50%, var(--border));
+  background: color-mix(in oklab, var(--destructive) 8%, var(--surface));
 }
 
 .choice-card:focus-within {
@@ -5266,26 +5266,26 @@ textarea,
 
 .dialog-notice[data-tone="warning"] {
   --dialog-notice-accent: var(--status-modified);
-  border-color: color-mix(in oklch, var(--status-modified) 30%, var(--border));
+  border-color: color-mix(in oklab, var(--status-modified) 30%, var(--border));
   background: var(--warning-surface);
 }
 
 .dialog-notice[data-tone="danger"] {
   --dialog-notice-accent: var(--destructive);
-  border-color: color-mix(in oklch, var(--destructive) 30%, var(--border));
-  background: color-mix(in oklch, var(--destructive) 8%, var(--surface));
+  border-color: color-mix(in oklab, var(--destructive) 30%, var(--border));
+  background: color-mix(in oklab, var(--destructive) 8%, var(--surface));
 }
 
 .dialog-notice[data-tone="success"] {
   --dialog-notice-accent: var(--status-added);
-  border-color: color-mix(in oklch, var(--status-added) 30%, var(--border));
-  background: color-mix(in oklch, var(--status-added) 8%, var(--surface));
+  border-color: color-mix(in oklab, var(--status-added) 30%, var(--border));
+  background: color-mix(in oklab, var(--status-added) 8%, var(--surface));
 }
 
 .dialog-notice[data-tone="info"] {
   --dialog-notice-accent: var(--primary);
-  border-color: color-mix(in oklch, var(--primary) 25%, var(--border));
-  background: color-mix(in oklch, var(--primary) 7%, var(--surface));
+  border-color: color-mix(in oklab, var(--primary) 25%, var(--border));
+  background: color-mix(in oklab, var(--primary) 7%, var(--surface));
 }
 
 /* Paths, object IDs and other technical values users may copy. */
