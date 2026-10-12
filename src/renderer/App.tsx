@@ -1,5 +1,4 @@
-import { RepositoryAliasDialog, RepositoryOrganizationDialog, RepositoryOrganizationMenu } from "./RepositoryOrganizationDialog";
-import { repositoryName as getRepoDisplayName, organizeRepositories, repositoryLabels, repositoryPreference, useRepositoryOrganization, type RepositoryPreference } from "./repositoryOrganization";
+import { repositoryName as getRepoDisplayName, organizeRepositories, repositoryLabels, repositoryPreference, useRepositoryOrganization } from "./repositoryOrganization";
 import { CheckoutTagDialog } from "./CheckoutTagDialog";
 import { RepositoryOmnibox } from "./RepositoryOmnibox";
 import { CloneOptions } from "./CloneOptions";
@@ -17,7 +16,6 @@ import {
   CircleDot,
   Clipboard,
   CloudDownload,
-  Copy,
   Download,
   ExternalLink,
   Eye,
@@ -31,11 +29,9 @@ import {
   GripVertical,
   History,
   ListTree,
-  ChartColumnBig,
   List,
   Loader2,
   MapPinned,
-  Maximize2,
   MessageSquare,
   Minus,
   Plus,
@@ -286,7 +282,22 @@ import {
   usePersistentWorkspacePanelState
 } from "./workspacePanelState";
 import { getAheadBehindCounts, getPrimaryCommitAction, getPullableCommitCount, getPushableCommitCount, hasStagedChanges, hasUnpushedCommits } from "./commitActions";
-import { buildConfiguredActionMenu, type ConfiguredActionMenuEntry } from "./configuredActionMenu";
+import { buildConfiguredActionMenu, type ConfiguredActionMenuEntry, type ConfiguredActionRun } from "./configuredActionMenu";
+import { AppUpdateControl } from "./AppUpdateControl";
+import { useRepositoryRowActions, type RenderRepositoryMenuItems, type RepositoryRecoveryResult } from "./RepositoryMenu";
+import { WindowControls } from "./WindowControls";
+import { formatRepoSyncStatusDescription, RecentRepositoryVcsIcon, RepoSyncStatusChips, SyncCountChip } from "./SyncCountChip";
+import {
+  formatActionCountLabel,
+  formatCommitCountLabel,
+  formatPullRequestAssociationState,
+  getPushRemotes,
+  getRemoteDefaultBranch,
+  getRepositoryActionKey,
+  shouldPublishInsteadOfPush,
+  shouldShowCreatePullRequest
+} from "./remoteActions";
+import { isGitHubView, WORKSPACE_VIEW_ICONS, WORKSPACE_VIEW_LABELS } from "./workspaceViews";
 import { buildCommitGraphLayout, COMMIT_GRAPH_COLOR_COUNT, COMMIT_GRAPH_ROW_HEIGHT, type CommitGraphLayout } from "./commitGraph";
 import { createLinePatch, isTechnicalFileHeader, type DiffRow, type DiffRowGroup } from "./diffParser";
 import { createDiffProcessingSession, type ProcessedDiff } from "./diffProcessingClient";
@@ -316,8 +327,6 @@ import { useSelectionSafeValue } from "./useSelectionSafeValue";
 import { repositoryHistoryRoute, targetFromCommitFile, targetFromHistoryEntry, type HistoricalFileTarget, type HistoryRoute } from "./historyNavigation";
 import { useWorkspaceNavigation, type WorkspaceLocation, type WorkspaceView } from "./useWorkspaceNavigation";
 import { WorkspaceBreadcrumbs } from "./WorkspaceBreadcrumbs";
-import gitIconUrl from "./assets/git-icon-white.svg";
-import loreIconUrl from "./assets/lore-icon-white.svg";
 
 const BasicMarkdown = lazy(() => import("./BasicMarkdown.js").then((module) => ({ default: module.BasicMarkdown })));
 const BlameView = lazy(() => import("./BlameView.js").then((module) => ({ default: module.BlameView })));
@@ -587,15 +596,6 @@ interface RequestIds {
   identity: number;
   remoteConfigs: number;
   commitPlanValidation: number;
-}
-
-interface ConfiguredActionRun {
-  id: number;
-  operationId: string;
-  name: string;
-  repoPath: string;
-  cancelStatus: OperationCancelStatus;
-  cancelError: string;
 }
 
 type RendererCancellationTarget =
@@ -3365,6 +3365,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       name: action.name,
       repoPath,
       operationId: createRendererOperationId(++rendererOperationTokenRef.current),
+      startedAt: Date.now(),
       cancelStatus: "idle",
       cancelError: ""
     };
@@ -7587,56 +7588,56 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                 <TabsList variant="line" className="h-9 w-max min-w-full bg-transparent p-0">
                   <TabsTrigger
                     value="status"
-                    aria-label={pendingFileCount ? `File Status ${pendingFileCount}` : "File Status"}
+                    aria-label={pendingFileCount ? `${WORKSPACE_VIEW_LABELS.status} ${pendingFileCount}` : WORKSPACE_VIEW_LABELS.status}
                     className="workspace-tab-trigger h-9 rounded-none"
                   >
-                    <ListTree />
-                    File Status
+                    <WORKSPACE_VIEW_ICONS.status />
+                    {WORKSPACE_VIEW_LABELS.status}
                     {pendingFileCount ? <span className="workspace-tab-count">{pendingFileCount}</span> : null}
                   </TabsTrigger>
                   {showStashesTab ? (
                     <TabsTrigger
                       value="stashes"
-                      aria-label={stashWorkspace.state.entries.length ? `Stashes ${stashWorkspace.state.entries.length}` : "Stashes"}
+                      aria-label={stashWorkspace.state.entries.length ? `${WORKSPACE_VIEW_LABELS.stashes} ${stashWorkspace.state.entries.length}` : WORKSPACE_VIEW_LABELS.stashes}
                       className="workspace-tab-trigger h-9 rounded-none"
                     >
-                      <Archive />
-                      Stashes
+                      <WORKSPACE_VIEW_ICONS.stashes />
+                      {WORKSPACE_VIEW_LABELS.stashes}
                       {stashWorkspace.state.entries.length ? <span className="workspace-tab-count">{stashWorkspace.state.entries.length}</span> : null}
                     </TabsTrigger>
                   ) : null}
                   <TabsTrigger value="history" className="workspace-tab-trigger h-9 rounded-none">
-                    <History />
-                    Commit History
+                    <WORKSPACE_VIEW_ICONS.history />
+                    {WORKSPACE_VIEW_LABELS.history}
                   </TabsTrigger>
                   {showAnalyticsTab ? (
                     <TabsTrigger value="analytics" className="workspace-tab-trigger h-9 rounded-none">
-                      <ChartColumnBig />
-                      Analytics
+                      <WORKSPACE_VIEW_ICONS.analytics />
+                      {WORKSPACE_VIEW_LABELS.analytics}
                     </TabsTrigger>
                   ) : null}
                   {showGitHubTabs ? (
                     <>
                       <TabsTrigger value="workflows" className="workspace-tab-trigger h-9 rounded-none">
-                        <Workflow />
-                        Workflow Runs
+                        <WORKSPACE_VIEW_ICONS.workflows />
+                        {WORKSPACE_VIEW_LABELS.workflows}
                       </TabsTrigger>
                       <TabsTrigger
                         value="pullRequests"
-                        aria-label={pullRequestTabCount ? `Pull Requests ${pullRequestTabCount}` : "Pull Requests"}
+                        aria-label={pullRequestTabCount ? `${WORKSPACE_VIEW_LABELS.pullRequests} ${pullRequestTabCount}` : WORKSPACE_VIEW_LABELS.pullRequests}
                         className="workspace-tab-trigger h-9 rounded-none"
                       >
-                        <GitPullRequest />
-                        Pull Requests
+                        <WORKSPACE_VIEW_ICONS.pullRequests />
+                        {WORKSPACE_VIEW_LABELS.pullRequests}
                         {pullRequestTabCount ? <span className="workspace-tab-count">{pullRequestTabCount}</span> : null}
                       </TabsTrigger>
                       <TabsTrigger
                         value="issues"
-                        aria-label={issueTabCount ? `Issues ${issueTabCount}` : "Issues"}
+                        aria-label={issueTabCount ? `${WORKSPACE_VIEW_LABELS.issues} ${issueTabCount}` : WORKSPACE_VIEW_LABELS.issues}
                         className="workspace-tab-trigger h-9 rounded-none"
                       >
-                        <CircleDot />
-                        Issues
+                        <WORKSPACE_VIEW_ICONS.issues />
+                        {WORKSPACE_VIEW_LABELS.issues}
                         {issueTabCount ? <span className="workspace-tab-count">{issueTabCount}</span> : null}
                       </TabsTrigger>
                     </>
@@ -7646,18 +7647,18 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                       <TabsTrigger
                         value="activity"
                         aria-label={hasUnviewedOperationError
-                          ? "Activity Log, unread error details available"
-                          : hasUnreadActivityLog ? "Activity Log, unread output available" : "Activity Log"}
+                          ? `${WORKSPACE_VIEW_LABELS.activity}, unread error details available`
+                          : hasUnreadActivityLog ? `${WORKSPACE_VIEW_LABELS.activity}, unread output available` : WORKSPACE_VIEW_LABELS.activity}
                         className="workspace-tab-trigger workspace-tab-trigger-end activity-log-tab h-9 rounded-none"
                         data-attention={hasUnviewedOperationError ? "error" : hasUnreadActivityLog ? "unread" : "none"}
                       >
-                        <Clipboard />
+                        <WORKSPACE_VIEW_ICONS.activity />
                         <span className="activity-log-attention-indicator" aria-hidden="true" />
                       </TabsTrigger>
                     </TooltipTrigger>
                     <TooltipContent>{hasUnviewedOperationError
-                      ? "View unread error details in Activity Log"
-                      : hasUnreadActivityLog ? "View unread Activity Log output" : "Activity Log"}</TooltipContent>
+                      ? "View unread error details in the activity log"
+                      : hasUnreadActivityLog ? "View unread activity log output" : WORKSPACE_VIEW_LABELS.activity}</TooltipContent>
                   </Tooltip>
                 </TabsList>
               </div>
@@ -8656,83 +8657,6 @@ function AppChrome({
   );
 }
 
-interface WindowControlsProps {
-  isMaximized: boolean;
-  onMinimize(): void;
-  onToggleMaximize(): void;
-  onClose(): void;
-}
-
-function WindowControls({
-  isMaximized,
-  onMinimize,
-  onToggleMaximize,
-  onClose
-}: WindowControlsProps): ReactNode {
-  const maximizeLabel = isMaximized ? "Restore window" : "Maximize window";
-  const MaximizeIcon = isMaximized ? Copy : Maximize2;
-
-  return (
-    <div className="window-controls" aria-label="Window controls">
-      <WindowControlButton label="Minimize window" onClick={onMinimize}>
-        <Minus />
-      </WindowControlButton>
-      <WindowControlButton label={maximizeLabel} onClick={onToggleMaximize}>
-        <MaximizeIcon />
-      </WindowControlButton>
-      <WindowControlButton label="Close window" destructive onClick={onClose}>
-        <X />
-      </WindowControlButton>
-    </div>
-  );
-}
-
-interface WindowControlButtonProps {
-  children: ReactNode;
-  destructive?: boolean;
-  label: string;
-  onClick(): void;
-}
-
-function WindowControlButton({
-  children,
-  destructive = false,
-  label,
-  onClick
-}: WindowControlButtonProps): ReactNode {
-  const [open, setOpen] = useState(false);
-
-  const closeTooltip = (): void => {
-    setOpen(false);
-  };
-
-  const handleClick = (): void => {
-    closeTooltip();
-    onClick();
-  };
-
-  return (
-    <Tooltip open={open} onOpenChange={setOpen}>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className={destructive ? "window-control window-control-close" : "window-control"}
-          aria-label={label}
-          onBlur={closeTooltip}
-          onClick={handleClick}
-          onMouseLeave={closeTooltip}
-          onPointerLeave={closeTooltip}
-        >
-          {children}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
-  );
-}
-
 function GitRequiredScreen({
   status,
   checking,
@@ -9025,7 +8949,7 @@ interface RepositoryListProps {
 
 interface RecentRepositoryRowProps {
   label?: { name: string; detail: string };
-  organizationMenu?: ReactNode;
+  renderMenuItems: RenderRepositoryMenuItems;
   hidden?: boolean;
   active?: boolean;
   disabled: boolean;
@@ -9041,18 +8965,11 @@ interface RecentRepositoryRowProps {
   onPointerDragStart: (repoPath: string) => void;
   onKeyboardMove: (repoPath: string, direction: RepositoryMoveDirection) => void;
   onSelect: (repoPath: string) => void;
-  onRemove: (repoPath: string) => void;
   onRecover: (repoPath: string, reason: string) => void;
-  onShowInExplorer: (repoPath: string) => void;
-  onOpenRepositorySettings: (repoPath: string) => void;
 }
 
 type RepositoryDropPosition = "before" | "after";
 type RepositoryMoveDirection = "up" | "down";
-type RepositoryRecoveryResult =
-  | { status: "success" }
-  | { status: "cancelled" }
-  | { status: "error"; message: string };
 
 function RepositoryList({
   className = "repo-recents",
@@ -9074,26 +8991,28 @@ function RepositoryList({
   const repositoryRowsRef = useRef(new Map<string, HTMLDivElement>());
   const [draggedRepoPath, setDraggedRepoPath] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ repoPath: string; position: RepositoryDropPosition } | null>(null);
-  const { organization, update: updateOrganization, saveError } = useRepositoryOrganization();
+  const repositoryOrganization = useRepositoryOrganization();
+  const { organization, update: updateOrganization, saveError } = repositoryOrganization;
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
-  const [organizerQuery, setOrganizerQuery] = useState<string | null>(null);
-  const [renamePath, setRenamePath] = useState<string | null>(null);
   const orderedPaths = repoPaths;
+  const { renderMenuItems, changePreference, openRecovery, openOrganizer, dialogs } = useRepositoryRowActions({
+    repoPaths: orderedPaths,
+    activeRepoPath: repoPath,
+    disabled,
+    organization: repositoryOrganization,
+    onRemove,
+    onRecover,
+    onShowInExplorer,
+    onOpenRepositorySettings,
+    ...(onRemoveWorktree ? { onRemoveWorktree } : {})
+  });
   const groupsByPath = useMemo(() => new Map(groups?.map((group) => [getRepoPathKey(group.anchorPath), group]) ?? []), [groups]);
   const labels = useMemo(() => repositoryLabels(orderedPaths, organization), [orderedPaths, organization]);
   const sections = useMemo(() => organizeRepositories(orderedPaths, groups ?? [], organization, query, showHidden, repoPath), [orderedPaths, groups, organization, query, showHidden, repoPath]);
   const visiblePaths = sections.flatMap((section) => section.collapsed ? [] : section.paths);
   const hiddenCount = orderedPaths.filter((path) => repositoryPreference(organization, path).hidden).length;
-  const changePreference = (path: string, patch: Partial<RepositoryPreference>) => updateOrganization((current) => ({
-    ...current, repositories: { ...current.repositories, [getRepoPathKey(path)]: { ...repositoryPreference(current, path), ...patch } }
-  }));
-  const organizationMenu = (path: string) => <RepositoryOrganizationMenu preference={repositoryPreference(organization, path)} onChange={(patch) => { changePreference(path, patch); }} onOrganize={() => setOrganizerQuery(path)} onRename={() => setRenamePath(path)} />;
-  const [removeTarget, setRemoveTarget] = useState<string | null>(null);
-  const [recoveryTarget, setRecoveryTarget] = useState<{ repoPath: string; reason: string } | null>(null);
-  const [recoveryError, setRecoveryError] = useState("");
-  const [recoveryRunning, setRecoveryRunning] = useState(false);
   const repositoryOrderDependency = orderedPaths.map(getRepoPathKey).join("\u0000");
   useEffect(() => {
     const activeKey = repoPath ? getRepoPathKey(repoPath) : null;
@@ -9203,7 +9122,7 @@ function RepositoryList({
             group={group}
             label={labels.get(key)!}
             hidden={repositoryPreference(organization, group.anchorPath).hidden}
-            organizationMenu={organizationMenu(group.anchorPath)}
+            renderMenuItems={renderMenuItems}
             activeRepoPath={repoPath}
             active={active}
             searchExpanded={Boolean(query.trim())}
@@ -9220,14 +9139,7 @@ function RepositoryList({
             onDragEnd={() => { draggedRepoPathRef.current = null; setDraggedRepoPath(null); setDropTarget(null); }}
             onKeyboardMove={moveRepositoryByKeyboard}
             onSelect={onSelect}
-            onRemove={() => setRemoveTarget(group.anchorPath)}
-            onRecover={(reason) => {
-              setRecoveryError("");
-              setRecoveryTarget({ repoPath: group.anchorPath, reason });
-            }}
-            onShowInExplorer={onShowInExplorer}
-            onOpenRepositorySettings={onOpenRepositorySettings}
-            {...(onRemoveWorktree ? { onRemoveWorktree } : {})}
+            onRecover={(reason) => openRecovery(group.anchorPath, reason)}
           />;
         }
           const key = getRepoPathKey(recentRepoPath);
@@ -9242,7 +9154,7 @@ function RepositoryList({
               repoPath={recentRepoPath}
               label={labels.get(key)!}
               hidden={repositoryPreference(organization, recentRepoPath).hidden}
-              organizationMenu={organizationMenu(recentRepoPath)}
+              renderMenuItems={renderMenuItems}
               rowRef={(element) => {
                 if (element) {
                   repositoryRowsRef.current.set(key, element);
@@ -9266,13 +9178,7 @@ function RepositoryList({
               }}
               onKeyboardMove={moveRepositoryByKeyboard}
               onSelect={onSelect}
-              onRemove={setRemoveTarget}
-              onRecover={(targetRepoPath, reason) => {
-                setRecoveryError("");
-                setRecoveryTarget({ repoPath: targetRepoPath, reason });
-              }}
-              onShowInExplorer={onShowInExplorer}
-              onOpenRepositorySettings={onOpenRepositorySettings}
+              onRecover={openRecovery}
             />
           );
   };
@@ -9284,7 +9190,7 @@ function RepositoryList({
         <p className="repo-recents-label">Repositories</p>
         <div className="flex items-center gap-1">
           <TooltipButton type="button" variant="ghost" size="icon-sm" aria-label="Search repositories" tooltip="Search repositories" aria-expanded={searchOpen || Boolean(query)} onMouseDown={(event) => event.preventDefault()} onClick={() => { if (searchOpen || query) { setQuery(""); setSearchOpen(false); } else { setSearchOpen(true); } }}><Search /></TooltipButton>
-          <TooltipButton type="button" variant="ghost" size="icon-sm" aria-label="Organize repositories" tooltip="Organize repositories" onClick={() => setOrganizerQuery("")}><SlidersHorizontal /></TooltipButton>
+          <TooltipButton type="button" variant="ghost" size="icon-sm" aria-label="Organize repositories" tooltip="Organize repositories" onClick={() => openOrganizer()}><SlidersHorizontal /></TooltipButton>
           {headingAction}
         </div>
       </div>
@@ -9320,82 +9226,15 @@ function RepositoryList({
       </div>
       {hiddenCount > 0 ? <button type="button" className="repository-show-hidden" aria-pressed={showHidden} onClick={() => setShowHidden((current) => !current)}>{showHidden ? "Hide inactive repositories" : `Show hidden (${hiddenCount})`}</button> : null}
     </section>
-    {renamePath !== null ? <RepositoryAliasDialog key={renamePath} path={renamePath} alias={repositoryPreference(organization, renamePath).alias} onClose={() => setRenamePath(null)} onSave={(alias) => changePreference(renamePath, { alias })} /> : null}
-    {organizerQuery !== null ? <RepositoryOrganizationDialog organization={organization} paths={orderedPaths} initialQuery={organizerQuery} onClose={() => setOrganizerQuery(null)} onSave={(draft) => updateOrganization((current) => ({ ...draft, expandedWorktrees: current.expandedWorktrees }))} /> : null}
-    <Dialog open={Boolean(removeTarget)} onOpenChange={(open) => { if (!open) setRemoveTarget(null); }}>
-      <DialogContent className="sm:max-w-[440px]">
-        <DialogHeader>
-          <DialogTitle>Remove Repository?</DialogTitle>
-          <DialogDescription>
-            This repository will no longer be tracked by Githead. The repository and all of its files will remain on disk.
-          </DialogDescription>
-        </DialogHeader>
-        <p className="break-all rounded-md border bg-muted/30 p-3 text-sm">{removeTarget}</p>
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => setRemoveTarget(null)}>Cancel</Button>
-          <Button type="button" variant="destructive" onClick={() => {
-            if (!removeTarget) return;
-            onRemove(removeTarget);
-            setRemoveTarget(null);
-          }}><Trash2 />Remove Repository</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-    <Dialog open={Boolean(recoveryTarget)} onOpenChange={(open) => {
-      if (!open && !recoveryRunning) {
-        setRecoveryTarget(null);
-        setRecoveryError("");
-      }
-    }}>
-      <DialogContent className="min-w-0 overflow-hidden sm:max-w-[480px]" showCloseButton={!recoveryRunning}>
-        <DialogHeader className="min-w-0">
-          <DialogTitle>Repository Unavailable</DialogTitle>
-          <DialogDescription className="min-w-0 break-words">
-            Githead cannot open this saved repository. Choose its new location if it still exists, or remove it from Githead.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid min-w-0 max-w-full gap-2 overflow-hidden rounded-md border bg-muted/30 p-3 text-sm">
-          <p className="break-all font-medium">{recoveryTarget?.repoPath}</p>
-          <p className="break-words text-destructive">{recoveryTarget?.reason}</p>
-        </div>
-        {recoveryError ? <p className="text-sm text-destructive" role="alert">{recoveryError}</p> : null}
-        <DialogFooter className="min-w-0 sm:flex-wrap">
-          <Button type="button" variant="outline" disabled={recoveryRunning} onClick={() => {
-            setRecoveryTarget(null);
-            setRecoveryError("");
-          }}>Cancel</Button>
-          <Button type="button" variant="destructive" disabled={recoveryRunning} onClick={() => {
-            if (!recoveryTarget) return;
-            onRemove(recoveryTarget.repoPath);
-            setRecoveryTarget(null);
-            setRecoveryError("");
-          }}><Trash2 />Remove Repository</Button>
-          <Button type="button" disabled={recoveryRunning} onClick={() => {
-            if (!recoveryTarget) return;
-            setRecoveryRunning(true);
-            setRecoveryError("");
-            void onRecover(recoveryTarget.repoPath).then((result) => {
-              if (result.status === "success") {
-                setRecoveryTarget(null);
-              } else if (result.status === "error") {
-                setRecoveryError(result.message);
-              }
-            }).finally(() => setRecoveryRunning(false));
-          }}>
-            {recoveryRunning ? <Loader2 className="animate-spin" /> : <FolderOpen />}
-            {recoveryRunning ? "Checking Location" : "Choose New Location"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    {dialogs}
     </>
   );
 }
 
-function RepositoryGroupRow({ searchExpanded, label, organizationMenu, hidden, group, activeRepoPath, active, expanded, disabled, dragging, dropPosition, syncStatuses, layoutDependency, rowRef, onToggle, onDragStart, onPointerDragStart, onDragEnd, onKeyboardMove, onSelect, onRemove, onRecover, onShowInExplorer, onOpenRepositorySettings, onRemoveWorktree }: {
+function RepositoryGroupRow({ searchExpanded, label, renderMenuItems, hidden, group, activeRepoPath, active, expanded, disabled, dragging, dropPosition, syncStatuses, layoutDependency, rowRef, onToggle, onDragStart, onPointerDragStart, onDragEnd, onKeyboardMove, onSelect, onRecover }: {
   searchExpanded: boolean;
   label?: { name: string; detail: string };
-  organizationMenu?: ReactNode;
+  renderMenuItems: RenderRepositoryMenuItems;
   hidden?: boolean;
   group: RepositoryGroup;
   activeRepoPath: string;
@@ -9413,11 +9252,7 @@ function RepositoryGroupRow({ searchExpanded, label, organizationMenu, hidden, g
   onDragEnd: () => void;
   onKeyboardMove: (repoPath: string, direction: RepositoryMoveDirection) => void;
   onSelect: (repoPath: string) => void;
-  onRemove: () => void;
   onRecover: (reason: string) => void;
-  onShowInExplorer: (repoPath: string) => void;
-  onOpenRepositorySettings: (repoPath: string) => void;
-  onRemoveWorktree?: (worktree: GitWorktree) => void;
 }): ReactNode {
   const worktreeListId = useId();
   const worktrees = group.worktrees.length ? group.worktrees : [{ path: group.anchorPath, head: null, branch: null, isMain: true, isBare: false, isDetached: false, locked: false, lockReason: null, prunable: false, prunableReason: null } satisfies GitWorktree];
@@ -9440,19 +9275,19 @@ function RepositoryGroupRow({ searchExpanded, label, organizationMenu, hidden, g
       <button type="button" className="repo-group-toggle" disabled={searchExpanded} title={searchExpanded ? "Clear search to collapse worktrees" : undefined} onClick={onToggle} aria-expanded={expanded} aria-controls={worktreeListId} aria-label={`${expanded ? "Collapse" : "Expand"} worktrees for ${displayName}`}><ChevronRight className="repo-group-chevron" /></button>
       <button type="button" className="repo-group-main" disabled={disabled || navigationActive || navigationUnavailable || Boolean(unavailableReason)} onClick={() => onSelect(group.lastUsedPath)} aria-current={navigationActive ? "true" : undefined} aria-label={`Switch to ${group.anchorPath}`}><RecentRepositoryVcsIcon kind={group.kind} /><span className="repo-recent-title" title={group.anchorPath}>{displayName}{label?.detail ? <span className="repository-path-detail">{label.detail}</span> : null}</span>{hidden ? <EyeOff className="repository-hidden-icon" aria-label="Hidden repository" /> : null}</button>
       {unavailableReason ? <RepositoryUnavailableButton repoPath={group.anchorPath} reason={unavailableReason} disabled={disabled} onClick={() => onRecover(unavailableReason)} /> : null}
-    </div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{group.anchorPath}</ContextMenuLabel><ContextMenuSeparator />{organizationMenu}<ContextMenuItem disabled={navigationUnavailable} onSelect={() => onOpenRepositorySettings(group.lastUsedPath)}><Settings />Repository Settings…</ContextMenuItem><ContextMenuItem disabled={navigationUnavailable} onSelect={() => onShowInExplorer(group.anchorPath)}><MapPinned />Show in Explorer</ContextMenuItem><ContextMenuSeparator /><ContextMenuItem variant="destructive" onSelect={onRemove}><Trash2 />Remove Repository</ContextMenuItem></ContextMenuContent></ContextMenu>
+    </div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{group.anchorPath}</ContextMenuLabel><ContextMenuSeparator />{renderMenuItems(group.anchorPath, { group })}</ContextMenuContent></ContextMenu>
     <MotionPresence present={expanded} id={worktreeListId} className="repo-worktree-list" initialY={-2}>{worktrees.map((worktree) => {
       const workspaceActive = isSameRepoPath(worktree.path, activeRepoPath);
       const unavailable = worktree.isBare || worktree.prunable;
       const status = syncStatuses[getRepoPathKey(worktree.path)] ?? null;
-      return <ContextMenu key={getRepoPathKey(worktree.path)}><ContextMenuTrigger asChild><div className={`repo-worktree-row ${workspaceActive ? "is-active" : ""}`}><button type="button" className="repo-worktree-main" disabled={disabled || workspaceActive || unavailable} onClick={() => onSelect(worktree.path)} aria-current={workspaceActive ? "true" : undefined}><GitBranchIcon /><span className="min-w-0 flex-1"><span className="repo-worktree-branch">{worktree.branch ?? (worktree.isDetached ? "Detached HEAD" : getRepoDisplayName(worktree.path))}</span>{!isSameRepoPath(worktree.path, group.anchorPath) ? <span className="repo-worktree-path">{getRepoDisplayName(worktree.path)}</span> : null}</span>{worktree.isMain ? <Badge variant="outline" className="repo-worktree-main-badge">Main</Badge> : null}{worktree.locked ? <Badge variant="outline">Locked</Badge> : null}{worktree.prunable ? <Badge variant="destructive">Missing</Badge> : null}<RepoSyncStatusChips status={status} /></button></div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{worktree.path}</ContextMenuLabel><ContextMenuSeparator /><ContextMenuItem disabled={unavailable} onSelect={() => onOpenRepositorySettings(worktree.path)}><Settings />Repository Settings…</ContextMenuItem><ContextMenuItem disabled={unavailable} onSelect={() => onShowInExplorer(worktree.path)}><MapPinned />Show in Explorer</ContextMenuItem>{!worktree.isMain && !workspaceActive && onRemoveWorktree ? <ContextMenuItem disabled={disabled || unavailable || worktree.locked} onSelect={() => onRemoveWorktree(worktree)}><Trash2 />Remove Worktree…</ContextMenuItem> : null}</ContextMenuContent></ContextMenu>;
+      return <ContextMenu key={getRepoPathKey(worktree.path)}><ContextMenuTrigger asChild><div className={`repo-worktree-row ${workspaceActive ? "is-active" : ""}`}><button type="button" className="repo-worktree-main" disabled={disabled || workspaceActive || unavailable} onClick={() => onSelect(worktree.path)} aria-current={workspaceActive ? "true" : undefined}><GitBranchIcon /><span className="min-w-0 flex-1"><span className="repo-worktree-branch">{worktree.branch ?? (worktree.isDetached ? "Detached HEAD" : getRepoDisplayName(worktree.path))}</span>{!isSameRepoPath(worktree.path, group.anchorPath) ? <span className="repo-worktree-path">{getRepoDisplayName(worktree.path)}</span> : null}</span>{worktree.isMain ? <Badge variant="outline" className="repo-worktree-main-badge">Main</Badge> : null}{worktree.locked ? <Badge variant="outline">Locked</Badge> : null}{worktree.prunable ? <Badge variant="destructive">Missing</Badge> : null}<RepoSyncStatusChips status={status} /></button></div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{worktree.path}</ContextMenuLabel><ContextMenuSeparator />{renderMenuItems(worktree.path, { group, worktree })}</ContextMenuContent></ContextMenu>;
     })}{group.error ? <p className="px-3 py-2 text-xs text-destructive">{group.error}</p> : null}</MotionPresence>
   </motion.div>;
 }
 
 function RecentRepositoryRow({
   label,
-  organizationMenu,
+  renderMenuItems,
   hidden,
   active = false,
   disabled,
@@ -9468,10 +9303,7 @@ function RecentRepositoryRow({
   onPointerDragStart,
   onKeyboardMove,
   onSelect,
-  onRemove,
-  onRecover,
-  onShowInExplorer,
-  onOpenRepositorySettings
+  onRecover
 }: RecentRepositoryRowProps): ReactNode {
   const displayName = label?.name ?? getRepoDisplayName(repoPath);
   const syncDescription = formatRepoSyncStatusDescription(syncStatus);
@@ -9546,20 +9378,7 @@ function RecentRepositoryRow({
           <ContextMenuLabel className="repo-recent-menu-path">{repoPath}</ContextMenuLabel>
         </TooltipTarget>
         <ContextMenuSeparator />
-        {organizationMenu}
-        <ContextMenuItem onSelect={() => onOpenRepositorySettings(repoPath)}>
-          <Settings />
-          Repository Settings…
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={() => onShowInExplorer(repoPath)}>
-          <MapPinned />
-          Show in Explorer
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem variant="destructive" onSelect={() => onRemove(repoPath)}>
-          <Trash2 />
-          Remove Repository
-        </ContextMenuItem>
+        {renderMenuItems(repoPath)}
       </ContextMenuContent>
     </ContextMenu>
   );
@@ -9585,69 +9404,6 @@ function RepositoryUnavailableButton({ repoPath, reason, disabled, onClick }: {
         <TriangleAlert />
       </button>
     </TooltipTarget>
-  );
-}
-
-function RecentRepositoryVcsIcon({ kind }: { kind: RepoSyncStatus["kind"] }): ReactNode {
-  const icon = kind === "lore"
-    ? {
-      label: "Lore repository",
-      src: loreIconUrl
-    }
-    : {
-      label: "Git repository",
-      src: gitIconUrl
-    };
-
-  return (
-    <TooltipTarget content={icon.label}>
-      <span
-        className={`repo-recent-vcs-icon ${kind === "lore" ? "is-lore" : "is-git"}`}
-        role="img"
-        aria-label={icon.label}
-      >
-        <img src={icon.src} alt="" aria-hidden="true" />
-      </span>
-    </TooltipTarget>
-  );
-}
-
-function SyncCountChip({
-  children,
-  className = "",
-  title
-}: {
-  children: ReactNode;
-  className?: string;
-  title?: string;
-}): ReactNode {
-  const classNames = ["sync-count-chip", className].filter(Boolean).join(" ");
-
-  return (
-    <TooltipTarget content={title}>
-      <span className={classNames} aria-hidden="true">{children}</span>
-    </TooltipTarget>
-  );
-}
-
-function RepoSyncStatusChips({ status }: { status: RepoSyncStatus | null }): ReactNode {
-  if (!status?.isValid || (status.ahead <= 0 && status.behind <= 0)) {
-    return null;
-  }
-
-  return (
-    <span className="repo-recent-sync" aria-hidden="true">
-      {status.ahead > 0 ? (
-        <SyncCountChip className="is-ahead" title={formatCommitCountLabel(status.ahead, "ahead")}>
-          {status.ahead} ↑
-        </SyncCountChip>
-      ) : null}
-      {status.behind > 0 ? (
-        <SyncCountChip className="is-behind" title={formatCommitCountLabel(status.behind, "behind")}>
-          {status.behind} ↓
-        </SyncCountChip>
-      ) : null}
-    </span>
   );
 }
 
@@ -10243,156 +9999,6 @@ function Fact({ label, value }: { label: string; value: ReactNode }): ReactNode 
       <dt>{label}</dt>
       <dd>{value}</dd>
     </div>
-  );
-}
-
-function AppUpdateControl({
-  state,
-  onCheck,
-  onDownload,
-  onInstall
-}: {
-  state: AppUpdateState;
-  onCheck: () => void;
-  onDownload: () => void;
-  onInstall: () => void;
-}): ReactNode {
-  const action = resolveAppUpdateAction(state);
-  const present = action !== "none";
-  const visibleStateRef = useRef(state);
-  if (present) {
-    visibleStateRef.current = state;
-  }
-  const visibleState = present ? state : visibleStateRef.current;
-  const visibleAction = resolveAppUpdateAction(visibleState);
-  const version = visibleState.downloadedVersion ?? visibleState.availableVersion;
-  const label = getAppUpdateButtonLabel(visibleState);
-  const disabled = visibleState.status === "checking" || visibleState.status === "downloading";
-  const icon = visibleState.status === "downloaded"
-    ? <RotateCcw />
-    : visibleState.status === "checking" || visibleState.status === "downloading"
-      ? <Loader2 className="animate-spin" />
-      : visibleAction === "check"
-        ? <RefreshCw />
-        : <Download />;
-
-  const runAction = (): void => {
-    if (visibleAction === "check") {
-      onCheck();
-      return;
-    }
-
-    if (visibleAction === "download") {
-      onDownload();
-      return;
-    }
-
-    if (window.confirm("Restart Githead now to install the downloaded update?")) {
-      onInstall();
-    }
-  };
-
-  return (
-    <MotionPresence
-      present={present}
-      className={`app-update-control is-${visibleState.status}`}
-      element="section"
-      ariaLabel="App update"
-      enterDuration={200}
-      initialY={4}
-    >
-      {visibleState.message ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant={visibleState.status === "error" ? "outline" : "secondary"}
-              disabled={disabled}
-              onClick={runAction}
-              aria-label={`${label}: ${visibleState.message}`}
-            >
-              {icon}
-              {label}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent className="[--tooltip-max-width:18rem]">
-            {visibleState.message}
-          </TooltipContent>
-        </Tooltip>
-      ) : (
-        <Button
-          type="button"
-          variant={visibleState.status === "error" ? "outline" : "secondary"}
-          disabled={disabled}
-          onClick={runAction}
-        >
-          {icon}
-          {label}
-        </Button>
-      )}
-      {version ? (
-        <div className="app-update-version-row">
-          <p className="app-update-version">Version {version}</p>
-          {visibleState.releaseNotes ? <AppUpdateReleaseNotesPopover state={visibleState} /> : null}
-        </div>
-      ) : null}
-    </MotionPresence>
-  );
-}
-
-function AppUpdateReleaseNotesPopover({ state }: { state: AppUpdateState }): ReactNode {
-  const releaseNotes = state.releaseNotes;
-  if (!releaseNotes) {
-    return null;
-  }
-
-  const openReleaseNotes = (): void => {
-    if (releaseNotes.url) {
-      void window.githead.openExternalUrl({ url: releaseNotes.url });
-    }
-  };
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button type="button" variant="ghost" size="sm" className="app-update-release-notes-trigger">
-          Release Notes
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="app-update-release-notes-popover" align="end">
-        <div className="app-update-release-notes-header">
-          <div className="min-w-0">
-            <p className="eyebrow">Release</p>
-            <h3>{releaseNotes.title || `Version ${releaseNotes.version}`}</h3>
-          </div>
-          {releaseNotes.url ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="shrink-0"
-              onClick={openReleaseNotes}
-            >
-              <ExternalLink />
-              Open on GitHub
-            </Button>
-          ) : null}
-        </div>
-        {releaseNotes.loading ? (
-          <LoadingState label="Loading release notes" className="min-h-10 p-2" />
-        ) : releaseNotes.error ? (
-          <p className="app-update-release-notes-error" role="status" aria-live="polite">{releaseNotes.error}</p>
-        ) : releaseNotes.body ? (
-          <div className="app-update-release-notes-body selectable-text">
-            <OptionalFeatureBoundary name="release notes">
-              <BasicMarkdown externalLinks>{releaseNotes.body}</BasicMarkdown>
-            </OptionalFeatureBoundary>
-          </div>
-        ) : (
-          <p className="app-update-release-notes-status">No release notes published for this version.</p>
-        )}
-      </PopoverContent>
-    </Popover>
   );
 }
 
@@ -14661,10 +14267,6 @@ function getActionFileLabel(target: GitConfiguredActionFile): string {
   return target === "shared" ? "Shared" : "Local";
 }
 
-function getRepositoryActionKey(name: string): string {
-  return name.trim().toLocaleLowerCase();
-}
-
 function createFallbackActionFileConfig(target: GitConfiguredActionFile): GitConfiguredActionFileConfig {
   return {
     target,
@@ -14948,10 +14550,6 @@ function getCurrentHistoryHeadSha(
   return decoratedHead?.hash ?? (scope === "current" ? history[0]?.hash ?? null : null);
 }
 
-function isGitHubView(view: WorkspaceView): boolean {
-  return view === "workflows" || view === "pullRequests" || view === "issues";
-}
-
 function getCommitByHash(history: GitCommitGraphRow[], hash: string): GitCommitGraphRow | null {
   return history.find((commit) => commit.hash === hash) ?? null;
 }
@@ -14963,24 +14561,6 @@ function getCommitTags(commit: GitCommitGraphRow): Array<{ name: string }> {
 function getCommitSummaryLabel(commit: GitCommitGraphRow): string {
   const subject = commit.subject || "(no subject)";
   return `${commit.shortHash}: ${subject}`;
-}
-
-function getPushRemotes(summary: RepoSummary | null): string[] {
-  if (!summary) {
-    return [];
-  }
-
-  return [...new Set(summary.remotes.filter((remote) => remote.direction === "push").map((remote) => remote.name))];
-}
-
-function shouldPublishInsteadOfPush(summary: RepoSummary | null): summary is RepoSummary {
-  return Boolean(
-    summary?.isValid &&
-    (summary.capabilities.setUpstream ?? true) &&
-    summary.branch &&
-    !summary.upstream &&
-    getPushRemotes(summary).length > 0
-  );
 }
 
 function getDefaultPublishRemote(summary: RepoSummary): string {
@@ -14999,19 +14579,6 @@ function getDefaultPushRemote(summary: RepoSummary): string {
   return pushRemotes.includes("origin") ? "origin" : pushRemotes[0] ?? "";
 }
 
-function getRemoteDefaultBranch(summary: RepoSummary | null): GitRemoteBranch | null {
-  if (!summary?.isValid) {
-    return null;
-  }
-
-  // origin/HEAD can be locally unset (e.g. manually added remotes), so fall
-  // back to the conventional default branch names.
-  return summary.defaultRemoteBranch
-    ?? summary.remoteBranches.find((remoteBranch) => remoteBranch.name === "origin/main")
-    ?? summary.remoteBranches.find((remoteBranch) => remoteBranch.name === "origin/master")
-    ?? null;
-}
-
 function getCreatePrBaseBranches(summary: RepoSummary | null): string[] {
   if (!summary?.isValid) {
     return [];
@@ -15021,35 +14588,6 @@ function getCreatePrBaseBranches(summary: RepoSummary | null): string[] {
   return summary.remoteBranches
     .filter((remoteBranch) => remoteBranch.remote === remoteName)
     .map((remoteBranch) => remoteBranch.branch);
-}
-
-function shouldShowCreatePullRequest(
-  summary: RepoSummary | null,
-  pullRequests: GitHubPullRequestAssociation[],
-  _hasPullRequestData: boolean
-): boolean {
-  if (!summary?.isValid || !summary.capabilities.github || !summary.githubRepository || !summary.branch) {
-    return false;
-  }
-
-  const defaultBranch = getRemoteDefaultBranch(summary);
-  if (!defaultBranch || summary.branch === defaultBranch.branch) {
-    return false;
-  }
-
-  const aheadOfDefault = summary.commitsAheadOfDefaultBranch !== null
-    ? summary.commitsAheadOfDefaultBranch > 0
-    : hasUnpushedCommits(summary) || shouldPublishInsteadOfPush(summary);
-  if (!aheadOfDefault) {
-    return false;
-  }
-
-  return pullRequests.length === 0;
-}
-
-function formatPullRequestAssociationState(pullRequest: GitHubPullRequestAssociation): string {
-  if (pullRequest.draft) return "Draft";
-  return pullRequest.state.charAt(0).toUpperCase() + pullRequest.state.slice(1).toLowerCase();
 }
 
 function formatCheckStateLabel(state: import("../shared/types").GitHubCheckState): string {
@@ -15517,70 +15055,6 @@ function getAmendDisabledReason(state: AppState): string | null {
   return null;
 }
 
-type AppUpdateAction = "check" | "download" | "install" | "none";
-
-function resolveAppUpdateAction(state: AppUpdateState): AppUpdateAction {
-  if (state.status === "available") {
-    return "download";
-  }
-
-  if (state.status === "downloaded") {
-    return "install";
-  }
-
-  if (state.status === "error" && state.canRetry) {
-    return "check";
-  }
-
-  if (state.status === "checking" || state.status === "downloading") {
-    return "check";
-  }
-
-  return "none";
-}
-
-function getAppUpdateButtonLabel(state: AppUpdateState): string {
-  if (state.status === "checking") {
-    return "Checking for updates";
-  }
-
-  if (state.status === "downloading") {
-    return typeof state.downloadPercent === "number"
-      ? `Downloading ${Math.floor(state.downloadPercent)}%`
-      : "Downloading update";
-  }
-
-  if (state.status === "downloaded") {
-    return "Restart to update";
-  }
-
-  if (state.status === "error") {
-    return getAppUpdateMessageSummary(state);
-  }
-
-  if (state.status === "available" && state.errorContext === "download") {
-    return "Retry update download";
-  }
-
-  return "Update available";
-}
-
-function getAppUpdateMessageSummary(state: AppUpdateState): string {
-  if (state.status !== "error") {
-    return state.message ?? "";
-  }
-
-  if (state.errorContext === "download") {
-    return "Update download failed";
-  }
-
-  if (state.errorContext === "install") {
-    return "Update install failed";
-  }
-
-  return "Update check failed";
-}
-
 function isSameRepoPath(left: string, right: string): boolean {
   return getRepoPathKey(left) === getRepoPathKey(right);
 }
@@ -15651,25 +15125,6 @@ function createRepoSyncStatusFromSummary(summary: RepoSummary): RepoSyncStatus {
     behind: counts?.behind ?? 0,
     error: summary.isValid ? "" : summary.validationErrors.join(" ")
   };
-}
-
-function formatRepoSyncStatusDescription(status: RepoSyncStatus | null): string {
-  if (!status?.isValid) {
-    return "";
-  }
-
-  return [
-    status.ahead > 0 ? formatCommitCountLabel(status.ahead, "ahead") : "",
-    status.behind > 0 ? formatCommitCountLabel(status.behind, "behind") : ""
-  ].filter(Boolean).join(", ");
-}
-
-function formatActionCountLabel(action: "Pull" | "Push", count: number): string {
-  return `${action} ${count} ${count === 1 ? "commit" : "commits"}`;
-}
-
-function formatCommitCountLabel(count: number, direction: "ahead" | "behind"): string {
-  return `${count} ${count === 1 ? "commit" : "commits"} ${direction}`;
 }
 
 function moveRepoPath(repoPaths: string[], fromRepoPath: string, toRepoPath: string, position: RepositoryDropPosition): string[] {

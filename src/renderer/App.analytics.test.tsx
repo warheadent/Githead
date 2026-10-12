@@ -38,14 +38,14 @@ describe("analytics workspace tab", () => {
     await user.click(await screen.findByRole("tab", { name: "Code" }));
     await user.click(await screen.findByRole("button", { name: "Open file history for src/app.ts" }));
     await waitFor(() => expect(githead.getFileHistory).toHaveBeenCalledWith(expect.objectContaining({ repoPath, startHash: "b".repeat(40), path: "src/app.ts" })));
-    expect(screen.getByRole("tab", { name: "Commit History" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: "History" }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("hides analytics for repositories that do not support it", async () => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ kind: "lore", capabilities: loreCapabilities() }));
     render(<App />);
     await waitForRepositoryWorkspace();
-    await screen.findByRole("tab", { name: /File Status/ });
+    await screen.findByRole("tab", { name: /^Changes/ });
     expect(screen.queryByRole("tab", { name: "Analytics" })).toBeNull();
     expect(githead.getRepositoryAnalytics).not.toHaveBeenCalled();
   });

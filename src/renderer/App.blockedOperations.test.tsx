@@ -145,7 +145,7 @@ describe("unrelated tasks during Git operations", { timeout: 20_000 }, () => {
     vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
     vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash, { files: [{ path: "sample.txt", status: "M", additions: 1, deletions: 1 }] }));
     const fetch = await startFetch();
-    await user.click(screen.getByRole("tab", { name: "Commit History" }));
+    await user.click(screen.getByRole("tab", { name: "History" }));
     await user.click(await screen.findByRole("button", { name: "Copy commit SHA" }));
     await waitFor(() => expect(githead.copyCommitShaToClipboard).toHaveBeenCalledWith({ repoPath, hash: commit.hash }));
     const files = await screen.findByRole("listbox", { name: "Changed files" });

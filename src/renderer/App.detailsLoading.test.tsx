@@ -32,7 +32,7 @@ describe("Commit detail loading", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     await waitFor(() => expect(githead.getCommitFileDiff).toHaveBeenCalledTimes(1));
     const previousRequestId = vi.mocked(githead.getCommitFileDiff).mock.calls[0]![0].requestId;
 
@@ -59,7 +59,7 @@ describe("Commit detail loading", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     await waitFor(() => expect(githead.getCommitFileDiff).toHaveBeenCalledTimes(1));
     await user.click(screen.getByRole("option", { name: /empty commit/ }));
     await waitFor(() => expect(githead.getCommitDetails).toHaveBeenCalledTimes(2));
@@ -85,7 +85,7 @@ describe("Commit detail loading", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     await waitFor(() => expect(githead.getCommitDetails).toHaveBeenCalledTimes(1));
     await user.click(screen.getByRole("option", { name: /second commit/ }));
     await user.click(screen.getByRole("option", { name: /first commit/ }));
@@ -115,7 +115,7 @@ describe("Commit detail loading", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     await waitFor(() => expect(pendingRead === "details" ? githead.getCommitDetails : githead.getCommitFileDiff).toHaveBeenCalledTimes(1));
     emitRepoChanged({ reason: "filesystem-metadata" });
     await screen.findByText("No commits in this repository.");

@@ -618,11 +618,11 @@ describe("App", { timeout: 10_000 }, () => {
     fireEvent.scroll(statusList);
     expect(screen.queryByRole("listbox", { name: "Commit history" })).toBeNull();
 
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     expect(await screen.findByRole("listbox", { name: "Commit history" })).toBeTruthy();
     expect(screen.queryByRole("option", { name: /persisted-18\.ts/ })).toBeNull();
 
-    await user.click(screen.getByRole("tab", { name: /File Status/ }));
+    await user.click(screen.getByRole("tab", { name: /^Changes/ }));
     expect((await screen.findByRole("option", { name: /persisted-18\.ts/ })).getAttribute("aria-selected")).toBe("true");
     await waitFor(() => {
       expect(screen.getByRole("listbox", { name: "Unstaged files" }).scrollTop).toBe(340);
@@ -636,14 +636,14 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
 
     render(<App />);
-    await user.click(await screen.findByRole("tab", { name: /Commit History/ }));
+    await user.click(await screen.findByRole("tab", { name: /^History$/ }));
     const historyRow = await screen.findByRole("option", { name: /retained history row/ });
 
-    await user.click(screen.getByRole("tab", { name: /File Status/ }));
+    await user.click(screen.getByRole("tab", { name: /^Changes/ }));
     expect(screen.getByRole("option", { name: /retained history row/ })).toBe(historyRow);
     expect(document.querySelectorAll(".history-row")).toHaveLength(1);
 
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     expect(await screen.findByRole("option", { name: /retained history row/ })).toBe(historyRow);
   });
 
@@ -656,7 +656,7 @@ describe("App", { timeout: 10_000 }, () => {
     })));
 
     render(<App />);
-    await user.click(await screen.findByRole("tab", { name: /Commit History/ }));
+    await user.click(await screen.findByRole("tab", { name: /^History$/ }));
     const firstRow = await screen.findByRole("option", { name: /virtual history 0/ });
 
     expect(document.querySelectorAll(".history-row").length).toBeLessThan(200);
@@ -677,7 +677,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await flushRendererAsync();
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /Commit History/ }), {
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /^History$/ }), {
       button: 0
     });
     await flushRendererAsync();
@@ -686,13 +686,13 @@ describe("App", { timeout: 10_000 }, () => {
 
     emitRepoChanged();
     await flushRendererAsync();
-    expect(screen.getByRole("tab", { name: "File Status 1" })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: /Commit History/ }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: "Changes 1" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /^History$/ }).getAttribute("aria-selected")).toBe("true");
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(2);
     expect(githead.getRepoMetadata).toHaveBeenCalledTimes(metadataCalls);
     expect(githead.getCommitHistory).toHaveBeenCalledTimes(historyCalls);
 
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /File Status/ }), {
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /^Changes/ }), {
       button: 0
     });
     await flushRendererAsync();
@@ -700,13 +700,13 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(2);
     expect(screen.getByRole("option", { name: /src\/deferred\.ts/ })).toBeTruthy();
 
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /Commit History/ }), { button: 0 });
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /^History$/ }), { button: 0 });
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary());
     emitRepoChanged();
     await flushRendererAsync();
-    const statusTab = screen.getByRole("tab", { name: "File Status" });
+    const statusTab = screen.getByRole("tab", { name: "Changes" });
     expect(statusTab.querySelector(".workspace-tab-count")).toBeNull();
-    expect(screen.getByRole("tab", { name: /Commit History/ }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: /^History$/ }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("ignores file change events for stale repositories", async () => {
@@ -721,7 +721,10 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["File Status", "Commit History"])("coalesces file changes during an in-flight refresh into one trailing refresh in %s", async (view) => {
+  it.each([
+    { view: "Changes", tabName: /^Changes/ },
+    { view: "History", tabName: /^History$/ }
+  ])("coalesces file changes during an in-flight refresh into one trailing refresh in $view", async ({ tabName }) => {
     const pendingRefresh = defer<RepoSummary>();
     const largeFiles = Array.from({ length: 10_000 }, (_, index) => createStatusFile(
       `generated/live-${index.toString().padStart(5, "0")}.ts`,
@@ -752,7 +755,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await flushRendererAsync();
     expect(screen.getAllByRole("option").length).toBeLessThan(100);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: new RegExp(view) }), { button: 0 });
+    fireEvent.mouseDown(screen.getByRole("tab", { name: tabName }), { button: 0 });
     await flushRendererAsync();
     const metadataCallsBeforeLiveUpdate = vi.mocked(githead.getRepoMetadata).mock.calls.length;
     emitRepoChanged();
@@ -770,8 +773,8 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(3);
     expect(githead.getRepoMetadata).toHaveBeenCalledTimes(metadataCallsBeforeLiveUpdate);
     expect(maxActiveSummaryCalls).toBe(1);
-    expect(screen.getByRole("tab", { name: "File Status 1" })).toBeTruthy();
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /File Status/ }), { button: 0 });
+    expect(screen.getByRole("tab", { name: "Changes 1" })).toBeTruthy();
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /^Changes/ }), { button: 0 });
     await flushRendererAsync();
     expect(screen.getByRole("option", { name: /src\/final\.ts/ })).toBeTruthy();
   });
@@ -1355,7 +1358,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     await user.click(screen.getByRole("button", { name: "All branches" }));
     await screen.findByText(`all history for ${repoPath}`);
 
@@ -1442,10 +1445,10 @@ describe("App", { timeout: 10_000 }, () => {
       actionsConfig: createActionsConfig()
     });
     render(<App />);
-    expect(await screen.findByRole("tab", { name: /Workflow Runs/ })).toBeTruthy();
+    expect(await screen.findByRole("tab", { name: /^Workflow runs/ })).toBeTruthy();
     pendingStatus.resolve({ repoPath, generation: 1, ahead: null, behind: null, files: [createStatusFile("src/later.ts", { isUnstaged: true, worktreeStatus: "M" })], operationState: null });
     expect(await screen.findByRole("option", { name: /src\/later\.ts/ })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: /Workflow Runs/ })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /^Workflow runs/ })).toBeTruthy();
   });
 
   it("ignores an unresolved diff from Repository A after switching to Repository B", async () => {

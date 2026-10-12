@@ -1,18 +1,8 @@
 import { ArrowLeft, ArrowRight, ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button, TooltipButton } from "@/components/ui/button";
-import type { WorkspaceLocation, WorkspaceView } from "./useWorkspaceNavigation";
-
-const viewLabels: Record<WorkspaceView, string> = {
-  status: "File Status",
-  stashes: "Stashes",
-  history: "Commit History",
-  analytics: "Analytics",
-  workflows: "Workflows",
-  pullRequests: "Pull Requests",
-  issues: "Issues",
-  activity: "Activity Log"
-};
+import type { WorkspaceLocation } from "./useWorkspaceNavigation";
+import { WORKSPACE_VIEW_LABELS } from "./workspaceViews";
 
 export function WorkspaceBreadcrumbs({ location, repositoryName, canGoBack, canGoForward, onBack, onForward, onNavigate }: {
   location: WorkspaceLocation;
@@ -37,8 +27,8 @@ export function WorkspaceBreadcrumbs({ location, repositoryName, canGoBack, canG
         </li>
         <li aria-hidden="true"><ChevronRight className="size-3" /></li>
         <li className="shrink-0">
-          {nestedHistory ? <Button type="button" variant="ghost" size="sm" className="h-6 px-1 text-xs" onClick={() => onNavigate({ ...location, historyRoute: { kind: "repository" } })}>Commit History</Button>
-            : <span aria-current="page">{viewLabels[location.activeView]}</span>}
+          {nestedHistory ? <Button type="button" variant="ghost" size="sm" className="h-6 px-1 text-xs" onClick={() => onNavigate({ ...location, historyRoute: { kind: "repository" } })}>{WORKSPACE_VIEW_LABELS.history}</Button>
+            : <span aria-current="page">{WORKSPACE_VIEW_LABELS[location.activeView]}</span>}
         </li>
         {nestedHistory ? <>
           <li aria-hidden="true"><ChevronRight className="size-3" /></li>

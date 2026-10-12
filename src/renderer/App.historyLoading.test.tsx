@@ -36,7 +36,7 @@ describe("history loading recovery", () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     expect(githead.getCommitHistory).toHaveBeenCalledTimes(1);
     failedHistory.reject(new Error("History is temporarily unavailable."));
     await flushRendererAsync();
@@ -56,7 +56,7 @@ describe("history loading recovery", () => {
     retryHistory.resolve([createCommit({ subject: "feat: recovered history" })]);
     expect(await screen.findByRole("option", { name: /recovered history/ })).toBeTruthy();
     expect(screen.queryByText("Loading commit history")).toBeNull();
-    expect(screen.getByRole("tab", { name: /Commit History/ }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: /^History$/ }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByRole("button", { name: "Current branch" }).getAttribute("aria-pressed")).toBe("true");
     expect(githead.getCommitHistory).toHaveBeenCalledTimes(2);
   });
@@ -73,7 +73,7 @@ describe("history loading recovery", () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     failedHistory.reject(new Error("Initial history load failed."));
     await flushRendererAsync();
     await user.click(screen.getByRole("button", { name: "Retry loading commit history" }));
@@ -90,7 +90,7 @@ describe("history loading recovery", () => {
     await user.click(screen.getByRole("button", { name: "Retry loading commit history" }));
     expect(await screen.findByRole("option", { name: /recovered after retry failure/ })).toBeTruthy();
     expect(screen.queryByText("History is still unavailable.")).toBeNull();
-    expect(screen.getByRole("tab", { name: /Commit History/ }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: /^History$/ }).getAttribute("aria-selected")).toBe("true");
     expect(githead.getCommitHistory).toHaveBeenCalledTimes(3);
   });
 
@@ -103,7 +103,7 @@ describe("history loading recovery", () => {
     render(<App />);
     await waitForRepositoryWorkspace();
     if (retry === "repository change") {
-      await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+      await user.click(screen.getByRole("tab", { name: /^History$/ }));
     }
     await runIdleCallbacks();
     expect(githead.getCommitHistory).toHaveBeenCalledTimes(1);
@@ -122,7 +122,7 @@ describe("history loading recovery", () => {
       await runIdleCallbacks();
       expect(githead.getCommitHistory).toHaveBeenCalledTimes(2);
     }
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     expect(await screen.findByRole("option", { name: /recovered history/ })).toBeTruthy();
     expect(githead.getCommitHistory).toHaveBeenCalledTimes(2);
   });

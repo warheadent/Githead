@@ -243,9 +243,9 @@ describe("App", { timeout: 10_000 }, () => {
     }));
     expect(await screen.findByDisplayValue("feat(status): add commit plans")).toBeTruthy();
 
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     await screen.findByRole("listbox", { name: "Commit history" });
-    await user.click(screen.getByRole("tab", { name: /File Status/ }));
+    await user.click(screen.getByRole("tab", { name: /^Changes/ }));
     expect(await screen.findByDisplayValue("feat(status): add commit plans")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Quick Commit" }));
@@ -335,7 +335,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getCommitHistory).mockResolvedValue(commits);
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: "Commit History" }));
+    await user.click(screen.getByRole("tab", { name: "History" }));
     await screen.findByRole("button", { name: "Load more commits" });
     vi.useFakeTimers();
     await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
@@ -355,7 +355,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getCommitHistory).mockResolvedValue(commits);
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: "Commit History" }));
+    await user.click(screen.getByRole("tab", { name: "History" }));
     await screen.findByRole("button", { name: "Load more commits" });
 
     for (let refresh = 0; refresh < 2; refresh += 1) {
@@ -377,7 +377,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getCommitHistory).mockImplementation(async ({ limit }) => commits.slice(0, limit));
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: "Commit History" }));
+    await user.click(screen.getByRole("tab", { name: "History" }));
     const selected = await screen.findByRole("option", { name: /History entry 0/ });
     expect(selected.getAttribute("aria-selected")).toBe("true");
     const list = screen.getByRole("listbox", { name: "Commit history" });
@@ -395,8 +395,8 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.queryByRole("button", { name: "Load more commits" })).toBeNull();
     fireEvent.scroll(list, { target: { scrollTop: 0 } });
     expect(screen.getByRole("option", { name: /History entry 0/ }).getAttribute("aria-selected")).toBe("true");
-    await user.click(screen.getByRole("tab", { name: "File Status" }));
-    await user.click(screen.getByRole("tab", { name: "Commit History" }));
+    await user.click(screen.getByRole("tab", { name: "Changes" }));
+    await user.click(screen.getByRole("tab", { name: "History" }));
     await waitFor(() => expect(githead.getCommitHistory).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 602 })));
   });
 
@@ -409,7 +409,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getCommitHistory).mockResolvedValueOnce(commits).mockReturnValueOnce(pending.promise).mockResolvedValue(commits);
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: "Commit History" }));
+    await user.click(screen.getByRole("tab", { name: "History" }));
     await user.click(await screen.findByRole("button", { name: "Load more commits" }));
     expect(screen.getByRole("button", { name: "Loading commits…" }).hasAttribute("disabled")).toBe(true);
     const list = screen.getByRole("listbox", { name: "Commit history" });
@@ -449,13 +449,13 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.getCommitHistory).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ limit: 201, scope: "current" }));
     expect(githead.getCommitDetails).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     expect(screen.getByRole("option", { name: /preloaded history 0/ }).getAttribute("aria-setsize")).toBe("25");
     expect(githead.getCommitHistory).toHaveBeenCalledTimes(1);
     expect(githead.getCommitDetails).toHaveBeenCalledWith(expect.objectContaining({ hash: history[0]!.hash }));
 
-    await user.click(screen.getByRole("tab", { name: /File Status/ }));
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^Changes/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     expect(githead.getCommitHistory).toHaveBeenCalledTimes(2);
   });
 
@@ -478,7 +478,7 @@ describe("App", { timeout: 10_000 }, () => {
     await waitForRepositoryWorkspace();
     act(() => idleCallback?.({ didTimeout: false, timeRemaining: () => 50 }));
     await waitFor(() => expect(githead.getCommitHistory).toHaveBeenCalledTimes(1));
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     pendingHistory.resolve(history);
     expect((await screen.findByRole("option", { name: /pending history 0/ })).getAttribute("aria-setsize")).toBe("25");
     expect(githead.getCommitHistory).toHaveBeenCalledTimes(1);
@@ -514,7 +514,7 @@ describe("App", { timeout: 10_000 }, () => {
       pendingHistory.resolve(history);
       await flushRendererAsync();
     }
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     expect(await screen.findByRole("option", { name: /current head/ })).toBeTruthy();
     expect(githead.getCommitHistory).toHaveBeenCalledTimes(2);
   });
@@ -525,7 +525,7 @@ describe("App", { timeout: 10_000 }, () => {
     const pendingMetadata = defer<Awaited<ReturnType<GitheadApi["getRepoMetadata"]>>>();
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     await waitFor(() => expect(githead.getCommitHistory).toHaveBeenCalledTimes(1));
     const status = await githead.getRepoStatus({ repoPath, generation: 2 });
     const metadata = await githead.getRepoMetadata({ repoPath, generation: 2 });
@@ -573,7 +573,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
 
     await waitFor(() => expect(screen.getAllByText("Feature")).toHaveLength(2));
     const historyBadge = screen.getAllByText("Feature").find((badge) => badge.closest(".history-row"));
@@ -617,7 +617,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getCommitHistory).mockResolvedValue([createCommit()]);
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     const list = await screen.findByRole("listbox", { name: "Commit history" });
     const header = screen.getByRole("region", { name: "Commit list" }).querySelector<HTMLElement>(".history-table-header")!;
     fireEvent.scroll(list, { target: { scrollLeft: 100 } });
@@ -636,7 +636,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getCommitHistory).mockResolvedValue(commits);
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: "Commit History" }));
+    await user.click(screen.getByRole("tab", { name: "History" }));
     const list = await screen.findByRole("listbox", { name: "Commit history" });
     const svg = screen.getByTestId("commit-graph-svg");
     expect(Number(svg.getAttribute("height"))).toBeLessThan(commits.length * 28);
@@ -682,7 +682,7 @@ describe("App", { timeout: 10_000 }, () => {
     try {
       render(<App />);
       await waitForRepositoryWorkspace();
-      await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+      await user.click(screen.getByRole("tab", { name: /^History$/ }));
 
       expect(await screen.findByTestId("commit-graph-svg")).toBeTruthy();
       expect(screen.getByRole("region", { name: "Commit list" }).style.getPropertyValue("--history-graph-offset")).toBe("calc(12px)");
@@ -711,7 +711,7 @@ describe("App", { timeout: 10_000 }, () => {
     try {
       render(<App />);
       await waitForRepositoryWorkspace();
-      await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+      await user.click(screen.getByRole("tab", { name: /^History$/ }));
 
       expect(await screen.findByRole("option", { name: /hide history graph/ })).toBeTruthy();
       expect(screen.queryByTestId("commit-graph-svg")).toBeNull();
@@ -741,7 +741,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
 
     const scopeControl = screen.getByRole("group", { name: "Commit history scope" });
     const currentButton = within(scopeControl).getByRole("button", { name: "Current branch" });
@@ -783,7 +783,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     await screen.findByRole("option", { name: /stable current history/ });
 
     await user.click(screen.getByRole("button", { name: "All branches" }));
@@ -811,7 +811,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     await user.click(screen.getByRole("button", { name: "All branches" }));
     await screen.findByRole("option", { name: /first remote/ });
     await user.click(screen.getByRole("button", { name: "Fetch" }));
@@ -837,7 +837,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
 
     try {
       await user.click(screen.getByRole("button", { name: "Choose table columns" }));
@@ -872,7 +872,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     await user.click(screen.getByRole("button", { name: "All branches" }));
 
     await waitFor(() => expect(githead.getGitHubHistoryInsights).toHaveBeenLastCalledWith(expect.objectContaining({
@@ -909,7 +909,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     const secondRow = await screen.findByRole("option", { name: /selected commit/ });
 
     emitRepoChanged({ reason: "filesystem-metadata" });
@@ -954,11 +954,11 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     await screen.findByRole("option", { name: /previous head/ });
 
-    await user.click(screen.getByRole("tab", { name: /File Status/ }));
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^Changes/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
 
     expect(screen.getByRole("option", { name: /previous head/ })).toBeTruthy();
     expect(screen.getByText("Refreshing commit history")).toBeTruthy();
@@ -987,7 +987,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     await screen.findByRole("option", { name: /removed commit/ });
 
     emitRepoChanged({ reason: "filesystem-metadata" });
@@ -1014,7 +1014,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     const commitRow = await screen.findByRole("option", { name: /stable stale history/ });
 
     emitRepoChanged({ reason: "filesystem-metadata" });
@@ -1032,7 +1032,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
 
     expect(await screen.findByText("initial history unavailable")).toBeTruthy();
     const historyError = within(screen.getByRole("group", { name: "Commit history" }));
@@ -1060,7 +1060,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
 
     expect(await screen.findByText(/Preserve/)).toBeTruthy();
     expect(screen.getByText("Preserve", { exact: false }).closest("ul")?.tagName).toBe("UL");
@@ -1092,7 +1092,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
 
     const firstBullet = await screen.findByText("Commit body bullet 1");
     const metaScroller = firstBullet.closest(".commit-meta-scroll");
@@ -1119,7 +1119,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash));
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     const copy = await screen.findByRole("button", { name: "Copy commit SHA" });
     expect(screen.getByText("Commit details", { selector: "summary" }).parentElement?.hasAttribute("open")).toBe(false);
     await user.click(copy);
@@ -1145,7 +1145,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     await user.click(await screen.findByText("Commit details", { selector: "summary" }));
     const parentLink = await screen.findByRole("link", { name: parentHash.slice(0, 10) });
 
@@ -1187,7 +1187,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     const secondRow = await screen.findByRole("option", { name: /second commit/ });
 
     fireEvent.contextMenu(secondRow);
@@ -1217,7 +1217,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     const row = await screen.findByRole("option", { name: /copy without blocking/ });
     fireEvent.contextMenu(row);
     await user.click(await screen.findByRole("menuitem", { name: /Copy SHA to clipboard/ }));
@@ -1245,7 +1245,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /reset target/ }));
     await user.click(await screen.findByRole("menuitem", { name: /Reset current branch to this commit/ }));
     await user.selectOptions(await screen.findByLabelText("Using mode"), "hard");
@@ -1274,7 +1274,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /reverse target/ }));
     await user.click(await screen.findByRole("menuitem", { name: /Reverse commit/ }));
 
@@ -1310,7 +1310,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     const commitFile = await screen.findByRole("option", { name: /src\/App\.test\.tsx/ });
 
     fireEvent.contextMenu(commitFile);
@@ -1360,7 +1360,7 @@ describe("App", { timeout: 10_000 }, () => {
     });
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     const commitFile = await screen.findByRole("option", { name: /src\/App\.tsx/ });
     fireEvent.contextMenu(commitFile);
     await user.click(await screen.findByRole("menuitem", { name: "Log Selected" }));
@@ -1436,7 +1436,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     expect(screen.queryByRole("button", { name: "Cherry-pick selected…" })).toBeNull();
     fireEvent.contextMenu(await screen.findByRole("option", { name: /pick this change/ }));
     await user.click(await screen.findByRole("menuitem", { name: "Cherry-pick commit…" }));
@@ -1465,7 +1465,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /already on this branch/ }));
 
     const item = await screen.findByRole("menuitem", { name: "Cherry-pick commit…" });
@@ -1490,7 +1490,7 @@ describe("App", { timeout: 10_000 }, () => {
     });
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     const commitFile = await screen.findByRole("option", { name: /src\/App\.tsx/ });
     fireEvent.contextMenu(commitFile);
     await user.click(await screen.findByRole("menuitem", { name: "Blame Selected" }));
@@ -1514,7 +1514,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getFileBlame).mockReturnValue(pendingBlame.promise);
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
     await user.click(await screen.findByRole("menuitem", { name: "Blame Selected" }));
     await screen.findByText("Loading blame");
@@ -1548,7 +1548,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     const commitFile = await screen.findByRole("option", { name: /src\/App\.test\.tsx/ });
 
     fireEvent.contextMenu(commitFile);
@@ -1600,7 +1600,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     const commitFile = await screen.findByRole("option", { name: /src\/App\.test\.tsx/ });
 
     fireEvent.contextMenu(commitFile);
@@ -1649,7 +1649,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     const commitFile = await screen.findByRole("option", { name: /src\/App\.test\.tsx/ });
 
     fireEvent.contextMenu(commitFile);
@@ -1685,7 +1685,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /tag target/ }));
     await user.click(await screen.findByRole("menuitem", { name: /^Tag$/ }));
     await user.click(screen.getByRole("button", { name: "Create tag" }));
@@ -1720,7 +1720,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /lightweight tag target/ }));
     await user.click(await screen.findByRole("menuitem", { name: /^Tag$/ }));
     await user.type(screen.getByLabelText("Tag name"), "latest");
@@ -1810,7 +1810,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /remove tag target/ }));
     await user.click(await screen.findByRole("menuitem", { name: /^Tag$/ }));
     await user.click(screen.getByRole("tab", { name: /Remove/ }));
@@ -1842,7 +1842,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /protected tag removal/ }));
     await user.click(await screen.findByRole("menuitem", { name: /^Tag$/ }));
     await user.click(screen.getByRole("tab", { name: /Remove/ }));
@@ -2307,7 +2307,7 @@ it("omits graph blur filters when visual effects are off", async () => {
   const user = userEvent.setup();
   render(<App />);
   await waitForRepositoryWorkspace();
-  await user.click(screen.getByRole("tab", { name: "Commit History" }));
+  await user.click(screen.getByRole("tab", { name: "History" }));
   const svg = await screen.findByTestId("commit-graph-svg");
   expect(svg.querySelector("filter")).toBeNull();
   expect(screen.getAllByTestId("commit-graph-node")).toHaveLength(1);

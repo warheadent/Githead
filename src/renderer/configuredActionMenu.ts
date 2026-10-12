@@ -1,4 +1,15 @@
-import type { GitConfiguredAction } from "../shared/types";
+import type { GitConfiguredAction, OperationCancelStatus } from "../shared/types";
+
+export interface ConfiguredActionRun {
+  id: number;
+  operationId: string;
+  name: string;
+  repoPath: string;
+  /** Epoch milliseconds when the renderer started the run. */
+  startedAt: number;
+  cancelStatus: OperationCancelStatus;
+  cancelError: string;
+}
 
 export type ConfiguredActionMenuEntry =
   | {

@@ -113,8 +113,8 @@ describe("App", { timeout: 10_000 }, () => {
     const { unmount } = render(<App />);
 
     await waitForRepositoryWorkspace();
-    expect(screen.queryByRole("tab", { name: /Workflow Runs/ })).toBeNull();
-    expect(screen.queryByRole("tab", { name: /Pull Requests/ })).toBeNull();
+    expect(screen.queryByRole("tab", { name: /^Workflow runs/ })).toBeNull();
+    expect(screen.queryByRole("tab", { name: /^Pull requests/ })).toBeNull();
     expect(screen.queryByRole("tab", { name: /Issues/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     fireEvent.change(await screen.findByRole("combobox", { name: "Settings category" }), { target: { value: "integrations" } });
@@ -126,8 +126,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByRole("tab", { name: /Workflow Runs/ });
-    expect(screen.getByRole("tab", { name: /Pull Requests/ })).toBeTruthy();
+    await screen.findByRole("tab", { name: /^Workflow runs/ });
+    expect(screen.getByRole("tab", { name: /^Pull requests/ })).toBeTruthy();
     expect(screen.getByRole("tab", { name: /Issues/ })).toBeTruthy();
   });
 
@@ -145,7 +145,7 @@ describe("App", { timeout: 10_000 }, () => {
         repoPath
       }));
     });
-    expect(await screen.findByRole("tab", { name: /Pull Requests 4/ })).toBeTruthy();
+    expect(await screen.findByRole("tab", { name: /^Pull requests 4/ })).toBeTruthy();
     expect(screen.getByRole("tab", { name: /Issues 17/ })).toBeTruthy();
     // Pull requests load eagerly (the Create PR button needs them); issues
     // still load only when their tab is opened.
@@ -162,7 +162,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     expect(await screen.findByRole("tab", { name: /Issues 1\.1k/ })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: /Pull Requests 12k/ })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /^Pull requests 12k/ })).toBeTruthy();
   });
 
   it("loads workflow runs from GitHub when the Workflow Runs tab opens", async () => {
@@ -192,7 +192,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: /Workflow Runs/ }));
+    await user.click(await screen.findByRole("tab", { name: /^Workflow runs/ }));
 
     await waitFor(() => {
       expect(githead.getGitHubWorkflowRuns).toHaveBeenCalledWith(expect.objectContaining({
@@ -234,7 +234,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: /Workflow Runs/ }));
+    await user.click(await screen.findByRole("tab", { name: /^Workflow runs/ }));
     await user.click(await screen.findByRole("button", { name: "CI: Release failed" }));
     await user.click(await screen.findByRole("button", { name: "Re-run all jobs" }));
 
@@ -255,7 +255,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: /Workflow Runs/ }));
+    await user.click(await screen.findByRole("tab", { name: /^Workflow runs/ }));
     await user.click(await screen.findByRole("button", { name: "CI: Deploy preview" }));
     await user.click(await screen.findByRole("button", { name: "Cancel run" }));
     expect(screen.getByRole("group", { name: "Confirm workflow cancellation" })).toBeTruthy();
@@ -296,7 +296,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: /Pull Requests/ }));
+    await user.click(await screen.findByRole("tab", { name: /^Pull requests/ }));
 
     await waitFor(() => {
       expect(githead.getGitHubPullRequests).toHaveBeenCalledWith({
@@ -353,7 +353,7 @@ describe("App", { timeout: 10_000 }, () => {
     }));
 
     render(<App />);
-    await user.click(await screen.findByRole("tab", { name: /Pull Requests/ }));
+    await user.click(await screen.findByRole("tab", { name: /^Pull requests/ }));
     expect(await screen.findByRole("button", { name: "Only ready pull request" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Filters, 0 active" }));
@@ -377,7 +377,7 @@ describe("App", { timeout: 10_000 }, () => {
       .mockResolvedValueOnce({ ok: true, data: { items: [createWorkflowRun({ id: "2", name: "Second" })], page: 2, nextPage: null, totalCount: 2 }, rateLimit: null });
 
     render(<App />);
-    await user.click(await screen.findByRole("tab", { name: /Workflow Runs/ }));
+    await user.click(await screen.findByRole("tab", { name: /^Workflow runs/ }));
     await user.click(await screen.findByRole("button", { name: "Load more workflow runs" }));
 
     expect(await screen.findByText("First")).toBeTruthy();
@@ -415,7 +415,7 @@ describe("App", { timeout: 10_000 }, () => {
       repoPath, runId: "lfs-preview", action: "lfs-fetch", stream: "stdout",
       text: "Downloading LFS objects: 50% (1/2), 38 KB | 10 KB/s\r", timestamp: new Date().toISOString()
     }));
-    await user.click(screen.getByRole("tab", { name: /^Activity Log/ }));
+    await user.click(screen.getByRole("tab", { name: /^Activity log/ }));
     expect((await screen.findByRole("log")).textContent).toContain("Downloading LFS objects: 50%");
     expect(screen.getByRole("button", { name: "Cancel" }).hasAttribute("disabled")).toBe(false);
     expect(githead.getFileDiff).toHaveBeenCalledTimes(1);
@@ -881,13 +881,13 @@ describe("App", { timeout: 10_000 }, () => {
       expect(button.querySelector(".operation-button-feedback")?.getAttribute("data-feedback")).toBe("error");
     });
 
-    const activityLogTab = screen.getByRole("tab", { name: "Activity Log, unread error details available" });
+    const activityLogTab = screen.getByRole("tab", { name: "Activity log, unread error details available" });
     expect(activityLogTab.getAttribute("data-attention")).toBe("error");
     expect(activityLogTab.querySelector(".activity-log-attention-indicator")).toBeTruthy();
 
     await user.click(activityLogTab);
     expect(activityLogTab.getAttribute("data-attention")).toBe("none");
-    expect(activityLogTab.getAttribute("aria-label")).toBe("Activity Log");
+    expect(activityLogTab.getAttribute("aria-label")).toBe("Activity log");
   });
 
   it("opens guided recovery after a forced-update pull failure", async () => {
@@ -1047,8 +1047,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: "Commit History" }));
-    expect(screen.getByRole("tab", { name: "Commit History" }).getAttribute("aria-selected")).toBe("true");
+    await user.click(await screen.findByRole("tab", { name: "History" }));
+    expect(screen.getByRole("tab", { name: "History" }).getAttribute("aria-selected")).toBe("true");
 
     const pushButton = await screen.findByRole("button", { name: /^Push$/ });
     await user.click(pushButton);
@@ -1063,8 +1063,8 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => {
       expect(pushButton.querySelector(".operation-button-feedback")?.getAttribute("data-feedback")).toBe("success");
     });
-    expect(screen.getByRole("tab", { name: "Commit History" }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByRole("tab", { name: /^Activity Log/ }).getAttribute("aria-selected")).toBe("false");
+    expect(screen.getByRole("tab", { name: "History" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: /^Activity log/ }).getAttribute("aria-selected")).toBe("false");
   });
 
   it("shows branch-and-tag partial success explicitly after Push", async () => {
@@ -1085,7 +1085,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(await screen.findByRole("button", { name: /^Push$/ }));
 
     expect(await screen.findByRole("heading", { name: "Push partially complete" })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Activity Log, unread error details available" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Activity log, unread error details available" })).toBeTruthy();
   });
 
   it("lazily renders and caches the working Markdown preview", async () => {
@@ -1234,7 +1234,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     await screen.findByRole("option", { name: /README\.md/ });
     expect((await screen.findByRole("button", { name: "Wrap diff lines" })).getAttribute("aria-pressed")).toBe("true");
     expect(document.querySelector(".diff-output.text")?.classList.contains("is-wrapped")).toBe(true);
@@ -1659,7 +1659,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: "Commit History" }));
+    await user.click(await screen.findByRole("tab", { name: "History" }));
     await user.click(await screen.findByRole("button", { name: /^Push$/ }));
 
     await waitFor(() => {
@@ -1668,8 +1668,8 @@ describe("App", { timeout: 10_000 }, () => {
       });
     });
     expect(githead.runGitAction).not.toHaveBeenCalled();
-    expect(screen.getByRole("tab", { name: "Commit History" }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByRole("tab", { name: /^Activity Log/ }).getAttribute("aria-selected")).toBe("false");
+    expect(screen.getByRole("tab", { name: "History" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: /^Activity log/ }).getAttribute("aria-selected")).toBe("false");
   });
 
   it("opens the Repository Actions manager without a .githead folder and saves a shared action", async () => {
@@ -1770,8 +1770,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: "Commit History" }));
-    expect(screen.getByRole("tab", { name: "Commit History" }).getAttribute("aria-selected")).toBe("true");
+    await user.click(await screen.findByRole("tab", { name: "History" }));
+    expect(screen.getByRole("tab", { name: "History" }).getAttribute("aria-selected")).toBe("true");
 
     await user.click(await screen.findByRole("button", { name: "Repository actions" }));
     await user.hover(await screen.findByRole("menuitem", { name: "Build" }));
@@ -1786,7 +1786,7 @@ describe("App", { timeout: 10_000 }, () => {
         operationId: expect.any(String)
       });
     });
-    expect(screen.getByRole("tab", { name: /^Activity Log/ }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: /^Activity log/ }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("renders and runs configured repository actions from nested menus", async () => {

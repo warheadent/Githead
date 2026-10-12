@@ -1100,7 +1100,7 @@ describe("App", { timeout: 10_000 }, () => {
     });
 
     expect(screen.getByLabelText("Commit staged files").querySelector(".status-text")).toBeNull();
-    await user.click(screen.getByRole("tab", { name: /^Activity Log/ }));
+    await user.click(screen.getByRole("tab", { name: /^Activity log/ }));
     expect(await screen.findByText("Output Available")).toBeTruthy();
     expect(screen.getByText(/create mode 100644 src\/renderer\/App\.tsx/)).toBeTruthy();
   });
@@ -1276,7 +1276,7 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => expect(within(commitPanel).getByRole("button", { name: /^Generate$/ })).toBeTruthy());
     expect(within(commitPanel).queryByRole("alert")).toBeNull();
 
-    await user.click(screen.getByRole("tab", { name: /^Activity Log/ }));
+    await user.click(screen.getByRole("tab", { name: /^Activity log/ }));
     expect(screen.queryByText(/Operation was cancelled/)).toBeNull();
     expect(screen.queryByText(/Generating commit message exited with code/)).toBeNull();
   });
@@ -1453,10 +1453,10 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: /Commit History/ }));
+    await user.click(await screen.findByRole("tab", { name: /^History$/ }));
     expect(await screen.findByText("Existing history")).toBeTruthy();
     expect(githead.getCommitHistory).toHaveBeenCalledTimes(1);
-    await user.click(screen.getByRole("tab", { name: /File Status/ }));
+    await user.click(screen.getByRole("tab", { name: /^Changes/ }));
     await user.click(await screen.findByRole("button", { name: "Commit plan view" }));
 
     vi.mocked(githead.getRepoIdentity).mockClear();
@@ -1495,9 +1495,9 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: /Commit History/ }));
+    await user.click(await screen.findByRole("tab", { name: /^History$/ }));
     expect(await screen.findByText("Cached history")).toBeTruthy();
-    await user.click(screen.getByRole("tab", { name: /File Status/ }));
+    await user.click(screen.getByRole("tab", { name: /^Changes/ }));
     await user.click(await screen.findByRole("button", { name: "Commit plan view" }));
 
     vi.mocked(githead.getRepoIdentity).mockClear();
@@ -1531,9 +1531,9 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: /Commit History/ }));
+    await user.click(await screen.findByRole("tab", { name: /^History$/ }));
     expect(await screen.findByText("Still cached")).toBeTruthy();
-    await user.click(screen.getByRole("tab", { name: /File Status/ }));
+    await user.click(screen.getByRole("tab", { name: /^Changes/ }));
     await user.click(await screen.findByRole("button", { name: "Commit plan view" }));
 
     vi.mocked(githead.getRepoIdentity).mockClear();
@@ -1561,7 +1561,7 @@ describe("App", { timeout: 10_000 }, () => {
     await flushRendererAsync();
     expect(githead.getCommitHistory).toHaveBeenCalledTimes(1);
 
-    await user.click(screen.getByRole("tab", { name: /^Activity Log/ }));
+    await user.click(screen.getByRole("tab", { name: /^Activity log/ }));
     expect(screen.queryByText(/Operation was cancelled/)).toBeNull();
     expect(screen.queryByText(/Generating commit plan exited with code/)).toBeNull();
   });
@@ -2177,7 +2177,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await waitFor(() => expect((message as HTMLTextAreaElement).value).toBe(""));
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByRole("tab", { name: "Activity Log, unread error details available" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Activity log, unread error details available" })).toBeTruthy();
   });
 
   it("shows a safety warning without creating a commit when the fetched remote is ahead", async () => {
@@ -2348,7 +2348,7 @@ describe("App", { timeout: 10_000 }, () => {
       timestamp: new Date().toISOString()
     });
 
-    const activityLogTab = await waitFor(() => screen.getByRole("tab", { name: "Activity Log, unread output available" }));
+    const activityLogTab = await waitFor(() => screen.getByRole("tab", { name: "Activity log, unread output available" }));
     expect(activityLogTab.getAttribute("data-attention")).toBe("unread");
     await user.click(activityLogTab);
     await waitFor(() => expect(activityLogTab.getAttribute("data-attention")).toBe("none"));
@@ -2553,7 +2553,7 @@ describe("App", { timeout: 10_000 }, () => {
       timestamp: new Date().toISOString()
     });
 
-    await user.click(screen.getByRole("tab", { name: /^Activity Log/ }));
+    await user.click(screen.getByRole("tab", { name: /^Activity log/ }));
     expect(screen.getByText(/fetch output/)).toBeTruthy();
 
     const clearButton = screen.getByRole("button", { name: /Clear Log/ }) as HTMLButtonElement;
@@ -2590,7 +2590,7 @@ describe("App", { timeout: 10_000 }, () => {
       timestamp: new Date().toISOString()
     });
 
-    await user.click(screen.getByRole("tab", { name: /^Activity Log/ }));
+    await user.click(screen.getByRole("tab", { name: /^Activity log/ }));
 
     expect((await screen.findByRole("log")).textContent).toContain("colored output");
     expect(screen.queryByText(String.fromCharCode(0x1b))).toBeNull();
@@ -2612,7 +2612,7 @@ describe("App", { timeout: 10_000 }, () => {
       timestamp: new Date().toISOString()
     });
 
-    await user.click(screen.getByRole("tab", { name: /^Activity Log/ }));
+    await user.click(screen.getByRole("tab", { name: /^Activity log/ }));
     await user.click(await screen.findByRole("button", { name: "Copy Raw" }));
 
     expect(githead.copyTextToClipboard).toHaveBeenCalledWith({
@@ -2635,7 +2635,7 @@ describe("App", { timeout: 10_000 }, () => {
       timestamp: new Date().toISOString()
     });
 
-    await user.click(screen.getByRole("tab", { name: /^Activity Log/ }));
+    await user.click(screen.getByRole("tab", { name: /^Activity log/ }));
     const wrapButton = await screen.findByRole("button", { name: "Enable line wrap" });
     expect(wrapButton.getAttribute("aria-pressed")).toBe("false");
 
@@ -2659,7 +2659,7 @@ describe("App", { timeout: 10_000 }, () => {
       timestamp: new Date().toISOString()
     });
 
-    await user.click(screen.getByRole("tab", { name: /^Activity Log/ }));
+    await user.click(screen.getByRole("tab", { name: /^Activity log/ }));
     const output = await screen.findByRole("log");
     Object.defineProperty(output, "scrollHeight", {
       configurable: true,
