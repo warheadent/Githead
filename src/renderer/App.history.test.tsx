@@ -1879,7 +1879,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await user.click(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
-    await user.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
+    await user.click(screen.getByRole("button", { name: "Stage src/App.tsx" }));
 
     await waitFor(() => {
       expect(githead.stageFiles).toHaveBeenCalledWith({

@@ -36,6 +36,7 @@ import {
   Loader2,
   MapPinned,
   MessageSquare,
+  Minus,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -50,6 +51,7 @@ import {
   Tag,
   Trash2,
   TriangleAlert,
+  Undo2,
   Upload,
   WrapText,
   Workflow,
@@ -63,7 +65,6 @@ import {
   useCallback,
   useEffect,
   useId,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -122,9 +123,9 @@ import {
   ResizablePanelGroup
 } from "@/components/ui/resizable";
 import { Tabs } from "@/components/ui/tabs";
+import { Segmented } from "@/components/ui/segmented";
 import { Textarea } from "@/components/ui/textarea";
 import { motion } from "motion/react";
-import type { PanelImperativeHandle } from "react-resizable-panels";
 import { TagDialog, type TagDialogState } from "./TagDialog";
 import { EASE_OUT, MotionPresence, MotionSwap } from "./motion";
 import {
@@ -138,7 +139,7 @@ import { RepositorySettingsDialog } from "./RepositorySettingsDialog";
 import { ReferencePicker } from "./ReferencePicker";
 import { GitIdentityFields } from "./GitIdentityFields";
 import { getAiProviderLabel, isApiKeyProvider, isCliProvider } from "../shared/aiProvider";
-import { TooltipProvider, TooltipTarget } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTarget, TooltipTrigger } from "@/components/ui/tooltip";
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import { DEFAULT_PR_DESCRIPTION_PROMPT } from "../shared/prDescriptionPrompt";
 import { DEFAULT_SOURCE_CONTROL_WRITING_STYLE } from "../shared/sourceControlWritingStyle";
@@ -236,6 +237,7 @@ import { parseCommitSubject, type ParsedCommitSubject } from "../shared/commitSu
 import { parseGitHubReferences } from "../shared/githubReference";
 import { ActivityLogPanel } from "./ActivityLogPanel";
 import { CommitPlanView } from "./CommitPlanView";
+import { ListDetailLayout } from "./ListDetailLayout";
 import { canStageStatusFile } from "../shared/statusFiles";
 import { BranchManagementDialog } from "./BranchManagementDialog";
 import { GitIntegrationDialog } from "./GitIntegrationDialog";
@@ -1085,6 +1087,9 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
   const configuredActionRunIdRef = useRef(0);
   const fileStatusGenerationRef = useRef(0);
   const acknowledgedFileStatusGenerationRef = useRef(0);
+  // While a hunk is applied, the refreshed status moves the selection to the other group in the same
+  // update that removes the file from its group, so the selection never passes through null.
+  const hunkSelectionFollowRef = useRef<{ repoPath: string; selection: FileSelection } | null>(null);
   const startupAttemptRef = useRef(0);
   const refreshDirtyFileStatusRef = useRef<() => Promise<void>>(async () => undefined);
   const windowFocusedRef = useRef(true);
@@ -1830,6 +1835,10 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     lastRepositoryRefreshRef.current = { repoPath, succeeded: false };
     repoRefreshInFlightRef.current = true;
 
+    const getFollowSelection = (): FileSelection | null => {
+      const follow = hunkSelectionFollowRef.current;
+      return follow && isSameRepoPath(follow.repoPath, repoPath) ? follow.selection : null;
+    };
     const cancelRefreshReads = (): void => {
       cancelRepositoryRead("identity", requestId);
       cancelRepositoryRead("status", requestId);
@@ -1861,7 +1870,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
         if (requestId !== requestIds.current.repo || !isSameRepoPath(status.repoPath, stateRef.current.repoPath)) return;
         acknowledgedFileStatusGenerationRef.current = Math.max(acknowledgedFileStatusGenerationRef.current, fileStatusGeneration);
         refreshSucceeded = true;
-        updateState((current) => current.summary ? reconcileSelection({ ...current, summary: { ...current.summary, ...status } }) : current);
+        updateState((current) => current.summary ? reconcileSelection({ ...current, summary: { ...current.summary, ...status } }, getFollowSelection()) : current);
         return;
       }
 
@@ -1909,7 +1918,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
               ...current.repoSyncStatuses,
               [getRepoPathKey(repoPath)]: createRepoSyncStatusFromSummary(summary)
             }
-          }), current.summary);
+          }, getFollowSelection()), current.summary);
         });
         return true;
       };
@@ -5240,45 +5249,51 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       return;
     }
     const repoPath = current.repoPath;
+    const follow = { repoPath, selection };
+    hunkSelectionFollowRef.current = follow;
+    let nextSelection: FileSelection | null;
+    try {
+      const result = discard
+        ? await runRepoOperation("Reverting hunk", selection, (operationId) =>
+            window.githead.discardHunk({ repoPath, path: selection.path, side: selection.side, patch, operationId })
+          )
+        : selection.side === "unstaged"
+        ? await runRepoOperation("Staging hunk", selection, (operationId) =>
+            window.githead.stageHunk({
+              repoPath,
+              path: selection.path,
+              side: selection.side,
+              patch,
+              operationId
+            })
+          )
+        : await runRepoOperation("Unstaging hunk", selection, (operationId) =>
+            window.githead.unstageHunk({
+              repoPath,
+              path: selection.path,
+              side: selection.side,
+              patch,
+              operationId
+            })
+          );
 
-    const result = discard
-      ? await runRepoOperation("Reverting hunk", selection, (operationId) =>
-          window.githead.discardHunk({ repoPath, path: selection.path, side: selection.side, patch, operationId })
-        )
-      : selection.side === "unstaged"
-      ? await runRepoOperation("Staging hunk", selection, (operationId) =>
-          window.githead.stageHunk({
-            repoPath,
-            path: selection.path,
-            side: selection.side,
-            patch,
-            operationId
-          })
-        )
-      : await runRepoOperation("Unstaging hunk", selection, (operationId) =>
-          window.githead.unstageHunk({
-            repoPath,
-            path: selection.path,
-            side: selection.side,
-            patch,
-            operationId
-          })
-        );
+      if (result?.exitCode !== 0 || !isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        return;
+      }
 
-    if (result?.exitCode !== 0 || !isSameRepoPath(repoPath, stateRef.current.repoPath)) {
-      return;
+      await refreshRepo({ reason: "operation" });
+      if (!isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        return;
+      }
+      nextSelection = resolvePostHunkSelection(stateRef.current.summary, selection);
+      updateState({
+        selection: nextSelection,
+        diff: null,
+        diffChanged: false
+      });
+    } finally {
+      if (hunkSelectionFollowRef.current === follow) hunkSelectionFollowRef.current = null;
     }
-
-    await refreshRepo({ reason: "operation" });
-    if (!isSameRepoPath(repoPath, stateRef.current.repoPath)) {
-      return;
-    }
-    const nextSelection = resolvePostHunkSelection(stateRef.current.summary, selection);
-    updateState({
-      selection: nextSelection,
-      diff: null,
-      diffChanged: false
-    });
 
     if (nextSelection) {
       await loadSelectedDiff(nextSelection);
@@ -7067,6 +7082,22 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       })
     );
   }, [runIndependentOperation, runRepoOperation, stageFiles, switchRepo, unstageFiles]);
+  // Stable, so that the memoised file lists skip a render when only the commit box changed.
+  const stageStatusFiles = useCallback((paths: string[], selection?: FileSelection): void => {
+    void stageFiles(paths, selection);
+  }, [stageFiles]);
+  const unstageStatusFiles = useCallback((paths: string[], selection?: FileSelection): void => {
+    void unstageFiles(paths, selection);
+  }, [unstageFiles]);
+  const runStatusFileContextAction = useCallback((
+    file: GitStatusFile,
+    side: GitDiffSide,
+    kind: ContextActionKind,
+    paths?: string[],
+    expectedSnapshot?: string
+  ): void => {
+    void runContextFileOperation(file, side, kind, paths, expectedSnapshot);
+  }, [runContextFileOperation]);
 
   const updateSubmodules = useCallback(async (path?: string): Promise<void> => {
     const repoPath = stateRef.current.repoPath;
@@ -7910,20 +7941,14 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                   wrapLines={state.appSettings?.wrapDiffLines ?? false}
                   onWrapLinesChange={setWrapDiffLines}
                   onSelectFile={selectFile}
-                  onStageFiles={(paths, selection) => {
-                    void stageFiles(paths, selection);
-                  }}
-                  onUnstageFiles={(paths, selection) => {
-                    void unstageFiles(paths, selection);
-                  }}
+                  onStageFiles={stageStatusFiles}
+                  onUnstageFiles={unstageStatusFiles}
                   onRefreshDiff={() => {
                     void loadSelectedDiff();
                   }}
                   onDownloadImage={() => { void downloadStatusLfsPreview(); }}
                   onApplyHunk={applySelectedHunk}
-                  onContextAction={(file, side, kind, paths, expectedSnapshot) => {
-                    void runContextFileOperation(file, side, kind, paths, expectedSnapshot);
-                  }}
+                  onContextAction={runStatusFileContextAction}
                   onUpdateSubmodules={(path) => { void updateSubmodules(path); }}
                   onSyncSubmodules={() => { void syncSubmodules(); }}
                   canGeneratePlan={canUseSelectedAiProvider(state.aiSettings)}
@@ -7946,6 +7971,76 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                       onManage={() => setWorkspaceView("stashes")}
                       onCreate={createStash}
                       onGenerateMessage={generateStashMessage}
+                    />
+                  ) : null}
+                  commitBox={statusWorkspaceMode === "files" && !repositoryOperationActive ? (
+                    <CommitPanel
+                      commitMessage={state.commitMessage}
+                      commitMessageSuggestion={state.commitMessageSuggestion}
+                      commitPushSafetyNotice={state.commitPushSafetyNotice}
+                      generationError={state.commitMessageGenerationError}
+                      generating={state.runningOperation === "Generating commit message"}
+                      disabled={disableUnrelatedMutations}
+                      primaryCommitAction={primaryCommitAction}
+                      quickCommitByDefault={state.summary?.kind === "git" && state.appSettings?.gitBehaviors?.quickCommitByDefault === true}
+                      summary={state.summary}
+                      selection={state.selection}
+                      quickCommitAiReady={canUseSelectedAiProvider(state.aiSettings)}
+                      quickCommitPhase={state.activeOperation?.label === "Generating quick commit message" ? state.runningOperation === "Committing selected files" ? "committing" : "generating" : null}
+                      onQuickCommit={(paths) => { void quickCommitSelectedFiles(paths); }}
+                      onManualCommit={() => { void commitChanges(); }}
+                      pushableCommitCount={getPushableCommitCount(state.summary)}
+                      feedbackEvent={state.operationButtonFeedback?.repoPath === state.repoPath ? state.operationButtonFeedback : null}
+                      canCommit={canCommit(state)}
+                      canGenerateCommitMessage={canGenerateCommitMessage(state)}
+                      generateTitle={getGenerateMessageTitle(state)}
+                      onCommit={() => {
+                        if (primaryCommitAction === "commit") {
+                          void commitChanges();
+                        } else if (primaryCommitAction === "push") {
+                          void runAction("push", undefined, "commit-panel");
+                        }
+                      }}
+                      onCommitAndPush={() => {
+                        void commitAndPush();
+                      }}
+                      onUndoFailedCommitPush={() => {
+                        void undoFailedCommitPush();
+                      }}
+                      showAmendAction={state.summary?.kind === "git"}
+                      canAmend={Boolean(state.summary?.kind === "git" && state.summary.hasHead)}
+                      amendDisabled={disableUnrelatedMutations}
+                      amendDisabledReason={getAmendDisabledReason(state)}
+                      onOpenAmend={() => openAmendDialog("composer")}
+                      onGenerateMessage={() => {
+                        void generateCommitMessage();
+                      }}
+                      onOpenGenerateWithContext={() => {
+                        updateState({
+                          generateContextDialog: {
+                            open: true,
+                            context: ""
+                          }
+                        });
+                      }}
+                      onCommitMessageChange={(commitMessage) => {
+                        updateState({
+                          commitMessage,
+                          commitMessageGenerationError: ""
+                        });
+                      }}
+                      onApplyCommitMessageSuggestion={() => {
+                        const suggestion = stateRef.current.commitMessageSuggestion;
+                        if (!suggestion) return;
+                        updateState({
+                          commitMessage: suggestion.message,
+                          commitMessageSuggestion: null,
+                          commitMessageGenerationError: ""
+                        });
+                      }}
+                      onDismissCommitMessageSuggestion={() => {
+                        updateState({ commitMessageSuggestion: null });
+                      }}
                     />
                   ) : null}
                 />
@@ -8226,76 +8321,6 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                 />
               </PersistentWorkspaceTabsContent>
 
-            {state.activeView === "status" && statusWorkspaceMode === "files" && !repositoryOperationActive ? (
-              <CommitPanel
-                commitMessage={state.commitMessage}
-                commitMessageSuggestion={state.commitMessageSuggestion}
-                commitPushSafetyNotice={state.commitPushSafetyNotice}
-                generationError={state.commitMessageGenerationError}
-                generating={state.runningOperation === "Generating commit message"}
-                disabled={disableUnrelatedMutations}
-                primaryCommitAction={primaryCommitAction}
-                quickCommitByDefault={state.summary?.kind === "git" && state.appSettings?.gitBehaviors?.quickCommitByDefault === true}
-                summary={state.summary}
-                selection={state.selection}
-                quickCommitAiReady={canUseSelectedAiProvider(state.aiSettings)}
-                quickCommitPhase={state.activeOperation?.label === "Generating quick commit message" ? state.runningOperation === "Committing selected files" ? "committing" : "generating" : null}
-                onQuickCommit={(paths) => { void quickCommitSelectedFiles(paths); }}
-                onManualCommit={() => { void commitChanges(); }}
-                pushableCommitCount={getPushableCommitCount(state.summary)}
-                feedbackEvent={state.operationButtonFeedback?.repoPath === state.repoPath ? state.operationButtonFeedback : null}
-                canCommit={canCommit(state)}
-                canGenerateCommitMessage={canGenerateCommitMessage(state)}
-                generateTitle={getGenerateMessageTitle(state)}
-                onCommit={() => {
-                  if (primaryCommitAction === "commit") {
-                    void commitChanges();
-                  } else if (primaryCommitAction === "push") {
-                    void runAction("push", undefined, "commit-panel");
-                  }
-                }}
-                onCommitAndPush={() => {
-                  void commitAndPush();
-                }}
-                onUndoFailedCommitPush={() => {
-                  void undoFailedCommitPush();
-                }}
-                showAmendAction={state.summary?.kind === "git"}
-                canAmend={Boolean(state.summary?.kind === "git" && state.summary.hasHead)}
-                amendDisabled={disableUnrelatedMutations}
-                amendDisabledReason={getAmendDisabledReason(state)}
-                onOpenAmend={() => openAmendDialog("composer")}
-                onGenerateMessage={() => {
-                  void generateCommitMessage();
-                }}
-                onOpenGenerateWithContext={() => {
-                  updateState({
-                    generateContextDialog: {
-                      open: true,
-                      context: ""
-                    }
-                  });
-                }}
-                onCommitMessageChange={(commitMessage) => {
-                  updateState({
-                    commitMessage,
-                    commitMessageGenerationError: ""
-                  });
-                }}
-                onApplyCommitMessageSuggestion={() => {
-                  const suggestion = stateRef.current.commitMessageSuggestion;
-                  if (!suggestion) return;
-                  updateState({
-                    commitMessage: suggestion.message,
-                    commitMessageSuggestion: null,
-                    commitMessageGenerationError: ""
-                  });
-                }}
-                onDismissCommitMessageSuggestion={() => {
-                  updateState({ commitMessageSuggestion: null });
-                }}
-              />
-            ) : null}
             </WorkspacePanelStateProvider>
           )}
         </div>
@@ -9864,7 +9889,8 @@ function StatusView({
   onGeneratePlan,
   onValidatePlan,
   onQuickCommit,
-  composer
+  composer,
+  commitBox
 }: {
   stagedFiles: GitStatusFile[];
   unstagedFiles: GitStatusFile[];
@@ -9898,31 +9924,61 @@ function StatusView({
   onValidatePlan: (request: CommitPlanValidationRequest) => Promise<CommitPlanValidationResult>;
   onQuickCommit: (changes: GitQuickCommitChange[], message: string) => Promise<GitOperationResult | null>;
   composer?: ReactNode;
+  /** The commit box, docked at the bottom of the list column. The plan view replaces it. */
+  commitBox?: ReactNode;
 }): ReactNode {
   const [query, setQuery] = usePersistentWorkspacePanelState("status-file-query", "");
   const [statusFilter, setStatusFilter] = usePersistentWorkspacePanelState<StatusFileFilter>("status-file-filter", "all");
   const [expandEmptyStaged, setExpandEmptyStaged] = usePersistentWorkspacePanelState("status-expand-empty-staged", false);
   const [expandEmptyUnstaged, setExpandEmptyUnstaged] = usePersistentWorkspacePanelState("status-expand-empty-unstaged", false);
+  // Both file groups render their rows into this one scroller, so its ref must be state.
+  const [fileScroller, setFileScroller] = useState<HTMLDivElement | null>(null);
+  const [narrowDetailOpen, setNarrowDetailOpen] = useState(false);
   const matchingStagedFiles = useMemo(() => filterStatusFiles(stagedFiles, "staged", query, statusFilter), [stagedFiles, query, statusFilter]);
   const matchingUnstagedFiles = useMemo(() => filterStatusFiles(unstagedFiles, "unstaged", query, statusFilter), [unstagedFiles, query, statusFilter]);
   const filtering = query.trim().length > 0 || statusFilter !== "all";
   const matchingPaths = useMemo(() => new Set((selection?.side === "staged" ? matchingStagedFiles : matchingUnstagedFiles).map((file) => file.path)), [matchingStagedFiles, matchingUnstagedFiles, selection?.side]);
-  const selectedPaths = selection ? getSelectionPaths(selection).filter((path) => matchingPaths.has(path)) : [];
-  const matchingSelection = selection && selectedPaths.length > 0
-    ? createFileSelection(selection.side, selectedPaths, selection.path, selection.anchorPath)
-    : null;
-  const stagedSelectionPaths = matchingSelection?.side === "staged" ? selectedPaths : [];
-  const unstagedSelectionPaths = matchingSelection?.side === "unstaged" ? selectedPaths : [];
+  // Memoised so that the file groups skip a render when only the commit box changed.
+  const matchingSelection = useMemo(() => {
+    if (!selection) return null;
+    const selectedPaths = getSelectionPaths(selection).filter((path) => matchingPaths.has(path));
+    return selectedPaths.length > 0
+      ? createFileSelection(selection.side, selectedPaths, selection.path, selection.anchorPath)
+      : null;
+  }, [matchingPaths, selection]);
+  // A stage or unstage from this view moves the selection to the other group. Both groups share one
+  // scroller, so revealing the moved row would scroll the list away from where the user works.
+  const selectionKey = selection ? `${selection.side}:${selection.path}` : null;
+  const [selectionMove, setSelectionMove] = useState<{
+    selectionKey: string | null;
+    expected: { side: GitDiffSide; paths: ReadonlySet<string> } | null;
+    moved: boolean;
+  }>(() => ({ selectionKey, expected: null, moved: false }));
+  if (selectionMove.selectionKey !== selectionKey) {
+    const { expected } = selectionMove;
+    setSelectionMove({
+      selectionKey,
+      expected: null,
+      moved: Boolean(selection && expected?.side === selection.side && expected.paths.has(selection.path))
+    });
+  }
+  const expectSelectionMove = useCallback((side: GitDiffSide, paths: readonly string[]): void => {
+    setSelectionMove((current) => ({ ...current, expected: { side, paths: new Set(paths) } }));
+  }, []);
+  const stageGroupFiles = useCallback((paths: string[], nextSelection?: FileSelection): void => {
+    if (nextSelection) expectSelectionMove(nextSelection.side, paths);
+    onStageFiles(paths, nextSelection);
+  }, [expectSelectionMove, onStageFiles]);
+  const unstageGroupFiles = useCallback((paths: string[], nextSelection?: FileSelection): void => {
+    if (nextSelection) expectSelectionMove(nextSelection.side, paths);
+    onUnstageFiles(paths, nextSelection);
+  }, [expectSelectionMove, onUnstageFiles]);
   const stagedCollapsed = stagedFiles.length === 0 && unstagedFiles.length > 0 && !expandEmptyStaged;
   const unstagedCollapsed = unstagedFiles.length === 0 && stagedFiles.length > 0 && !expandEmptyUnstaged;
-  const stagedPanelRef = useRef<PanelImperativeHandle | null>(null);
-  const unstagedPanelRef = useRef<PanelImperativeHandle | null>(null);
-  useLayoutEffect(() => {
-    if (stagedCollapsed) stagedPanelRef.current?.collapse();
-    else stagedPanelRef.current?.expand();
-    if (unstagedCollapsed) unstagedPanelRef.current?.collapse();
-    else unstagedPanelRef.current?.expand();
-  }, [stagedCollapsed, unstagedCollapsed, workspaceMode]);
+  const toggleEmptyStaged = useCallback(() => setExpandEmptyStaged((value) => !value), [setExpandEmptyStaged]);
+  const toggleEmptyUnstaged = useCallback(() => setExpandEmptyUnstaged((value) => !value), [setExpandEmptyUnstaged]);
+  const openDetail = useCallback(() => setNarrowDetailOpen(true), []);
+  const closeDetail = useCallback(() => setNarrowDetailOpen(false), []);
   const clean = summary?.isValid && stagedFiles.length === 0 && unstagedFiles.length === 0;
   const [discardTarget, setDiscardTarget] = useState<{
     file: GitStatusFile; side: GitDiffSide; paths: string[]; repoPath: string; version: number;
@@ -9965,24 +10021,22 @@ function StatusView({
         : null;
   const discardChecking = Boolean(discardTarget?.snapshot && !discardCheckReady);
   const discardCurrent = Boolean(discardTarget && !discardError && !discardChecking);
-  const handleContextAction = (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind, explicitPaths?: string[]): void => {
+  const repoPath = summary?.repoPath ?? "";
+  const repositoryKind = summary?.kind;
+  const handleContextAction = useCallback((file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind, explicitPaths?: string[]): void => {
     const paths = explicitPaths ?? getContextActionPaths(matchingSelection, file, side);
     if (kind === "revert") {
-      const repoPath = summary?.repoPath ?? "";
       setDiscardTarget({
         file, side, paths, repoPath, version: repositoryStatusVersion,
-        snapshot: summary?.kind === "git"
+        snapshot: repositoryKind === "git"
           ? window.githead.getDiscardSnapshot({ repoPath, paths, side }).catch(() => null)
           : null
       });
     } else {
+      if (kind === "toggle-stage") expectSelectionMove(side === "staged" ? "unstaged" : "staged", paths);
       onContextAction(file, side, kind, paths);
     }
-  };
-  const stageableUnstagedPaths = useMemo(
-    () => new Set(matchingUnstagedFiles.filter(canStageStatusFile).map((file) => file.path)),
-    [matchingUnstagedFiles]
-  );
+  }, [expectSelectionMove, matchingSelection, onContextAction, repoPath, repositoryKind, repositoryStatusVersion]);
   const selectedFile = selection
     ? (selection.side === "staged" ? stagedFiles : unstagedFiles).find((file) => file.path === selection.path) ?? null
     : null;
@@ -9994,209 +10048,189 @@ function StatusView({
     (summary?.capabilities.hunkStaging ?? true)
   );
   const selectedSide = selection?.side;
-  const hunkAction = useMemo<DiffHunkAction | undefined>(() => (
-    canApplyHunks && selectedSide
-      ? {
-          side: selectedSide,
-          disabled: disabled || diffChanged,
-          onApply: onApplyHunk,
-          onDiscard: selectedSide === "unstaged" ? (patch) => onApplyHunk(patch, true) : undefined
-        }
-      : undefined
-  ), [canApplyHunks, diffChanged, disabled, onApplyHunk, selectedSide]);
+  const selectedPath = selection?.path;
+  const hunkAction = useMemo<DiffHunkAction | undefined>(() => {
+    if (!canApplyHunks || !selectedSide || selectedPath === undefined) return undefined;
+    // The selection follows the file to the other group when its last hunk leaves this side.
+    const applyHunk = (patch: string, discard?: boolean): void => {
+      expectSelectionMove(selectedSide === "staged" ? "unstaged" : "staged", [selectedPath]);
+      onApplyHunk(patch, discard);
+    };
+    return {
+      side: selectedSide,
+      disabled: disabled || diffChanged,
+      onApply: applyHunk,
+      onDiscard: selectedSide === "unstaged" ? (patch) => applyHunk(patch, true) : undefined
+    };
+  }, [canApplyHunks, diffChanged, disabled, expectSelectionMove, onApplyHunk, selectedPath, selectedSide]);
+  const fileViewMode = workspaceMode === "plan" ? "plan" : viewMode;
+  const ready = Boolean(summary?.isValid);
+
+  const list = (
+    <div className={`status-changes-list${workspaceMode === "plan" ? " is-plan" : ""}`}>
+      <div className="status-file-toolbar">
+        {workspaceMode === "files" ? <>
+          <div className="status-file-search">
+            <Search className="pointer-events-none absolute left-2 top-2 size-4 text-muted-foreground" aria-hidden="true" />
+            <Input aria-label="Search changed files" placeholder="Filter files…" spellCheck={false} value={query} className="h-8 pl-8 pr-8"
+              onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setQuery(""); }} />
+            {query ? <TooltipButton type="button" variant="ghost" size="icon-xs" aria-label="Clear file search" tooltip="Clear file search" className="absolute right-1 top-1" onClick={() => setQuery("")}><X /></TooltipButton> : null}
+          </div>
+          <select aria-label="Filter files by status" className="form-select status-file-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFileFilter)}>
+            <option value="all">All statuses</option>
+            <option value="modified">Modified</option>
+            <option value="untracked">Untracked</option>
+            <option value="added">Added</option>
+            <option value="deleted">Deleted</option>
+            <option value="renamed">Renamed</option>
+            <option value="copied">Copied</option>
+            <option value="conflict">Conflicted</option>
+          </select>
+        </> : null}
+        {(summary?.submodules?.length ?? 0) > 0 ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <TooltipButton type="button" variant="ghost" size="icon-sm" aria-label="Submodules" tooltip="Submodules" disabled={disabled || recoveryMode}>
+                <GitFork />
+              </TooltipButton>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem onSelect={() => onUpdateSubmodules()}>
+                <RefreshCw />
+                Update all submodules
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onSyncSubmodules}>
+                <GitFork />
+                Sync submodule URLs
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+        <Segmented<StatusFileViewMode | "plan">
+          label="Changed file view mode"
+          className="ml-auto shrink-0"
+          value={fileViewMode}
+          onChange={(mode) => {
+            if (mode === "plan") {
+              onWorkspaceModeChange("plan");
+              return;
+            }
+            onWorkspaceModeChange("files");
+            onViewModeChange(mode);
+          }}
+          options={[
+            { value: "list", label: <List />, ariaLabel: "List view", title: "Show files as a list" },
+            { value: "tree", label: <ListTree />, ariaLabel: "Tree view", title: "Show files as a tree" },
+            { value: "plan", label: <Sparkles />, ariaLabel: "Commit plan view", title: "Group files into planned commits", disabled: recoveryMode }
+          ]}
+        />
+      </div>
+      {workspaceMode === "plan" ? (
+        <CommitPlanView
+          repoPath={repoPath}
+          files={unstagedFiles}
+          stagedCount={stagedFiles.length}
+          selectedPath={selection?.side === "unstaged" ? selection.path : null}
+          disabled={disabled || recoveryMode}
+          supported={summary?.kind === "git"}
+          canGenerate={canGeneratePlan}
+          generateTitle={generatePlanTitle}
+          repositoryChangeVersion={repositoryChangeVersion}
+          onSelectFile={(file) => {
+            onSelectFile(file, "unstaged", { extendRange: false, selectAll: false, toggle: false });
+            openDetail();
+          }}
+          onGenerate={onGeneratePlan}
+          onValidatePlan={onValidatePlan}
+          onQuickCommit={onQuickCommit}
+        />
+      ) : (
+        <div ref={setFileScroller} className="status-file-scroll" data-workspace-scroll-key="status-files">
+          <FileGroup
+            title="Staged files"
+            label="Staged"
+            side="staged"
+            files={matchingStagedFiles}
+            totalCount={stagedFiles.length}
+            filtering={filtering}
+            collapsed={stagedCollapsed}
+            onToggleEmpty={stagedFiles.length === 0 && unstagedFiles.length > 0 ? toggleEmptyStaged : undefined}
+            emptyMessage="No staged files"
+            ready={ready}
+            selection={matchingSelection}
+            disabled={disabled}
+            recoveryMode={recoveryMode}
+            viewMode={viewMode}
+            scrollContainer={fileScroller}
+            onSelectFile={onSelectFile}
+            onOpenFile={openDetail}
+            onStageFiles={stageGroupFiles}
+            onUnstageFiles={unstageGroupFiles}
+            onContextAction={handleContextAction}
+            revealSelection={!selectionMove.moved}
+          />
+          <FileGroup
+            title="Unstaged files"
+            label="Changes"
+            side="unstaged"
+            files={matchingUnstagedFiles}
+            totalCount={unstagedFiles.length}
+            filtering={filtering}
+            collapsed={unstagedCollapsed}
+            onToggleEmpty={unstagedFiles.length === 0 && stagedFiles.length > 0 ? toggleEmptyUnstaged : undefined}
+            emptyMessage="No unstaged files"
+            ready={ready}
+            selection={matchingSelection}
+            disabled={disabled}
+            recoveryMode={recoveryMode}
+            viewMode={viewMode}
+            scrollContainer={fileScroller}
+            onSelectFile={onSelectFile}
+            onOpenFile={openDetail}
+            onStageFiles={stageGroupFiles}
+            onUnstageFiles={unstageGroupFiles}
+            onContextAction={handleContextAction}
+            revealSelection={!selectionMove.moved}
+          />
+        </div>
+      )}
+      {workspaceMode === "plan" ? null : commitBox}
+    </div>
+  );
 
   return (
-    <ResizablePanelGroup orientation="horizontal" className="status-workspace h-full min-h-0 bg-background">
-      <ResizablePanel defaultSize="38%" minSize="300px" className="min-w-[300px]" data-status-panel="files">
-        <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] border-r bg-card">
-          <div className="status-file-toolbar">
-            {workspaceMode === "files" ? <>
-              <div className="relative min-w-0 flex-1">
-                <Search className="pointer-events-none absolute left-2 top-2 size-4 text-muted-foreground" />
-                <Input aria-label="Search changed files" placeholder="Search files…" spellCheck={false} value={query} className="h-8 pl-8 pr-8"
-                  onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setQuery(""); }} />
-                {query ? <TooltipButton type="button" variant="ghost" size="icon-xs" aria-label="Clear file search" tooltip="Clear file search" className="absolute right-1 top-1" onClick={() => setQuery("")}><X /></TooltipButton> : null}
-              </div>
-              <select aria-label="Filter files by status" className="status-file-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFileFilter)}>
-                <option value="all">All statuses</option>
-                <option value="modified">Modified</option>
-                <option value="untracked">Untracked</option>
-                <option value="added">Added</option>
-                <option value="deleted">Deleted</option>
-                <option value="renamed">Renamed</option>
-                <option value="copied">Copied</option>
-                <option value="conflict">Conflicted</option>
-              </select>
-            </> : null}
-            {(summary?.submodules?.length ?? 0) > 0 ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button type="button" variant="outline" size="sm" disabled={disabled || recoveryMode}>
-                    <GitFork />
-                    Submodules
-                    <ChevronDown />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <DropdownMenuItem onSelect={() => onUpdateSubmodules()}>
-                    <RefreshCw />
-                    Update all submodules
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={onSyncSubmodules}>
-                    <GitFork />
-                    Sync submodule URLs
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : null}
-            <div className="ml-auto inline-flex rounded-md border p-0.5" role="group" aria-label="Changed file view mode">
-              <TooltipButton type="button" variant={workspaceMode === "files" && viewMode === "list" ? "secondary" : "ghost"} size="icon-xs" aria-pressed={workspaceMode === "files" && viewMode === "list"} aria-label="List view" tooltip="Show files as a list" onClick={() => { onWorkspaceModeChange("files"); onViewModeChange("list"); }}><List /></TooltipButton>
-              <TooltipButton type="button" variant={workspaceMode === "files" && viewMode === "tree" ? "secondary" : "ghost"} size="icon-xs" aria-pressed={workspaceMode === "files" && viewMode === "tree"} aria-label="Tree view" tooltip="Show files as a tree" onClick={() => { onWorkspaceModeChange("files"); onViewModeChange("tree"); }}><ListTree /></TooltipButton>
-              <TooltipButton type="button" variant={workspaceMode === "plan" ? "secondary" : "ghost"} size="icon-xs" aria-pressed={workspaceMode === "plan"} aria-label="Commit plan view" tooltip="Group files into planned commits" disabled={recoveryMode} onClick={() => onWorkspaceModeChange("plan")}><Sparkles /></TooltipButton>
-            </div>
-          </div>
-          {workspaceMode === "plan" ? (
-            <CommitPlanView
-              repoPath={summary?.repoPath ?? ""}
-              files={unstagedFiles}
-              stagedCount={stagedFiles.length}
-              selectedPath={selection?.side === "unstaged" ? selection.path : null}
-              disabled={disabled || recoveryMode}
-              supported={summary?.kind === "git"}
-              canGenerate={canGeneratePlan}
-              generateTitle={generatePlanTitle}
-              repositoryChangeVersion={repositoryChangeVersion}
-              onSelectFile={(file) => onSelectFile(file, "unstaged", { extendRange: false, selectAll: false, toggle: false })}
-              onGenerate={onGeneratePlan}
-              onValidatePlan={onValidatePlan}
-              onQuickCommit={onQuickCommit}
+    <>
+      <ListDetailLayout
+        id="changes"
+        listLabel="changed files"
+        list={list}
+        detailOpen={narrowDetailOpen && selection !== null}
+        onBack={closeDetail}
+        detail={
+          <div className="changes-detail">
+            <DiffPanel
+              title={selection?.path ?? "Select a file"}
+              eyebrow={selection ? `${capitalize(selection.side)} diff` : "Diff"}
+              diff={diff}
+              filePath={selection?.path ?? ""}
+              loading={diffLoading}
+              emptyMessage={selection ? "Refresh the diff to view this file." : clean ? "Working tree clean" : "Select a file to view the diff"}
+              onDownloadImage={onDownloadImage}
+              imageDownloadLoading={disabled}
+              repoPath={repoPath}
+              previewSource={selection && selectedFile && !selectedFile.submodule && (isMarkdownPath(selection.path) || isSvgPath(selection.path)) && !isDeletedOnSide(selectedFile, selection.side)
+                ? { kind: selection.side === "staged" ? "staged" : "working" }
+                : undefined}
+              hunkAction={hunkAction}
+              onRefresh={selection ? onRefreshDiff : undefined}
+              refreshDisabled={disabled}
+              changed={diffChanged}
+              wrapLines={wrapLines}
+              onWrapLinesChange={onWrapLinesChange}
             />
-          ) : (
-          <ResizablePanelGroup id="status-file-groups" orientation="vertical" className="min-h-0">
-            <ResizablePanel id="staged-file-group" panelRef={stagedPanelRef} defaultSize="50%" minSize="96px" collapsible collapsedSize="56px" disabled={stagedCollapsed}>
-              <FileGroup
-                title="Staged files"
-                side="staged"
-                files={matchingStagedFiles}
-                totalCount={stagedFiles.length}
-                filtering={filtering}
-                collapsed={stagedCollapsed}
-                onToggleEmpty={stagedFiles.length === 0 && unstagedFiles.length > 0 ? () => setExpandEmptyStaged((value) => !value) : undefined}
-                emptyMessage="No staged files"
-                summary={summary}
-                selection={matchingSelection}
-                disabled={disabled}
-                recoveryMode={recoveryMode}
-                viewMode={viewMode}
-                actions={
-                  <>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={disabled || matchingStagedFiles.length === 0}
-                      onClick={() => onUnstageFiles(matchingStagedFiles.map((file) => file.path))}
-                    >
-                      {filtering ? `Unstage ${matchingStagedFiles.length} matching` : "Unstage All"}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={disabled || stagedSelectionPaths.length === 0}
-                      onClick={() => {
-                        if (selection?.side === "staged" && stagedSelectionPaths.length > 0) {
-                          onUnstageFiles(
-                            stagedSelectionPaths,
-                            createFileSelection("unstaged", stagedSelectionPaths, selection.path, selection.anchorPath)
-                          );
-                        }
-                      }}
-                    >
-                      {fileActionLabel("Unstage", stagedSelectionPaths.length)}
-                    </Button>
-                  </>
-                }
-                onSelectFile={onSelectFile}
-                onContextAction={handleContextAction}
-              />
-            </ResizablePanel>
-            <ResizableHandle withHandle aria-label="Resize staged and unstaged file lists" />
-            <ResizablePanel id="unstaged-file-group" panelRef={unstagedPanelRef} defaultSize="50%" minSize="96px" collapsible collapsedSize="56px" disabled={unstagedCollapsed}>
-              <FileGroup
-                title="Unstaged files"
-                side="unstaged"
-                files={matchingUnstagedFiles}
-                totalCount={unstagedFiles.length}
-                filtering={filtering}
-                collapsed={unstagedCollapsed}
-                onToggleEmpty={unstagedFiles.length === 0 && stagedFiles.length > 0 ? () => setExpandEmptyUnstaged((value) => !value) : undefined}
-                emptyMessage="No unstaged files"
-                summary={summary}
-                selection={matchingSelection}
-                disabled={disabled}
-                recoveryMode={recoveryMode}
-                viewMode={viewMode}
-                actions={
-                  <>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={disabled || stageableUnstagedPaths.size === 0}
-                      onClick={() => onStageFiles([...stageableUnstagedPaths])}
-                    >
-                      {filtering ? `Stage ${stageableUnstagedPaths.size} matching` : "Stage All"}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={disabled || !unstagedSelectionPaths.some((path) => stageableUnstagedPaths.has(path))}
-                      onClick={() => {
-                        if (selection?.side === "unstaged" && unstagedSelectionPaths.length > 0) {
-                          onStageFiles(
-                            unstagedSelectionPaths.filter((path) => stageableUnstagedPaths.has(path)),
-                            createFileSelection("staged", unstagedSelectionPaths, selection.path, selection.anchorPath)
-                          );
-                        }
-                      }}
-                    >
-                      {fileActionLabel("Stage", unstagedSelectionPaths.filter((path) => stageableUnstagedPaths.has(path)).length)}
-                    </Button>
-                  </>
-                }
-                onSelectFile={onSelectFile}
-                onContextAction={handleContextAction}
-              />
-            </ResizablePanel>
-          </ResizablePanelGroup>
-          )}
-        </div>
-      </ResizablePanel>
-      <ResizableHandle className="status-workspace-resize-handle" />
-      <ResizablePanel minSize="240px" data-status-panel="diff">
-        <DiffPanel
-          title={selection?.path ?? "Select a file"}
-          eyebrow={selection ? `${capitalize(selection.side)} diff` : "Diff"}
-          diff={diff}
-          filePath={selection?.path ?? ""}
-          loading={diffLoading}
-          emptyMessage={selection ? "Refresh the diff to view this file." : clean ? "Working tree clean" : "Select a file to view the diff"}
-          onDownloadImage={onDownloadImage}
-          imageDownloadLoading={disabled}
-          repoPath={summary?.repoPath ?? ""}
-          previewSource={selection && selectedFile && !selectedFile.submodule && (isMarkdownPath(selection.path) || isSvgPath(selection.path)) && !isDeletedOnSide(selectedFile, selection.side)
-            ? { kind: selection.side === "staged" ? "staged" : "working" }
-            : undefined}
-          hunkAction={hunkAction}
-          onRefresh={selection ? onRefreshDiff : undefined}
-          refreshDisabled={disabled}
-          changed={diffChanged}
-          wrapLines={wrapLines}
-          onWrapLinesChange={onWrapLinesChange}
-        />
-      </ResizablePanel>
+          </div>
+        }
+      />
       <Dialog open={Boolean(discardTarget)} onOpenChange={(open) => { if (!open) setDiscardTarget(null); }}>
         <DialogContent>
           <DialogHeader>
@@ -10219,7 +10253,7 @@ function StatusView({
         </DialogContent>
       </Dialog>
       {composer}
-    </ResizablePanelGroup>
+    </>
   );
 }
 
@@ -10227,8 +10261,12 @@ type ContextActionKind = "open" | "show" | "copy" | "toggle-stage" | "stash" | "
 type CommitContextActionKind = "amend" | "tag" | "reset" | "revert" | "cherry-pick" | "copy";
 type CommitFileContextActionKind = "log" | "blame" | "reset" | "open-current" | "open-selected" | "copy";
 
-function FileGroup({
+const STATUS_FILE_ROW_HEIGHT = 32;
+
+/** Memoised so that typing in the commit box, which re-renders the status view, skips both file lists. */
+const FileGroup = memo(function FileGroup({
   title,
+  label,
   totalCount,
   filtering,
   collapsed,
@@ -10236,16 +10274,23 @@ function FileGroup({
   emptyMessage,
   side,
   files,
-  summary,
+  ready,
   selection,
   disabled,
   recoveryMode,
   viewMode,
-  actions,
+  scrollContainer,
+  revealSelection,
   onSelectFile,
+  onOpenFile,
+  onStageFiles,
+  onUnstageFiles,
   onContextAction
 }: {
+  /** The accessible name of the group and its list. */
   title: string;
+  /** The visible group name. */
+  label: string;
   totalCount: number;
   filtering: boolean;
   collapsed: boolean;
@@ -10253,13 +10298,21 @@ function FileGroup({
   emptyMessage: string;
   side: GitDiffSide;
   files: GitStatusFile[];
-  summary: RepoSummary | null;
+  /** False while the repository summary is missing or invalid. */
+  ready: boolean;
   selection: FileSelection | null;
   disabled: boolean;
   recoveryMode: boolean;
   viewMode: StatusFileViewMode;
-  actions: ReactNode;
+  /** The list column scroller that both file groups share. Null while its ref is pending. */
+  scrollContainer: HTMLElement | null;
+  /** False while the selection is one that a stage or unstage moved here from the other group. */
+  revealSelection: boolean;
   onSelectFile: (file: GitStatusFile, side: GitDiffSide, modifiers: FileSelectionModifiers) => void;
+  /** Shows the diff in a narrow window. */
+  onOpenFile: () => void;
+  onStageFiles: (paths: string[], selection?: FileSelection) => void;
+  onUnstageFiles: (paths: string[], selection?: FileSelection) => void;
   onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind, paths?: string[]) => void;
 }): ReactNode {
   const selectedPathSet = useMemo(
@@ -10269,6 +10322,17 @@ function FileGroup({
   const selectedFiles = useMemo(() => files.filter((file) => selectedPathSet.has(file.path)), [files, selectedPathSet]);
   const stageableSelectedCount = side === "staged" ? selectedFiles.length : selectedFiles.filter(canStageStatusFile).length;
   const canDiscardSelection = selectedFiles.every(canDiscardStatusFile);
+  // The selection already holds only matching paths, in selection order.
+  const selectionPaths = useMemo(() => selection?.side === side ? getSelectionPaths(selection) : [], [selection, side]);
+  const actionablePaths = useMemo(
+    () => (side === "staged" ? files : files.filter(canStageStatusFile)).map((file) => file.path),
+    [files, side]
+  );
+  const actionablePathSet = useMemo(() => new Set(actionablePaths), [actionablePaths]);
+  const selectionActionPaths = useMemo(
+    () => side === "staged" ? selectionPaths : selectionPaths.filter((path) => actionablePathSet.has(path)),
+    [actionablePathSet, selectionPaths, side]
+  );
   const tree = useMemo(() => buildStatusFileTree(files), [files]);
   const [collapsedFolders, setCollapsedFolders] = usePersistentWorkspacePanelState<Set<string>>(
     `status-${side}-collapsed-folders`,
@@ -10296,30 +10360,83 @@ function FileGroup({
     else next.add(id);
     return next;
   });
+  const applyToSelection = (): void => {
+    if (selection?.side !== side || selectionActionPaths.length === 0) return;
+    const targetSide: GitDiffSide = side === "staged" ? "unstaged" : "staged";
+    const nextSelection = createFileSelection(targetSide, selectionPaths, selection.path, selection.anchorPath);
+    if (side === "staged") onUnstageFiles(selectionActionPaths, nextSelection);
+    else onStageFiles(selectionActionPaths, nextSelection);
+  };
+  const renderFileRow = (file: GitStatusFile, index: number, rowProps: VirtualRowProps, treeLevel?: number): ReactNode => {
+    const selected = selectedPathSet.has(file.path);
+    return (
+      <FileRow
+        key={`${side}:${file.path}`}
+        file={file}
+        side={side}
+        selected={selected}
+        selectedCount={selected ? selectedPathSet.size : 1}
+        stageCount={selected ? stageableSelectedCount : side === "staged" || canStageStatusFile(file) ? 1 : 0}
+        canDiscard={selected ? canDiscardSelection : canDiscardStatusFile(file)}
+        disabled={disabled}
+        recoveryMode={recoveryMode}
+        onSelectFile={selectVisibleFile}
+        onOpenFile={onOpenFile}
+        onStageFiles={onStageFiles}
+        onUnstageFiles={onUnstageFiles}
+        onContextAction={onContextAction}
+        treeLevel={treeLevel}
+        virtualIndex={index}
+        virtualRowProps={rowProps}
+      />
+    );
+  };
+  const countLabel = filtering ? `${files.length} of ${totalCount}` : String(totalCount);
+  const listRole = viewMode === "tree" ? "tree" : "listbox";
 
   return (
-    <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]" aria-label={title}>
+    <section className="status-file-group" aria-label={title}>
       <div className="status-file-group-header">
-        <h2 className="min-w-0 text-sm font-semibold">
-          {onToggleEmpty ? <button type="button" className="inline-flex items-center gap-1" aria-label={`${collapsed ? "Expand" : "Collapse"} ${title.toLowerCase()}`} aria-expanded={!collapsed} onClick={onToggleEmpty}>
-            {collapsed ? <ChevronRight className="size-4" /> : <ChevronDown className="size-4" />}{title} (0)
-          </button> : <>{title} <span className="font-normal text-muted-foreground">({filtering ? `${files.length} of ${totalCount}` : totalCount})</span></>}
+        <h2 className="status-file-group-title">
+          {onToggleEmpty ? <button type="button" className="status-file-group-toggle" aria-label={`${collapsed ? "Expand" : "Collapse"} ${title.toLowerCase()}`} aria-expanded={!collapsed} onClick={onToggleEmpty}>
+            {collapsed ? <ChevronRight aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}{label} <span className="status-file-count">0</span>
+          </button> : <>{label} <span className="status-file-count">{countLabel}</span></>}
         </h2>
-        {!collapsed ? <div className="flex flex-wrap justify-end gap-1">{actions}</div> : <span className="text-xs text-muted-foreground">{emptyMessage}</span>}
+        {collapsed ? <span className="status-file-group-empty">{emptyMessage}</span> : (
+          <div className="status-file-group-actions">
+            {selectionPaths.length > 1 ? (
+              <Button type="button" variant="ghost" size="xs" disabled={disabled || selectionActionPaths.length === 0} onClick={applyToSelection}>
+                {fileActionLabel(side === "staged" ? "Unstage" : "Stage", selectionActionPaths.length)}
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              disabled={disabled || actionablePaths.length === 0}
+              onClick={() => side === "staged" ? onUnstageFiles(actionablePaths) : onStageFiles(actionablePaths)}
+            >
+              {side === "staged"
+                ? filtering ? `Unstage ${actionablePaths.length} matching` : "Unstage All"
+                : filtering ? `Stage ${actionablePaths.length} matching` : "Stage All"}
+            </Button>
+          </div>
+        )}
       </div>
-      {collapsed ? null : !summary?.isValid ? (
-        <div className="file-list" role={viewMode === "tree" ? "tree" : "listbox"} aria-label={title} aria-multiselectable="true" />
+      {collapsed ? null : !ready ? (
+        <div className="file-list" role={listRole} aria-label={title} aria-multiselectable="true" />
       ) : files.length === 0 ? (
-        <div className="file-list flex items-center justify-center" role={viewMode === "tree" ? "tree" : "listbox"} aria-label={title} aria-multiselectable="true">
+        <div className="file-list is-empty" role={listRole} aria-label={title} aria-multiselectable="true">
           <EmptyState title={filtering && totalCount > 0 ? "No files match your search and filter" : emptyMessage} />
         </div>
       ) : viewMode === "tree" ? (
         <FixedSizeVirtualList
           items={treeRows}
           itemKey={(row) => row.kind === "folder" ? `${side}:folder:${row.folder.id}` : `${side}:${row.file.path}`}
-          rowHeight={34}
+          rowHeight={STATUS_FILE_ROW_HEIGHT}
           ariaLabel={title}
           role="tree"
+          scrollContainer={scrollContainer}
           onNavigate={(row, event) => { if (row.kind === "file") navigateToFile(row.file, event); }}
           onItemKeyDown={(row, index, event) => {
             if (event.key === "ArrowRight" && row.kind === "folder") {
@@ -10344,6 +10461,7 @@ function FileGroup({
             return undefined;
           }}
           selectedKey={selection?.side === side ? `${side}:${selection.path}` : null}
+          revealSelection={revealSelection}
           className="file-list"
           renderItem={(row, index, rowProps) => {
             const treeRowProps = {
@@ -10352,37 +10470,20 @@ function FileGroup({
               "aria-setsize": row.setSize
             };
             return row.kind === "folder" ? (
-            <StatusFileTreeFolderRow
-              key={`${side}:folder:${row.folder.id}`}
-              folder={row.folder}
-              side={side}
-              level={row.level}
-              collapsed={collapsedFolders.has(row.folder.id)}
-              disabled={disabled}
-              recoveryMode={recoveryMode}
-              virtualIndex={index}
-              virtualRowProps={treeRowProps}
-              onToggle={() => toggleFolder(row.folder.id)}
-              onContextAction={onContextAction}
-            />
-          ) : (
-            <FileRow
-              key={`${side}:${row.file.path}`}
-              file={row.file}
-              side={side}
-              selected={selectedPathSet.has(row.file.path)}
-              selectedCount={selectedPathSet.has(row.file.path) ? selectedPathSet.size : 1}
-              stageCount={selectedPathSet.has(row.file.path) ? stageableSelectedCount : side === "staged" || canStageStatusFile(row.file) ? 1 : 0}
-              canDiscard={selectedPathSet.has(row.file.path) ? canDiscardSelection : canDiscardStatusFile(row.file)}
-              disabled={disabled}
-              recoveryMode={recoveryMode}
-              onSelectFile={selectVisibleFile}
-              onContextAction={onContextAction}
-              treeLevel={row.level}
-              virtualIndex={index}
-              virtualRowProps={treeRowProps}
-            />
-            );
+              <StatusFileTreeFolderRow
+                key={`${side}:folder:${row.folder.id}`}
+                folder={row.folder}
+                side={side}
+                level={row.level}
+                collapsed={collapsedFolders.has(row.folder.id)}
+                disabled={disabled}
+                recoveryMode={recoveryMode}
+                virtualIndex={index}
+                virtualRowProps={treeRowProps}
+                onToggle={() => toggleFolder(row.folder.id)}
+                onContextAction={onContextAction}
+              />
+            ) : renderFileRow(row.file, index, treeRowProps, row.level);
           }}
         />
       ) : (
@@ -10390,32 +10491,18 @@ function FileGroup({
           items={files}
           onNavigate={navigateToFile}
           itemKey={(file) => `${side}:${file.path}`}
-          rowHeight={34}
+          rowHeight={STATUS_FILE_ROW_HEIGHT}
           ariaLabel={title}
+          scrollContainer={scrollContainer}
           selectedKey={selection?.side === side ? `${side}:${selection.path}` : null}
+          revealSelection={revealSelection}
           className="file-list"
-          renderItem={(file, index, rowProps) => (
-            <FileRow
-              key={`${side}:${file.path}`}
-              file={file}
-              side={side}
-              selected={selectedPathSet.has(file.path)}
-              selectedCount={selectedPathSet.has(file.path) ? selectedPathSet.size : 1}
-              stageCount={selectedPathSet.has(file.path) ? stageableSelectedCount : side === "staged" || canStageStatusFile(file) ? 1 : 0}
-              canDiscard={selectedPathSet.has(file.path) ? canDiscardSelection : canDiscardStatusFile(file)}
-              disabled={disabled}
-              recoveryMode={recoveryMode}
-              onSelectFile={selectVisibleFile}
-              onContextAction={onContextAction}
-              virtualIndex={index}
-              virtualRowProps={rowProps}
-            />
-          )}
+          renderItem={(file, index, rowProps) => renderFileRow(file, index, rowProps)}
         />
       )}
     </section>
   );
-}
+});
 
 function StatusFileTreeFolderRow({ folder, side, level, collapsed, disabled, recoveryMode, virtualIndex, virtualRowProps, onToggle, onContextAction }: {
   folder: StatusFileTreeFolder;
@@ -10493,6 +10580,9 @@ function FileRow({
   disabled,
   recoveryMode,
   onSelectFile,
+  onOpenFile,
+  onStageFiles,
+  onUnstageFiles,
   onContextAction,
   treeLevel,
   virtualIndex,
@@ -10507,13 +10597,20 @@ function FileRow({
   disabled: boolean;
   recoveryMode: boolean;
   onSelectFile: (file: GitStatusFile, side: GitDiffSide, modifiers: FileSelectionModifiers) => void;
+  onOpenFile: () => void;
+  onStageFiles: (paths: string[], selection?: FileSelection) => void;
+  onUnstageFiles: (paths: string[], selection?: FileSelection) => void;
   onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind, paths?: string[]) => void;
-  treeLevel?: number;
+  treeLevel?: number | undefined;
   virtualIndex?: number;
   virtualRowProps?: VirtualRowProps;
 }): ReactNode {
   const actionLabel = side === "unstaged" ? "Stage" : "Unstage";
   const deleted = isDeletedOnSide(file, side);
+  // The row buttons act on this file only. A selected file moves its selection to the other side.
+  const nextSelection = (targetSide: GitDiffSide): FileSelection | undefined => selected
+    ? createFileSelection(targetSide, [file.path], file.path, file.path)
+    : undefined;
 
   return (
     <ContextMenu>
@@ -10525,46 +10622,82 @@ function FileRow({
           }
         }}
       >
-        <button
-          type="button"
-          className={`file-row ${selected ? "is-selected" : ""}`}
+        <div
+          className={`file-row${selected ? " is-selected" : ""}`}
           data-path={file.path}
-          role={treeLevel ? "treeitem" : "option"}
-          aria-level={treeLevel}
-          aria-selected={selected}
-          aria-label={`${getFileStatusVisuals(file, side).label} ${file.originalPath ? `${file.originalPath} -> ` : ""}${file.path}`}
-          tabIndex={virtualRowProps?.tabIndex}
-          aria-posinset={virtualRowProps?.["aria-posinset"]}
-          aria-setsize={virtualRowProps?.["aria-setsize"]}
-          data-virtual-index={virtualIndex}
           style={treeLevel
-            ? { ...virtualRowProps?.style, paddingLeft: `${(treeLevel - 1) * 18 + 8}px` }
+            ? { ...virtualRowProps?.style, paddingLeft: `${(treeLevel - 1) * 18}px` }
             : virtualRowProps?.style}
-          onClick={(event: MouseEvent<HTMLButtonElement>) => onSelectFile(file, side, {
-            extendRange: event.shiftKey,
-            selectAll: false,
-            toggle: event.ctrlKey || event.metaKey
-          })}
-          onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
-            if (event.key.toLowerCase() === "a" && (event.ctrlKey || event.metaKey)) {
-              event.preventDefault();
-              onSelectFile(file, side, {
-                extendRange: false,
-                selectAll: true,
-                toggle: false
-              });
-            }
-          }}
         >
-          <StatusBadge file={file} side={side} />
-          <TooltipTarget content={file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}>
-            <span className="status-file-path">
-              <span className="status-file-name">{fileName(file.path)}</span>
-              {!treeLevel && file.path.includes("/") ? <span className="status-file-directory">{file.path.slice(0, file.path.lastIndexOf("/"))}</span> : null}
-              {file.originalPath ? <span className="status-file-directory">← {file.originalPath}</span> : null}
-            </span>
-          </TooltipTarget>
-        </button>
+          <button
+            type="button"
+            className="file-row-main"
+            role={treeLevel ? "treeitem" : "option"}
+            aria-level={treeLevel}
+            aria-selected={selected}
+            aria-label={`${getFileStatusVisuals(file, side).label} ${file.originalPath ? `${file.originalPath} -> ` : ""}${file.path}`}
+            tabIndex={virtualRowProps?.tabIndex}
+            aria-posinset={virtualRowProps?.["aria-posinset"]}
+            aria-setsize={virtualRowProps?.["aria-setsize"]}
+            data-virtual-index={virtualIndex}
+            onClick={(event: MouseEvent<HTMLButtonElement>) => {
+              const extendRange = event.shiftKey;
+              const toggle = event.ctrlKey || event.metaKey;
+              onSelectFile(file, side, { extendRange, selectAll: false, toggle });
+              if (!extendRange && !toggle) onOpenFile();
+            }}
+            onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
+              if (event.key.toLowerCase() === "a" && (event.ctrlKey || event.metaKey)) {
+                event.preventDefault();
+                onSelectFile(file, side, {
+                  extendRange: false,
+                  selectAll: true,
+                  toggle: false
+                });
+              }
+            }}
+          >
+            <StatusBadge file={file} side={side} />
+            <TooltipTarget content={file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}>
+              <span className="status-file-path">
+                <span className="status-file-name">{fileName(file.path)}</span>
+                {!treeLevel && file.path.includes("/") ? <span className="status-file-directory">{file.path.slice(0, file.path.lastIndexOf("/"))}</span> : null}
+                {file.originalPath ? <span className="status-file-directory">← {file.originalPath}</span> : null}
+              </span>
+            </TooltipTarget>
+          </button>
+          <span className="file-row-actions">
+            {side === "unstaged" && canDiscardStatusFile(file) ? (
+              <FileRowActionButton
+                label={`Discard changes in ${file.path}`}
+                tooltip="Discard changes"
+                disabled={disabled || recoveryMode}
+                onClick={() => onContextAction(file, side, "revert", [file.path])}
+              >
+                <Undo2 />
+              </FileRowActionButton>
+            ) : null}
+            {side === "unstaged" ? canStageStatusFile(file) ? (
+              <FileRowActionButton
+                label={`Stage ${file.path}`}
+                tooltip="Stage file"
+                disabled={disabled}
+                onClick={() => onStageFiles([file.path], nextSelection("staged"))}
+              >
+                <Plus />
+              </FileRowActionButton>
+            ) : null : (
+              <FileRowActionButton
+                label={`Unstage ${file.path}`}
+                tooltip="Unstage file"
+                disabled={disabled}
+                onClick={() => onUnstageFiles([file.path], nextSelection("unstaged"))}
+              >
+                <Minus />
+              </FileRowActionButton>
+            )}
+          </span>
+        </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-64">
         <ContextMenuLabel>{selectedCount === 1 ? "1 file selected" : `${selectedCount} files selected`}</ContextMenuLabel>
@@ -10601,6 +10734,37 @@ function FileRow({
         </> : null}
       </ContextMenuContent>
     </ContextMenu>
+  );
+}
+
+/**
+ * A row hover action. It is out of the tab order: the row is one stop in the list, and the context
+ * menu offers the same actions from the keyboard.
+ */
+function FileRowActionButton({ label, tooltip, disabled, onClick, children }: {
+  label: string;
+  tooltip: string;
+  disabled: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}): ReactNode {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          tabIndex={-1}
+          aria-label={label}
+          disabled={disabled}
+          onClick={onClick}
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{tooltip}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -13950,9 +14114,18 @@ function markAppUpdateError(
   };
 }
 
-function reconcileSelection(state: AppState): AppState {
+function reconcileSelection(state: AppState, followSelection: FileSelection | null = null): AppState {
   if (!state.selection || !state.summary?.isValid) {
     return state;
+  }
+
+  // A hunk operation hands over the selection it started from, so that the file follows its last
+  // hunk to the other group (see resolvePostHunkSelection) instead of losing the selection.
+  if (followSelection && followSelection.side === state.selection.side && followSelection.path === state.selection.path) {
+    const followed = resolvePostHunkSelection(state.summary, state.selection);
+    if (followed && followed.side !== state.selection.side) {
+      return { ...state, selection: followed, diff: null, diffChanged: false };
+    }
   }
 
   const files = getFilesForSide(state.summary, state.selection.side);

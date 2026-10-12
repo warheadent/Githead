@@ -64,7 +64,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(within(screen.getByRole("listbox", { name: "Staged files" })).queryAllByRole("option")).toHaveLength(0);
     const unstaged = screen.getByRole("listbox", { name: "Unstaged files" });
     expect(within(unstaged).getAllByRole("option")).toHaveLength(1);
-    expect(screen.getByRole("heading", { name: "Unstaged files (1 of 3)" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Changes 1 of 3" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Stage 1 matching" }));
     await waitFor(() => expect(githead.stageFiles).toHaveBeenCalledWith({ repoPath, paths: ["src/mixed.ts"], operationId: expect.any(String) }));
   });
@@ -98,7 +98,10 @@ describe("App", { timeout: 10_000 }, () => {
     const file = screen.getByRole("option", { name: /legacy\/old.ts -> src\/renamed.ts/ });
     fireEvent.click(file);
     fireEvent.keyDown(file, { key: "a", ctrlKey: true });
-    fireEvent.click(screen.getByRole("button", { name: "Stage 1 file" }));
+    // A single selected file has no header selection button; its context menu acts on the selection.
+    expect(screen.queryByRole("button", { name: /^Stage \d+ files?$/ })).toBeNull();
+    fireEvent.contextMenu(file);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Stage 1 file" }));
     await waitFor(() => expect(githead.stageFiles).toHaveBeenCalledWith({ repoPath, paths: ["src/renamed.ts"], operationId: expect.any(String) }));
   });
 
@@ -114,7 +117,8 @@ describe("App", { timeout: 10_000 }, () => {
     const role = viewMode === "tree" ? "treeitem" : "option";
     const first = screen.getByRole(role, { name: /src\/file-0000.ts/ });
     const list = screen.getByRole(viewMode === "tree" ? "tree" : "listbox", { name: "Unstaged files" });
-    Object.defineProperty(list, "clientHeight", { configurable: true, value: 340 });
+    const scroller = document.querySelector<HTMLElement>("[data-workspace-scroll-key='status-files']")!;
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 340 });
     fireEvent.click(first);
     fireEvent.keyDown(first, { key: "End", shiftKey: true });
     const last = screen.getByRole(role, { name: /src\/file-0999.ts/ });
@@ -170,6 +174,44 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Discard changes" }).hasAttribute("disabled")).toBe(true));
     fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
     expect(githead.revertFileChanges).not.toHaveBeenCalled();
+  });
+
+  it("acts on one file from its row buttons and confirms a row discard", async () => {
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [
+      createStatusFile("src/staged.ts", { isStaged: true, indexStatus: "M" }),
+      createStatusFile("src/first.ts", { isUnstaged: true, worktreeStatus: "M" }),
+      createStatusFile("src/second.ts", { isUnstaged: true, worktreeStatus: "M" }),
+      createStatusFile("src/new.ts", { isUnstaged: true, worktreeStatus: "?" })
+    ] }));
+    render(<App />);
+    const first = await screen.findByRole("option", { name: /src\/first\.ts/ });
+    fireEvent.click(first);
+    fireEvent.click(screen.getByRole("option", { name: /src\/second\.ts/ }), { ctrlKey: true });
+    // The row buttons stay out of the tab order and act on their own file, not on the selection.
+    const stage = screen.getByRole("button", { name: "Stage src/first.ts" });
+    expect(stage.tabIndex).toBe(-1);
+    expect(screen.getByRole("button", { name: "Stage src/new.ts" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Discard changes in src/new.ts" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Stage src/staged.ts" })).toBeNull();
+    fireEvent.click(stage);
+    await waitFor(() => expect(githead.stageFiles).toHaveBeenCalledWith({ repoPath, paths: ["src/first.ts"], operationId: expect.any(String) }));
+
+    const unstage = screen.getByRole("button", { name: "Unstage src/staged.ts" });
+    await waitFor(() => expect(unstage.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(unstage);
+    await waitFor(() => expect(githead.unstageFiles).toHaveBeenCalledWith({ repoPath, paths: ["src/staged.ts"], operationId: expect.any(String) }));
+
+    const discard = screen.getByRole("button", { name: "Discard changes in src/second.ts" });
+    await waitFor(() => expect(discard.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(discard);
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("src/second.ts")).toBeTruthy();
+    expect(githead.revertFileChanges).not.toHaveBeenCalled();
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Discard changes" }).hasAttribute("disabled")).toBe(false));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Discard changes" }));
+    await waitFor(() => expect(githead.revertFileChanges).toHaveBeenCalledWith({
+      repoPath, paths: ["src/second.ts"], side: "unstaged", expectedSnapshot: "unchanged-snapshot", operationId: expect.any(String)
+    }));
   });
 
   it.each(["filesystem", "filesystem-metadata", "focus"] as const)("allows discard of unchanged files after %s activity", async (reason) => {
@@ -445,9 +487,10 @@ describe("App", { timeout: 10_000 }, () => {
     expect(initiallyMounted[0]?.getAttribute("aria-posinset")).toBe("1");
 
     fireEvent.click(initiallyMounted[0]!);
-    Object.defineProperty(list, "clientHeight", { configurable: true, value: 340 });
-    Object.defineProperty(list, "scrollTop", { configurable: true, writable: true, value: 500 * 34 });
-    fireEvent.scroll(list);
+    const scroller = document.querySelector<HTMLElement>("[data-workspace-scroll-key='status-files']")!;
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 340 });
+    Object.defineProperty(scroller, "scrollTop", { configurable: true, writable: true, value: 500 * 32 });
+    fireEvent.scroll(scroller);
 
     expect(within(list).queryByText("generated/file-00000.ts")).toBeNull();
     const target = within(list).getByRole("option", { name: /generated\/file-00500\.ts/ });
@@ -460,6 +503,71 @@ describe("App", { timeout: 10_000 }, () => {
       expect(request?.paths[0]).toBe("generated/file-00000.ts");
       expect(request?.paths.at(-1)).toBe("generated/file-00500.ts");
     });
+  });
+
+  it("keeps the shared file scroller in place when a selected row moves to the other group", async () => {
+    const paths = Array.from({ length: 1_000 }, (_, index) => `generated/file-${index.toString().padStart(4, "0")}.ts`);
+    const movedPath = paths[500]!;
+    vi.mocked(githead.getRepoSummary)
+      .mockResolvedValueOnce(createSummary({ files: paths.map((path) => createStatusFile(path, { isUnstaged: true, worktreeStatus: "M" })) }))
+      .mockResolvedValue(createSummary({ files: paths.map((path) => path === movedPath
+        ? createStatusFile(path, { isStaged: true, indexStatus: "M" })
+        : createStatusFile(path, { isUnstaged: true, worktreeStatus: "M" })) }));
+    render(<App />);
+
+    const list = await screen.findByRole("listbox", { name: "Unstaged files" });
+    const scroller = document.querySelector<HTMLElement>("[data-workspace-scroll-key='status-files']")!;
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 340 });
+    Object.defineProperty(scroller, "scrollTop", { configurable: true, writable: true, value: 495 * 32 });
+    fireEvent.scroll(scroller);
+    fireEvent.click(within(list).getByRole("option", { name: new RegExp(movedPath) }));
+
+    fireEvent.click(screen.getByRole("button", { name: `Stage ${movedPath}` }));
+    await waitFor(() => expect(githead.stageFiles).toHaveBeenCalledWith({ repoPath, paths: [movedPath], operationId: expect.any(String) }));
+    emitRepoChanged();
+
+    const staged = await screen.findByRole("listbox", { name: "Staged files" });
+    await waitFor(() => expect(within(staged).getByRole("option", { name: new RegExp(movedPath) }).getAttribute("aria-selected")).toBe("true"));
+    expect(scroller.scrollTop).toBe(495 * 32);
+  });
+
+  it("keeps the selection and the shared file scroller in place when the final hunk of a file is staged", async () => {
+    const paths = Array.from({ length: 1_000 }, (_, index) => `generated/file-${index.toString().padStart(4, "0")}.ts`);
+    const movedPath = paths[500]!;
+    vi.mocked(githead.getRepoSummary)
+      .mockResolvedValueOnce(createSummary({ files: paths.map((path) => createStatusFile(path, { isUnstaged: true, worktreeStatus: "M" })) }))
+      .mockResolvedValue(createSummary({ files: paths.map((path) => path === movedPath
+        ? createStatusFile(path, { isStaged: true, indexStatus: "M" })
+        : createStatusFile(path, { isUnstaged: true, worktreeStatus: "M" })) }));
+    vi.mocked(githead.getFileDiff).mockImplementation(async ({ path, side }) => createTextDiff(path, `${side}-hunk`, side));
+    render(<App />);
+
+    const list = await screen.findByRole("listbox", { name: "Unstaged files" });
+    const scroller = document.querySelector<HTMLElement>("[data-workspace-scroll-key='status-files']")!;
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 340 });
+    Object.defineProperty(scroller, "scrollTop", { configurable: true, writable: true, value: 495 * 32 });
+    fireEvent.scroll(scroller);
+    fireEvent.click(within(list).getByRole("option", { name: new RegExp(movedPath) }));
+    expect(await screen.findByText("unstaged-hunk")).toBeTruthy();
+
+    // Hold the metadata section so the refreshed status renders on its own, as it can in the app.
+    const metadataGate = defer<void>();
+    const loadMetadata = vi.mocked(githead.getRepoMetadata).getMockImplementation()!;
+    vi.mocked(githead.getRepoMetadata).mockImplementation(async (request) => {
+      await metadataGate.promise;
+      return loadMetadata(request);
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Stage Hunk$/ }));
+    await waitFor(() => expect(githead.stageHunk).toHaveBeenCalledWith(expect.objectContaining({ path: movedPath, side: "unstaged" })));
+
+    const staged = await screen.findByRole("listbox", { name: "Staged files" });
+    await waitFor(() => expect(within(staged).queryByRole("option", { name: new RegExp(movedPath) })?.getAttribute("aria-selected")).toBe("true"));
+    expect(scroller.scrollTop).toBe(495 * 32);
+
+    metadataGate.resolve();
+    expect(await screen.findByText("staged-hunk")).toBeTruthy();
+    expect(within(staged).getByRole("option", { name: new RegExp(movedPath) }).getAttribute("aria-selected")).toBe("true");
+    expect(scroller.scrollTop).toBe(495 * 32);
   });
 
   it("stages all 10,000 selected files without repeatedly scanning their paths", async () => {
@@ -536,8 +644,9 @@ describe("App", { timeout: 10_000 }, () => {
     expect(within(tree).queryByText("file-00500.ts")).toBeNull();
 
     const firstFile = within(tree).getByRole("treeitem", { name: /file-00000\.ts/ });
-    expect(firstFile.style.position).toBe("absolute");
-    expect(firstFile.style.top).toBe("34px");
+    const firstRow = firstFile.closest<HTMLElement>(".file-row")!;
+    expect(firstRow.style.position).toBe("absolute");
+    expect(firstRow.style.top).toBe("32px");
     fireEvent.click(firstFile);
 
     expect(firstFile.getAttribute("aria-selected")).toBe("true");
@@ -562,8 +671,10 @@ describe("App", { timeout: 10_000 }, () => {
     emitRepoChanged();
 
     await waitFor(() => expect(screen.queryByRole("option", { name: /src\/first\.ts/ })).toBeNull());
-    expect(screen.getByRole("option", { name: /src\/second\.ts/ }).getAttribute("aria-selected")).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
+    const remainingRow = screen.getByRole("option", { name: /src\/second\.ts/ });
+    expect(remainingRow.getAttribute("aria-selected")).toBe("true");
+    fireEvent.contextMenu(remainingRow);
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Stage(?: \d+ files?)?$/ }));
     await waitFor(() => expect(githead.stageFiles).toHaveBeenCalledWith({ repoPath, paths: ["src/second.ts"], operationId: expect.any(String) }));
   });
 

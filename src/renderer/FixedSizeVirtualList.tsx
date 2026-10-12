@@ -27,6 +27,11 @@ interface FixedSizeVirtualListProps<T> {
   overscan?: number;
   ariaLabel: string;
   selectedKey?: string | null | undefined;
+  /**
+   * False takes a selectedKey change without scrolling, for a selection that moved into this list
+   * from another list in the same scroller. Keyboard navigation still reveals its row.
+   */
+  revealSelection?: boolean;
   className?: string;
   multiSelectable?: boolean;
   role?: "listbox" | "tree";
@@ -121,6 +126,7 @@ export function FixedSizeVirtualList<T>({
   overscan = 4,
   ariaLabel,
   selectedKey,
+  revealSelection = true,
   className,
   multiSelectable = true,
   role = "listbox",
@@ -252,7 +258,7 @@ export function FixedSizeVirtualList<T>({
   }, [embedded, items.length, rowHeight]);
 
   useLayoutEffect(() => {
-    if (!selectedKey || selectedKey === previousSelectedKeyRef.current) {
+    if (!selectedKey || selectedKey === previousSelectedKeyRef.current || !revealSelection) {
       previousSelectedKeyRef.current = selectedKey;
       return;
     }
@@ -265,7 +271,7 @@ export function FixedSizeVirtualList<T>({
     if (index === -1) return;
     revealRow(frame, index, rowHeight, getScrollPadding(frame));
     syncScrollState(frame);
-  }, [getScrollFrame, getScrollPadding, itemKey, items, rowHeight, selectedKey, syncScrollState]);
+  }, [getScrollFrame, getScrollPadding, itemKey, items, revealSelection, rowHeight, selectedKey, syncScrollState]);
 
   const range = embedded
     ? getEmbeddedVisibleRange(items.length, scrollTop, viewportHeight, rowHeight, boundedOverscan)

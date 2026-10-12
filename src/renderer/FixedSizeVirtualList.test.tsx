@@ -64,11 +64,12 @@ function createScrollContainer(offsets: Record<string, number>, { scrollPaddingT
   };
 }
 
-function EmbeddedList({ label, items = files, container, selectedKey, onNavigate }: {
+function EmbeddedList({ label, items = files, container, selectedKey, revealSelection, onNavigate }: {
   label: string;
   items?: readonly string[];
   container: HTMLElement | null;
   selectedKey?: string;
+  revealSelection?: boolean;
   onNavigate?: (item: string, event: KeyboardEvent<HTMLDivElement>) => void;
 }) {
   return (
@@ -79,6 +80,7 @@ function EmbeddedList({ label, items = files, container, selectedKey, onNavigate
       overscan={2}
       ariaLabel={label}
       selectedKey={selectedKey}
+      {...(revealSelection === undefined ? {} : { revealSelection })}
       className="file-list"
       scrollContainer={container}
       {...(onNavigate ? { onNavigate } : {})}
@@ -297,6 +299,20 @@ describe("FixedSizeVirtualList", () => {
       view.rerender(<EmbeddedList label="Files" container={container} selectedKey="file-10" />);
       expect(container.scrollTop).toBe(368);
       expect(screen.getByRole("option", { name: "file-10" })).toBeTruthy();
+    });
+
+    it("takes a selection without scrolling when it must not reveal it", () => {
+      const { container, host } = createScrollContainer({ Files: 200 }, { scrollPaddingTop: "32px" });
+      const view = render(<EmbeddedList label="Files" container={container} />, { container: host });
+
+      view.rerender(<EmbeddedList label="Files" container={container} selectedKey="file-50" revealSelection={false} />);
+      expect(container.scrollTop).toBe(0);
+      // Allowing reveals again does not reveal the selection that arrived while they were off.
+      view.rerender(<EmbeddedList label="Files" container={container} selectedKey="file-50" />);
+      expect(container.scrollTop).toBe(0);
+
+      view.rerender(<EmbeddedList label="Files" container={container} selectedKey="file-10" />);
+      expect(container.scrollTop).toBe(320);
     });
 
     it("moves focus to the list before a focused row scrolls out of the container", () => {

@@ -234,7 +234,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await flushRendererAsync();
     fireEvent.click(screen.getByRole("option", { name: /src\/pending\.ts/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Stage src/pending.ts" }));
     await flushRendererAsync();
 
     await act(async () => {
@@ -262,7 +262,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await flushRendererAsync();
     fireEvent.click(screen.getByRole("option", { name: /src\/pending\.ts/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Stage src/pending.ts" }));
     await flushRendererAsync();
 
     const operationId = vi.mocked(githead.stageFiles).mock.calls[0]?.[0].operationId;
@@ -293,7 +293,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await flushRendererAsync();
     fireEvent.click(screen.getByRole("option", { name: /src\/stale\.ts/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Stage src/stale.ts" }));
     await flushRendererAsync();
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -324,7 +324,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await flushRendererAsync();
     fireEvent.click(screen.getByRole("option", { name: /src\/lost-result\.ts/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Stage src/lost-result.ts" }));
     await flushRendererAsync();
 
     const operationId = vi.mocked(githead.stageFiles).mock.calls[0]?.[0].operationId;
@@ -361,7 +361,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await flushRendererAsync();
     fireEvent.click(screen.getByRole("option", { name: /src\/retry-cancel\.ts/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Stage src/retry-cancel.ts" }));
     await flushRendererAsync();
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -405,7 +405,7 @@ describe("App", { timeout: 10_000 }, () => {
     await flushRendererAsync();
 
     fireEvent.click(screen.getByRole("option", { name: /src\/race\.ts/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Stage src/race.ts" }));
     await flushRendererAsync();
 
     pendingTrust.resolve({
@@ -631,14 +631,15 @@ describe("App", { timeout: 10_000 }, () => {
     }));
 
     render(<App />);
-    const statusList = await screen.findByRole("listbox", { name: "Unstaged files" });
-    statusList.scrollTop = 340;
-    fireEvent.scroll(statusList);
+    await screen.findByRole("listbox", { name: "Unstaged files" });
+    const statusScroller = document.querySelector<HTMLElement>("[data-workspace-scroll-key='status-files']")!;
+    statusScroller.scrollTop = 340;
+    fireEvent.scroll(statusScroller);
     const fileOption = await screen.findByRole("option", { name: /persisted-18\.ts/ });
     await user.click(fileOption);
     expect(fileOption.getAttribute("aria-selected")).toBe("true");
-    statusList.scrollTop = 340;
-    fireEvent.scroll(statusList);
+    statusScroller.scrollTop = 340;
+    fireEvent.scroll(statusScroller);
     expect(screen.queryByRole("listbox", { name: "Commit history" })).toBeNull();
 
     await user.click(screen.getByRole("tab", { name: /^History$/ }));
@@ -648,7 +649,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(screen.getByRole("tab", { name: /^Changes/ }));
     expect((await screen.findByRole("option", { name: /persisted-18\.ts/ })).getAttribute("aria-selected")).toBe("true");
     await waitFor(() => {
-      expect(screen.getByRole("listbox", { name: "Unstaged files" }).scrollTop).toBe(340);
+      expect(document.querySelector<HTMLElement>("[data-workspace-scroll-key='status-files']")?.scrollTop).toBe(340);
     });
     expect(screen.getByRole("listbox", { name: "Commit history" })).toBeTruthy();
   });
@@ -820,7 +821,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await flushRendererAsync();
     fireEvent.click(screen.getByRole("option", { name: /src\/pending\.ts/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Stage src/pending.ts" }));
     await flushRendererAsync();
 
     emitRepoChanged();

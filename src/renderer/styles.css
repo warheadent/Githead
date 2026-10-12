@@ -1797,37 +1797,6 @@ textarea,
   overflow: hidden;
 }
 
-@media (max-width: 839px) {
-  .commit-panel {
-    flex: 0 0 auto;
-    padding: 12px;
-  }
-
-  .status-workspace {
-    overflow-x: auto !important;
-    overflow-y: hidden !important;
-    overscroll-behavior-x: contain;
-  }
-
-  .status-workspace > [data-panel][data-status-panel="files"] {
-    width: 300px !important;
-    min-width: 300px !important;
-    max-width: none !important;
-    flex: 0 0 300px !important;
-  }
-
-  .status-workspace > [data-panel][data-status-panel="diff"] {
-    width: min(420px, 100vw) !important;
-    min-width: min(420px, 100vw) !important;
-    max-width: none !important;
-    flex: 0 0 min(420px, 100vw) !important;
-  }
-
-  .status-workspace-resize-handle {
-    flex: 0 0 1px;
-  }
-}
-
 .settings-panel {
   container-type: inline-size;
   scrollbar-gutter: stable;
@@ -2522,21 +2491,22 @@ textarea,
 .setup-recents > .repo-recents-heading { display: none; }
 .setup-recents .repo-recents-list { max-height: 240px; overflow: auto; padding: 3px; }
 
+/* The plan view fills the Changes list column, which is 280px to 520px wide. */
 .commit-plan-view {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--card);
+  background: var(--background);
 }
 
 .commit-plan-toolbar {
   display: flex;
-  min-height: 64px;
+  min-height: 48px;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 8px;
   border-bottom: 1px solid var(--border);
-  padding: 10px 16px;
+  padding: 8px 16px;
 }
 
 .commit-plan-toolbar h2 {
@@ -2553,7 +2523,7 @@ textarea,
 
 .commit-plan-notice,
 .commit-plan-error {
-  margin: 12px 12px 0;
+  margin: 8px 16px 0;
   border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--border));
   border-radius: 8px;
   background: color-mix(in srgb, var(--warning) 9%, var(--card));
@@ -2571,24 +2541,24 @@ textarea,
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 12px;
+  padding: 8px 16px;
 }
 
 .commit-plan-inbox-sticky {
   position: sticky;
   z-index: 1;
   top: 0;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .commit-plan-inbox-sticky::before {
   position: absolute;
   z-index: -1;
-  top: -12px;
-  right: -12px;
+  top: -8px;
+  right: -16px;
   bottom: 0;
-  left: -12px;
-  background: var(--card);
+  left: -16px;
+  background: var(--background);
   content: "";
   pointer-events: none;
 }
@@ -2596,7 +2566,7 @@ textarea,
 .commit-plan-inbox {
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: var(--background);
 }
 
@@ -2678,9 +2648,9 @@ textarea,
 
 .commit-plan-group {
   overflow: hidden;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: var(--background);
 }
 
@@ -2688,9 +2658,9 @@ textarea,
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: start;
-  gap: 9px;
+  gap: 8px;
   border-bottom: 1px solid var(--border);
-  padding: 10px;
+  padding: 8px;
 }
 
 .commit-plan-group-copy {
@@ -2727,7 +2697,7 @@ textarea,
 
 .commit-plan-file {
   display: grid;
-  min-height: 38px;
+  min-height: 32px;
   grid-template-columns: auto auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
@@ -4429,7 +4399,6 @@ textarea,
   padding: 0 0.35rem;
 }
 
-.file-list,
 .history-list,
 .commit-file-list {
   min-height: 0;
@@ -4437,59 +4406,232 @@ textarea,
   content-visibility: auto;
 }
 
-.file-list,
 .commit-file-list {
   padding: var(--space-2);
 }
 
-.file-row {
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
+/* The status lists share the list column scroller, so they never scroll or skip rendering themselves. */
+.file-list {
+  min-height: 0;
+  padding: 0 var(--space-2) var(--space-2);
+}
+
+.file-list.is-empty {
+  display: flex;
   align-items: center;
-  width: 100%;
-  min-height: 34px;
-  margin: 0;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  padding: 4px 8px;
-  background: transparent;
-  text-align: left;
+  justify-content: center;
+}
+
+/* Changes list column: toolbar, one scroller with both file groups, then the commit box. */
+.status-changes-list {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  container-type: inline-size;
+}
+
+.status-changes-list.is-plan {
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .status-file-toolbar {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  min-height: 44px;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--border);
+  gap: 8px;
+  min-width: 0;
+  min-height: 48px;
+  padding: 8px 16px;
 }
 
-.status-file-toolbar > .relative {
-  min-width: 130px;
+.status-file-search {
+  position: relative;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .status-file-filter {
-  max-width: 130px;
-  height: 32px;
-  padding: 0 6px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--background);
-  color: var(--foreground);
-  font-size: 12px;
+  width: 112px;
+  min-width: 88px;
+  flex: 0 1 112px;
+}
+
+/* A narrow column gives the search field its own row. */
+@container (max-width: 340px) {
+  .status-file-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .status-file-search {
+    flex-basis: 100%;
+  }
+}
+
+.status-file-scroll {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  /* Keeps keyboard-revealed rows below the sticky group header. */
+  scroll-padding-top: 32px;
+}
+
+.status-file-group {
+  display: block;
 }
 
 .status-file-group-header {
+  position: sticky;
+  z-index: 1;
+  top: 0;
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  height: 32px;
+  padding: 0 8px 0 16px;
+  background: var(--background);
+}
+
+.status-file-group-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
   gap: 6px;
-  min-height: 56px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.status-file-group-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: -4px;
+  border: 0;
+  border-radius: calc(var(--radius) - 2px);
+  padding: 2px 4px;
+  color: inherit;
+  background: transparent;
+}
+
+.status-file-group-toggle:hover {
+  color: var(--foreground);
+}
+
+.status-file-group-toggle svg {
+  width: 14px;
+  height: 14px;
+}
+
+.status-file-count {
+  display: inline-flex;
+  min-width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0 6px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.status-file-group-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+
+.status-file-group-empty {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-row {
+  --file-row-bg: var(--background);
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 32px;
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--file-row-bg);
+}
+
+.file-row:hover {
+  --file-row-bg: var(--hover);
+}
+
+.file-row.is-selected {
+  --file-row-bg: var(--selected);
+}
+
+.file-row-main {
+  display: grid;
+  min-width: 0;
+  height: 100%;
+  min-height: 32px;
+  flex: 1 1 auto;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: inherit;
+  padding: 0 8px;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+
+/* The scroller clips an outside ring at the column edges. */
+.file-row-main:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+/* Hover actions cover the end of the path instead of narrowing every row. */
+.file-row-actions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: inherit;
+  padding: 0 4px 0 16px;
+  background: linear-gradient(to right, transparent, var(--file-row-bg) 12px);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 120ms var(--ease-out), visibility 0s linear 120ms;
+}
+
+.file-row-actions:empty {
+  display: none;
+}
+
+.file-row:hover .file-row-actions,
+.file-row:focus-within .file-row-actions,
+.file-row.is-selected .file-row-actions {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+:root[data-reduce-motion="true"] .file-row-actions {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-row-actions { transition: none; }
 }
 
 .status-file-path {
@@ -4498,8 +4640,9 @@ textarea,
   gap: 8px;
   min-width: 0;
   overflow: hidden;
-  font-family: var(--font-code);
-  font-size: 0.8125rem;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 20px;
 }
 
 .status-file-name {
@@ -4518,16 +4661,20 @@ textarea,
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--muted-foreground);
-  font-size: 0.75rem;
+  font-size: 12px;
 }
 
-.file-row:hover,
+.changes-detail {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr);
+}
+
 .commit-file-row:hover,
 .history-row:hover {
   background: var(--hover);
 }
 
-.file-row.is-selected,
 .commit-file-row.is-selected {
   background: var(--selected);
 }
@@ -4551,7 +4698,7 @@ textarea,
 
 .file-tree-folder-row {
   display: block;
-  min-height: 34px;
+  min-height: 32px;
   align-items: center;
   border-radius: 4px;
 }
@@ -4559,10 +4706,6 @@ textarea,
 .virtual-list-spacer {
   position: relative;
   min-width: 0;
-}
-
-.virtual-list-spacer .file-row {
-  min-height: 0;
 }
 
 .virtual-list-spacer .file-tree-folder-row {
@@ -8365,7 +8508,7 @@ textarea,
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
 }
 
 .commit-plan-toolbar {
@@ -8373,7 +8516,7 @@ textarea,
 }
 
 .commit-plan-group-actions {
-  padding: 6px 10px;
+  padding: 4px 8px;
   color: var(--muted-foreground);
   font-size: 12px;
 }
