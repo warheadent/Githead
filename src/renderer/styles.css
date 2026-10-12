@@ -2387,8 +2387,6 @@ textarea,
 }
 .quick-switcher-option-icon > svg { width: 16px; height: 16px; }
 .quick-switcher-option-icon .repo-recent-vcs-icon { width: 14px; height: 14px; margin: 0; }
-.quick-switcher-option-icon .repo-recent-vcs-icon img { filter: brightness(0); opacity: 0.55; }
-.dark .quick-switcher-option-icon .repo-recent-vcs-icon img { filter: none; opacity: 0.75; }
 .quick-switcher-option-copy {
   display: flex;
   flex: 1;
@@ -4458,6 +4456,13 @@ textarea,
   display: block;
   max-width: 100%;
   max-height: 100%;
+  filter: brightness(0);
+  opacity: 0.55;
+}
+
+.dark .repo-recent-vcs-icon img {
+  filter: none;
+  opacity: 0.75;
 }
 
 .repo-recent-sync {
