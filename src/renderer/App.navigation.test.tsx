@@ -178,6 +178,8 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     await waitFor(() => selectedTab(/^Changes/));
     expect(screen.queryByRole("tab", { name: /^Activity log/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Close Activity log view" })).toBeNull();
+    // Keyboard users keep their place in the header instead of dropping to the page body.
+    expect(document.activeElement).toBe(screen.getByRole("tab", { name: /^Changes/, selected: true }));
   });
 
   it("supports the quick switcher commands and Alt+Left/Right without recording the same tab twice", async () => {

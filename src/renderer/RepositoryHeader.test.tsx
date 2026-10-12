@@ -394,6 +394,42 @@ describe("RepositoryHeader", () => {
       ]);
     });
 
+    it("moves focus to the tab that becomes active when the guest is closed from its close button", async () => {
+      const user = userEvent.setup();
+      /** Mirrors the app: closing an active guest hands over to Changes, otherwise the active view stays. */
+      function ClosingHeader({ initialValue }: { initialValue: string }): ReactNode {
+        const [value, setValue] = useState(initialValue);
+        const [guestView, setGuestView] = useState<RepositoryHeaderProps["guestView"]>("stashes");
+        return (
+          <Harness value={value} onValueChange={setValue}>
+            <RepositoryHeader
+              {...headerProps({
+                changesCount: 68,
+                guestView,
+                guestCount: 2,
+                onCloseGuest: () => {
+                  if (value === guestView) setValue("status");
+                  setGuestView(null);
+                }
+              })}
+            />
+          </Harness>
+        );
+      }
+
+      const { unmount } = render(<ClosingHeader initialValue="stashes" />);
+      screen.getByRole("button", { name: "Close Stashes view" }).focus();
+      await user.keyboard("{Enter}");
+      expect(screen.queryByRole("tab", { name: /^Stashes/ })).toBeNull();
+      expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Changes 68", selected: true }));
+      unmount();
+
+      render(<ClosingHeader initialValue="history" />);
+      screen.getByRole("button", { name: "Close Stashes view" }).focus();
+      await user.keyboard(" ");
+      expect(document.activeElement).toBe(screen.getByRole("tab", { name: "History", selected: true }));
+    });
+
     it("gives every tab a hidden icon for narrow headers, so the label keeps naming the tab", () => {
       renderHeader({ guestView: "stashes", guestCount: 2 }, { value: "stashes" });
 

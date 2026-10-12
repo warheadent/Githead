@@ -17,7 +17,7 @@ import {
   Workflow,
   X
 } from "lucide-react";
-import { Fragment, memo, useEffect, useId, useState, type ReactNode, type Ref } from "react";
+import { Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { Button, TooltipButton } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -405,10 +405,30 @@ function ViewSwitch({
   const guestAriaLabel = isActivityGuest
     ? formatActivityLogLabel(activityAttention)
     : showGuestCount ? `${guestLabel} ${guestCount}` : guestLabel;
+  const listRef = useRef<HTMLDivElement>(null);
+  // The guest whose close button had focus when it was pressed. Its segment and the button
+  // unmount together, so focus moves to the tab that is active once the guest is gone.
+  const closingGuestRef = useRef<GuestView | null>(null);
+
+  const closeGuest = useCallback((event: { currentTarget: HTMLButtonElement }): void => {
+    closingGuestRef.current = event.currentTarget.contains(document.activeElement) ? guestView : null;
+    onCloseGuest();
+  }, [guestView, onCloseGuest]);
+
+  useLayoutEffect(() => {
+    const closing = closingGuestRef.current;
+    if (!closing || guestView === closing) return;
+    closingGuestRef.current = null;
+    // Another control may have taken focus in the meantime; only recover focus that was dropped.
+    if (guestView !== null || (document.activeElement && document.activeElement !== document.body)) return;
+    const tabs = listRef.current?.querySelectorAll<HTMLElement>('[role="tab"]');
+    const target = Array.from(tabs ?? []).find((tab) => tab.getAttribute("aria-selected") === "true") ?? tabs?.[0];
+    target?.focus();
+  }, [guestView]);
 
   return (
     <div className="view-switch" data-guest={guestView ? "true" : "false"}>
-      <TabsList className="view-switch-list">
+      <TabsList ref={listRef} className="view-switch-list">
         <TabsTrigger
           value="status"
           className="view-switch-tab"
@@ -446,7 +466,7 @@ function ViewSwitch({
           className="view-switch-close"
           aria-label={`Close ${guestLabel} view`}
           tooltip={`Close ${guestLabel}`}
-          onClick={onCloseGuest}
+          onClick={closeGuest}
         >
           <X />
         </TooltipButton>
