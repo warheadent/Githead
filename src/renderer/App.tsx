@@ -251,7 +251,6 @@ import { gitHubQueryStore, useGitHubQueries } from "./useGitHubQueries";
 import { GitHubQueryToolbar } from "./GitHubQueryToolbar";
 import { CreateIssueDialog, type CreateIssueDraft } from "./CreateIssueDialog";
 import { RunStatusIcon, WorkflowRunConsole } from "./WorkflowRunConsole";
-import { ListDetailLayout } from "./ListDetailLayout";
 import { formatRelativeDate } from "./relativeTime";
 import { WorkflowDuration } from "./WorkflowDuration";
 import { DEFAULT_ISSUE_QUERY, DEFAULT_PULL_REQUEST_QUERY, DEFAULT_WORKFLOW_QUERY, filterLoadedWorkflowRuns, sortLoadedWorkflowRuns } from "./githubViewQuery";
