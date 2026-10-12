@@ -3,10 +3,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  CircleDot,
-  ExternalLink,
-  GitBranch,
-  GitCommitHorizontal,
+  CircleSlash,
   Loader2,
   RotateCcw,
   X,
@@ -16,7 +13,17 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNod
 import { Button, TooltipButton } from "@/components/ui/button";
 import type { GitHubWorkflowJob, GitHubWorkflowRun } from "../shared/types";
 import { useGitHubWorkflowRunDetail } from "./useGitHubQueries";
-import { GitHubDetailRefreshButton, GitHubDetailStatus } from "./GitHubDetailStatus";
+import {
+  DetailCardHeader,
+  FactRow,
+  FactsSidebar,
+  GitHubDetailRefreshButton,
+  GitHubDetailStatus,
+  OpenOnGitHubButton,
+  StateBadge,
+  type StateBadgeTone
+} from "./GitHubDetailStatus";
+import { formatDateTime, formatRelativeDate } from "./relativeTime";
 import { WorkflowDuration } from "./WorkflowDuration";
 
 type MutationKind = "rerun" | "cancel";
@@ -122,91 +129,93 @@ export function WorkflowRunConsole({
 
   return (
     <aside className="review-console workflow-run-console" aria-label={`${current.name} ${runLabel}`} onKeyDown={handleKeyDown}>
-      <header className="review-console-header">
-        <div className="review-console-heading">
-          <div className="review-console-title-line">
-            <span className="review-console-number">{current.runNumber === null ? "Run" : `#${current.runNumber}`}</span>
-            <h2 title={current.name}>{current.name}</h2>
-          </div>
-          <div className="review-console-meta">
-            <span className={`workflow-run-state ${statusClass(current.status, current.conclusion)}`}>
-              <RunStatusIcon status={current.status} conclusion={current.conclusion} />
-              {statusText}
-            </span>
+      <DetailCardHeader
+        title={current.name}
+        {...(current.runNumber === null ? {} : { number: `#${current.runNumber}` })}
+        meta={(
+          <>
+            <StateBadge tone={getRunStateTone(current.status, current.conclusion)}>{statusText}</StateBadge>
             <span>{current.actor.login}</span>
             <span aria-hidden="true">·</span>
-            <span>{formatDateTime(current.updatedAt)}</span>
-          </div>
-          <div className="review-console-branches">
-            <span title={current.branch}><GitBranch />{current.branch}</span>
-            <span title={current.commitSha}><GitCommitHorizontal />{shortSha(current.commitSha)}</span>
-            <span><CircleDot />{formatEvent(current.event)}</span>
-          </div>
-        </div>
-        <div className="review-console-header-actions">
-          <Button type="button" variant="ghost" size="sm" onClick={() => onOpenExternalUrl(current.url)}>Open on GitHub <ExternalLink /></Button>
-          <GitHubDetailRefreshButton detail={detail} label="Refresh run details" />
-          <TooltipButton type="button" variant="ghost" size="icon" aria-label="Close workflow run details" tooltip="Close" onClick={onClose}><X /></TooltipButton>
-        </div>
-      </header>
+            <time dateTime={current.updatedAt} title={formatDateTime(current.updatedAt, "Unknown")}>{formatRelativeDate(current.updatedAt)}</time>
+            <span aria-hidden="true">·</span>
+            <code className="github-detail-ref" title={current.branch}>{current.branch}</code>
+            <span aria-hidden="true">·</span>
+            <span>{formatEvent(current.event)}</span>
+            <span aria-hidden="true">·</span>
+            <code className="github-detail-ref" title={current.commitSha}>{shortSha(current.commitSha)}</code>
+          </>
+        )}
+        actions={(
+          <>
+            <OpenOnGitHubButton onOpen={() => onOpenExternalUrl(current.url)} />
+            <GitHubDetailRefreshButton detail={detail} label="Refresh run details" />
+            <TooltipButton type="button" variant="ghost" size="icon-sm" aria-label="Close workflow run details" tooltip="Close" onClick={onClose}><X /></TooltipButton>
+          </>
+        )}
+      />
 
-      <div className="review-console-tabs workflow-run-console-tabs">
-        <div className="review-console-tab-list review-console-single-tab" role="tablist" aria-label="Workflow run details">
-          <button type="button" role="tab" aria-selected="true">Jobs <span className="review-console-tab-count">{detail.data?.jobCount ?? "-"}</span></button>
-        </div>
+      <div className="review-console-tabs">
         <GitHubDetailStatus detail={detail} label="run details" />
         {detail.data ? (
-          <div className="workflow-run-overview">
+          <div className="github-detail-body workflow-run-overview">
             <main className="workflow-job-list" aria-label="Workflow jobs">
-              {detail.data.jobs.length ? detail.data.jobs.map((job) => {
-                const expanded = expandedJobs.has(job.id);
-                return (
-                  <article className="workflow-job" key={job.id}>
-                    <div className="workflow-job-header">
-                      <button
-                        type="button"
-                        className="workflow-job-toggle"
-                        aria-expanded={expanded}
-                        onClick={() => setExpandedJobs((currentJobs) => toggleSetValue(currentJobs, job.id))}
-                      >
-                        {expanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
-                        <RunStatusIcon status={job.status} conclusion={job.conclusion} />
-                        <span className="workflow-job-heading">
-                          <strong>{job.name}</strong>
-                          <small>{formatRunStatus(job.status, job.conclusion)} · <WorkflowDuration startedAt={job.startedAt} completedAt={job.completedAt} running={job.status === "in_progress"} active={active} /></small>
-                        </span>
-                      </button>
-                      {job.url ? <Button type="button" variant="ghost" size="sm" onClick={() => onOpenExternalUrl(job.url)}>Logs <ExternalLink /></Button> : null}
-                    </div>
-                    {expanded ? (
-                      <ol className="workflow-step-list" aria-label={`${job.name} steps`}>
-                        {job.steps.length ? job.steps.map((step) => (
-                          <li key={`${job.id}-${step.number}`}>
-                            <RunStatusIcon status={step.status} conclusion={step.conclusion} />
-                            <span><strong>{step.name}</strong><small>{formatRunStatus(step.status, step.conclusion)}</small></span>
-                            <time><WorkflowDuration startedAt={step.startedAt} completedAt={step.completedAt} running={step.status === "in_progress"} active={active} /></time>
-                          </li>
-                        )) : <li className="workflow-step-empty">GitHub returned no steps for this job.</li>}
-                      </ol>
-                    ) : null}
-                  </article>
-                );
-              }) : <p className="review-console-empty">GitHub returned no jobs for this run.</p>}
+              <div className="github-section-heading">
+                <h3>Jobs</h3>
+                <span aria-hidden="true">·</span>
+                <span>{detail.data.jobCount}</span>
+              </div>
+              {detail.data.jobs.length ? (
+                <div className="workflow-jobs">
+                  {detail.data.jobs.map((job) => {
+                    const expanded = expandedJobs.has(job.id);
+                    return (
+                      <article className="workflow-job" key={job.id} data-expanded={expanded ? "true" : "false"}>
+                        <div className="workflow-job-header">
+                          <button
+                            type="button"
+                            className="workflow-job-toggle"
+                            aria-expanded={expanded}
+                            onClick={() => setExpandedJobs((currentJobs) => toggleSetValue(currentJobs, job.id))}
+                          >
+                            {expanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+                            <RunStatusIcon status={job.status} conclusion={job.conclusion} />
+                            <strong className="workflow-job-name">{job.name}</strong>
+                            <span className="sr-only">, {formatRunStatus(job.status, job.conclusion)}</span>
+                          </button>
+                          <span className="workflow-duration"><WorkflowDuration startedAt={job.startedAt} completedAt={job.completedAt} running={job.status === "in_progress"} active={active} /></span>
+                          {job.url ? <Button type="button" variant="link" size="xs" className="workflow-job-logs" onClick={() => onOpenExternalUrl(job.url)}>Logs</Button> : null}
+                        </div>
+                        {expanded ? (
+                          <ol className="workflow-step-list" aria-label={`${job.name} steps`}>
+                            {job.steps.length ? job.steps.map((step) => (
+                              <li key={`${job.id}-${step.number}`} data-status={statusClass(step.status, step.conclusion)}>
+                                <RunStatusIcon status={step.status} conclusion={step.conclusion} />
+                                <span className="workflow-step-name">{step.name}<span className="sr-only">, {formatRunStatus(step.status, step.conclusion)}</span></span>
+                                <time className="workflow-duration"><WorkflowDuration startedAt={step.startedAt} completedAt={step.completedAt} running={step.status === "in_progress"} active={active} /></time>
+                              </li>
+                            )) : <li className="workflow-step-empty">GitHub returned no steps for this job.</li>}
+                          </ol>
+                        ) : null}
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : <p className="review-console-empty">GitHub returned no jobs for this run.</p>}
             </main>
-            <aside className="review-console-inspector" aria-label="Run details">
-              <h3>Run details</h3>
-              <InspectorRow label="Status"><span className={`workflow-inspector-status ${statusClass(current.status, current.conclusion)}`}><RunStatusIcon status={current.status} conclusion={current.conclusion} />{statusText}</span></InspectorRow>
-              <InspectorRow label="Workflow"><span>{current.name}</span></InspectorRow>
-              <InspectorRow label="Run"><span>{current.runNumber === null ? "-" : `#${current.runNumber}`}{current.attempt > 1 ? ` · attempt ${current.attempt}` : ""}</span></InspectorRow>
-              <InspectorRow label="Branch"><code>{current.branch}</code></InspectorRow>
-              <InspectorRow label="Trigger"><span>{formatEvent(current.event)}</span></InspectorRow>
-              <InspectorRow label="Actor"><span>{current.actor.login}</span></InspectorRow>
-              <InspectorRow label="Started"><span>{formatDateTime(current.startedAt || current.createdAt)}</span></InspectorRow>
-              <InspectorRow label="Duration"><span><WorkflowDuration startedAt={current.startedAt || current.createdAt} completedAt={current.status === "completed" ? current.updatedAt : ""} running={current.status === "in_progress"} active={active} /></span></InspectorRow>
-              <InspectorRow label="Commit"><code title={current.commitSha}>{shortSha(current.commitSha)}</code></InspectorRow>
+            <FactsSidebar label="Run details" heading="Run details">
+              <FactRow label="Status"><span className={`workflow-inspector-status ${statusClass(current.status, current.conclusion)}`}>{statusText}</span></FactRow>
+              <FactRow label="Workflow"><span>{current.name}</span></FactRow>
+              <FactRow label="Run"><span>{current.runNumber === null ? "-" : `#${current.runNumber}`}{current.attempt > 1 ? ` · attempt ${current.attempt}` : ""}</span></FactRow>
+              <FactRow label="Branch"><code>{current.branch}</code></FactRow>
+              <FactRow label="Trigger"><span>{formatEvent(current.event)}</span></FactRow>
+              <FactRow label="Actor"><span>{current.actor.login}</span></FactRow>
+              <FactRow label="Started"><span>{formatDateTime(current.startedAt || current.createdAt, "Unknown")}</span></FactRow>
+              <FactRow label="Duration"><span><WorkflowDuration startedAt={current.startedAt || current.createdAt} completedAt={current.status === "completed" ? current.updatedAt : ""} running={current.status === "in_progress"} active={active} /></span></FactRow>
+              <FactRow label="Commit"><code title={current.commitSha}>{shortSha(current.commitSha)}</code></FactRow>
               <div className="workflow-run-commit-message"><h4>Run title</h4><p>{current.displayTitle || current.commitMessage || "No title provided."}</p></div>
               {current.commitMessage && current.commitMessage !== current.displayTitle ? <div className="workflow-run-commit-message"><h4>Commit</h4><p>{current.commitMessage}</p></div> : null}
-            </aside>
+            </FactsSidebar>
           </div>
         ) : null}
       </div>
@@ -216,9 +225,9 @@ export function WorkflowRunConsole({
         <span className="sr-only">{mutation.message}</span>
       </div>
 
-      <footer className="review-console-footer">
+      <footer className="github-detail-footer">
         {confirmCancel ? (
-          <div className="review-console-merge-confirmation" role="group" aria-label="Confirm workflow cancellation">
+          <div className="github-detail-confirmation" role="group" aria-label="Confirm workflow cancellation">
             <span>Cancel {runLabel.toLowerCase()} and its active jobs?</span>
             <Button type="button" variant="ghost" size="sm" disabled={Boolean(mutation.kind)} onClick={() => setConfirmCancel(false)}>Keep running</Button>
             <Button type="button" variant="destructive" size="sm" disabled={Boolean(mutation.kind)} onClick={() => {
@@ -228,12 +237,15 @@ export function WorkflowRunConsole({
           </div>
         ) : (
           <>
+            {mutation.message ? <span className="workflow-run-mutation-message"><CheckCircle2 />{mutation.message}</span> : null}
+            {!canRerun && !canCancel ? <span className="workflow-run-actions-unavailable">Run actions are unavailable for {statusText.toLowerCase()} runs.</span> : null}
+            <span className="github-detail-footer-spacer" />
+            {canCancel ? <Button type="button" variant="outline" size="sm" disabled={Boolean(mutation.kind)} onClick={() => setConfirmCancel(true)}>
+              {mutation.kind === "cancel" ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : null}Cancel run
+            </Button> : null}
             {canRerun ? <Button type="button" size="sm" disabled={Boolean(mutation.kind)} onClick={() => void runMutation("rerun")}>
               {mutation.kind === "rerun" ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : <RotateCcw />}Re-run all jobs
             </Button> : null}
-            {canCancel ? <Button type="button" variant="destructive" size="sm" disabled={Boolean(mutation.kind)} onClick={() => setConfirmCancel(true)}><Ban />Cancel run</Button> : null}
-            {!canRerun && !canCancel ? <span className="workflow-run-actions-unavailable">Run actions are unavailable for {statusText.toLowerCase()} runs.</span> : null}
-            {mutation.message ? <span className="workflow-run-mutation-message"><CheckCircle2 />{mutation.message}</span> : null}
           </>
         )}
       </footer>
@@ -241,14 +253,17 @@ export function WorkflowRunConsole({
   );
 }
 
-function InspectorRow({ label, children }: { label: string; children: ReactNode }): ReactNode {
-  return <div className="review-console-inspector-row"><span>{label}</span><div>{children}</div></div>;
-}
-
-function RunStatusIcon({ status, conclusion }: { status: string; conclusion: string | null }): ReactNode {
+/** The status icon of a workflow run, job or step. Shared by the run list and the run details. */
+export function RunStatusIcon({ status, conclusion }: { status: string; conclusion: string | null }): ReactNode {
   if (status !== "completed") return <Loader2 className="workflow-status-icon is-running animate-spin motion-reduce:animate-none" aria-hidden="true" />;
   if (["success", "neutral", "skipped"].includes(conclusion ?? "")) return <CheckCircle2 className="workflow-status-icon is-success" aria-hidden="true" />;
+  if (conclusion === "cancelled") return <CircleSlash className="workflow-status-icon is-cancelled" aria-hidden="true" />;
   return <XCircle className="workflow-status-icon is-failure" aria-hidden="true" />;
+}
+
+function getRunStateTone(status: string, conclusion: string | null): StateBadgeTone {
+  const value = statusClass(status, conclusion);
+  return value === "is-success" ? "success" : value === "is-running" ? "warning" : "danger";
 }
 
 function statusClass(status: string, conclusion: string | null): string {
@@ -270,13 +285,6 @@ function formatEvent(event: string): string {
 
 function humanize(value: string): string {
   return value.split("_").filter(Boolean).map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`).join(" ") || "Unknown";
-}
-
-function formatDateTime(value: string): string {
-  if (!value) return "Unknown";
-  const parsed = new Date(value);
-  if (!Number.isFinite(parsed.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(parsed);
 }
 
 function shortSha(value: string): string {

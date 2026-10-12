@@ -22,6 +22,7 @@ import {
   createWorkflowRun,
   createWorkflowRunDetail,
   defer,
+  emitRepoChanged,
   flushRendererAsync,
   githead,
   gitOutputCallback,
@@ -344,7 +345,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await user.click(screen.getByRole("button", { name: "Sort: Recently updated" }));
     await user.click(screen.getByRole("menuitemradio", { name: "Newest" }));
-    await user.click(screen.getByRole("button", { name: "Filters, 0 active" }));
+    await user.click(screen.getByRole("button", { name: "Filters, All open, 0 active" }));
     expect((screen.getByLabelText("Preset") as HTMLSelectElement).value).toBe("all");
     await user.keyboard("{Escape}");
 
@@ -381,7 +382,7 @@ describe("App", { timeout: 10_000 }, () => {
     await openWorkspaceView("Pull requests", user);
     expect(await screen.findByRole("button", { name: "Only ready pull request" })).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: "Filters, 0 active" }));
+    await user.click(screen.getByRole("button", { name: "Filters, All open, 0 active" }));
     await user.selectOptions(screen.getByLabelText("Preset"), "drafts");
 
     const emptyHeading = await screen.findByRole("heading", { name: "No matching pull requests" });
@@ -392,6 +393,86 @@ describe("App", { timeout: 10_000 }, () => {
 
     expect(await screen.findByRole("button", { name: "Only ready pull request" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "No matching pull requests" })).toBeNull();
+  });
+
+  it("offers Create pull request in the Pull requests list column", async () => {
+    setupPrFlow();
+    const user = userEvent.setup();
+    render(<App />);
+    await openWorkspaceView("Pull requests", user);
+
+    await user.click(await screen.findByRole("button", { name: "Create pull request…" }));
+
+    expect(await screen.findByRole("dialog", { name: "Create Pull Request" })).toBeTruthy();
+  });
+
+  it("links the current branch pull request from the Pull requests list column", async () => {
+    setupPrFlow();
+    const branchPullRequest = {
+      number: 42,
+      title: "Add templates",
+      state: "OPEN",
+      draft: false,
+      url: "https://github.com/openai/githead/pull/42",
+      baseRepositoryFullName: "openai/githead",
+      headRepositoryFullName: "openai/githead",
+      headBranch: "feature/templates",
+      headSha: "abc"
+    };
+    vi.mocked(githead.getGitHubHistoryInsights).mockResolvedValue({
+      ok: true,
+      data: { currentBranchPullRequests: [branchPullRequest], commits: [], unavailableCommitShas: [] },
+      rateLimit: null
+    });
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([createCommit({ hash: "a".repeat(40), subject: "feat: add templates" })]);
+    const user = userEvent.setup();
+    render(<App />);
+    // Branch pull requests load with the History view.
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: "History" }));
+    await waitFor(() => expect(githead.getGitHubHistoryInsights).toHaveBeenCalled());
+    await openWorkspaceView("Pull requests", user);
+
+    await user.click(await screen.findByRole("button", { name: "PR #42 · Open" }));
+
+    expect(githead.openExternalUrl).toHaveBeenCalledWith({ url: branchPullRequest.url });
+    expect(screen.queryByRole("button", { name: "Create pull request…" })).toBeNull();
+  });
+
+  it("drops the previous branch pull request after a branch switch outside History", async () => {
+    setupPrFlow();
+    vi.mocked(githead.getGitHubHistoryInsights).mockResolvedValue({
+      ok: true,
+      data: {
+        currentBranchPullRequests: [{
+          number: 42, title: "Add templates", state: "OPEN", draft: false,
+          url: "https://github.com/openai/githead/pull/42",
+          baseRepositoryFullName: "openai/githead", headRepositoryFullName: "openai/githead",
+          headBranch: "feature/templates", headSha: "abc"
+        }],
+        commits: [],
+        unavailableCommitShas: []
+      },
+      rateLimit: null
+    });
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([createCommit({ hash: "a".repeat(40), subject: "feat: add templates" })]);
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: "History" }));
+    await waitFor(() => expect(githead.getGitHubHistoryInsights).toHaveBeenCalled());
+    await openWorkspaceView("Pull requests", user);
+    expect(await screen.findByRole("button", { name: "PR #42 · Open" })).toBeTruthy();
+
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary({
+      branch: "feature/other", upstream: "origin/feature/other", ahead: 0, behind: 0,
+      branches: [{ name: "feature/other", current: true, upstream: "origin/feature/other" }],
+      remoteBranches: [{ name: "origin/main", remote: "origin", branch: "main" }], commitsAheadOfDefaultBranch: 1
+    }));
+    act(() => emitRepoChanged({ reason: "filesystem-metadata" }));
+
+    expect(await screen.findByRole("button", { name: "Create pull request…" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "PR #42 · Open" })).toBeNull();
   });
 
   it("loads and merges another workflow page", async () => {
@@ -748,7 +829,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.getByLabelText("4 comments")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Select an issue" })).toBeTruthy();
     expect(within(screen.getByRole("list", { name: "Issues" })).queryByRole("columnheader")).toBeNull();
-    expect(screen.getByRole("button", { name: "Filters, 0 active" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Filters, All open, 0 active" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Sort: Recently updated" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Refresh issues" })).toBeTruthy();
 
@@ -781,7 +862,7 @@ describe("App", { timeout: 10_000 }, () => {
     await openWorkspaceView("Issues", user);
     expect(await screen.findByRole("button", { name: "Assigned issue" })).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: "Filters, 0 active" }));
+    await user.click(screen.getByRole("button", { name: "Filters, All open, 0 active" }));
     await user.selectOptions(screen.getByLabelText("Preset"), "unassigned");
 
     const emptyHeading = await screen.findByRole("heading", { name: "No matching issues" });

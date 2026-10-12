@@ -1,12 +1,9 @@
 import {
   ArrowRight,
-  Check,
   CheckCircle2,
-  CircleDot,
   Clock3,
   ExternalLink,
   FileCode2,
-  GitBranch,
   GitCommitHorizontal,
   GitMerge,
   GitPullRequest,
@@ -40,7 +37,17 @@ import type {
 } from "../shared/types";
 import { parseUnifiedDiff } from "./diffParser";
 import { useGitHubDetail, type GitHubDetailSelection } from "./useGitHubQueries";
-import { GitHubDetailRefreshButton, GitHubDetailStatus } from "./GitHubDetailStatus";
+import {
+  DetailCardHeader,
+  FactRow,
+  FactsSidebar,
+  GitHubDetailRefreshButton,
+  GitHubDetailStatus,
+  OpenOnGitHubButton,
+  StateBadge,
+  type StateBadgeTone
+} from "./GitHubDetailStatus";
+import { formatDateTime, formatRelativeDate } from "./relativeTime";
 
 const MarkdownPreview = lazy(() => import("./MarkdownPreview.js").then((module) => ({ default: module.MarkdownPreview })));
 
@@ -142,52 +149,53 @@ export function ReviewConsole({
   const authorLogin = detail.data?.author.login ?? selection.item.authorLogin;
   const updatedAt = detail.data?.updatedAt ?? selection.item.updatedAt;
 
+  const targetBranch = pullRequestDetail?.targetBranch || (selection.itemType === "pullRequest" ? selection.item.targetBranch : "");
+  const sourceBranch = pullRequestDetail?.sourceBranch || (selection.itemType === "pullRequest" ? selection.item.sourceBranch : "");
+  const title = detail.data?.title ?? selection.item.title;
+
   return (
     <aside className="review-console" role="region" aria-labelledby={titleId} onKeyDown={handleKeyDown}>
-      <header className="review-console-header">
-        <div className="review-console-heading">
-          <div className="review-console-title-line">
-            <span className="review-console-number">#{selection.item.number}</span>
-            <h2 id={titleId} title={detail.data?.title ?? selection.item.title}>{detail.data?.title ?? selection.item.title}</h2>
-          </div>
-          <div className="review-console-meta">
-            <StateBadge state={state} />
+      <DetailCardHeader
+        titleId={titleId}
+        title={title}
+        number={`#${selection.item.number}`}
+        divider={selection.itemType !== "pullRequest"}
+        meta={(
+          <>
+            <StateBadge tone={getStateTone(state)}>{capitalize(state)}</StateBadge>
             <span>{authorLogin}</span>
             <span aria-hidden="true">·</span>
-            <span>Updated {formatDateTime(updatedAt)}</span>
-            {pullRequestDetail ? (
-              <>
-                <span aria-hidden="true">·</span>
-                <span className="review-console-line-stats" role="group" aria-label="Line changes">
-                  <span className="is-add" aria-label={`${pullRequestDetail.additions} lines added`}>+{pullRequestDetail.additions}</span>
-                  <span className="is-delete" aria-label={`${pullRequestDetail.deletions} lines removed`}>−{pullRequestDetail.deletions}</span>
-                </span>
-              </>
+            <time dateTime={updatedAt} title={formatDateTime(updatedAt)}>updated {formatRelativeDate(updatedAt)}</time>
+            {selection.itemType === "pullRequest" ? (
+              <span className="github-detail-branches" role="group" aria-label="Pull request branches">
+                <code title={sourceBranch}>{sourceBranch || "Unknown source"}</code>
+                <ArrowRight aria-hidden="true" />
+                <code title={targetBranch}>{targetBranch || "Unknown target"}</code>
+              </span>
             ) : null}
-          </div>
-          {pullRequestDetail ? (
-            <div className="review-console-branches" aria-label="Pull request branches">
-              <span><GitBranch />{pullRequestDetail.sourceBranch || "Unknown source"}</span>
-              <ArrowRight aria-hidden="true" />
-              <span><GitBranch />{pullRequestDetail.targetBranch || "Unknown target"}</span>
-            </div>
-          ) : null}
-        </div>
-        <div className="review-console-header-actions">
-          <Button type="button" variant="ghost" size="sm" aria-label="Open on GitHub" title="Open on GitHub" onClick={() => onOpenExternalUrl(externalUrl)}>
-            <span className="review-console-open-label">Open on GitHub</span><ExternalLink />
-          </Button>
-          <GitHubDetailRefreshButton detail={detail} />
-          <TooltipButton type="button" variant="ghost" size="icon-sm" aria-label="Close review console" tooltip="Close" onClick={onClose}>
-            <X />
-          </TooltipButton>
-        </div>
-      </header>
+            {pullRequestDetail ? (
+              <span className="review-console-line-stats" role="group" aria-label="Line changes">
+                <span className="is-add" aria-label={`${pullRequestDetail.additions} lines added`}>+{pullRequestDetail.additions}</span>
+                <span className="is-delete" aria-label={`${pullRequestDetail.deletions} lines removed`}>−{pullRequestDetail.deletions}</span>
+              </span>
+            ) : null}
+          </>
+        )}
+        actions={(
+          <>
+            <OpenOnGitHubButton onOpen={() => onOpenExternalUrl(externalUrl)} />
+            <GitHubDetailRefreshButton detail={detail} />
+            <TooltipButton type="button" variant="ghost" size="icon-sm" aria-label="Close review console" tooltip="Close" onClick={onClose}>
+              <X />
+            </TooltipButton>
+          </>
+        )}
+      />
 
       {selection.itemType === "pullRequest" ? (
         <Tabs value={activeTab} onValueChange={setActiveTab} className="review-console-tabs">
           <TabsList variant="line" aria-label="Pull request details" className="review-console-tab-list">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="overview">Overview{pullRequestDetail ? <span className="review-console-tab-count">{pullRequestDetail.comments.length + pullRequestDetail.reviews.length}</span> : null}</TabsTrigger>
             <TabsTrigger value="files">Files{pullRequestDetail ? <span className="review-console-tab-count">{pullRequestDetail.files.length}</span> : null}</TabsTrigger>
             <TabsTrigger value="checks">Checks{pullRequestDetail ? <span className="review-console-tab-count">{pullRequestDetail.checks.length}</span> : null}</TabsTrigger>
             <TabsTrigger value="commits">Commits{pullRequestDetail ? <span className="review-console-tab-count">{pullRequestDetail.commitCount}</span> : null}</TabsTrigger>
@@ -206,12 +214,6 @@ export function ReviewConsole({
         </Tabs>
       ) : (
         <div className="review-console-tabs">
-          <div className="review-console-tab-list review-console-single-tab" role="tablist" aria-label="Issue details">
-            <button type="button" role="tab" aria-selected="true">
-              Overview
-              {issueDetail ? <span className="review-console-tab-count" aria-label={`${issueDetail.comments.length} ${issueDetail.comments.length === 1 ? "comment" : "comments"}`}>{issueDetail.comments.length}</span> : null}
-            </button>
-          </div>
           <GitHubDetailStatus detail={detail} />
           {issueDetail ? <IssueOverview detail={issueDetail} comment={comment} commentRef={commentRef} mutation={mutation} onCommentChange={setComment} onSubmitComment={submitComment} onOpenExternalUrl={onOpenExternalUrl} /> : null}
         </div>
@@ -222,31 +224,36 @@ export function ReviewConsole({
         <span className="sr-only">{mutation.message}</span>
       </div>
 
-      <footer className="review-console-footer">
+      <footer className="github-detail-footer">
         {selection.itemType === "pullRequest" ? (
-          <>
-            {confirmMerge ? (
-              <div className="review-console-merge-confirmation" role="group" aria-label="Confirm merge">
-                <span>Merge #{selection.item.number} into {pullRequestDetail?.targetBranch || "the target branch"}?</span>
-                <Button type="button" variant="ghost" size="sm" disabled={Boolean(mutation.kind)} onClick={() => setConfirmMerge(false)}>Cancel</Button>
-                <Button type="button" size="sm" disabled={Boolean(mutation.kind) || !pullRequestDetail?.canMerge} onClick={() => {
-                  if (mutation.kind || !pullRequestDetail?.canMerge) return;
-                  setConfirmMerge(false);
-                  void runMutation("merge", () => window.githead.mergeGitHubPullRequest({ repoPath, number: selection.item.number, operationId: createOperationId("merge") }));
-                }}>{mutation.kind === "merge" ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : <GitMerge />}Confirm merge</Button>
-              </div>
-            ) : (
-              <>
-                <TooltipButton type="button" size="sm" disabled={Boolean(mutation.kind) || !pullRequestDetail?.canMerge} tooltip="Merge pull request" disabledTooltip={mutation.kind ? "Wait for the current action to finish." : getMergeDisabledReason(pullRequestDetail)} onClick={() => setConfirmMerge(true)}><GitMerge />Merge</TooltipButton>
-                <Button type="button" variant="outline" size="sm" disabled={Boolean(mutation.kind)} onClick={() => {
-                  void runMutation("approve", () => window.githead.approveGitHubPullRequest({ repoPath, number: selection.item.number, operationId: createOperationId("approve") }));
-                }}>{mutation.kind === "approve" ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : <Check />}Approve</Button>
-                <Button type="button" variant="outline" size="sm" disabled={Boolean(mutation.kind)} onClick={() => onCheckout(selection.item)}><GitPullRequest />Checkout</Button>
-              </>
-            )}
-          </>
+          confirmMerge ? (
+            <div className="github-detail-confirmation" role="group" aria-label="Confirm merge">
+              <span>Merge #{selection.item.number} into {targetBranch || "the target branch"}?</span>
+              <Button type="button" variant="ghost" size="sm" disabled={Boolean(mutation.kind)} onClick={() => setConfirmMerge(false)}>Cancel</Button>
+              <Button type="button" size="sm" disabled={Boolean(mutation.kind) || !pullRequestDetail?.canMerge} onClick={() => {
+                if (mutation.kind || !pullRequestDetail?.canMerge) return;
+                setConfirmMerge(false);
+                void runMutation("merge", () => window.githead.mergeGitHubPullRequest({ repoPath, number: selection.item.number, operationId: createOperationId("merge") }));
+              }}>{mutation.kind === "merge" ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : <GitMerge />}Confirm merge</Button>
+            </div>
+          ) : (
+            <>
+              <Button type="button" variant="outline" size="sm" disabled={Boolean(mutation.kind)} onClick={() => onCheckout(selection.item)}>Check out</Button>
+              <span className="github-detail-footer-spacer" />
+              <Button type="button" variant="outline" size="sm" disabled={Boolean(mutation.kind)} onClick={() => {
+                void runMutation("approve", () => window.githead.approveGitHubPullRequest({ repoPath, number: selection.item.number, operationId: createOperationId("approve") }));
+              }}>{mutation.kind === "approve" ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : null}Approve</Button>
+              <TooltipButton type="button" size="sm" disabled={Boolean(mutation.kind) || !pullRequestDetail?.canMerge} tooltip="Merge pull request" disabledTooltip={mutation.kind ? "Wait for the current action to finish." : getMergeDisabledReason(pullRequestDetail)} onClick={() => setConfirmMerge(true)}>
+                {mutation.kind === "merge" ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : null}
+                {targetBranch ? `Merge into ${targetBranch}` : "Merge"}
+              </TooltipButton>
+            </>
+          )
         ) : (
-          <Button type="button" variant="outline" size="sm" disabled={Boolean(mutation.kind)} onClick={() => commentRef.current?.focus()}><MessageSquare />Comment</Button>
+          <>
+            <span className="github-detail-footer-spacer" />
+            <Button type="button" size="sm" disabled={Boolean(mutation.kind)} onClick={() => commentRef.current?.focus()}>Comment</Button>
+          </>
         )}
       </footer>
     </aside>
@@ -266,7 +273,7 @@ function PullRequestOverview({ detail, comment, commentRef, mutation, onCommentC
     ...detail.reviews.map((review) => ({ type: "review" as const, at: review.submittedAt, value: review }))
   ].sort((a, b) => a.at.localeCompare(b.at)), [detail.comments, detail.reviews]);
   return (
-    <div className="review-console-overview">
+    <div className="github-detail-body review-console-overview">
       <main className="review-console-thread">
         <article className="review-console-description">
           <PersonHeader user={detail.author} date={detail.createdAt} />
@@ -296,26 +303,21 @@ function MergeReadiness({ detail }: { detail: GitHubPullRequestDetail }): ReactN
   const active = detail.checks.filter(isActiveCheck).length;
   const failed = detail.checks.length - passed - active;
   return (
-    <aside className="review-console-inspector" aria-label="Merge readiness">
-      <h3>Merge readiness</h3>
-      <InspectorRow label="Overall"><MergeStatus status={detail.mergeStatus} /></InspectorRow>
-      <InspectorRow label="Mergeability"><span>{detail.mergeable === null ? "Checking" : detail.mergeable ? "Mergeable" : "Not mergeable"}</span></InspectorRow>
-      <InspectorRow label="Conflicts"><span className={detail.mergeStatus === "conflicting" ? "is-bad" : "is-good"}>{detail.mergeStatus === "conflicting" ? "Conflicts found" : "None reported"}</span></InspectorRow>
-      <InspectorRow label="Review"><span>{formatReviewStatus(detail.reviewStatus)}</span></InspectorRow>
-      <InspectorRow label="Requested reviewers"><span>{detail.requestedReviewers.length ? detail.requestedReviewers.map((reviewer) => reviewer.login).join(", ") : "None"}</span></InspectorRow>
-      <InspectorRow label="CI checks"><span>{detail.checks.length ? `${passed} passed${active ? `, ${active} active` : ""}${failed ? `, ${failed} failed` : ""}` : "No checks"}</span></InspectorRow>
-      <InspectorRow label="Commits"><span>{detail.commitCount}</span></InspectorRow>
-      <InspectorRow label="Relationship"><span>{detail.branchRelationship}</span></InspectorRow>
-      <InspectorRow label="Source"><code>{detail.sourceBranch || "-"}</code></InspectorRow>
-      <InspectorRow label="Target"><code>{detail.targetBranch || "-"}</code></InspectorRow>
-      <InspectorRow label="Ahead"><span>{detail.aheadBy}</span></InspectorRow>
-      <InspectorRow label="Behind"><span>{detail.behindBy}</span></InspectorRow>
-    </aside>
+    <FactsSidebar label="Merge readiness" heading="Merge readiness">
+      <FactRow label="Overall"><MergeStatus status={detail.mergeStatus} /></FactRow>
+      <FactRow label="Mergeability"><span>{detail.mergeable === null ? "Checking" : detail.mergeable ? "Mergeable" : "Not mergeable"}</span></FactRow>
+      <FactRow label="Conflicts"><span className={detail.mergeStatus === "conflicting" ? "is-bad" : "is-good"}>{detail.mergeStatus === "conflicting" ? "Conflicts found" : "None reported"}</span></FactRow>
+      <FactRow label="Review"><span>{formatReviewStatus(detail.reviewStatus)}</span></FactRow>
+      <FactRow label="Requested reviewers"><span>{detail.requestedReviewers.length ? detail.requestedReviewers.map((reviewer) => reviewer.login).join(", ") : "None"}</span></FactRow>
+      <FactRow label="CI checks"><span className={failed ? "is-bad" : active ? "is-pending" : detail.checks.length ? "is-good" : undefined}>{detail.checks.length ? `${passed} passed${active ? `, ${active} active` : ""}${failed ? `, ${failed} failed` : ""}` : "No checks"}</span></FactRow>
+      <FactRow label="Commits"><span>{detail.commitCount}</span></FactRow>
+      <FactRow label="Relationship"><span>{detail.branchRelationship}</span></FactRow>
+      <FactRow label="Source"><code>{detail.sourceBranch || "-"}</code></FactRow>
+      <FactRow label="Target"><code>{detail.targetBranch || "-"}</code></FactRow>
+      <FactRow label="Ahead"><span>{detail.aheadBy}</span></FactRow>
+      <FactRow label="Behind"><span>{detail.behindBy}</span></FactRow>
+    </FactsSidebar>
   );
-}
-
-function InspectorRow({ label, children }: { label: string; children: ReactNode }): ReactNode {
-  return <div className="review-console-inspector-row"><span>{label}</span><div>{children}</div></div>;
 }
 
 function MergeStatus({ status }: { status: GitHubPullRequestDetail["mergeStatus"] }): ReactNode {
@@ -388,25 +390,25 @@ function IssueOverview({ detail, comment, commentRef, mutation, onCommentChange,
   onOpenExternalUrl: (url: string) => void;
 }): ReactNode {
   return (
-    <div className="review-console-overview review-console-issue-overview">
+    <div className="github-detail-body review-console-overview review-console-issue-overview">
       <main className="review-console-thread">
         <article className="review-console-description"><PersonHeader user={detail.author} date={detail.createdAt} /><Markdown text={detail.body || "No description provided."} /></article>
-        <div className="review-console-activity-heading">
+        <div className="github-section-heading review-console-activity-heading">
           <h3>Activity</h3>
+          <span aria-hidden="true">·</span>
           <span>{detail.comments.length} {detail.comments.length === 1 ? "comment" : "comments"}</span>
         </div>
         {detail.comments.map((commentEntry) => <article className="review-console-timeline-entry" key={commentEntry.id}><PersonHeader user={commentEntry.author} date={commentEntry.createdAt} /><Markdown text={commentEntry.body || "No comment body."} /></article>)}
         <CommentComposer value={comment} inputRef={commentRef} busy={mutation.kind === "comment"} onChange={onCommentChange} onSubmit={onSubmitComment} />
       </main>
-      <aside className="review-console-inspector" aria-label="Issue metadata">
-        <h3>Issue details</h3>
-        <InspectorRow label="State"><span className="capitalize">{detail.state}</span></InspectorRow>
-        {detail.closedAt ? <InspectorRow label="Closed"><time dateTime={detail.closedAt}>{formatDateTime(detail.closedAt)}</time></InspectorRow> : null}
-        <InspectorRow label="Assignees"><IssueAssignees assignees={detail.assignees} onOpenExternalUrl={onOpenExternalUrl} /></InspectorRow>
-        <InspectorRow label="Labels"><IssueLabels labels={detail.labels} /></InspectorRow>
-        <InspectorRow label="Milestone">{detail.milestone?.url ? <button type="button" className="review-console-detail-link" onClick={() => onOpenExternalUrl(detail.milestone?.url ?? "")}>{detail.milestone.title}<ExternalLink aria-hidden="true" /></button> : <span>{detail.milestone?.title ?? "None"}</span>}</InspectorRow>
+      <FactsSidebar label="Issue metadata" heading="Issue details">
+        <FactRow label="State"><span className={detail.state === "open" ? "capitalize is-good" : "capitalize"}>{detail.state}</span></FactRow>
+        {detail.closedAt ? <FactRow label="Closed"><time dateTime={detail.closedAt}>{formatDateTime(detail.closedAt)}</time></FactRow> : null}
+        <FactRow label="Assignees"><IssueAssignees assignees={detail.assignees} onOpenExternalUrl={onOpenExternalUrl} /></FactRow>
+        <FactRow label="Labels"><IssueLabels labels={detail.labels} /></FactRow>
+        <FactRow label="Milestone">{detail.milestone?.url ? <button type="button" className="review-console-detail-link" onClick={() => onOpenExternalUrl(detail.milestone?.url ?? "")}>{detail.milestone.title}<ExternalLink aria-hidden="true" /></button> : <span>{detail.milestone?.title ?? "None"}</span>}</FactRow>
         <div className="review-console-linked-prs"><h4>Linked pull requests <span>{detail.linkedPullRequests.length}</span></h4>{detail.linkedPullRequests.length ? detail.linkedPullRequests.map((pullRequest) => <button type="button" key={pullRequest.number} onClick={() => onOpenExternalUrl(pullRequest.url)}><GitPullRequest /><span>#{pullRequest.number} {pullRequest.title}</span><small>{pullRequest.state}</small></button>) : <p>None</p>}</div>
-      </aside>
+      </FactsSidebar>
     </div>
   );
 }
@@ -444,9 +446,9 @@ function CommentComposer({ value, inputRef, busy, onChange, onSubmit }: {
   const inputId = useId();
   return (
     <form className="review-console-composer" aria-label="Add a comment" onSubmit={onSubmit}>
-      <label htmlFor={inputId}>Write a comment</label>
-      <textarea id={inputId} ref={inputRef} value={value} disabled={busy} placeholder="Leave a comment" onChange={(event) => onChange(event.target.value)} />
-      <div><span>Markdown supported</span><Button type="submit" size="sm" disabled={busy || !value.trim()}>{busy ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : <MessageSquare />}Add comment</Button></div>
+      <label htmlFor={inputId} className="sr-only">Write a comment</label>
+      <textarea id={inputId} ref={inputRef} value={value} disabled={busy} placeholder="Write a comment" onChange={(event) => onChange(event.target.value)} />
+      <div><span>Markdown supported</span><Button type="submit" variant="outline" size="sm" disabled={busy || !value.trim()}>{busy ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : null}Add comment</Button></div>
     </form>
   );
 }
@@ -459,8 +461,12 @@ function Markdown({ text }: { text: string }): ReactNode {
   return <div className="review-console-markdown"><Suspense fallback={<p>Loading Markdown…</p>}><MarkdownPreview text={text} /></Suspense></div>;
 }
 
-function StateBadge({ state }: { state: string }): ReactNode {
-  return <span className={`review-console-state is-${state.toLowerCase()}`}><CircleDot />{capitalize(state)}</span>;
+function getStateTone(state: string): StateBadgeTone {
+  const normalized = state.toLowerCase();
+  if (normalized === "open") return "success";
+  if (normalized === "merged") return "info";
+  if (normalized === "closed") return "danger";
+  return "neutral";
 }
 
 function isPassedCheck(check: GitHubCheckDetail): boolean {
@@ -469,13 +475,6 @@ function isPassedCheck(check: GitHubCheckDetail): boolean {
 
 function isActiveCheck(check: GitHubCheckDetail): boolean {
   return check.status !== "completed";
-}
-
-function formatDateTime(value: string): string {
-  if (!value) return "unknown time";
-  const parsed = new Date(value);
-  if (!Number.isFinite(parsed.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(parsed);
 }
 
 function formatReviewState(state: string): string {

@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  CircleCheck,
   CircleDot,
   Clipboard,
   Download,
@@ -24,7 +25,10 @@ import {
   GitFork,
   GitCommitHorizontal,
   GitBranch as GitBranchIcon,
+  GitMerge,
   GitPullRequest,
+  GitPullRequestClosed,
+  GitPullRequestDraft,
   GripVertical,
   History,
   ListTree,
@@ -185,6 +189,7 @@ import type {
   GitHubCommitAssociation,
   GitHubRepository,
   GitHubPullRequest,
+  GitHubPullRequestAssociation,
   GitHubPullRequestQuery,
   GitHubWorkflowRun,
   GitHubWorkflowRunQuery,
@@ -243,7 +248,9 @@ import { emptyPushToBranchDialog, type PushToBranchDialogState } from "./pushToB
 import { gitHubQueryStore, useGitHubQueries } from "./useGitHubQueries";
 import { GitHubQueryToolbar } from "./GitHubQueryToolbar";
 import { CreateIssueDialog, type CreateIssueDraft } from "./CreateIssueDialog";
-import { WorkflowRunConsole } from "./WorkflowRunConsole";
+import { RunStatusIcon, WorkflowRunConsole } from "./WorkflowRunConsole";
+import { ListDetailLayout } from "./ListDetailLayout";
+import { formatRelativeDate } from "./relativeTime";
 import { WorkflowDuration } from "./WorkflowDuration";
 import { DEFAULT_ISSUE_QUERY, DEFAULT_PULL_REQUEST_QUERY, DEFAULT_WORKFLOW_QUERY, filterLoadedWorkflowRuns, sortLoadedWorkflowRuns } from "./githubViewQuery";
 import { useGitHubHistoryInsights } from "./useGitHubHistoryInsights";
@@ -289,10 +296,12 @@ import { formatRepoSyncStatusDescription, RecentRepositoryVcsIcon, RepoSyncStatu
 import {
   formatActionCountLabel,
   formatCommitCountLabel,
+  formatPullRequestAssociationState,
   getPushRemotes,
   getRemoteDefaultBranch,
   getRepositoryActionKey,
   shouldPublishInsteadOfPush,
+  shouldShowCreatePullRequest,
 } from "./remoteActions";
 import { isGitHubView, isGuestView, type GuestView } from "./workspaceViews";
 import { buildCommitGraphLayout, COMMIT_GRAPH_COLOR_COUNT, COMMIT_GRAPH_ROW_HEIGHT, type CommitGraphLayout } from "./commitGraph";
@@ -7352,15 +7361,15 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     issueCount: issueTabCount,
     activityAttention: activityLogAttentionState,
     activeView: state.activeView,
-    branchPullRequests: historyInsights.data.currentBranchPullRequests,
-    hasPullRequestData: historyInsights.loaded,
+    branchPullRequests: historyInsights.currentBranchPullRequests,
+    hasPullRequestData: historyInsights.branchPullRequestsLoaded,
     appUpdate: state.appUpdate,
     canGoBack: navigation.canGoBack,
     canGoForward: navigation.canGoForward
   }) : null, [
     activityLogAttentionState,
-    historyInsights.data.currentBranchPullRequests,
-    historyInsights.loaded,
+    historyInsights.currentBranchPullRequests,
+    historyInsights.branchPullRequestsLoaded,
     issueTabCount,
     navigation.canGoBack,
     navigation.canGoForward,
@@ -8170,6 +8179,10 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                       onConnectGitHub={() => openSettingsDialog("integrations")}
                       onReviewAccess={() => { void window.githead.openExternalUrl({ url: GITHUB_APP_INSTALL_URL }); }}
                       onCheckRemote={openRemoteManager}
+                      showCreatePullRequest={shouldShowCreatePullRequest(state.summary, historyInsights.currentBranchPullRequests, historyInsights.branchPullRequestsLoaded)}
+                      branchPullRequests={historyInsights.currentBranchPullRequests}
+                      createPullRequestDisabled={disableUnrelatedMutations}
+                      onCreatePullRequest={openCreatePrDialog}
                     />
                   </PersistentWorkspaceTabsContent>
 
@@ -11307,7 +11320,6 @@ function WorkflowRunsView({
 }): ReactNode {
   const repository = summary?.githubRepository ?? null;
   const [selectedRun, setSelectedRun] = useState<GitHubWorkflowRun | null>(null);
-  const selectedRunRef = useRef<HTMLButtonElement | null>(null);
   const displayedRuns = useMemo(() => sortLoadedWorkflowRuns(filterLoadedWorkflowRuns(workflowRuns, search), query.sortDirection), [workflowRuns, search, query.sortDirection]);
   const filtered = Boolean(search || query.branch || query.event || query.status);
   const countLabel = loaded ? (search ? `${displayedRuns.length} matches in ${workflowRuns.length} loaded runs` : formatLoadedCount(workflowRuns.length, totalCount, "run", "runs")) : "-";
@@ -11322,30 +11334,35 @@ function WorkflowRunsView({
   };
   useEffect(() => {
     setSelectedRun(null);
-    selectedRunRef.current = null;
   }, [summary?.repoPath]);
   useEffect(() => {
     setSelectedRun((current) => current ? workflowRuns.find((run) => run.id === current.id) ?? current : null);
   }, [workflowRuns]);
   const closeDetail = (): void => {
+    const runId = selectedRun?.id;
     setSelectedRun(null);
-    requestAnimationFrame(() => selectedRunRef.current?.focus());
+    if (runId !== undefined) focusGitHubRowLater(`workflowRun:${runId}`);
   };
 
   return (
-    <GitHubDetailWorkspace persistent listDefaultSize="38%" open={selectedRun !== null} emptyDrawer={<WorkflowRunEmptyDetails />} drawer={selectedRun && repository ? (
-      <WorkflowRunConsole
-        active={active}
-        repoPath={summary?.repoPath ?? ""}
-        githubFullName={repository.fullName}
-        run={selectedRun}
-        onClose={closeDetail}
-        onOpenExternalUrl={onOpenExternalUrl}
-        onRunChanged={onRefresh}
-      />
-    ) : null}>
-      <section className="github-view workflow-runs-grid" aria-label="Workflow runs">
-        <GitHubSelectorHeader repositoryName={repository?.fullName ?? "-"} countLabel={countLabel} />
+    <ListDetailLayout
+      id="github-workflow-runs"
+      listLabel="workflow run list"
+      detailOpen={selectedRun !== null}
+      onBack={closeDetail}
+      detail={selectedRun && repository ? (
+        <WorkflowRunConsole
+          active={active}
+          repoPath={summary?.repoPath ?? ""}
+          githubFullName={repository.fullName}
+          run={selectedRun}
+          onClose={closeDetail}
+          onOpenExternalUrl={onOpenExternalUrl}
+          onRunChanged={onRefresh}
+        />
+      ) : <WorkflowRunEmptyDetails />}
+      list={(
+      <section className="github-view" aria-label="Workflow runs">
         <GitHubQueryToolbar compact activeFilterCount={activeFilterCount} refreshDisabled={!repository} refreshing={loading || busy} onRefresh={onRefresh} view="workflows" search={search} preset={preset} presets={[{ value: "all", label: "All runs" }, { value: "branch", label: "Current branch", disabled: !summary?.branch }, { value: "failed", label: "Failed" }, { value: "progress", label: "In progress" }, { value: "custom", label: "Custom" }]} sort={query.sortDirection} sortOptions={[{ value: "desc", label: "Newest" }, { value: "asc", label: "Oldest loaded" }]} viewerAvailable status={loading || busy ? "Loading workflow runs" : countLabel} onSearchChange={(value) => { onPresetChange("custom"); onSearchChange(value); }} onPresetChange={applyPreset} onSortChange={(value) => { onPresetChange("custom"); onQueryChange({ ...query, sortDirection: value as "asc" | "desc" }); }} onClear={() => { onSearchChange(""); applyPreset("all"); }}>
           <label className="github-query-field"><span>Event</span><input value={query.event ?? ""} placeholder="push" onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, event: event.target.value || undefined }); }} /></label>
           <label className="github-query-field"><span>Status</span><select value={query.status ?? ""} onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, status: (event.target.value || undefined) as GitHubWorkflowRunQuery["status"] }); }}><option value="">Any</option><option value="queued">Queued</option><option value="in_progress">In progress</option><option value="completed">Completed</option><option value="success">Success</option><option value="failure">Failure</option><option value="cancelled">Cancelled</option></select></label>
@@ -11363,17 +11380,16 @@ function WorkflowRunsView({
               : <GitHubListEmptyState icon={<Workflow />} title="No workflow runs" description="Workflow runs for this repository will appear here." />
           ) : (
             displayedRuns.map((run) => (
-              <WorkflowRunRow key={run.id} run={run} active={active} selected={selectedRun?.id === run.id} onSelect={(item, button) => {
-                selectedRunRef.current = button;
-                setSelectedRun(item);
-              }} />
+              <WorkflowRunRow key={run.id} run={run} active={active} selected={selectedRun?.id === run.id} onSelect={setSelectedRun} />
             ))
           )}
           {error && workflowRuns.length ? <GitHubFailureState failure={failure} fallback={error} stale onRetry={onRefresh} onConnect={onConnectGitHub} onReviewAccess={onReviewAccess} onCheckRemote={onCheckRemote} /> : null}
           <GitHubListFooter label="workflow runs" nextPage={nextPage} loading={loadingMore} error="" disabled={busy} onLoadMore={onLoadMore} />
         </div>
+        <GitHubListCaption countLabel={countLabel} />
       </section>
-    </GitHubDetailWorkspace>
+      )}
+    />
   );
 }
 
@@ -11386,7 +11402,7 @@ function WorkflowRunRow({
   run: GitHubWorkflowRun;
   active: boolean;
   selected: boolean;
-  onSelect: (run: GitHubWorkflowRun, button: HTMLButtonElement) => void;
+  onSelect: (run: GitHubWorkflowRun) => void;
 }): ReactNode {
   const statusText = formatWorkflowRunStatus(run);
   const title = run.displayTitle || run.commitMessage || run.name;
@@ -11396,29 +11412,26 @@ function WorkflowRunRow({
       className={`github-row workflow-run-row ${selected ? "is-selected" : ""}`}
       role="listitem"
       aria-current={selected ? "true" : undefined}
+      data-github-row={`workflowRun:${run.id}`}
     >
-      <button type="button" className="workflow-run-row-select" aria-label={`${run.name}: ${title}`} aria-pressed={selected} onClick={(event) => onSelect(run, event.currentTarget)}>
-        <span className={`workflow-run-row-state ${getWorkflowRunStatusClass(run)}`}>
-          <span className="github-status-dot" aria-hidden="true" />
-          <span>{statusText}</span>
+      <button type="button" className="github-row-button" aria-label={`${run.name}: ${title}`} aria-pressed={selected} onClick={() => onSelect(run)}>
+        <span className="github-row-icon">
+          <RunStatusIcon status={run.status} conclusion={run.conclusion} />
+          <span className="sr-only">{statusText}</span>
         </span>
-        <span className="workflow-run-row-content">
+        <span className="github-row-body">
           <span className="workflow-run-row-heading">
             <TooltipTarget overflowOnly content={run.name}><strong>{run.name}</strong></TooltipTarget>
-            <span>{run.runNumber === null ? "Run" : `#${run.runNumber}`}</span>
+            <span className="github-issue-number">{run.runNumber === null ? "Run" : `#${run.runNumber}`}</span>
+            <TooltipTarget content={<WorkflowRunTiming run={run} active={active} />}>
+              <span className="github-row-time">{formatRelativeDate(run.updatedAt)}</span>
+            </TooltipTarget>
           </span>
-          <TooltipTarget overflowOnly content={title}><span className="github-primary-text workflow-run-row-title">{title}</span></TooltipTarget>
-          <span className="workflow-run-row-meta github-secondary-text">
-            <TooltipTarget overflowOnly content={run.actor.login}><span className="truncate">{run.actor.login}</span></TooltipTarget>
-            <span aria-hidden="true">·</span>
+          <TooltipTarget overflowOnly content={title}><span className="github-row-title">{title}</span></TooltipTarget>
+          <span className="github-row-meta">
             <TooltipTarget overflowOnly content={run.branch}><span className="truncate">{run.branch}</span></TooltipTarget>
-          </span>
-          <span className="workflow-run-row-details github-secondary-text">
-            <span>{formatWorkflowEvent(run.event)}</span>
             <span aria-hidden="true">·</span>
-            <TooltipTarget content={formatDate(run.updatedAt)}><span>updated {formatRelativeDate(run.updatedAt)}</span></TooltipTarget>
-            <span aria-hidden="true">·</span>
-            <span><WorkflowDuration startedAt={run.startedAt} completedAt={run.status === "completed" ? run.updatedAt : ""} running={run.status === "in_progress"} active={active} /></span>
+            <span className="truncate">{formatWorkflowEvent(run.event)}</span>
           </span>
         </span>
       </button>
@@ -11426,41 +11439,46 @@ function WorkflowRunRow({
   );
 }
 
-function WorkflowRunEmptyDetails(): ReactNode {
-  return <section className="review-console-empty" aria-labelledby="workflow-run-empty-heading">
-    <Workflow aria-hidden="true" />
-    <h2 id="workflow-run-empty-heading">Select a workflow run</h2>
-    <p>Choose a run to inspect jobs, steps, timing, logs, and available run actions.</p>
-  </section>;
+/** Tooltip details that the compact run row leaves out. */
+function WorkflowRunTiming({ run, active }: { run: GitHubWorkflowRun; active: boolean }): ReactNode {
+  return <span className="grid gap-0.5">
+    <span>Updated {formatDate(run.updatedAt)}</span>
+    <span>Triggered by {run.actor.login}</span>
+    <span>Duration <WorkflowDuration startedAt={run.startedAt} completedAt={run.status === "completed" ? run.updatedAt : ""} running={run.status === "in_progress"} active={active} /></span>
+  </span>;
 }
 
-function GitHubDetailWorkspace({ open, drawer, emptyDrawer, persistent = false, listDefaultSize = "40%", children }: { open: boolean; drawer: ReactNode; emptyDrawer?: ReactNode; persistent?: boolean; listDefaultSize?: string; children: ReactNode }): ReactNode {
-  const showDrawer = open || persistent;
-  return (
-    <ResizablePanelGroup orientation="horizontal" className="review-console-workspace" data-detail-open={open ? "true" : "false"}>
-      <ResizablePanel
-        defaultSize={showDrawer ? listDefaultSize : "100%"}
-        minSize="280px"
-        className="review-console-list-panel"
-        data-review-panel="list"
-      >
-        {children}
-      </ResizablePanel>
-      {showDrawer ? (
-        <>
-          <ResizableHandle withHandle className="review-console-resize-handle" aria-label="Resize review console" />
-          <ResizablePanel
-            defaultSize={listDefaultSize === "38%" ? "62%" : "60%"}
-            minSize="420px"
-            className="review-console-drawer-panel"
-            data-review-panel="drawer"
-          >
-            {open ? drawer : emptyDrawer}
-          </ResizablePanel>
-        </>
-      ) : null}
-    </ResizablePanelGroup>
-  );
+function WorkflowRunEmptyDetails(): ReactNode {
+  return <EmptyState
+    as="section"
+    className="h-full"
+    headingLevel={2}
+    icon={<Workflow />}
+    title="Select a workflow run"
+    description="Choose a run to inspect jobs, steps, timing, logs, and available run actions."
+  />;
+}
+
+/**
+ * Returns focus to a list row after its detail closes. The row is found again by its key, because a
+ * narrow window mounts the list again when the detail closes.
+ */
+function focusGitHubRowLater(rowKey: string): void {
+  requestAnimationFrame(() => {
+    const row = Array.from(document.querySelectorAll<HTMLElement>("[data-github-row]")).find((element) => element.dataset.githubRow === rowKey);
+    row?.querySelector<HTMLButtonElement>(":scope > button")?.focus();
+  });
+}
+
+/** The caption row at the bottom of a GitHub list column: the count, then optional actions. */
+function GitHubListCaption({ countLabel, children }: { countLabel: string; children?: ReactNode }): ReactNode {
+  const showCount = countLabel !== "-";
+  if (!showCount && !children) return null;
+  return <div className="github-list-caption">
+    {/* The toolbar's status region announces the same count. */}
+    {showCount ? <p aria-hidden="true">{countLabel}</p> : null}
+    {children}
+  </div>;
 }
 
 function PullRequestsView({
@@ -11488,7 +11506,11 @@ function PullRequestsView({
   onMerged,
   onConnectGitHub,
   onReviewAccess,
-  onCheckRemote
+  onCheckRemote,
+  showCreatePullRequest,
+  branchPullRequests,
+  createPullRequestDisabled,
+  onCreatePullRequest
 }: {
   active: boolean;
   summary: RepoSummary | null;
@@ -11515,10 +11537,15 @@ function PullRequestsView({
   onConnectGitHub: () => void;
   onReviewAccess: () => void;
   onCheckRemote: () => void;
+  /** Shows the Create pull request action when the current branch has no pull request yet. */
+  showCreatePullRequest: boolean;
+  /** Pull requests whose head is the current branch. */
+  branchPullRequests: GitHubPullRequestAssociation[];
+  createPullRequestDisabled: boolean;
+  onCreatePullRequest: () => void;
 }): ReactNode {
   const repository = summary?.githubRepository ?? null;
   const [selectedPullRequest, setSelectedPullRequest] = useState<GitHubPullRequest | null>(null);
-  const selectedTitleRef = useRef<HTMLButtonElement | null>(null);
   const filtered = Object.keys(query).some((key) => !["sort", "direction"].includes(key)) || query.sort !== "updated" || query.direction !== "desc";
   const countLabel = loaded ? (filtered && totalCount !== null ? `${totalCount} matching` : formatLoadedCount(pullRequests.length, openCount, "open pull request", "open pull requests")) : "-";
   const activeFilterCount = Object.entries(query).filter(([key, value]) => !["search", "sort", "direction"].includes(key) && value !== undefined && value !== "").length;
@@ -11534,30 +11561,35 @@ function PullRequestsView({
   };
   useEffect(() => {
     setSelectedPullRequest(null);
-    selectedTitleRef.current = null;
   }, [summary?.repoPath]);
   const closeDetail = (): void => {
+    const number = selectedPullRequest?.number;
     setSelectedPullRequest(null);
-    requestAnimationFrame(() => selectedTitleRef.current?.focus());
+    if (number !== undefined) focusGitHubRowLater(`pullRequest:${number}`);
   };
 
   return (
-    <GitHubDetailWorkspace persistent listDefaultSize="38%" open={selectedPullRequest !== null} emptyDrawer={<PullRequestEmptyDetails />} drawer={selectedPullRequest && repository ? (
-      <Suspense fallback={<LoadingState label="Loading review console" className="h-full" />}>
-        <ReviewConsole
-          active={active}
-          repoPath={summary?.repoPath ?? ""}
-          githubFullName={repository.fullName}
-          selection={{ itemType: "pullRequest", item: selectedPullRequest }}
-          onClose={closeDetail}
-          onCheckout={onCheckout}
-          onOpenExternalUrl={onOpenExternalUrl}
-          onMerged={onMerged}
-        />
-      </Suspense>
-    ) : null}>
-    <section className="github-view pull-requests-grid" aria-label="Pull requests">
-      <GitHubSelectorHeader repositoryName={repository?.fullName ?? "-"} countLabel={countLabel} />
+    <ListDetailLayout
+      id="github-pull-requests"
+      listLabel="pull request list"
+      detailOpen={selectedPullRequest !== null}
+      onBack={closeDetail}
+      detail={selectedPullRequest && repository ? (
+        <Suspense fallback={<LoadingState label="Loading review console" className="h-full" />}>
+          <ReviewConsole
+            active={active}
+            repoPath={summary?.repoPath ?? ""}
+            githubFullName={repository.fullName}
+            selection={{ itemType: "pullRequest", item: selectedPullRequest }}
+            onClose={closeDetail}
+            onCheckout={onCheckout}
+            onOpenExternalUrl={onOpenExternalUrl}
+            onMerged={onMerged}
+          />
+        </Suspense>
+      ) : <PullRequestEmptyDetails />}
+      list={(
+    <section className="github-view" aria-label="Pull requests">
       <GitHubQueryToolbar compact activeFilterCount={activeFilterCount} refreshDisabled={!repository} refreshing={loading || busy} onRefresh={onRefresh} view="pullRequests" search={query.search ?? ""} preset={preset} presets={[{ value: "all", label: "All open" }, { value: "branch", label: "Current Branch", disabled: !summary?.branch }, { value: "authored", label: "Authored by me", disabled: !viewerLogin }, { value: "assigned", label: "Assigned to me", disabled: !viewerLogin }, { value: "review", label: "Review requested", disabled: !viewerLogin }, { value: "drafts", label: "Drafts" }, { value: "custom", label: "Custom" }]} sort={`${query.sort}-${query.direction}`} sortOptions={[{ value: "updated-desc", label: "Recently updated" }, { value: "created-desc", label: "Newest" }, { value: "created-asc", label: "Oldest" }]} viewerAvailable={Boolean(viewerLogin)} status={loading || busy ? "Loading pull requests" : countLabel} onSearchChange={(value) => { onPresetChange("custom"); onQueryChange({ ...query, search: value || undefined }); }} onPresetChange={applyPreset} onSortChange={(value) => { const [sort, direction] = value.split("-") as ["updated" | "created", "asc" | "desc"]; onQueryChange({ ...query, sort, direction }); }} onClear={() => applyPreset("all")}>
         <label className="github-query-field"><span>Label</span><input value={query.label ?? ""} onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, label: event.target.value || undefined }); }} /></label>
         <label className="github-query-field"><span>Draft</span><select value={query.draft ?? ""} onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, draft: (event.target.value || undefined) as GitHubPullRequestQuery["draft"] }); }}><option value="">Any</option><option value="draft">Draft</option><option value="ready">Ready</option></select></label>
@@ -11579,19 +11611,63 @@ function PullRequestsView({
               key={pullRequest.number}
               pullRequest={pullRequest}
               selected={selectedPullRequest?.number === pullRequest.number}
-              onSelect={(item, button) => {
-                selectedTitleRef.current = button;
-                setSelectedPullRequest(item);
-              }}
+              onSelect={setSelectedPullRequest}
             />
           ))
         )}
         {error && pullRequests.length ? <GitHubFailureState failure={failure} fallback={error} stale onRetry={onRefresh} onConnect={onConnectGitHub} onReviewAccess={onReviewAccess} onCheckRemote={onCheckRemote} /> : null}
         <GitHubListFooter label="pull requests" nextPage={nextPage} loading={loadingMore} error="" disabled={busy} onLoadMore={onLoadMore} />
       </div>
+      <GitHubListCaption countLabel={countLabel}>
+        <CurrentBranchPullRequestAction
+          showCreatePullRequest={showCreatePullRequest}
+          branchPullRequests={branchPullRequests}
+          disabled={createPullRequestDisabled}
+          onCreatePullRequest={onCreatePullRequest}
+          onOpenExternalUrl={onOpenExternalUrl}
+        />
+      </GitHubListCaption>
     </section>
-    </GitHubDetailWorkspace>
+      )}
+    />
   );
+}
+
+/** The current branch's pull request, or the Create pull request action when it has none. */
+function CurrentBranchPullRequestAction({ showCreatePullRequest, branchPullRequests, disabled, onCreatePullRequest, onOpenExternalUrl }: {
+  showCreatePullRequest: boolean;
+  branchPullRequests: GitHubPullRequestAssociation[];
+  disabled: boolean;
+  onCreatePullRequest: () => void;
+  onOpenExternalUrl: (url: string) => void;
+}): ReactNode {
+  const [onlyPullRequest] = branchPullRequests;
+  if (branchPullRequests.length === 1 && onlyPullRequest) {
+    return <Button type="button" variant="outline" className="github-list-caption-action" onClick={() => onOpenExternalUrl(onlyPullRequest.url)}>
+      <GitPullRequest />
+      PR #{onlyPullRequest.number} · {formatPullRequestAssociationState(onlyPullRequest)}
+      <ExternalLink />
+    </Button>;
+  }
+  if (branchPullRequests.length > 1) {
+    return <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" variant="outline" className="github-list-caption-action"><GitPullRequest />Multiple pull requests<ChevronDown /></Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" side="top">
+        {branchPullRequests.map((pullRequest) => (
+          <DropdownMenuItem key={`${pullRequest.headRepositoryFullName}:${pullRequest.number}`} onSelect={() => onOpenExternalUrl(pullRequest.url)}>
+            {pullRequest.headRepositoryFullName ?? pullRequest.baseRepositoryFullName} #{pullRequest.number} · {formatPullRequestAssociationState(pullRequest)}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>;
+  }
+  if (!showCreatePullRequest) return null;
+  return <Button type="button" variant="outline" className="github-list-caption-action" disabled={disabled} onClick={onCreatePullRequest}>
+    <Plus />
+    Create pull request…
+  </Button>;
 }
 
 function PullRequestRow({
@@ -11601,7 +11677,7 @@ function PullRequestRow({
 }: {
   pullRequest: GitHubPullRequest;
   selected: boolean;
-  onSelect: (pullRequest: GitHubPullRequest, button: HTMLButtonElement) => void;
+  onSelect: (pullRequest: GitHubPullRequest) => void;
 }): ReactNode {
   return <GitHubItemRow
     itemType="pullRequest"
@@ -11614,7 +11690,7 @@ function PullRequestRow({
     labels={pullRequest.labels}
     comments={pullRequest.comments}
     selected={selected}
-    onSelect={(button) => onSelect(pullRequest, button)}
+    onSelect={() => onSelect(pullRequest)}
   />;
 }
 
@@ -11674,7 +11750,6 @@ function IssuesView({
   const repository = summary?.githubRepository ?? null;
   const [selectedIssue, setSelectedIssue] = useState<GitHubIssue | null>(null);
   const [createIssueDialog, setCreateIssueDialog] = useState<CreateIssueDialogState>(EMPTY_CREATE_ISSUE_DIALOG);
-  const selectedTitleRef = useRef<HTMLButtonElement | null>(null);
   const createIssueOperationRef = useRef<string | null>(null);
   const createIssueGenerationRef = useRef(0);
   const abandonCreateIssueMutation = useCallback((): void => {
@@ -11695,13 +11770,13 @@ function IssuesView({
   };
   useEffect(() => {
     setSelectedIssue(null);
-    selectedTitleRef.current = null;
     setCreateIssueDialog(EMPTY_CREATE_ISSUE_DIALOG);
     return abandonCreateIssueMutation;
   }, [abandonCreateIssueMutation, summary?.repoPath]);
   const closeDetail = (): void => {
+    const number = selectedIssue?.number;
     setSelectedIssue(null);
-    requestAnimationFrame(() => selectedTitleRef.current?.focus());
+    if (number !== undefined) focusGitHubRowLater(`issue:${number}`);
   };
   const closeCreateIssueDialog = (): void => {
     abandonCreateIssueMutation();
@@ -11759,26 +11834,27 @@ function IssuesView({
 
   return (
     <>
-    <GitHubDetailWorkspace persistent listDefaultSize="38%" open={selectedIssue !== null} emptyDrawer={<IssueEmptyDetails />} drawer={selectedIssue && repository ? (
-      <Suspense fallback={<LoadingState label="Loading review console" className="h-full" />}>
-        <ReviewConsole
-          active={active}
-          repoPath={summary?.repoPath ?? ""}
-          githubFullName={repository.fullName}
-          selection={{ itemType: "issue", item: selectedIssue }}
-          onClose={closeDetail}
-          onCheckout={() => undefined}
-          onOpenExternalUrl={onOpenExternalUrl}
-          onMerged={() => undefined}
-        />
-      </Suspense>
-    ) : null}>
-    <section className="github-view issues-grid" aria-label="Issues">
-      <GitHubSelectorHeader repositoryName={repository?.fullName ?? "-"} countLabel={countLabel} actions={
-        <Button type="button" size="sm" disabled={!repository} onClick={() => setCreateIssueDialog({ ...EMPTY_CREATE_ISSUE_DIALOG, open: true })}>
-          <Plus />New issue
-        </Button>
-      } />
+    <ListDetailLayout
+      id="github-issues"
+      listLabel="issue list"
+      detailOpen={selectedIssue !== null}
+      onBack={closeDetail}
+      detail={selectedIssue && repository ? (
+        <Suspense fallback={<LoadingState label="Loading review console" className="h-full" />}>
+          <ReviewConsole
+            active={active}
+            repoPath={summary?.repoPath ?? ""}
+            githubFullName={repository.fullName}
+            selection={{ itemType: "issue", item: selectedIssue }}
+            onClose={closeDetail}
+            onCheckout={() => undefined}
+            onOpenExternalUrl={onOpenExternalUrl}
+            onMerged={() => undefined}
+          />
+        </Suspense>
+      ) : <IssueEmptyDetails />}
+      list={(
+    <section className="github-view" aria-label="Issues">
       <GitHubQueryToolbar compact activeFilterCount={activeFilterCount} refreshDisabled={!repository} refreshing={loading || busy} onRefresh={onRefresh} view="issues" search={query.search ?? ""} preset={preset} presets={[{ value: "all", label: "All open" }, { value: "authored", label: "Authored by me", disabled: !viewerLogin }, { value: "assigned", label: "Assigned to me", disabled: !viewerLogin }, { value: "unassigned", label: "Unassigned" }, { value: "custom", label: "Custom" }]} sort={`${query.sort}-${query.direction}`} sortOptions={[{ value: "updated-desc", label: "Recently updated" }, { value: "created-desc", label: "Newest" }, { value: "created-asc", label: "Oldest" }]} viewerAvailable={Boolean(viewerLogin)} status={loading || busy ? "Loading issues" : countLabel} onSearchChange={(value) => { onPresetChange("custom"); onQueryChange({ ...query, search: value || undefined }); }} onPresetChange={applyPreset} onSortChange={(value) => { const [sort, direction] = value.split("-") as ["updated" | "created", "asc" | "desc"]; onPresetChange("custom"); onQueryChange({ ...query, sort, direction }); }} onClear={() => applyPreset("all")}>
         <label className="github-query-field"><span>Label</span><input value={query.label ?? ""} onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, label: event.target.value || undefined }); }} /></label>
       </GitHubQueryToolbar>
@@ -11799,18 +11875,21 @@ function IssuesView({
               key={issue.number}
               issue={issue}
               selected={selectedIssue?.number === issue.number}
-              onSelect={(item, button) => {
-                selectedTitleRef.current = button;
-                setSelectedIssue(item);
-              }}
+              onSelect={setSelectedIssue}
             />
           ))
         )}
         {error && issues.length ? <GitHubFailureState failure={failure} fallback={error} stale onRetry={onRefresh} onConnect={onConnectGitHub} onReviewAccess={onReviewAccess} onCheckRemote={onCheckRemote} /> : null}
         <GitHubListFooter label="issues" nextPage={nextPage} loading={loadingMore} error="" disabled={busy} onLoadMore={onLoadMore} />
       </div>
+      <GitHubListCaption countLabel={countLabel}>
+        <Button type="button" variant="outline" className="github-list-caption-action" disabled={!repository} onClick={() => setCreateIssueDialog({ ...EMPTY_CREATE_ISSUE_DIALOG, open: true })}>
+          New issue
+        </Button>
+      </GitHubListCaption>
     </section>
-    </GitHubDetailWorkspace>
+      )}
+    />
     <CreateIssueDialog
       open={createIssueDialog.open}
       repoPath={summary?.repoPath ?? ""}
@@ -11863,7 +11942,7 @@ function IssueRow({
 }: {
   issue: GitHubIssue;
   selected: boolean;
-  onSelect: (issue: GitHubIssue, button: HTMLButtonElement) => void;
+  onSelect: (issue: GitHubIssue) => void;
 }): ReactNode {
   return <GitHubItemRow
     itemType="issue"
@@ -11876,7 +11955,7 @@ function IssueRow({
     labels={issue.labels}
     comments={issue.comments}
     selected={selected}
-    onSelect={(button) => onSelect(issue, button)}
+    onSelect={() => onSelect(issue)}
   />;
 }
 
@@ -11884,27 +11963,18 @@ function IssueEmptyDetails(): ReactNode {
   return <GitHubSelectionEmptyDetails itemType="issue" />;
 }
 
-function GitHubSelectorHeader({ repositoryName, countLabel, actions }: { repositoryName: string; countLabel: string; actions?: ReactNode }): ReactNode {
-  return <div className="github-view-header github-selector-header">
-    <div className="min-w-0">
-      <p className="eyebrow">GitHub</p>
-      <TooltipTarget overflowOnly content={repositoryName}><h2 className="truncate text-sm font-semibold">{repositoryName}</h2></TooltipTarget>
-      <p className="github-secondary-text">{countLabel}</p>
-    </div>
-    {actions ? <div className="github-view-actions">{actions}</div> : null}
-  </div>;
-}
-
 function GitHubSelectionEmptyDetails({ itemType }: { itemType: "pullRequest" | "issue" }): ReactNode {
   const pullRequest = itemType === "pullRequest";
-  const headingId = `github-${itemType}-empty-heading`;
-  return <section className="review-console-empty" aria-labelledby={headingId}>
-    {pullRequest ? <GitPullRequest aria-hidden="true" /> : <CircleDot aria-hidden="true" />}
-    <h2 id={headingId}>Select {pullRequest ? "a pull request" : "an issue"}</h2>
-    <p>{pullRequest
+  return <EmptyState
+    as="section"
+    className="h-full"
+    headingLevel={2}
+    icon={pullRequest ? <GitPullRequest /> : <CircleDot />}
+    title={`Select ${pullRequest ? "a pull request" : "an issue"}`}
+    description={pullRequest
       ? "Choose a pull request to view details, checks, files, and review activity."
-      : "Choose an issue to view its description, activity, and project details."}</p>
-  </section>;
+      : "Choose an issue to view its description, activity, and project details."}
+  />;
 }
 
 function GitHubItemRow({ itemType, number, title, state, qualifier, authorLogin, updatedAt, labels, comments, selected, onSelect }: {
@@ -11918,54 +11988,64 @@ function GitHubItemRow({ itemType, number, title, state, qualifier, authorLogin,
   labels: string[];
   comments: number;
   selected: boolean;
-  onSelect: (button: HTMLButtonElement) => void;
+  onSelect: () => void;
 }): ReactNode {
   const pullRequest = itemType === "pullRequest";
+  const visualState = getGitHubItemVisualState(itemType, state, qualifier === "Draft");
   return <div
-    className={`github-row github-item-row ${pullRequest ? "pull-request-row" : "issue-row"} ${selected ? "is-selected" : ""}`}
+    className={`github-row github-item-row ${selected ? "is-selected" : ""}`}
     role="listitem"
     aria-current={selected ? "true" : undefined}
+    data-github-row={`${itemType}:${number}`}
   >
     <button
       type="button"
-      className="github-item-row-select"
+      className="github-row-button"
       aria-label={title}
       aria-pressed={selected}
       title={`${capitalize(state)} ${pullRequest ? "pull request" : "issue"} #${number}`}
-      onClick={(event) => onSelect(event.currentTarget)}
+      onClick={onSelect}
     >
-      <span className={`github-item-row-state is-${itemType}`} aria-hidden="true">
-        {pullRequest ? <><GitPullRequest /><CircleDot className="github-item-open-state" /></> : <CircleDot />}
-        <span className="github-issue-number">#{number}</span>
-        {qualifier ? <span className="github-item-qualifier">{qualifier}</span> : null}
+      <span className="github-row-icon" data-state={visualState} aria-hidden="true">
+        {pullRequest
+          ? visualState === "draft" ? <GitPullRequestDraft /> : visualState === "closed" ? <GitPullRequestClosed /> : visualState === "merged" ? <GitMerge /> : <GitPullRequest />
+          : visualState === "completed" ? <CircleCheck /> : <CircleDot />}
       </span>
-      <span className="github-item-row-content">
-        <TooltipTarget overflowOnly content={title}><span className="github-primary-text github-item-row-title">{title}</span></TooltipTarget>
-        <span className="github-item-row-meta github-secondary-text">
+      <span className="github-row-body">
+        <TooltipTarget overflowOnly content={title}><span className="github-row-title">{title}</span></TooltipTarget>
+        <span className="github-row-meta">
+          <span className="github-issue-number">#{number}</span>
+          {qualifier ? <span className="github-item-qualifier">{qualifier}</span> : null}
           <TooltipTarget overflowOnly content={authorLogin}><span className="truncate">{authorLogin}</span></TooltipTarget>
           <span aria-hidden="true">·</span>
-          <TooltipTarget content={formatDate(updatedAt)}><span className="truncate">updated {formatRelativeDate(updatedAt)}</span></TooltipTarget>
+          <TooltipTarget content={formatDate(updatedAt)}><span className="github-row-time">{formatRelativeDate(updatedAt)}</span></TooltipTarget>
         </span>
-        <span className="github-item-row-details">
-          <span className="github-item-comment-count github-secondary-text" aria-label={`${comments} ${comments === 1 ? "comment" : "comments"}`}><MessageSquare />{comments}</span>
-          <GitHubLabels labels={labels} max={2} />
-        </span>
+        <GitHubLabels labels={labels} max={2} />
       </span>
+      {comments > 0 ? (
+        <span className="github-item-comment-count" aria-label={`${comments} ${comments === 1 ? "comment" : "comments"}`}><MessageSquare aria-hidden="true" />{comments}</span>
+      ) : null}
     </button>
   </div>;
 }
 
+/** The icon state of a pull request or issue row. A closed issue is completed; a draft pull request is not yet open for review. */
+function getGitHubItemVisualState(itemType: "pullRequest" | "issue", state: string, draft: boolean): "open" | "draft" | "closed" | "merged" | "completed" {
+  const normalized = state.toLowerCase();
+  if (itemType === "issue") return normalized === "closed" ? "completed" : "open";
+  if (normalized === "merged") return "merged";
+  if (normalized === "closed") return "closed";
+  return draft ? "draft" : "open";
+}
+
 function GitHubLabels({ labels, max = 3 }: { labels: string[]; max?: number }): ReactNode {
+  if (labels.length === 0) return null;
   return (
     <TooltipTarget content={labels.join(", ")}>
       <span className="github-labels">
-        {labels.length === 0 ? (
-          <span className="github-secondary-text">-</span>
-        ) : (
-          labels.slice(0, max).map((label) => (
-            <span key={label} className="github-label-chip">{label}</span>
-          ))
-        )}
+        {labels.slice(0, max).map((label) => (
+          <span key={label} className="github-label-chip">{label}</span>
+        ))}
       </span>
     </TooltipTarget>
   );
@@ -11995,19 +12075,22 @@ function GitHubFailureState({
 }): ReactNode {
   const kind = failure?.kind ?? "unexpected";
   const retryAt = failure?.retryAfterAt ?? failure?.rateLimit?.resetAt ?? null;
-  return <div className={`grid gap-2 border-destructive/30 bg-destructive/5 p-4 text-sm ${stale ? "border-y" : "m-4 rounded-md border"}`} role="alert">
-    <div>
-      <p className="font-medium">{getGitHubFailureTitle(kind)}</p>
-      <p className="selectable-text text-muted-foreground">{fallback}</p>
-      {failure?.missingPermission ? <p className="mt-1 font-medium">Missing permission: {failure.missingPermission}</p> : null}
-      {stale ? <p className="mt-1 text-muted-foreground">Showing cached results while Githead recovers.</p> : null}
-      {retryAt ? <p className="mt-1 text-muted-foreground">Try again {formatDateTime(retryAt)}.</p> : null}
-    </div>
-    <div className="flex flex-wrap gap-2">
-      {kind === "authentication" ? <Button type="button" size="sm" onClick={onConnect}>Connect GitHub</Button> : null}
-      {kind === "authorization" ? <Button type="button" size="sm" onClick={onReviewAccess}>Review access</Button> : null}
-      {kind === "notFound" ? <Button type="button" size="sm" variant="outline" onClick={onCheckRemote}>Check remote</Button> : null}
-      {failure?.retryable || kind === "offline" || kind === "transient" || kind === "timeout" || kind === "rateLimited" || !failure ? <Button type="button" size="sm" variant="outline" onClick={onRetry}><RefreshCw />Retry</Button> : null}
+  const canRetry = failure?.retryable || kind === "offline" || kind === "transient" || kind === "timeout" || kind === "rateLimited" || !failure;
+  return <div className="dialog-notice github-failure" data-tone="danger" data-stale={stale ? "true" : "false"} role="alert">
+    <TriangleAlert aria-hidden="true" />
+    <div className="github-failure-body">
+      <p className="dialog-notice-title">{getGitHubFailureTitle(kind)}</p>
+      <p className="selectable-text github-failure-text">{fallback}</p>
+      {failure?.missingPermission ? <p className="github-failure-text font-medium text-foreground">Missing permission: {failure.missingPermission}</p> : null}
+      {stale ? <p className="github-failure-text">Showing cached results while Githead recovers.</p> : null}
+      {retryAt ? <p className="github-failure-text">Try again {formatDateTime(retryAt)}.</p> : null}
+      <div className="github-failure-actions">
+        {/* Secondary actions first, so the primary action is last. */}
+        {kind === "notFound" ? <Button type="button" size="sm" variant="outline" onClick={onCheckRemote}>Check remote</Button> : null}
+        {canRetry ? <Button type="button" size="sm" variant="outline" onClick={onRetry}><RefreshCw />Retry</Button> : null}
+        {kind === "authorization" ? <Button type="button" size="sm" onClick={onReviewAccess}>Review access</Button> : null}
+        {kind === "authentication" ? <Button type="button" size="sm" onClick={onConnect}>Connect GitHub</Button> : null}
+      </div>
     </div>
   </div>;
 }
@@ -12034,13 +12117,15 @@ function GitHubListEmptyState({ icon, title, description, actionLabel, onAction 
   actionLabel?: string;
   onAction?: () => void;
 }): ReactNode {
-  const headingId = useId();
-  return <section className="github-list-empty" aria-labelledby={headingId}>
-    <span className="github-list-empty-icon" aria-hidden="true">{icon}</span>
-    <h3 id={headingId}>{title}</h3>
-    <p>{description}</p>
-    {actionLabel && onAction ? <Button type="button" variant="outline" size="sm" onClick={onAction}>{actionLabel}</Button> : null}
-  </section>;
+  return <EmptyState
+    as="section"
+    className="github-list-empty"
+    headingLevel={3}
+    icon={icon}
+    title={title}
+    description={description}
+    action={actionLabel && onAction ? <Button type="button" variant="outline" size="sm" onClick={onAction}>{actionLabel}</Button> : undefined}
+  />;
 }
 
 function GitHubListFooter({ label, nextPage, loading, error, disabled, onLoadMore }: {
@@ -14728,20 +14813,6 @@ function formatCompactUnit(value: number, unit: string): string {
   return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}${unit}`;
 }
 
-function formatRelativeDate(value: string): string {
-  const timestamp = Date.parse(value);
-  if (!Number.isFinite(timestamp)) return value || "unknown";
-  const seconds = Math.round((timestamp - Date.now()) / 1_000);
-  const absolute = Math.abs(seconds);
-  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
-  if (absolute < 60) return formatter.format(seconds, "second");
-  if (absolute < 3_600) return formatter.format(Math.round(seconds / 60), "minute");
-  if (absolute < 86_400) return formatter.format(Math.round(seconds / 3_600), "hour");
-  if (absolute < 2_592_000) return formatter.format(Math.round(seconds / 86_400), "day");
-  if (absolute < 31_536_000) return formatter.format(Math.round(seconds / 2_592_000), "month");
-  return formatter.format(Math.round(seconds / 31_536_000), "year");
-}
-
 function formatDate(value: string): string {
   if (!value) {
     return "-";
@@ -14761,21 +14832,6 @@ function formatWorkflowEvent(value: string): string {
 
 function waitForMilliseconds(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
-}
-
-function getWorkflowRunStatusClass(run: GitHubWorkflowRun): string {
-  const status = (run.conclusion ?? run.status).toLowerCase();
-  if (status === "success") {
-    return "success";
-  }
-  if (status === "failure" || status === "timed_out" || status === "cancelled") {
-    return "failure";
-  }
-  if (status === "queued" || status === "in_progress" || status === "requested" || status === "waiting") {
-    return "running";
-  }
-
-  return "neutral";
 }
 
 function isDeletedOnSide(file: GitStatusFile, side: GitDiffSide): boolean {
