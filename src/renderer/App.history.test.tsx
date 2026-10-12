@@ -189,16 +189,16 @@ describe("App", { timeout: 10_000 }, () => {
     const unstagedFiles = screen.getByRole("listbox", { name: "Unstaged files" });
 
     const expectedStatuses = [
-      [within(stagedFiles).getByRole("option", { name: /src\/added\.ts/ }), "added"],
-      [within(unstagedFiles).getByRole("option", { name: /src\/modified\.ts/ }), "modified"],
-      [within(unstagedFiles).getByRole("option", { name: /src\/deleted\.ts/ }), "deleted"],
-      [within(unstagedFiles).getByRole("option", { name: /src\/untracked\.ts/ }), "untracked"],
-      [within(stagedFiles).getByRole("option", { name: /src\/conflicted\.ts/ }), "conflict"]
+      [within(stagedFiles).getByRole("option", { name: /src\/added\.ts/ }), "added", "A"],
+      [within(unstagedFiles).getByRole("option", { name: /src\/modified\.ts/ }), "modified", "M"],
+      [within(unstagedFiles).getByRole("option", { name: /src\/deleted\.ts/ }), "deleted", "D"],
+      [within(unstagedFiles).getByRole("option", { name: /src\/untracked\.ts/ }), "untracked", "?"],
+      [within(stagedFiles).getByRole("option", { name: /src\/conflicted\.ts/ }), "conflict", "U"]
     ] as const;
 
-    for (const [row, tone] of expectedStatuses) {
+    for (const [row, tone, letter] of expectedStatuses) {
       expect(getStatusTone(row)).toBe(tone);
-      expect(row.querySelector(".status-chip svg")).toBeTruthy();
+      expect(row.querySelector(".status-chip")?.textContent).toBe(letter);
     }
   });
 

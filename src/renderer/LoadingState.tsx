@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 export function LoadingState({ label, className }: { label: string; className?: string }): ReactNode {
   return (
     <div
-      className={cn("flex min-h-16 items-center justify-center p-4 text-muted-foreground", className)}
+      className={cn("loading-state flex min-h-16 items-center justify-center p-4 text-muted-foreground", className)}
       role="status"
       aria-live="polite"
     >

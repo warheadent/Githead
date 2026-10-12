@@ -16,6 +16,19 @@ export interface FileStatusVisuals {
   label: string;
 }
 
+const STATUS_LETTERS: Record<FileStatusTone, string> = {
+  added: "A",
+  untracked: "?",
+  modified: "M",
+  deleted: "D",
+  renamed: "R",
+  copied: "C",
+  conflict: "U",
+  neutral: "•"
+};
+
+const SUBMODULE_STATUS_CODE = "SM";
+
 const STATUS_LABELS: Record<FileStatusTone, string> = {
   added: "Added file",
   untracked: "Untracked file",
@@ -57,6 +70,11 @@ export function getStatusLabel(tone: FileStatusTone): string {
   return STATUS_LABELS[tone];
 }
 
+/** The single letter shown in a status chip. Type changes read as modified. */
+export function getFileStatusLetter(visuals: FileStatusVisuals): string {
+  return visuals.code === SUBMODULE_STATUS_CODE ? "S" : STATUS_LETTERS[visuals.tone];
+}
+
 export function getFileStatusVisuals(file: GitStatusFile, side: GitDiffSide): FileStatusVisuals {
   if (file.submodule) {
     const details = [
@@ -65,7 +83,7 @@ export function getFileStatusVisuals(file: GitStatusFile, side: GitDiffSide): Fi
       file.submodule.untrackedChanges ? "contains untracked files" : "",
       !file.submodule.initialized ? "not initialized" : ""
     ].filter(Boolean).join(", ");
-    return { code: "SM", tone: file.isConflicted ? "conflict" : "modified", label: `Submodule${details ? `: ${details}` : ""}` };
+    return { code: SUBMODULE_STATUS_CODE, tone: file.isConflicted ? "conflict" : "modified", label: `Submodule${details ? `: ${details}` : ""}` };
   }
   const code = getFileStatusCode(file, side);
   const tone = getStatusTone(code, file.isConflicted);

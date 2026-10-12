@@ -1,4 +1,5 @@
 import { Component, Suspense, type ErrorInfo, type ReactNode } from "react";
+import { EmptyState } from "./EmptyState";
 import { LoadingState } from "./LoadingState";
 
 interface OptionalFeatureBoundaryProps {
@@ -23,7 +24,7 @@ class OptionalFeatureErrorBoundary extends Component<OptionalFeatureBoundaryProp
 
   render(): ReactNode {
     if (this.state.failed) {
-      return <p className="empty-state bad" role="alert">Unable to load {this.props.name}. Restart Githead and try again.</p>;
+      return <EmptyState tone="error" role="alert" title={`Unable to load ${this.props.name}. Restart Githead and try again.`} />;
     }
 
     return this.props.children;

@@ -76,6 +76,7 @@ import {
 } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button, TooltipButton } from "@/components/ui/button";
+import { EmptyState } from "./EmptyState";
 import { LoadingState } from "./LoadingState";
 import {
   createOperationButtonFeedbackEvent,
@@ -10805,8 +10806,8 @@ function FileGroup({
       {collapsed ? null : !summary?.isValid ? (
         <div className="file-list" role={viewMode === "tree" ? "tree" : "listbox"} aria-label={title} aria-multiselectable="true" />
       ) : files.length === 0 ? (
-        <div className="file-list flex items-center justify-center p-4 text-center text-sm text-muted-foreground" role={viewMode === "tree" ? "tree" : "listbox"} aria-label={title} aria-multiselectable="true">
-          <p>{filtering && totalCount > 0 ? "No files match your search and filter" : emptyMessage}</p>
+        <div className="file-list flex items-center justify-center" role={viewMode === "tree" ? "tree" : "listbox"} aria-label={title} aria-multiselectable="true">
+          <EmptyState title={filtering && totalCount > 0 ? "No files match your search and filter" : emptyMessage} />
         </div>
       ) : viewMode === "tree" ? (
         <FixedSizeVirtualList
@@ -11162,7 +11163,7 @@ function DiffPanel({
     setShowPreview(!previewVisible);
   };
 
-  let content: ReactNode = emptyMessage;
+  let content: ReactNode = <EmptyState title={emptyMessage} />;
   let outputClass = "diff-output";
 
   if (previewVisible && previewSource && svgFile) {
@@ -11660,7 +11661,7 @@ function HistoryView({
                     </Button>
                   </div>
                 ) : summary?.isValid ? (
-                  <p className="empty-state">No commits in this repository.</p>
+                  <EmptyState title="No commits in this repository." />
                 ) : null}
               </div>
             ) : (
@@ -12959,10 +12960,10 @@ function CommitDetailsPanel({
     meta = <LoadingState label="Loading commit details" />;
     files = null;
   } else if (error) {
-    meta = <p className="empty-state bad selectable-text">{error}</p>;
+    meta = <EmptyState tone="error" className="selectable-text" title={error} />;
     files = null;
   } else if (!details) {
-    meta = <p className="empty-state">Select a commit.</p>;
+    meta = <EmptyState title="Select a commit." />;
     files = null;
   } else {
     fileCount = `${details.files.length} ${details.files.length === 1 ? "file" : "files"}`;
@@ -13020,7 +13021,7 @@ function CommitDetailsPanel({
       </div>
     );
     files = details.files.length === 0 ? (
-      <p className="empty-state">No changed files.</p>
+      <EmptyState title="No changed files." />
     ) : (
       details.files.map((file) => (
         <CommitFileRow

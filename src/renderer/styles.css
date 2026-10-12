@@ -511,6 +511,15 @@
   *::-webkit-scrollbar-thumb:active {
     background-color: Highlight;
   }
+
+  /* Overlay surfaces draw their edge with box-shadow, which forced colors removes. */
+  [data-slot="dialog-content"],
+  [data-slot="popover-content"],
+  [data-slot="dropdown-menu-content"],
+  [data-slot="dropdown-menu-sub-content"],
+  [data-slot="context-menu-content"] {
+    border: 1px solid CanvasText;
+  }
 }
 
 .app-shell {
@@ -3458,11 +3467,11 @@ textarea,
 }
 
 .repo-recent-sync .sync-count-chip.is-ahead {
-  color: var(--primary);
+  color: var(--status-added);
 }
 
 .repo-recent-sync .sync-count-chip.is-behind {
-  color: var(--accent-foreground);
+  color: var(--status-modified);
 }
 
 .repo-recent-menu-path {
@@ -3479,6 +3488,75 @@ textarea,
 
 .bad {
   color: var(--destructive);
+}
+
+.empty-state {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 8px;
+  margin: 0;
+  padding: 24px;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.3334;
+  text-align: center;
+}
+
+.empty-state.bad,
+.empty-state.is-error {
+  color: var(--destructive);
+}
+
+.empty-state > p,
+.empty-state-title,
+.empty-state-description {
+  margin: 0;
+}
+
+.empty-state-title:has(+ .empty-state-description) {
+  color: var(--foreground);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.5385;
+}
+
+.empty-state-description {
+  max-width: 48ch;
+  color: var(--muted-foreground);
+}
+
+.empty-state-icon {
+  display: inline-flex;
+  color: var(--muted-foreground);
+}
+
+.empty-state-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.diff-output .empty-state {
+  min-height: 100%;
+  font-family: var(--font-ui);
+}
+
+/* The spinner appears only when loading outlasts a short delay, so fast loads do not flash. */
+.loading-state {
+  animation: loading-state-reveal 120ms var(--ease-out) 150ms both;
+}
+
+@keyframes loading-state-reveal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+:root[data-reduce-motion="true"] .loading-state {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-state { animation: none; }
 }
 
 .workspace-tab-trigger {
@@ -3613,23 +3691,21 @@ textarea,
   background: var(--selected);
 }
 
+/* Letter chip: transparent, coloured by the fixed status tokens so it reads the same in every theme. */
 .status-chip {
-  --status-chip-bg: var(--muted-foreground);
-  --status-chip-fg: white;
   display: inline-grid;
-  width: 28px;
-  min-height: 22px;
+  width: 16px;
+  height: 16px;
   place-items: center;
   border: 0;
-  border-radius: 4px;
-  color: var(--status-chip-fg);
-  background: var(--status-chip-bg);
-}
-
-.status-chip svg {
-  width: 14px;
-  height: 14px;
-  stroke-width: 1.9;
+  border-radius: calc(var(--radius) - 4px);
+  padding: 0;
+  color: var(--muted-foreground);
+  background: transparent;
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1;
 }
 
 .file-tree-folder-row {
@@ -3675,34 +3751,30 @@ textarea,
   height: 15px;
 }
 
-.status-chip-added {
-  --status-chip-bg: oklch(0.46 0.12 155);
-}
-
+.status-chip-added,
 .status-chip-untracked {
-  --status-chip-bg: oklch(0.52 0.11 210);
+  color: var(--status-added);
 }
 
 .status-chip-modified {
-  --status-chip-bg: oklch(0.58 0.125 70);
+  color: var(--status-modified);
 }
 
-.status-chip-deleted,
-.status-chip-conflict {
-  --status-chip-bg: var(--destructive);
+.status-chip-deleted {
+  color: var(--status-deleted);
 }
 
-.status-chip-renamed {
-  --status-chip-bg: oklch(0.5 0.12 245);
-}
-
+.status-chip-renamed,
 .status-chip-copied {
-  --status-chip-bg: oklch(0.52 0.13 292);
+  color: var(--status-renamed);
+}
+
+.status-chip-conflict {
+  color: var(--status-conflict);
 }
 
 .status-chip-neutral {
-  --status-chip-bg: var(--muted);
-  --status-chip-fg: var(--muted-foreground);
+  color: var(--muted-foreground);
 }
 
 .file-path {
@@ -4515,9 +4587,9 @@ textarea,
 .history-github-badge,
 .commit-reference-link { border: 1px solid var(--border); border-radius: 999px; padding: 1px 5px; background: var(--muted); color: inherit; font-size: .68rem; line-height: 1.1rem; }
 .history-check-state { width: 8px; height: 8px; border-radius: 50%; background: var(--muted-foreground); }
-.history-check-state.is-success { background: var(--success, oklch(0.634342 0.161955 148.388422)); }
-.history-check-state.is-failure { background: var(--destructive); }
-.history-check-state.is-pending { background: var(--warning, oklch(0.661874 0.137396 79.250394)); }
+.history-check-state.is-success { background: var(--status-added); }
+.history-check-state.is-failure { background: var(--status-deleted); }
+.history-check-state.is-pending { background: var(--status-modified); }
 .history-insights-error,
 .history-refresh-error { display: flex; min-height: 28px; align-items: center; justify-content: center; gap: 6px; color: var(--muted-foreground); font-size: .75rem; }
 .history-refresh-error { padding: 4px 10px; color: var(--destructive); }
@@ -5375,11 +5447,11 @@ textarea,
 }
 
 .github-status.success {
-  color: var(--primary);
+  color: var(--status-added);
 }
 
 .github-status.success .github-status-dot {
-  background: var(--primary);
+  background: var(--status-added);
 }
 
 .github-status.failure {
@@ -5391,7 +5463,7 @@ textarea,
 }
 
 .github-status.running .github-status-dot {
-  background: oklch(0.68 0.13 88);
+  background: var(--status-modified);
 }
 
 .github-labels {
@@ -5886,10 +5958,10 @@ textarea,
 
 .workflow-run-row-state.success { color: var(--primary); }
 .workflow-run-row-state.failure { color: var(--destructive); }
-.workflow-run-row-state.running { color: oklch(0.72 0.12 88); }
+.workflow-run-row-state.running { color: var(--status-modified); }
 .workflow-run-row-state.success .github-status-dot { background: var(--primary); }
 .workflow-run-row-state.failure .github-status-dot { background: var(--destructive); }
-.workflow-run-row-state.running .github-status-dot { background: oklch(0.72 0.12 88); }
+.workflow-run-row-state.running .github-status-dot { background: var(--status-modified); }
 
 .workflow-run-row-content {
   display: grid;
@@ -7021,7 +7093,7 @@ textarea,
 
 .workflow-run-state.is-running,
 .workflow-inspector-status.is-running {
-  color: oklch(0.72 0.12 88);
+  color: var(--status-modified);
 }
 
 .workflow-status-icon {
@@ -7032,7 +7104,7 @@ textarea,
 
 .workflow-status-icon.is-success { color: var(--primary); }
 .workflow-status-icon.is-failure { color: var(--destructive); }
-.workflow-status-icon.is-running { color: oklch(0.72 0.12 88); }
+.workflow-status-icon.is-running { color: var(--status-modified); }
 
 .workflow-run-overview {
   display: grid;
@@ -7874,21 +7946,14 @@ textarea,
   gap: 4px;
 }
 
-/* Effects are opt-in by level. Full adds blur only to the open dialog. */
+/* Effects are opt-in by level. Dialogs keep the overlay shadow at every level; full adds glass blur only to the open dialog. */
 :root[data-visual-effects] [data-slot="dialog-content"] {
   /* The dialog's duration utility is for its keyframes, not material changes. */
   transition-property: none;
 }
-:root[data-visual-effects="standard"] [data-slot="dialog-content"],
-:root[data-visual-effects="full"] [data-slot="dialog-content"] {
-  border-color: color-mix(in oklch, var(--primary) 16%, var(--border));
-  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--foreground) 8%, transparent),
-    0 24px 64px rgb(0 0 0 / 22%);
-  background-image: linear-gradient(145deg, color-mix(in oklch, var(--primary) 4%, transparent), transparent 45%);
-}
 
 :root[data-visual-effects="full"] [data-slot="dialog-content"] {
-  background-color: color-mix(in oklch, var(--background) 94%, transparent);
+  background-color: color-mix(in oklch, var(--popover) 94%, transparent);
   backdrop-filter: blur(8px);
 }
 
@@ -7962,7 +8027,12 @@ textarea,
 }
 :root[data-reduce-motion="true"] .operation-completion-glow { animation: none !important; }
 :root[data-reduce-motion="true"] [data-slot="dialog-content"],
-:root[data-reduce-motion="true"] [data-slot="dialog-overlay"] { animation: none !important; }
+:root[data-reduce-motion="true"] [data-slot="dialog-overlay"],
+:root[data-reduce-motion="true"] [data-slot="dropdown-menu-content"],
+:root[data-reduce-motion="true"] [data-slot="dropdown-menu-sub-content"],
+:root[data-reduce-motion="true"] [data-slot="context-menu-content"],
+:root[data-reduce-motion="true"] [data-slot="popover-content"],
+:root[data-reduce-motion="true"] [data-slot="tooltip-content"] { animation: none !important; }
 
 @media (max-width: 640px) {
   .visual-effects-options { grid-template-columns: 1fr; }
@@ -8237,11 +8307,6 @@ button.repository-section-heading:hover { background: var(--hover); color: var(-
 .analytics-toolbar-end { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .analytics-status { min-height: 18px; margin: -4px 0 8px; color: var(--muted-foreground); font-size: 12px; font-variant-numeric: tabular-nums; }
 .analytics-exclude { display: inline-flex; align-items: center; gap: 2px; }
-.analytics-segmented { display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--muted); }
-.analytics-segmented button { padding: 3px 10px; border-radius: 6px; color: var(--muted-foreground); font-size: 12px; font-weight: 500; }
-.analytics-segmented button:hover { color: var(--foreground); }
-.analytics-segmented button[aria-pressed="true"] { background: var(--background); color: var(--foreground); box-shadow: 0 0 0 1px var(--border); }
-.analytics-segmented button:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .analytics-check { display: inline-flex; align-items: center; gap: 6px; color: var(--muted-foreground); font-size: 12px; cursor: pointer; }
 .analytics-check input { width: 14px; height: 14px; accent-color: var(--primary); }
 .analytics-check:hover { color: var(--foreground); }

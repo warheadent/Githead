@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button, TooltipButton } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Segmented } from "@/components/ui/segmented";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -138,7 +139,7 @@ export function AnalyticsView({
         <div className="analytics-filters">
           {historySection ? (
             <>
-              <Segmented label="Date range" options={RANGE_OPTIONS} value={range} onChange={setRange} />
+              <Segmented label="Date range" size="sm" options={RANGE_OPTIONS} value={range} onChange={setRange} />
               <span className="analytics-exclude">
                 <label className="analytics-check">
                   <input type="checkbox" checked={excludePaths} onChange={(event) => setExcludePaths(event.target.checked)} />
@@ -148,7 +149,7 @@ export function AnalyticsView({
               </span>
             </>
           ) : null}
-          {section === "ci" ? <Segmented label="CI date range" options={CI_RANGE_OPTIONS} value={ciRange} onChange={setCiRange} /> : null}
+          {section === "ci" ? <Segmented label="CI date range" size="sm" options={CI_RANGE_OPTIONS} value={ciRange} onChange={setCiRange} /> : null}
         </div>
         <div className="analytics-toolbar-end">
           <TooltipButton
@@ -233,21 +234,6 @@ function AnalyticsProgress({ progress }: { progress: RepositoryAnalyticsProgress
       </p>
       <div className="analytics-progress" aria-hidden="true"><span style={{ width: `${Math.round((fraction ?? (progress ? 1 : 0.05)) * 100)}%` }} /></div>
       <p className="analytics-empty-hint">The first analysis reads full history. Later updates only read new commits.</p>
-    </div>
-  );
-}
-
-function Segmented<T extends string>({ label, options, value, onChange }: {
-  label: string;
-  options: Array<{ value: T; label: string }>;
-  value: T;
-  onChange: (value: T) => void;
-}): ReactNode {
-  return (
-    <div className="analytics-segmented" role="group" aria-label={label}>
-      {options.map((option) => (
-        <button key={option.value} type="button" aria-pressed={option.value === value} onClick={() => onChange(option.value)}>{option.label}</button>
-      ))}
     </div>
   );
 }
