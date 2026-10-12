@@ -1008,6 +1008,46 @@ describe("App", { timeout: 10_000 }, () => {
     });
   });
 
+  it("names the staged count on Commit and shows the diff card header with status, line stats and raw hunk bands", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/a.ts", { isStaged: true, indexStatus: "M" }),
+        createStatusFile("src/b.ts", { isStaged: true, indexStatus: "A" })
+      ]
+    }));
+    vi.mocked(githead.getFileDiff).mockResolvedValue({
+      path: "src/a.ts",
+      side: "staged",
+      kind: "text",
+      text: [
+        "diff --git a/src/a.ts b/src/a.ts",
+        "--- a/src/a.ts",
+        "+++ b/src/a.ts",
+        "@@ -1,2 +1,2 @@ export function run()",
+        "-old-value",
+        "+new-value",
+        " same-value"
+      ].join("\n")
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("option", { name: /src\/a\.ts/ }));
+    await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: two files");
+    expect((screen.getByRole("button", { name: "Commit 2 files" }) as HTMLButtonElement).disabled).toBe(false);
+
+    const diffPanel = screen.getByRole("region", { name: "Staged diff" });
+    expect(await within(diffPanel).findByText("new-value")).toBeTruthy();
+    expect(within(diffPanel).getByRole("heading", { name: "src/a.ts" })).toBeTruthy();
+    expect(diffPanel.querySelector(".diff-panel-header .status-chip")?.getAttribute("data-status-tone")).toBe("modified");
+    expect(within(diffPanel).getByText("1 line added, 1 line deleted")).toBeTruthy();
+    expect(within(diffPanel).getByText("@@ -1,2 +1,2 @@ export function run()")).toBeTruthy();
+    expect(within(diffPanel).getByRole("button", { name: "Unstage Hunk" })).toBeTruthy();
+    expect(within(diffPanel).getByRole("button", { name: "Refresh Diff" })).toBeTruthy();
+    expect(within(diffPanel).queryByText("Staged diff")).toBeNull();
+  });
+
   it("keeps the selected diff current when a watcher comparison finds unchanged content", async () => {
     const user = userEvent.setup();
     const summary = createSummary({
@@ -1197,12 +1237,12 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
-    expect((screen.getByRole("button", { name: /^Commit$/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Commit 1 file" }) as HTMLButtonElement).disabled).toBe(true);
 
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: log commit output");
-    expect((screen.getByRole("button", { name: /^Commit$/ }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Commit 1 file" }) as HTMLButtonElement).disabled).toBe(false);
 
-    const commitButton = screen.getByRole("button", { name: /^Commit$/ });
+    const commitButton = screen.getByRole("button", { name: "Commit 1 file" });
     await user.click(commitButton);
 
     await waitFor(() => {
@@ -1740,7 +1780,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: trust repo");
-    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
 
     await waitFor(() => {
       expect(githead.addRepoTrust).toHaveBeenCalledWith({
@@ -1775,7 +1815,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: decline trust");
-    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
 
     await waitFor(() => {
       expect(githead.addRepoTrust).toHaveBeenCalledWith({
@@ -1805,7 +1845,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: decline trust once");
-    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
     await waitFor(() => expect(githead.addRepoTrust).toHaveBeenCalledTimes(1));
 
     fireEvent.blur(window);
@@ -1842,7 +1882,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(await screen.findByRole("button", { name: "Open local folder…" }));
     await waitFor(() => expect(githead.chooseRepo).toHaveBeenCalledTimes(1));
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: trust A");
-    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
 
     await waitFor(() => expect(githead.addRepoTrust).toHaveBeenCalledWith({ repoPath }));
     pendingRepositoryChoice.resolve(otherRepo);
@@ -1878,7 +1918,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: identify author");
-    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
 
     expect(await screen.findByRole("dialog", { name: "Set Git Author Identity" })).toBeTruthy();
     await user.type(screen.getByLabelText("Name"), "Taylor");
@@ -1942,7 +1982,7 @@ describe("App", { timeout: 10_000 }, () => {
     const identityCallsBeforeCommit = vi.mocked(githead.getGitIdentity).mock.calls.length;
     waitForRepositoryAIdentity = true;
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: identity A");
-    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
     await waitFor(() => expect(vi.mocked(githead.getGitIdentity).mock.calls.length).toBeGreaterThan(identityCallsBeforeCommit));
 
     pendingRepositoryChoice.resolve(otherRepo);
@@ -1984,7 +2024,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: global identity");
-    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
     await screen.findByRole("dialog", { name: "Set Git Author Identity" });
     await user.type(screen.getByLabelText("Name"), "Taylor");
     await user.type(screen.getByLabelText("Email"), "taylor@example.test");
@@ -2020,7 +2060,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: identity failure");
-    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
     await user.type(await screen.findByLabelText("Name"), "Taylor");
     await user.type(screen.getByLabelText("Email"), "taylor@example.test");
     await user.click(screen.getByRole("button", { name: "Save and Retry Commit" }));
@@ -2050,7 +2090,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: cancel identity");
-    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
     await user.click(await screen.findByRole("button", { name: "Cancel" }));
 
     await waitFor(() => {
@@ -2087,7 +2127,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await screen.findByRole("option", { name: /src\/safe\.ts/ });
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "fix: safe commit");
-    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
 
     await waitFor(() => expect(githead.commitWithRemoteCheck).toHaveBeenCalledWith({
       repoPath,
@@ -2148,7 +2188,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await screen.findByRole("option", { name: /src\/safe-identity\.ts/ });
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "fix: safe identity retry");
-    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
     await user.type(await screen.findByLabelText("Name"), "Taylor");
     await user.type(screen.getByLabelText("Email"), "taylor@example.test");
     await user.click(screen.getByRole("button", { name: "Save and Retry Commit" }));
@@ -2201,7 +2241,7 @@ describe("App", { timeout: 10_000 }, () => {
     await screen.findByRole("option", { name: /src\/safe\.ts/ });
     const message = screen.getByPlaceholderText("Summarize staged changes...");
     await user.type(message, "fix: safe commit");
-    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
 
     expect((await screen.findByRole("alert")).textContent).toContain("No commit was created");
     expect((message as HTMLTextAreaElement).value).toBe("fix: safe commit");

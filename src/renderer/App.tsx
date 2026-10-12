@@ -10,6 +10,7 @@ import {
   Archive,
   ArrowLeft,
   ArrowRight,
+  ArrowUp,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -307,10 +308,10 @@ import {
 } from "./remoteActions";
 import { isGitHubView, isGuestView, type GuestView } from "./workspaceViews";
 import { buildCommitGraphLayout, COMMIT_GRAPH_COLOR_COUNT, COMMIT_GRAPH_ROW_HEIGHT, type CommitGraphLayout } from "./commitGraph";
-import { createLinePatch, isTechnicalFileHeader, type DiffRow, type DiffRowGroup } from "./diffParser";
+import { countDiffLineChanges, createLinePatch, isTechnicalFileHeader, type DiffLineChangeCounts, type DiffRow, type DiffRowGroup } from "./diffParser";
 import { createDiffProcessingSession, type ProcessedDiff } from "./diffProcessingClient";
 import { areFileDiffsEqual } from "./diffFreshness";
-import { getCommitFileStatusVisuals, getFileStatusVisuals } from "./fileStatusVisuals";
+import { getCommitFileStatusVisuals, getFileStatusVisuals, type FileStatusVisuals } from "./fileStatusVisuals";
 import { FileStatusChip } from "./FileStatusChip";
 import { filterStatusFiles, type StatusFileFilter } from "./statusFileFilter";
 import { FixedSizeVirtualList, type VirtualRowProps } from "./FixedSizeVirtualList";
@@ -7982,6 +7983,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                       generating={state.runningOperation === "Generating commit message"}
                       disabled={disableUnrelatedMutations}
                       primaryCommitAction={primaryCommitAction}
+                      stagedCount={stagedFiles.length}
                       quickCommitByDefault={state.summary?.kind === "git" && state.appSettings?.gitBehaviors?.quickCommitByDefault === true}
                       summary={state.summary}
                       selection={state.selection}
@@ -10222,6 +10224,8 @@ function StatusView({
               changed={diffChanged}
               wrapLines={wrapLines}
               onWrapLinesChange={onWrapLinesChange}
+              variant="card"
+              status={selection && selectedFile ? getFileStatusVisuals(selectedFile, selection.side) : undefined}
             />
           </div>
         }
@@ -10232,7 +10236,7 @@ function StatusView({
             <DialogTitle>{fileActionLabel("Discard changes in", discardTarget?.paths.length ?? 0)}?</DialogTitle>
             <DialogDescription>Discard the {discardTarget?.side} changes in these files. This cannot be undone.</DialogDescription>
           </DialogHeader>
-          <ul className="dialog-code-block max-h-48 overflow-auto">{discardTarget?.paths.slice(0, 100).map((path) => <li key={path}>{path}</li>)}</ul>
+          <ul className="dialog-code-block discard-path-list">{discardTarget?.paths.slice(0, 100).map((path) => <li key={path}>{path}</li>)}</ul>
           {discardTarget && discardTarget.paths.length > 100 ? <p className="text-sm text-muted-foreground">Showing the first 100 of {discardTarget.paths.length} files.</p> : null}
           {discardChecking ? <p role="status" className="text-sm text-muted-foreground">Checking selected files…</p> : null}
           {discardError ? <p role="alert" className="dialog-error">{discardError}</p> : null}
@@ -10791,9 +10795,12 @@ function DiffPanel({
   onDownloadImage,
   imageDownloadLoading = false,
   wrapLines,
-  onWrapLinesChange
+  onWrapLinesChange,
+  variant = "default",
+  status
 }: {
   title: string;
+  /** Names the panel for assistive technology and its scroll key. Only the default variant shows it. */
   eyebrow: string;
   diff: GitFileDiff | null;
   filePath: string;
@@ -10809,8 +10816,20 @@ function DiffPanel({
   imageDownloadLoading?: boolean;
   wrapLines: boolean;
   onWrapLinesChange: (wrap: boolean) => void;
+  /**
+   * "default" keeps the eyebrow header. "card" fills a surface card with the V2 file header
+   * (status chip, path, line stats, icon actions). "embedded" uses the same header inside a card
+   * that also shows other content.
+   */
+  variant?: DiffPanelVariant;
+  /** The status chip that the card and embedded headers show before the path. */
+  status?: FileStatusVisuals | undefined;
 }): ReactNode {
   const [showPreview, setShowPreview] = useState(false);
+  const fileHeader = variant !== "default";
+  const diffText = fileHeader && diff?.kind === "text" && !diff.truncated ? diff.text : null;
+  // A truncated diff would undercount, so the header shows no stats for it.
+  const lineChanges = useMemo(() => diffText === null ? null : countDiffLineChanges(diffText), [diffText]);
   const previewKey = previewSource
     ? `${repoPath}\0${filePath}\0${previewSource.kind}\0${previewSource.kind === "commit" ? previewSource.hash : ""}`
     : "";
@@ -10866,8 +10885,83 @@ function DiffPanel({
         : diff.text;
   }
 
+  const output = (
+    <div data-workspace-scroll-key={`diff:${eyebrow}`} className={`${outputClass}${changed ? " is-changed" : ""}`}>
+      {content}
+    </div>
+  );
+
+  if (fileHeader) {
+    return (
+      <section className="diff-panel" data-variant={variant} aria-label={eyebrow}>
+        <div className="diff-panel-header">
+          <div className="diff-panel-heading">
+            {status ? <FileStatusChip visuals={status} /> : null}
+            <TooltipTarget overflowOnly content={title}><h2 className="diff-panel-path">{title}</h2></TooltipTarget>
+            {changed ? <p className="diff-changed-description" role="status">Loaded diff is out of date</p> : null}
+          </div>
+          <div className="diff-panel-actions">
+            {lineChanges && !previewVisible ? (
+              <span className="diff-panel-stats">
+                <span className="sr-only">{formatDiffLineChanges(lineChanges)}</span>
+                <span className="diff-panel-additions" aria-hidden="true">+{lineChanges.additions}</span>
+                <span className="diff-panel-deletions" aria-hidden="true">−{lineChanges.deletions}</span>
+              </span>
+            ) : null}
+            {diff?.kind === "text" && !previewVisible ? (
+              <TooltipButton
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                className="aria-pressed:bg-selected aria-pressed:text-foreground"
+                aria-label="Wrap diff lines"
+                aria-pressed={wrapLines}
+                tooltip={wrapLines ? "Use horizontal scrolling" : "Wrap long diff lines"}
+                onClick={() => onWrapLinesChange(!wrapLines)}
+              >
+                <WrapText />
+              </TooltipButton>
+            ) : null}
+            {previewSource ? (
+              <Button type="button" variant="ghost" size="xs" aria-pressed={previewVisible} onClick={togglePreview}>
+                <Eye />
+                {previewVisible ? "Show Diff" : "Preview"}
+              </Button>
+            ) : null}
+            {onRefresh && changed ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                className="diff-changed-refresh"
+                disabled={refreshDisabled || loading}
+                onClick={() => onRefresh()}
+              >
+                <RefreshCw />
+                New diff available
+              </Button>
+            ) : onRefresh ? (
+              <TooltipButton
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label={loading ? "Loading diff" : "Refresh Diff"}
+                tooltip={loading ? "Loading diff" : "Refresh diff"}
+                disabled={refreshDisabled || loading}
+                onClick={() => onRefresh()}
+              >
+                <RefreshCw className={loading ? "animate-spin motion-reduce:animate-none" : undefined} />
+              </TooltipButton>
+            ) : null}
+          </div>
+        </div>
+        {output}
+      </section>
+    );
+  }
+
   return (
-    <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-card" aria-label={eyebrow}>
+    <section className="diff-panel grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-card" data-variant={variant} aria-label={eyebrow}>
       <div className="flex min-h-14 items-center justify-between gap-4 border-b px-4 py-3">
         <div className="min-w-0">
           <p className="eyebrow">{eyebrow}</p>
@@ -10916,11 +11010,15 @@ function DiffPanel({
           ) : null}
         </div>
       </div>
-      <div data-workspace-scroll-key={`diff:${eyebrow}`} className={`${outputClass}${changed ? " is-changed" : ""}`}>
-        {content}
-      </div>
+      {output}
     </section>
   );
+}
+
+type DiffPanelVariant = "default" | "card" | "embedded";
+
+function formatDiffLineChanges({ additions, deletions }: DiffLineChangeCounts): string {
+  return `${additions} ${additions === 1 ? "line" : "lines"} added, ${deletions} ${deletions === 1 ? "line" : "lines"} deleted`;
 }
 
 interface DiffHunkAction {
@@ -10987,8 +11085,6 @@ const DiffRows = memo(function DiffRows({
     : null;
   const groups = processed?.groups ?? [];
 
-  let hunkNumber = 0;
-
   return (
     <div className="diff-rows" ref={rootRef} aria-busy={!processed} onPointerDownCapture={onPointerDownCapture}>
       {!processed ? <LoadingState label="Processing diff" className="min-h-32" /> : null}
@@ -11024,19 +11120,15 @@ const DiffRows = memo(function DiffRows({
         const hunkActionLabel = hunkAction?.side === "unstaged" ? "Stage Hunk" : "Unstage Hunk";
 
         if (group.kind === "hunk") {
-          hunkNumber += 1;
-
           return (
             <div className="diff-hunk-block" key={groupKey}>
               <div className="diff-hunk-toolbar">
-                <span aria-hidden="true" />
-                <span aria-hidden="true" />
-                <span className="diff-hunk-title">{formatHunkTitle(group.rows, hunkNumber)}</span>
+                <span className="diff-hunk-header">{group.rows[0]?.text}</span>
                 <span className="diff-hunk-actions">
                   {hunkAction?.onDiscard && group.patch ? (
                     <Button
                       type="button"
-                      variant="outline"
+                      variant="ghost"
                       size="xs"
                       className="diff-hunk-action"
                       disabled={hunkAction.disabled}
@@ -11049,7 +11141,7 @@ const DiffRows = memo(function DiffRows({
                     <TooltipTarget content={hunkActionLabel}>
                       <Button
                         type="button"
-                        variant="outline"
+                        variant="ghost"
                         size="xs"
                         className="diff-hunk-action"
                         aria-label={hunkActionLabel}
@@ -11106,22 +11198,6 @@ function createDiffLineAction(
       if (patch) hunkAction.onApply(patch);
     }
   };
-}
-
-function formatHunkTitle(rows: DiffRow[], hunkNumber: number): string {
-  const lineNumbers = rows
-    .flatMap((row) => row.newLine ?? row.oldLine ?? [])
-    .filter((lineNumber) => Number.isInteger(lineNumber));
-  const minLine = Math.min(...lineNumbers);
-  const maxLine = Math.max(...lineNumbers);
-
-  if (!Number.isFinite(minLine) || !Number.isFinite(maxLine)) {
-    return `Hunk ${hunkNumber}`;
-  }
-
-  return minLine === maxLine
-    ? `Hunk ${hunkNumber}: Line ${minLine}`
-    : `Hunk ${hunkNumber}: Lines ${minLine}-${maxLine}`;
 }
 
 function DiffRowView({
@@ -12909,6 +12985,7 @@ function CommitPanel({
   generating,
   disabled,
   primaryCommitAction,
+  stagedCount,
   quickCommitByDefault,
   summary,
   selection,
@@ -12942,6 +13019,7 @@ function CommitPanel({
   generating: boolean;
   disabled: boolean;
   primaryCommitAction: "commit" | "quick-commit" | "push" | null;
+  stagedCount: number;
   quickCommitByDefault: boolean;
   summary: RepoSummary | null;
   selection: FileSelection | null;
@@ -12979,7 +13057,10 @@ function CommitPanel({
     || (primaryCommitAction === "commit" && !commitAllowed);
   const primaryActionLabel = quickCommitPhase === "generating" ? "Generating…"
     : quickCommitPhase === "committing" ? "Committing…"
-    : primaryCommitAction === "push" ? "Push" : quickCommitByDefault ? "Quick Commit" : "Commit";
+    : primaryCommitAction === "push" ? "Push"
+    : quickCommitByDefault ? "Quick Commit"
+    : primaryCommitAction === "commit" && stagedCount > 0 ? `Commit ${stagedCount} ${stagedCount === 1 ? "file" : "files"}`
+    : "Commit";
   const primaryActionAriaLabel = primaryCommitAction === "push" && pushableCommitCount > 0
     ? formatActionCountLabel("Push", pushableCommitCount)
     : undefined;
@@ -12991,11 +13072,11 @@ function CommitPanel({
 
   return (
     <section
-      className="commit-panel grid min-h-0 gap-2.5 border-t bg-card px-6 py-4"
+      className="commit-panel"
       aria-label="Commit staged files"
       aria-busy={generating || quickCommitPhase !== null}
     >
-      <label className="commit-message-label" htmlFor="commit-message">Commit message</label>
+      <label className="sr-only" htmlFor="commit-message">Commit message</label>
       {generating || commitMessageSuggestion ? (
         <p className="sr-only" role="status" aria-live="polite" aria-label="Commit message generation status">
           {generating ? "Generating commit message." : "Generated commit message is ready for review."}
@@ -13011,41 +13092,39 @@ function CommitPanel({
         />
         {commitMessageSuggestion ? (
           <div
-            className="grid gap-2 rounded-md border border-primary/25 bg-primary/5 px-3 py-2.5"
+            className="commit-compose-band commit-suggestion-band"
             role="status"
             aria-label="Generated commit message suggestion"
           >
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <Sparkles className="size-4 text-primary" aria-hidden="true" />
-              Generated suggestion
+            <div className="commit-suggestion-header">
+              <Sparkles aria-hidden="true" />
+              <span className="commit-suggestion-title">Generated suggestion</span>
+              <Button type="button" variant="ghost" size="xs" onClick={onDismissCommitMessageSuggestion}>
+                Dismiss
+              </Button>
+              <Button type="button" variant="ghost" size="xs" className="commit-suggestion-apply" onClick={onApplyCommitMessageSuggestion}>
+                {commitMessage.trim() ? "Replace" : "Apply"}
+              </Button>
             </div>
-            <p className="selectable-text text-sm leading-5">{commitMessageSuggestion.message}</p>
-            <p className="text-xs text-muted-foreground">
+            <p className="commit-suggestion-message selectable-text">{commitMessageSuggestion.message}</p>
+            <p className="commit-suggestion-reason">
               {commitMessageSuggestion.reason === "quick-commit-failed"
                 ? "Quick Commit did not complete. This message is saved here for review and retry. Your draft has been preserved."
                 : commitMessageSuggestion.reason === "repository-changed"
                 ? "Staged changes changed while this message was being generated. Review it before replacing your draft."
                 : "Your draft changed while this message was being generated. Review it before replacing your draft."}
             </p>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" size="sm" onClick={onDismissCommitMessageSuggestion}>
-                Dismiss
-              </Button>
-              <Button type="button" variant="secondary" size="sm" onClick={onApplyCommitMessageSuggestion}>
-                {commitMessage.trim() ? "Replace" : "Apply"}
-              </Button>
-            </div>
           </div>
         ) : null}
         {generationError ? (
-          <p className="text-sm text-destructive" role="alert">{generationError}</p>
+          <p className="commit-compose-band commit-error-band" role="alert">{generationError}</p>
         ) : null}
         {commitPushSafetyNotice ? (
-          <div className="flex items-start gap-3 rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm" role="alert">
-            <ShieldAlert className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-300" />
-            <p className="min-w-0 flex-1 leading-5">{commitPushSafetyNotice.message}</p>
+          <div className="commit-compose-band commit-safety-band" role="alert">
+            <ShieldAlert aria-hidden="true" />
+            <p className="min-w-0 flex-1">{commitPushSafetyNotice.message}</p>
             {commitPushSafetyNotice.undoRequest ? (
-              <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={onUndoFailedCommitPush} className="shrink-0">
+              <Button type="button" variant="outline" size="xs" disabled={disabled} onClick={onUndoFailedCommitPush} className="shrink-0">
                 <RotateCcw />
                 Undo commit
               </Button>
@@ -13089,11 +13168,12 @@ function CommitPanel({
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-          <div className="flex min-w-0 items-center gap-2">
           {summary?.kind === "git" && quickCommitPaths.length > 0 ? (
-            <span className="text-xs text-muted-foreground">{quickCommitByDefault ? "" : "Quick Commit: "}{quickCommitPaths.length} selected {quickCommitPaths.length === 1 ? "file" : "files"}</span>
+            <TooltipTarget content={`Quick Commit uses ${quickCommitPaths.length === 1 ? "this selected file" : "these selected files"}`}>
+              <span className="commit-quick-count">{quickCommitPaths.length} selected {quickCommitPaths.length === 1 ? "file" : "files"}</span>
+            </TooltipTarget>
           ) : null}
-          <div className="commit-submit-group">
+          <div className="commit-submit-group" data-primary={commitDisabled ? undefined : ""}>
             <TooltipButton
               type="button"
               variant="ghost"
@@ -13110,7 +13190,7 @@ function CommitPanel({
                 successLabel={feedbackAction === "push" ? "Pushed" : "Committed"}
                 surface="commit-panel"
               >
-                {quickCommitPhase ? <Loader2 className="animate-spin" /> : primaryCommitAction === "push" ? <Upload /> : quickCommitByDefault ? <Sparkles /> : <CheckCircle2 />}
+                {quickCommitPhase ? <Loader2 className="animate-spin" /> : primaryCommitAction === "push" ? <ArrowUp /> : quickCommitByDefault ? <Sparkles /> : <CheckCircle2 />}
                 {primaryActionLabel}
                 {primaryCommitAction === "push" && pushableCommitCount > 0 ? (
                   <SyncCountChip title={formatCommitCountLabel(pushableCommitCount, "ahead")}>
@@ -13170,7 +13250,6 @@ function CommitPanel({
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : null}
-          </div>
           </div>
         </div>
       </div>

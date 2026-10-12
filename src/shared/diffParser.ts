@@ -27,68 +27,120 @@ export interface DiffRowGroup {
 interface HunkState {
   oldLine: number;
   newLine: number;
+  /** Old-side and new-side lines that the hunk header says are still to come. */
+  oldRemaining: number;
+  newRemaining: number;
 }
 
-interface HunkHeader extends HunkState {
+interface HunkHeader {
+  oldLine: number;
+  newLine: number;
+  oldCount: number;
+  newCount: number;
   suffix: string;
 }
 
+export interface DiffLineChangeCounts {
+  additions: number;
+  deletions: number;
+}
+
+type DiffLineVisitor = (kind: DiffRowKind, line: string, oldLine: number | null, newLine: number | null) => void;
+
 export function parseUnifiedDiff(text: string, notices: string[] = []): DiffRow[] {
   const rows: DiffRow[] = [];
-  let hunkState: HunkState | null = null;
 
-  for (const line of splitDiffLines(text)) {
-    const hunk = parseHunkHeader(line);
-    if (hunk) {
-      hunkState = hunk;
-      rows.push(createRow("hunk", null, null, "", line, line));
-      continue;
+  classifyUnifiedDiffLines(text, (kind, line, oldLine, newLine) => {
+    if (kind === "add" || kind === "delete") {
+      rows.push(createRow(kind, oldLine, newLine, kind === "add" ? "+" : "-", line.slice(1), line));
+    } else if (kind === "context") {
+      rows.push(createRow(kind, oldLine, newLine, "", line.startsWith(" ") ? line.slice(1) : line, line));
+    } else {
+      rows.push(createRow(kind, null, null, "", line, line));
     }
-
-    if (line.startsWith("diff --git ")) {
-      hunkState = null;
-      rows.push(createRow("file", null, null, "", line, line));
-      continue;
-    }
-
-    if (line.startsWith("+++") || line.startsWith("---")) {
-      rows.push(createRow("meta", null, null, "", line, line));
-      continue;
-    }
-
-    if (!hunkState) {
-      rows.push(createRow("meta", null, null, "", line, line));
-      continue;
-    }
-
-    if (line.startsWith("+")) {
-      rows.push(createRow("add", null, hunkState.newLine, "+", line.slice(1), line));
-      hunkState.newLine += 1;
-      continue;
-    }
-
-    if (line.startsWith("-")) {
-      rows.push(createRow("delete", hunkState.oldLine, null, "-", line.slice(1), line));
-      hunkState.oldLine += 1;
-      continue;
-    }
-
-    if (line.startsWith("\\")) {
-      rows.push(createRow("notice", null, null, "", line, line));
-      continue;
-    }
-
-    const textLine = line.startsWith(" ") ? line.slice(1) : line;
-    rows.push(createRow("context", hunkState.oldLine, hunkState.newLine, "", textLine, line));
-    hunkState.oldLine += 1;
-    hunkState.newLine += 1;
-  }
+  });
 
   for (const notice of notices) {
     rows.push(createRow("notice", null, null, "", notice, null));
   }
 
   return rows;
+}
+
+/**
+ * Counts the added and deleted lines of a unified diff with the same classification that
+ * parseUnifiedDiff renders, so header stats and diff rows always agree.
+ */
+export function countDiffLineChanges(text: string): DiffLineChangeCounts {
+  const counts: DiffLineChangeCounts = { additions: 0, deletions: 0 };
+
+  classifyUnifiedDiffLines(text, (kind) => {
+    if (kind === "add") counts.additions += 1;
+    else if (kind === "delete") counts.deletions += 1;
+  });
+
+  return counts;
+}
+
+/**
+ * The one hunk state machine for unified diffs. It tracks the line counts of the current hunk
+ * header, so a `+++` or `---` line is file metadata outside a hunk or after the hunk's lines on
+ * that side are used up, and an added or deleted content line (for example `--- note` from a
+ * deleted `-- note` line) inside a hunk.
+ */
+function classifyUnifiedDiffLines(text: string, visit: DiffLineVisitor): void {
+  let hunkState: HunkState | null = null;
+
+  for (const line of splitDiffLines(text)) {
+    const hunk = parseHunkHeader(line);
+    if (hunk) {
+      hunkState = hunk;
+      visit("hunk", line, null, null);
+      continue;
+    }
+
+    if (line.startsWith("diff --git ")) {
+      hunkState = null;
+      visit("file", line, null, null);
+      continue;
+    }
+
+    if (!hunkState || isFileHeaderLine(line, hunkState)) {
+      visit("meta", line, null, null);
+      continue;
+    }
+
+    if (line.startsWith("+")) {
+      visit("add", line, null, hunkState.newLine);
+      hunkState.newLine += 1;
+      hunkState.newRemaining -= 1;
+      continue;
+    }
+
+    if (line.startsWith("-")) {
+      visit("delete", line, hunkState.oldLine, null);
+      hunkState.oldLine += 1;
+      hunkState.oldRemaining -= 1;
+      continue;
+    }
+
+    if (line.startsWith("\\")) {
+      visit("notice", line, null, null);
+      continue;
+    }
+
+    visit("context", line, hunkState.oldLine, hunkState.newLine);
+    hunkState.oldLine += 1;
+    hunkState.newLine += 1;
+    hunkState.oldRemaining -= 1;
+    hunkState.newRemaining -= 1;
+  }
+}
+
+function isFileHeaderLine(line: string, hunk: HunkState): boolean {
+  if (line.startsWith("+++")) return hunk.newRemaining <= 0;
+  if (line.startsWith("---")) return hunk.oldRemaining <= 0;
+  return false;
 }
 
 export function groupDiffRowsByHunk(rows: DiffRow[]): DiffRowGroup[] {
@@ -263,15 +315,15 @@ function splitDiffLines(text: string): string[] {
 }
 
 function parseHunkHeader(line: string): HunkState | null {
-  const header = parseHunkHeaderDetails(line);
+  const header = line.startsWith("@@ ") ? parseHunkHeaderDetails(line) : null;
 
   return header
-    ? { oldLine: header.oldLine, newLine: header.newLine }
+    ? { oldLine: header.oldLine, newLine: header.newLine, oldRemaining: header.oldCount, newRemaining: header.newCount }
     : null;
 }
 
 function parseHunkHeaderDetails(line: string): HunkHeader | null {
-  const match = /^@@ -(?<oldStart>\d+)(?:,\d+)? \+(?<newStart>\d+)(?:,\d+)? @@(?<suffix>.*)$/.exec(line);
+  const match = /^@@ -(?<oldStart>\d+)(?:,(?<oldCount>\d+))? \+(?<newStart>\d+)(?:,(?<newCount>\d+))? @@(?<suffix>.*)$/.exec(line);
   const oldStart = Number(match?.groups?.oldStart);
   const newStart = Number(match?.groups?.newStart);
 
@@ -282,6 +334,9 @@ function parseHunkHeaderDetails(line: string): HunkHeader | null {
   return {
     oldLine: oldStart,
     newLine: newStart,
+    // A range without a count covers one line.
+    oldCount: Number(match?.groups?.oldCount ?? 1),
+    newCount: Number(match?.groups?.newCount ?? 1),
     suffix: match?.groups?.suffix ?? ""
   };
 }

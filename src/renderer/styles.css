@@ -70,14 +70,11 @@
   --sidebar: oklch(0.96 0.006 255);
   --sidebar-foreground: var(--foreground);
   --diff-code: oklch(0.985 0.003 255);
-  --diff-file-border: oklch(0.48 0.03 255);
   --diff-file-bg: oklch(0.93 0.008 255);
   --diff-meta-bg: oklch(0.965 0.004 255);
   --diff-hunk-border: oklch(0.52 0.09 245);
   --diff-hunk-text: oklch(0.36 0.11 245);
   --diff-hunk-bg: oklch(0.93 0.034 245);
-  --diff-hunk-group-border: oklch(0.78 0.018 255);
-  --diff-hunk-group-bg: oklch(0.982 0.004 255);
   --diff-add-border: oklch(0.48 0.12 155);
   --diff-add-bg: oklch(0.94 0.045 150);
   --diff-delete-border: oklch(0.58 0.15 25);
@@ -162,14 +159,11 @@
   --sidebar: oklch(0.16 0.018 255);
   --sidebar-foreground: var(--foreground);
   --diff-code: oklch(0.145 0.016 255);
-  --diff-file-border: oklch(0.61 0.035 255);
   --diff-file-bg: oklch(0.27 0.022 255);
   --diff-meta-bg: oklch(0.18 0.018 255);
   --diff-hunk-border: oklch(0.62 0.09 245);
   --diff-hunk-text: oklch(0.79 0.075 245);
   --diff-hunk-bg: oklch(0.26 0.052 245);
-  --diff-hunk-group-border: oklch(0.38 0.028 255);
-  --diff-hunk-group-bg: oklch(0.185 0.018 255);
   --diff-add-border: oklch(0.63 0.13 155);
   --diff-add-bg: oklch(0.25 0.055 155);
   --diff-delete-border: oklch(0.68 0.14 25);
@@ -244,7 +238,6 @@
   --faint-foreground: oklch(0.6 0.03 var(--theme-hue));
   --sidebar: oklch(0.925 0.028 var(--theme-hue));
   --diff-code: oklch(0.982 0.008 var(--theme-hue));
-  --diff-file-border: oklch(0.5 0.055 var(--theme-hue));
   --diff-file-bg: oklch(0.925 0.025 var(--theme-hue));
   --diff-meta-bg: oklch(0.958 0.014 var(--theme-hue));
   --diff-hunk-border: oklch(0.52 var(--theme-chroma) var(--theme-hue));
@@ -280,7 +273,6 @@
   --faint-foreground: oklch(0.55 0.03 var(--theme-hue));
   --sidebar: oklch(0.145 0.032 var(--theme-hue));
   --diff-code: oklch(0.135 0.025 var(--theme-hue));
-  --diff-file-border: oklch(0.62 0.065 var(--theme-hue));
   --diff-file-bg: oklch(0.26 0.045 var(--theme-hue));
   --diff-meta-bg: oklch(0.175 0.03 var(--theme-hue));
   --diff-hunk-border: oklch(0.64 var(--theme-chroma) var(--theme-hue));
@@ -4642,12 +4634,16 @@ textarea,
   justify-content: center;
 }
 
-/* Changes list column: toolbar, one scroller with both file groups, then the commit box. */
+/*
+ * Changes list column: toolbar, one scroller with both file groups, then the commit box. The commit
+ * box row takes at most 60% of the column; a percentage max-height on the box itself would resolve
+ * against its own auto row.
+ */
 .status-changes-list {
   display: grid;
   height: 100%;
   min-height: 0;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) fit-content(60%);
   container-type: inline-size;
 }
 
@@ -5006,6 +5002,82 @@ textarea,
   line-height: 1.55;
 }
 
+/* V2 file header for the card and embedded DiffPanel variants. The default variant keeps its eyebrow header. */
+.diff-panel:is([data-variant="card"], [data-variant="embedded"]) {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.diff-panel[data-variant="embedded"] {
+  border-top: 1px solid var(--border);
+  background: transparent;
+}
+
+.diff-panel-header {
+  display: flex;
+  min-width: 0;
+  min-height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  padding: 4px 8px 4px 16px;
+}
+
+.diff-panel-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.diff-panel-path {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diff-panel-heading > .diff-changed-description {
+  flex: none;
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+.diff-panel-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+
+.diff-panel-stats {
+  display: inline-flex;
+  gap: 6px;
+  margin-right: 4px;
+  font-family: var(--font-code);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.diff-panel-additions {
+  color: var(--status-added);
+}
+
+.diff-panel-deletions {
+  color: var(--status-deleted);
+}
+
 .diff-output {
   min-height: 0;
   padding: 16px;
@@ -5093,6 +5165,8 @@ textarea,
   grid-template-columns: minmax(max-content, 1fr);
   width: max-content;
   min-width: 100%;
+  font-size: 12px;
+  line-height: 20px;
 }
 
 .diff-output.text.is-wrapped .diff-rows {
@@ -5273,52 +5347,47 @@ textarea,
   grid-template-columns: 56px 56px 28px max-content;
   width: max-content;
   min-width: 100%;
-  min-height: 24px;
-  border-left: 4px solid transparent;
+  min-height: 20px;
   color: var(--foreground);
 }
 
 .diff-hunk-block {
   width: auto;
   min-width: 0;
-  margin: 10px 0;
-  overflow: clip;
-  border: 1px solid var(--diff-hunk-group-border);
-  border-radius: 6px;
-  background: var(--diff-hunk-group-bg);
 }
 
+/* Hunk band: the raw @@ header across the full width, with the hunk actions on the right. */
 .diff-hunk-toolbar {
   position: sticky;
   z-index: 1;
   left: 0;
   display: grid;
-  grid-template-columns: 56px 56px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
+  gap: 8px;
   width: 100cqw;
-  min-height: 32px;
-  border-left: 2px solid var(--diff-hunk-border);
-  border-bottom: 1px solid var(--diff-hunk-group-border);
+  min-height: 28px;
+  padding: 0 4px 0 16px;
   background: var(--diff-hunk-bg);
   color: var(--diff-hunk-text);
 }
 
-.diff-hunk-title {
+.diff-hunk-header {
   min-width: 0;
   overflow: hidden;
-  padding: 0 12px;
+  font-family: var(--font-code);
+  font-size: 12px;
+  line-height: 20px;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
-  font-weight: 500;
 }
 
 .diff-hunk-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 6px;
-  padding: 3px 6px;
+  gap: 2px;
+  padding: 2px 0;
 }
 
 .diff-hunk-actions:empty {
@@ -5326,18 +5395,13 @@ textarea,
 }
 
 .diff-hunk-action {
-  height: 24px;
-  min-width: 84px;
-  border-radius: 2px;
-  border-color: var(--diff-hunk-border);
-  background: var(--diff-meta-bg);
-  color: var(--diff-hunk-text);
-  font-size: 12px;
+  color: var(--primary);
+  font-family: var(--font-ui);
 }
 
 .diff-hunk-action:hover:not(:disabled) {
-  border-color: var(--diff-hunk-text);
-  background: color-mix(in srgb, var(--diff-hunk-text) 18%, var(--diff-meta-bg));
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+  color: var(--primary);
 }
 
 .diff-output.text.is-wrapped .diff-row {
@@ -5355,12 +5419,7 @@ textarea,
   white-space: pre-wrap;
 }
 
-.diff-hunk-block .diff-row.hunk {
-  box-shadow: inset 0 -1px 0 var(--diff-hunk-group-border);
-}
-
 .diff-row.file {
-  border-left-color: var(--diff-file-border);
   background: var(--diff-file-bg);
   font-weight: 700;
 }
@@ -5371,19 +5430,16 @@ textarea,
 }
 
 .diff-row.hunk {
-  border-left-color: var(--diff-hunk-border);
   color: var(--diff-hunk-text);
   background: var(--diff-hunk-bg);
   font-weight: 700;
 }
 
 .diff-row.add {
-  border-left-color: var(--diff-add-border);
   background: var(--diff-add-bg);
 }
 
 .diff-row.delete {
-  border-left-color: var(--diff-delete-border);
   background: var(--diff-delete-bg);
 }
 
@@ -5396,18 +5452,14 @@ textarea,
 .diff-line-number,
 .diff-marker,
 .diff-code {
-  min-height: 24px;
-  padding-top: 2px;
-  padding-bottom: 2px;
+  min-height: 20px;
 }
 
 .diff-line-number {
   -webkit-user-select: none;
   user-select: none;
-  border-right: 1px solid var(--border);
   padding-right: 10px;
   color: var(--muted-foreground);
-  background: var(--diff-line-number-bg);
   text-align: right;
 }
 
@@ -6501,6 +6553,15 @@ textarea,
   user-select: text;
 }
 
+/* The discard confirm lists the paths on a muted ground so that the destructive confirm stays the focus. */
+.dialog-code-block.discard-path-list {
+  max-height: 192px;
+  overflow: auto;
+  padding: 8px;
+  background: var(--muted);
+  font-size: 12px;
+}
+
 /* GitHub list column: toolbar, scrolling list, then the caption row. */
 .github-view {
   display: grid;
@@ -6794,10 +6855,12 @@ textarea,
   -webkit-line-clamp: 1;
 }
 
-.commit-message-label {
-  color: var(--muted-foreground);
-  font-size: 12px;
-  font-weight: 500;
+/* Commit box: docked under the file groups, it scrolls itself once it would take more than 60% of the column. */
+.commit-panel {
+  min-height: 0;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  padding: 12px 16px 16px;
 }
 
 .commit-compose-box {
@@ -6805,39 +6868,119 @@ textarea,
   min-width: 0;
   flex-direction: column;
   border: 1px solid var(--input);
-  border-radius: 12px;
-  background: var(--background);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
 }
 
-.commit-compose-box:focus-within {
+.commit-compose-box:has(> #commit-message:focus-visible) {
   border-color: var(--ring);
-  box-shadow: 0 0 0 2px color-mix(in oklch, var(--ring) 20%, transparent);
+  outline: 1px solid var(--ring);
 }
 
 #commit-message {
-  min-height: 90px;
+  min-height: 72px;
   max-height: 240px;
   resize: none;
   border: 0;
-  border-radius: 12px 12px 0 0;
-  padding: 14px 16px;
+  border-radius: 0;
+  padding: 10px 12px;
   background: transparent;
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 20px;
   box-shadow: none;
 }
 
-.commit-compose-box > [role] {
-  margin: 0 12px 12px;
+#commit-message:focus-visible {
+  outline: none;
 }
 
+/* In-box bands sit between the message and the toolbar, edge to edge. */
+.commit-compose-band {
+  margin: 0;
+  border-top: 1px solid var(--border);
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.commit-suggestion-band {
+  display: grid;
+  gap: 4px;
+  background: var(--selected);
+}
+
+.commit-suggestion-header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  font-weight: 500;
+}
+
+.commit-suggestion-header > svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--primary);
+}
+
+.commit-suggestion-title {
+  min-width: 0;
+  flex: 1 1 auto;
+  margin-left: 2px;
+}
+
+.commit-suggestion-apply {
+  color: var(--primary);
+}
+
+.commit-suggestion-message {
+  margin: 0;
+  color: var(--foreground);
+  font-family: var(--font-code);
+  font-size: 12px;
+  line-height: 20px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.commit-suggestion-reason {
+  margin: 0;
+  color: var(--muted-foreground);
+}
+
+.commit-error-band {
+  color: var(--destructive);
+}
+
+.commit-safety-band {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: var(--warning-surface);
+  color: var(--foreground);
+}
+
+.commit-safety-band > svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--status-modified);
+}
+
+.commit-safety-band > p {
+  margin: 0;
+  padding-block: 4px;
+}
+
+/* Inner toolbar: Generate on the left, the Quick Commit count, then the submit group. */
 .commit-compose-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
-  padding: 8px;
+  border-top: 1px solid var(--border);
+  padding: 4px;
 }
 
 .commit-compose-actions > :last-child {
@@ -6848,33 +6991,67 @@ textarea,
   color: var(--muted-foreground);
 }
 
+.commit-quick-count {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commit-quick-count + .commit-submit-group {
+  margin-left: 0;
+}
+
+/* Disabled: a secondary outline with faint text. data-primary: the one filled primary on screen. */
 .commit-submit-group {
   display: inline-flex;
   align-items: stretch;
-  border: 1px solid color-mix(in oklch, var(--primary) 30%, var(--border));
-  border-radius: 8px;
-  background: color-mix(in oklch, var(--primary) 12%, var(--background));
+  border: 1px solid var(--input);
+  border-radius: var(--radius-md);
+  background: var(--surface);
 }
 
-.commit-submit-group > button {
-  height: 32px;
-  border-radius: 7px;
-  color: color-mix(in oklch, var(--foreground) 85%, var(--primary));
+.commit-submit-group[data-primary] {
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
+.commit-submit-group button {
+  height: 30px;
+  border-radius: calc(var(--radius-md) - 1px);
+  color: var(--faint-foreground);
   font-size: 13px;
   background: transparent;
   box-shadow: none;
 }
 
-.commit-submit-group > button:enabled:hover {
-  background: color-mix(in oklch, var(--primary) 14%, transparent);
+.commit-submit-group[data-primary] button {
+  color: var(--primary-foreground);
 }
 
-.commit-submit-group > button:disabled {
-  color: var(--muted-foreground);
+.commit-submit-group button:enabled:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+
+.commit-submit-group[data-primary] button:enabled:hover {
+  background: color-mix(in oklch, var(--primary-foreground) 12%, var(--primary));
+  color: var(--primary-foreground);
+}
+
+/* The destructive colour has no contrast on the primary fill, so the failure icon uses the fill's foreground. */
+.commit-submit-group[data-primary] .operation-button-feedback-error {
+  color: var(--primary-foreground);
+}
+
+.commit-submit-group button:disabled {
   opacity: 1;
 }
 
-.commit-submit-group > button:focus-visible {
+.commit-submit-group button:focus-visible {
   position: relative;
   z-index: 1;
   outline: 2px solid var(--ring);
@@ -6883,18 +7060,27 @@ textarea,
 
 .commit-submit-button {
   padding-inline: 12px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
-.commit-submit-group:has(.commit-submit-menu) > .commit-submit-button {
-  border-radius: 7px 0 0 7px;
+.commit-submit-group:has(.commit-submit-menu) .commit-submit-button {
+  border-radius: calc(var(--radius-md) - 1px) 0 0 calc(var(--radius-md) - 1px);
 }
 
 .commit-submit-group > .commit-submit-menu {
-  width: 32px;
-  border-left: 1px solid color-mix(in oklch, var(--primary) 25%, var(--border));
-  border-radius: 0 7px 7px 0;
+  width: 28px;
+  border-left: 1px solid var(--input);
+  border-radius: 0 calc(var(--radius-md) - 1px) calc(var(--radius-md) - 1px) 0;
   padding-inline: 0;
+}
+
+.commit-submit-group[data-primary] > .commit-submit-menu {
+  border-left-color: color-mix(in oklch, var(--primary-foreground) 35%, var(--primary));
+}
+
+/* The menu stays usable when the primary is disabled, for example to amend with nothing staged. */
+.commit-submit-group:not([data-primary]) > .commit-submit-menu:enabled:not(:hover) {
+  color: var(--muted-foreground);
 }
 
 .activity-log-view {
