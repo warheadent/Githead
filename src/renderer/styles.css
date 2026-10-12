@@ -874,6 +874,633 @@ textarea,
   background: var(--destructive);
 }
 
+/* V2 repository header: the one chrome strip and, in the frameless window, the drag region. */
+.repository-header {
+  -webkit-app-region: drag;
+  /* The repository switcher's tile, chevron and padding: the least the left column may keep. */
+  --repository-header-nav-min: 64px;
+  container: repository-header / inline-size;
+  position: relative;
+  border-bottom: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  user-select: none;
+}
+
+/* The header is the size container, so its container queries restyle this bar, not the header. */
+.repository-header-bar {
+  display: grid;
+  /*
+   * The right cluster never shrinks below its content, so the window controls stay on screen.
+   * The left column yields next, down to the switcher's minimum; the view switch yields last
+   * and truncates its labels inside its own track. The container steps below shrink the right
+   * cluster before it can outgrow the header, and the narrowest step stacks the header.
+   */
+  grid-template-columns: minmax(var(--repository-header-nav-min), 1fr) minmax(0, auto) minmax(max-content, 1fr);
+  align-items: center;
+  gap: 16px;
+  /* With the header's bottom border the strip is 52px tall. */
+  height: 51px;
+  min-height: 51px;
+  padding-left: 16px;
+}
+
+.repository-header :is(button, a, input, [role="tab"], [role="tablist"], [data-no-drag], [data-slot="tooltip-button-trigger"]) {
+  -webkit-app-region: no-drag;
+}
+
+.repository-header-left {
+  container: repository-header-nav / inline-size;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  /* Clip anything that cannot shrink further, but keep room for the 2px + 2px focus outline. */
+  overflow: clip;
+  overflow-clip-margin: 4px;
+}
+
+.repository-header-center {
+  display: flex;
+  min-width: 0;
+  justify-content: safe center;
+  /* A last guard: the view switch never paints over the neighbouring columns. */
+  overflow: clip;
+  overflow-clip-margin: 4px;
+}
+
+.repository-header-right {
+  display: flex;
+  min-width: max-content;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.repository-header .window-controls,
+.repository-header .window-control {
+  height: 52px;
+}
+
+.repo-switcher-anchor {
+  display: inline-flex;
+  min-width: var(--repository-header-nav-min);
+  flex: 0 1 auto;
+}
+
+.repo-switcher {
+  min-width: 0;
+  flex-shrink: 1;
+  height: 32px;
+  gap: 8px;
+  padding-inline: 4px 6px;
+  color: var(--foreground);
+}
+
+.repo-switcher-tile {
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: var(--radius-md);
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.repo-switcher-tile svg {
+  width: 14px;
+  height: 14px;
+}
+
+.repo-switcher-name {
+  min-width: 0;
+  max-width: 220px;
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repo-switcher-chevron,
+.branch-pill-chevron,
+.repo-actions-button-chevron {
+  color: var(--muted-foreground);
+}
+
+.header-separator {
+  flex: 0 0 auto;
+  color: var(--faint-foreground);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.branch-pill {
+  min-width: 0;
+  flex-shrink: 1;
+  height: 26px;
+  gap: 6px;
+  padding-inline: 10px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--foreground);
+  font-family: var(--font-code);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.branch-pill:hover {
+  background: var(--hover);
+}
+
+.branch-pill-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--primary);
+}
+
+.branch-pill-dot:not([data-ref-kind="branch"]) {
+  background: var(--muted-foreground);
+}
+
+.branch-pill-name {
+  min-width: 0;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branch-pill-flag {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.view-switch {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.view-switch-list {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/*
+ * Tabs keep their natural widths and shrink in proportion, so short labels truncate last. They
+ * never get narrower than a usable hit target; the icon-only step below starts before that.
+ */
+.view-switch-tab {
+  min-width: 32px;
+  flex: 1 1 auto;
+}
+
+/* Shown in place of the label in narrow headers. */
+.view-switch-icon {
+  display: none;
+}
+
+.view-switch-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.view-switch[data-guest="true"] .view-switch-guest {
+  padding-right: 26px;
+}
+
+.view-switch-close {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-sm);
+  transform: translateY(-50%);
+}
+
+.view-switch-close svg {
+  width: 12px;
+  height: 12px;
+}
+
+.header-attention-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--primary);
+  pointer-events: none;
+}
+
+.header-attention-dot[data-attention="error"] {
+  background: var(--destructive);
+}
+
+.header-git-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-cancel svg {
+  color: var(--destructive);
+}
+
+.repo-actions-button {
+  min-width: 0;
+  color: var(--foreground);
+}
+
+.repo-actions-button-text {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repo-actions-button[data-actions-state="passed"] .repo-actions-button-passed {
+  color: var(--status-added);
+}
+
+.repo-actions-button[data-actions-state="failed"] .repo-actions-button-failed {
+  color: var(--destructive);
+}
+
+.repo-actions-menu {
+  width: 380px;
+  max-width: calc(100vw - 32px);
+}
+
+.repo-actions-menu-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.repo-actions-menu-file {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-code);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repo-actions-run {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 4px 6px 8px;
+}
+
+.repo-actions-run-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--muted-foreground);
+}
+
+.repo-actions-run-text,
+.repo-actions-item-text {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 2px;
+}
+
+.repo-actions-run-name {
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repo-actions-run-detail {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repo-actions-run-command {
+  font-family: var(--font-code);
+}
+
+.repo-actions-run[data-cancel-status="error"] .repo-actions-run-detail {
+  color: var(--destructive);
+  white-space: normal;
+}
+
+.repo-actions-run-cancel {
+  flex: 0 0 auto;
+  min-height: 24px;
+  padding: 2px 6px;
+}
+
+.repo-actions-item {
+  align-items: flex-start;
+}
+
+.repo-actions-item > svg {
+  margin-top: 2px;
+}
+
+.repo-actions-item-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.repo-actions-item-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repo-actions-after-pull {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.repo-actions-after-pull svg {
+  width: 12px;
+  height: 12px;
+}
+
+.repo-actions-group-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.repo-actions-group-label svg {
+  width: 14px;
+  height: 14px;
+}
+
+.repo-actions-error {
+  max-width: 20rem;
+  white-space: normal;
+}
+
+.remote-actions {
+  display: inline-flex;
+  height: 32px;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.remote-actions > * + * {
+  border-left: 1px solid var(--input);
+}
+
+.remote-actions-segment {
+  height: 30px;
+  border-radius: 0;
+  padding-inline: 10px;
+  color: var(--foreground);
+}
+
+.remote-actions-segment:focus-visible {
+  outline-offset: -2px;
+}
+
+.remote-actions-segment[data-idle="true"]:not(:hover) {
+  color: var(--muted-foreground);
+}
+
+.remote-actions-segment[data-recovery="true"] svg {
+  color: var(--status-modified);
+}
+
+.remote-actions-more {
+  width: 30px;
+  padding: 0;
+}
+
+.header-more {
+  position: relative;
+}
+
+.header-more .header-attention-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  box-shadow: 0 0 0 2px var(--background);
+  opacity: 1;
+  transform: none;
+}
+
+/*
+ * Narrow headers keep every accessible name; only the visible words shrink. The window is at
+ * least 860px wide (MIN_WINDOW_BOUNDS), but the interface scale (up to 2x) divides that, so the
+ * header can be as narrow as 430 CSS px. Every control must stay reachable down to that width.
+ * Visually hidden labels still name their buttons and still serve aria-describedby.
+ */
+@container repository-header (max-width: 1280px) {
+  .header-cancel-label,
+  .app-update-control.is-compact .app-update-label,
+  .app-update-control.is-compact .app-update-release-notes-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    border: 0;
+    white-space: nowrap;
+  }
+}
+
+@container repository-header (max-width: 1100px) {
+  .remote-actions-label {
+    display: none;
+  }
+
+  .remote-actions-segment {
+    padding-inline: 8px;
+  }
+}
+
+@container repository-header (max-width: 960px) {
+  .repo-switcher-name {
+    max-width: 120px;
+  }
+
+  .branch-pill-name {
+    max-width: 96px;
+  }
+
+  /* The run state stays in the button's description; the icon still shows it. */
+  .repo-actions-button-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    border: 0;
+    white-space: nowrap;
+  }
+
+  /* Counts stay in each tab's accessible name. */
+  .view-switch .workspace-tab-count {
+    display: none;
+  }
+}
+
+/*
+ * The view switch turns icon-only, and each tab keeps at least a 32px hit width. The sync counts
+ * stay in the Pull and Push names and tooltips. With these steps the one-row header fits its
+ * width in every operation state down to the stacked step below.
+ */
+@container repository-header (max-width: 820px) {
+  .repository-header-bar {
+    gap: 12px;
+  }
+
+  .repository-header-right,
+  .header-git-actions {
+    gap: 6px;
+  }
+
+  .view-switch-tab {
+    flex: 0 0 auto;
+    padding-inline: 8px;
+  }
+
+  .view-switch-icon {
+    display: block;
+  }
+
+  .view-switch-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    border: 0;
+    white-space: nowrap;
+  }
+
+  .remote-actions .remote-actions-count,
+  .repo-actions-button-chevron {
+    display: none;
+  }
+}
+
+/*
+ * Too narrow for one row: the repository, More and the window controls keep the top row and
+ * the view switch, Git actions and update control move to a second row. That row wraps, so a
+ * control never leaves the window whatever the scale, state or label.
+ */
+@container repository-header (max-width: 800px) {
+  .repository-header-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 8px;
+    row-gap: 0;
+    height: auto;
+    padding: 0 12px 2px;
+  }
+
+  .repository-header-right {
+    display: contents;
+  }
+
+  .repository-header-left {
+    order: 1;
+    flex: 1 1 0;
+    min-width: var(--repository-header-nav-min);
+  }
+
+  .header-more {
+    order: 2;
+  }
+
+  .repository-header .window-controls {
+    order: 3;
+    margin-right: -12px;
+  }
+
+  /* Forces the second row. */
+  .repository-header-bar::after {
+    content: "";
+    order: 4;
+    flex-basis: 100%;
+    height: 0;
+  }
+
+  .repository-header-center {
+    order: 5;
+    flex: none;
+  }
+
+  .header-git-actions {
+    order: 6;
+    margin-left: auto;
+  }
+
+  .app-update-control.is-compact {
+    order: 7;
+  }
+
+  .repository-header-center,
+  .header-git-actions,
+  .app-update-control.is-compact {
+    margin-bottom: 8px;
+  }
+}
+
+/* Too narrow for both: keep the repository switcher; branches stay reachable from the quick switcher. */
+@container repository-header-nav (max-width: 160px) {
+  .header-separator,
+  .branch-pill {
+    display: none;
+  }
+}
+
 .app-content {
   position: relative;
   min-height: 0;
@@ -2070,6 +2697,31 @@ textarea,
 .app-update-control > button {
   width: 100%;
   justify-content: center;
+}
+
+.app-update-control.is-compact {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
+.app-update-control.is-compact > button {
+  width: auto;
+}
+
+.app-update-control.is-compact.is-error .app-update-compact-button {
+  color: var(--destructive);
+}
+
+.app-update-control.is-compact .app-update-release-notes-trigger {
+  height: 32px;
+  padding-inline: 8px;
+  color: var(--muted-foreground);
+  font-size: 13px;
 }
 
 .app-update-version-row {
@@ -3612,6 +4264,17 @@ textarea,
 
 .repo-recent-sync .sync-count-chip.is-behind {
   color: var(--status-modified);
+}
+
+.remote-actions .sync-count-chip {
+  min-width: 18px;
+  height: 18px;
+  border: 0;
+  padding: 0 5px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .repo-recent-menu-path {

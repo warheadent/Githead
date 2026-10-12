@@ -1,28 +1,39 @@
-import { Fragment, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { ArrowDownUp, ClipboardPaste, CornerDownLeft, FolderOpen, GitFork, Globe, Loader2, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { parseRepositorySource, type RepositorySource } from "../shared/repositorySource";
 import type { GitHubCloneRepository, GitHubFailure, GitHubRepositoryDiscovery } from "../shared/types";
 import { repositoryMeta, type CloneRepositoryControls } from "./cloneRepository";
 import { RepositoryComposer } from "./RepositoryComposer";
 
-interface RepositoryOmniboxProps extends CloneRepositoryControls {
+interface RepositoryOmniboxBaseProps extends CloneRepositoryControls {
   open: boolean;
   disabled: boolean;
-  trigger: ReactNode;
+  /** Receives focus when the popover closes. Use it when the popover has an anchor instead of a trigger. */
+  returnFocusRef?: RefObject<HTMLElement | null>;
   onOpenChange(open: boolean): void;
   onOpenLocal(path?: string): void;
   onConnectGitHub(): void;
   onAbandonCheck(): void;
 }
 
+/** The popover either owns a trigger button or positions itself below an anchor that something else opens it from. */
+type RepositoryOmniboxPlacement =
+  | { trigger: ReactNode; anchor?: never }
+  | { anchor: ReactNode; trigger?: never };
+
+type RepositoryOmniboxProps = RepositoryOmniboxBaseProps & RepositoryOmniboxPlacement;
+
 export function RepositoryOmnibox(props: RepositoryOmniboxProps) {
   const [selected, setSelected] = useState<{ source: RepositorySource; repository?: GitHubCloneRepository } | null>(null);
   const [query, setQuery] = useState("");
   const [wasOpen, setWasOpen] = useState(props.open);
   const inputRef = useRef<HTMLInputElement>(null);
-  // Every opening starts from an empty search, whether the trigger, a shortcut or the quick switcher opened it.
+  // Set when the popover is dismissed by a pointer or focus outside it; the user chose where focus goes then.
+  const interactedOutsideRef = useRef(false);
+  // Every opening starts from an empty search, whether the trigger, an anchor owner, a shortcut or the quick switcher
+  // opened it, so reset on every open rather than in changeOpen.
   if (props.open !== wasOpen) {
     setWasOpen(props.open);
     if (props.open) { setSelected(null); setQuery(""); }
@@ -43,11 +54,35 @@ export function RepositoryOmnibox(props: RepositoryOmniboxProps) {
     changeOpen(false);
     props.onOpenLocal(path);
   };
+  const anchored = props.anchor !== undefined;
+  const returnFocusRef = props.returnFocusRef;
   return <Popover open={props.open} onOpenChange={changeOpen}>
-    <PopoverTrigger asChild>{props.trigger}</PopoverTrigger>
-    <PopoverContent align="start" side="right" sideOffset={12} collisionPadding={12} className="repo-omnibox-popover"
+    {anchored ? <PopoverAnchor asChild>{props.anchor}</PopoverAnchor> : <PopoverTrigger asChild>{props.trigger}</PopoverTrigger>}
+    <PopoverContent align="start" side={anchored ? "bottom" : "right"} sideOffset={anchored ? 6 : 12} collisionPadding={12}
+      className="repo-omnibox-popover" data-anchored={anchored ? "true" : undefined}
       aria-label="Add repository"
-      onOpenAutoFocus={(event) => { event.preventDefault(); inputRef.current?.focus(); }}
+      onOpenAutoFocus={(event) => {
+        interactedOutsideRef.current = false;
+        event.preventDefault();
+        inputRef.current?.focus();
+      }}
+      onInteractOutside={(event) => {
+        // A running clone keeps the popover open, so the outside interaction must not count as a dismissal.
+        if (props.cloneRunning) { event.preventDefault(); return; }
+        interactedOutsideRef.current = true;
+      }}
+      {...(returnFocusRef ? {
+        onCloseAutoFocus: (event: Event) => {
+          const interactedOutside = interactedOutsideRef.current;
+          interactedOutsideRef.current = false;
+          // Like Radix, leave focus where an outside click or focus move put it.
+          if (interactedOutside) { event.preventDefault(); return; }
+          const target = returnFocusRef.current;
+          if (!target?.isConnected) return;
+          event.preventDefault();
+          target.focus();
+        }
+      } : {})}
       onEscapeKeyDown={(event) => {
         if (selected) { event.preventDefault(); back(); }
         else if (props.cloneRunning) event.preventDefault();

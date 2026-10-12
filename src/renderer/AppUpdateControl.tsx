@@ -1,4 +1,4 @@
-import { Download, ExternalLink, Loader2, RefreshCw, RotateCcw } from "lucide-react";
+import { Download, ExternalLink, Loader2, RefreshCw, RotateCcw, ScrollText } from "lucide-react";
 import { lazy, useRef, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -15,13 +15,18 @@ export function confirmAppUpdateInstall(): boolean {
   return window.confirm("Restart Githead now to install the downloaded update?");
 }
 
+/** "panel" is the bordered sidebar card; "compact" is a single header button. */
+export type AppUpdateControlVariant = "panel" | "compact";
+
 export function AppUpdateControl({
   state,
+  variant = "panel",
   onCheck,
   onDownload,
   onInstall
 }: {
   state: AppUpdateState;
+  variant?: AppUpdateControlVariant;
   onCheck: () => void;
   onDownload: () => void;
   onInstall: () => void;
@@ -61,6 +66,54 @@ export function AppUpdateControl({
     }
   };
 
+  const compact = variant === "compact";
+  const buttonVariant = compact ? "ghost" : visibleState.status === "error" ? "outline" : "secondary";
+  const buttonSize = compact ? "sm" : "default";
+  const buttonClassName = compact ? "app-update-compact-button" : undefined;
+  // A narrow header hides the compact label visually; it still names the button.
+  const labelNode = compact ? <span className="app-update-label">{label}</span> : label;
+  // The compact button can be icon-only, so it always has a tooltip.
+  const tooltip = visibleState.message || (compact ? label : "");
+  const plainButton = (
+    <Button
+      type="button"
+      variant={buttonVariant}
+      size={buttonSize}
+      className={buttonClassName}
+      disabled={disabled}
+      onClick={runAction}
+      aria-label={visibleState.message ? `${label}: ${visibleState.message}` : undefined}
+    >
+      {icon}
+      {labelNode}
+    </Button>
+  );
+  const button = tooltip ? (
+    <Tooltip>
+      <TooltipTrigger asChild>{plainButton}</TooltipTrigger>
+      <TooltipContent className="[--tooltip-max-width:18rem]">{tooltip}</TooltipContent>
+    </Tooltip>
+  ) : plainButton;
+
+  if (compact) {
+    // Opacity only: the header grid must not shift while the control enters or leaves.
+    return (
+      <MotionPresence
+        present={present}
+        className={`app-update-control is-compact is-${visibleState.status}`}
+        element="section"
+        ariaLabel="App update"
+        enterDuration={180}
+        exitDuration={180}
+        initialY={0}
+      >
+        {button}
+        {version ? <span className="sr-only">Version {version}</span> : null}
+        {visibleState.releaseNotes ? <AppUpdateReleaseNotesPopover state={visibleState} compact /> : null}
+      </MotionPresence>
+    );
+  }
+
   return (
     <MotionPresence
       present={present}
@@ -70,35 +123,7 @@ export function AppUpdateControl({
       enterDuration={200}
       initialY={4}
     >
-      {visibleState.message ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant={visibleState.status === "error" ? "outline" : "secondary"}
-              disabled={disabled}
-              onClick={runAction}
-              aria-label={`${label}: ${visibleState.message}`}
-            >
-              {icon}
-              {label}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent className="[--tooltip-max-width:18rem]">
-            {visibleState.message}
-          </TooltipContent>
-        </Tooltip>
-      ) : (
-        <Button
-          type="button"
-          variant={visibleState.status === "error" ? "outline" : "secondary"}
-          disabled={disabled}
-          onClick={runAction}
-        >
-          {icon}
-          {label}
-        </Button>
-      )}
+      {button}
       {version ? (
         <div className="app-update-version-row">
           <p className="app-update-version">Version {version}</p>
@@ -109,7 +134,14 @@ export function AppUpdateControl({
   );
 }
 
-function AppUpdateReleaseNotesPopover({ state }: { state: AppUpdateState }): ReactNode {
+function AppUpdateReleaseNotesPopover({
+  state,
+  compact = false
+}: {
+  state: AppUpdateState;
+  /** The header trigger: an icon with a label that narrow headers hide, so it has a tooltip. */
+  compact?: boolean;
+}): ReactNode {
   const releaseNotes = state.releaseNotes;
   if (!releaseNotes) {
     return null;
@@ -123,11 +155,25 @@ function AppUpdateReleaseNotesPopover({ state }: { state: AppUpdateState }): Rea
 
   return (
     <Popover>
-      <PopoverTrigger asChild>
-        <Button type="button" variant="ghost" size="sm" className="app-update-release-notes-trigger">
-          Release Notes
-        </Button>
-      </PopoverTrigger>
+      {compact ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
+              <Button type="button" variant="ghost" size="sm" className="app-update-release-notes-trigger">
+                <ScrollText />
+                <span className="app-update-release-notes-label">Release Notes</span>
+              </Button>
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Release Notes</TooltipContent>
+        </Tooltip>
+      ) : (
+        <PopoverTrigger asChild>
+          <Button type="button" variant="ghost" size="sm" className="app-update-release-notes-trigger">
+            Release Notes
+          </Button>
+        </PopoverTrigger>
+      )}
       <PopoverContent className="app-update-release-notes-popover" align="end">
         <div className="app-update-release-notes-header">
           <div className="min-w-0">
