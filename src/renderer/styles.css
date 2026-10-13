@@ -6014,17 +6014,20 @@ textarea,
   font-weight: 700;
 }
 
-/* The description shrinks first; a long scope stops at 60% and ends in an ellipsis instead of a cut glyph. */
+/* The scope gives way only when the description is down to 8ch; it stops at 40% and ends in an ellipsis instead of a cut glyph. */
 .history-scope {
-  max-width: 60%;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 40%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* A narrow line 1 keeps the subject readable: the type badge goes first (the tooltip still shows the full subject). */
+/* A narrow line 1 keeps the subject readable: the type badge and the scope go first (the tooltip still shows the full subject). */
 @container history-row-content (max-width: 260px) {
-  .history-refs + .history-subject-tooltip .commit-type-badge {
+  .history-refs + .history-subject-tooltip .commit-type-badge,
+  .history-refs + .history-subject-tooltip .history-scope {
     display: none;
   }
 }
@@ -6043,6 +6046,12 @@ textarea,
   white-space: nowrap;
 }
 
+/* A zero basis lets the description take only the space the badge and scope leave, never less than 8ch. */
+.history-description-text {
+  flex: 1 1 0;
+  min-width: min(8ch, 100%);
+}
+
 .history-refs {
   display: inline-flex;
   max-width: 38%;
@@ -6053,7 +6062,7 @@ textarea,
 }
 
 .history-refs.is-compact {
-  max-width: 45%;
+  max-width: 40%;
   flex-shrink: 0;
 }
 
@@ -6226,6 +6235,11 @@ textarea,
 .history-ref-overflow:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
+}
+
+/* The compact refs and line 1 clip overflow, so this ring is drawn inside the button. */
+.history-ref-overflow:focus-visible {
+  outline-offset: -2px;
 }
 
 .history-ref-overflow {
