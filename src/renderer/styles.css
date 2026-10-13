@@ -7015,9 +7015,10 @@ textarea,
 }
 
 /* Inner toolbar: Generate on the left, the Quick Commit count, then the submit group. */
+/* One row: the count shrinks with an ellipsis so the submit group never wraps under Generate. */
 .commit-compose-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
   border-top: 1px solid var(--border);
@@ -7033,22 +7034,20 @@ textarea,
 }
 
 .commit-quick-count {
+  flex: 1 1 0;
   min-width: 0;
-  margin-left: auto;
   overflow: hidden;
   color: var(--muted-foreground);
   font-size: 12px;
+  text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.commit-quick-count + .commit-submit-group {
-  margin-left: 0;
 }
 
 /* Disabled: a secondary outline with faint text. data-primary: the one filled primary on screen. */
 .commit-submit-group {
   display: inline-flex;
+  flex: none;
   align-items: stretch;
   border: 1px solid var(--input);
   border-radius: var(--radius-md);
