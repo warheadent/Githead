@@ -9442,7 +9442,7 @@ button.repository-section-heading:hover { background: var(--hover); color: var(-
 
 /* Analytics list column: one vertical tab per section, with a one-line description. */
 .analytics-nav { height: 100%; min-height: 0; overflow-y: auto; }
-.analytics-nav-list { display: grid; width: 100%; height: auto; align-content: start; gap: 2px; padding: 8px; border-radius: 0; background: transparent; }
+.analytics-nav-list { display: grid; width: 100%; height: auto; grid-template-columns: minmax(0, 1fr); align-content: start; justify-content: stretch; gap: 2px; padding: 8px; border-radius: 0; background: transparent; }
 .analytics-nav-item { display: grid; width: 100%; height: auto; grid-template-columns: 16px minmax(0, 1fr); align-items: start; justify-content: stretch; gap: 0 10px; padding: 8px; border-radius: calc(var(--radius) - 2px); color: var(--foreground); background: transparent; box-shadow: none; text-align: left; white-space: normal; }
 .analytics-nav-item:hover { background: var(--hover); }
 .analytics-nav-item[data-state="active"], .analytics-nav-item[data-state="active"]:hover { background: var(--selected); box-shadow: none; }
@@ -9452,8 +9452,9 @@ button.repository-section-heading:hover { background: var(--hover); color: var(-
 .analytics-nav-text { display: grid; min-width: 0; }
 .analytics-nav-label { font-size: 13px; font-weight: 500; line-height: 20px; }
 .analytics-nav-description { overflow: hidden; color: var(--muted-foreground); font-size: 12px; font-weight: 400; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
-/* Analytics detail: the title and filters on the background, then the cards. Each card is a raised surface. */
-.analytics-view { display: grid; height: 100%; min-height: 0; grid-template-rows: auto minmax(0, 1fr); gap: 12px; }
+/* Analytics detail: the title and filters on the background, then the cards. Each card is a raised surface.
+   One width cap on the whole view keeps the header and the cards on the same left and right edges. */
+.analytics-view { display: grid; width: 100%; max-width: 1480px; height: 100%; min-height: 0; margin-inline: auto; grid-template-rows: auto minmax(0, 1fr); gap: 12px; }
 .analytics-header { display: flex; min-width: 0; min-height: 32px; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
 .analytics-header h2 { margin: 0; font-size: 15px; font-weight: 600; line-height: 20px; }
 .analytics-filters { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px; margin-left: auto; }
@@ -9463,7 +9464,7 @@ button.repository-section-heading:hover { background: var(--hover); color: var(-
 .analytics-check input { width: 14px; height: 14px; accent-color: var(--primary); }
 .analytics-check:hover { color: var(--foreground); }
 .analytics-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
-.analytics-content { max-width: 1480px; margin: 0 auto; transition: opacity 120ms var(--ease-out); }
+.analytics-content { transition: opacity 120ms var(--ease-out); }
 .analytics-content.is-refreshing { opacity: 0.6; }
 .analytics-stack { display: grid; gap: 16px; }
 .analytics-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
