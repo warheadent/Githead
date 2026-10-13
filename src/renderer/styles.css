@@ -8888,8 +8888,6 @@ textarea,
   outline-offset: -2px;
 }
 
-<<<<<<< HEAD
-=======
 .blame-row.is-run-start::before {
   position: absolute;
   z-index: 1;
@@ -8919,11 +8917,6 @@ textarea,
 .blame-line-number { padding: 0 10px; color: var(--muted-foreground); text-align: right; user-select: none; }
 .blame-code { min-width: 100%; padding: 0 12px; white-space: pre; }
 
-.activity-log-jump {
-  box-shadow: var(--shadow-overlay);
-}
-
->>>>>>> cd7792f (feat(history): add path bar and versions column to file history and blame)
 .clone-check-message-swap {
   position: relative;
 }
