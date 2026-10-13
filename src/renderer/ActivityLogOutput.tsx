@@ -1,16 +1,25 @@
 import { ArrowDown, ChevronDown, ChevronRight, Clipboard } from "lucide-react";
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import type { ActivityLogBlock, ActivityLogRun, ActivityLogState } from "./activityLog";
+import { formatOutcome, isActivityLogRunFailed, type ActivityLogBlock, type ActivityLogRun, type ActivityLogState } from "./activityLog";
 import { usePersistentWorkspacePanelState } from "./workspacePanelState";
 
 type LogRow = { key: string; block: ActivityLogBlock; run?: never } | { key: string; run: ActivityLogRun; block?: never };
 interface PositionedRow { row: LogRow; top: number; height: number }
 
-export function ActivityLogOutput({ log, wrapLines, onCopyRun }: {
+/** The run header row and the line height. Keep them equal to the CSS row heights. */
+const RUN_HEADER_HEIGHT = 40;
+const LINE_HEIGHT = 20;
+/** The horizontal space beside the text: the stream label column, the gap and the row padding. */
+const LINE_INSET = 100;
+const CHARACTER_WIDTH = 7.2;
+
+export function ActivityLogOutput({ log, wrapLines, onCopyRun, runId = null }: {
   log: ActivityLogState;
   wrapLines: boolean;
   onCopyRun: (runId: string) => void;
+  /** Shows only this run's output, plus the notices, without run headers. Null shows every run. */
+  runId?: string | null;
 }): ReactNode {
   const outputRef = useRef<HTMLDivElement>(null);
   const [collapsed, setCollapsed] = usePersistentWorkspacePanelState<string[]>("activity-collapsed-runs", []);
@@ -30,6 +39,10 @@ export function ActivityLogOutput({ log, wrapLines, onCopyRun }: {
     }
     const result: LogRow[] = [];
     for (const block of log.blocks) if (block.kind === "notice") result.push({ key: `block-${block.id}`, block });
+    if (runId !== null) {
+      for (const block of byRun.get(runId) ?? []) if (block.kind === "output") result.push({ key: `block-${block.id}`, block });
+      return result;
+    }
     for (const run of log.runs) {
       result.push({ key: `run-${run.id}`, run });
       if (!collapsed.includes(run.id)) {
@@ -37,7 +50,7 @@ export function ActivityLogOutput({ log, wrapLines, onCopyRun }: {
       }
     }
     return result;
-  }, [log.blocks, log.runs, collapsed]);
+  }, [log.blocks, log.runs, collapsed, runId]);
 
   const layout = useMemo(() => {
     let top = 0;
@@ -140,7 +153,7 @@ export function ActivityLogOutput({ log, wrapLines, onCopyRun }: {
               {row.run.action}
             </Button>
             <time dateTime={row.run.startedAt} title={new Date(row.run.startedAt).toLocaleString()}>{new Date(row.run.startedAt).toLocaleTimeString()}</time>
-            <span className="activity-log-run-outcome" data-failed={row.run.exitCode !== null && row.run.exitCode !== 0}>
+            <span className="activity-log-run-outcome" data-failed={isActivityLogRunFailed(row.run)}>
               {formatOutcome(row.run)}
             </span>
             <Button variant="ghost" size="icon-sm" aria-label={`Copy ${row.run.action} run`} onClick={() => onCopyRun(row.run.id)}><Clipboard /></Button>
@@ -148,7 +161,7 @@ export function ActivityLogOutput({ log, wrapLines, onCopyRun }: {
         </div>)}
       </div> : <div className="activity-log-empty">No command output yet.</div>}
     </div>
-    {!following && rows.length > 0 ? <Button type="button" className="activity-log-jump" size="sm" onClick={() => {
+    {!following && rows.length > 0 ? <Button type="button" className="activity-log-jump" variant="outline" size="sm" onClick={() => {
       const output = outputRef.current;
       if (output) output.scrollTop = output.scrollHeight;
       setFollowing(true);
@@ -164,22 +177,15 @@ const ActivityLogBlockView = memo(function ActivityLogBlockView({ block }: { blo
   </div>;
 });
 
-function formatOutcome(run: ActivityLogRun): string {
-  if (run.exitCode === null || !run.endedAt) return "Running";
-  const seconds = Math.max(0, Date.parse(run.endedAt) - Date.parse(run.startedAt)) / 1000;
-  const outcome = run.exitCode === 0 ? "Succeeded" : `Failed, code ${run.exitCode}`;
-  return seconds > 0 ? `${outcome} · ${seconds.toFixed(1)}s` : outcome;
-}
-
 const estimatedBlockHeights = new WeakMap<ActivityLogBlock, { width: number; wrapped: boolean; height: number }>();
 
 function estimateHeight(row: LogRow, wrapped: boolean, width: number): number {
-  if (row.run) return 44;
+  if (row.run) return RUN_HEADER_HEIGHT;
   const previous = estimatedBlockHeights.get(row.block);
   if (previous && previous.width === width && previous.wrapped === wrapped) return previous.height;
-  const columns = wrapped ? Math.max(20, Math.floor((width - 120) / 8)) : Infinity;
+  const columns = wrapped ? Math.max(20, Math.floor((width - LINE_INSET) / CHARACTER_WIDTH)) : Infinity;
   const lines = row.block.rawText.replace(/\n$/, "").split("\n");
-  const height = Math.max(24, lines.reduce((count, line) => count + Math.max(1, Math.ceil(line.length / columns)), 0) * 24);
+  const height = Math.max(LINE_HEIGHT, lines.reduce((count, line) => count + Math.max(1, Math.ceil(line.length / columns)), 0) * LINE_HEIGHT);
   estimatedBlockHeights.set(row.block, { width, wrapped, height });
   return height;
 }

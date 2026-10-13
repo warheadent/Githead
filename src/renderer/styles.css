@@ -92,12 +92,8 @@
   --terminal-bg: oklch(0.985 0.003 255);
   --terminal-fg: oklch(0.21 0.018 255);
   --terminal-muted: oklch(0.49 0.025 255);
-  --terminal-label-bg: oklch(0.92 0.013 255);
-  --terminal-label-border: oklch(0.82 0.018 255);
   --terminal-cmd: oklch(0.42 0.09 245);
   --terminal-stdout: oklch(0.26 0.028 255);
-  --terminal-stderr: oklch(0.58 0.16 32);
-  --terminal-notice: oklch(0.48 0.09 85);
   --ansi-black: oklch(0.323467 0.01583 259.801697);
   --ansi-red: oklch(0.563588 0.178701 28.893287);
   --ansi-green: oklch(0.514236 0.117412 152.74606);
@@ -180,12 +176,8 @@
   --terminal-bg: oklch(0.125 0.016 255);
   --terminal-fg: oklch(0.93 0.01 255);
   --terminal-muted: oklch(0.68 0.025 255);
-  --terminal-label-bg: oklch(0.23 0.02 255);
-  --terminal-label-border: oklch(0.35 0.028 255);
   --terminal-cmd: oklch(0.78 0.075 245);
   --terminal-stdout: oklch(0.9 0.018 255);
-  --terminal-stderr: oklch(0.77 0.14 36);
-  --terminal-notice: oklch(0.82 0.1 88);
   --ansi-black: oklch(0.211983 0.013381 258.368576);
   --ansi-red: oklch(0.709544 0.182961 27.315151);
   --ansi-green: oklch(0.799637 0.1351 150.311268);
@@ -246,8 +238,6 @@
   --terminal-bg: oklch(0.982 0.008 var(--theme-hue));
   --terminal-fg: var(--foreground);
   --terminal-muted: var(--muted-foreground);
-  --terminal-label-bg: var(--accent);
-  --terminal-label-border: var(--border);
   --terminal-cmd: oklch(0.43 var(--theme-chroma) var(--theme-hue));
   --ansi-blue: oklch(0.5 var(--theme-chroma) var(--theme-hue));
   --ansi-magenta: oklch(0.5 var(--theme-chroma) var(--theme-accent-hue));
@@ -281,8 +271,6 @@
   --terminal-bg: oklch(0.12 0.024 var(--theme-hue));
   --terminal-fg: var(--foreground);
   --terminal-muted: var(--muted-foreground);
-  --terminal-label-bg: var(--popover);
-  --terminal-label-border: var(--border);
   --terminal-cmd: oklch(0.78 0.09 var(--theme-hue));
   --ansi-blue: oklch(0.75 0.12 var(--theme-hue));
   --ansi-magenta: oklch(0.76 0.12 var(--theme-accent-hue));
@@ -3416,73 +3404,48 @@ textarea,
   color: var(--muted-foreground);
 }
 
-.stash-workspace {
-  container-type: inline-size;
-}
-
+/* Stashes list column: search toolbar, scrolling rows, then the count caption. */
 .stash-rail {
-  display: flex;
+  display: grid;
   height: 100%;
   min-height: 0;
-  flex-direction: column;
-  background: var(--card);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  background: var(--background);
 }
 
-.stash-list-header {
+.stash-list-toolbar {
   display: flex;
-  flex: 0 0 auto;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 22px 16px 16px;
-}
-
-.stash-list-heading {
-  display: flex;
+  min-width: 0;
   align-items: center;
-  gap: 9px;
-}
-
-.stash-list-heading > svg {
-  width: 18px;
-  height: 18px;
-  color: var(--muted-foreground);
-}
-
-.stash-list-heading h2 {
-  font-size: 1rem;
-  font-weight: 650;
-}
-
-.stash-list-header p {
-  margin-top: 7px;
-  color: var(--muted-foreground);
-  font-size: 0.75rem;
+  gap: 4px;
+  /* The trailing ghost icon button already insets its glyph by 8px. */
+  padding: 16px 12px 8px 16px;
 }
 
 .stash-search {
   position: relative;
-  flex: 0 0 auto;
-  margin: 0 12px 16px;
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0;
+  align-items: center;
 }
 
 .stash-search > svg {
   position: absolute;
   z-index: 1;
-  top: 50%;
-  left: 11px;
+  left: 10px;
   width: 14px;
   height: 14px;
   color: var(--muted-foreground);
-  transform: translateY(-50%);
   pointer-events: none;
 }
 
 .stash-search input {
-  height: 36px;
-  padding: 0 32px;
-  background: var(--background);
-  font-size: 0.75rem;
+  height: 32px;
+  padding: 0 32px 0 30px;
+  background: var(--surface);
+  font-size: 0.8125rem;
 }
 
 .stash-search input::-webkit-search-cancel-button {
@@ -3491,41 +3454,29 @@ textarea,
 
 .stash-search > button {
   position: absolute;
-  top: 4px;
   right: 4px;
-  width: 28px;
-  height: 28px;
 }
 
 .stash-list-scroll {
   min-height: 0;
-  flex: 1;
   overflow-y: auto;
-  padding: 0 10px 12px;
+  padding: 0 8px 8px;
+  scrollbar-gutter: stable;
 }
 
 .stash-rail-footer {
-  display: flex;
-  flex: 0 0 auto;
-  justify-content: space-between;
-  gap: 8px;
+  margin: 0;
+  overflow: hidden;
   border-top: 1px solid var(--border);
-  padding: 13px 16px;
+  padding: 8px 16px 12px;
   color: var(--muted-foreground);
-  font-size: 0.7rem;
+  font-size: 0.75rem;
+  line-height: 1.3334;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.stash-rail-footer > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.stash-rail-footer svg {
-  width: 12px;
-  height: 12px;
-}
-
+/* Stash detail card: header, then the changed files above the diff. */
 .stash-details {
   display: grid;
   height: 100%;
@@ -3536,77 +3487,40 @@ textarea,
 .stash-details-header {
   display: flex;
   min-width: 0;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
-  padding: 24px;
+  gap: 8px 16px;
   border-bottom: 1px solid var(--border);
-}
-
-.stash-details-label {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-bottom: 10px;
-  color: var(--muted-foreground);
-  font-size: 0.7rem;
-}
-
-.stash-details-label svg {
-  width: 13px;
-  height: 13px;
-}
-
-.stash-details-label code {
-  margin-left: 3px;
-  padding: 2px 6px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  font-family: var(--font-code);
-  font-size: 0.65rem;
+  padding: 14px 16px;
 }
 
 .stash-details-header h2 {
-  font-size: 1.15rem;
-  font-weight: 650;
-  line-height: 1.4;
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.3334;
   overflow-wrap: anywhere;
 }
 
 .stash-details-meta {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 16px;
-  margin-top: 10px;
+  margin: 4px 0 0;
   color: var(--muted-foreground);
-  font-size: 0.72rem;
-}
-
-.stash-details-meta span {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 5px;
+  font-size: 0.75rem;
+  line-height: 1.3334;
   overflow-wrap: anywhere;
 }
 
-.stash-details-meta svg {
-  width: 12px;
-  height: 12px;
-  flex: 0 0 auto;
+.stash-details-meta code {
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
 }
 
 .stash-actions {
+  display: flex;
   flex: 0 0 auto;
-}
-
-.stash-actions p {
-  margin-top: 8px;
-  color: var(--muted-foreground);
-  font-size: 0.68rem;
-  text-align: right;
+  align-items: center;
+  gap: 8px;
 }
 
 .stash-action-menu {
@@ -3615,120 +3529,64 @@ textarea,
 
 .stash-action-menu [role="menuitem"] {
   gap: 10px;
-  padding: 10px;
+  padding: 8px;
 }
 
 .stash-action-menu small {
   display: block;
-  margin-top: 3px;
+  margin-top: 2px;
   color: var(--muted-foreground);
-  font-size: 0.7rem;
+  font-size: 0.75rem;
 }
 
 .stash-review-workspace {
   display: grid;
   min-width: 0;
   min-height: 0;
-  grid-template-columns: 248px minmax(0, 1fr);
-}
-
-.stash-review-workspace.files-collapsed {
-  grid-template-columns: 42px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .stash-file-panel {
   display: grid;
   min-width: 0;
   min-height: 0;
-  grid-template-rows: auto minmax(0, 1fr);
-  border-right: 1px solid var(--border);
-  background: color-mix(in oklch, var(--card) 60%, var(--background));
 }
 
 .stash-file-panel-header {
   display: flex;
-  min-height: 56px;
+  min-height: 32px;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 10px 8px 10px 16px;
+  padding: 4px 8px 0 16px;
 }
 
 .stash-file-panel-header h3 {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 7px;
-  font-size: 0.73rem;
-  font-weight: 600;
+  gap: 6px;
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  line-height: 1.2728;
   white-space: nowrap;
 }
 
-.stash-file-panel-header h3 > svg {
-  width: 14px;
-  height: 14px;
-  color: var(--muted-foreground);
-}
-
 .stash-file-panel-header h3 > span {
-  color: var(--muted-foreground);
-  font-size: 0.7rem;
   font-variant-numeric: tabular-nums;
 }
 
 .stash-review-workspace.files-collapsed .stash-file-panel-header {
-  justify-content: center;
-  padding: 10px 4px;
-}
-
-.stash-file-count {
-  place-self: start center;
-  margin-top: 10px;
-  color: var(--muted-foreground);
-  font-size: 0.7rem;
-  font-weight: 600;
+  padding-bottom: 4px;
 }
 
 .stash-diff-panel {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  margin: 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-
-@container (max-width: 960px) {
-  .stash-details-header {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 16px;
-    padding: 20px;
-  }
-
-  .stash-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .stash-actions p {
-    margin: 0;
-    text-align: left;
-  }
-
-  .stash-review-workspace {
-    grid-template-columns: 200px minmax(0, 1fr);
-  }
-
-  .stash-file-panel-header h3 > svg {
-    display: none;
-  }
-
-  .stash-diff-panel {
-    margin: 8px;
-  }
 }
 
 .stash-composer-header {
@@ -3892,19 +3750,22 @@ textarea,
 .stash-list {
   display: grid;
   align-content: start;
-  gap: 8px;
+  gap: 2px;
 }
 
+/* Icon, then the reference and age, the message and the branch. */
 .stash-list-row {
   display: grid;
   width: 100%;
   min-width: 0;
-  gap: 10px;
-  padding: 14px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
+  gap: 2px 10px;
+  border: 0;
+  border-radius: calc(var(--radius) - 2px);
+  padding: 8px;
   color: var(--foreground);
+  background: transparent;
   text-align: left;
 }
 
@@ -3916,28 +3777,34 @@ textarea,
   background: var(--selected);
 }
 
-.stash-list-row-top,
-.stash-list-row-meta,
-.stash-list-row-meta > span {
-  display: flex;
-  min-width: 0;
-  align-items: center;
+.stash-list-row-icon {
+  grid-row: 1 / span 3;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  color: var(--muted-foreground);
 }
 
 .stash-list-row-top {
+  display: flex;
+  min-width: 0;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
   color: var(--muted-foreground);
-  font-size: 0.68rem;
+  font-size: 0.75rem;
+  line-height: 1.3334;
 }
 
 .stash-list-row-top code {
   font-family: var(--font-code);
-  font-size: 0.66rem;
+  font-size: 0.6875rem;
+  font-weight: 500;
 }
 
-.stash-list-row.is-selected .stash-list-row-top code {
-  color: var(--primary);
+.stash-list-row-top time {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .stash-list-row-title {
@@ -3946,86 +3813,30 @@ textarea,
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow-wrap: anywhere;
-  font-size: 0.83rem;
-  font-weight: 600;
-  line-height: 1.55;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.5385;
 }
 
-.stash-list-row-meta {
-  justify-content: space-between;
-  gap: 8px;
-  color: var(--muted-foreground);
-  font-size: 0.7rem;
-}
-
-.stash-list-row-meta > span {
-  display: block;
+.stash-list-row-branch {
   overflow: hidden;
+  color: var(--muted-foreground);
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  line-height: 1.4546;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.stash-list-row-meta svg {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  flex: 0 0 auto;
-  margin-right: 5px;
-  vertical-align: -2px;
-}
-
-.stash-selection-arrow {
-  visibility: hidden;
-  color: var(--primary);
-}
-
-.stash-list-row.is-selected .stash-selection-arrow {
-  visibility: visible;
-}
-
+/* Both lists scroll inside their column, which would clip an outside ring. */
 .stash-list-row:focus-visible,
 .stash-file-row:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: -2px;
 }
 
-.stash-empty {
-  display: grid;
-  min-height: 160px;
-  place-content: center;
-  justify-items: center;
-  gap: 8px;
-  padding: 24px;
-  color: var(--muted-foreground);
-  text-align: center;
-}
-
-.stash-empty > svg {
-  width: 28px;
-  height: 28px;
-}
-
-.stash-empty h3,
-.stash-empty p {
-  margin: 0;
-}
-
-.stash-filter-empty {
-  min-height: 140px;
-}
-
-.stash-empty h3 {
-  color: var(--foreground);
-  font-size: 0.9rem;
-}
-
-.stash-empty p {
-  max-width: 320px;
-  font-size: 0.8rem;
-  line-height: 1.45;
-}
-
 .stash-file-list {
+  max-height: min(40vh, 232px);
   min-height: 0;
   overflow-y: auto;
   padding: 0 8px 8px;
@@ -4035,16 +3846,15 @@ textarea,
   display: grid;
   width: 100%;
   min-width: 0;
-  min-height: 46px;
+  min-height: 32px;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
-  margin-bottom: 2px;
-  padding: 6px 8px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: transparent;
+  gap: 8px;
+  border: 0;
+  border-radius: calc(var(--radius) - 2px);
+  padding: 0 8px;
   color: var(--foreground);
+  background: transparent;
   text-align: left;
 }
 
@@ -4056,28 +3866,34 @@ textarea,
   background: var(--selected);
 }
 
+/* The name stays whole; the directory truncates first. */
 .stash-file-name {
-  display: grid;
+  display: flex;
   min-width: 0;
-  gap: 4px;
+  align-items: baseline;
+  gap: 8px;
 }
 
 .stash-file-name > span,
 .stash-file-name > small {
-  line-height: 1.3;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .stash-file-name > span {
-  font-size: 0.75rem;
+  flex: 0 1 auto;
+  font-size: 0.8125rem;
   font-weight: 500;
+  line-height: 1.5385;
 }
 
 .stash-file-name > small {
+  min-width: 0;
+  flex: 1 1 0;
   color: var(--muted-foreground);
-  font-size: 0.65rem;
+  font-size: 0.75rem;
+  line-height: 1.3334;
 }
 
 .reference-picker-option-icon > svg {
@@ -7233,24 +7049,168 @@ textarea,
   color: var(--muted-foreground);
 }
 
+/* Activity log detail: the title and toolbar on the background, then the output card. */
 .activity-log-view {
   display: grid;
-  position: relative;
   height: 100%;
   min-height: 0;
   grid-template-rows: auto minmax(0, 1fr);
-  overflow: hidden;
-  background: var(--card);
+  gap: 12px;
 }
 
 .activity-log-header {
   display: flex;
-  min-height: 58px;
+  min-width: 0;
+  min-height: 32px;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  border-bottom: 1px solid var(--border);
-  padding: 10px 16px;
+  gap: 8px 12px;
+}
+
+.activity-log-header h2 {
+  margin: 0;
+  overflow: hidden;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.3334;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Activity log list column: "All output", then one row per run. */
+.activity-run-list {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.activity-run-list-items {
+  display: grid;
+  min-height: 0;
+  align-content: start;
+  gap: 2px;
+  overflow-y: auto;
+  padding: 8px;
+  scrollbar-gutter: stable;
+}
+
+.activity-run-row {
+  position: relative;
+  min-width: 0;
+  border-radius: calc(var(--radius) - 2px);
+}
+
+.activity-run-row:hover {
+  background: var(--hover);
+}
+
+.activity-run-row.is-selected,
+.activity-run-row.is-selected:hover {
+  background: var(--selected);
+}
+
+.activity-run-row-button {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0 10px;
+  border: 0;
+  border-radius: inherit;
+  padding: 8px;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+}
+
+.activity-run-row-button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+.activity-run-row-icon {
+  display: inline-flex;
+  height: 20px;
+  align-items: center;
+  color: var(--muted-foreground);
+}
+
+.activity-run-row-icon > svg {
+  width: 16px;
+  height: 16px;
+}
+
+.activity-run-row-icon[data-outcome="succeeded"] {
+  color: var(--status-added);
+}
+
+.activity-run-row-icon[data-outcome="failed"] {
+  color: var(--destructive);
+}
+
+.activity-run-row-body {
+  display: grid;
+  min-width: 0;
+}
+
+.activity-run-row-title {
+  overflow: hidden;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.5385;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-run-row-caption {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.3334;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-run-row-caption[data-failed="true"] {
+  color: var(--destructive);
+}
+
+.activity-run-row-time {
+  color: var(--muted-foreground);
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+/* The per-run copy action shows on hover, focus and selection, below the start time. */
+.activity-run-row-copy {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  opacity: 0;
+  transition: opacity 120ms var(--ease-out);
+}
+
+.activity-run-row:hover > .activity-run-row-copy,
+.activity-run-row:focus-within > .activity-run-row-copy,
+.activity-run-row.is-selected > .activity-run-row-copy {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-run-row-copy {
+    transition: none;
+  }
+}
+
+:root[data-reduce-motion="true"] .activity-run-row-copy {
+  transition: none;
 }
 
 .github-query-toolbar {
@@ -8522,12 +8482,17 @@ textarea,
 }
 
 .activity-log-status {
-  margin-top: 2px;
+  margin: 2px 0 0;
   overflow: hidden;
   color: var(--muted-foreground);
   font-size: 0.75rem;
+  line-height: 1.3334;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.activity-log-status[data-failed="true"] {
+  color: var(--destructive);
 }
 
 .activity-log-actions {
@@ -8537,11 +8502,27 @@ textarea,
   gap: 8px;
 }
 
-.activity-log-output {
+/* The one raised surface of the Activity log. It also anchors "Jump to latest". */
+.activity-log-output-card {
+  position: relative;
+  display: grid;
+  min-width: 0;
   min-height: 0;
-  padding: 12px 0 16px;
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--terminal-bg);
+}
+
+/* Row heights match the estimateHeight constants in ActivityLogOutput: 20px lines, 40px run headers. */
+.activity-log-output {
+  height: 100%;
+  min-height: 0;
   color: var(--terminal-fg);
   background: var(--terminal-bg);
+  font-size: 0.75rem;
+  line-height: 20px;
   white-space: pre;
 }
 
@@ -8549,23 +8530,14 @@ textarea,
   white-space: pre-wrap;
 }
 
-.activity-log-blocks {
-  display: grid;
-  min-width: max-content;
-  width: 100%;
-}
-
-.activity-log-output.is-wrapped .activity-log-blocks {
-  min-width: 0;
-}
-
+/* The label column, the gap and the row padding add up to the 100px LINE_INSET. */
 .activity-log-block {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
+  grid-template-columns: 56px minmax(0, 1fr);
   width: 100%;
-  min-height: 24px;
+  min-height: 20px;
   align-items: start;
-  column-gap: 10px;
+  column-gap: 12px;
   padding: 0 16px;
   color: var(--terminal-fg);
 }
@@ -8579,45 +8551,26 @@ textarea,
 }
 
 .activity-log-block[data-stream="stderr"] {
-  border-left: 3px solid color-mix(in oklch, var(--terminal-stderr) 72%, transparent);
-  color: var(--terminal-stderr);
-  background: color-mix(in oklch, var(--terminal-stderr) 8%, transparent);
+  color: var(--destructive);
 }
 
 .activity-log-stream-label {
-  display: inline-grid;
-  min-width: 54px;
-  height: 18px;
-  margin-top: 3px;
-  place-items: center;
-  border: 1px solid var(--terminal-label-border);
-  border-radius: 4px;
+  overflow: hidden;
   color: var(--terminal-muted);
-  background: var(--terminal-label-bg);
-  font-family: var(--font-ui);
-  font-size: 0.68rem;
-  font-weight: 700;
-  line-height: 1;
-  text-transform: none;
-}
-
-.activity-log-block[data-stream="stdout"] .activity-log-stream-label {
-  color: color-mix(in oklch, var(--terminal-stdout) 76%, var(--terminal-muted));
+  font-size: 0.6875rem;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .activity-log-block[data-stream="stderr"] .activity-log-stream-label {
-  border-color: color-mix(in oklch, var(--terminal-stderr) 48%, var(--terminal-label-border));
-  color: var(--terminal-stderr);
-  background: color-mix(in oklch, var(--terminal-stderr) 14%, var(--terminal-label-bg));
-}
-
-.activity-log-block[data-stream="system"] .activity-log-stream-label {
-  color: var(--terminal-cmd);
+  color: var(--destructive);
 }
 
 .activity-log-line {
   min-width: 0;
   overflow-wrap: normal;
+  line-height: 20px;
   tab-size: 2;
 }
 
@@ -8625,31 +8578,27 @@ textarea,
   overflow-wrap: anywhere;
 }
 
+/* Notices have no stream label, so they start at the text column. */
 .activity-log-notice {
   display: block;
-  margin: 8px 16px;
-  border: 1px solid color-mix(in oklch, var(--terminal-notice) 42%, var(--border));
-  border-radius: 6px;
-  padding: 6px 10px;
-  color: var(--terminal-notice);
-  background: color-mix(in oklch, var(--terminal-notice) 10%, transparent);
-  font-family: var(--font-ui);
-  font-size: 0.75rem;
-  font-weight: 700;
-  white-space: normal;
+  padding: 0 16px 0 84px;
+  color: var(--status-modified);
+  font-weight: 500;
+  white-space: pre-wrap;
 }
 
 .activity-log-empty {
   padding: 16px;
   color: var(--terminal-muted);
   font-family: var(--font-ui);
-  font-size: 0.84rem;
+  font-size: 0.8125rem;
 }
 
-.activity-log-jump-presence {
+.activity-log-jump {
   position: absolute;
-  right: 18px;
-  bottom: 18px;
+  right: 16px;
+  bottom: 16px;
+  box-shadow: var(--shadow-overlay);
 }
 
 .historical-file-view,
@@ -8730,10 +8679,6 @@ textarea,
 @media (max-width: 900px) {
   .historical-file-body { grid-template-columns: minmax(260px, 44%) minmax(0, 1fr); }
   .blame-row { grid-template-columns: 84px 110px 54px minmax(max-content, 1fr); }
-}
-
-.activity-log-jump {
-  box-shadow: var(--shadow-overlay);
 }
 
 .clone-check-message-swap {
@@ -9038,19 +8983,15 @@ textarea,
   padding: 0;
 }
 
-.activity-log-line {
-  line-height: 24px;
-}
-
 .activity-log-run-header {
   display: flex;
+  min-height: 40px;
   align-items: center;
   gap: 12px;
-  min-height: 44px;
-  padding: 4px 12px;
   border-top: 1px solid var(--border);
-  background: var(--muted);
+  padding: 4px 8px 4px 12px;
   color: var(--foreground);
+  background: var(--muted);
   font-family: var(--font-ui);
   font-size: 0.75rem;
   white-space: normal;
@@ -9058,10 +8999,13 @@ textarea,
 
 .activity-log-run-header time {
   color: var(--muted-foreground);
+  font-family: var(--font-code);
+  font-size: 0.6875rem;
 }
 
 .activity-log-run-outcome {
   margin-left: auto;
+  color: var(--muted-foreground);
 }
 
 .activity-log-run-outcome[data-failed="true"] {
@@ -9406,17 +9350,30 @@ button.repository-section-heading:hover { background: var(--hover); color: var(-
   --analytics-ordinal-5: #9ec5f4;
 }
 
-.analytics-view { display: flex; height: 100%; min-height: 0; flex-direction: column; background: var(--background); }
-.analytics-toolbar { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--card); }
-.analytics-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-.analytics-toolbar-end { display: flex; align-items: center; gap: 8px; margin-left: auto; }
-.analytics-status { min-height: 18px; margin: -4px 0 8px; color: var(--muted-foreground); font-size: 12px; font-variant-numeric: tabular-nums; }
+/* Analytics list column: one vertical tab per section, with a one-line description. */
+.analytics-nav { height: 100%; min-height: 0; overflow-y: auto; }
+.analytics-nav-list { display: grid; width: 100%; height: auto; align-content: start; gap: 2px; padding: 8px; border-radius: 0; background: transparent; }
+.analytics-nav-item { display: grid; width: 100%; height: auto; grid-template-columns: 16px minmax(0, 1fr); align-items: start; justify-content: stretch; gap: 0 10px; padding: 8px; border-radius: calc(var(--radius) - 2px); color: var(--foreground); background: transparent; box-shadow: none; text-align: left; white-space: normal; }
+.analytics-nav-item:hover { background: var(--hover); }
+.analytics-nav-item[data-state="active"], .analytics-nav-item[data-state="active"]:hover { background: var(--selected); box-shadow: none; }
+.analytics-nav-item:focus-visible { outline-offset: -2px; }
+.analytics-nav-item > svg { width: 16px; height: 16px; margin-top: 2px; color: var(--muted-foreground); }
+.analytics-nav-item[data-state="active"] > svg { color: var(--foreground); }
+.analytics-nav-text { display: grid; min-width: 0; }
+.analytics-nav-label { font-size: 13px; font-weight: 500; line-height: 20px; }
+.analytics-nav-description { overflow: hidden; color: var(--muted-foreground); font-size: 12px; font-weight: 400; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
+/* Analytics detail: the title and filters on the background, then the cards. Each card is a raised surface. */
+.analytics-view { display: grid; height: 100%; min-height: 0; grid-template-rows: auto minmax(0, 1fr); gap: 12px; }
+.analytics-header { display: flex; min-width: 0; min-height: 32px; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.analytics-header h2 { margin: 0; font-size: 15px; font-weight: 600; line-height: 20px; }
+.analytics-filters { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px; margin-left: auto; }
+.analytics-status { min-height: 16px; margin: 0 0 8px; color: var(--muted-foreground); font-size: 12px; line-height: 16px; font-variant-numeric: tabular-nums; }
 .analytics-exclude { display: inline-flex; align-items: center; gap: 2px; }
 .analytics-check { display: inline-flex; align-items: center; gap: 6px; color: var(--muted-foreground); font-size: 12px; cursor: pointer; }
 .analytics-check input { width: 14px; height: 14px; accent-color: var(--primary); }
 .analytics-check:hover { color: var(--foreground); }
 .analytics-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
-.analytics-content { max-width: 1480px; margin: 0 auto; padding: 16px; transition: opacity 120ms var(--ease-out); }
+.analytics-content { max-width: 1480px; margin: 0 auto; transition: opacity 120ms var(--ease-out); }
 .analytics-content.is-refreshing { opacity: 0.6; }
 .analytics-stack { display: grid; gap: 16px; }
 .analytics-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
@@ -9428,7 +9385,7 @@ button.repository-section-heading:hover { background: var(--hover); color: var(-
 @media (max-width: 760px) {
   .analytics-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-.analytics-card, .analytics-tile { min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
+.analytics-card, .analytics-tile { min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
 .analytics-card { padding: 16px; }
 .analytics-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .analytics-card-header h3 { margin: 0; font-size: 13px; font-weight: 600; }
@@ -9560,3 +9517,4 @@ button.analytics-legend-item:focus-visible { outline: 2px solid var(--ring); out
 @media (prefers-reduced-motion: reduce) {
   .analytics-progress span, .analytics-content { transition: none; }
 }
+:root[data-reduce-motion="true"] :is(.analytics-progress span, .analytics-content) { transition: none; }

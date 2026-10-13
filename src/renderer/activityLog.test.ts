@@ -7,8 +7,12 @@ import {
   appendActivityLogEvent,
   appendActivityOperationResult,
   createActivityLogState,
+  formatActivityAction,
+  formatOutcome,
   getActivityLogRawText,
-  hasActivityLogOutput
+  hasActivityLogOutput,
+  isActivityLogRunFailed,
+  type ActivityLogRun
 } from "./activityLog";
 
 function output(overrides: Partial<GitOutputEvent> = {}): GitOutputEvent {
@@ -238,4 +242,49 @@ it("bounds incomplete terminal control sequences and resumes after their termina
   expect([...state.parsers.values()].every((parser) => parser.ansiPending.length <= 256)).toBe(true);
   state = appendActivityLogEvent(state, output({ text: "mvisible\n" }));
   expect(state.blocks.at(-1)?.html).toContain("visible");
+});
+
+describe("formatOutcome", () => {
+  const run = (overrides: Partial<ActivityLogRun>): ActivityLogRun => ({
+    id: "run-1",
+    action: "fetch",
+    repoPath: "/repo",
+    startedAt: "2026-06-20T10:00:00.000Z",
+    endedAt: "2026-06-20T10:00:02.000Z",
+    exitCode: 0,
+    ...overrides
+  });
+
+  it("reports success and failure with the duration", () => {
+    expect(formatOutcome(run({}))).toBe("Succeeded · 2.0s");
+    expect(formatOutcome(run({ exitCode: 1 }))).toBe("Failed, code 1 · 2.0s");
+    expect(isActivityLogRunFailed(run({ exitCode: 1 }))).toBe(true);
+    expect(isActivityLogRunFailed(run({}))).toBe(false);
+  });
+
+  it("reports a run without an exit code or an end as running", () => {
+    expect(formatOutcome(run({ exitCode: null, endedAt: null }))).toBe("Running");
+    expect(formatOutcome(run({ endedAt: null }))).toBe("Running");
+    expect(isActivityLogRunFailed(run({ exitCode: null, endedAt: null }))).toBe(false);
+  });
+
+  it("leaves out a zero or negative duration", () => {
+    expect(formatOutcome(run({ endedAt: "2026-06-20T10:00:00.000Z" }))).toBe("Succeeded");
+    expect(formatOutcome(run({ exitCode: -1, endedAt: "2026-06-20T09:59:59.000Z" }))).toBe("Failed, code -1");
+  });
+});
+
+describe("formatActivityAction", () => {
+  it("makes built-in command ids readable", () => {
+    expect(formatActivityAction("fetch")).toBe("Fetch");
+    expect(formatActivityAction("lfs-fetch")).toBe("LFS fetch");
+    expect(formatActivityAction("worktree-add")).toBe("Worktree add");
+  });
+
+  it("keeps configured action names and labels unchanged", () => {
+    expect(formatActivityAction("Build")).toBe("Build");
+    expect(formatActivityAction("Quick Commit")).toBe("Quick Commit");
+    expect(formatActivityAction("test > unit")).toBe("test > unit");
+    expect(formatActivityAction("npm-run build")).toBe("npm-run build");
+  });
 });

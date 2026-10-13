@@ -7314,6 +7314,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     state.summary?.capabilities.stashes
       && (stashWorkspace.state.entries.length > 0 || state.activeView === "stashes" || state.guestView === "stashes")
   );
+  const selectedStashFile = stashWorkspace.state.details?.files.find((file) => file.path === stashWorkspace.state.selectedFilePath) ?? null;
   const pullRequestTabCount = github.counts.data ? formatCompactCount(github.counts.data.pullRequests) : null;
   const issueTabCount = github.counts.data ? formatCompactCount(github.counts.data.issues) : null;
   const activityLogAttentionState = state.activeView === "activity" ? "none" : activityLogAttention;
@@ -8072,6 +8073,8 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                         repoPath={state.repoPath}
                         wrapLines={state.appSettings?.wrapDiffLines ?? false}
                         onWrapLinesChange={setWrapDiffLines}
+                        variant="embedded"
+                        status={selectedStashFile ? getCommitFileStatusVisuals(selectedStashFile.status) : undefined}
                       />
                     }
                     onRefresh={() => { void stashWorkspace.refresh(); }}
