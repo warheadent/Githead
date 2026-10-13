@@ -13170,7 +13170,7 @@ function CommitPanel({
           </div>
           {summary?.kind === "git" && quickCommitPaths.length > 0 ? (
             <TooltipTarget content={`Quick Commit uses ${quickCommitPaths.length === 1 ? "this selected file" : "these selected files"}`}>
-              <span className="commit-quick-count">{quickCommitPaths.length} selected {quickCommitPaths.length === 1 ? "file" : "files"}</span>
+              <span className="commit-quick-count" tabIndex={0}>{quickCommitPaths.length} selected {quickCommitPaths.length === 1 ? "file" : "files"}</span>
             </TooltipTarget>
           ) : null}
           <div className="commit-submit-group" data-primary={commitDisabled ? undefined : ""}>
