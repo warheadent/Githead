@@ -2613,7 +2613,8 @@ describe("App", { timeout: 10_000 }, () => {
     await user.hover(screen.getByRole("button", { name: "Restart to update" }));
 
     expect(await screen.findByRole("heading", { name: "Githead 0.1.1" })).toBeTruthy();
-    expect(await screen.findByRole("heading", { name: "Changes" })).toBeTruthy();
+    // The release notes body uses the lazily loaded Markdown renderer, which can take longer than the default wait under a loaded full run.
+    expect(await screen.findByRole("heading", { name: "Changes" }, { timeout: 5_000 })).toBeTruthy();
     expect(screen.getByText("Fixed update UI")).toBeTruthy();
     expect(document.querySelector("strong")).toBeNull();
 
