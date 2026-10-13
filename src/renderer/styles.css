@@ -5687,6 +5687,7 @@ textarea,
   flex: 1 1 auto;
   min-width: 0;
   gap: 2px;
+  container: history-row-content / inline-size;
 }
 
 .history-row-caption {
@@ -5738,7 +5739,7 @@ textarea,
 .history-github-badges { margin-left: auto; flex: 0 0 auto; }
 .history-github-badge,
 .commit-reference-link { border: 1px solid var(--border); border-radius: 999px; padding: 0 5px; background: var(--muted); color: inherit; font-size: .6875rem; line-height: 1rem; }
-.history-check-state { width: 8px; height: 8px; border-radius: 50%; background: var(--muted-foreground); }
+.history-check-state { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--muted-foreground); }
 .history-check-state.is-success { background: var(--status-added); }
 .history-check-state.is-failure { background: var(--status-deleted); }
 .history-check-state.is-pending { background: var(--status-modified); }
@@ -5873,7 +5874,7 @@ textarea,
 
 .history-subject-tooltip {
   flex: 1 1 auto;
-  min-width: 0;
+  min-width: min(8ch, 100%);
   overflow: hidden;
 }
 
@@ -5944,9 +5945,23 @@ textarea,
   --commit-type-color: oklch(0.66 0.12 330);
 }
 
-.history-hash {
+/* Short SHA on line 1, compact GitHub badges under it on line 2, so line 1 stays for the refs and the subject. */
+.history-row-trailing {
+  display: grid;
   flex: none;
   align-self: flex-start;
+  grid-template-rows: 20px;
+  grid-auto-rows: auto;
+  row-gap: 2px;
+  justify-items: end;
+}
+
+.history-row-trailing > .history-github-badges {
+  grid-row: 2;
+}
+
+.history-hash {
+  flex: none;
   color: var(--muted-foreground);
   font-size: 11px;
   font-weight: 500;
@@ -5958,6 +5973,27 @@ textarea,
   flex: 0 0 auto;
   color: var(--muted-foreground);
   font-weight: 700;
+}
+
+/* The description shrinks first; a long scope stops at 60% and ends in an ellipsis instead of a cut glyph. */
+.history-scope {
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A narrow line 1 keeps the subject readable: the type badge goes first (the tooltip still shows the full subject). */
+@container history-row-content (max-width: 260px) {
+  .history-refs + .history-subject-tooltip .commit-type-badge {
+    display: none;
+  }
+}
+
+@container history-row-content (max-width: 160px) {
+  .history-subject-tooltip .commit-type-badge {
+    display: none;
+  }
 }
 
 .history-description-text,
@@ -5978,6 +6014,7 @@ textarea,
 }
 
 .history-refs.is-compact {
+  max-width: 45%;
   flex-shrink: 0;
 }
 

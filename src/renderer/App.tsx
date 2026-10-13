@@ -12630,12 +12630,6 @@ const HistoryRow = memo(function HistoryRow({
                   </span>
                 </TooltipTarget>
               ) : null}
-              {compactPullRequests || compactChecks ? (
-                <span className="history-github-badges">
-                  {compactPullRequests ? <HistoryPullRequests association={association} onOpenExternalUrl={onOpenExternalUrl} /> : null}
-                  {compactChecks ? <HistoryCheckState association={association} compact /> : null}
-                </span>
-              ) : null}
             </span>
             {showCaption ? (
               <span className="history-row-caption">
@@ -12651,8 +12645,18 @@ const HistoryRow = memo(function HistoryRow({
               </span>
             ) : null}
           </span>
-          {columnVisibility.commit ? (
-            <TooltipTarget content={commit.hash}><span className="history-hash">{commit.shortHash}</span></TooltipTarget>
+          {columnVisibility.commit || compactPullRequests || compactChecks ? (
+            <span className="history-row-trailing">
+              {columnVisibility.commit ? (
+                <TooltipTarget content={commit.hash}><span className="history-hash">{commit.shortHash}</span></TooltipTarget>
+              ) : null}
+              {compactPullRequests || compactChecks ? (
+                <span className="history-github-badges">
+                  {compactPullRequests ? <HistoryPullRequests association={association} onOpenExternalUrl={onOpenExternalUrl} compact /> : null}
+                  {compactChecks ? <HistoryCheckState association={association} compact /> : null}
+                </span>
+              ) : null}
+            </span>
           ) : null}
         </div>
       </ContextMenuTrigger>
@@ -12709,11 +12713,14 @@ function HistoryReferences({ commit, compact = false, className }: {
 
 function HistoryPullRequests({
   association,
-  onOpenExternalUrl
+  onOpenExternalUrl,
+  compact = false
 }: {
   association: GitHubCommitAssociation;
   onOpenExternalUrl: (url: string) => void;
+  compact?: boolean;
 }): ReactNode {
+  const prefix = compact ? "#" : "PR #";
   if (association.pullRequests.length === 0) return null;
   if (association.pullRequests.length === 1) {
     const pullRequest = association.pullRequests[0]!;
@@ -12722,7 +12729,7 @@ function HistoryPullRequests({
         event.stopPropagation();
         onOpenExternalUrl(pullRequest.url);
       }}>
-        PR #{pullRequest.number}
+        {prefix}{pullRequest.number}
       </button>
     );
   }
@@ -12730,7 +12737,7 @@ function HistoryPullRequests({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button type="button" className="history-github-badge" aria-label={`${association.pullRequests.length} associated pull requests`} onClick={(event) => event.stopPropagation()}>
-          PR #{association.pullRequests[0]!.number} +{association.pullRequests.length - 1}
+          {prefix}{association.pullRequests[0]!.number} +{association.pullRequests.length - 1}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent onClick={(event) => event.stopPropagation()}>
