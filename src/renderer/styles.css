@@ -5903,46 +5903,85 @@ textarea,
   border-radius: 4px;
   padding: 1px 5px;
   color: var(--commit-type-color);
-  background: color-mix(in oklch, var(--commit-type-color) 18%, transparent);
+  background: color-mix(in oklch, var(--commit-type-color) 12%, transparent);
   font-size: 0.6875rem;
   font-weight: 500;
   line-height: 1.35;
   white-space: nowrap;
 }
 
+/*
+ * Light values first, .dark overrides after. Each lightness keeps the label at 4.5:1 or more on its own 12% tint
+ * over --background, --surface, --hover and --selected in every theme.
+ */
 .commit-type-badge.type-feat {
-  --commit-type-color: oklch(0.62 0.13 188);
+  --commit-type-color: oklch(0.445 0.075 188);
+}
+
+.dark .commit-type-badge.type-feat {
+  --commit-type-color: oklch(0.73 0.125 188);
 }
 
 .commit-type-badge.type-fix {
-  --commit-type-color: oklch(0.66 0.15 23);
+  --commit-type-color: oklch(0.47 0.16 23);
+}
+
+.dark .commit-type-badge.type-fix {
+  --commit-type-color: oklch(0.76 0.14 23);
 }
 
 .commit-type-badge.type-chore,
 .commit-type-badge.type-build {
-  --commit-type-color: oklch(0.68 0.035 255);
+  --commit-type-color: oklch(0.455 0.035 255);
+}
+
+.dark .commit-type-badge.type-chore,
+.dark .commit-type-badge.type-build {
+  --commit-type-color: oklch(0.745 0.035 255);
 }
 
 .commit-type-badge.type-refactor,
 .commit-type-badge.type-style {
-  --commit-type-color: oklch(0.67 0.15 210);
+  --commit-type-color: oklch(0.445 0.075 210);
+}
+
+.dark .commit-type-badge.type-refactor,
+.dark .commit-type-badge.type-style {
+  --commit-type-color: oklch(0.73 0.125 210);
 }
 
 .commit-type-badge.type-test,
 .commit-type-badge.type-ci {
-  --commit-type-color: oklch(0.7 0.13 88);
+  --commit-type-color: oklch(0.455 0.09 88);
+}
+
+.dark .commit-type-badge.type-test,
+.dark .commit-type-badge.type-ci {
+  --commit-type-color: oklch(0.745 0.13 88);
 }
 
 .commit-type-badge.type-docs {
-  --commit-type-color: oklch(0.66 0.13 285);
+  --commit-type-color: oklch(0.465 0.14 285);
+}
+
+.dark .commit-type-badge.type-docs {
+  --commit-type-color: oklch(0.755 0.13 285);
 }
 
 .commit-type-badge.type-perf {
-  --commit-type-color: oklch(0.66 0.15 145);
+  --commit-type-color: oklch(0.44 0.135 145);
+}
+
+.dark .commit-type-badge.type-perf {
+  --commit-type-color: oklch(0.735 0.14 145);
 }
 
 .commit-type-badge.type-revert {
-  --commit-type-color: oklch(0.66 0.12 330);
+  --commit-type-color: oklch(0.47 0.13 330);
+}
+
+.dark .commit-type-badge.type-revert {
+  --commit-type-color: oklch(0.76 0.13 330);
 }
 
 /* Short SHA on line 1, compact GitHub badges under it on line 2, so line 1 stays for the refs and the subject. */
