@@ -120,9 +120,9 @@ export function useRepositoryRowActions({
       const workspaceActive = isSamePath(worktree.path, activeRepoPath);
       return (
         <>
-          <ContextMenuItem disabled={unavailable} onSelect={open(() => onOpenRepositorySettings(worktree.path))}><Settings />Repository Settings…</ContextMenuItem>
+          <ContextMenuItem disabled={unavailable} onSelect={open(() => onOpenRepositorySettings(worktree.path))}><Settings />Repository settings…</ContextMenuItem>
           <ContextMenuItem disabled={unavailable} onSelect={open(() => onShowInExplorer(worktree.path))}><MapPinned />Show in Explorer</ContextMenuItem>
-          {!worktree.isMain && !workspaceActive && onRemoveWorktree ? <ContextMenuItem disabled={disabled || unavailable || worktree.locked} onSelect={open(() => onRemoveWorktree(worktree))}><Trash2 />Remove Worktree…</ContextMenuItem> : null}
+          {!worktree.isMain && !workspaceActive && onRemoveWorktree ? <ContextMenuItem disabled={disabled || unavailable || worktree.locked} onSelect={open(() => onRemoveWorktree(worktree))}><Trash2 />Remove worktree…</ContextMenuItem> : null}
         </>
       );
     }
@@ -165,7 +165,7 @@ export function useRepositoryRowActions({
         ) : null}
         <ContextMenuItem disabled={navigationUnavailable} onSelect={open(() => onOpenRepositorySettings(settingsPath))}>
           <Settings />
-          Repository Settings…
+          Repository settings…
         </ContextMenuItem>
         <ContextMenuItem disabled={navigationUnavailable} onSelect={open(() => onShowInExplorer(path))}>
           <MapPinned />
@@ -174,7 +174,7 @@ export function useRepositoryRowActions({
         <ContextMenuSeparator />
         <ContextMenuItem variant="destructive" onSelect={open(() => setRemoveTarget(path))}>
           <Trash2 />
-          Remove Repository
+          Remove repository
         </ContextMenuItem>
       </>
     );
@@ -187,7 +187,7 @@ export function useRepositoryRowActions({
       <Dialog open={Boolean(removeTarget)} onOpenChange={(open) => { if (!open) setRemoveTarget(null); }}>
         <DialogContent className="sm:max-w-[440px]">
           <DialogHeader>
-            <DialogTitle>Remove Repository?</DialogTitle>
+            <DialogTitle>Remove repository?</DialogTitle>
             <DialogDescription>
               This repository will no longer be tracked by Githead. The repository and all of its files will remain on disk.
             </DialogDescription>
@@ -199,7 +199,7 @@ export function useRepositoryRowActions({
               if (!removeTarget) return;
               onRemove(removeTarget);
               setRemoveTarget(null);
-            }}><Trash2 />Remove Repository</Button>
+            }}><Trash2 />Remove repository</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -211,7 +211,7 @@ export function useRepositoryRowActions({
       }}>
         <DialogContent className="min-w-0 overflow-hidden sm:max-w-[480px]" showCloseButton={!recoveryRunning}>
           <DialogHeader className="min-w-0">
-            <DialogTitle>Repository Unavailable</DialogTitle>
+            <DialogTitle>Repository unavailable</DialogTitle>
             <DialogDescription className="min-w-0 break-words">
               Githead cannot open this saved repository. Choose its new location if it still exists, or remove it from Githead.
             </DialogDescription>
@@ -229,7 +229,7 @@ export function useRepositoryRowActions({
               onRemove(recoveryTarget.repoPath);
               setRecoveryTarget(null);
               setRecoveryError("");
-            }}><Trash2 />Remove Repository</Button>
+            }}><Trash2 />Remove repository</Button>
             <Button type="button" disabled={recoveryRunning} onClick={() => {
               if (!recoveryTarget) return;
               setRecoveryRunning(true);
@@ -243,7 +243,7 @@ export function useRepositoryRowActions({
               }).finally(() => setRecoveryRunning(false));
             }}>
               {recoveryRunning ? <Loader2 className="animate-spin" /> : <FolderOpen />}
-              {recoveryRunning ? "Checking Location" : "Choose New Location"}
+              {recoveryRunning ? "Checking location" : "Choose new location"}
             </Button>
           </DialogFooter>
         </DialogContent>

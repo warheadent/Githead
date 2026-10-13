@@ -211,7 +211,7 @@ export function RepositorySettingsDialog({
       open={open}
       busy={disabled}
       eyebrow="Repository preferences"
-      title="Repository Settings"
+      title="Repository settings"
       description={<>
         <span>Override Githead's global settings for this repository.</span>
         <span className="truncate font-mono text-xs" title={repoPath}>{repoPath}</span>

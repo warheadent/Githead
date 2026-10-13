@@ -165,7 +165,7 @@ export function CreateIssueDialog(props: Props): ReactNode {
 
         <div className="grid min-h-5 gap-2">
           {visibleError ? <p className="dialog-error" role="alert">{visibleError}</p> : null}
-          {props.outcomeUnknown && !props.unknownOutcomeReviewed ? <Button type="button" variant="outline" className="w-fit" onClick={props.onReviewUnknownOutcome}><ExternalLink />Open Issues</Button> : null}
+          {props.outcomeUnknown && !props.unknownOutcomeReviewed ? <Button type="button" variant="outline" className="w-fit" onClick={props.onReviewUnknownOutcome}><ExternalLink />Open issues</Button> : null}
         </div>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => props.onOpenChange(false)}>Cancel</Button>

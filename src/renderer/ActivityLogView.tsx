@@ -38,7 +38,7 @@ export function ActivityLogView({
   const selectedRun = storedSelection === null
     ? null
     : log.runs.find((run) => run.id === (storedSelection === NEWEST_RUN ? newestRunId : storedSelection)) ?? null;
-  const allOutputTitle = hasOutput ? "Output Available" : "Empty";
+  const allOutputTitle = hasOutput ? "Output available" : "Empty";
   const failed = selectedRun ? isActivityLogRunFailed(selectedRun) : false;
   const startedAt = selectedRun ? new Date(selectedRun.startedAt) : null;
 
@@ -100,10 +100,10 @@ export function ActivityLogView({
                 Wrap
               </TooltipButton>
               <Button type="button" variant="outline" size="sm" disabled={!hasRawText} onClick={() => { void copy(); }}>
-                Copy Raw
+                Copy raw
               </Button>
               <Button type="button" variant="outline" size="sm" disabled={!hasOutput} onClick={onClearLog}>
-                Clear Log
+                Clear log
               </Button>
             </div>
           </header>

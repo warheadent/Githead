@@ -1996,7 +1996,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
           return;
         }
         if (options.statusOnly && stateRef.current.summary?.isValid) {
-          updateState((current) => ({ ...current, lastOperationResult: { repoPath, exitCode: -1, stdout: "", stderr: error instanceof Error ? error.message : "Unable to refresh File Status." } }));
+          updateState((current) => ({ ...current, lastOperationResult: { repoPath, exitCode: -1, stdout: "", stderr: error instanceof Error ? error.message : "Unable to refresh changes." } }));
           return;
         }
         const summary = createInvalidSummary(
@@ -3682,7 +3682,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
           ...latest,
           actionManager: {
             ...latest.actionManager,
-            error: result.stderr || "Unable to save Repository Actions."
+            error: result.stderr || "Unable to save repository actions."
           }
         }));
         return;
@@ -3704,7 +3704,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
         ...latest,
         actionManager: {
           ...latest.actionManager,
-          error: error instanceof Error ? error.message : "Unable to save Repository Actions."
+          error: error instanceof Error ? error.message : "Unable to save repository actions."
         }
       }));
     }
@@ -4019,7 +4019,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     const repositoryGroup = stateRef.current.repositoryGroups.find((group) =>
       group.worktrees.some((worktree) => isSameRepoPath(worktree.path, repoPath)));
     if (!(await ensureTrustedRepo(repoPath))) return "Trust this workspace before creating a worktree.";
-    if (!isInvocationCurrent(repoPath, (latest) => latest.worktreeDialogOpen)) return "The active repository changed. Reopen Add Worktree and try again.";
+    if (!isInvocationCurrent(repoPath, (latest) => latest.worktreeDialogOpen)) return "The active repository changed. Reopen Add worktree and try again.";
     const result = await runRepoOperation("Creating worktree", undefined, (operationId) => window.githead.createWorktree({ ...request, repoPath, operationId } as GitWorktreeCreateRequest & { operationId: string }));
     if (!result) return "Another repository operation is already running.";
     if (result.exitCode !== 0) {
@@ -4028,7 +4028,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
         ? "Worktree creation was cancelled. Check the destination before retrying. Git may have left a folder or created the branch."
         : result.stderr || "Unable to create worktree.";
     }
-    if (!isSameRepoPath(repoPath, stateRef.current.repoPath)) return "The active repository changed. Reopen Add Worktree and try again.";
+    if (!isSameRepoPath(repoPath, stateRef.current.repoPath)) return "The active repository changed. Reopen Add worktree and try again.";
     updateState({ worktreeDialogOpen: false });
     await loadRepositoryGroups();
     if (!isSameRepoPath(repoPath, stateRef.current.repoPath)) return null;
@@ -4176,7 +4176,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       return "Trust this workspace before changing remotes.";
     }
     if (stateRef.current.repoPath !== repoPath || !stateRef.current.remoteManager.open) {
-      return "The active repository changed. Reopen Manage Remotes and try again.";
+      return "The active repository changed. Reopen Manage remotes and try again.";
     }
     setRemoteMutationRunning(true);
     try {
@@ -4241,7 +4241,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     const repoPath = snapshot.repoPath;
     if (!(await ensureTrustedRepo(repoPath))) return "Trust this workspace before changing branches.";
     const latest = stateRef.current;
-    if (latest.repoPath !== repoPath || !latest.branchManagerOpen) return "The active repository changed. Reopen Manage Branches and try again.";
+    if (latest.repoPath !== repoPath || !latest.branchManagerOpen) return "The active repository changed. Reopen Manage branches and try again.";
     if (action === "remove" && latest.summary?.branch === branchName) return "Switch to another branch before removing this branch.";
     setBranchMutationRunning(true);
     try {
@@ -8144,7 +8144,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                     result={state.fileBlame}
                     loading={state.fileBlameLoading}
                     error={state.fileBlameError}
-                    backLabel={blameRoute.returnTo === "file" ? "Back to File History" : "Back"}
+                    backLabel={blameRoute.returnTo === "file" ? "Back to file history" : "Back"}
                     versions={blameVersions}
                     fileHistoryDisabled={!blameVersions && !state.summary?.capabilities.fileHistory}
                     onBack={() => {
@@ -8965,7 +8965,7 @@ function GitRequiredScreen({
         <div className="git-required-actions">
           <Button type="button" variant="secondary" onClick={onCheckAgain} disabled={checking}>
             <RefreshCw className={checking ? "animate-spin" : undefined} />
-            {checking ? "Checking for Git" : "Check Again"}
+            {checking ? "Checking for Git" : "Check again"}
           </Button>
           <Button type="button" onClick={onInstall} disabled={checking}>
             <Download />
@@ -8996,7 +8996,7 @@ function RepositoryErrorView({ repoPath, error, safeDirectory, busy, onRetry, on
       <section className="repository-error-panel" aria-labelledby="repository-error-heading">
         <span className="notice-tile is-destructive" aria-hidden="true"><TriangleAlert /></span>
         <div className="repository-error-copy">
-          <h2 id="repository-error-heading">Repository Unavailable</h2>
+          <h2 id="repository-error-heading">Repository unavailable</h2>
           <p>Githead cannot open this repository. Try again or select another repository from the list.</p>
         </div>
         <p className="dialog-code-block">{repoPath}</p>
@@ -9004,7 +9004,7 @@ function RepositoryErrorView({ repoPath, error, safeDirectory, busy, onRetry, on
         {safeDirectory?.required ? <p className="repository-error-caption">Git ownership check blocked this repository.</p> : null}
         <div className="repository-error-actions">
           {safeDirectory?.required ? (
-            <Button variant="secondary" disabled={disabled} onClick={onAllowGitException}><ShieldAlert />Allow Git Exception</Button>
+            <Button variant="secondary" disabled={disabled} onClick={onAllowGitException}><ShieldAlert />Allow Git exception</Button>
           ) : (
             <Button variant="secondary" disabled={disabled} onClick={() => {
               setRecovering(true);
@@ -9014,11 +9014,11 @@ function RepositoryErrorView({ repoPath, error, safeDirectory, busy, onRetry, on
               }).finally(() => setRecovering(false));
             }}>
               {recovering ? <Loader2 className="animate-spin" /> : <FolderOpen />}
-              {recovering ? "Checking Location" : "Choose New Location"}
+              {recovering ? "Checking location" : "Choose new location"}
             </Button>
           )}
           <Button disabled={disabled} onClick={onRetry}>
-            {busy ? <Loader2 className="animate-spin" /> : <RefreshCw />}Try Again
+            {busy ? <Loader2 className="animate-spin" /> : <RefreshCw />}Try again
           </Button>
         </div>
       </section>
@@ -9169,7 +9169,7 @@ function RepositorySetupScreen({
                       disabled={running || safeDirectoryRunning}
                     >
                       {safeDirectoryRunning ? <Loader2 className="animate-spin" /> : <ShieldAlert />}
-                      {safeDirectoryRunning ? "Adding Exception" : "Allow Git Exception"}
+                      {safeDirectoryRunning ? "Adding exception" : "Allow Git exception"}
                     </Button>
                   )}
                 >
@@ -9860,13 +9860,13 @@ function CloneRepositoryForm({
             {cancelStatus === "canceling"
               ? "Cancelling"
               : cloneCheckRunning
-                ? "Cancel Check"
-                : "Cancel Clone"}
+                ? "Cancel check"
+                : "Cancel clone"}
           </Button>
         ) : null}
         <Button type="submit" disabled={cloneBusy}>
           {cloneRunning ? <Loader2 className="animate-spin" /> : <Download />}
-          {cloneRunning ? "Cloning" : "Clone Repository"}
+          {cloneRunning ? "Cloning" : "Clone repository"}
         </Button>
       </div>
     </form>
@@ -10443,8 +10443,8 @@ const FileGroup = memo(function FileGroup({
               onClick={() => side === "staged" ? onUnstageFiles(actionablePaths) : onStageFiles(actionablePaths)}
             >
               {side === "staged"
-                ? filtering ? `Unstage ${actionablePaths.length} matching` : "Unstage All"
-                : filtering ? `Stage ${actionablePaths.length} matching` : "Stage All"}
+                ? filtering ? `Unstage ${actionablePaths.length} matching` : "Unstage all"
+                : filtering ? `Stage ${actionablePaths.length} matching` : "Stage all"}
             </Button>
           </div>
         )}
@@ -10736,13 +10736,13 @@ function FileRow({
         <ContextMenuSeparator />
         {selectedCount > 1 ? <ContextMenuLabel className="truncate" title={file.path}>For {fileName(file.path)}</ContextMenuLabel> : null}
         <ContextMenuItem disabled={deleted || (Boolean(file.submodule) && disabled)} onSelect={() => onContextAction(file, side, "open")}>
-          <ExternalLink />{file.submodule ? "Open Submodule" : "Open"}
+          <ExternalLink />{file.submodule ? "Open submodule" : "Open"}
         </ContextMenuItem>
         <ContextMenuItem onSelect={() => onContextAction(file, side, "show")}>
           <MapPinned />Show in Explorer
         </ContextMenuItem>
         <ContextMenuItem onSelect={() => onContextAction(file, side, "copy")}>
-          <Clipboard />Copy Path
+          <Clipboard />Copy path
         </ContextMenuItem>
         {file.submodule ? <ContextMenuItem disabled={disabled || recoveryMode} onSelect={() => onContextAction(file, side, "update-submodule")}>
           <RefreshCw />Initialize / Update
@@ -10952,7 +10952,7 @@ function DiffPanel({
             {previewSource ? (
               <Button type="button" variant="ghost" size="xs" aria-pressed={previewVisible} onClick={togglePreview}>
                 <Eye />
-                {previewVisible ? "Show Diff" : "Preview"}
+                {previewVisible ? "Show diff" : "Preview"}
               </Button>
             ) : null}
             {onRefresh && changed ? (
@@ -10972,7 +10972,7 @@ function DiffPanel({
                 type="button"
                 variant="ghost"
                 size="icon-xs"
-                aria-label={loading ? "Loading diff" : "Refresh Diff"}
+                aria-label={loading ? "Loading diff" : "Refresh diff"}
                 tooltip={loading ? "Loading diff" : "Refresh diff"}
                 disabled={refreshDisabled || loading}
                 onClick={() => onRefresh()}
@@ -11018,7 +11018,7 @@ function DiffPanel({
               onClick={togglePreview}
             >
               <Eye />
-              {previewVisible ? "Show Diff" : "Preview"}
+              {previewVisible ? "Show diff" : "Preview"}
             </Button>
           ) : null}
           {onRefresh ? (
@@ -11032,7 +11032,7 @@ function DiffPanel({
               onRefresh();
             }}>
               <RefreshCw />
-              {changed ? "New diff available" : loading ? "Loading diff" : "Refresh Diff"}
+              {changed ? "New diff available" : loading ? "Loading diff" : "Refresh diff"}
             </Button>
           ) : null}
         </div>
@@ -11144,7 +11144,7 @@ const DiffRows = memo(function DiffRows({
             />
           ] : [];
         });
-        const hunkActionLabel = hunkAction?.side === "unstaged" ? "Stage Hunk" : "Unstage Hunk";
+        const hunkActionLabel = hunkAction?.side === "unstaged" ? "Stage hunk" : "Unstage hunk";
 
         if (group.kind === "hunk") {
           return (
@@ -11161,7 +11161,7 @@ const DiffRows = memo(function DiffRows({
                       disabled={hunkAction.disabled}
                       onClick={() => setDiscardTarget({ patch: group.patch!, filePath, text })}
                     >
-                      Discard Hunk
+                      Discard hunk
                     </Button>
                   ) : null}
                   {hunkAction && group.patch ? (
@@ -11910,7 +11910,7 @@ function PullRequestsView({
       ) : <PullRequestEmptyDetails />}
       list={(
     <section className="github-view" aria-label="Pull requests">
-      <GitHubQueryToolbar compact activeFilterCount={activeFilterCount} refreshDisabled={!repository} refreshing={loading || busy} onRefresh={onRefresh} view="pullRequests" search={query.search ?? ""} preset={preset} presets={[{ value: "all", label: "All open" }, { value: "branch", label: "Current Branch", disabled: !summary?.branch }, { value: "authored", label: "Authored by me", disabled: !viewerLogin }, { value: "assigned", label: "Assigned to me", disabled: !viewerLogin }, { value: "review", label: "Review requested", disabled: !viewerLogin }, { value: "drafts", label: "Drafts" }, { value: "custom", label: "Custom" }]} sort={`${query.sort}-${query.direction}`} sortOptions={[{ value: "updated-desc", label: "Recently updated" }, { value: "created-desc", label: "Newest" }, { value: "created-asc", label: "Oldest" }]} viewerAvailable={Boolean(viewerLogin)} status={loading || busy ? "Loading pull requests" : countLabel} onSearchChange={(value) => { onPresetChange("custom"); onQueryChange({ ...query, search: value || undefined }); }} onPresetChange={applyPreset} onSortChange={(value) => { const [sort, direction] = value.split("-") as ["updated" | "created", "asc" | "desc"]; onQueryChange({ ...query, sort, direction }); }} onClear={() => applyPreset("all")}>
+      <GitHubQueryToolbar compact activeFilterCount={activeFilterCount} refreshDisabled={!repository} refreshing={loading || busy} onRefresh={onRefresh} view="pullRequests" search={query.search ?? ""} preset={preset} presets={[{ value: "all", label: "All open" }, { value: "branch", label: "Current branch", disabled: !summary?.branch }, { value: "authored", label: "Authored by me", disabled: !viewerLogin }, { value: "assigned", label: "Assigned to me", disabled: !viewerLogin }, { value: "review", label: "Review requested", disabled: !viewerLogin }, { value: "drafts", label: "Drafts" }, { value: "custom", label: "Custom" }]} sort={`${query.sort}-${query.direction}`} sortOptions={[{ value: "updated-desc", label: "Recently updated" }, { value: "created-desc", label: "Newest" }, { value: "created-asc", label: "Oldest" }]} viewerAvailable={Boolean(viewerLogin)} status={loading || busy ? "Loading pull requests" : countLabel} onSearchChange={(value) => { onPresetChange("custom"); onQueryChange({ ...query, search: value || undefined }); }} onPresetChange={applyPreset} onSortChange={(value) => { const [sort, direction] = value.split("-") as ["updated" | "created", "asc" | "desc"]; onQueryChange({ ...query, sort, direction }); }} onClear={() => applyPreset("all")}>
         <label className="github-query-field"><span>Label</span><input value={query.label ?? ""} onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, label: event.target.value || undefined }); }} /></label>
         <label className="github-query-field"><span>Draft</span><select value={query.draft ?? ""} onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, draft: (event.target.value || undefined) as GitHubPullRequestQuery["draft"] }); }}><option value="">Any</option><option value="draft">Draft</option><option value="ready">Ready</option></select></label>
       </GitHubQueryToolbar>
@@ -13041,28 +13041,28 @@ function CommitFileRow({
       <ContextMenuContent className="w-56">
         <ContextMenuItem disabled={!fileHistoryEnabled} onSelect={() => onContextAction(file, "log")}>
           <History />
-          Log Selected
+          Log selected
         </ContextMenuItem>
         <ContextMenuItem disabled={!blameEnabled || file.status === "D"} onSelect={() => onContextAction(file, "blame")}>
           <GitFork />
-          Blame Selected
+          Blame selected
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem variant="destructive" disabled={disabled} onSelect={() => onContextAction(file, "reset")}>
           <RotateCcw />
-          Reset to Commit
+          Reset to commit
         </ContextMenuItem>
         <ContextMenuItem onSelect={() => onContextAction(file, "open-current")}>
           <ExternalLink />
-          Open Current Version
+          Open current version
         </ContextMenuItem>
         <ContextMenuItem onSelect={() => onContextAction(file, "open-selected")}>
           <FileCode2 />
-          Open Selected Version
+          Open selected version
         </ContextMenuItem>
         <ContextMenuItem onSelect={() => onContextAction(file, "copy")}>
           <Clipboard />
-          Copy Path to Clipboard
+          Copy path to clipboard
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
@@ -13255,7 +13255,7 @@ function CommitPanel({
               <DropdownMenuContent align="end" side="top">
                 <DropdownMenuItem onSelect={onOpenGenerateWithContext}>
                   <Sparkles />
-                  Generate with Context
+                  Generate with context
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -13749,8 +13749,8 @@ function CreatePullRequestDialog({
     : state.step === "creating"
     ? "Creating…"
     : needsPush
-    ? "Push & Create"
-    : "Create Pull Request";
+    ? "Push & create"
+    : "Create pull request";
 
   return (
     <Dialog open={state.open} onOpenChange={onOpenChange}>
@@ -13758,7 +13758,7 @@ function CreatePullRequestDialog({
         <form onSubmit={onSubmit}>
           <div className="create-pr-content">
             <DialogHeader>
-              <DialogTitle>Create Pull Request</DialogTitle>
+              <DialogTitle>Create pull request</DialogTitle>
               <DialogDescription className="sr-only">
                 {`Open a GitHub pull request from ${state.headBranch || "the current branch"}${state.baseBranch ? ` into ${state.baseBranch}` : ""}.`}
               </DialogDescription>
@@ -13894,7 +13894,7 @@ function CreatePullRequestDialog({
             {state.draftSaveError ? <p className="dialog-error" role="alert">Unable to save this draft on this device. Keep this window open or copy your text.</p> : null}
             {state.error ? <p className="dialog-error" role="alert">{state.error}</p> : null}
             {state.failure?.outcomeUnknown && !state.unknownOutcomeReviewed ? (
-              <Button type="button" variant="outline" className="w-fit" onClick={onReviewUnknownOutcome}><ExternalLink />Open Pull Requests</Button>
+              <Button type="button" variant="outline" className="w-fit" onClick={onReviewUnknownOutcome}><ExternalLink />Open pull requests</Button>
             ) : null}
           </div>
           <div className="create-pr-footer">
@@ -13938,7 +13938,7 @@ function SafeDirectoryDialog({
     }}>
       <DialogContent className="sm:max-w-[520px]" showCloseButton={!saving}>
         <DialogHeader>
-          <DialogTitle>Allow Git Ownership Exception?</DialogTitle>
+          <DialogTitle>Allow Git ownership exception?</DialogTitle>
           <DialogDescription>
             Git blocked this repository because its ownership differs from your current user. Githead will add this exact folder to Git's global safe.directory list.
           </DialogDescription>
@@ -13956,7 +13956,7 @@ function SafeDirectoryDialog({
           </Button>
           <Button type="button" onClick={onAllow} disabled={saving || !safeDirectory?.path} autoFocus>
             {saving ? <Loader2 className="animate-spin" /> : <ShieldAlert />}
-            {saving ? "Adding Exception" : "Allow Exception"}
+            {saving ? "Adding exception" : "Allow exception"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -13984,8 +13984,8 @@ function GitIdentityDialog({
       <DialogContent className="sm:max-w-[520px]">
         <form className="grid gap-4" onSubmit={onSave}>
           <DialogHeader>
-            <p className="eyebrow">Git Identity</p>
-            <DialogTitle>Set Git Author Identity</DialogTitle>
+            <p className="eyebrow">Git identity</p>
+            <DialogTitle>Set Git author identity</DialogTitle>
             <DialogDescription>
               Git needs a name and email before it can create commits.
             </DialogDescription>
@@ -14013,7 +14013,7 @@ function GitIdentityDialog({
             </Button>
             <Button type="submit" disabled={saving}>
               {saving ? <Loader2 className="animate-spin" /> : <Save />}
-              {saving ? "Saving" : "Save and Retry Commit"}
+              {saving ? "Saving" : "Save and retry commit"}
             </Button>
           </DialogFooter>
         </form>
@@ -14035,7 +14035,7 @@ function ImageDiffView({ filePath, before, after, onDownload, downloading }: { f
             <span>{needsRepair ? "The Git LFS copy of this image on this device is damaged." : "This Git LFS image has not been downloaded to this device."}</span>
             <Button type="button" variant="outline" size="xs" aria-label={needsRepair ? "Retry corrupt Git LFS image preview" : "Download missing Git LFS image preview"} disabled={downloading} onClick={onDownload}>
               {downloading ? <Loader2 className="animate-spin" /> : <Download />}
-              {downloading ? "Downloading..." : needsRepair ? "Retry Preview" : "Download Preview"}
+              {downloading ? "Downloading..." : needsRepair ? "Retry preview" : "Download preview"}
             </Button>
           </div>
         </div>

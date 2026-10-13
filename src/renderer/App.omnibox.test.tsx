@@ -212,7 +212,7 @@ describe("repository composer", () => {
     await waitFor(() => expect(githead.cloneRepository).toHaveBeenCalledWith(expect.objectContaining({ fork: true })));
     await user.keyboard("{Escape}");
     expect(screen.getByRole("form", { name: "Clone repository" })).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Cancel Clone" }));
+    await user.click(screen.getByRole("button", { name: "Cancel clone" }));
     expect(githead.cancelGitOperation).toHaveBeenCalled();
     await act(async () => clone.resolve(createOperationResult({ exitCode: -1, stderr: "Clone cancelled" })));
     expect(within(screen.getByRole("form", { name: "Clone repository" })).getByText(/Clone cancelled/)).toBeTruthy();

@@ -31,7 +31,7 @@ export function GitIdentityFields({
 
   return (
     <fieldset className="grid max-w-xl gap-4" disabled={disabled}>
-      <legend className="sr-only">Git Identity</legend>
+      <legend className="sr-only">Git identity</legend>
       <div className="settings-field grid gap-2">
         <Label htmlFor={`${idPrefix}-name`}>Name</Label>
         <Input

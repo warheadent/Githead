@@ -90,7 +90,7 @@ export function BranchManagementDialog(props: BranchManagementDialogProps): Reac
       }}
     >
       <DialogHeader className="border-b px-6 py-5 pr-14">
-        <DialogTitle>Manage Branches</DialogTitle>
+        <DialogTitle>Manage branches</DialogTitle>
         <DialogDescription className="text-pretty">{capabilities.renameBranches ? `Rename or ${removeVerb.toLocaleLowerCase()} local branches.` : `${removeVerb} local branches you no longer need.`}</DialogDescription>
         <TooltipTarget content={repoPath}>
           <p className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
@@ -159,7 +159,7 @@ interface BranchRowProps {
 
 function BranchRow({ branch, action, capabilities, busy, mutationBlocked, archive, name, error, forceDelete, onNameChange, onForceDeleteChange, onBeginRename, onBeginRemove, onCancel, onSubmit }: BranchRowProps): ReactNode {
   const otherWorktree = Boolean(branch.worktreePath && !branch.current);
-  const removeVerb = archive ? "Archive" : forceDelete ? "Force Delete" : "Delete";
+  const removeVerb = archive ? "Archive" : forceDelete ? "Force delete" : "Delete";
   const cancelLabel = busy ? "Cancel operation" : "Cancel";
   const errorId = `branch-error-${branch.name}`;
   const rowRef = useRef<HTMLDivElement>(null);
@@ -189,7 +189,7 @@ function BranchRow({ branch, action, capabilities, busy, mutationBlocked, archiv
           aria-describedby={error ? errorId : undefined}
         />
         <Button type="button" variant="ghost" size="sm" onClick={onCancel}>{cancelLabel}</Button>
-        <Button type="submit" size="sm" disabled={busy || mutationBlocked}>{busy ? <Loader2 className="animate-spin" /> : null}Rename Branch</Button>
+        <Button type="submit" size="sm" disabled={busy || mutationBlocked}>{busy ? <Loader2 className="animate-spin" /> : null}Rename branch</Button>
       </div>
       {error ? <p id={errorId} className="dialog-error pl-6" role="alert">{error}</p> : <p className="pl-6 text-xs text-muted-foreground">Renaming <span className="font-mono">{branch.name}</span>. Its remote branch is not changed.</p>}
     </form>;
@@ -227,7 +227,7 @@ function BranchRow({ branch, action, capabilities, busy, mutationBlocked, archiv
         {error ? <p className="dialog-error" role="alert">{error}</p> : null}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" size="sm" autoFocus onClick={onCancel}>{cancelLabel}</Button>
-          <Button type="submit" variant="destructive" size="sm" disabled={busy || mutationBlocked}>{busy ? <Loader2 className="animate-spin" /> : null}{removeVerb} Branch</Button>
+          <Button type="submit" variant="destructive" size="sm" disabled={busy || mutationBlocked}>{busy ? <Loader2 className="animate-spin" /> : null}{removeVerb} branch</Button>
         </div>
       </form>
     </MotionPresence>

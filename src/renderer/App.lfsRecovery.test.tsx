@@ -17,7 +17,7 @@ function setImageDiff(diff: GitFileDiff): void {
 }
 
 describe("Git LFS image recovery", () => {
-  it("repairs a corrupt preview only when the user activates Retry Preview", async () => {
+  it("repairs a corrupt preview only when the user activates Retry preview", async () => {
     const user = userEvent.setup();
     setImageDiff(imageDiff({ status: "lfs-corrupt", byteLength: 76047, fetchable: true }));
     vi.mocked(githead.fetchLfsImageVersions).mockResolvedValue({ repoPath, exitCode: 0, stdout: "Downloaded LFS image preview.", stderr: "" });

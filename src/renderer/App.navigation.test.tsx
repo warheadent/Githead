@@ -95,18 +95,18 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /^History$/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /src\/first\.ts/ }));
-    await user.click(await screen.findByRole("menuitem", { name: "Log Selected" }));
-    const first = await screen.findByRole("region", { name: "File History for src/first.ts" });
+    await user.click(await screen.findByRole("menuitem", { name: "Log selected" }));
+    const first = await screen.findByRole("region", { name: "File history for src/first.ts" });
     await within(first).findByText("diff for src/first.ts");
     await user.click(within(first).getByRole("button", { name: "Back" }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /src\/second\.ts/ }));
-    await user.click(await screen.findByRole("menuitem", { name: "Log Selected" }));
-    const second = await screen.findByRole("region", { name: "File History for src/second.ts" });
+    await user.click(await screen.findByRole("menuitem", { name: "Log selected" }));
+    const second = await screen.findByRole("region", { name: "File history for src/second.ts" });
     await within(second).findByText("diff for src/second.ts");
 
     await goBack();
     await goBack();
-    const restored = await screen.findByRole("region", { name: "File History for src/first.ts" });
+    const restored = await screen.findByRole("region", { name: "File history for src/first.ts" });
     expect(await within(restored).findByText("change to src/first.ts")).toBeTruthy();
     expect(await within(restored).findByText("diff for src/first.ts")).toBeTruthy();
     expect(within(restored).queryByText("change to src/second.ts")).toBeNull();
@@ -129,7 +129,7 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /^History$/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
-    await user.click(await screen.findByRole("menuitem", { name: "Log Selected" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Log selected" }));
     await user.click(await screen.findByRole("button", { name: "Blame this version" }));
     await screen.findByRole("region", { name: `Blame for ${file.path}` });
     await switchToRepository(otherPath, user);
@@ -137,8 +137,8 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     await goBack();
     const blame = await screen.findByRole("region", { name: `Blame for ${file.path}` });
     await waitFor(() => expect(githead.getFileBlame).toHaveBeenCalledTimes(2));
-    await user.click(within(blame).getByRole("button", { name: "Back to File History" }));
-    const restored = await screen.findByRole("region", { name: `File History for ${file.path}` });
+    await user.click(within(blame).getByRole("button", { name: "Back to file history" }));
+    const restored = await screen.findByRole("region", { name: `File history for ${file.path}` });
     expect(await within(restored).findByText("restored file change")).toBeTruthy();
     expect(await within(restored).findByText("restored file diff")).toBeTruthy();
   });
@@ -210,12 +210,12 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /^History$/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
-    await user.click(await screen.findByRole("menuitem", { name: "Log Selected" }));
-    const fileHistory = await screen.findByRole("region", { name: `File History for ${file.path}` });
+    await user.click(await screen.findByRole("menuitem", { name: "Log selected" }));
+    const fileHistory = await screen.findByRole("region", { name: `File history for ${file.path}` });
     await user.click(await within(fileHistory).findByRole("button", { name: "Blame this version" }));
     await waitFor(() => expect(githead.getFileBlame).toHaveBeenCalled());
     await goBack();
-    expect(await screen.findByRole("region", { name: `File History for ${file.path}` })).toBeTruthy();
+    expect(await screen.findByRole("region", { name: `File history for ${file.path}` })).toBeTruthy();
     expect(githead.getFileHistory).toHaveBeenCalledTimes(1);
     await goBack();
     expect(await screen.findByRole("listbox", { name: "Commit history" })).toBeTruthy();
@@ -223,7 +223,7 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     selectedTab(/^Changes/);
     await goForward();
     await goForward();
-    expect(await screen.findByRole("region", { name: `File History for ${file.path}` })).toBeTruthy();
+    expect(await screen.findByRole("region", { name: `File history for ${file.path}` })).toBeTruthy();
   });
 
   it("restores the repository and its screen together", async () => {
@@ -289,8 +289,8 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /^History$/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
-    await user.click(await screen.findByRole("menuitem", { name: "Log Selected" }));
-    await screen.findByRole("region", { name: `File History for ${file.path}` });
+    await user.click(await screen.findByRole("menuitem", { name: "Log selected" }));
+    await screen.findByRole("region", { name: `File history for ${file.path}` });
     await switchToRepository(otherPath, user);
     await waitFor(() => expect(currentRepositoryButton("Other")).toBeTruthy());
 

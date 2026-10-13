@@ -145,11 +145,11 @@ export function RemoteManagementDialog({
     ? mode.remote
     : null;
   const impactsGitHub = selectedRemote?.name === "origin" && hasGitHubOrigin;
-  const title = mode.kind === "list" ? "Manage Remotes"
-    : mode.kind === "add" ? "Add Remote"
-    : mode.kind === "rename" ? "Rename Remote"
-    : mode.kind === "edit" ? "Edit Remote URL"
-    : "Remove Remote";
+  const title = mode.kind === "list" ? "Manage remotes"
+    : mode.kind === "add" ? "Add remote"
+    : mode.kind === "rename" ? "Rename remote"
+    : mode.kind === "edit" ? "Edit remote URL"
+    : "Remove remote";
   const description = mode.kind === "list" ? "Manage the repositories you fetch from and push to."
     : mode.kind === "add" ? "Connect this repository to another location."
     : mode.kind === "rename" ? "Choose a new local name for this remote."
@@ -287,7 +287,7 @@ export function RemoteManagementDialog({
                 </Button>
                 <Button type="submit" variant={mode.kind === "remove" ? "destructive" : "default"} disabled={busy || mutationBlocked}>
                   {busy ? <Loader2 className="animate-spin" /> : null}
-                  {mode.kind === "add" ? "Add Remote" : mode.kind === "rename" ? "Rename Remote" : mode.kind === "edit" ? "Save URL" : "Remove Remote"}
+                  {mode.kind === "add" ? "Add remote" : mode.kind === "rename" ? "Rename remote" : mode.kind === "edit" ? "Save URL" : "Remove remote"}
                 </Button>
               </DialogFooter>
             </div>
@@ -324,7 +324,7 @@ function RemoteList({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="flex items-center gap-2 text-sm font-medium">Configured remotes <Badge variant="secondary" className="tabular-nums">{remotes.length}</Badge></p>
         <Button type="button" size="sm" onClick={onAdd} disabled={loading || busy}>
-          <Plus /> Add Remote
+          <Plus /> Add remote
         </Button>
       </div>
       <div className="space-y-3 overflow-y-auto" aria-live="polite" aria-busy={loading}>
@@ -334,7 +334,7 @@ function RemoteList({
             <TriangleAlert aria-hidden="true" />
             <div className="grid justify-items-start gap-3">
               <p className="dialog-error">{error}</p>
-              <Button type="button" variant="outline" size="sm" onClick={onReload}>Try Again</Button>
+              <Button type="button" variant="outline" size="sm" onClick={onReload}>Try again</Button>
             </div>
           </div>
         ) : null}

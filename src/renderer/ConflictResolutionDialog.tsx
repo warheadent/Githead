@@ -157,7 +157,7 @@ export function ConflictResolutionDialog({
                 >
                   <FileWarning className="size-3.5 shrink-0 text-status-conflict" aria-hidden="true" />
                   <span className="min-w-0 flex-1 truncate" title={filePath}>{filePath}</span>
-                  <span className="text-[10px] tabular-nums text-muted-foreground">{index + 1}</span>
+                  <span className="text-[11px] tabular-nums text-muted-foreground">{index + 1}</span>
                   <ChevronRight className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
                 </button>
               ))}
@@ -198,7 +198,7 @@ export function ConflictResolutionDialog({
                   <div className="flex items-start justify-between gap-3 border-b border-t-2 border-t-status-added px-3 py-2.5">
                     <div>
                       <h3 className="text-xs font-semibold">Result</h3>
-                      <p className="mt-0.5 text-[10px] text-muted-foreground">Editable working file</p>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">Editable working file</p>
                     </div>
                     <span className={`rounded-full px-2 py-0.5 text-[11px] leading-4 font-medium ${hasMarkers ? "bg-status-modified/15 text-status-modified" : "bg-status-added/15 text-status-added"}`}>
                       {hasMarkers ? "Markers remain" : "Ready to stage"}
@@ -292,7 +292,7 @@ function ConflictSide({
     <section className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] bg-background" aria-label={title}>
       <div className={`border-b border-t-2 px-3 py-2.5 ${tone === "current" ? "border-t-status-renamed" : "border-t-status-conflict"}`}>
         <h3 className="text-xs font-semibold">{title}</h3>
-        <p className="mt-0.5 text-[10px] text-muted-foreground">{detail}</p>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">{detail}</p>
       </div>
       <div className="h-10 border-b" aria-hidden="true" />
       {text === null ? (

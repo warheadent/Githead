@@ -129,11 +129,6 @@ export function resolveBranchChoice(item: BranchItem): BranchChoice | null {
     : { kind: "switch", branchName: item.branch.name };
 }
 
-/** The text that names the checked-out reference: the branch, the checked-out tag or "Detached HEAD". */
-export function getBranchDisplayValue(currentBranch: string | null, currentTag: string | null | undefined): string {
-  return currentBranch ?? (currentTag ? `Tag: ${currentTag}` : "Detached HEAD");
-}
-
 export interface UpstreamItem {
   /** Picker value: the remote branch name, or an empty string for "No upstream". */
   value: string;

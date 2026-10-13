@@ -17,7 +17,7 @@ export interface SettingsDialogStatus {
   content: ReactNode;
 }
 
-/** The shared Settings and Repository Settings frame: header, category body, status line and Cancel/Save. */
+/** The shared Settings and Repository settings frame: header, category body, status line and Cancel/Save. */
 export function SettingsDialogFrame({
   open,
   busy,

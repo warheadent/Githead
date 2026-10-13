@@ -196,7 +196,7 @@ function trimActivityLog(state: ActivityLogState): ActivityLogState {
   blocks = blocks.slice(removeCount);
   if (trimmed) {
     const notice = state.blocks[0]?.kind === "notice" ? state.blocks[0] : {
-      id: nextBlockId++, kind: "notice" as const, stream: "system" as const, runId: "trimmed", action: "Activity Log",
+      id: nextBlockId++, kind: "notice" as const, stream: "system" as const, runId: "trimmed", action: "Activity log",
       rawText: TRIM_NOTICE_TEXT, html: TRIM_NOTICE_TEXT, continuation: false, sealed: true
     };
     blocks.unshift(notice);

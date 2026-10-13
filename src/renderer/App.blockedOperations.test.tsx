@@ -110,7 +110,7 @@ describe("unrelated tasks during Git operations", { timeout: 20_000 }, () => {
     const file = await screen.findByText("sample.txt");
     fireEvent.contextMenu(file);
     expect(screen.getByRole("menuitem", { name: "Show in Explorer" }).hasAttribute("data-disabled")).toBe(false);
-    await user.click(screen.getByRole("menuitem", { name: "Copy Path" }));
+    await user.click(screen.getByRole("menuitem", { name: "Copy path" }));
     await waitFor(() => expect(githead.copyPathToClipboard).toHaveBeenCalledWith({ repoPath, path: "sample.txt" }));
     expect(screen.getByRole("button", { name: /^Fetch/ }).hasAttribute("disabled")).toBe(true);
     await fetch.finish();
@@ -128,8 +128,8 @@ describe("unrelated tasks during Git operations", { timeout: 20_000 }, () => {
     ] }));
     const fetch = await startFetch();
     fireEvent.contextMenu(await screen.findByRole("option", { name: /modules\/sample/ }));
-    expect(screen.getByRole("menuitem", { name: "Open Submodule" }).hasAttribute("data-disabled")).toBe(true);
-    fireEvent.click(screen.getByRole("menuitem", { name: "Open Submodule" }));
+    expect(screen.getByRole("menuitem", { name: "Open submodule" }).hasAttribute("data-disabled")).toBe(true);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open submodule" }));
     expect(githead.cancelGitOperation).not.toHaveBeenCalled();
     await user.keyboard("{Escape}");
     fireEvent.contextMenu(screen.getByText("sample.txt"));
@@ -150,11 +150,11 @@ describe("unrelated tasks during Git operations", { timeout: 20_000 }, () => {
     await waitFor(() => expect(githead.copyCommitShaToClipboard).toHaveBeenCalledWith({ repoPath, hash: commit.hash }));
     const files = await screen.findByRole("listbox", { name: "Changed files" });
     fireEvent.contextMenu(within(files).getAllByRole("option")[0]!);
-    for (const name of ["Log Selected", "Blame Selected", "Open Selected Version", "Copy Path to Clipboard"]) {
+    for (const name of ["Log selected", "Blame selected", "Open selected version", "Copy path to clipboard"]) {
       expect(screen.getByRole("menuitem", { name }).hasAttribute("data-disabled")).toBe(false);
     }
-    expect(screen.getByRole("menuitem", { name: "Reset to Commit" }).hasAttribute("data-disabled")).toBe(true);
-    await user.click(screen.getByRole("menuitem", { name: "Open Selected Version" }));
+    expect(screen.getByRole("menuitem", { name: "Reset to commit" }).hasAttribute("data-disabled")).toBe(true);
+    await user.click(screen.getByRole("menuitem", { name: "Open selected version" }));
     await waitFor(() => expect(githead.openCommitFileVersion).toHaveBeenCalledOnce());
     await fetch.finish();
   });
@@ -171,23 +171,23 @@ describe("unrelated tasks during Git operations", { timeout: 20_000 }, () => {
     await user.click(moveUp);
     await waitFor(() => expect(githead.reorderRepoRecents).toHaveBeenCalledWith([otherRepo, repoPath]));
     fireEvent.contextMenu(await repositoryOption(otherRepo, user));
-    await user.click(await screen.findByRole("menuitem", { name: "Repository Settings…" }));
-    expect(await screen.findByRole("dialog", { name: "Repository Settings" })).toBeTruthy();
+    await user.click(await screen.findByRole("menuitem", { name: "Repository settings…" }));
+    expect(await screen.findByRole("dialog", { name: "Repository settings" })).toBeTruthy();
     await user.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Repository Settings" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Repository settings" })).toBeNull());
     const manageBranches = within(await openBranchSwitcher(user)).getByRole("option", { name: "Manage branches…" });
     expect(manageBranches.getAttribute("aria-disabled")).toBeNull();
     await user.click(manageBranches);
-    expect(await screen.findByRole("dialog", { name: "Manage Branches" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "Manage branches" })).toBeTruthy();
     await user.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Manage Branches" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Manage branches" })).toBeNull());
     const manageRemotes = within(await openBranchSwitcher(user)).getByRole("option", { name: /^Manage remotes…/ });
     expect(manageRemotes.getAttribute("aria-disabled")).toBeNull();
     await user.click(manageRemotes);
-    expect(await screen.findByRole("dialog", { name: "Manage Remotes" })).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Add Remote" }));
+    expect(await screen.findByRole("dialog", { name: "Manage remotes" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Add remote" }));
     await user.type(screen.getByLabelText("Name", { exact: true }), "backup");
-    expect(screen.getByRole("button", { name: "Add Remote" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Add remote" }).hasAttribute("disabled")).toBe(true);
     await user.keyboard("{Escape}");
     expect(githead.cancelGitOperation).not.toHaveBeenCalled();
     await fetch.finish();

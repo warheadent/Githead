@@ -8,7 +8,6 @@ import {
   UPSTREAM_TRACKING_GROUP,
   buildBranchItems,
   buildUpstreamItems,
-  getBranchDisplayValue,
   getOperationBlockedReason,
   getUpstreamDisabledReason,
   resolveBranchChoice
@@ -132,14 +131,6 @@ describe("buildBranchItems", () => {
     });
 
     expect(items.map((item) => [item.label, item.current])).toEqual([["topic", true], ["main", false]]);
-  });
-});
-
-describe("getBranchDisplayValue", () => {
-  it("names the branch, the checked-out tag or a detached HEAD", () => {
-    expect(getBranchDisplayValue("main", "v1")).toBe("main");
-    expect(getBranchDisplayValue(null, "v2")).toBe("Tag: v2");
-    expect(getBranchDisplayValue(null, null)).toBe("Detached HEAD");
   });
 });
 

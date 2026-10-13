@@ -1403,18 +1403,18 @@ describe("App", { timeout: 10_000 }, () => {
     fireEvent.contextMenu(commitFile);
 
     const expectedActions = [
-      "Log Selected",
-      "Blame Selected",
-      "Reset to Commit",
-      "Open Current Version",
-      "Open Selected Version",
-      "Copy Path to Clipboard"
+      "Log selected",
+      "Blame selected",
+      "Reset to commit",
+      "Open current version",
+      "Open selected version",
+      "Copy path to clipboard"
     ];
     for (const action of expectedActions) {
       expect(await screen.findByRole("menuitem", { name: action })).toBeTruthy();
     }
-    expect(screen.getByRole("menuitem", { name: "Log Selected" }).getAttribute("data-disabled")).toBeNull();
-    expect(screen.getByRole("menuitem", { name: "Blame Selected" }).getAttribute("data-disabled")).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Log selected" }).getAttribute("data-disabled")).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Blame selected" }).getAttribute("data-disabled")).toBeNull();
   });
 
   it("opens bounded File History and restores Commit History without refetching", async () => {
@@ -1450,8 +1450,8 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(screen.getByRole("tab", { name: /^History$/ }));
     const commitFile = await screen.findByRole("option", { name: /src\/App\.tsx/ });
     fireEvent.contextMenu(commitFile);
-    await user.click(await screen.findByRole("menuitem", { name: "Log Selected" }));
-    expect(await screen.findByRole("region", { name: `File History for ${file.path}` })).toBeTruthy();
+    await user.click(await screen.findByRole("menuitem", { name: "Log selected" }));
+    expect(await screen.findByRole("region", { name: `File history for ${file.path}` })).toBeTruthy();
     expect((await screen.findByRole("button", { name: "Wrap diff lines" })).getAttribute("aria-pressed")).toBe("true");
     expect(document.querySelector(".diff-output.text")?.classList.contains("is-wrapped")).toBe(true);
     expect(screen.getByText("Showing the newest 200 changes for this file.")).toBeTruthy();
@@ -1580,13 +1580,13 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(screen.getByRole("tab", { name: /^History$/ }));
     const commitFile = await screen.findByRole("option", { name: /src\/App\.tsx/ });
     fireEvent.contextMenu(commitFile);
-    await user.click(await screen.findByRole("menuitem", { name: "Blame Selected" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Blame selected" }));
     expect(await screen.findByRole("region", { name: `Blame for ${file.path}` })).toBeTruthy();
     expect(screen.getByText("const a = 1;")).toBeTruthy();
     expect(githead.getFileBlame).toHaveBeenCalledWith({ repoPath, hash: commit.hash, path: file.path, requestId: expect.any(String) });
     expect(githead.getFileHistory).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "File history" }));
-    expect(await screen.findByRole("region", { name: `File History for ${file.path}` })).toBeTruthy();
+    expect(await screen.findByRole("region", { name: `File history for ${file.path}` })).toBeTruthy();
     expect(githead.getFileHistory).toHaveBeenCalledWith({ repoPath, startHash: commit.hash, path: file.path, limit: 200, requestId: expect.any(String) });
   });
 
@@ -1621,8 +1621,8 @@ describe("App", { timeout: 10_000 }, () => {
     await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /^History$/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
-    await user.click(await screen.findByRole("menuitem", { name: "Log Selected" }));
-    const fileHistory = await screen.findByRole("region", { name: `File History for ${file.path}` });
+    await user.click(await screen.findByRole("menuitem", { name: "Log selected" }));
+    const fileHistory = await screen.findByRole("region", { name: `File history for ${file.path}` });
     await within(fileHistory).findByText("older file change");
     await user.click(within(fileHistory).getByRole("button", { name: "Blame this version" }));
 
@@ -1644,10 +1644,10 @@ describe("App", { timeout: 10_000 }, () => {
     expect(within(versions).getByRole("option", { selected: true }).textContent).toContain("older file change");
 
     await user.click(within(blame).getByRole("button", { name: "File history" }));
-    expect(await screen.findByRole("region", { name: `File History for ${file.path}` })).toBeTruthy();
+    expect(await screen.findByRole("region", { name: `File history for ${file.path}` })).toBeTruthy();
     expect(githead.getFileHistory).toHaveBeenCalledTimes(1);
 
-    await user.click(within(screen.getByRole("region", { name: `File History for ${file.path}` })).getByRole("button", { name: "History" }));
+    await user.click(within(screen.getByRole("region", { name: `File history for ${file.path}` })).getByRole("button", { name: "History" }));
     expect(await screen.findByRole("listbox", { name: "Commit history" })).toBeTruthy();
     expect(githead.getFileHistory).toHaveBeenCalledTimes(1);
   });
@@ -1681,8 +1681,8 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(within(commits).getByRole("option", { name: /older file change/ }));
     await waitFor(() => expect(githead.getCommitDetails).toHaveBeenLastCalledWith(expect.objectContaining({ hash: older.hash })));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
-    await user.click(await screen.findByRole("menuitem", { name: "Log Selected" }));
-    const fileHistory = await screen.findByRole("region", { name: `File History for ${file.path}` });
+    await user.click(await screen.findByRole("menuitem", { name: "Log selected" }));
+    const fileHistory = await screen.findByRole("region", { name: `File history for ${file.path}` });
     await within(fileHistory).findByText("older file change");
     await user.click(within(fileHistory).getByRole("button", { name: "History" }));
 
@@ -1690,14 +1690,14 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(within(commitsAgain).getByRole("option", { name: /newer file change/ }));
     await waitFor(() => expect(githead.getCommitDetails).toHaveBeenLastCalledWith(expect.objectContaining({ hash: newer.hash })));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
-    await user.click(await screen.findByRole("menuitem", { name: "Blame Selected" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Blame selected" }));
     const blame = await screen.findByRole("region", { name: `Blame for ${file.path}` });
     expect(await within(blame).findByRole("heading", { name: `Blame at ${newer.shortHash}` })).toBeTruthy();
     expect(within(blame).queryByRole("listbox", { name: `History for ${file.path}` })).toBeNull();
     expect(githead.getFileHistory).toHaveBeenCalledTimes(1);
 
     await user.click(within(blame).getByRole("button", { name: "File history" }));
-    expect(await screen.findByRole("region", { name: `File History for ${file.path}` })).toBeTruthy();
+    expect(await screen.findByRole("region", { name: `File history for ${file.path}` })).toBeTruthy();
     expect(githead.getFileHistory).toHaveBeenCalledTimes(2);
     expect(githead.getFileHistory).toHaveBeenLastCalledWith({ repoPath, startHash: newer.hash, path: file.path, limit: 200, requestId: expect.any(String) });
   });
@@ -1719,7 +1719,7 @@ describe("App", { timeout: 10_000 }, () => {
     await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /^History$/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
-    await user.click(await screen.findByRole("menuitem", { name: "Blame Selected" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Blame selected" }));
     await screen.findByText("Loading blame");
     await switchToRepository(otherRepo, user);
     pendingBlame.resolve({
@@ -1755,7 +1755,7 @@ describe("App", { timeout: 10_000 }, () => {
     const commitFile = await screen.findByRole("option", { name: /src\/App\.test\.tsx/ });
 
     fireEvent.contextMenu(commitFile);
-    await user.click(await screen.findByRole("menuitem", { name: "Open Current Version" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Open current version" }));
     await waitFor(() => {
       expect(githead.openFile).toHaveBeenCalledWith({
         repoPath,
@@ -1764,7 +1764,7 @@ describe("App", { timeout: 10_000 }, () => {
     });
 
     fireEvent.contextMenu(commitFile);
-    await user.click(await screen.findByRole("menuitem", { name: "Open Selected Version" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Open selected version" }));
     await waitFor(() => {
       expect(githead.openCommitFileVersion).toHaveBeenCalledWith({
         repoPath,
@@ -1775,7 +1775,7 @@ describe("App", { timeout: 10_000 }, () => {
     });
 
     fireEvent.contextMenu(commitFile);
-    await user.click(await screen.findByRole("menuitem", { name: "Copy Path to Clipboard" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Copy path to clipboard" }));
     await waitFor(() => {
       expect(githead.copyPathToClipboard).toHaveBeenCalledWith({
         repoPath,
@@ -1807,7 +1807,7 @@ describe("App", { timeout: 10_000 }, () => {
     const commitFile = await screen.findByRole("option", { name: /src\/App\.test\.tsx/ });
 
     fireEvent.contextMenu(commitFile);
-    await user.click(await screen.findByRole("menuitem", { name: "Reset to Commit" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Reset to commit" }));
 
     expect(await screen.findByRole("dialog", { name: "Reset file contents?" })).toBeTruthy();
     expect(screen.getByDisplayValue("src/App.test.tsx")).toBeTruthy();
@@ -1856,7 +1856,7 @@ describe("App", { timeout: 10_000 }, () => {
     const commitFile = await screen.findByRole("option", { name: /src\/App\.test\.tsx/ });
 
     fireEvent.contextMenu(commitFile);
-    await user.click(await screen.findByRole("menuitem", { name: "Reset to Commit" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Reset to commit" }));
     await screen.findByRole("dialog", { name: "Reset file contents?" });
     await user.click(screen.getByRole("button", { name: "Cancel" }));
 
@@ -2144,7 +2144,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await user.click(await screen.findByRole("option", { name: /src\/live\.ts/ }));
     expect(await screen.findByText("loaded-version")).toBeTruthy();
-    const hunkAction = screen.getByRole("button", { name: "Stage Hunk" });
+    const hunkAction = screen.getByRole("button", { name: "Stage hunk" });
     expect(hunkAction.hasAttribute("disabled")).toBe(false);
 
     emitRepoChanged();
@@ -2159,8 +2159,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     expect(await screen.findByText("latest-version")).toBeTruthy();
     await waitFor(() => expect(screen.queryByText("Loaded diff is out of date")).toBeNull());
-    expect(screen.getByRole("button", { name: "Refresh Diff" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Stage Hunk" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.getByRole("button", { name: "Refresh diff" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Stage hunk" }).hasAttribute("disabled")).toBe(false);
   });
 
   it("does not show the Diff header status for an unrelated repository change", async () => {
@@ -2178,8 +2178,8 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => expect(githead.getFileDiff).toHaveBeenCalledTimes(2));
 
     expect(screen.queryByText("Loaded diff is out of date")).toBeNull();
-    expect(screen.getByRole("button", { name: "Refresh Diff" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Stage Hunk" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.getByRole("button", { name: "Refresh diff" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Stage hunk" }).hasAttribute("disabled")).toBe(false);
   });
 
   it("restores diff line wrap when its preference save fails", async () => {
@@ -2224,11 +2224,11 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getFileDiff).mockResolvedValueOnce(diff).mockResolvedValue(createTextDiff(file.path, "remaining-hunk"));
     render(<App />);
     await user.click(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
-    await user.click(await screen.findByRole("button", { name: "Discard Hunk" }));
+    await user.click(await screen.findByRole("button", { name: "Discard hunk" }));
     expect(githead.discardHunk).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(githead.discardHunk).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Discard Hunk" }));
+    await user.click(screen.getByRole("button", { name: "Discard hunk" }));
     await user.click(screen.getByRole("button", { name: "Discard changes" }));
     await waitFor(() => expect(githead.discardHunk).toHaveBeenCalledWith({
       repoPath, path: file.path, side: "unstaged", patch: `${diff.text}\n`, operationId: expect.any(String)
@@ -2261,7 +2261,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await user.click(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
-    await user.click(await screen.findByRole("button", { name: /^Stage Hunk$/ }));
+    await user.click(await screen.findByRole("button", { name: /^Stage hunk$/ }));
 
     await waitFor(() => {
       expect(githead.stageHunk).toHaveBeenCalledWith({
@@ -2307,7 +2307,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await user.click(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
-    await user.click(await screen.findByRole("button", { name: /^Unstage Hunk$/ }));
+    await user.click(await screen.findByRole("button", { name: /^Unstage hunk$/ }));
 
     await waitFor(() => {
       expect(githead.unstageHunk).toHaveBeenCalledWith({
@@ -2423,7 +2423,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await user.click(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
-    await user.click(await screen.findByRole("button", { name: /^Stage Hunk$/ }));
+    await user.click(await screen.findByRole("button", { name: /^Stage hunk$/ }));
 
     expect(await screen.findByText("staged-version")).toBeTruthy();
     const stagedList = screen.getByRole("listbox", { name: "Staged files" });
@@ -2453,7 +2453,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     const option = await screen.findByRole("option", { name: /src\/App\.tsx/ });
     await user.click(option);
-    await user.click(await screen.findByRole("button", { name: /^Stage Hunk$/ }));
+    await user.click(await screen.findByRole("button", { name: /^Stage hunk$/ }));
 
     await waitFor(() => expect(githead.getRepoSummary).toHaveBeenCalledTimes(2));
     expect(option.getAttribute("aria-selected")).toBe("true");
@@ -2488,7 +2488,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(await screen.findByRole("button", { name: "Open local folder…" }));
     await waitFor(() => expect(githead.chooseRepo).toHaveBeenCalledTimes(1));
     blockRepositoryARefresh = true;
-    await user.click(await screen.findByRole("button", { name: /^Stage Hunk$/ }));
+    await user.click(await screen.findByRole("button", { name: /^Stage hunk$/ }));
     await waitFor(() => expect(githead.stageHunk).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(vi.mocked(githead.getRepoSummary).mock.calls.length).toBeGreaterThan(1));
 

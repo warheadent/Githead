@@ -14,9 +14,6 @@ import type { WorkspaceView } from "./useWorkspaceNavigation";
 /** Views that open in the single guest slot next to the permanent Changes and History views. */
 export type GuestView = Exclude<WorkspaceView, "status" | "history">;
 
-/** Guest views in Go-to order. */
-export const GUEST_VIEWS: readonly GuestView[] = ["stashes", "pullRequests", "issues", "workflows", "analytics", "activity"];
-
 export const WORKSPACE_VIEW_LABELS: Readonly<Record<WorkspaceView, string>> = {
   status: "Changes",
   history: "History",

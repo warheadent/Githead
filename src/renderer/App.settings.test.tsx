@@ -68,7 +68,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(await screen.findByRole("button", { name: "Clone a repository" }));
     await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
     await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
-    await user.click(screen.getByRole("button", { name: "Clone Repository" }));
+    await user.click(screen.getByRole("button", { name: "Clone repository" }));
 
     await waitFor(() => {
       expect(githead.cloneRepository).toHaveBeenCalledWith({
@@ -102,7 +102,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(await screen.findByRole("button", { name: "Clone a repository" }));
     await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
     await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
-    await user.click(screen.getByRole("button", { name: "Clone Repository" }));
+    await user.click(screen.getByRole("button", { name: "Clone repository" }));
 
     expect(await screen.findByText("fatal: authentication failed")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Back to repositories" })).toBeTruthy();
@@ -126,7 +126,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.type(screen.getByRole("combobox", { name: "Search or enter a branch..." }), "main");
     await user.click(screen.getByRole("button", { name: 'Use branch "main"' }));
     await user.type(screen.getByLabelText("Depth"), "1");
-    await user.click(screen.getByRole("button", { name: "Clone Repository" }));
+    await user.click(screen.getByRole("button", { name: "Clone repository" }));
 
     await waitFor(() => {
       expect(githead.cloneRepository).toHaveBeenCalledWith({
@@ -248,7 +248,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(await screen.findByRole("button", { name: "Clone a repository" }));
     await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
     await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
-    await user.click(screen.getByRole("button", { name: "Clone Repository" }));
+    await user.click(screen.getByRole("button", { name: "Clone repository" }));
 
     await waitFor(() => {
       expect(githead.getRepoSummary).toHaveBeenCalledWith(clonedRepo);
@@ -276,7 +276,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(screen.getByRole("button", { name: "Check" }));
 
     expect((await screen.findByRole("button", { name: "Checking" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Clone Repository" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Clone repository" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByRole("button", { name: "Back to repositories" }).hasAttribute("disabled")).toBe(true);
 
     await act(async () => {
@@ -301,7 +301,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect((screen.getByLabelText("Depth") as HTMLInputElement).value).toBe("0");
     await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
     await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
-    await user.click(screen.getByRole("button", { name: "Clone Repository" }));
+    await user.click(screen.getByRole("button", { name: "Clone repository" }));
 
     await waitFor(() => {
       expect(githead.cloneRepository).toHaveBeenCalledWith(expect.objectContaining({
@@ -616,7 +616,7 @@ describe("App", { timeout: 10_000 }, () => {
     fireEvent.change(screen.getByLabelText("OpenRouter API Key"), { target: { value: "sk-or-key" } });
     fireEvent.change(screen.getByLabelText("Model"), { target: { value: "openrouter/auto" } });
     fireEvent.change(screen.getByLabelText("Group changes by"), { target: { value: "hunk" } });
-    fireEvent.change(screen.getByLabelText("Commit Plan Model"), { target: { value: "openrouter/plan" } });
+    fireEvent.change(screen.getByLabelText("Commit plan model"), { target: { value: "openrouter/plan" } });
     fireEvent.change(instructions, { target: { value: "Write a single-line commit message." } });
     await user.click(screen.getByRole("button", { name: "Save" }));
 
@@ -782,7 +782,7 @@ describe("App", { timeout: 10_000 }, () => {
     const input = screen.getByLabelText("New name");
     await user.clear(input);
     await user.type(input, "feature/new");
-    await user.click(screen.getByRole("button", { name: "Rename Branch" }));
+    await user.click(screen.getByRole("button", { name: "Rename branch" }));
     await waitFor(() => expect(githead.renameBranch).toHaveBeenCalledWith({ repoPath, branchName: "feature/old", newBranchName: "feature/new", operationId: expect.any(String) }));
     vi.mocked(githead.deleteBranch).mockResolvedValue({
       repoPath,
@@ -791,13 +791,13 @@ describe("App", { timeout: 10_000 }, () => {
       stderr: "error: the branch 'feature/old' is not fully merged\nhint: run git branch -D feature/old"
     });
     await user.click(await screen.findByRole("button", { name: "Delete feature/old" }));
-    await user.click(screen.getByRole("button", { name: "Delete Branch" }));
+    await user.click(screen.getByRole("button", { name: "Delete branch" }));
     expect(githead.deleteBranch).toHaveBeenCalledWith({ repoPath, branchName: "feature/old", force: false, operationId: expect.any(String) });
     expect(await screen.findByText("This branch has commits that haven’t been merged. Merge them into another branch before deleting it.")).toBeTruthy();
     expect(screen.queryByText(/git branch -D/)).toBeNull();
     vi.mocked(githead.deleteBranch).mockResolvedValue({ repoPath, exitCode: 0, stdout: "", stderr: "" });
     await user.click(screen.getByRole("checkbox", { name: /Force delete/ }));
-    await user.click(screen.getByRole("button", { name: "Force Delete Branch" }));
+    await user.click(screen.getByRole("button", { name: "Force delete branch" }));
     await waitFor(() => expect(githead.deleteBranch).toHaveBeenLastCalledWith({ repoPath, branchName: "feature/old", force: true, operationId: expect.any(String) }));
   });
 
@@ -817,15 +817,15 @@ describe("App", { timeout: 10_000 }, () => {
     const reasoning = await screen.findByLabelText("Reasoning") as HTMLSelectElement;
     await waitFor(() => expect(reasoning.disabled).toBe(false));
     expect(reasoning.value).toBe("low");
-    expect(within(reasoning).getByRole("option", { name: "Extra High" })).toBeTruthy();
+    expect(within(reasoning).getByRole("option", { name: "Extra high" })).toBeTruthy();
     await user.selectOptions(reasoning, "medium");
 
-    const commitPlanReasoning = await screen.findByLabelText("Commit Plan Reasoning") as HTMLSelectElement;
+    const commitPlanReasoning = await screen.findByLabelText("Commit plan reasoning") as HTMLSelectElement;
     await waitFor(() => expect(commitPlanReasoning.disabled).toBe(false));
     await user.selectOptions(commitPlanReasoning, "xhigh");
 
-    await user.type(screen.getByLabelText("PR Description Model"), "openai/gpt-5.4-nano");
-    const prReasoning = await screen.findByLabelText("PR Description Reasoning") as HTMLSelectElement;
+    await user.type(screen.getByLabelText("PR description model"), "openai/gpt-5.4-nano");
+    const prReasoning = await screen.findByLabelText("PR description reasoning") as HTMLSelectElement;
     await waitFor(() => expect(prReasoning.disabled).toBe(false));
     await user.selectOptions(prReasoning, "high");
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -1303,11 +1303,11 @@ describe("App", { timeout: 10_000 }, () => {
     await waitForRepositoryWorkspace();
     await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: "Manage remotes…" }));
 
-    expect(await screen.findByRole("dialog", { name: "Manage Remotes" })).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Add Remote" }));
+    expect(await screen.findByRole("dialog", { name: "Manage remotes" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Add remote" }));
     expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("origin");
     await user.type(screen.getByLabelText("URL"), "https://example.test/project.git");
-    await user.click(screen.getByRole("button", { name: "Add Remote" }));
+    await user.click(screen.getByRole("button", { name: "Add remote" }));
 
     await waitFor(() => expect(githead.addRemote).toHaveBeenCalledWith({
       repoPath,

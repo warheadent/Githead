@@ -58,7 +58,7 @@ export function PushToBranchDialog({
           onPush(event);
         }}>
           <DialogHeader>
-            <DialogTitle>Push to Another Branch</DialogTitle>
+            <DialogTitle>Push to another branch</DialogTitle>
             <DialogDescription>
               Push the current branch to a different remote branch without changing its upstream.
             </DialogDescription>

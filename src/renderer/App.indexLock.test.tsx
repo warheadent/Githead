@@ -18,7 +18,7 @@ describe("Index lock recovery", () => {
     vi.mocked(githead.inspectGitIndexLock).mockResolvedValue({ ...createOperationResult(), lock });
     render(<App />);
     await screen.findByRole("option", { name: /example.txt/ });
-    await user.click(screen.getByRole("button", { name: "Stage All" }));
+    await user.click(screen.getByRole("button", { name: "Stage all" }));
     return user;
   }
 

@@ -103,7 +103,7 @@ export async function saveActionsConfigFile(
   return {
     repoPath: request.repoPath,
     exitCode: 0,
-    stdout: "Repository Actions saved.",
+    stdout: "Repository actions saved.",
     stderr: ""
   };
 }

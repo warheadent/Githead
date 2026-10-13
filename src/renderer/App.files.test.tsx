@@ -557,7 +557,7 @@ describe("App", { timeout: 10_000 }, () => {
       await metadataGate.promise;
       return loadMetadata(request);
     });
-    fireEvent.click(screen.getByRole("button", { name: /^Stage Hunk$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Stage hunk$/ }));
     await waitFor(() => expect(githead.stageHunk).toHaveBeenCalledWith(expect.objectContaining({ path: movedPath, side: "unstaged" })));
 
     const staged = await screen.findByRole("listbox", { name: "Staged files" });
@@ -597,7 +597,7 @@ describe("App", { timeout: 10_000 }, () => {
     });
   });
 
-  it.each(["Stage 1 file", "Stage All"])("%s excludes submodules that cannot be staged", async (buttonName) => {
+  it.each(["Stage 1 file", "Stage all"])("%s excludes submodules that cannot be staged", async (buttonName) => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       files: [
         createStatusFile("src/change.ts", { isUnstaged: true, worktreeStatus: "M" }),
@@ -1043,8 +1043,8 @@ describe("App", { timeout: 10_000 }, () => {
     expect(diffPanel.querySelector(".diff-panel-header .status-chip")?.getAttribute("data-status-tone")).toBe("modified");
     expect(within(diffPanel).getByText("1 line added, 1 line deleted")).toBeTruthy();
     expect(within(diffPanel).getByText("@@ -1,2 +1,2 @@ export function run()")).toBeTruthy();
-    expect(within(diffPanel).getByRole("button", { name: "Unstage Hunk" })).toBeTruthy();
-    expect(within(diffPanel).getByRole("button", { name: "Refresh Diff" })).toBeTruthy();
+    expect(within(diffPanel).getByRole("button", { name: "Unstage hunk" })).toBeTruthy();
+    expect(within(diffPanel).getByRole("button", { name: "Refresh diff" })).toBeTruthy();
     expect(within(diffPanel).queryByText("Staged diff")).toBeNull();
   });
 
@@ -1125,7 +1125,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(await screen.findByText("Loaded diff is out of date")).toBeTruthy();
   });
 
-  it("refreshes the selected diff when Refresh Diff is clicked after file status changes", async () => {
+  it("refreshes the selected diff when Refresh diff is clicked after file status changes", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary)
       .mockResolvedValueOnce(createSummary({
@@ -1259,7 +1259,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     expect(screen.getByLabelText("Commit staged files").querySelector(".status-text")).toBeNull();
     await openWorkspaceView("Activity log", user);
-    expect(await screen.findByText("Output Available")).toBeTruthy();
+    expect(await screen.findByText("Output available")).toBeTruthy();
     expect(screen.getByText(/create mode 100644 src\/renderer\/App\.tsx/)).toBeTruthy();
   });
 
@@ -1439,7 +1439,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.queryByText(/Generating commit message exited with code/)).toBeNull();
   });
 
-  it("opens Generate with Context and sends trimmed context with the request", async () => {
+  it("opens Generate with context and sends trimmed context with the request", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       files: [
@@ -1460,7 +1460,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     const commitPanel = await screen.findByLabelText("Commit staged files");
     await user.click(within(commitPanel).getByRole("button", { name: "More generate actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Generate with Context" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Generate with context" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Generate with context" });
     await user.type(within(dialog).getByLabelText("Change context"), "  Preserve legacy project naming.  ");
@@ -1478,7 +1478,7 @@ describe("App", { timeout: 10_000 }, () => {
     });
   });
 
-  it("stops Generate with Context and closes the dialog after one action", async () => {
+  it("stops Generate with context and closes the dialog after one action", async () => {
     const user = userEvent.setup();
     const pendingGeneration = defer<Awaited<ReturnType<typeof githead.generateCommitMessage>>>();
     const pendingCancellation = defer<Awaited<ReturnType<typeof githead.cancelGitOperation>>>();
@@ -1492,7 +1492,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     const commitPanel = await screen.findByLabelText("Commit staged files");
     await user.click(within(commitPanel).getByRole("button", { name: "More generate actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Generate with Context" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Generate with context" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Generate with context" });
     await user.type(within(dialog).getByLabelText("Change context"), "Explain the behavior");
@@ -1507,7 +1507,7 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => expect(within(commitPanel).getByRole("button", { name: /^Generate$/ })).toBeTruthy());
   });
 
-  it("keeps Generate with Context open when generation fails", async () => {
+  it("keeps Generate with context open when generation fails", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       files: [
@@ -1528,7 +1528,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     const commitPanel = await screen.findByLabelText("Commit staged files");
     await user.click(within(commitPanel).getByRole("button", { name: "More generate actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Generate with Context" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Generate with context" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Generate with context" });
     const contextInput = within(dialog).getByLabelText("Change context") as HTMLTextAreaElement;
@@ -1547,7 +1547,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(within(dialog).getByRole("alert").textContent).toBe("OpenRouter request failed.");
   });
 
-  it("keeps Generate with Context disabled until context is provided", async () => {
+  it("keeps Generate with context disabled until context is provided", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       files: [
@@ -1562,7 +1562,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     const commitPanel = await screen.findByLabelText("Commit staged files");
     await user.click(within(commitPanel).getByRole("button", { name: "More generate actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Generate with Context" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Generate with context" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Generate with context" });
     const submitButton = within(dialog).getByRole("button", { name: /^Generate$/ });
@@ -1920,10 +1920,10 @@ describe("App", { timeout: 10_000 }, () => {
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: identify author");
     await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
 
-    expect(await screen.findByRole("dialog", { name: "Set Git Author Identity" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "Set Git author identity" })).toBeTruthy();
     await user.type(screen.getByLabelText("Name"), "Taylor");
     await user.type(screen.getByLabelText("Email"), "taylor@example.test");
-    await user.click(screen.getByRole("button", { name: "Save and Retry Commit" }));
+    await user.click(screen.getByRole("button", { name: "Save and retry commit" }));
 
     await waitFor(() => {
       expect(githead.saveGitIdentity).toHaveBeenCalledWith({
@@ -1997,7 +1997,7 @@ describe("App", { timeout: 10_000 }, () => {
     });
     await flushRendererAsync();
 
-    expect(screen.queryByRole("dialog", { name: "Set Git Author Identity" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Set Git author identity" })).toBeNull();
     expect(githead.saveGitIdentity).not.toHaveBeenCalled();
     expect(githead.commitChanges).toHaveBeenCalledTimes(1);
   });
@@ -2025,11 +2025,11 @@ describe("App", { timeout: 10_000 }, () => {
     await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: global identity");
     await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
-    await screen.findByRole("dialog", { name: "Set Git Author Identity" });
+    await screen.findByRole("dialog", { name: "Set Git author identity" });
     await user.type(screen.getByLabelText("Name"), "Taylor");
     await user.type(screen.getByLabelText("Email"), "taylor@example.test");
     await user.click(screen.getByRole("radio", { name: "Global" }));
-    await user.click(screen.getByRole("button", { name: "Save and Retry Commit" }));
+    await user.click(screen.getByRole("button", { name: "Save and retry commit" }));
 
     await waitFor(() => {
       expect(githead.saveGitIdentity).toHaveBeenCalledWith(expect.objectContaining({
@@ -2063,10 +2063,10 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
     await user.type(await screen.findByLabelText("Name"), "Taylor");
     await user.type(screen.getByLabelText("Email"), "taylor@example.test");
-    await user.click(screen.getByRole("button", { name: "Save and Retry Commit" }));
+    await user.click(screen.getByRole("button", { name: "Save and retry commit" }));
 
     expect(await screen.findByText("error: could not lock config file")).toBeTruthy();
-    expect(screen.getByRole("dialog", { name: "Set Git Author Identity" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Set Git author identity" })).toBeTruthy();
     expect(githead.commitChanges).toHaveBeenCalledTimes(1);
   });
 
@@ -2094,7 +2094,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(await screen.findByRole("button", { name: "Cancel" }));
 
     await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "Set Git Author Identity" })).toBeNull();
+      expect(screen.queryByRole("dialog", { name: "Set Git author identity" })).toBeNull();
     });
     expect(githead.saveGitIdentity).not.toHaveBeenCalled();
     expect(githead.commitChanges).toHaveBeenCalledTimes(1);
@@ -2191,7 +2191,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
     await user.type(await screen.findByLabelText("Name"), "Taylor");
     await user.type(screen.getByLabelText("Email"), "taylor@example.test");
-    await user.click(screen.getByRole("button", { name: "Save and Retry Commit" }));
+    await user.click(screen.getByRole("button", { name: "Save and retry commit" }));
 
     await waitFor(() => expect(githead.commitWithRemoteCheck).toHaveBeenCalledTimes(2));
     expect(githead.commitWithRemoteCheck).toHaveBeenLastCalledWith({
@@ -2514,7 +2514,7 @@ describe("App", { timeout: 10_000 }, () => {
     await chooseSwitcherOption("Activity log, unread output available", user);
     await waitFor(() => expect(more.getAttribute("data-attention")).toBe("none"));
     expect(screen.getByRole("tab", { name: "Activity log", selected: true })).toBeTruthy();
-    expect(await screen.findByText("Output Available")).toBeTruthy();
+    expect(await screen.findByText("Output available")).toBeTruthy();
     expect(screen.getByText(/fetch output/)).toBeTruthy();
 
     view.unmount();
@@ -2609,7 +2609,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     expect(await screen.findByText("Version 0.1.1")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Release Notes" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Release notes" })).toBeNull();
     await user.hover(screen.getByRole("button", { name: "Restart to update" }));
 
     expect(await screen.findByRole("heading", { name: "Githead 0.1.1" })).toBeTruthy();
@@ -2706,7 +2706,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    expect(within(screen.getByLabelText("Commit staged files")).queryByRole("button", { name: /Clear Log/ })).toBeNull();
+    expect(within(screen.getByLabelText("Commit staged files")).queryByRole("button", { name: /Clear log/ })).toBeNull();
 
     gitOutputCallback?.({
       runId: "run-1",
@@ -2719,7 +2719,7 @@ describe("App", { timeout: 10_000 }, () => {
     await openWorkspaceView("Activity log", user);
     expect(screen.getByText(/fetch output/)).toBeTruthy();
 
-    const clearButton = screen.getByRole("button", { name: /Clear Log/ }) as HTMLButtonElement;
+    const clearButton = screen.getByRole("button", { name: /Clear log/ }) as HTMLButtonElement;
     expect(clearButton.disabled).toBe(false);
 
     await user.click(clearButton);
@@ -2727,7 +2727,7 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => {
       expect(screen.queryByText(/fetch output/)).toBeNull();
     });
-    expect((screen.getByRole("button", { name: /Clear Log/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: /Clear log/ }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("Empty")).toBeTruthy();
   });
 
@@ -2776,7 +2776,7 @@ describe("App", { timeout: 10_000 }, () => {
     });
 
     await openWorkspaceView("Activity log", user);
-    await user.click(await screen.findByRole("button", { name: "Copy Raw" }));
+    await user.click(await screen.findByRole("button", { name: "Copy raw" }));
 
     expect(githead.copyTextToClipboard).toHaveBeenCalledWith({
       text: "[stdout] fetch output\n"

@@ -229,7 +229,7 @@ export function RepositoryActionsDialog({
               <p className="eyebrow">Repository</p>
               <div className="flex items-center gap-2">
                 <Workflow className="size-5 text-muted-foreground" aria-hidden="true" />
-                <DialogTitle>Repository Actions</DialogTitle>
+                <DialogTitle>Repository actions</DialogTitle>
               </div>
               <DialogDescription>
                 Create commands that run from this repository through the Actions menu.
@@ -440,7 +440,7 @@ function FilePanel({
                           <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                             <span>{action.shell}</span>
                             {overridden ? <><span aria-hidden="true">·</span><span>Overrides shared</span></> : null}
-                            {action.bindToPull ? <><span aria-hidden="true">·</span><span>Bound to Pull</span></> : null}
+                            {action.bindToPull ? <><span aria-hidden="true">·</span><span>Bound to pull</span></> : null}
                           </span>
                         </span>
                       </button>
@@ -468,8 +468,8 @@ function FilePanel({
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <h3 className="truncate text-sm font-semibold">{selectedAction.name.trim() || "Untitled action"}</h3>
-                    {target === "local" && overrideNames.has(getRepositoryActionKey(selectedAction.name)) ? <Badge variant="secondary">Overrides Shared</Badge> : null}
-                    {selectedAction.bindToPull ? <Badge variant="secondary">Bound to Pull</Badge> : null}
+                    {target === "local" && overrideNames.has(getRepositoryActionKey(selectedAction.name)) ? <Badge variant="secondary">Overrides shared</Badge> : null}
+                    {selectedAction.bindToPull ? <Badge variant="secondary">Bound to pull</Badge> : null}
                   </div>
                   <p className="text-xs text-muted-foreground">Action {selectedIndex + 1} of {actions.length}</p>
                 </div>
@@ -510,7 +510,7 @@ function FilePanel({
                       onChange={(event) => onDraftChange(target, selectedIndex, { bindToPull: event.target.checked })}
                     />
                     <span>
-                      <strong>Bind to Pull</strong>
+                      <strong>Bind to pull</strong>
                       <small>Add this action to the Pull menu. Githead runs it only after Git Pull succeeds.</small>
                     </span>
                   </label>
@@ -588,7 +588,7 @@ function getValidation(error: string, actions: RepositoryActionDraft[]): FileVal
 
 function formatDirtyFiles(dirty: Record<GitConfiguredActionFile, boolean>): string {
   if (dirty.shared && dirty.local) {
-    return "Shared and Local actions";
+    return "Shared and local actions";
   }
   return dirty.shared ? "Shared actions" : "Local actions";
 }

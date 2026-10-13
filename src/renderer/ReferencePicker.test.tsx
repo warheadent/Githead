@@ -75,7 +75,7 @@ describe("ReferencePicker", () => {
           { value: "main", label: "main" },
           { value: "feature/search", label: "feature/search" }
         ]}
-        actions={[{ label: "Manage Branches…", onSelect: vi.fn() }]}
+        actions={[{ label: "Manage branches…", onSelect: vi.fn() }]}
         ariaLabel="Select branch"
         onValueChange={vi.fn()}
       />
@@ -86,7 +86,7 @@ describe("ReferencePicker", () => {
     await user.hover(featureOption);
     expect(featureOption.classList.contains("is-active")).toBe(true);
 
-    await user.hover(screen.getByRole("button", { name: "Manage Branches…" }));
+    await user.hover(screen.getByRole("button", { name: "Manage branches…" }));
     expect(featureOption.classList.contains("is-active")).toBe(false);
   });
 });

@@ -118,7 +118,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await openCreatePullRequest(user);
     expect(await screen.findByText(/previous creation may have reached GitHub/)).toBeTruthy();
-    expect((within(screen.getByRole("dialog")).getByRole("button", { name: "Create Pull Request" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(screen.getByRole("dialog")).getByRole("button", { name: "Create pull request" }) as HTMLButtonElement).disabled).toBe(true);
     expect(loadPullRequestDraft(repoPath, "feature/templates")?.outcomeUnknown).toBe(true);
   });
   it("offers GitHub views only for repositories with a supported GitHub origin", async () => {
@@ -403,7 +403,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await user.click(await screen.findByRole("button", { name: "Create pull request…" }));
 
-    expect(await screen.findByRole("dialog", { name: "Create Pull Request" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "Create pull request" })).toBeTruthy();
   });
 
   it("links the current branch pull request from the Pull requests list column", async () => {
@@ -573,7 +573,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await openCreatePullRequest(user);
 
-    const dialog = screen.getByRole("dialog", { name: "Create Pull Request" });
+    const dialog = screen.getByRole("dialog", { name: "Create pull request" });
     await user.click(within(dialog).getByRole("button", { name: "Generate pull request title" }));
 
     await waitFor(() => {
@@ -608,8 +608,8 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await openCreatePullRequest(user);
-    const dialog = screen.getByRole("dialog", { name: "Create Pull Request" });
-    await user.click(within(dialog).getByRole("button", { name: "Create Pull Request" }));
+    const dialog = screen.getByRole("dialog", { name: "Create pull request" });
+    await user.click(within(dialog).getByRole("button", { name: "Create pull request" }));
     await waitFor(() => expect(githead.createGitHubPullRequest).toHaveBeenCalledWith(expect.objectContaining({
       repoPath,
       headBranch: "feature/hung-pr",
@@ -619,12 +619,12 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(within(dialog).getByRole("button", { name: "Close draft" }));
     const operationId = vi.mocked(githead.createGitHubPullRequest).mock.calls[0]?.[0].operationId;
     await waitFor(() => expect(githead.cancelGitOperation).toHaveBeenCalledWith({ operationId }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Create Pull Request" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Create pull request" })).toBeNull());
 
     pendingCreate.resolve({ ok: true, data: { number: 42, url: "https://github.com/openai/githead/pull/42", title: "Late PR", draft: false }, rateLimit: null });
     await flushRendererAsync();
 
-    expect(screen.queryByRole("dialog", { name: "Create Pull Request" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Create pull request" })).toBeNull();
     expect(screen.queryByText(/Created pull request #42/)).toBeNull();
   });
 
@@ -647,13 +647,13 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await openCreatePullRequest(user);
-    const dialog = screen.getByRole("dialog", { name: "Create Pull Request" });
-    await user.click(within(dialog).getByRole("button", { name: "Create Pull Request" }));
+    const dialog = screen.getByRole("dialog", { name: "Create pull request" });
+    await user.click(within(dialog).getByRole("button", { name: "Create pull request" }));
 
     expect(await within(dialog).findByText("Operation timed out. Check GitHub before retrying; the pull request may have been created.")).toBeTruthy();
-    const createButton = within(dialog).getByRole("button", { name: "Create Pull Request" }) as HTMLButtonElement;
+    const createButton = within(dialog).getByRole("button", { name: "Create pull request" }) as HTMLButtonElement;
     expect(createButton.disabled).toBe(true);
-    await user.click(within(dialog).getByRole("button", { name: "Open Pull Requests" }));
+    await user.click(within(dialog).getByRole("button", { name: "Open pull requests" }));
     expect(githead.openExternalUrl).toHaveBeenCalledWith({ url: "https://github.com/openai/githead/pulls" });
     expect(createButton.disabled).toBe(false);
   });
@@ -783,7 +783,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     expect(await within(dialog).findByText("Operation timed out. Check GitHub before retrying; the issue may have been created.")).toBeTruthy();
     expect((within(dialog).getByRole("button", { name: "Create issue" }) as HTMLButtonElement).disabled).toBe(true);
-    await user.click(within(dialog).getByRole("button", { name: "Open Issues" }));
+    await user.click(within(dialog).getByRole("button", { name: "Open issues" }));
     expect(githead.openExternalUrl).toHaveBeenCalledWith({ url: "https://github.com/openai/githead/issues" });
     expect((within(dialog).getByRole("button", { name: "Create issue" }) as HTMLButtonElement).disabled).toBe(false);
   });
@@ -1060,7 +1060,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(await screen.findByRole("button", { name: "Reapply my 2 local commits" }));
 
     expect(await screen.findByRole("dialog", { name: "Reapply paused because of conflicts" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Open File Status" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open Changes" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Abort and restore" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Continue after resolution" })).toBeTruthy();
   });
@@ -1236,7 +1236,7 @@ describe("App", { timeout: 10_000 }, () => {
       requestId: expect.stringMatching(/^file-preview:/)
     });
 
-    await user.click(screen.getByRole("button", { name: "Show Diff" }));
+    await user.click(screen.getByRole("button", { name: "Show diff" }));
     expect(screen.getByRole("button", { name: "Wrap diff lines" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Preview" }));
     expect(githead.getFilePreview).toHaveBeenCalledTimes(1);
@@ -1262,7 +1262,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.getFilePreviewImage).toHaveBeenCalledWith(expect.objectContaining({
       repoPath, path: file.path, source: { kind: "working" }
     }));
-    await user.click(screen.getByRole("button", { name: "Show Diff" }));
+    await user.click(screen.getByRole("button", { name: "Show diff" }));
     expect(screen.getByText("SVG source diff")).toBeTruthy();
     expect(revokeUrl).toHaveBeenCalledWith("blob:svg-preview");
     await user.click(screen.getByRole("button", { name: "Preview" }));
@@ -1414,7 +1414,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(await screen.findByRole("button", { name: "More pull and push actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Push to another branch…" }));
 
-    const dialog = await screen.findByRole("dialog", { name: "Push to Another Branch" });
+    const dialog = await screen.findByRole("dialog", { name: "Push to another branch" });
     expect(within(dialog).getByRole("button", { name: "Select push remote" }).textContent).toContain("upstream");
     expect(within(dialog).queryByRole("option", { name: "main" })).toBeNull();
     await user.click(within(dialog).getByRole("button", { name: "Select destination branch" }));
@@ -1434,7 +1434,7 @@ describe("App", { timeout: 10_000 }, () => {
       });
     });
     await waitFor(() => {
-      expect(screen.queryByRole("heading", { name: "Push to Another Branch" })).toBeNull();
+      expect(screen.queryByRole("heading", { name: "Push to another branch" })).toBeNull();
     });
     expect(githead.setBranchUpstream).not.toHaveBeenCalled();
   });
@@ -1458,7 +1458,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(await screen.findByRole("button", { name: "Publish branch" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "More pull and push actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Push to another branch…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Push to Another Branch" });
+    const dialog = await screen.findByRole("dialog", { name: "Push to another branch" });
     await user.click(within(dialog).getByRole("button", { name: "Select destination branch" }));
     await user.click(await screen.findByRole("option", { name: "New branch…" }));
     await user.type(within(dialog).getByLabelText("New branch name"), "release/candidate");
@@ -1500,13 +1500,13 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await user.click(await screen.findByRole("button", { name: "More pull and push actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Push to another branch…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Push to Another Branch" });
+    const dialog = await screen.findByRole("dialog", { name: "Push to another branch" });
     await user.click(within(dialog).getByRole("button", { name: "Select destination branch" }));
     await user.click(await screen.findByRole("option", { name: /release.*origin/ }));
     await user.click(within(dialog).getByRole("button", { name: "Push" }));
 
     expect(await within(dialog).findByText("rejected non-fast-forward")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Push to Another Branch" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Push to another branch" })).toBeTruthy();
   });
 
   it("disables push-to-branch when no push remote exists and hides it when unsupported", async () => {
@@ -1789,7 +1789,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.queryByRole("tab", { name: /^Activity log/ })).toBeNull();
   });
 
-  it("opens the Repository Actions manager without a .githead folder and saves a shared action", async () => {
+  it("opens the Repository actions manager without a .githead folder and saves a shared action", async () => {
     const user = userEvent.setup();
     render(<App />);
 
@@ -1801,7 +1801,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.type(screen.getByLabelText("Name"), "Build");
     await user.type(screen.getByLabelText(/Description/), " Compile the application ");
     await user.type(screen.getByLabelText("Command"), "npm run build");
-    await user.click(screen.getByRole("checkbox", { name: /Bind to Pull/ }));
+    await user.click(screen.getByRole("checkbox", { name: /Bind to pull/ }));
     await user.click(screen.getByRole("button", { name: "Save Shared" }));
 
     await waitFor(() => {
@@ -1822,7 +1822,7 @@ describe("App", { timeout: 10_000 }, () => {
     });
   });
 
-  it("keeps the Repository Actions body scrollable when many actions are configured", async () => {
+  it("keeps the Repository actions body scrollable when many actions are configured", async () => {
     const user = userEvent.setup();
     const sharedActions = Array.from({ length: 14 }, (_, index) => ({
       name: `Action ${index + 1}`,
@@ -1846,7 +1846,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(await screen.findByRole("button", { name: "Repository actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Manage repository actions…" }));
 
-    const actionsDialog = await screen.findByRole("dialog", { name: "Repository Actions" });
+    const actionsDialog = await screen.findByRole("dialog", { name: "Repository actions" });
     expect(actionsDialog.className).toContain("h-[min(760px,calc(100vh-2rem))]");
     expect(actionsDialog.className).toContain("max-h-[min(760px,calc(100vh-2rem))]");
     expect(actionsDialog.className).toContain("overflow-hidden");
@@ -2174,7 +2174,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.runConfiguredAction).not.toHaveBeenCalled();
   });
 
-  it("shows local Repository Actions that override shared actions", async () => {
+  it("shows local Repository actions that override shared actions", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       actionsConfig: {
@@ -2218,10 +2218,13 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(await screen.findByRole("menuitem", { name: "Manage repository actions…" }));
 
     await user.click(screen.getByRole("tab", { name: /Local/ }));
-    expect(await screen.findByText("Overrides Shared")).toBeTruthy();
+    // The list row meta and the detail badge both name the override.
+    const overrideLabels = await screen.findAllByText("Overrides shared");
+    expect(overrideLabels).toHaveLength(2);
+    expect(overrideLabels.some((label) => label.getAttribute("data-slot") === "badge")).toBe(true);
   });
 
-  it("saves reordered Repository Actions in file order", async () => {
+  it("saves reordered Repository actions in file order", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       actionsConfig: {
@@ -2334,7 +2337,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.queryByText("1 action removed")).toBeNull();
   });
 
-  it("warns before closing Repository Actions with unsaved changes", async () => {
+  it("warns before closing Repository actions with unsaved changes", async () => {
     const user = userEvent.setup();
     render(<App />);
     await waitForRepositoryWorkspace();
@@ -2346,11 +2349,11 @@ describe("App", { timeout: 10_000 }, () => {
 
     expect(await screen.findByRole("dialog", { name: "Discard unsaved changes?" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Keep editing" }));
-    expect(screen.getByRole("dialog", { name: "Repository Actions" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Repository actions" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Close" }));
     await user.click(await screen.findByRole("button", { name: "Discard changes" }));
-    expect(screen.queryByRole("dialog", { name: "Repository Actions" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Repository actions" })).toBeNull();
   });
 
   it("closes and clears a repository action draft when an open picker switches repositories", async () => {
@@ -2373,7 +2376,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     pendingRepositoryChoice.resolve(otherRepo);
     await waitFor(() => expect(githead.getRepoSummary).toHaveBeenCalledWith(otherRepo));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Repository Actions" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Repository actions" })).toBeNull());
 
     await user.click(screen.getByRole("button", { name: "Repository actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Manage repository actions…" }));

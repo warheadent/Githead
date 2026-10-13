@@ -99,7 +99,7 @@ export function WorktreeCreateDialog({ open, group, branches, remoteBranches, bu
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex flex-col overflow-hidden sm:max-w-xl" aria-busy={active} showCloseButton={!active}>
         <DialogHeader>
-          <DialogTitle>Add Worktree</DialogTitle>
+          <DialogTitle>Add worktree</DialogTitle>
           <DialogDescription>Check out another branch in a separate folder without disturbing this workspace.</DialogDescription>
         </DialogHeader>
         <form className="flex min-h-0 flex-col gap-5" onSubmit={(event) => { void submit(event); }}>
@@ -175,7 +175,7 @@ export function WorktreeCreateDialog({ open, group, branches, remoteBranches, bu
             </div> : null}
             {cancelError ? <p className="dialog-error" role="alert">{cancelError}</p> : null}
           </div>
-          <DialogFooter className="shrink-0 border-t pt-4"><Button type="button" variant="outline" disabled={cancelling} onClick={() => { if (active) onCancel(); else onOpenChange(false); }}>{cancelling ? "Cancelling..." : active ? "Cancel operation" : "Cancel"}</Button><Button type="submit" disabled={active || !effectiveBranch || !destinationPath.trim()}>{active ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : <GitFork />}{active ? "Creating Worktree..." : "Create Worktree"}</Button></DialogFooter>
+          <DialogFooter className="shrink-0 border-t pt-4"><Button type="button" variant="outline" disabled={cancelling} onClick={() => { if (active) onCancel(); else onOpenChange(false); }}>{cancelling ? "Cancelling..." : active ? "Cancel operation" : "Cancel"}</Button><Button type="submit" disabled={active || !effectiveBranch || !destinationPath.trim()}>{active ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : <GitFork />}{active ? "Creating worktree..." : "Create worktree"}</Button></DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -212,7 +212,7 @@ export function WorktreeRemoveDialog({ target, check, checking, busy, onClose, o
   const secondsRemaining = forceRemovalCountdown.worktreePath === target?.path ? forceRemovalCountdown.secondsRemaining : 3;
   const forceRemovalArmed = secondsRemaining === 0;
   const canRemove = Boolean(check?.canRemove || (check?.canForceRemove && forceRemovalArmed));
-  const removeLabel = check?.canForceRemove && !forceRemovalArmed ? `Remove Worktree (${secondsRemaining})` : "Remove Worktree";
+  const removeLabel = check?.canForceRemove && !forceRemovalArmed ? `Remove worktree (${secondsRemaining})` : "Remove worktree";
   return <Dialog open={Boolean(target)} onOpenChange={(open) => { if (!open) onClose(); }}><DialogContent aria-busy={busy}><DialogHeader><DialogTitle>Remove worktree?</DialogTitle><DialogDescription>This deletes the worktree folder from your computer. Its branch and committed changes remain in the repository.</DialogDescription></DialogHeader><div className="grid gap-1 rounded-lg border bg-surface p-3"><p className="font-medium">{target?.branch ?? "Detached worktree"}</p><p className="selectable-text break-all font-mono text-xs text-muted-foreground">{target?.path}</p></div>{checking ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Checking worktree…</p> : check?.reason ? <div className="dialog-notice" data-tone="danger" role="alert"><CircleAlert aria-hidden="true" /><div className="grid gap-1"><p>{check.reason}</p>{check.canForceRemove && forceRemovalArmed ? <p>Removing it will permanently discard those files.</p> : null}</div></div> : <p className="text-sm text-muted-foreground">This worktree is clean and can be removed safely.</p>}<DialogFooter><Button type="button" variant="outline" onClick={onClose}>{busy ? "Cancel operation" : "Cancel"}</Button><Button type="button" variant="destructive" onClick={onRemove} disabled={busy || checking || !canRemove}>{busy ? <Loader2 className="animate-spin" /> : <Trash2 />}{removeLabel}</Button></DialogFooter></DialogContent></Dialog>;
 }
 

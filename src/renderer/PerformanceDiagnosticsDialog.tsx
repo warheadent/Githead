@@ -142,7 +142,7 @@ export function PerformanceDiagnosticsDialog({
         <DialogHeader className="border-b px-6 py-5 pr-14">
           <div className="flex items-center gap-2">
             <Activity className="size-4 text-muted-foreground" aria-hidden="true" />
-            <DialogTitle>Performance Diagnostics</DialogTitle>
+            <DialogTitle>Performance diagnostics</DialogTitle>
           </div>
           <DialogDescription>
             Githead keeps bounded command summaries. It collects process metrics only while this dialog is open.

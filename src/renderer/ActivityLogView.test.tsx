@@ -22,11 +22,11 @@ afterEach(() => {
 describe("ActivityLogView", () => {
   it("shows all output first and keeps it selected when a run starts", () => {
     const view = renderView(withRuns(createActivityLogState(), "fetch", "pull"));
-    expect(heading()).toBe("Output Available");
+    expect(heading()).toBe("Output available");
     expect(runButton(/^All output/).getAttribute("aria-pressed")).toBe("true");
 
     view.update(withRuns(view.log, "push"));
-    expect(heading()).toBe("Output Available");
+    expect(heading()).toBe("Output available");
     expect(runButton(/^All output/).getAttribute("aria-pressed")).toBe("true");
   });
 
@@ -69,7 +69,7 @@ describe("ActivityLogView", () => {
     for (let index = 0; index < ACTIVITY_LOG_MAX_RUNS; index++) log = withRuns(log, `run-${index}`);
     expect(log.runs.some((run) => run.id === "fetch-run")).toBe(false);
     view.update(log);
-    expect(heading()).toBe("Output Available");
+    expect(heading()).toBe("Output available");
     expect(runButton(/^All output/).getAttribute("aria-pressed")).toBe("true");
   });
 
@@ -85,7 +85,7 @@ describe("ActivityLogView", () => {
     expect(runButton(/^Fetch/).getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("copies one run from the run list and the whole log from Copy Raw", async () => {
+  it("copies one run from the run list and the whole log from Copy raw", async () => {
     const onCopyRawLog = vi.fn();
     renderView(withRuns(createActivityLogState(), "fetch", "pull"), { onCopyRawLog });
 
@@ -93,7 +93,7 @@ describe("ActivityLogView", () => {
     expect(onCopyRawLog).toHaveBeenLastCalledWith("fetch-run");
     expect(await screen.findByText("Copied to clipboard.")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Copy Raw" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy raw" }));
     expect(onCopyRawLog).toHaveBeenLastCalledWith(undefined);
   });
 });

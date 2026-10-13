@@ -137,7 +137,7 @@ export function StashesView({
             <div data-workspace-scroll-key="stash-list" className="stash-list-scroll">
               {error ? <EmptyState tone="error" role="alert" title={error} action={<Button type="button" variant="outline" size="sm" onClick={onRefresh}>Try again</Button>} />
                 : loading && entries.length === 0 ? <LoadingState label="Loading stashes" />
-                  : entries.length === 0 ? <EmptyState icon={<Archive />} headingLevel={3} title="No stashes" description="Right-click changed files in File Status to create a stash." />
+                  : entries.length === 0 ? <EmptyState icon={<Archive />} headingLevel={3} title="No stashes" description="Right-click changed files in Changes to create a stash." />
                     : visibleEntries.length === 0 ? <EmptyState icon={<SearchX />} headingLevel={3} title="No matching stashes" description="Try another name, branch, or stash reference." action={<Button type="button" variant="outline" size="sm" onClick={() => setSearchQuery("")}>Clear search</Button>} />
                       : <div role="listbox" aria-label="Saved stashes" className="stash-list" onKeyDown={(event) => navigateStashList(event, (option) => {
                         // Arrow keys move the selection only. A click or Enter opens the detail in a narrow window.

@@ -173,7 +173,7 @@ export function GitIntegrationDialog(props: GitIntegrationDialogProps): ReactNod
           {!loading && preview ? (
             <>
               {preview.kind === "cherry-pick" ? <PreviewFacts preview={preview} /> : null}
-              {preview.blockingReasons.map((reason) => <p key={reason} className="dialog-notice" data-tone="danger" role="alert"><CircleAlert aria-hidden="true" /><span>{reason} {reason.includes("stash") ? "Open File Status to use the stash action." : ""}</span></p>)}
+              {preview.blockingReasons.map((reason) => <p key={reason} className="dialog-notice" data-tone="danger" role="alert"><CircleAlert aria-hidden="true" /><span>{reason} {reason.includes("stash") ? "Open Changes to use the stash action." : ""}</span></p>)}
               {preview.kind === "rebase" ? null : preview.warnings.map((warning) => <p key={warning} className="dialog-notice" data-tone="warning" role="status"><AlertTriangle aria-hidden="true" /><span>{warning}</span></p>)}
               {preview.kind === "merge" ? (
                 <MergePreview preview={preview} mode={mergeMode} busy={busy} onModeChange={setMergeMode} />

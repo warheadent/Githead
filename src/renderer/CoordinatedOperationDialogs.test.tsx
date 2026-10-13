@@ -102,7 +102,7 @@ describe("coordinated operation dialog cancellation", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("keeps Repository Actions cancellation available while a file save is active", () => {
+  it("keeps Repository actions cancellation available while a file save is active", () => {
     const onOpenChange = vi.fn();
     const onSave = vi.fn();
     render(<RepositoryActionsDialog open summary={null} draft={{ shared: [], local: [] }} savingTarget="shared" error="" onOpenChange={onOpenChange} onDraftChange={vi.fn()} onAddAction={vi.fn()} onDeleteAction={vi.fn()} onRestoreAction={vi.fn()} onMoveAction={vi.fn()} onSave={onSave} />, { wrapper: TooltipProvider });
@@ -174,11 +174,11 @@ describe("coordinated operation dialog cancellation", () => {
     const view = render(renderDialog(false), { wrapper: TooltipProvider });
 
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
-    await screen.findByRole("heading", { name: "Remove Remote" });
+    await screen.findByRole("heading", { name: "Remove remote" });
     view.rerender(renderDialog(true));
 
     const cancel = screen.getByRole("button", { name: "Cancel operation" }) as HTMLButtonElement;
-    const remove = screen.getByRole("button", { name: "Remove Remote" }) as HTMLButtonElement;
+    const remove = screen.getByRole("button", { name: "Remove remote" }) as HTMLButtonElement;
     expect(cancel.disabled).toBe(false);
     expect(remove.disabled).toBe(true);
     fireEvent.click(remove);
@@ -199,7 +199,7 @@ describe("coordinated operation dialog cancellation", () => {
     view.rerender(renderDialog(true));
 
     const cancel = screen.getByRole("button", { name: "Cancel operation" }) as HTMLButtonElement;
-    const remove = screen.getByRole("button", { name: "Delete Branch" }) as HTMLButtonElement;
+    const remove = screen.getByRole("button", { name: "Delete branch" }) as HTMLButtonElement;
     expect(cancel.disabled).toBe(false);
     expect(remove.disabled).toBe(true);
     fireEvent.click(remove);

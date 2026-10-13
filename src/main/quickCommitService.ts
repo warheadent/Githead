@@ -35,7 +35,7 @@ export class QuickCommitService {
     const diffs = await this.git.getCommitPlanDiffs({ repoPath: request.repoPath, paths, signal });
     signal.throwIfAborted();
     if (diffs.length !== paths.length || diffs.some((diff) => diff.kind === "error" || diff.kind === "empty")) {
-      return failure("Unable to read every selected change. Refresh File Status and try Quick Commit again.");
+      return failure("Unable to read every selected change. Refresh Changes and try Quick Commit again.");
     }
     const changes = createCommitPlanChanges(diffs, "file");
     const diff = changes.map((change) => `File: ${change.path}\n${change.promptText}`).join("\n\n");
@@ -47,14 +47,14 @@ export class QuickCommitService {
     if (!generatedMessage) return failure("The AI provider returned an empty commit message.");
     try {
       if (await this.git.getRepositoryOperationState(request.repoPath)) {
-        return { ...failure("The repository operation changed. Review File Status before committing."), generatedMessage };
+        return { ...failure("The repository operation changed. Review Changes before committing."), generatedMessage };
       }
       signal.throwIfAborted();
       onPhase?.("committing");
       const result = await this.git.quickCommitFiles({ repoPath: request.repoPath, changes, message: generatedMessage }, onOutput, remoteCheckLeaseDurationMs);
       return { ...result, generatedMessage, stderr: [generated.stderr, result.stderr].filter(Boolean).join("\n") };
     } catch (error) {
-      return { ...failure(error instanceof Error ? error.message : "Quick Commit did not complete. Refresh File Status before retrying."), generatedMessage };
+      return { ...failure(error instanceof Error ? error.message : "Quick Commit did not complete. Refresh Changes before retrying."), generatedMessage };
     }
   }
 }

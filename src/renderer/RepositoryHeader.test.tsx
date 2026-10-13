@@ -254,13 +254,13 @@ describe("RepositoryHeader", () => {
     it("shows the repository context menu items for the open repository", async () => {
       const onSettings = vi.fn();
       renderHeader({
-        renderRepositoryMenuItems: () => <ContextMenuItem onSelect={onSettings}>Repository Settings…</ContextMenuItem>
+        renderRepositoryMenuItems: () => <ContextMenuItem onSelect={onSettings}>Repository settings…</ContextMenuItem>
       });
 
       fireEvent.contextMenu(screen.getByRole("button", { name: "Switch repository: Githead" }));
       const menu = await screen.findByRole("menu");
       expect(within(menu).getByText(repoPath)).toBeTruthy();
-      fireEvent.click(within(menu).getByRole("menuitem", { name: "Repository Settings…" }));
+      fireEvent.click(within(menu).getByRole("menuitem", { name: "Repository settings…" }));
 
       expect(onSettings).toHaveBeenCalledOnce();
     });
@@ -873,7 +873,7 @@ describe("RepositoryHeader", () => {
       const region = screen.getByRole("region", { name: "App update" });
       expect(region.className).toContain("is-compact");
       expect(screen.getByText("Version 0.2.0").className).toContain("sr-only");
-      expect(within(region).queryByRole("button", { name: "Release Notes" })).toBeNull();
+      expect(within(region).queryByRole("button", { name: "Release notes" })).toBeNull();
       await user.click(within(region).getByRole("button", { name: "Update available" }));
       expect(props.onDownloadUpdate).toHaveBeenCalledOnce();
 
@@ -884,7 +884,7 @@ describe("RepositoryHeader", () => {
           releaseNotes: { version: "0.2.0", url: null, title: "Githead 0.2.0", body: "Notes", loading: false, error: null }
         })
       });
-      expect(within(region).queryByRole("button", { name: "Release Notes" })).toBeNull();
+      expect(within(region).queryByRole("button", { name: "Release notes" })).toBeNull();
       await user.hover(within(region).getByRole("button", { name: "Restart to update" }));
       expect(await screen.findByRole("heading", { name: "Githead 0.2.0" })).toBeTruthy();
       await user.click(within(region).getByRole("button", { name: "Restart to update" }));

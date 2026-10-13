@@ -98,18 +98,18 @@ export function AiGenerationSettingsFields<T extends AiGenerationSettingsDraft>(
         </p>
       </div>
       <div className="settings-field grid gap-2">
-        <Label htmlFor={`${idPrefix}-commit-plan-model`}>Commit Plan Model</Label>
+        <Label htmlFor={`${idPrefix}-commit-plan-model`}>Commit plan model</Label>
         <Input id={`${idPrefix}-commit-plan-model`} type="text" autoComplete="off" placeholder="Leave blank to use the commit message model" value={draft.commitPlanModels[provider]} disabled={disabled} onChange={(event) => onDraftChange({ ...draft, commitPlanModels: { ...draft.commitPlanModels, [provider]: event.target.value } })} />
       </div>
-      <ReasoningEffortField id={`${idPrefix}-commit-plan-reasoning-effort`} label="Commit Plan Reasoning" value={draft.commitPlanReasoningEfforts[provider]} capabilities={commitPlanReasoning.capabilities} loading={commitPlanReasoning.loading} disabled={disabled} onChange={(reasoningEffort) => onDraftChange({ ...draft, commitPlanReasoningEfforts: { ...draft.commitPlanReasoningEfforts, [provider]: reasoningEffort } })} />
+      <ReasoningEffortField id={`${idPrefix}-commit-plan-reasoning-effort`} label="Commit plan reasoning" value={draft.commitPlanReasoningEfforts[provider]} capabilities={commitPlanReasoning.capabilities} loading={commitPlanReasoning.loading} disabled={disabled} onChange={(reasoningEffort) => onDraftChange({ ...draft, commitPlanReasoningEfforts: { ...draft.commitPlanReasoningEfforts, [provider]: reasoningEffort } })} />
     </SettingsCard>
 
     <SettingsCard title="Pull request generation" description="Optional model override and separate reasoning for pull request descriptions.">
       <div className="settings-field grid gap-2">
-        <Label htmlFor={`${idPrefix}-pr-description-model`}>PR Description Model</Label>
+        <Label htmlFor={`${idPrefix}-pr-description-model`}>PR description model</Label>
         <Input id={`${idPrefix}-pr-description-model`} type="text" autoComplete="off" placeholder="Leave blank to use the commit message model" value={draft.prDescriptionModels[provider]} disabled={disabled} onChange={(event) => onDraftChange({ ...draft, prDescriptionModels: { ...draft.prDescriptionModels, [provider]: event.target.value } })} />
       </div>
-      <ReasoningEffortField id={`${idPrefix}-pr-description-reasoning-effort`} label="PR Description Reasoning" value={draft.prDescriptionReasoningEfforts[provider]} capabilities={prDescriptionReasoning.capabilities} loading={prDescriptionReasoning.loading} disabled={disabled} onChange={(reasoningEffort) => onDraftChange({ ...draft, prDescriptionReasoningEfforts: { ...draft.prDescriptionReasoningEfforts, [provider]: reasoningEffort } })} />
+      <ReasoningEffortField id={`${idPrefix}-pr-description-reasoning-effort`} label="PR description reasoning" value={draft.prDescriptionReasoningEfforts[provider]} capabilities={prDescriptionReasoning.capabilities} loading={prDescriptionReasoning.loading} disabled={disabled} onChange={(reasoningEffort) => onDraftChange({ ...draft, prDescriptionReasoningEfforts: { ...draft.prDescriptionReasoningEfforts, [provider]: reasoningEffort } })} />
     </SettingsCard>
   </>;
 }
@@ -152,5 +152,5 @@ function ReasoningEffortField({ id, label, value, capabilities, loading, disable
 }
 
 function formatReasoningEffort(effort: AiReasoningEffort): string {
-  return effort === "xhigh" ? "Extra High" : effort.charAt(0).toUpperCase() + effort.slice(1);
+  return effort === "xhigh" ? "Extra high" : effort.charAt(0).toUpperCase() + effort.slice(1);
 }

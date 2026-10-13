@@ -80,7 +80,7 @@ function WorkspaceTrustDialog({ dialogContext }: { dialogContext: WorkspaceTrust
           Cancel
         </Button>
         <Button type="button" disabled={responding} onClick={() => respond("trust")}>
-          Trust Workspace
+          Trust workspace
         </Button>
       </footer>
     </main>

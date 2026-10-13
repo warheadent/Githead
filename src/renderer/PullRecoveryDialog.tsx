@@ -69,7 +69,7 @@ export function PullRecoveryDialog({
             {isConflict ? (
               <div className="grid gap-2">
                 <Button type="button" onClick={onOpenFileStatus} disabled={busy} className="justify-start">
-                  <GitCompareArrows />Open File Status
+                  <GitCompareArrows />Open Changes
                 </Button>
                 <div className="grid grid-cols-2 gap-2">
                   <Button type="button" variant="outline" onClick={() => onAction("abort")} disabled={busy}>

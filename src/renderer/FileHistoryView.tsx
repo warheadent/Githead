@@ -48,7 +48,7 @@ export function FileHistoryView({ path, entries, selectedHash, loading, error, h
   );
   return (
     <HistoricalFileLayout
-      label={`File History for ${path}`}
+      label={`File history for ${path}`}
       path={path}
       mode="file"
       busy={loading}

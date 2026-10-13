@@ -147,7 +147,7 @@ export function RepositoryComposer(props: Props) {
     </div>
     <div className="repo-omnibox-footer repo-composer-footer">
       <span className="repo-composer-permission">{cannotPush ? <><LockKeyhole />You can't push to this repo</> : lore ? <><kbd>Esc</kbd>Back to search</> : null}</span>
-      {busy ? <Button type="button" variant="secondary" disabled={props.cancelStatus === "canceling"} onClick={props.onCancelOperation}>{props.cancelStatus === "canceling" ? <Loader2 className="animate-spin" /> : <X />}{props.cancelStatus === "canceling" ? "Cancelling" : cloneCheckRunning ? "Cancel Check" : "Cancel Clone"}</Button> : cannotPush ?
+      {busy ? <Button type="button" variant="secondary" disabled={props.cancelStatus === "canceling"} onClick={props.onCancelOperation}>{props.cancelStatus === "canceling" ? <Loader2 className="animate-spin" /> : <X />}{props.cancelStatus === "canceling" ? "Cancelling" : cloneCheckRunning ? "Cancel check" : "Cancel clone"}</Button> : cannotPush ?
         <Button type="button" variant="secondary" disabled={!canClone || !details || !!forkReason} aria-describedby={forkReason ? `${id}-fork-reason` : undefined} title={forkReason ?? "Fork on GitHub and clone locally"} onClick={() => { forkRef.current = true; formRef.current?.requestSubmit(); }}><GitFork />Fork &amp; clone</Button> : null}
       <Button type="submit" disabled={!canClone} aria-label={cloneRunning ? "Cloning repository" : "Clone repository"} onClick={() => { forkRef.current = false; }}>
         {cloneRunning ? <><Loader2 className="animate-spin" />Cloning…</> : <>Clone<kbd><CornerDownLeft /></kbd></>}
