@@ -1893,7 +1893,7 @@ textarea,
   }
 }
 
-/* Startup, welcome and prerequisite screens: one calm column, vertically centred, scrolling when the window is short. */
+/* Startup, welcome and prerequisite screens: one calm column, scrolling when the window is short. */
 .start-layout {
   display: flex;
   flex-direction: column;
@@ -1903,14 +1903,15 @@ textarea,
   background: var(--background);
 }
 
-/* Auto margins centre the column and collapse to zero when it overflows, so the top stays reachable. */
+/* The column hangs from a fixed top offset instead of centring, so its start never depends on content height:
+   the brand and cards stay put when startup resolves into setup. The top stays reachable when it overflows. */
 .start-column {
   display: grid;
   width: 100%;
   max-width: 560px;
   min-width: 0;
   gap: 24px;
-  margin: auto;
+  margin: clamp(32px, 14vh, 160px) auto auto;
   padding: 32px 24px;
 }
 
@@ -2141,6 +2142,53 @@ textarea,
   color: var(--muted-foreground);
   font-size: 12px;
   line-height: 16px;
+}
+
+/* Placeholder action rows with the metrics of .setup-action, so the recents skeleton sits where the setup recents card will. */
+.startup-skeleton-action {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+}
+
+.startup-skeleton-action + .startup-skeleton-action {
+  border-top: 1px solid var(--border);
+}
+
+.startup-skeleton-action > span:first-child {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  background: var(--muted);
+}
+
+/* Two line boxes matching the 20px title and 16px caption of a setup action. */
+.startup-skeleton-action > span:last-child {
+  display: grid;
+  width: 40%;
+  grid-template-rows: 20px 16px;
+  align-items: center;
+}
+
+.startup-skeleton-action > span:last-child::before,
+.startup-skeleton-action > span:last-child::after {
+  content: "";
+  height: 8px;
+  border-radius: var(--radius-sm);
+  background: var(--muted);
+}
+
+.startup-skeleton-action > span:last-child::after { width: 70%; opacity: 0.6; }
+
+/* An 8px bar in the 18px count-chip box, so the label row keeps its setup height. */
+.setup-recent-title > .startup-skeleton-label {
+  width: 140px;
+  height: 8px;
+  margin-block: 5px;
+  border-radius: var(--radius-sm);
 }
 
 .startup-skeleton {
