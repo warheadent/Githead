@@ -1338,20 +1338,6 @@ textarea,
   }
 }
 
-@container repository-header (max-width: 1280px) {
-  .app-update-control.is-compact .app-update-label {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    margin: -1px;
-    padding: 0;
-    overflow: hidden;
-    clip-path: inset(50%);
-    border: 0;
-    white-space: nowrap;
-  }
-}
-
 @container repository-header (max-width: 1100px) {
   .remote-actions-label {
     display: none;
@@ -3098,6 +3084,13 @@ textarea,
 
 .app-update-release-notes-status {
   color: var(--muted-foreground);
+}
+
+/* The update status line opens the card and sits close to the release notes title. */
+.app-update-release-notes-popover > .app-update-release-notes-status:first-child {
+  padding-bottom: 0;
+  color: var(--foreground);
+  font-weight: 500;
 }
 
 .app-update-release-notes-error {

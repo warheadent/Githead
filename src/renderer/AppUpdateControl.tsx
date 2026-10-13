@@ -62,21 +62,22 @@ export function AppUpdateControl({
     }
   };
 
-  // A narrow header hides the label visually and keeps it as the name, so the button always has a tooltip.
+  // The header shows the icon only so the view switch stays centred; the label stays the accessible
+  // name, and the tooltip or the release notes card shows the same words.
   const tooltip = visibleState.message || label;
 
   const updateButton = (
     <Button
       type="button"
       variant="ghost"
-      size="sm"
+      size="icon"
       className="app-update-compact-button"
       disabled={disabled}
       onClick={runAction}
       aria-label={visibleState.message ? `${label}: ${visibleState.message}` : undefined}
     >
       {icon}
-      <span className="app-update-label">{label}</span>
+      <span className="sr-only">{label}</span>
     </Button>
   );
 
@@ -98,7 +99,7 @@ export function AppUpdateControl({
             <span className="app-update-hover-target">{updateButton}</span>
           </HoverCardTrigger>
           <HoverCardContent className="app-update-release-notes-popover" align="end">
-            {visibleState.message ? <p className="app-update-release-notes-status">{visibleState.message}</p> : null}
+            <p className="app-update-release-notes-status">{tooltip}</p>
             <AppUpdateReleaseNotes state={visibleState} />
           </HoverCardContent>
         </HoverCard>
