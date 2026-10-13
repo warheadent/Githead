@@ -1,7 +1,7 @@
-import { Download, ExternalLink, Loader2, RefreshCw, RotateCcw, ScrollText } from "lucide-react";
+import { Download, ExternalLink, Loader2, RefreshCw, RotateCcw } from "lucide-react";
 import { lazy, useRef, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { AppUpdateState } from "../shared/types";
 import { LoadingState } from "./LoadingState";
@@ -15,7 +15,7 @@ export function confirmAppUpdateInstall(): boolean {
   return window.confirm("Restart Githead now to install the downloaded update?");
 }
 
-/** The header's app update control: one button, plus Release Notes when the update publishes them. */
+/** The header's app update control: one button whose release notes open while it is hovered or focused. */
 export function AppUpdateControl({
   state,
   onCheck,
@@ -65,6 +65,21 @@ export function AppUpdateControl({
   // A narrow header hides the label visually and keeps it as the name, so the button always has a tooltip.
   const tooltip = visibleState.message || label;
 
+  const updateButton = (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      className="app-update-compact-button"
+      disabled={disabled}
+      onClick={runAction}
+      aria-label={visibleState.message ? `${label}: ${visibleState.message}` : undefined}
+    >
+      {icon}
+      <span className="app-update-label">{label}</span>
+    </Button>
+  );
+
   // Opacity only: the header grid must not shift while the control enters or leaves.
   return (
     <MotionPresence
@@ -76,30 +91,29 @@ export function AppUpdateControl({
       exitDuration={180}
       initialY={0}
     >
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="app-update-compact-button"
-            disabled={disabled}
-            onClick={runAction}
-            aria-label={visibleState.message ? `${label}: ${visibleState.message}` : undefined}
-          >
-            {icon}
-            <span className="app-update-label">{label}</span>
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent className="[--tooltip-max-width:18rem]">{tooltip}</TooltipContent>
-      </Tooltip>
+      {visibleState.releaseNotes ? (
+        <HoverCard openDelay={150} closeDelay={200}>
+          {/* The span keeps hover working while the button is disabled during checks and downloads. */}
+          <HoverCardTrigger asChild>
+            <span className="app-update-hover-target">{updateButton}</span>
+          </HoverCardTrigger>
+          <HoverCardContent className="app-update-release-notes-popover" align="end">
+            {visibleState.message ? <p className="app-update-release-notes-status">{visibleState.message}</p> : null}
+            <AppUpdateReleaseNotes state={visibleState} />
+          </HoverCardContent>
+        </HoverCard>
+      ) : (
+        <Tooltip>
+          <TooltipTrigger asChild>{updateButton}</TooltipTrigger>
+          <TooltipContent className="[--tooltip-max-width:18rem]">{tooltip}</TooltipContent>
+        </Tooltip>
+      )}
       {version ? <span className="sr-only">Version {version}</span> : null}
-      {visibleState.releaseNotes ? <AppUpdateReleaseNotesPopover state={visibleState} /> : null}
     </MotionPresence>
   );
 }
 
-function AppUpdateReleaseNotesPopover({ state }: { state: AppUpdateState }): ReactNode {
+function AppUpdateReleaseNotes({ state }: { state: AppUpdateState }): ReactNode {
   const releaseNotes = state.releaseNotes;
   if (!releaseNotes) {
     return null;
@@ -111,54 +125,40 @@ function AppUpdateReleaseNotesPopover({ state }: { state: AppUpdateState }): Rea
     }
   };
 
-  // The label hides in narrow headers, so the icon trigger has a tooltip.
   return (
-    <Popover>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <PopoverTrigger asChild>
-            <Button type="button" variant="ghost" size="sm" className="app-update-release-notes-trigger">
-              <ScrollText />
-              <span className="app-update-release-notes-label">Release Notes</span>
-            </Button>
-          </PopoverTrigger>
-        </TooltipTrigger>
-        <TooltipContent>Release Notes</TooltipContent>
-      </Tooltip>
-      <PopoverContent className="app-update-release-notes-popover" align="end">
-        <div className="app-update-release-notes-header">
-          <div className="min-w-0">
-            <p className="eyebrow">Release</p>
-            <h3>{releaseNotes.title || `Version ${releaseNotes.version}`}</h3>
-          </div>
-          {releaseNotes.url ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="shrink-0"
-              onClick={openReleaseNotes}
-            >
-              <ExternalLink />
-              Open on GitHub
-            </Button>
-          ) : null}
+    <>
+      <div className="app-update-release-notes-header">
+        <div className="min-w-0">
+          <p className="eyebrow">Release notes</p>
+          <h3>{releaseNotes.title || `Version ${releaseNotes.version}`}</h3>
         </div>
-        {releaseNotes.loading ? (
-          <LoadingState label="Loading release notes" className="min-h-10 p-2" />
-        ) : releaseNotes.error ? (
-          <p className="app-update-release-notes-error" role="status" aria-live="polite">{releaseNotes.error}</p>
-        ) : releaseNotes.body ? (
-          <div className="app-update-release-notes-body selectable-text">
-            <OptionalFeatureBoundary name="release notes">
-              <BasicMarkdown externalLinks>{releaseNotes.body}</BasicMarkdown>
-            </OptionalFeatureBoundary>
-          </div>
-        ) : (
-          <p className="app-update-release-notes-status">No release notes published for this version.</p>
-        )}
-      </PopoverContent>
-    </Popover>
+        {releaseNotes.url ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            onClick={openReleaseNotes}
+          >
+            <ExternalLink />
+            Open on GitHub
+          </Button>
+        ) : null}
+      </div>
+      {releaseNotes.loading ? (
+        <LoadingState label="Loading release notes" className="min-h-10 p-2" />
+      ) : releaseNotes.error ? (
+        <p className="app-update-release-notes-error" role="status" aria-live="polite">{releaseNotes.error}</p>
+      ) : releaseNotes.body ? (
+        <div className="app-update-release-notes-body selectable-text">
+          <OptionalFeatureBoundary name="release notes">
+            <BasicMarkdown externalLinks>{releaseNotes.body}</BasicMarkdown>
+          </OptionalFeatureBoundary>
+        </div>
+      ) : (
+        <p className="app-update-release-notes-status">No release notes published for this version.</p>
+      )}
+    </>
   );
 }
 

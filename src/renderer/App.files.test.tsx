@@ -2609,7 +2609,8 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     expect(await screen.findByText("Version 0.1.1")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Release Notes" }));
+    expect(screen.queryByRole("button", { name: "Release Notes" })).toBeNull();
+    await user.hover(screen.getByRole("button", { name: "Restart to update" }));
 
     expect(await screen.findByRole("heading", { name: "Githead 0.1.1" })).toBeTruthy();
     expect(await screen.findByRole("heading", { name: "Changes" })).toBeTruthy();
@@ -2639,7 +2640,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Release Notes" }));
+    await user.hover(await screen.findByRole("button", { name: "Update available" }));
 
     expect((await screen.findByRole("status")).textContent).toBe("Loading release notes");
   });
@@ -2662,7 +2663,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     expect(await screen.findByRole("button", { name: "Update available" })).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Release Notes" }));
+    await user.hover(screen.getByRole("button", { name: "Update available" }));
 
     expect((await screen.findByRole("status")).textContent).toBe("Release notes are not published for this version.");
   });

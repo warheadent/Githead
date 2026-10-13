@@ -863,7 +863,7 @@ describe("RepositoryHeader", () => {
   });
 
   describe("app update", () => {
-    it("renders the compact update control with release notes and the version for assistive technology", async () => {
+    it("renders the compact update control, shows release notes on hover, and keeps the version for assistive technology", async () => {
       const user = userEvent.setup();
       const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
       const { props, rerenderHeader } = renderHeader({
@@ -884,7 +884,9 @@ describe("RepositoryHeader", () => {
           releaseNotes: { version: "0.2.0", url: null, title: "Githead 0.2.0", body: "Notes", loading: false, error: null }
         })
       });
-      expect(within(region).getByRole("button", { name: "Release Notes" })).toBeTruthy();
+      expect(within(region).queryByRole("button", { name: "Release Notes" })).toBeNull();
+      await user.hover(within(region).getByRole("button", { name: "Restart to update" }));
+      expect(await screen.findByRole("heading", { name: "Githead 0.2.0" })).toBeTruthy();
       await user.click(within(region).getByRole("button", { name: "Restart to update" }));
       expect(confirm).toHaveBeenCalledOnce();
       expect(props.onInstallUpdate).toHaveBeenCalledOnce();

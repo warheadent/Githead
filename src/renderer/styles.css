@@ -1339,8 +1339,7 @@ textarea,
 }
 
 @container repository-header (max-width: 1280px) {
-  .app-update-control.is-compact .app-update-label,
-  .app-update-control.is-compact .app-update-release-notes-label {
+  .app-update-control.is-compact .app-update-label {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -2976,25 +2975,20 @@ textarea,
   color: var(--destructive);
 }
 
-.app-update-control.is-compact .app-update-release-notes-trigger {
-  height: 32px;
-  padding-inline: 8px;
-  color: var(--muted-foreground);
-  font-size: 13px;
+.app-update-hover-target {
+  display: inline-flex;
 }
 
-.app-update-release-notes-trigger {
-  height: 24px;
-  padding-inline: 8px;
-  color: var(--foreground);
-  font-size: 0.74rem;
+/* Disabled buttons swallow pointer events; let the hover target open the release notes. */
+.app-update-hover-target .app-update-compact-button:disabled {
+  pointer-events: none;
 }
 
 .app-update-release-notes-popover {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   width: min(560px, calc(100vw - 32px));
-  max-height: min(640px, calc(100vh - 32px), var(--radix-popover-content-available-height));
-  grid-template-rows: auto minmax(0, 1fr);
+  max-height: min(640px, calc(100vh - 32px), var(--radix-hover-card-content-available-height));
   gap: 0;
   padding: 0;
   overflow: hidden;
@@ -3022,6 +3016,7 @@ textarea,
 }
 
 .app-update-release-notes-body {
+  flex: 1 1 auto;
   padding: 16px;
   scrollbar-gutter: stable;
   overscroll-behavior: contain;
