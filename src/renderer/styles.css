@@ -8861,14 +8861,15 @@ textarea,
 .blame-card-count { flex: none; color: var(--muted-foreground); font-size: 12px; line-height: 16px; }
 
 /* Rows are 22px, the BLAME_ROW_HEIGHT in BlameView.tsx. Each run of lines from one commit
-   shows the commit once and alternates a band; lines of the blamed version use the selected fill. */
+   shows the commit once and alternates a band; lines of the blamed version use the selected fill.
+   The hash column is 10ch of the code font, the length gitBlame.ts abbreviates hashes to. */
 .blame-list { position: relative; min-height: 0; overflow: auto; font-family: var(--font-code); }
 
 .blame-row {
   display: grid;
   width: 100%;
   height: 22px;
-  grid-template-columns: 200px 56px minmax(max-content, 1fr);
+  grid-template-columns: 208px 56px minmax(max-content, 1fr);
   align-items: stretch;
   border: 0;
   padding: 0;
@@ -8903,7 +8904,7 @@ textarea,
 .blame-gutter {
   display: grid;
   min-width: 0;
-  grid-template-columns: 64px minmax(0, 1fr);
+  grid-template-columns: 10ch minmax(0, 1fr);
   gap: 8px;
   padding: 0 12px;
   background: color-mix(in oklch, var(--muted) 55%, var(--surface));
