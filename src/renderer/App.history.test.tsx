@@ -1584,6 +1584,122 @@ describe("App", { timeout: 10_000 }, () => {
     expect(await screen.findByRole("region", { name: `Blame for ${file.path}` })).toBeTruthy();
     expect(screen.getByText("const a = 1;")).toBeTruthy();
     expect(githead.getFileBlame).toHaveBeenCalledWith({ repoPath, hash: commit.hash, path: file.path, requestId: expect.any(String) });
+    expect(githead.getFileHistory).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "File history" }));
+    expect(await screen.findByRole("region", { name: `File History for ${file.path}` })).toBeTruthy();
+    expect(githead.getFileHistory).toHaveBeenCalledWith({ repoPath, startHash: commit.hash, path: file.path, limit: 200, requestId: expect.any(String) });
+  });
+
+  it("blames versions from the File History column and switches back without reloading", async () => {
+    const user = userEvent.setup();
+    const commit = createCommit({ subject: "newer file change" });
+    const older = createCommit({ hash: "a".repeat(40), shortHash: "aaaaaaa", subject: "older file change", authorName: "Mara Rivera" });
+    const file = { path: "src/App.tsx", status: "M", additions: 1, deletions: 0 };
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash, { files: [file] }));
+    vi.mocked(githead.getCommitFileDiff).mockResolvedValue(createTextDiff(file.path, "diff"));
+    vi.mocked(githead.getFileHistory).mockResolvedValue({
+      repoPath,
+      startHash: commit.hash,
+      requestedPath: file.path,
+      hasMore: false,
+      entries: [{ ...commit, path: file.path, status: "M" }, { ...older, path: file.path, status: "A" }]
+    });
+    vi.mocked(githead.getFileBlame).mockImplementation(async ({ hash }) => ({
+      kind: "text", repoPath, hash, path: file.path, byteLength: 30,
+      commits: [
+        { hash: commit.hash, shortHash: commit.shortHash, authorName: commit.authorName, authorEmail: commit.authorEmail, authorDate: commit.authorDate, summary: commit.subject },
+        { hash: older.hash, shortHash: older.shortHash, authorName: older.authorName, authorEmail: older.authorEmail, authorDate: older.authorDate, summary: older.subject }
+      ],
+      lines: [
+        { finalLine: 1, originalLine: 1, commitHash: commit.hash, originalPath: file.path, text: "const a = 1;", boundary: false },
+        { finalLine: 2, originalLine: 2, commitHash: commit.hash, originalPath: file.path, text: "const b = 2;", boundary: false },
+        { finalLine: 3, originalLine: 3, commitHash: older.hash, originalPath: file.path, text: "const c = 3;", boundary: false }
+      ]
+    }));
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
+    await user.click(await screen.findByRole("menuitem", { name: "Log Selected" }));
+    const fileHistory = await screen.findByRole("region", { name: `File History for ${file.path}` });
+    await within(fileHistory).findByText("older file change");
+    await user.click(within(fileHistory).getByRole("button", { name: "Blame this version" }));
+
+    const blame = await screen.findByRole("region", { name: `Blame for ${file.path}` });
+    expect(await within(blame).findByRole("heading", { name: `Blame at ${commit.shortHash}` })).toBeTruthy();
+    expect(within(blame).getByText("3 lines")).toBeTruthy();
+    const blameLines = within(blame).getByRole("listbox", { name: `Blame lines for ${file.path}` });
+    const lineRows = within(blameLines).getAllByRole("option");
+    // A run of lines from one commit names the commit on its first line only.
+    expect(lineRows.map((row) => row.classList.contains("is-run-start"))).toEqual([false, false, true]);
+    expect(lineRows[0]?.querySelector(".blame-commit")?.textContent).toBe(commit.shortHash);
+    expect(lineRows[1]?.querySelector(".blame-commit")).toBeNull();
+    const versions = within(blame).getByRole("listbox", { name: `History for ${file.path}` });
+    expect(within(versions).getByRole("option", { selected: true }).textContent).toContain("newer file change");
+
+    await user.click(within(versions).getByRole("option", { name: /older file change/ }));
+    await waitFor(() => expect(githead.getFileBlame).toHaveBeenLastCalledWith({ repoPath, hash: older.hash, path: file.path, requestId: expect.any(String) }));
+    expect(await within(blame).findByRole("heading", { name: `Blame at ${older.shortHash}` })).toBeTruthy();
+    expect(within(versions).getByRole("option", { selected: true }).textContent).toContain("older file change");
+
+    await user.click(within(blame).getByRole("button", { name: "File history" }));
+    expect(await screen.findByRole("region", { name: `File History for ${file.path}` })).toBeTruthy();
+    expect(githead.getFileHistory).toHaveBeenCalledTimes(1);
+
+    await user.click(within(screen.getByRole("region", { name: `File History for ${file.path}` })).getByRole("button", { name: "History" }));
+    expect(await screen.findByRole("listbox", { name: "Commit history" })).toBeTruthy();
+    expect(githead.getFileHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not reuse a file history that leaves out the blamed version", async () => {
+    const user = userEvent.setup();
+    const newer = createCommit({ hash: "b".repeat(40), shortHash: "bbbbbbb", subject: "newer file change" });
+    const older = createCommit({ hash: "a".repeat(40), shortHash: "aaaaaaa", subject: "older file change" });
+    const file = { path: "src/App.tsx", status: "M", additions: 1, deletions: 0 };
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([newer, older]);
+    vi.mocked(githead.getCommitDetails).mockImplementation(async ({ hash }) => createCommitDetails(hash, { files: [file] }));
+    vi.mocked(githead.getCommitFileDiff).mockResolvedValue(createTextDiff(file.path, "diff"));
+    vi.mocked(githead.getFileHistory).mockImplementation(async ({ startHash }) => ({
+      repoPath,
+      startHash,
+      requestedPath: file.path,
+      hasMore: false,
+      entries: startHash === newer.hash
+        ? [{ ...newer, path: file.path, status: "M" }, { ...older, path: file.path, status: "A" }]
+        : [{ ...older, path: file.path, status: "A" }]
+    }));
+    vi.mocked(githead.getFileBlame).mockImplementation(async ({ hash }) => ({
+      kind: "text", repoPath, hash, path: file.path, byteLength: 12,
+      commits: [{ hash: older.hash, shortHash: older.shortHash, authorName: older.authorName, authorEmail: older.authorEmail, authorDate: older.authorDate, summary: older.subject }],
+      lines: [{ finalLine: 1, originalLine: 1, commitHash: older.hash, originalPath: file.path, text: "const a = 1;", boundary: false }]
+    }));
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
+    const commits = await screen.findByRole("listbox", { name: "Commit history" });
+    await user.click(within(commits).getByRole("option", { name: /older file change/ }));
+    await waitFor(() => expect(githead.getCommitDetails).toHaveBeenLastCalledWith(expect.objectContaining({ hash: older.hash })));
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
+    await user.click(await screen.findByRole("menuitem", { name: "Log Selected" }));
+    const fileHistory = await screen.findByRole("region", { name: `File History for ${file.path}` });
+    await within(fileHistory).findByText("older file change");
+    await user.click(within(fileHistory).getByRole("button", { name: "History" }));
+
+    const commitsAgain = await screen.findByRole("listbox", { name: "Commit history" });
+    await user.click(within(commitsAgain).getByRole("option", { name: /newer file change/ }));
+    await waitFor(() => expect(githead.getCommitDetails).toHaveBeenLastCalledWith(expect.objectContaining({ hash: newer.hash })));
+    fireEvent.contextMenu(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
+    await user.click(await screen.findByRole("menuitem", { name: "Blame Selected" }));
+    const blame = await screen.findByRole("region", { name: `Blame for ${file.path}` });
+    expect(await within(blame).findByRole("heading", { name: `Blame at ${newer.shortHash}` })).toBeTruthy();
+    expect(within(blame).queryByRole("listbox", { name: `History for ${file.path}` })).toBeNull();
+    expect(githead.getFileHistory).toHaveBeenCalledTimes(1);
+
+    await user.click(within(blame).getByRole("button", { name: "File history" }));
+    expect(await screen.findByRole("region", { name: `File History for ${file.path}` })).toBeTruthy();
+    expect(githead.getFileHistory).toHaveBeenCalledTimes(2);
+    expect(githead.getFileHistory).toHaveBeenLastCalledWith({ repoPath, startHash: newer.hash, path: file.path, limit: 200, requestId: expect.any(String) });
   });
 
   it("cancels Blame and ignores its late result after switching Repositories", async () => {

@@ -98,6 +98,11 @@ function focusListColumn(column: HTMLElement): void {
   }
 }
 
+/** The one raised surface card of a detail pane. ListDetailLayout adds it unless detailCard is off. */
+export function DetailSurface({ children }: { children: ReactNode }): ReactNode {
+  return <div className="detail-surface grid min-h-0 overflow-hidden rounded-lg border border-border bg-surface">{children}</div>;
+}
+
 export interface ListDetailLayoutProps {
   /** Names the DOM ids and data attributes, so it must be unique among mounted layouts. */
   id: string;
@@ -131,9 +136,7 @@ export function ListDetailLayout({
   className
 }: ListDetailLayoutProps): ReactNode {
   const narrow = useSyncExternalStore(subscribeToNarrowLayout, readNarrowLayout, readServerNarrowLayout);
-  const detailContent = detailCard ? (
-    <div className="detail-surface grid min-h-0 overflow-hidden rounded-lg border border-border bg-surface">{detail}</div>
-  ) : detail;
+  const detailContent = detailCard ? <DetailSurface>{detail}</DetailSurface> : detail;
 
   return narrow ? (
     <NarrowListDetailLayout

@@ -7835,6 +7835,22 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
   }
 
   const selectedFileHistoryEntry = state.fileHistoryEntries.find((entry) => entry.hash === state.selectedFileHistoryHash) ?? null;
+  const blameRoute = state.historyRoute.kind === "blame" ? state.historyRoute : null;
+  // Blame shows the loaded file history beside it only when that history contains the blamed version.
+  const blameVersions = blameRoute && state.fileHistoryOrigin
+    && state.fileHistoryEntries.some((entry) => entry.hash === blameRoute.target.hash && entry.path === blameRoute.target.path)
+    ? state.fileHistoryEntries
+    : null;
+  /** Leaves File History or Blame for the commit history, and drops their pending reads. */
+  const openRepositoryHistoryRoute = (): void => {
+    cancelRepositoryRead("file-history", requestIds.current.fileHistory);
+    cancelRepositoryRead("file-history-diff", requestIds.current.fileHistoryDiff);
+    cancelRepositoryRead("file-blame", requestIds.current.fileBlame);
+    requestIds.current.fileHistory += 1;
+    requestIds.current.fileHistoryDiff += 1;
+    requestIds.current.fileBlame += 1;
+    updateState({ historyRoute: repositoryHistoryRoute });
+  };
 
   return (
     <AppChrome
@@ -8098,13 +8114,8 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                     loading={state.fileHistoryLoading}
                     error={state.fileHistoryError}
                     hasMore={state.fileHistoryHasMore}
-                    onBack={() => {
-                      cancelRepositoryRead("file-history", requestIds.current.fileHistory);
-                      cancelRepositoryRead("file-history-diff", requestIds.current.fileHistoryDiff);
-                      requestIds.current.fileHistory += 1;
-                      requestIds.current.fileHistoryDiff += 1;
-                      updateState({ historyRoute: repositoryHistoryRoute });
-                    }}
+                    onBack={openRepositoryHistoryRoute}
+                    onOpenRepositoryHistory={openRepositoryHistoryRoute}
                     onRetry={() => { void loadFileHistory(state.historyRoute.kind === "file" ? state.historyRoute.origin : state.fileHistoryOrigin!); }}
                     onSelect={(entry) => { void loadFileHistoryDiff(entry); }}
                     onBlame={(entry) => { void loadFileBlame(targetFromHistoryEntry(entry), "file"); }}
@@ -8119,31 +8130,44 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                         repoPath={state.repoPath}
                         wrapLines={state.appSettings?.wrapDiffLines ?? false}
                         onWrapLinesChange={setWrapDiffLines}
+                        variant="card"
+                        status={selectedFileHistoryEntry ? getCommitFileStatusVisuals(selectedFileHistoryEntry.status) : undefined}
                       />
                     }
                   />
                   </OptionalFeatureBoundary>
-                ) : state.historyRoute.kind === "blame" ? (
+                ) : blameRoute ? (
                   <OptionalFeatureBoundary name="blame view">
                   <BlameView
-                    path={state.historyRoute.target.path}
+                    path={blameRoute.target.path}
+                    hash={blameRoute.target.hash}
                     result={state.fileBlame}
                     loading={state.fileBlameLoading}
                     error={state.fileBlameError}
-                    backLabel={state.historyRoute.returnTo === "file" ? "Back to File History" : "Back"}
+                    backLabel={blameRoute.returnTo === "file" ? "Back to File History" : "Back"}
+                    versions={blameVersions}
+                    fileHistoryDisabled={!blameVersions && !state.summary?.capabilities.fileHistory}
                     onBack={() => {
                       restoreWorkspaceLocation({
                         ...workspaceLocation,
-                        historyRoute: state.historyRoute.kind === "blame" && state.historyRoute.returnTo === "file" && state.fileHistoryOrigin
+                        historyRoute: blameRoute.returnTo === "file" && state.fileHistoryOrigin
                           ? { kind: "file", origin: state.fileHistoryOrigin }
                           : repositoryHistoryRoute
                       });
                     }}
-                    onRetry={() => { if (state.historyRoute.kind === "blame") void loadFileBlame(state.historyRoute.target, state.historyRoute.returnTo); }}
+                    onOpenRepositoryHistory={openRepositoryHistoryRoute}
+                    onShowFileHistory={() => {
+                      // The loaded history is shown again as it is. Otherwise the history of the blamed version loads.
+                      if (blameVersions && state.fileHistoryOrigin) {
+                        restoreWorkspaceLocation({ ...workspaceLocation, historyRoute: { kind: "file", origin: state.fileHistoryOrigin } });
+                      } else if (state.summary?.capabilities.fileHistory) {
+                        void loadFileHistory(blameRoute.target);
+                      }
+                    }}
+                    onSelectVersion={(entry) => { void loadFileBlame(targetFromHistoryEntry(entry), "file"); }}
+                    onRetry={() => { void loadFileBlame(blameRoute.target, blameRoute.returnTo); }}
                     onOpenCommit={(hash) => {
-                      cancelRepositoryRead("file-blame", requestIds.current.fileBlame);
-                      requestIds.current.fileBlame += 1;
-                      updateState({ historyRoute: repositoryHistoryRoute });
+                      openRepositoryHistoryRoute();
                       selectCommit(hash);
                     }}
                   />

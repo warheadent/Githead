@@ -8691,86 +8691,239 @@ textarea,
   box-shadow: var(--shadow-overlay);
 }
 
-.historical-file-view,
-.blame-view {
+/* File History and Blame: a path bar, the versions column and one card. */
+.historical-file-view {
   display: grid;
-  min-height: 0;
   height: 100%;
+  min-height: 0;
   grid-template-rows: auto minmax(0, 1fr);
-  background: var(--card);
+  background: var(--background);
 }
 
-.historical-file-header {
+.historical-file-path-bar {
   display: flex;
   min-width: 0;
-  min-height: 58px;
+  min-height: 44px;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   border-bottom: 1px solid var(--border);
-  padding: 8px 16px;
+  padding: 6px 16px 6px 12px;
+}
+
+.historical-file-crumbs {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 2px;
+}
+
+.historical-file-crumb {
+  flex: none;
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.historical-file-crumb-separator {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--faint-foreground);
+}
+
+.historical-file-path {
+  min-width: 0;
+  margin: 0 0 0 6px;
+  overflow: hidden;
+  font-family: var(--font-code);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .historical-file-body {
   display: grid;
   min-height: 0;
-  grid-template-columns: minmax(320px, 40%) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  padding: 16px;
 }
 
-.file-history-list,
-.historical-file-content,
-.blame-list {
+.file-history-column {
+  height: 100%;
   min-height: 0;
   overflow: auto;
+  padding: 8px;
 }
 
-.file-history-list { border-right: 1px solid var(--border); padding: 6px; }
+.file-history-list {
+  display: grid;
+  gap: 2px;
+}
 
 .file-history-row {
   display: grid;
   width: 100%;
-  min-height: 58px;
-  grid-template-columns: 32px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  padding: 7px 9px;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  border: 0;
+  border-radius: var(--radius-md);
+  padding: 8px;
   color: inherit;
+  background: transparent;
   text-align: left;
+  cursor: default;
 }
 
 .file-history-row:hover { background: var(--hover); }
 .file-history-row.is-selected { background: var(--selected); }
-.file-history-subject,
-.file-history-meta,
-.file-history-rename { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.file-history-subject { font-size: .82rem; font-weight: 600; }
-.file-history-meta,
-.file-history-rename { color: var(--muted-foreground); font-size: .72rem; }
-.file-history-limit { padding: 12px; color: var(--muted-foreground); font-size: .75rem; text-align: center; }
+.file-history-row[aria-disabled="true"] { color: var(--muted-foreground); }
 
-.blame-list { position: relative; font-family: var(--font-code); }
+/* The scroller clips an outside ring at the column edges. */
+.file-history-row:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+.file-history-row > .status-chip { margin-top: 2px; }
+
+.file-history-row-content {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.file-history-subject {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.file-history-meta,
+.file-history-rename {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-history-meta { font-size: 12px; line-height: 16px; }
+.file-history-rename { font-family: var(--font-code); font-size: 11px; line-height: 16px; }
+
+.file-history-hash {
+  color: var(--muted-foreground);
+  font-family: var(--font-code);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.file-history-limit { padding: 12px; color: var(--muted-foreground); font-size: 12px; text-align: center; }
+
+.blame-card {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.blame-card-header {
+  display: flex;
+  min-width: 0;
+  min-height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  padding: 4px 16px;
+}
+
+.blame-card-title {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.blame-card-title > code { font-family: var(--font-code); font-size: 12px; }
+.blame-card-count { flex: none; color: var(--muted-foreground); font-size: 12px; line-height: 16px; }
+
+/* Rows are 22px, the BLAME_ROW_HEIGHT in BlameView.tsx. Each run of lines from one commit
+   shows the commit once and alternates a band; lines of the blamed version use the selected fill. */
+.blame-list { position: relative; min-height: 0; overflow: auto; font-family: var(--font-code); }
+
 .blame-row {
   display: grid;
   width: 100%;
-  grid-template-columns: 92px 150px 64px minmax(max-content, 1fr);
+  height: 22px;
+  grid-template-columns: 200px 56px minmax(max-content, 1fr);
   align-items: stretch;
-  border-bottom: 1px solid color-mix(in oklch, var(--border) 70%, transparent);
+  border: 0;
+  padding: 0;
   color: inherit;
-  font-size: .78rem;
+  background: var(--surface);
+  font-size: 12px;
+  line-height: 22px;
   text-align: left;
+  cursor: default;
 }
+
+.blame-row.is-banded { background: color-mix(in oklch, var(--muted) 45%, var(--surface)); }
 .blame-row:hover { background: var(--hover); }
-.blame-commit { overflow: hidden; padding: 4px 8px; color: var(--primary); text-align: left; text-overflow: ellipsis; }
-.blame-author { overflow: hidden; padding: 4px 8px; color: var(--muted-foreground); text-overflow: ellipsis; white-space: nowrap; }
-.blame-line-number { padding: 4px 10px; color: var(--muted-foreground); background: var(--diff-line-number-bg); text-align: right; user-select: none; }
-.blame-code { min-width: 100%; padding: 4px 10px; background: var(--diff-code); white-space: pre; }
 
-@media (max-width: 900px) {
-  .historical-file-body { grid-template-columns: minmax(260px, 44%) minmax(0, 1fr); }
-  .blame-row { grid-template-columns: 84px 110px 54px minmax(max-content, 1fr); }
+.blame-row:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
 }
 
+<<<<<<< HEAD
+=======
+.blame-row.is-run-start::before {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: var(--border);
+  content: "";
+  pointer-events: none;
+}
+
+.blame-gutter {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 8px;
+  padding: 0 12px;
+  background: color-mix(in oklch, var(--muted) 55%, var(--surface));
+}
+
+.blame-row.is-banded .blame-gutter { background: var(--muted); }
+.blame-row.is-blamed-version .blame-gutter { background: var(--selected); }
+.blame-commit { overflow: hidden; color: var(--muted-foreground); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.blame-row.is-blamed-version .blame-commit { color: var(--primary); }
+.blame-author { overflow: hidden; color: var(--muted-foreground); font-family: var(--font-ui); text-overflow: ellipsis; white-space: nowrap; }
+.blame-line-number { padding: 0 10px; color: var(--muted-foreground); text-align: right; user-select: none; }
+.blame-code { min-width: 100%; padding: 0 12px; white-space: pre; }
+
+.activity-log-jump {
+  box-shadow: var(--shadow-overlay);
+}
+
+>>>>>>> cd7792f (feat(history): add path bar and versions column to file history and blame)
 .clone-check-message-swap {
   position: relative;
 }
