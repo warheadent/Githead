@@ -154,7 +154,13 @@ export function QuickSwitcher({
           const focused = document.activeElement;
           if (focused && focused !== document.body && focused.isConnected) return;
           if (restoreFocus?.()) return;
-          if (opener?.isConnected) opener.focus();
+          if (!opener?.isConnected) return;
+          // Focusing a tab selects it, so an opener tab that is no longer selected hands focus to the selected tab.
+          if (opener.getAttribute("role") === "tab" && opener.getAttribute("aria-selected") !== "true") {
+            opener.closest('[role="tablist"]')?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
+            return;
+          }
+          opener.focus();
         }}
         onEscapeKeyDown={(event) => {
           if (mode === "upstream") {

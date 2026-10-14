@@ -7536,6 +7536,8 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
         setPerformanceDiagnosticsOpen(true);
         return;
       case "navigate":
+        // Back and Forward change the view, so focus returns to the active tab instead of the opener.
+        switcherFocusesViewRef.current = true;
         pendingSwitcherNavigationRef.current = item.payload.direction;
         return;
       case "manage-repository-actions":
