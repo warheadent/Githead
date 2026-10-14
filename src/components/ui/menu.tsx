@@ -22,12 +22,12 @@ const menuSubTriggerClassName = cn(
 )
 
 const menuLabelClassName =
-  "px-2 py-1.5 text-[11px] leading-[14px] font-medium tracking-[.02em] text-muted-foreground data-[inset]:pl-8"
+  "px-2 py-1.5 text-xs leading-4 font-medium tracking-[.02em] text-muted-foreground data-[inset]:pl-8"
 
 const menuSeparatorClassName = "-mx-1.5 my-1.5 h-px bg-border"
 
 const menuShortcutClassName =
-  "ml-auto inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-sm bg-muted px-1 font-mono text-[11px] leading-none font-medium text-muted-foreground"
+  "ml-auto inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-sm bg-muted px-1 text-xs leading-none tabular-nums font-medium text-muted-foreground"
 
 /**
  * Secondary text for a menu item. Give the item aria-label={label} and aria-describedby={id}

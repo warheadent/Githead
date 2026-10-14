@@ -214,7 +214,7 @@ export function RepositorySettingsDialog({
       title="Repository settings"
       description={<>
         <span>Override Githead's global settings for this repository.</span>
-        <span className="truncate font-mono text-xs" title={repoPath}>{repoPath}</span>
+        <span className="truncate text-xs" title={repoPath}>{repoPath}</span>
       </>}
       status={footerStatus}
       saving={saving}

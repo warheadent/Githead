@@ -168,7 +168,7 @@ export function RemoteManagementDialog({
           <TooltipTarget content={repoPath}>
             <p className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
               <FolderGit2 className="size-3.5 shrink-0" aria-hidden="true" />
-              <span className="selectable-text truncate font-mono">{repoPath}</span>
+              <span className="selectable-text truncate">{repoPath}</span>
             </p>
           </TooltipTarget>
         </DialogHeader>

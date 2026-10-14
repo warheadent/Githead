@@ -488,7 +488,7 @@ export function SettingsDialog({
                     <dl className="grid gap-4 text-sm">
                       <div className="grid gap-1 sm:grid-cols-[130px_minmax(0,1fr)]">
                         <dt className="text-muted-foreground">Version</dt>
-                        <dd className="font-mono selectable-text">{__APP_VERSION__}</dd>
+                        <dd className="selectable-text tabular-nums">{__APP_VERSION__}</dd>
                       </div>
                       <div className="grid gap-1 sm:grid-cols-[130px_minmax(0,1fr)]">
                         <dt className="text-muted-foreground">Last updated</dt>

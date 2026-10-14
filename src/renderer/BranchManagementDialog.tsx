@@ -95,7 +95,7 @@ export function BranchManagementDialog(props: BranchManagementDialogProps): Reac
         <TooltipTarget content={repoPath}>
           <p className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
             <FolderGit2 className="size-3.5 shrink-0" aria-hidden="true" />
-            <span className="selectable-text truncate font-mono">{repoPath}</span>
+            <span className="selectable-text truncate">{repoPath}</span>
           </p>
         </TooltipTarget>
       </DialogHeader>
@@ -177,7 +177,7 @@ function BranchRow({ branch, action, capabilities, busy, mutationBlocked, archiv
         <Pencil className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         <Input
           aria-label="New name"
-          className="h-8 min-w-0 flex-1 font-mono md:text-xs"
+          className="h-8 min-w-0 flex-1"
           value={name}
           onChange={(event) => onNameChange(event.target.value)}
           onFocus={(event) => event.currentTarget.select()}
@@ -191,7 +191,7 @@ function BranchRow({ branch, action, capabilities, busy, mutationBlocked, archiv
         <Button type="button" variant="ghost" size="sm" onClick={onCancel}>{cancelLabel}</Button>
         <Button type="submit" size="sm" disabled={busy || mutationBlocked}>{busy ? <Loader2 className="animate-spin" /> : null}Rename branch</Button>
       </div>
-      {error ? <p id={errorId} className="dialog-error pl-6" role="alert">{error}</p> : <p className="pl-6 text-xs text-muted-foreground">Renaming <span className="font-mono">{branch.name}</span>. Its remote branch is not changed.</p>}
+      {error ? <p id={errorId} className="dialog-error pl-6" role="alert">{error}</p> : <p className="pl-6 text-xs text-muted-foreground">Renaming <span className="font-medium">{branch.name}</span>. Its remote branch is not changed.</p>}
     </form>;
   }
 
@@ -239,7 +239,7 @@ function BranchDetail({ branch, otherWorktree, archive }: { branch: GitBranch; o
     return <TooltipTarget content={branch.worktreePath}><p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"><FolderGit2 className="size-3 shrink-0" aria-hidden="true" /><span className="truncate">Checked out in {branch.worktreePath}</span></p></TooltipTarget>;
   }
   if (branch.upstream) {
-    return <TooltipTarget content={`Tracks ${branch.upstream}`}><p className="truncate font-mono text-xs text-muted-foreground">{branch.upstream}</p></TooltipTarget>;
+    return <TooltipTarget content={`Tracks ${branch.upstream}`}><p className="truncate text-xs text-muted-foreground">{branch.upstream}</p></TooltipTarget>;
   }
   return archive ? null : <p className="text-xs text-muted-foreground">Local only</p>;
 }

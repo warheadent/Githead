@@ -22,7 +22,6 @@ import {
 } from "lucide-react";
 import { Fragment, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
 import { filterQuickSwitcherItems, type QuickSwitcherItem, type QuickSwitcherMode, type QuickSwitcherSection } from "./quickSwitcherItems";
 import { RecentRepositoryVcsIcon, RepoSyncStatusChips } from "./SyncCountChip";
 import { WORKSPACE_VIEW_ICONS } from "./workspaceViews";
@@ -257,9 +256,9 @@ function renderOption({ id, item, active, onActivate, onChoose }: {
           : <Icon />}
       </span>
       <span className="quick-switcher-option-copy">
-        <span className={cn("quick-switcher-option-title", isMonoTitle(item) && "is-mono")}>{item.title}</span>
+        <span className="quick-switcher-option-title">{item.title}</span>
         {repository?.labelDetail && !repository.worktree ? <span className="quick-switcher-option-label-detail">{repository.labelDetail}</span> : null}
-        {item.detail ? <span className={cn("quick-switcher-option-detail", repository && "is-mono")}>{item.detail}</span> : null}
+        {item.detail ? <span className="quick-switcher-option-detail">{item.detail}</span> : null}
         {repository?.hidden ? <EyeOff className="quick-switcher-option-hidden" aria-hidden="true" /> : null}
       </span>
       {repository ? <RepoSyncStatusChips status={repository.syncStatus} /> : null}
@@ -290,10 +289,6 @@ function resolveActiveIndex(items: readonly QuickSwitcherItem[], activeId: strin
     }
   }
   return 0;
-}
-
-function isMonoTitle(item: QuickSwitcherItem): boolean {
-  return item.kind === "branch" || item.kind === "upstream" && item.payload.upstream !== null;
 }
 
 const BRANCH_ACTION_ICONS: Readonly<Record<string, LucideIcon>> = {
