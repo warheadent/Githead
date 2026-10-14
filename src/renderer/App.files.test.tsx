@@ -1647,7 +1647,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getRepoIdentity).mockClear();
     vi.mocked(githead.getRepoStatus).mockClear();
     vi.mocked(githead.getRepoMetadata).mockClear();
-    await user.click(screen.getByRole("button", { name: "Generate" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
     expect(await screen.findByDisplayValue("feat: keep generation read-only")).toBeTruthy();
     await flushRendererAsync();
 
@@ -1688,7 +1688,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getRepoIdentity).mockClear();
     vi.mocked(githead.getRepoStatus).mockClear();
     vi.mocked(githead.getRepoMetadata).mockClear();
-    await user.click(screen.getByRole("button", { name: "Generate" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
     expect((await screen.findByRole("alert")).textContent).toBe("Provider unavailable.");
     await flushRendererAsync();
 
@@ -1724,7 +1724,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getRepoIdentity).mockClear();
     vi.mocked(githead.getRepoStatus).mockClear();
     vi.mocked(githead.getRepoMetadata).mockClear();
-    await user.click(screen.getByRole("button", { name: "Generate" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
     await user.click(await screen.findByRole("button", { name: "Cancel" }));
 
     const operationId = vi.mocked(githead.generateCommitPlan).mock.calls[0]?.[0].operationId;
@@ -1735,7 +1735,7 @@ describe("App", { timeout: 10_000 }, () => {
       plan: null,
       stderr: "Operation was cancelled."
     });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Generate" })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Generate plan" })).toBeTruthy());
     await flushRendererAsync();
 
     expect(screen.queryByRole("alert")).toBeNull();
@@ -1766,7 +1766,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getRepoTrust).mockClear();
     vi.mocked(githead.getRepoTrust).mockReturnValue(pendingTrust.promise);
 
-    const generateButton = screen.getByRole("button", { name: "Generate" });
+    const generateButton = screen.getByRole("button", { name: "Generate plan" });
     act(() => {
       generateButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       generateButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -1782,7 +1782,7 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => expect(githead.cancelGitOperation).toHaveBeenCalledWith({ operationId }));
 
     pendingGeneration.resolve({ repoPath, exitCode: -1, plan: null, stderr: "Operation was cancelled." });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Generate" })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Generate plan" })).toBeTruthy());
   });
 
   it("requests repository trust once before committing and remembers the decision", async () => {

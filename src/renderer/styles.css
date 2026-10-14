@@ -2721,7 +2721,9 @@ textarea,
 .setup-recents > .repo-recents-heading { display: none; }
 .setup-recents .repo-recents-list { max-height: 288px; overflow: auto; }
 
-/* The plan view fills the Changes list column, which is 280px to 520px wide. */
+/* The plan view fills the Changes list column, which is 280px to 520px wide. It follows the
+ * Changes conventions: group headers like the file groups, 32px rows, one card per commit and
+ * one filled button at a time. */
 .commit-plan-view {
   display: flex;
   flex-direction: column;
@@ -2729,118 +2731,164 @@ textarea,
   background: var(--background);
 }
 
-.commit-plan-toolbar {
-  display: flex;
-  min-height: 48px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  border-bottom: 1px solid var(--border);
-  padding: 8px 16px;
-}
-
-.commit-plan-toolbar h2 {
+.status-plan-title {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--foreground);
   font-size: 14px;
-  font-weight: 650;
+  font-weight: 600;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.commit-plan-toolbar p,
-.commit-plan-group-copy p {
-  margin-top: 2px;
+.commit-plan-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 16px 8px;
+}
+
+.commit-plan-caption {
+  min-width: 0;
+  flex: 1 1 auto;
+  margin: 0 4px 0 0;
+  overflow: hidden;
   color: var(--muted-foreground);
   font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commit-plan-header > [data-slot="button"]:last-child {
+  margin-left: 4px;
 }
 
 .commit-plan-notice,
 .commit-plan-error {
-  margin: 8px 16px 0;
-  border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--border));
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--warning) 9%, var(--card));
-  padding: 9px 11px;
+  margin: 0 16px 8px;
+  border-radius: var(--radius-md);
+  background: var(--warning-surface);
+  padding: 8px 10px;
   color: var(--foreground);
   font-size: 12px;
+  line-height: 16px;
 }
 
 .commit-plan-error {
-  border-color: color-mix(in srgb, var(--destructive) 45%, var(--border));
-  background: color-mix(in srgb, var(--destructive) 8%, var(--card));
+  background: color-mix(in oklab, var(--destructive) 12%, var(--background));
 }
 
 .commit-plan-scroll {
+  display: flex;
   flex: 1;
   min-height: 0;
+  flex-direction: column;
+  gap: 8px;
   overflow: auto;
-  padding: 8px 16px;
+  overscroll-behavior: contain;
+  padding: 0 0 16px;
 }
 
-.commit-plan-inbox-sticky {
+.commit-plan-nothing {
+  flex: 1 1 auto;
+}
+
+/* Files to plan / Unassigned: the same header as the Changes file groups. */
+.commit-plan-inbox {
+  display: block;
+}
+
+.commit-plan-section-header {
   position: sticky;
   z-index: 1;
   top: 0;
-  margin-bottom: 8px;
-}
-
-.commit-plan-inbox-sticky::before {
-  position: absolute;
-  z-index: -1;
-  top: -8px;
-  right: -16px;
-  bottom: 0;
-  left: -16px;
-  background: var(--background);
-  content: "";
-  pointer-events: none;
-}
-
-.commit-plan-inbox {
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--background);
-}
-
-.commit-plan-inbox-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px 6px 12px;
+  gap: 4px;
+  height: 32px;
+  padding: 0 12px 0 10px;
+  background: var(--background);
 }
 
-.commit-plan-inbox-copy {
+.commit-plan-section-toggle {
+  display: inline-flex;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  color: var(--muted-foreground);
+  background: transparent;
+}
+
+.commit-plan-section-toggle:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+
+.commit-plan-section-toggle:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.commit-plan-section-toggle svg {
+  width: 14px;
+  height: 14px;
+}
+
+.commit-plan-section-title {
   min-width: 0;
+  overflow: hidden;
+  color: var(--foreground);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  user-select: none;
+  white-space: nowrap;
 }
 
-.commit-plan-inbox-copy h3 {
+.commit-plan-count {
+  display: inline-flex;
+  min-width: 18px;
+  height: 18px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  margin-left: 2px;
+  border-radius: 999px;
+  padding: 0 6px;
+  background: var(--muted);
+  color: var(--muted-foreground);
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.commit-plan-section-actions {
+  display: flex;
+  margin-left: auto;
+  gap: 2px;
 }
 
 .commit-plan-inbox-content {
-  max-height: 160px;
-  overflow: auto;
-  border-top: 1px solid var(--border);
+  padding: 0 8px;
 }
 
-.commit-plan-inbox-file {
-  min-height: 32px;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  padding-block: 2px;
-}
-
-.commit-plan-inbox-empty {
-  padding: 11px 12px;
+.commit-plan-inbox-empty,
+.commit-plan-hint {
+  margin: 0;
+  padding: 8px 16px;
   color: var(--muted-foreground);
   font-size: 12px;
-}
-
-.commit-plan-inbox-chevron {
-  transition: transform 140ms var(--ease-out);
-}
-
-.commit-plan-inbox-chevron.is-collapsed {
-  transform: rotate(-90deg);
+  line-height: 18px;
 }
 
 .commit-plan-state-swap {
@@ -2849,7 +2897,7 @@ textarea,
 
 .commit-plan-empty {
   display: flex;
-  min-height: 220px;
+  min-height: 160px;
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -2859,67 +2907,139 @@ textarea,
   text-align: center;
 }
 
-.commit-plan-empty svg {
-  width: 24px;
-  height: 24px;
-  color: var(--primary);
-}
-
 .commit-plan-empty strong {
   color: var(--foreground);
   font-size: 14px;
-}
-
-.commit-plan-empty span {
-  max-width: 340px;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.commit-plan-group {
-  overflow: hidden;
-  margin-bottom: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--background);
-}
-
-.commit-plan-group-header {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  align-items: start;
-  gap: 8px;
-  border-bottom: 1px solid var(--border);
-  padding: 8px;
-}
-
-.commit-plan-group-copy {
-  min-width: 0;
-}
-
-.commit-plan-group-copy input {
-  height: 30px;
   font-weight: 600;
 }
 
-.commit-plan-marker {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  flex: 0 0 auto;
+/* One card per planned commit: header, optional review notice, message box, files, footer. */
+.commit-plan-group {
+  overflow: hidden;
+  margin: 0 12px 8px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.commit-plan-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 4px 0 10px;
+}
+
+.commit-plan-number {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
   border-radius: 999px;
-  background: var(--primary);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
-.commit-plan-group-header > .commit-plan-marker {
-  margin-top: 11px;
+.commit-plan-group-title {
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
 }
 
-.commit-plan-marker-1 { background: oklch(0.626846 0.232542 303.900435); }
-.commit-plan-marker-2 { background: oklch(0.76859 0.164659 70.08039); }
-.commit-plan-marker-3 { background: oklch(0.695873 0.149074 162.479602); }
-.commit-plan-marker-4 { background: oklch(0.645032 0.215403 16.4393); }
-.commit-plan-marker-5 { background: oklch(0.714837 0.125737 215.220903); }
+.commit-plan-group-actions {
+  display: flex;
+  margin-left: auto;
+  gap: 2px;
+}
+
+.commit-plan-review {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 10px;
+  background: var(--warning-surface);
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.commit-plan-review > svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--status-modified);
+}
+
+.commit-plan-review > span {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+/* The commit message reads like the commit box: summary line, then the body, in one bordered area. */
+.commit-plan-message {
+  display: grid;
+  gap: 2px;
+  border-top: 1px solid var(--border);
+  padding: 6px 10px 8px;
+}
+
+.commit-plan-message .commit-plan-message-summary,
+.commit-plan-message .commit-plan-message-body {
+  min-height: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 2px 4px;
+  margin: 0 -4px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.commit-plan-message .commit-plan-message-summary {
+  height: 24px;
+  font-weight: 500;
+}
+
+.commit-plan-message .commit-plan-message-body {
+  min-height: 36px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 16px;
+  resize: vertical;
+}
+
+.commit-plan-message .commit-plan-message-summary:focus-visible,
+.commit-plan-message .commit-plan-message-body:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 0;
+  color: var(--foreground);
+}
+
+.commit-plan-group .commit-plan-files {
+  border-top: 1px solid var(--border);
+  padding: 2px;
+}
+
+.commit-plan-group-footer {
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px solid var(--border);
+  padding: 4px;
+}
+
+.commit-plan-add {
+  align-self: stretch;
+  margin: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--muted-foreground);
+}
 
 .commit-plan-files {
   display: grid;
@@ -2931,12 +3051,13 @@ textarea,
   grid-template-columns: auto auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  padding: 4px 8px 4px 12px;
+  border-radius: var(--radius-md);
+  padding: 0 4px 0 8px;
 }
 
-.commit-plan-file:last-child {
-  border-bottom: 0;
+/* Unassigned rows have no include checkbox. */
+.commit-plan-file.commit-plan-inbox-file {
+  grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
 .commit-plan-file:hover {
@@ -2957,7 +3078,7 @@ textarea,
   display: flex;
   min-width: 0;
   align-items: baseline;
-  gap: 7px;
+  gap: 8px;
   overflow: hidden;
   border: 0;
   background: transparent;
@@ -2970,6 +3091,21 @@ textarea,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.commit-plan-file-name span {
+  /* The name stays whole; only the directory truncates. */
+  flex: 0 0 auto;
+  max-width: 100%;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.commit-plan-file-name small {
+  flex: 1 1 0;
+  min-width: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
 }
 
 .commit-plan-file-name span {
@@ -9255,40 +9391,6 @@ textarea,
   color: var(--destructive);
 }
 
-.commit-plan-toolbar-actions,
-.commit-plan-group-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.commit-plan-toolbar {
-  flex-wrap: wrap;
-}
-
-.commit-plan-group-actions {
-  padding: 4px 8px;
-  color: var(--muted-foreground);
-  font-size: 12px;
-}
-
-.commit-plan-group-actions > span:first-child {
-  margin-right: auto;
-}
-
-.commit-plan-group-copy textarea {
-  margin-top: 6px;
-  min-height: 52px;
-  font-size: 12px;
-  resize: vertical;
-}
-
-.commit-plan-selection-actions {
-  grid-column: 1 / -1;
-  display: flex;
-  gap: 4px;
-}
 
 /* Effects are opt-in by level. Dialogs keep the overlay shadow at every level; full adds glass blur only to the open dialog. */
 :root[data-visual-effects] [data-slot="dialog-content"] {

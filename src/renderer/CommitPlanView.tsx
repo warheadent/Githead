@@ -1,8 +1,8 @@
 import { MAX_COMMIT_PLAN_GROUPS, MAX_COMMIT_PLAN_PATHS } from "../shared/commitPlanLimits";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, ChevronDown, Loader2, Plus, RotateCw, Sparkles, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CircleCheck, ListChecks, Loader2, Plus, RotateCw, Sparkles, Trash2, TriangleAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, TooltipButton } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,6 +25,7 @@ import type {
   GitQuickCommitChange,
   GitStatusFile
 } from "../shared/types";
+import { EmptyState } from "./EmptyState";
 import { getFileStatusVisuals } from "./fileStatusVisuals";
 import { FileStatusChip } from "./FileStatusChip";
 import { MotionList, MotionSwap } from "./motion";
@@ -302,32 +303,38 @@ function CommitPlanEditor({
   const hasRenderedGroups = Boolean(plan && (plan.groups.length > 0 || exitingGroupIds.size > 0));
   const showFileSelection = !plan || choosingFiles;
   const inboxCount = showFileSelection ? availablePaths.length : inboxChanges.length;
-  const inboxTitle = plan?.granularity === "hunk" ? "Changes to plan" : "Files to plan";
+  const inboxTitle = showFileSelection ? plan?.granularity === "hunk" ? "Changes to plan" : "Files to plan" : "Unassigned";
+  const unit = plan?.granularity === "hunk" ? "change" : "file";
+  const plannedCount = plan ? plan.groups.reduce((total, group) => total + group.changeIds.length, 0) : 0;
+  const caption = !plan
+    ? "Pick the files to group into commits."
+    : `${countLabel(plan.groups.length, "commit")} · ${countLabel(plannedCount, unit)}`;
+  const includedCount = (group: CommitPlanGroup): number => group.changeIds.filter((id) => includedChangeIds.has(id) && changeById.has(id)).length;
+  const canCommitGroup = (group: CommitPlanGroup): boolean => !editingDisabled && !stale && !validating && !blockedByStagedFiles
+    && group.needsReview !== true && Boolean(group.message.trim()) && includedCount(group) > 0;
+  // One primary button: only the next commit that can be made is filled.
+  const primaryGroupId = plan?.groups.find(canCommitGroup)?.id ?? null;
+  const nothingToPlan = !plan && availablePaths.length === 0;
 
   return (
     <section className="commit-plan-view" aria-label="AI commit plan">
-      <header className="commit-plan-toolbar">
-        <div>
-          <h2>Commit plan</h2>
-          <p>{plan?.granularity === "hunk" ? "Group working-tree hunks into focused commits." : "Group working-tree files into focused commits."}</p>
-        </div>
-        <div className="commit-plan-toolbar-actions">
+      <header className="commit-plan-header">
+        <p className="commit-plan-caption">{caption}</p>
         {plan ? <>
-          <Button type="button" variant="ghost" size="sm" disabled={editingDisabled} aria-pressed={choosingFiles} onClick={() => setChoosingFiles((current) => !current)}>Choose files</Button>
-          <Button type="button" variant="outline" size="sm" disabled={editingDisabled || blockedByStagedFiles || validating} onClick={() => { void validatePlan(plan, selectedPaths, repositoryChangeVersion); }}><RotateCw />Refresh</Button>
-          <Button type="button" variant="outline" size="sm" disabled={editingDisabled || plan.groups.length >= MAX_COMMIT_PLAN_GROUPS} onClick={addGroup}><Plus />Add group</Button>
+          <TooltipButton type="button" variant="ghost" size="icon-xs" aria-label="Choose files" tooltip="Choose files to plan" aria-pressed={choosingFiles} disabled={editingDisabled} onClick={() => setChoosingFiles((current) => !current)}><ListChecks /></TooltipButton>
+          <TooltipButton type="button" variant="ghost" size="icon-xs" aria-label="Refresh" tooltip="Check the plan against the working tree" disabled={editingDisabled || blockedByStagedFiles || validating} onClick={() => { void validatePlan(plan, selectedPaths, repositoryChangeVersion); }}><RotateCw /></TooltipButton>
         </> : null}
         <Button
           type="button"
           size="sm"
+          variant={plan ? "outline" : "default"}
           disabled={editingDisabled || blockedByStagedFiles || selectedPaths.length === 0 || selectedPaths.length > MAX_COMMIT_PLAN_PATHS || !supported || !canGenerate}
           title={blockedByStagedFiles ? "Unstage existing files before you generate a commit plan." : generateTitle}
           onClick={() => { void generate(); }}
         >
           {generating ? <Loader2 className="animate-spin" /> : <Sparkles />}
-          {plan ? "Regenerate" : "Generate"}
+          {plan ? "Regenerate" : "Generate plan"}
         </Button>
-        </div>
       </header>
 
       {blockedByStagedFiles ? (
@@ -345,48 +352,49 @@ function CommitPlanEditor({
       {error ? <div className="commit-plan-error" role="alert">{error}</div> : null}
 
       <div data-workspace-scroll-key="commit-plan" className="commit-plan-scroll">
-        <div className="commit-plan-inbox-sticky">
-          <section className="commit-plan-inbox" aria-labelledby={`${inboxId}-title`}>
-            <header className="commit-plan-inbox-header">
-              <div className="commit-plan-inbox-copy"><h3 id={`${inboxId}-title`}>{inboxTitle}</h3></div>
-              <Badge variant={inboxCount > 0 ? "secondary" : "outline"}>{showFileSelection ? `${selectedPaths.length} selected` : inboxCount}</Badge>
-              <Button type="button" variant="ghost" size="icon-xs" aria-label={inboxCollapsed ? `Show ${inboxTitle.toLowerCase()}` : `Hide ${inboxTitle.toLowerCase()}`} aria-expanded={!inboxCollapsed} aria-controls={inboxId} onClick={() => setInboxCollapsed((current) => !current)}>
-                <ChevronDown className={inboxCollapsed ? "commit-plan-inbox-chevron is-collapsed" : "commit-plan-inbox-chevron"} />
-              </Button>
-              {showFileSelection ? <div className="commit-plan-selection-actions">
-                <Button type="button" size="sm" variant="ghost" disabled={editingDisabled} onClick={() => setExcludedPaths(new Set())}>Select all</Button>
-                <Button type="button" size="sm" variant="ghost" disabled={editingDisabled} onClick={() => setExcludedPaths(new Set(availablePaths))}>Select none</Button>
-              </div> : null}
-            </header>
-            {!inboxCollapsed ? (
-              <div id={inboxId} className="commit-plan-inbox-content">
-                {inboxCount > 0 ? (
-                  <div className="commit-plan-files" role="list">
-                    {!showFileSelection && plan ? inboxChanges.map((change) => (
-                      <CommitPlanChangeRow
-                        key={change.id}
-                        change={change}
-                        file={fileByPath.get(change.path)}
-                        selectedPath={selectedPath}
-                        disabled={editingDisabled || stale || validating}
-                        groups={plan.groups}
-                        onSelectFile={onSelectFile}
-                        onMove={(targetGroupId) => moveChange(change.id, null, targetGroupId)}
-                      />
-                    )) : availablePaths.map((path) => {
-                      const file = fileByPath.get(path);
-                      return file ? <div className={`commit-plan-file commit-plan-inbox-file ${selectedPath === path ? "is-selected" : ""}`} role="listitem" key={path}><input type="checkbox" aria-label={`Plan ${path}`} checked={!excludedPaths.has(path)} disabled={editingDisabled} onChange={(event) => setExcludedPaths((current) => {
-                        const next = new Set(current);
-                        if (event.target.checked) next.delete(path); else next.add(path);
-                        return next;
-                      })} /><CommitPlanFileDetails file={file} onSelect={() => onSelectFile(file)} /></div> : null;
-                    })}
-                  </div>
-                ) : <p className="commit-plan-inbox-empty">{plan ? "Every eligible change is assigned to a planned commit." : "No eligible changed files."}</p>}
-              </div>
-            ) : null}
-          </section>
-        </div>
+        {nothingToPlan ? (
+          <EmptyState className="commit-plan-nothing" icon={<CircleCheck />} title="No changes to plan" description="Unstaged changes appear here to group into commits." />
+        ) : <>
+        <section className="commit-plan-inbox" aria-labelledby={`${inboxId}-title`}>
+          <header className="commit-plan-section-header">
+            <button type="button" className="commit-plan-section-toggle" aria-label={inboxCollapsed ? `Show ${inboxTitle.toLowerCase()}` : `Hide ${inboxTitle.toLowerCase()}`} aria-expanded={!inboxCollapsed} aria-controls={inboxId} onClick={() => setInboxCollapsed((current) => !current)}>
+              {inboxCollapsed ? <ChevronRight aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
+            </button>
+            <h3 id={`${inboxId}-title`} className="commit-plan-section-title" onClick={() => setInboxCollapsed((current) => !current)}>{inboxTitle}</h3>
+            <span className="commit-plan-count">{showFileSelection ? `${selectedPaths.length} of ${availablePaths.length}` : inboxCount}</span>
+            {showFileSelection ? <div className="commit-plan-section-actions">
+              <Button type="button" size="xs" variant="ghost" disabled={editingDisabled} onClick={() => setExcludedPaths(new Set())}>All</Button>
+              <Button type="button" size="xs" variant="ghost" disabled={editingDisabled} onClick={() => setExcludedPaths(new Set(availablePaths))}>None</Button>
+            </div> : null}
+          </header>
+          {!inboxCollapsed ? (
+            <div id={inboxId} className="commit-plan-inbox-content">
+              {inboxCount > 0 ? (
+                <div className="commit-plan-files" role="list">
+                  {!showFileSelection && plan ? inboxChanges.map((change) => (
+                    <CommitPlanChangeRow
+                      key={change.id}
+                      change={change}
+                      file={fileByPath.get(change.path)}
+                      selectedPath={selectedPath}
+                      disabled={editingDisabled || stale || validating}
+                      groups={plan.groups}
+                      onSelectFile={onSelectFile}
+                      onMove={(targetGroupId) => moveChange(change.id, null, targetGroupId)}
+                    />
+                  )) : availablePaths.map((path) => {
+                    const file = fileByPath.get(path);
+                    return file ? <div className={`commit-plan-file ${selectedPath === path ? "is-selected" : ""}`} role="listitem" key={path}><input type="checkbox" aria-label={`Plan ${path}`} checked={!excludedPaths.has(path)} disabled={editingDisabled} onChange={(event) => setExcludedPaths((current) => {
+                      const next = new Set(current);
+                      if (event.target.checked) next.delete(path); else next.add(path);
+                      return next;
+                    })} /><CommitPlanFileDetails file={file} onSelect={() => onSelectFile(file)} /></div> : null;
+                  })}
+                </div>
+              ) : <p className="commit-plan-inbox-empty">{plan ? "Every eligible change is assigned to a planned commit." : "No eligible changed files."}</p>}
+            </div>
+          ) : null}
+        </section>
 
         <MotionSwap
           className="commit-plan-state-swap"
@@ -395,7 +403,7 @@ function CommitPlanEditor({
           initialY={-2}
           item={!plan ? {
             key: "empty",
-            content: <div className="commit-plan-empty"><Sparkles aria-hidden="true" /><strong>Create a focused commit plan</strong><span>Githead will inspect the unstaged diffs and suggest groups and commit messages.</span></div>
+            content: <p className="commit-plan-hint">Githead reads the unstaged diffs and suggests focused commits with messages. You can edit and reorder them before committing.</p>
           } : !hasRenderedGroups ? {
             key: "complete",
             content: <div className="commit-plan-empty"><strong>{inboxChanges.length > 0 ? "Create a group to assign the remaining changes." : "All planned groups are committed."}</strong></div>
@@ -405,65 +413,82 @@ function CommitPlanEditor({
               element="article"
               itemClassName="commit-plan-group"
               initialY={-2}
-              items={plan.groups.map((group, index) => ({
-                key: group.id,
-                content: <>
-                  <div className="commit-plan-group-header">
-                    <span className={`commit-plan-marker commit-plan-marker-${index % 6}`} aria-hidden="true" />
-                    <div className="commit-plan-group-copy">
-                      <label className="sr-only" htmlFor={`commit-plan-message-${group.id}`}>Commit message</label>
-                      <Input id={`commit-plan-message-${group.id}`} value={group.message} disabled={editingDisabled} onChange={(event) => updateGroup(group.id, (current) => ({ ...current, message: event.target.value }))} />
-                      <label className="sr-only" htmlFor={`commit-plan-body-${group.id}`}>Commit body</label>
-                      <Textarea id={`commit-plan-body-${group.id}`} rows={2} value={group.rationale} placeholder="Commit body (optional)" disabled={editingDisabled} onChange={(event) => updateGroup(group.id, (current) => ({ ...current, rationale: event.target.value }))} />
+              items={plan.groups.map((group, index) => {
+                const count = includedCount(group);
+                const primary = group.id === primaryGroupId;
+                return {
+                  key: group.id,
+                  content: <>
+                    <div className="commit-plan-group-header">
+                      <span className="commit-plan-number" aria-hidden="true">{index + 1}</span>
+                      <span className="commit-plan-group-title">Commit {index + 1}</span>
+                      <span className="commit-plan-count">{group.changeIds.length}</span>
+                      <div className="commit-plan-group-actions">
+                        <Button type="button" variant="ghost" size="icon-xs" aria-label={`Move commit ${index + 1} up`} disabled={editingDisabled || index === 0} onClick={() => reorderGroup(group.id, -1)}><ArrowUp /></Button>
+                        <Button type="button" variant="ghost" size="icon-xs" aria-label={`Move commit ${index + 1} down`} disabled={editingDisabled || index === plan.groups.length - 1} onClick={() => reorderGroup(group.id, 1)}><ArrowDown /></Button>
+                        <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove commit group ${index + 1}`} disabled={editingDisabled} onClick={() => deleteGroup(group.id)}><Trash2 /></Button>
+                      </div>
                     </div>
-                    <Badge variant="secondary">{group.changeIds.length}</Badge>
-                    <Button type="button" size="sm" disabled={editingDisabled || stale || validating || blockedByStagedFiles || group.needsReview === true || !group.message.trim() || !group.changeIds.some((changeId) => includedChangeIds.has(changeId) && changeById.has(changeId))} onClick={() => { void quickCommit(group); }}>
-                      {committingGroupId === group.id ? <Loader2 className="animate-spin" /> : null}
-                      Quick Commit
-                    </Button>
-                  </div>
-                  <div className="commit-plan-group-actions">
-                    <span>Commit {index + 1}</span>
-                    {group.needsReview ? <>
-                      <span role="status">Changes moved or disappeared. Review this group.</span>
-                      <Button type="button" size="sm" variant="outline" disabled={editingDisabled || validating || stale || group.changeIds.length === 0} onClick={() => updateGroup(group.id, (current) => ({ ...current, needsReview: false }))}>Mark reviewed</Button>
-                    </> : null}
-                    <Button type="button" variant="ghost" size="icon-xs" aria-label={`Move commit ${index + 1} up`} disabled={editingDisabled || index === 0} onClick={() => reorderGroup(group.id, -1)}><ArrowUp /></Button>
-                    <Button type="button" variant="ghost" size="icon-xs" aria-label={`Move commit ${index + 1} down`} disabled={editingDisabled || index === plan.groups.length - 1} onClick={() => reorderGroup(group.id, 1)}><ArrowDown /></Button>
-                    <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove commit group ${index + 1}`} disabled={editingDisabled} onClick={() => deleteGroup(group.id)}><Trash2 /></Button>
-                  </div>
-                  <div className="commit-plan-files" role="list">
-                    {group.changeIds.map((changeId) => {
-                      const change = changeById.get(changeId);
-                      if (!change) return null;
-                      const file = fileByPath.get(change.path);
-                      return <div className={`commit-plan-file ${selectedPath === change.path ? "is-selected" : ""}`} role="listitem" key={change.id}>
-                        <input type="checkbox" aria-label={`Include ${changeDescription(change)} in this commit`} checked={includedChangeIds.has(change.id)} disabled={editingDisabled || stale || validating} onChange={(event) => setIncludedChangeIds((current) => {
-                          const next = new Set(current);
-                          if (event.target.checked) next.add(change.id); else next.delete(change.id);
-                          return next;
-                        })} />
-                        <CommitPlanChangeDetails change={change} file={file} onSelect={file ? () => onSelectFile(file) : undefined} />
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon-xs" aria-label={`Move ${changeDescription(change)} to another group`} disabled={editingDisabled || stale || validating}><span className={`commit-plan-marker commit-plan-marker-${index % 6}`} aria-hidden="true" /><ChevronDown /></Button></DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            {plan.groups.filter((target) => target.id !== group.id).map((target) => <DropdownMenuItem key={target.id} onSelect={() => moveChange(change.id, group.id, target.id)}>{target.message || "Untitled commit"}</DropdownMenuItem>)}
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem onSelect={() => moveChange(change.id, group.id, null)}>Move to unassigned</DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>;
-                    })}
-                  </div>
-                </>
-              }))}
+                    {group.needsReview ? (
+                      <div className="commit-plan-review">
+                        <TriangleAlert aria-hidden="true" />
+                        <span role="status">Changes moved or disappeared. Review this group.</span>
+                        <Button type="button" size="xs" variant="ghost" disabled={editingDisabled || validating || stale || group.changeIds.length === 0} onClick={() => updateGroup(group.id, (current) => ({ ...current, needsReview: false }))}>Mark reviewed</Button>
+                      </div>
+                    ) : null}
+                    <div className="commit-plan-message">
+                      <label className="sr-only" htmlFor={`commit-plan-message-${group.id}`}>Commit message</label>
+                      <Input id={`commit-plan-message-${group.id}`} className="commit-plan-message-summary" value={group.message} placeholder="Commit summary" disabled={editingDisabled} onChange={(event) => updateGroup(group.id, (current) => ({ ...current, message: event.target.value }))} />
+                      <label className="sr-only" htmlFor={`commit-plan-body-${group.id}`}>Commit body</label>
+                      <Textarea id={`commit-plan-body-${group.id}`} className="commit-plan-message-body" rows={2} value={group.rationale} placeholder="Description (optional)" disabled={editingDisabled} onChange={(event) => updateGroup(group.id, (current) => ({ ...current, rationale: event.target.value }))} />
+                    </div>
+                    <div className="commit-plan-files" role="list">
+                      {group.changeIds.map((changeId) => {
+                        const change = changeById.get(changeId);
+                        if (!change) return null;
+                        const file = fileByPath.get(change.path);
+                        return <div className={`commit-plan-file ${selectedPath === change.path ? "is-selected" : ""}`} role="listitem" key={change.id}>
+                          <input type="checkbox" aria-label={`Include ${changeDescription(change)} in this commit`} checked={includedChangeIds.has(change.id)} disabled={editingDisabled || stale || validating} onChange={(event) => setIncludedChangeIds((current) => {
+                            const next = new Set(current);
+                            if (event.target.checked) next.add(change.id); else next.delete(change.id);
+                            return next;
+                          })} />
+                          <CommitPlanChangeDetails change={change} file={file} onSelect={file ? () => onSelectFile(file) : undefined} />
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon-xs" aria-label={`Move ${changeDescription(change)} to another group`} disabled={editingDisabled || stale || validating}><ChevronDown /></Button></DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              {plan.groups.filter((target) => target.id !== group.id).map((target) => <DropdownMenuItem key={target.id} onSelect={() => moveChange(change.id, group.id, target.id)}>{target.message || "Untitled commit"}</DropdownMenuItem>)}
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onSelect={() => moveChange(change.id, group.id, null)}>Move to unassigned</DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>;
+                      })}
+                    </div>
+                    <div className="commit-plan-group-footer">
+                      <Button type="button" size="sm" variant={primary ? "default" : "outline"} disabled={!canCommitGroup(group)} onClick={() => { void quickCommit(group); }}>
+                        {committingGroupId === group.id ? <Loader2 className="animate-spin" /> : <CircleCheck />}
+                        {count > 0 ? `Commit ${countLabel(count, unit)}` : "Commit"}
+                      </Button>
+                    </div>
+                  </>
+                };
+              })}
               onItemExitComplete={finishGroupExit}
             />
           }}
         />
+        {plan ? (
+          <Button type="button" variant="ghost" size="sm" className="commit-plan-add" disabled={editingDisabled || plan.groups.length >= MAX_COMMIT_PLAN_GROUPS} onClick={addGroup}><Plus />Add commit</Button>
+        ) : null}
+        </>}
       </div>
     </section>
   );
+}
+
+function countLabel(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
 function CommitPlanChangeRow({ change, file, selectedPath, disabled, groups, onSelectFile, onMove }: { change: CommitPlanChange; file: GitStatusFile | undefined; selectedPath: string | null; disabled: boolean; groups: CommitPlanGroup[]; onSelectFile: (file: GitStatusFile) => void; onMove: (groupId: string) => void }): ReactNode {

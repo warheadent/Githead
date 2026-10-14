@@ -1,9 +1,14 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as renderBase, screen, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { CommitPlan, GenerateCommitPlanResult, GitOperationResult, GitStatusFile } from "../shared/types";
 import { commitPlanDraftKey } from "./commitPlanDraft";
 import { CommitPlanView } from "./CommitPlanView";
+
+// The view renders tooltip buttons, which the app provides a TooltipProvider for.
+const render = (ui: ReactElement) => renderBase(ui, { wrapper: TooltipProvider });
 
 const files: GitStatusFile[] = [
   { path: "src/a.ts", indexStatus: " ", worktreeStatus: "M", isStaged: false, isUnstaged: true, isConflicted: false },
@@ -70,7 +75,7 @@ function renderView(
 
 async function generatePlan(): Promise<void> {
   await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    fireEvent.click(screen.getByRole("button", { name: "Generate plan" }));
     await Promise.resolve();
   });
 }
@@ -96,7 +101,7 @@ describe("CommitPlanView motion", () => {
     expect(screen.getByText("@@ -1 +1 @@ first")).toBeTruthy();
     expect(screen.getByText("@@ -20 +20 @@ second")).toBeTruthy();
     await act(async () => {
-      fireEvent.click(screen.getAllByRole("button", { name: "Quick Commit" })[0]!);
+      fireEvent.click(screen.getAllByRole("button", { name: /^Commit(?: \d+ (?:file|change)s?)?$/ })[0]!);
       await Promise.resolve();
     });
 
@@ -152,7 +157,7 @@ describe("CommitPlanView motion", () => {
       changes: plan.changes
     }));
     expect(screen.queryByText("The working tree changed. Generate the commit plan again.")).toBeNull();
-    await waitFor(() => expect(screen.getAllByRole("button", { name: "Quick Commit" }).every((button) => !button.hasAttribute("disabled"))).toBe(true));
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /^Commit(?: \d+ (?:file|change)s?)?$/ }).every((button) => !button.hasAttribute("disabled"))).toBe(true));
   });
 
   it("marks a generated plan stale when monitored hunks changed", async () => {
@@ -179,7 +184,7 @@ describe("CommitPlanView motion", () => {
     );
 
     expect(await screen.findByText("The working tree changed. Generate the commit plan again.")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "Quick Commit" }).every((button) => button.hasAttribute("disabled"))).toBe(true);
+    expect(screen.getAllByRole("button", { name: /^Commit(?: \d+ (?:file|change)s?)?$/ }).every((button) => button.hasAttribute("disabled"))).toBe(true);
   });
 
   it("revalidates a plan when the repository changes during generation", async () => {
@@ -204,14 +209,14 @@ describe("CommitPlanView motion", () => {
     };
     const view = render(<CommitPlanView {...props} repositoryChangeVersion={0} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    fireEvent.click(screen.getByRole("button", { name: "Generate plan" }));
     await waitFor(() => expect(onGenerate).toHaveBeenCalled());
     view.rerender(<CommitPlanView {...props} repositoryChangeVersion={1} />);
     await act(async () => { resolveGeneration?.(generated); });
 
     await waitFor(() => expect(onValidatePlan).toHaveBeenCalledTimes(1));
     expect(screen.queryByText("The working tree changed. Generate the commit plan again.")).toBeNull();
-    expect(screen.getAllByRole("button", { name: "Quick Commit" }).every((button) => !button.hasAttribute("disabled"))).toBe(true);
+    expect(screen.getAllByRole("button", { name: /^Commit(?: \d+ (?:file|change)s?)?$/ }).every((button) => !button.hasAttribute("disabled"))).toBe(true);
   });
 
   it("ignores an older stale validation after a newer validation succeeds", async () => {
@@ -247,7 +252,7 @@ describe("CommitPlanView motion", () => {
     await act(async () => { resolveFirst?.({ repoPath: "D:/repo", valid: false, stderr: "" }); });
 
     expect(screen.queryByText("The working tree changed. Generate the commit plan again.")).toBeNull();
-    expect(screen.getAllByRole("button", { name: "Quick Commit" }).every((button) => !button.hasAttribute("disabled"))).toBe(true);
+    expect(screen.getAllByRole("button", { name: /^Commit(?: \d+ (?:file|change)s?)?$/ }).every((button) => !button.hasAttribute("disabled"))).toBe(true);
   });
 
   it("shows eligible changed files in the persistent files-to-plan inbox", () => {
@@ -290,7 +295,7 @@ describe("CommitPlanView motion", () => {
       />
     );
 
-    const inbox = screen.getByRole("region", { name: "Files to plan" });
+    const inbox = screen.getByRole("region", { name: "Unassigned" });
     expect(inbox.textContent).toContain("1");
     expect(inbox.textContent).toContain("b.ts");
     expect(inbox.textContent).not.toContain("a.ts");
@@ -315,7 +320,7 @@ describe("CommitPlanView motion", () => {
     await generatePlan();
 
     await act(async () => {
-      fireEvent.click(screen.getAllByRole("button", { name: "Quick Commit" })[0]!);
+      fireEvent.click(screen.getAllByRole("button", { name: /^Commit(?: \d+ (?:file|change)s?)?$/ })[0]!);
       await Promise.resolve();
     });
 
@@ -343,12 +348,12 @@ describe("CommitPlanView motion", () => {
     await generatePlan();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Quick Commit" }));
+      fireEvent.click(screen.getByRole("button", { name: /^Commit(?: \d+ (?:file|change)s?)?$/ }));
       await Promise.resolve();
     });
 
     expect(await screen.findByText("Create a group to assign the remaining changes.")).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Files to plan" }).textContent).toContain("b.ts");
+    expect(screen.getByRole("region", { name: "Unassigned" }).textContent).toContain("b.ts");
   });
 });
 
@@ -369,12 +374,12 @@ describe("CommitPlanView editing and recovery", () => {
     await generatePlan();
     fireEvent.change(screen.getByRole("textbox", { name: "Commit body" }), { target: { value: "User body\n\nMore detail" } });
     fireEvent.click(screen.getByRole("checkbox", { name: "Include src/b.ts in this commit" }));
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Quick Commit" })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /^Commit(?: \d+ (?:file|change)s?)?$/ })); });
     expect(onQuickCommit).toHaveBeenCalledWith([expect.objectContaining({ path: "src/a.ts" })], "First commit\n\nUser body\n\nMore detail");
     expect(screen.getByDisplayValue("First commit")).toBeTruthy();
     expect(screen.getByRole("textbox", { name: "Commit body" })).toHaveProperty("value", "User body\n\nMore detail");
     expect(screen.getByRole("checkbox", { name: "Include src/b.ts in this commit" })).toHaveProperty("checked", false);
-    expect(screen.getByRole("region", { name: "Files to plan" }).textContent).not.toContain("b.ts");
+    expect(screen.getByRole("region", { name: "Unassigned" }).textContent).not.toContain("b.ts");
   });
 
   it("creates, reorders and removes groups without losing changes", async () => {
@@ -382,10 +387,10 @@ describe("CommitPlanView editing and recovery", () => {
     await generatePlan();
     fireEvent.click(screen.getByRole("button", { name: "Move commit 2 up" }));
     expect(screen.getAllByRole("textbox", { name: "Commit message" })[0]).toHaveProperty("value", "Second commit");
-    fireEvent.click(screen.getByRole("button", { name: "Add group" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add commit" }));
     expect(screen.getAllByRole("textbox", { name: "Commit message" })).toHaveLength(3);
     fireEvent.click(screen.getByRole("button", { name: "Remove commit group 1" }));
-    expect(screen.getByRole("region", { name: "Files to plan" }).textContent).toContain("b.ts");
+    expect(screen.getByRole("region", { name: "Unassigned" }).textContent).toContain("b.ts");
     expect(screen.getAllByRole("textbox", { name: "Commit message" })).toHaveLength(2);
   });
 
@@ -402,10 +407,10 @@ describe("CommitPlanView editing and recovery", () => {
     const validate = vi.fn().mockImplementation(() => new Promise((done) => { resolve = done; }));
     renderView(vi.fn(), vi.fn(), files, validate);
     expect(screen.getByDisplayValue("Saved subject")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "Quick Commit" }).every((button) => button.hasAttribute("disabled"))).toBe(true);
+    expect(screen.getAllByRole("button", { name: /^Commit(?: \d+ (?:file|change)s?)?$/ }).every((button) => button.hasAttribute("disabled"))).toBe(true);
     await act(async () => { resolve({ repoPath: "D:/repo", valid: true, stderr: "" }); });
     expect(screen.getByRole("checkbox", { name: "Include src/a.ts in this commit" })).toHaveProperty("checked", false);
-    expect(screen.getAllByRole("button", { name: "Quick Commit" })[1]).toHaveProperty("disabled", false);
+    expect(screen.getAllByRole("button", { name: /^Commit(?: \d+ (?:file|change)s?)?$/ })[1]).toHaveProperty("disabled", false);
   });
 
   it("preserves unaffected groups when a refresh returns changed content", async () => {
@@ -416,9 +421,9 @@ describe("CommitPlanView editing and recovery", () => {
     validate.mockResolvedValue({ repoPath: "D:/repo", valid: false, currentChanges: [{ ...plan.changes[0]!, fingerprint: "c".repeat(64) }, plan.changes[1]!], stderr: "" });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Refresh" })); });
     expect(screen.getByDisplayValue("Keep this edit")).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Files to plan" }).textContent).toContain("a.ts");
+    expect(screen.getByRole("region", { name: "Unassigned" }).textContent).toContain("a.ts");
     expect(screen.getByText("Changes moved or disappeared. Review this group.")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "Quick Commit" })[1]).toHaveProperty("disabled", false);
+    expect(screen.getAllByRole("button", { name: /^Commit(?: \d+ (?:file|change)s?)?$/ })[1]).toHaveProperty("disabled", false);
   });
 
   it("clears the busy state after a rejected generation", async () => {
@@ -426,7 +431,7 @@ describe("CommitPlanView editing and recovery", () => {
     renderView(generate);
     await generatePlan();
     expect(screen.getByText("Provider disconnected")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Generate" })).toHaveProperty("disabled", false);
+    expect(screen.getByRole("button", { name: "Generate plan" })).toHaveProperty("disabled", false);
     await generatePlan();
     expect(screen.getByDisplayValue("First commit")).toBeTruthy();
   });
@@ -434,7 +439,7 @@ describe("CommitPlanView editing and recovery", () => {
   it("preserves a commit failure message after background validation", async () => {
     renderView(vi.fn().mockResolvedValue(generated), vi.fn().mockResolvedValue({ ...committed, exitCode: 1, stderr: "Hook failed" }));
     await generatePlan();
-    await act(async () => { fireEvent.click(screen.getAllByRole("button", { name: "Quick Commit" })[0]!); });
+    await act(async () => { fireEvent.click(screen.getAllByRole("button", { name: /^Commit(?: \d+ (?:file|change)s?)?$/ })[0]!); });
     expect(screen.getByText("Hook failed")).toBeTruthy();
     expect(screen.getByDisplayValue("First commit")).toBeTruthy();
   });
@@ -445,12 +450,12 @@ it("stores a completed generation after the user leaves the plan view", async ()
   let resolve!: (result: GenerateCommitPlanResult) => void;
   const generate = vi.fn().mockImplementation(() => new Promise((done) => { resolve = done; }));
   const view = renderView(generate);
-  fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+  fireEvent.click(screen.getByRole("button", { name: "Generate plan" }));
   view.unmount();
   await act(async () => { resolve(generated); });
   renderView();
   expect(screen.getByDisplayValue("First commit")).toBeTruthy();
-  expect(screen.getAllByRole("button", { name: "Quick Commit" })).toHaveLength(2);
+  expect(screen.getAllByRole("button", { name: /^Commit(?: \d+ (?:file|change)s?)?$/ })).toHaveLength(2);
 });
 
 it("adds newly discovered files to the inbox without invalidating existing groups", async () => {
@@ -463,8 +468,8 @@ it("adds newly discovered files to the inbox without invalidating existing group
   validate.mockResolvedValue({ repoPath: "D:/repo", valid: false, currentChanges: [...plan.changes, addedChange], stderr: "" });
   await act(async () => { view.rerender(<CommitPlanView {...props} files={[...files, addedFile]} />); });
   expect(validate).toHaveBeenLastCalledWith(expect.objectContaining({ paths: ["src/a.ts", "src/b.ts", "src/new.ts"] }));
-  expect(screen.getByRole("region", { name: "Files to plan" }).textContent).toContain("new.ts");
-  expect(screen.getAllByRole("button", { name: "Quick Commit" }).every((button) => !button.hasAttribute("disabled"))).toBe(true);
+  expect(screen.getByRole("region", { name: "Unassigned" }).textContent).toContain("new.ts");
+  expect(screen.getAllByRole("button", { name: /^Commit(?: \d+ (?:file|change)s?)?$/ }).every((button) => !button.hasAttribute("disabled"))).toBe(true);
 });
 
 

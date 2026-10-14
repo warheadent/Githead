@@ -243,7 +243,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await user.click(await screen.findByRole("button", { name: "Commit plan view" }));
     expect(screen.queryByText("Commit message")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Generate" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
 
     await waitFor(() => expect(githead.generateCommitPlan).toHaveBeenCalledWith({
       repoPath,
@@ -257,7 +257,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(screen.getByRole("tab", { name: /^Changes/ }));
     expect(await screen.findByDisplayValue("feat(status): add commit plans")).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: "Quick Commit" }));
+    await user.click(screen.getByRole("button", { name: /^Commit(?: \d+ (?:file|change)s?)?$/ }));
     await waitFor(() => expect(githead.quickCommitFiles).toHaveBeenCalledWith({
       repoPath,
       changes: [
@@ -290,7 +290,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await user.click(await screen.findByRole("button", { name: "Commit plan view" }));
-    await user.click(screen.getByRole("button", { name: "Generate" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
     await screen.findByDisplayValue("Change one hunk");
 
     emitRepoChanged();
@@ -301,9 +301,9 @@ describe("App", { timeout: 10_000 }, () => {
       granularity: "hunk",
       changes: [{ id: "change-1", path: "src/plan.ts", kind: "hunk", label: "@@ -1 +1 @@", fingerprint: "a".repeat(64) }]
     })));
-    expect(screen.getByRole("button", { name: "Quick Commit" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: /^Commit(?: \d+ (?:file|change)s?)?$/ }).hasAttribute("disabled")).toBe(true);
     validation.resolve({ repoPath, valid: true, stderr: "" });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Quick Commit" }).hasAttribute("disabled")).toBe(false));
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Commit(?: \d+ (?:file|change)s?)?$/ }).hasAttribute("disabled")).toBe(false));
     expect(screen.queryByText("The working tree changed. Generate the commit plan again.")).toBeNull();
   });
 

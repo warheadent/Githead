@@ -10130,7 +10130,7 @@ function StatusView({
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-        </> : null}
+        </> : <h2 className="status-plan-title">Commit plan</h2>}
         {(summary?.submodules?.length ?? 0) > 0 ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
