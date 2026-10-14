@@ -1046,14 +1046,16 @@ textarea,
   padding-right: 26px;
 }
 
+/* Centred with insets, not a transform: the button primitive drops transforms under reduced motion. */
 .view-switch-close {
   position: absolute;
-  top: 50%;
+  top: 0;
+  bottom: 0;
   right: 6px;
   width: 18px;
   height: 18px;
+  margin-block: auto;
   border-radius: var(--radius-sm);
-  transform: translateY(-50%);
 }
 
 .view-switch-close svg {
