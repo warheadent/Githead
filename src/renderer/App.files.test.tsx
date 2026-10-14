@@ -60,7 +60,10 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await screen.findByRole("option", { name: /src\/new.ts/ });
     fireEvent.change(screen.getByRole("textbox", { name: "Search changed files" }), { target: { value: "SRC/" } });
-    fireEvent.change(screen.getByRole("combobox", { name: "Filter files by status" }), { target: { value: "modified" } });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Filter files by status" }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Modified" }));
+    expect(screen.getByRole("button", { name: "Filter files by status" }).textContent).toBe("Modified");
     expect(within(screen.getByRole("listbox", { name: "Staged files" })).queryAllByRole("option")).toHaveLength(0);
     const unstaged = screen.getByRole("listbox", { name: "Unstaged files" });
     expect(within(unstaged).getAllByRole("option")).toHaveLength(1);
@@ -152,6 +155,30 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.getByText("No files match your search and filter")).toBeTruthy();
     expect(screen.queryByText("Working tree clean")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Clear file search" }));
+    expect(screen.getByRole("option", { name: /change.ts/ })).toBeTruthy();
+  });
+
+  it("shows one clean state instead of two empty groups", async () => {
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [] }));
+    render(<App />);
+    expect(await screen.findByText("Working tree clean")).toBeTruthy();
+    expect(screen.getByText("Nothing to commit on main")).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Staged files" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Unstaged files" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Stage all" })).toBeNull();
+  });
+
+  it("collapses a group with files and keeps its icon action named for assistive technology", async () => {
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [createStatusFile("change.ts", { isUnstaged: true, worktreeStatus: "M" })] }));
+    render(<App />);
+    await screen.findByRole("option", { name: /change.ts/ });
+    expect(screen.getByRole("button", { name: "Stage all" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Unstage all" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Collapse unstaged files" }));
+    expect(screen.getByRole("button", { name: "Expand unstaged files" }).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("option", { name: /change.ts/ })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Changes 1" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Expand unstaged files" }));
     expect(screen.getByRole("option", { name: /change.ts/ })).toBeTruthy();
   });
 

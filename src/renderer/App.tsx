@@ -33,6 +33,7 @@ import {
   GitPullRequestDraft,
   GripVertical,
   History,
+  ListFilter,
   ListTree,
   List,
   Loader2,
@@ -109,6 +110,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
@@ -9956,6 +9959,8 @@ function StatusView({
   const [statusFilter, setStatusFilter] = usePersistentWorkspacePanelState<StatusFileFilter>("status-file-filter", "all");
   const [expandEmptyStaged, setExpandEmptyStaged] = usePersistentWorkspacePanelState("status-expand-empty-staged", false);
   const [expandEmptyUnstaged, setExpandEmptyUnstaged] = usePersistentWorkspacePanelState("status-expand-empty-unstaged", false);
+  const [collapseStaged, setCollapseStaged] = usePersistentWorkspacePanelState("status-collapse-staged", false);
+  const [collapseUnstaged, setCollapseUnstaged] = usePersistentWorkspacePanelState("status-collapse-unstaged", false);
   // Both file groups render their rows into this one scroller, so its ref must be state.
   const [fileScroller, setFileScroller] = useState<HTMLDivElement | null>(null);
   const [narrowDetailOpen, setNarrowDetailOpen] = useState(false);
@@ -9998,10 +10003,19 @@ function StatusView({
     if (nextSelection) expectSelectionMove(nextSelection.side, paths);
     onUnstageFiles(paths, nextSelection);
   }, [expectSelectionMove, onUnstageFiles]);
-  const stagedCollapsed = stagedFiles.length === 0 && unstagedFiles.length > 0 && !expandEmptyStaged;
-  const unstagedCollapsed = unstagedFiles.length === 0 && stagedFiles.length > 0 && !expandEmptyUnstaged;
-  const toggleEmptyStaged = useCallback(() => setExpandEmptyStaged((value) => !value), [setExpandEmptyStaged]);
-  const toggleEmptyUnstaged = useCallback(() => setExpandEmptyUnstaged((value) => !value), [setExpandEmptyUnstaged]);
+  // An empty group starts collapsed to its header; a group with files collapses only when the user asks.
+  const stagedEmpty = stagedFiles.length === 0;
+  const unstagedEmpty = unstagedFiles.length === 0;
+  const stagedCollapsed = stagedEmpty ? !expandEmptyStaged : collapseStaged;
+  const unstagedCollapsed = unstagedEmpty ? !expandEmptyUnstaged : collapseUnstaged;
+  const toggleStaged = useCallback(() => {
+    if (stagedEmpty) setExpandEmptyStaged((value) => !value);
+    else setCollapseStaged((value) => !value);
+  }, [setCollapseStaged, setExpandEmptyStaged, stagedEmpty]);
+  const toggleUnstaged = useCallback(() => {
+    if (unstagedEmpty) setExpandEmptyUnstaged((value) => !value);
+    else setCollapseUnstaged((value) => !value);
+  }, [setCollapseUnstaged, setExpandEmptyUnstaged, unstagedEmpty]);
   const openDetail = useCallback(() => setNarrowDetailOpen(true), []);
   const closeDetail = useCallback(() => setNarrowDetailOpen(false), []);
   const clean = summary?.isValid && stagedFiles.length === 0 && unstagedFiles.length === 0;
@@ -10096,21 +10110,26 @@ function StatusView({
       <div className="status-file-toolbar">
         {workspaceMode === "files" ? <>
           <div className="status-file-search">
-            <Search className="pointer-events-none absolute left-2 top-2 size-4 text-muted-foreground" aria-hidden="true" />
-            <Input aria-label="Search changed files" placeholder="Filter files…" spellCheck={false} value={query} className={`h-8 pl-8${query ? " pr-8" : ""}`}
+            <Search className="status-file-search-icon" aria-hidden="true" />
+            <Input aria-label="Search changed files" placeholder="Filter files…" spellCheck={false} value={query} className="status-file-search-input"
               onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setQuery(""); }} />
-            {query ? <TooltipButton type="button" variant="ghost" size="icon-xs" aria-label="Clear file search" tooltip="Clear file search" className="absolute right-1 top-1" onClick={() => setQuery("")}><X /></TooltipButton> : null}
+            {query ? <TooltipButton type="button" variant="ghost" size="icon-xs" aria-label="Clear file search" tooltip="Clear file search" onClick={() => setQuery("")}><X /></TooltipButton> : null}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button type="button" className="status-file-filter-trigger" data-active={statusFilter !== "all" ? "true" : undefined} aria-label="Filter files by status" title="Filter files by status">
+                  <ListFilter aria-hidden="true" />
+                  <span>{STATUS_FILE_FILTER_OPTIONS.find((option) => option.value === statusFilter)?.short ?? "All"}</span>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuRadioGroup value={statusFilter} onValueChange={(value) => setStatusFilter(value as StatusFileFilter)}>
+                  {STATUS_FILE_FILTER_OPTIONS.map((option) => (
+                    <DropdownMenuRadioItem key={option.value} value={option.value}>{option.label}</DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
-          <select aria-label="Filter files by status" className="form-select status-file-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFileFilter)}>
-            <option value="all">All statuses</option>
-            <option value="modified">Modified</option>
-            <option value="untracked">Untracked</option>
-            <option value="added">Added</option>
-            <option value="deleted">Deleted</option>
-            <option value="renamed">Renamed</option>
-            <option value="copied">Copied</option>
-            <option value="conflict">Conflicted</option>
-          </select>
         </> : null}
         {(summary?.submodules?.length ?? 0) > 0 ? (
           <DropdownMenu>
@@ -10133,7 +10152,7 @@ function StatusView({
         ) : null}
         <Segmented<StatusFileViewMode | "plan">
           label="Changed file view mode"
-          className="ml-auto shrink-0"
+          className="status-file-view-mode ml-auto shrink-0"
           value={fileViewMode}
           onChange={(mode) => {
             if (mode === "plan") {
@@ -10171,6 +10190,14 @@ function StatusView({
         />
       ) : (
         <div ref={setFileScroller} className="status-file-scroll" data-workspace-scroll-key="status-files">
+          {clean ? (
+            <EmptyState
+              className="status-clean-state"
+              icon={<CircleCheck />}
+              title="Working tree clean"
+              description={summary?.branch ? `Nothing to commit on ${summary.branch}` : "Nothing to commit"}
+            />
+          ) : <>
           <FileGroup
             title="Staged files"
             label="Staged"
@@ -10179,7 +10206,7 @@ function StatusView({
             totalCount={stagedFiles.length}
             filtering={filtering}
             collapsed={stagedCollapsed}
-            onToggleEmpty={stagedFiles.length === 0 && unstagedFiles.length > 0 ? toggleEmptyStaged : undefined}
+            onToggle={toggleStaged}
             emptyMessage="No staged files"
             ready={ready}
             selection={matchingSelection}
@@ -10202,7 +10229,7 @@ function StatusView({
             totalCount={unstagedFiles.length}
             filtering={filtering}
             collapsed={unstagedCollapsed}
-            onToggleEmpty={unstagedFiles.length === 0 && stagedFiles.length > 0 ? toggleEmptyUnstaged : undefined}
+            onToggle={toggleUnstaged}
             emptyMessage="No unstaged files"
             ready={ready}
             selection={matchingSelection}
@@ -10217,6 +10244,7 @@ function StatusView({
             onContextAction={handleContextAction}
             revealSelection={!selectionMove.moved}
           />
+          </>}
         </div>
       )}
       {workspaceMode === "plan" ? null : commitBox}
@@ -10239,7 +10267,7 @@ function StatusView({
               diff={diff}
               filePath={selection?.path ?? ""}
               loading={diffLoading}
-              emptyMessage={selection ? "Refresh the diff to view this file." : clean ? "Working tree clean" : "Select a file to view the diff"}
+              emptyMessage={selection ? "Refresh the diff to view this file." : clean ? "No changes to show" : "Select a file to view the diff"}
               onDownloadImage={onDownloadImage}
               imageDownloadLoading={disabled}
               repoPath={repoPath}
@@ -10289,6 +10317,17 @@ type CommitFileContextActionKind = "log" | "blame" | "reset" | "open-current" | 
 
 const STATUS_FILE_ROW_HEIGHT = 32;
 
+const STATUS_FILE_FILTER_OPTIONS: ReadonlyArray<{ value: StatusFileFilter; label: string; short: string }> = [
+  { value: "all", label: "All statuses", short: "All" },
+  { value: "modified", label: "Modified", short: "Modified" },
+  { value: "untracked", label: "Untracked", short: "Untracked" },
+  { value: "added", label: "Added", short: "Added" },
+  { value: "deleted", label: "Deleted", short: "Deleted" },
+  { value: "renamed", label: "Renamed", short: "Renamed" },
+  { value: "copied", label: "Copied", short: "Copied" },
+  { value: "conflict", label: "Conflicted", short: "Conflicted" }
+];
+
 /** Memoised so that typing in the commit box, which re-renders the status view, skips both file lists. */
 const FileGroup = memo(function FileGroup({
   title,
@@ -10296,7 +10335,7 @@ const FileGroup = memo(function FileGroup({
   totalCount,
   filtering,
   collapsed,
-  onToggleEmpty,
+  onToggle,
   emptyMessage,
   side,
   files,
@@ -10320,7 +10359,8 @@ const FileGroup = memo(function FileGroup({
   totalCount: number;
   filtering: boolean;
   collapsed: boolean;
-  onToggleEmpty?: (() => void) | undefined;
+  /** Collapses or expands the group. Empty groups start collapsed to their header. */
+  onToggle: () => void;
   emptyMessage: string;
   side: GitDiffSide;
   files: GitStatusFile[];
@@ -10418,36 +10458,38 @@ const FileGroup = memo(function FileGroup({
     );
   };
   const countLabel = filtering ? `${files.length} of ${totalCount}` : String(totalCount);
+  const groupActionLabel = side === "staged"
+    ? filtering ? `Unstage ${actionablePaths.length} matching` : "Unstage all"
+    : filtering ? `Stage ${actionablePaths.length} matching` : "Stage all";
   const listRole = viewMode === "tree" ? "tree" : "listbox";
 
   return (
     <section className="status-file-group" aria-label={title}>
       <div className="status-file-group-header">
-        <h2 className="status-file-group-title">
-          {onToggleEmpty ? <button type="button" className="status-file-group-toggle" aria-label={`${collapsed ? "Expand" : "Collapse"} ${title.toLowerCase()}`} aria-expanded={!collapsed} onClick={onToggleEmpty}>
-            {collapsed ? <ChevronRight aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}{label} <span className="status-file-count">0</span>
-          </button> : <>{label} <span className="status-file-count">{countLabel}</span></>}
-        </h2>
-        {collapsed ? <span className="status-file-group-empty">{emptyMessage}</span> : (
-          <div className="status-file-group-actions">
-            {selectionPaths.length > 1 ? (
-              <Button type="button" variant="ghost" size="xs" disabled={disabled || selectionActionPaths.length === 0} onClick={applyToSelection}>
-                {fileActionLabel(side === "staged" ? "Unstage" : "Stage", selectionActionPaths.length)}
-              </Button>
-            ) : null}
-            <Button
+        <button type="button" className="status-file-group-toggle" aria-label={`${collapsed ? "Expand" : "Collapse"} ${title.toLowerCase()}`} aria-expanded={!collapsed} onClick={onToggle}>
+          {collapsed ? <ChevronRight aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
+        </button>
+        <h2 className="status-file-group-title" onClick={onToggle}>{label} <span className="status-file-count">{countLabel}</span></h2>
+        <div className="status-file-group-actions">
+          {selectionPaths.length > 1 ? (
+            <Button type="button" variant="ghost" size="xs" disabled={disabled || selectionActionPaths.length === 0} onClick={applyToSelection}>
+              {fileActionLabel(side === "staged" ? "Unstage" : "Stage", selectionActionPaths.length)}
+            </Button>
+          ) : null}
+          {totalCount > 0 ? (
+            <TooltipButton
               type="button"
               variant="ghost"
-              size="xs"
+              size="icon-xs"
+              aria-label={groupActionLabel}
+              tooltip={groupActionLabel}
               disabled={disabled || actionablePaths.length === 0}
               onClick={() => side === "staged" ? onUnstageFiles(actionablePaths) : onStageFiles(actionablePaths)}
             >
-              {side === "staged"
-                ? filtering ? `Unstage ${actionablePaths.length} matching` : "Unstage all"
-                : filtering ? `Stage ${actionablePaths.length} matching` : "Stage all"}
-            </Button>
-          </div>
-        )}
+              {side === "staged" ? <Minus /> : <Plus />}
+            </TooltipButton>
+          ) : null}
+        </div>
       </div>
       {collapsed ? null : !ready ? (
         <div className="file-list" role={listRole} aria-label={title} aria-multiselectable="true" />

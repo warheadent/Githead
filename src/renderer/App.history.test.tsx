@@ -1973,6 +1973,10 @@ describe("App", { timeout: 10_000 }, () => {
   });
 
   it("labels the staged and unstaged file regions", async () => {
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [
+      createStatusFile("staged.ts", { isStaged: true, indexStatus: "M" }),
+      createStatusFile("changed.ts", { isUnstaged: true, worktreeStatus: "M" })
+    ] }));
     render(<App />);
 
     expect(await screen.findByRole("region", { name: "Staged files" })).toBeTruthy();
@@ -1981,9 +1985,12 @@ describe("App", { timeout: 10_000 }, () => {
 
   it("keeps repository-wide submodule actions out of the staged file header", async () => {
     const user = userEvent.setup();
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ submodules: [{
-      path: "vendor/lib", url: "https://example.com/lib.git", recordedCommit: "abc", checkedOutCommit: "abc", initialized: true, status: "clean"
-    }] }));
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [createStatusFile("changed.ts", { isUnstaged: true, worktreeStatus: "M" })],
+      submodules: [{
+        path: "vendor/lib", url: "https://example.com/lib.git", recordedCommit: "abc", checkedOutCommit: "abc", initialized: true, status: "clean"
+      }]
+    }));
 
     render(<App />);
 

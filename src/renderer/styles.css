@@ -4510,21 +4510,103 @@ textarea,
   padding: 8px 16px;
 }
 
+/* Search, clear and the status filter share one 32px field so the toolbar reads as one control language. */
 .status-file-search {
-  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
   /* Keeps the "Filter files…" placeholder whole; the toolbar wraps instead. */
   min-width: 120px;
   flex: 1 1 0;
+  padding: 0 4px 0 10px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-md);
+  background: var(--surface);
 }
 
-/* The status filter keeps its full label; the search field takes the shrink. */
-.status-file-toolbar .status-file-filter {
-  width: auto;
-  flex: 0 0 auto;
+.status-file-search:focus-within {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 
-/* A column too narrow for search, status filter and view mode in one row gives the search field its own row. */
-@container (max-width: 400px) {
+.status-file-search-icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--muted-foreground);
+}
+
+.status-file-search .status-file-search-input {
+  height: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+
+.status-file-filter-trigger {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.status-file-filter-trigger:hover,
+.status-file-filter-trigger[data-state="open"] {
+  color: var(--foreground);
+}
+
+.status-file-filter-trigger[data-active] {
+  background: var(--selected);
+  color: var(--foreground);
+}
+
+.status-file-filter-trigger:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.status-file-filter-trigger svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* View mode matches the search field: same height, fill and border. */
+.status-file-toolbar .status-file-view-mode {
+  height: 32px;
+  padding: 2px;
+  border: 1px solid var(--input);
+  background: var(--surface);
+}
+
+.status-file-toolbar .status-file-view-mode [data-slot="segmented-item"] {
+  height: 26px;
+  width: 30px;
+  padding: 0;
+}
+
+.status-file-toolbar .status-file-view-mode [data-slot="segmented-item"][data-state="active"] {
+  background: var(--selected);
+  box-shadow: none;
+}
+
+/* Only a column too narrow for the search field and view mode in one row gives the search field its own row. */
+@container (max-width: 280px) {
   .status-file-toolbar {
     flex-wrap: wrap;
   }
@@ -4552,19 +4634,21 @@ textarea,
   top: 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 4px;
   height: 32px;
-  padding: 0 8px 0 16px;
+  padding: 0 12px 0 10px;
   background: var(--background);
 }
 
 .status-file-group-title {
   display: flex;
   min-width: 0;
+  flex: 1 1 auto;
   align-items: center;
   gap: 6px;
-  color: var(--muted-foreground);
+  cursor: pointer;
+  user-select: none;
+  color: var(--foreground);
   font-size: 12px;
   font-weight: 500;
   line-height: 16px;
@@ -4573,17 +4657,20 @@ textarea,
 
 .status-file-group-toggle {
   display: inline-flex;
+  flex: none;
+  width: 20px;
+  height: 20px;
   align-items: center;
-  gap: 6px;
-  margin-left: -4px;
+  justify-content: center;
   border: 0;
-  border-radius: calc(var(--radius) - 2px);
-  padding: 2px 4px;
-  color: inherit;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  color: var(--muted-foreground);
   background: transparent;
 }
 
 .status-file-group-toggle:hover {
+  background: var(--hover);
   color: var(--foreground);
 }
 
@@ -4614,12 +4701,9 @@ textarea,
   gap: 2px;
 }
 
-.status-file-group-empty {
-  overflow: hidden;
-  color: var(--muted-foreground);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* One empty state for a clean working tree instead of two empty groups. */
+.status-file-scroll > .status-clean-state {
+  min-height: 100%;
 }
 
 .file-row {
