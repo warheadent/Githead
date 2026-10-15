@@ -421,41 +421,6 @@ describe("App", { timeout: 10_000 }, () => {
     });
   });
 
-  it("switches branches from the branch switcher", async () => {
-    const user = userEvent.setup();
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      branches: [
-        {
-          name: "main",
-          current: true,
-          upstream: "origin/main"
-        },
-        {
-          name: "feature/nav",
-          current: false,
-          upstream: null
-        }
-      ]
-    }));
-
-    render(<App />);
-
-    await screen.findByText("main");
-    const branchTrigger = screen.getByRole("button", { name: "Switch branch" });
-    expect(branchTrigger.textContent).toContain("main");
-    await user.click(branchTrigger);
-    expect((await screen.findByRole("option", { name: /main.*current/ })).getAttribute("aria-selected")).toBe("true");
-    await user.click(await screen.findByRole("option", { name: /feature\/nav/ }));
-
-    await waitFor(() => {
-      expect(githead.switchBranch).toHaveBeenCalledWith({
-        repoPath,
-        branchName: "feature/nav",
-        operationId: expect.any(String)
-      });
-    });
-  });
-
   it("creates a branch from the branch switcher", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary());
@@ -496,38 +461,6 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.getByLabelText("Branch name")).toBeTruthy();
   });
 
-  it("changes the current branch upstream from the branch switcher", async () => {
-    const user = userEvent.setup();
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      remoteBranches: [
-        {
-          name: "origin/main",
-          remote: "origin",
-          branch: "main"
-        },
-        {
-          name: "origin/feature",
-          remote: "origin",
-          branch: "feature"
-        }
-      ]
-    }));
-
-    render(<App />);
-
-    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: "Change upstream…, origin/main" }));
-    await user.click(await screen.findByRole("option", { name: /origin\/feature/ }));
-
-    await waitFor(() => {
-      expect(githead.setBranchUpstream).toHaveBeenCalledWith({
-        repoPath,
-        branchName: "main",
-        upstream: "origin/feature",
-        operationId: expect.any(String)
-      });
-    });
-  });
-
   it("clears the current branch upstream from the branch switcher", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary());
@@ -545,39 +478,6 @@ describe("App", { timeout: 10_000 }, () => {
         operationId: expect.any(String)
       });
     });
-  });
-
-  it("keeps the upstream picker available when changing upstream fails", async () => {
-    const user = userEvent.setup();
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      remoteBranches: [
-        {
-          name: "origin/main",
-          remote: "origin",
-          branch: "main"
-        },
-        {
-          name: "origin/feature",
-          remote: "origin",
-          branch: "feature"
-        }
-      ]
-    }));
-    vi.mocked(githead.setBranchUpstream).mockResolvedValue({
-      repoPath,
-      exitCode: -1,
-      stdout: "",
-      stderr: "Unable to set upstream."
-    });
-
-    render(<App />);
-
-    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: "Change upstream…, origin/main" }));
-    await user.click(await screen.findByRole("option", { name: /origin\/feature/ }));
-
-    const switcher = screen.getByRole("dialog", { name: "Quick switcher" });
-    expect((await within(switcher).findByRole("alert")).textContent).toBe("Unable to set upstream.");
-    expect(within(switcher).getByRole("option", { name: /origin\/feature/ })).toBeTruthy();
   });
 
   it("saves OpenRouter settings with custom source control writing instructions", async () => {

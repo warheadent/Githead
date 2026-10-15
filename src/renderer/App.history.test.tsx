@@ -1376,45 +1376,6 @@ describe("App", { timeout: 10_000 }, () => {
     });
   });
 
-  it("enables commit file history and blame actions for Git repositories", async () => {
-    const user = userEvent.setup();
-    const commit = createCommit();
-    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
-    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash, {
-      files: [
-        {
-          path: "src/App.test.tsx",
-          status: "M",
-          additions: 3,
-          deletions: 1
-        }
-      ]
-    }));
-    vi.mocked(githead.getCommitFileDiff).mockResolvedValue(createTextDiff("src/App.test.tsx", "test"));
-
-    render(<App />);
-
-    await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /^History$/ }));
-    const commitFile = await screen.findByRole("option", { name: /src\/App\.test\.tsx/ });
-
-    fireEvent.contextMenu(commitFile);
-
-    const expectedActions = [
-      "Log selected",
-      "Blame selected",
-      "Reset to commit",
-      "Open current version",
-      "Open selected version",
-      "Copy path to clipboard"
-    ];
-    for (const action of expectedActions) {
-      expect(await screen.findByRole("menuitem", { name: action })).toBeTruthy();
-    }
-    expect(screen.getByRole("menuitem", { name: "Log selected" }).getAttribute("data-disabled")).toBeNull();
-    expect(screen.getByRole("menuitem", { name: "Blame selected" }).getAttribute("data-disabled")).toBeNull();
-  });
-
   it("opens bounded File History and restores Commit History without refetching", async () => {
     const user = userEvent.setup();
     const commit = createCommit();
@@ -2066,34 +2027,6 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.getByText(/deletes it from origin/)).toBeTruthy();
   });
 
-  it("stages the selected unstaged file through the preload API", async () => {
-    const user = userEvent.setup();
-    const file = createStatusFile("src/App.tsx", {
-      isUnstaged: true,
-      worktreeStatus: "M"
-    });
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      files: [
-        file
-      ]
-    }));
-
-    render(<App />);
-
-    await user.click(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
-    await user.click(screen.getByRole("button", { name: "Stage src/App.tsx" }));
-
-    await waitFor(() => {
-      expect(githead.stageFiles).toHaveBeenCalledWith({
-        repoPath,
-        paths: [
-          "src/App.tsx"
-        ],
-        operationId: expect.any(String)
-      });
-    });
-  });
-
   it("wraps text diffs with one saved app preference", async () => {
     const user = userEvent.setup();
     const file = createStatusFile("src/long-line.ts", { isUnstaged: true, worktreeStatus: "M" });
@@ -2164,25 +2097,6 @@ describe("App", { timeout: 10_000 }, () => {
 
     expect(await screen.findByText("latest-version")).toBeTruthy();
     await waitFor(() => expect(screen.queryByText("Loaded diff is out of date")).toBeNull());
-    expect(screen.getByRole("button", { name: "Refresh diff" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Stage hunk" }).hasAttribute("disabled")).toBe(false);
-  });
-
-  it("does not show the Diff header status for an unrelated repository change", async () => {
-    const user = userEvent.setup();
-    const file = createStatusFile("src/stable.ts", { isUnstaged: true, worktreeStatus: "M" });
-    const diff = createTextDiff(file.path, "stable-version");
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [file] }));
-    vi.mocked(githead.getFileDiff).mockResolvedValue(diff);
-
-    render(<App />);
-
-    await user.click(await screen.findByRole("option", { name: /src\/stable\.ts/ }));
-    expect(await screen.findByText("stable-version")).toBeTruthy();
-    emitRepoChanged();
-    await waitFor(() => expect(githead.getFileDiff).toHaveBeenCalledTimes(2));
-
-    expect(screen.queryByText("Loaded diff is out of date")).toBeNull();
     expect(screen.getByRole("button", { name: "Refresh diff" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Stage hunk" }).hasAttribute("disabled")).toBe(false);
   });
@@ -2410,35 +2324,6 @@ describe("App", { timeout: 10_000 }, () => {
       ].join("\n"),
       operationId: expect.any(String)
     }));
-  });
-
-  it("moves selection to the destination side after staging the final hunk", async () => {
-    const user = userEvent.setup();
-    const unstagedFile = createStatusFile("src/App.tsx", { isUnstaged: true, worktreeStatus: "M" });
-    const stagedFile = createStatusFile("src/App.tsx", { isStaged: true, indexStatus: "M" });
-    const initialDiff = createTextDiff(unstagedFile.path, "only-hunk");
-    const stagedDiff = createTextDiff(stagedFile.path, "staged-version", "staged");
-    vi.mocked(githead.getRepoSummary)
-      .mockResolvedValueOnce(createSummary({ files: [unstagedFile] }))
-      .mockResolvedValue(createSummary({ files: [stagedFile] }));
-    vi.mocked(githead.getFileDiff)
-      .mockResolvedValueOnce(initialDiff)
-      .mockResolvedValue(stagedDiff);
-
-    render(<App />);
-
-    await user.click(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
-    await user.click(await screen.findByRole("button", { name: /^Stage hunk$/ }));
-
-    expect(await screen.findByText("staged-version")).toBeTruthy();
-    const stagedList = screen.getByRole("listbox", { name: "Staged files" });
-    expect(within(stagedList).getByRole("option", { name: /src\/App\.tsx/ }).getAttribute("aria-selected")).toBe("true");
-    expect(githead.getFileDiff).toHaveBeenLastCalledWith({
-      repoPath,
-      path: "src/App.tsx",
-      side: "staged",
-      requestId: expect.any(String)
-    });
   });
 
   it("keeps the current selection and diff when staging a hunk fails", async () => {

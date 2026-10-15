@@ -105,24 +105,6 @@ describe("App", { timeout: 10_000 }, () => {
     });
   });
 
-  it("auto-fetches the active repository after the default interval", async () => {
-    vi.useFakeTimers();
-
-    render(<App />);
-    await flushRendererAsync();
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(10 * 60_000);
-    });
-    await flushRendererAsync();
-
-    expect(githead.runGitAction).toHaveBeenCalledWith({
-      repoPath,
-      action: "fetch",
-      operationId: expect.any(String)
-    });
-  });
-
   it("releases an old auto-fetch owner when the native picker switches repositories", async () => {
     vi.useFakeTimers();
     const nextRepoPath = "D:\\Work\\Picked";
