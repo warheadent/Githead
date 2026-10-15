@@ -82,41 +82,40 @@ export function buildConfiguredActionMenu(actions: GitConfiguredAction[]): Confi
 
 export type ConfiguredActionMenuItem = Extract<ConfiguredActionMenuEntry, { type: "action" }>;
 
+/** An action in a menu section, with the subfolders between the section's folder and the action. */
+export interface ConfiguredActionMenuSectionItem extends ConfiguredActionMenuItem {
+  /** Folder names below the section's top-level folder; empty for actions directly in it. */
+  path: string[];
+}
+
 export interface ConfiguredActionMenuSection {
   key: string;
-  /** The group path joined with " › ", or null for top-level actions. */
+  /** The top-level folder name, or null for actions that are not in a folder. */
   heading: string | null;
-  items: ConfiguredActionMenuItem[];
+  items: ConfiguredActionMenuSectionItem[];
 }
 
 export const CONFIGURED_ACTION_GROUP_SEPARATOR = " › ";
 
 /**
- * Flattens the nested menu into labelled sections so one menu lists every action.
- * At each level a group's own actions come before its subgroups, so a heading always
- * covers exactly the items listed under it. Groups without direct actions get no heading.
+ * Flattens the nested menu into one section per top-level folder, after the actions that are not in a folder.
+ * Deeper folders stay inside their top-level section: each action keeps the subfolder path below that folder,
+ * and a folder's own actions come before its subfolders.
  */
 export function flattenConfiguredActionMenu(entries: ConfiguredActionMenuEntry[]): ConfiguredActionMenuSection[] {
   const sections: ConfiguredActionMenuSection[] = [];
+  const collect = (groupEntries: ConfiguredActionMenuEntry[], path: string[]): ConfiguredActionMenuSectionItem[] => [
+    ...groupEntries.flatMap((entry) => entry.type === "action" ? [{ ...entry, path }] : []),
+    ...groupEntries.flatMap((entry) => entry.type === "group" ? collect(entry.entries, [...path, entry.label]) : [])
+  ];
 
-  const visit = (groupEntries: ConfiguredActionMenuEntry[], path: string[], key: string): void => {
-    const items = groupEntries.filter((entry): entry is ConfiguredActionMenuItem => entry.type === "action");
-    if (items.length > 0) {
-      sections.push({
-        key,
-        heading: path.length > 0 ? path.join(CONFIGURED_ACTION_GROUP_SEPARATOR) : null,
-        items
-      });
-    }
-
-    for (const entry of groupEntries) {
-      if (entry.type === "group") {
-        visit(entry.entries, [...path, entry.label], entry.key);
-      }
-    }
-  };
-
-  visit(entries, [], "root");
+  const rootItems = entries.flatMap((entry) => entry.type === "action" ? [{ ...entry, path: [] }] : []);
+  if (rootItems.length > 0) sections.push({ key: "root", heading: null, items: rootItems });
+  for (const entry of entries) {
+    if (entry.type !== "group") continue;
+    const items = collect(entry.entries, []);
+    if (items.length > 0) sections.push({ key: entry.key, heading: entry.label, items });
+  }
   return sections;
 }
 

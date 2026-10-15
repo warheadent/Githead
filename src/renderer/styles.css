@@ -1242,15 +1242,25 @@ textarea,
   height: 12px;
 }
 
+/* A top-level folder's section label, styled like the other menu section labels. */
 .repo-actions-group-label {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.repo-actions-group-label svg {
-  width: 14px;
-  height: 14px;
+/* Deeper folders inside a section: a muted path before the action name. */
+.repo-actions-item-path {
+  flex: none;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+/* Descriptions stay on one line; the full text is in the title tooltip. */
+.repo-actions-item-description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .repo-actions-error {

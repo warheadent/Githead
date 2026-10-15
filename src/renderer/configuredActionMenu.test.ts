@@ -66,7 +66,7 @@ describe("buildConfiguredActionMenu", () => {
 });
 
 describe("flattenConfiguredActionMenu", () => {
-  it("lists top-level actions first and turns each group into a labelled section", () => {
+  it("lists actions outside folders first and turns each top-level folder into a section", () => {
     const typecheck = action("Typecheck");
     const packageWindows = action("Packaging > Package for Windows");
     const lint = action("Lint");
@@ -77,54 +77,51 @@ describe("flattenConfiguredActionMenu", () => {
         key: "root",
         heading: null,
         items: [
-          { type: "action", key: "action:Typecheck", label: "Typecheck", action: typecheck },
-          { type: "action", key: "action:Lint", label: "Lint", action: lint }
+          { type: "action", key: "action:Typecheck", label: "Typecheck", action: typecheck, path: [] },
+          { type: "action", key: "action:Lint", label: "Lint", action: lint, path: [] }
         ]
       },
       {
         key: "group:Packaging",
         heading: "Packaging",
         items: [
-          { type: "action", key: "action:Packaging > Package for Windows", label: "Package for Windows", action: packageWindows },
+          { type: "action", key: "action:Packaging > Package for Windows", label: "Package for Windows", action: packageWindows, path: [] },
           {
             type: "action",
             key: "action:Packaging>Package and Launch for Windows",
             label: "Package and Launch for Windows",
-            action: packageAndLaunch
+            action: packageAndLaunch,
+            path: []
           }
         ]
       }
     ]);
   });
 
-  it("joins nested group paths and skips headings for groups without their own actions", () => {
+  it("keeps deeper folders inside their top-level section as a path, own actions first", () => {
     const windows = action("Release > Windows > Package");
     const notes = action("Release > Notes");
     const linux = action("Release > Linux > Package");
 
     const sections = flattenConfiguredActionMenu(buildConfiguredActionMenu([windows, notes, linux]));
 
-    expect(sections.map((section) => section.heading)).toEqual([
-      "Release",
-      "Release › Windows",
-      "Release › Linux"
+    expect(sections.map((section) => section.heading)).toEqual(["Release"]);
+    expect(sections[0]!.items.map((item) => [...item.path, item.label].join(" › "))).toEqual([
+      "Notes",
+      "Windows › Package",
+      "Linux › Package"
     ]);
-    expect(sections.map((section) => section.items.map((item) => item.label))).toEqual([
-      ["Notes"],
-      ["Package"],
-      ["Package"]
-    ]);
-    expect(new Set(sections.map((section) => section.key)).size).toBe(sections.length);
+    expect(new Set(sections[0]!.items.map((item) => item.key)).size).toBe(3);
   });
 
-  it("omits a heading-only section when a group only holds subgroups", () => {
+  it("gives a folder that only holds subfolders its own section", () => {
     const package_ = action("Release > Windows > Package");
 
     expect(flattenConfiguredActionMenu(buildConfiguredActionMenu([package_]))).toEqual([
       {
-        key: "group:Release>Windows",
-        heading: "Release › Windows",
-        items: [{ type: "action", key: "action:Release > Windows > Package", label: "Package", action: package_ }]
+        key: "group:Release",
+        heading: "Release",
+        items: [{ type: "action", key: "action:Release > Windows > Package", label: "Package", action: package_, path: ["Windows"] }]
       }
     ]);
   });

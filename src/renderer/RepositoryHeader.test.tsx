@@ -689,13 +689,14 @@ describe("RepositoryHeader", () => {
   });
 
   describe("Repository actions", () => {
-    it("lists flattened groups with inline descriptions, the after Pull badge and the manage item", async () => {
+    it("lists top-level folders as sections with nested paths, descriptions, the after Pull badge and the manage item", async () => {
       const user = userEvent.setup();
       const typecheck = configuredAction("Typecheck", { description: "Check the TypeScript projects" });
       const packageWindows = configuredAction("Packaging > Package for Windows");
       const launch = configuredAction("Packaging > Package and Launch", { bindToPull: true, description: "Build and launch" });
+      const sign = configuredAction("Release > Windows > Sign installer");
       const { props } = renderHeader({
-        summary: createSummary({ actionsConfig: createActionsConfig({ actions: [typecheck, packageWindows, launch] }) })
+        summary: createSummary({ actionsConfig: createActionsConfig({ actions: [typecheck, packageWindows, launch, sign] }) })
       });
 
       const trigger = segment("Repository actions");
@@ -705,21 +706,26 @@ describe("RepositoryHeader", () => {
 
       expect(within(menu).getByText("actions.toml")).toBeTruthy();
       expect(within(menu).getByText("Packaging")).toBeTruthy();
+      expect(within(menu).getByText("Release")).toBeTruthy();
+      expect(within(menu).queryByText("Release › Windows")).toBeNull();
+      // Two folder sections and the manage row each start with a separator.
+      expect(within(menu).getAllByRole("separator")).toHaveLength(3);
       const items = within(menu).getAllByRole("menuitem");
       expect(items.map((item) => item.getAttribute("aria-label"))).toEqual([
         "Typecheck",
         "Package for Windows",
         "Package and Launch",
+        "Windows › Sign installer",
         null
       ]);
-      expect(items[3]).toBe(within(menu).getByRole("menuitem", { name: "Manage repository actions…" }));
+      expect(items[4]).toBe(within(menu).getByRole("menuitem", { name: "Manage repository actions…" }));
       const describedBy = (name: string): string => (
         within(menu).getByRole("menuitem", { name }).getAttribute("aria-describedby") ?? ""
       ).split(" ").filter(Boolean).map((id) => document.getElementById(id)?.textContent).join(" | ");
       expect(describedBy("Typecheck")).toBe("Check the TypeScript projects");
       expect(describedBy("Package for Windows")).toBe("");
       expect(describedBy("Package and Launch")).toBe("Build and launch | after Pull");
-      expect(within(menu).getByRole("menuitem", { name: "Manage repository actions…" }).textContent).toContain("Ctrl K › Actions");
+      expect(within(menu).getByRole("menuitem", { name: "Manage repository actions…" }).textContent).toBe("Manage repository actions…");
 
       await user.click(within(menu).getByRole("menuitem", { name: "Package and Launch" }));
       expect(props.onRunConfiguredAction).toHaveBeenCalledWith(launch);

@@ -8,7 +8,6 @@ import {
   CircleX,
   CloudUpload,
   Ellipsis,
-  Folder,
   GitBranch,
   Loader2,
   Play,
@@ -55,8 +54,9 @@ import { AppUpdateControl, resolveAppUpdateAction } from "./AppUpdateControl";
 import { getPullableCommitCount, getPushableCommitCount } from "./commitActions";
 import {
   buildConfiguredActionMenu,
+  CONFIGURED_ACTION_GROUP_SEPARATOR,
   flattenConfiguredActionMenu,
-  type ConfiguredActionMenuItem,
+  type ConfiguredActionMenuSectionItem,
   type ConfiguredActionOutcome,
   type ConfiguredActionRun
 } from "./configuredActionMenu";
@@ -674,14 +674,13 @@ function RepositoryActionsMenuBody({
           {configError}
         </DropdownMenuItem>
       ) : configuredActions.length > 0 ? (
-        flattenConfiguredActionMenu(buildConfiguredActionMenu(configuredActions)).map((section) => (
+        flattenConfiguredActionMenu(buildConfiguredActionMenu(configuredActions)).map((section, index) => (
           <Fragment key={section.key}>
-            {section.heading ? (
-              <DropdownMenuLabel className="repo-actions-group-label">
-                <Folder aria-hidden="true" />
-                {section.heading}
-              </DropdownMenuLabel>
-            ) : null}
+            {/* Each top-level folder is a section: a separator, then its name as the label. */}
+            {section.heading ? <>
+              {index > 0 ? <DropdownMenuSeparator /> : null}
+              <DropdownMenuLabel className="repo-actions-group-label">{section.heading}</DropdownMenuLabel>
+            </> : null}
             {section.items.map((item) => (
               <ConfiguredActionItem key={item.key} item={item} onRun={onRunConfiguredAction} />
             ))}
@@ -694,7 +693,6 @@ function RepositoryActionsMenuBody({
       <DropdownMenuItem onSelect={onManageActions}>
         <SlidersHorizontal />
         Manage repository actions…
-        <DropdownMenuShortcut>Ctrl K › Actions</DropdownMenuShortcut>
       </DropdownMenuItem>
     </>
   );
@@ -743,7 +741,7 @@ function ConfiguredActionItem({
   item,
   onRun
 }: {
-  item: ConfiguredActionMenuItem;
+  item: ConfiguredActionMenuSectionItem;
   onRun: (action: GitConfiguredAction) => void;
 }): ReactNode {
   const descriptionId = useId();
@@ -755,13 +753,16 @@ function ConfiguredActionItem({
   return (
     <DropdownMenuItem
       className="repo-actions-item"
-      aria-label={item.label}
+      aria-label={[...item.path, item.label].join(CONFIGURED_ACTION_GROUP_SEPARATOR)}
       aria-describedby={describedBy || undefined}
       onSelect={() => onRun(item.action)}
     >
       <Play />
       <span className="repo-actions-item-text">
         <span className="repo-actions-item-title">
+          {item.path.length > 0 ? (
+            <span className="repo-actions-item-path" aria-hidden="true">{item.path.join(CONFIGURED_ACTION_GROUP_SEPARATOR)} ›</span>
+          ) : null}
           <span className="repo-actions-item-name">{item.label}</span>
           {afterPull ? (
             <span id={badgeId} className="repo-actions-after-pull">
@@ -770,7 +771,7 @@ function ConfiguredActionItem({
             </span>
           ) : null}
         </span>
-        {description ? <MenuItemDescription id={descriptionId}>{description}</MenuItemDescription> : null}
+        {description ? <MenuItemDescription id={descriptionId} className="repo-actions-item-description" title={description}>{description}</MenuItemDescription> : null}
       </span>
     </DropdownMenuItem>
   );
