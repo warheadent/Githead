@@ -4,6 +4,7 @@ import {
   ArrowUp,
   Check,
   ChevronDown,
+  ChevronRight,
   CircleCheck,
   CircleX,
   CloudUpload,
@@ -76,6 +77,7 @@ import { SyncCountChip } from "./SyncCountChip";
 import { WindowControls } from "./WindowControls";
 import { WorkflowDuration } from "./WorkflowDuration";
 import { WORKSPACE_VIEW_ICONS, WORKSPACE_VIEW_LABELS, type GuestView } from "./workspaceViews";
+import { usePersistentWorkspacePanelState } from "./workspacePanelState";
 
 /** Where the quick switcher opens: every section, or only branch content. */
 export type RepositoryHeaderSwitcherMode = "all" | "branches";
@@ -654,6 +656,12 @@ function RepositoryActionsMenuBody({
   const configuredActions = actionsConfig?.actions ?? [];
   const configError = actionsConfig?.error.trim() ?? "";
   const fileName = actionsConfig?.shared.fileName ?? "";
+  // Folders start open; the ones the user closed are remembered for this repository.
+  const [collapsedFolders, setCollapsedFolders] = usePersistentWorkspacePanelState<readonly string[]>("repository-action-folders-collapsed", () => []);
+  const setFolderCollapsed = (key: string, collapsed: boolean): void => setCollapsedFolders((current) => {
+    if (collapsed === current.includes(key)) return current;
+    return collapsed ? [...current, key] : current.filter((folder) => folder !== key);
+  });
 
   return (
     <>
@@ -674,18 +682,27 @@ function RepositoryActionsMenuBody({
           {configError}
         </DropdownMenuItem>
       ) : configuredActions.length > 0 ? (
-        flattenConfiguredActionMenu(buildConfiguredActionMenu(configuredActions)).map((section, index) => (
-          <Fragment key={section.key}>
-            {/* Each top-level folder is a section: a separator, then its name as the label. */}
-            {section.heading ? <>
-              {index > 0 ? <DropdownMenuSeparator /> : null}
-              <DropdownMenuLabel className="repo-actions-group-label">{section.heading}</DropdownMenuLabel>
-            </> : null}
-            {section.items.map((item) => (
-              <ConfiguredActionItem key={item.key} item={item} onRun={onRunConfiguredAction} />
-            ))}
-          </Fragment>
-        ))
+        flattenConfiguredActionMenu(buildConfiguredActionMenu(configuredActions)).map((section, index) => {
+          const collapsed = section.heading !== null && collapsedFolders.includes(section.key);
+          return (
+            <Fragment key={section.key}>
+              {/* Each top-level folder is a section: a separator, then a toggle row with its name and count. */}
+              {section.heading ? <>
+                {index > 0 ? <DropdownMenuSeparator /> : null}
+                <ConfiguredActionFolderRow
+                  heading={section.heading}
+                  count={section.items.length}
+                  running={runs.filter((run) => section.items.some((item) => item.action.name === run.name)).length}
+                  collapsed={collapsed}
+                  onToggle={(open) => setFolderCollapsed(section.key, !open)}
+                />
+              </> : null}
+              {collapsed ? null : section.items.map((item) => (
+                <ConfiguredActionItem key={item.key} item={item} onRun={onRunConfiguredAction} />
+              ))}
+            </Fragment>
+          );
+        })
       ) : (
         <DropdownMenuItem disabled>No configured actions</DropdownMenuItem>
       )}
@@ -734,6 +751,53 @@ function RunningConfiguredAction({
         Cancel
       </DropdownMenuItem>
     </div>
+  );
+}
+
+/** A folder's toggle row. It opens and closes the folder without closing the menu. */
+function ConfiguredActionFolderRow({
+  heading,
+  count,
+  running,
+  collapsed,
+  onToggle
+}: {
+  heading: string;
+  count: number;
+  running: number;
+  collapsed: boolean;
+  onToggle: (open: boolean) => void;
+}): ReactNode {
+  const label = `${heading}, ${count} ${count === 1 ? "action" : "actions"}${running > 0 ? `, ${running} running` : ""}`;
+  return (
+    <DropdownMenuItem
+      className="repo-actions-folder"
+      aria-label={label}
+      aria-expanded={!collapsed}
+      onSelect={(event) => {
+        event.preventDefault();
+        onToggle(collapsed);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "ArrowRight" && collapsed) {
+          event.preventDefault();
+          onToggle(true);
+        } else if (event.key === "ArrowLeft" && !collapsed) {
+          event.preventDefault();
+          onToggle(false);
+        }
+      }}
+    >
+      {collapsed ? <ChevronRight aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
+      <span className="repo-actions-folder-name">{heading}</span>
+      <span className="repo-actions-folder-count" aria-hidden="true">{count}</span>
+      {collapsed && running > 0 ? (
+        <span className="repo-actions-folder-running" aria-hidden="true">
+          <Loader2 className="animate-spin" />
+          {running} running
+        </span>
+      ) : null}
+    </DropdownMenuItem>
   );
 }
 

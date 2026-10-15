@@ -19,6 +19,7 @@ import type { ConfiguredActionRun } from "./configuredActionMenu";
 import { OPERATION_BUTTON_FEEDBACK_HOLD_MS } from "./OperationButtonFeedback";
 import { RepositoryHeader, type RepositoryHeaderProps } from "./RepositoryHeader";
 import { RepositoryOmnibox } from "./RepositoryOmnibox";
+import { WorkspacePanelStateProvider, WorkspacePanelStateStore } from "./workspacePanelState";
 
 const pushRemotes: RepoSummary["remotes"] = [
   { name: "origin", url: "https://example.test/repo.git", direction: "fetch" },
@@ -105,11 +106,15 @@ function Harness({ children, value = "status", onValueChange }: {
   value?: string;
   onValueChange?: (value: string) => void;
 }): ReactNode {
+  // The app provides per-repository panel state around the header; one store lives for each rendered header.
+  const [panelStore] = useState(() => new WorkspacePanelStateStore());
   return (
     <TooltipProvider>
-      <Tabs value={value} {...(onValueChange ? { onValueChange } : {})}>
-        {children}
-      </Tabs>
+      <WorkspacePanelStateProvider store={panelStore} namespace="test-repository">
+        <Tabs value={value} {...(onValueChange ? { onValueChange } : {})}>
+          {children}
+        </Tabs>
+      </WorkspacePanelStateProvider>
     </TooltipProvider>
   );
 }
@@ -689,6 +694,36 @@ describe("RepositoryHeader", () => {
   });
 
   describe("Repository actions", () => {
+    it("collapses a folder without closing the menu, keeps it collapsed and shows actions running inside it", async () => {
+      const user = userEvent.setup();
+      const packageWindows = configuredAction("Packaging > Package for Windows");
+      const launch = configuredAction("Packaging > Package and Launch");
+      const { rerenderHeader } = renderHeader({
+        summary: createSummary({ actionsConfig: createActionsConfig({ actions: [packageWindows, launch] }) })
+      });
+
+      await user.click(segment("Repository actions"));
+      const folder = within(screen.getByRole("menu")).getByRole("menuitem", { name: "Packaging, 2 actions" });
+      await user.click(folder);
+      expect(screen.getByRole("menu")).toBeTruthy();
+      expect(folder.getAttribute("aria-expanded")).toBe("false");
+      expect(screen.queryByRole("menuitem", { name: "Package for Windows" })).toBeNull();
+
+      await user.keyboard("{Escape}");
+      rerenderHeader({
+        configuredActionRuns: [{ id: 1, operationId: "op-1", name: launch.name, repoPath: "D:/Repo", startedAt: Date.now(), cancelStatus: "idle", cancelError: "" }]
+      });
+      await user.click(segment("Repository actions"));
+      const closed = within(screen.getByRole("menu")).getByRole("menuitem", { name: "Packaging, 2 actions, 1 running" });
+      expect(closed.getAttribute("aria-expanded")).toBe("false");
+      expect(closed.textContent).toContain("1 running");
+
+      closed.focus();
+      await user.keyboard("{ArrowRight}");
+      expect(closed.getAttribute("aria-expanded")).toBe("true");
+      expect(screen.getByRole("menuitem", { name: "Package for Windows" })).toBeTruthy();
+    });
+
     it("lists top-level folders as sections with nested paths, descriptions, the after Pull badge and the manage item", async () => {
       const user = userEvent.setup();
       const typecheck = configuredAction("Typecheck", { description: "Check the TypeScript projects" });
@@ -713,12 +748,15 @@ describe("RepositoryHeader", () => {
       const items = within(menu).getAllByRole("menuitem");
       expect(items.map((item) => item.getAttribute("aria-label"))).toEqual([
         "Typecheck",
+        "Packaging, 2 actions",
         "Package for Windows",
         "Package and Launch",
+        "Release, 1 action",
         "Windows › Sign installer",
         null
       ]);
-      expect(items[4]).toBe(within(menu).getByRole("menuitem", { name: "Manage repository actions…" }));
+      expect(items[1]!.getAttribute("aria-expanded")).toBe("true");
+      expect(items[6]).toBe(within(menu).getByRole("menuitem", { name: "Manage repository actions…" }));
       const describedBy = (name: string): string => (
         within(menu).getByRole("menuitem", { name }).getAttribute("aria-describedby") ?? ""
       ).split(" ").filter(Boolean).map((id) => document.getElementById(id)?.textContent).join(" | ");

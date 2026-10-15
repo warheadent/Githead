@@ -7882,6 +7882,9 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       {/* The header's view switch and the view panels share this Tabs root. */}
       <Tabs value={state.activeView} onValueChange={changeWorkspaceTab} className="app-workspace-shell">
         {/* The header sits outside the repository-keyed panel provider, so switching repositories never remounts it. */}
+        {/* The header reads per-repository panel state (action folders). This provider has no key, so switching
+            repositories changes its namespace without remounting the header. */}
+        <WorkspacePanelStateProvider store={workspacePanelStateStore} namespace={getRepoPathKey(state.repoPath) || "setup"}>
         <RepositoryHeader
           repoPath={state.repoPath}
           displayName={headerRepository.displayName}
@@ -7924,6 +7927,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
           onToggleMaximize={toggleMaximizeWindow}
           onCloseWindow={closeWindow}
         />
+        </WorkspacePanelStateProvider>
         <div className="operation-banner-slot">
           {state.summary?.isValid !== false && cancellationTarget?.cancelError ? (
             <p className="operation-banner-alert selectable-text" role="alert">{cancellationTarget.cancelError}</p>
