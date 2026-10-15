@@ -69,7 +69,7 @@ export default defineConfig({
   test: {
     fsModuleCache: true,
     environment: "node",
-    maxWorkers: 1,
+    setupFiles: ["./test-setup.ts"],
     include: [
       "src/**/*.test.ts",
       "src/**/*.test.tsx",

@@ -37,6 +37,11 @@ vp test
 vp run build
 ```
 
+Test files run in parallel workers. `test-setup.ts` points Git at a test-only
+global configuration, so tests that run real Git do not use your hooks, signing
+or identity settings. CI runs checks, typecheck and build on Linux, and runs the
+tests on Windows in two shards.
+
 Tests reuse transformed modules between runs. The test build date stays fixed so
 the cache remains useful. Development and production builds use the current date.
 To investigate a cache issue, bypass it with `vp test --fsModuleCache=false --run`
