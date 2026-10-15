@@ -5944,7 +5944,7 @@ textarea,
 .commit-reference-list { display: flex; min-width: 0; align-items: center; gap: 5px; }
 .history-github-badges { margin-left: auto; flex: 0 0 auto; }
 .history-github-badge,
-.commit-reference-link { border: 1px solid var(--border); border-radius: 999px; padding: 0 5px; background: var(--muted); color: inherit; font-size: .6875rem; line-height: 1rem; }
+.commit-reference-link { border: 1px solid var(--border); border-radius: 999px; padding: 0 6px; background: var(--muted); color: inherit; font-size: 12px; line-height: 16px; font-variant-numeric: tabular-nums; }
 .history-check-state { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--muted-foreground); }
 .history-check-state.is-success { background: var(--status-added); }
 .history-check-state.is-failure { background: var(--status-deleted); }
@@ -6425,21 +6425,6 @@ textarea,
   color: var(--foreground);
 }
 
-.commit-expanded-details {
-  font-size: 0.75rem;
-}
-
-.commit-expanded-details > summary {
-  width: fit-content;
-  color: var(--muted-foreground);
-  cursor: pointer;
-}
-
-.commit-expanded-details[open] > summary {
-  margin-bottom: 12px;
-}
-
-.commit-expanded-details > summary:focus-visible,
 .history-ref-overflow:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
@@ -6489,16 +6474,16 @@ textarea,
   flex: none;
 }
 
-.commit-facts {
-  display: grid;
-  gap: 7px;
-  margin: 0;
+/* Parent commits sit in the meta row: a label, then short hashes that select the parent. */
+.commit-parents {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted-foreground);
 }
 
-.commit-facts div {
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 12px;
+.commit-parents .commit-link {
+  font-family: var(--font-code);
 }
 
 .commit-parent-links {

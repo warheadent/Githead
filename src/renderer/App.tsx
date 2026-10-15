@@ -9878,15 +9878,6 @@ function CloneRepositoryForm({
   );
 }
 
-function Fact({ label, value }: { label: string; value: ReactNode }): ReactNode {
-  return (
-    <div>
-      <dt>{label}</dt>
-      <dd>{value}</dd>
-    </div>
-  );
-}
-
 function StatusView({
   stagedFiles,
   unstagedFiles,
@@ -12944,27 +12935,23 @@ function CommitDetailsPanel({
               <Clipboard />{details.shortHash}
             </TooltipButton>
             {parsedSubject ? <CommitTypeBadge {...parsedSubject} /> : null}
+            {details.parents.length > 0 ? (
+              <span className="commit-parents">
+                {details.parents.length > 1 ? "Parents" : "Parent"}
+                <ParentCommitLinks parents={details.parents} onSelectCommit={onSelectCommit} />
+              </span>
+            ) : null}
           </div>
           {details.refs.length > 0 ? <HistoryReferences commit={details} className="commit-refs" /> : null}
-          <details key={details.hash} className="commit-expanded-details">
-            <summary>Commit details</summary>
-            <dl className="commit-facts">
-              <Fact label="Commit" value={details.hash} />
-              <Fact label="Parents" value={<ParentCommitLinks parents={details.parents} onSelectCommit={onSelectCommit} />} />
-              <Fact label="Author" value={`${details.authorName} <${details.authorEmail}>`} />
-              {references.length > 0 ? (
-                <Fact label="References" value={
-                  <span className="commit-reference-list">
-                    {references.map((reference) => (
-                      <button key={`${reference.owner}/${reference.repository}#${reference.number}:${reference.kind}`} type="button" className="commit-reference-link" onClick={() => {
-                        if (reference.targetUrl) onOpenExternalUrl(reference.targetUrl);
-                      }}>{reference.displayText}</button>
-                    ))}
-                  </span>
-                } />
-              ) : null}
-            </dl>
-          </details>
+          {references.length > 0 ? (
+            <div className="commit-reference-list" aria-label="Linked issues and pull requests">
+              {references.map((reference) => (
+                <button key={`${reference.owner}/${reference.repository}#${reference.number}:${reference.kind}`} type="button" className="commit-reference-link" onClick={() => {
+                  if (reference.targetUrl) onOpenExternalUrl(reference.targetUrl);
+                }}>{reference.displayText}</button>
+              ))}
+            </div>
+          ) : null}
           {details.body ? (
             <div className="commit-body">
               <OptionalFeatureBoundary name="commit message">
@@ -13013,9 +13000,8 @@ function ParentCommitLinks({
 
   return (
     <span className="commit-parent-links">
-      {parents.map((parent, index) => (
+      {parents.map((parent) => (
         <Fragment key={parent}>
-          {index > 0 ? <span aria-hidden="true">, </span> : null}
           <TooltipTarget content={parent}>
             <a
               className="commit-link"
@@ -13025,7 +13011,7 @@ function ParentCommitLinks({
                 onSelectCommit(parent);
               }}
             >
-              {parent.slice(0, 10)}
+              {parent.slice(0, 7)}
             </a>
           </TooltipTarget>
         </Fragment>

@@ -1154,7 +1154,7 @@ describe("App", { timeout: 10_000 }, () => {
     await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /^History$/ }));
     const copy = await screen.findByRole("button", { name: "Copy commit SHA" });
-    expect(screen.getByText("Commit details", { selector: "summary" }).parentElement?.hasAttribute("open")).toBe(false);
+    expect(screen.queryByText("Commit details", { selector: "summary" })).toBeNull();
     await user.click(copy);
     await waitFor(() => expect(githead.copyCommitShaToClipboard).toHaveBeenCalledWith({ repoPath, hash: commit.hash }));
   });
@@ -1179,8 +1179,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /^History$/ }));
-    await user.click(await screen.findByText("Commit details", { selector: "summary" }));
-    const parentLink = await screen.findByRole("link", { name: parentHash.slice(0, 10) });
+    const parentLink = await screen.findByRole("link", { name: parentHash.slice(0, 7) });
 
     expect(parentLink.getAttribute("data-slot")).toBe("tooltip-trigger");
 
@@ -1280,8 +1279,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("tab", { name: /^History$/ }));
-    await user.click(await screen.findByText("Commit details", { selector: "summary" }));
-    await user.click(await screen.findByRole("link", { name: parentHash.slice(0, 10) }));
+    await user.click(await screen.findByRole("link", { name: parentHash.slice(0, 7) }));
     await screen.findByText("unloaded parent");
 
     await user.click(within(screen.getByRole("region", { name: "Commit details" })).getByRole("button", { name: "Commit actions" }));
