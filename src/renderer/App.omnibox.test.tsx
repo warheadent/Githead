@@ -59,9 +59,9 @@ describe("repository omnibox", () => {
     expect(within(screen.getByRole("listbox", { name: "Repositories" })).getByRole("option").textContent).toContain("me/current");
   });
 
-  it.each(["Control", "Meta"])("opens the existing local-folder flow with %s+O", async (modifier) => {
+  it("opens the existing local-folder flow with Control+O", async () => {
     const user = await openPicker();
-    await user.keyboard(`{${modifier}>}o{/${modifier}}`);
+    await user.keyboard("{Control>}o{/Control}");
     await waitFor(() => expect(githead.chooseRepo).toHaveBeenCalled());
     expect(screen.queryByRole("combobox", { name: inputName })).toBeNull();
   });

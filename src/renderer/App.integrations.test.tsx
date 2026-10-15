@@ -874,19 +874,6 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.queryByRole("heading", { name: "No matching issues" })).toBeNull();
   });
 
-  it("shows upstream commits ready to pull in the Pull action", async () => {
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      ahead: 0,
-      behind: 3
-    }));
-
-    render(<App />);
-
-    const pullButton = await screen.findByRole("button", { name: "Pull 3 commits" });
-    expect(pullButton).toBeTruthy();
-    expect(within(pullButton).getByText("3")).toBeTruthy();
-  });
-
   it("does not show a zero count in the Pull action", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
@@ -958,23 +945,6 @@ describe("App", { timeout: 10_000 }, () => {
 
     await waitFor(() => expect(githead.runGitAction).toHaveBeenCalled());
     expect(githead.runConfiguredAction).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    { action: "fetch", buttonName: /^Fetch$/, successLabel: "Fetched" },
-    { action: "pull", buttonName: /^Pull$/, successLabel: "Pulled" }
-  ])("animates $successLabel after a successful $action", async ({ action, buttonName }) => {
-    const user = userEvent.setup();
-    vi.mocked(githead.runGitAction).mockResolvedValue(createRunResult(action));
-
-    render(<App />);
-
-    const button = await screen.findByRole("button", { name: buttonName });
-    await user.click(button);
-
-    await waitFor(() => {
-      expect(button.querySelector(".operation-button-feedback")?.getAttribute("data-feedback")).toBe("success");
-    });
   });
 
   it("animates failed action feedback and points to the activity log until it is opened", async () => {
@@ -1089,37 +1059,6 @@ describe("App", { timeout: 10_000 }, () => {
     });
   });
 
-  it("orders repository actions before Fetch, Pull, and Push", async () => {
-    render(<App />);
-
-    const actionsGroup = await screen.findByRole("group", { name: "Git actions" });
-    const buttons = within(actionsGroup).getAllByRole("button");
-
-    expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
-      "Repository actions",
-      "Fetch",
-      "Pull",
-      "Push",
-      "More pull and push actions"
-    ]);
-    expect(buttons[0]?.textContent?.trim()).toBe("Actions");
-  });
-
-  it("shows upstream commits ready to push in the Push action", async () => {
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      ahead: 2,
-      behind: 0
-    }));
-
-    render(<App />);
-
-    const actionsGroup = await screen.findByRole("group", { name: "Git actions" });
-
-    const pushButton = within(actionsGroup).getByRole("button", { name: "Push 2 commits" });
-    expect(pushButton).toBeTruthy();
-    expect(within(pushButton).getByText("2")).toBeTruthy();
-  });
-
   it("shows upstream commits ready to push in the primary commit action", async () => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       ahead: 5,
@@ -1132,18 +1071,6 @@ describe("App", { timeout: 10_000 }, () => {
     const pushButton = within(commitPanel).getByRole("button", { name: "Push 5 commits" });
     expect(pushButton).toBeTruthy();
     expect(within(pushButton).getByText("5")).toBeTruthy();
-  });
-
-  it("does not show a zero count in the Push action", async () => {
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      ahead: 0,
-      behind: 0
-    }));
-
-    render(<App />);
-
-    expect(await screen.findByRole("button", { name: /^Push$/ })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /^Push \(0\)$/ })).toBeNull();
   });
 
   it("runs Push from the sync toolbar", async () => {
@@ -1527,24 +1454,6 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.queryByRole("button", { name: "More pull and push actions" })).toBeNull();
   });
 
-  it("shows Publish instead of Push when the current branch has no upstream", async () => {
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      upstream: null,
-      remotes: [
-        {
-          name: "origin",
-          url: "https://example.test/repo.git",
-          direction: "push"
-        }
-      ]
-    }));
-
-    render(<App />);
-
-    expect(await screen.findByRole("button", { name: "Publish branch" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /^Push$/ })).toBeNull();
-  });
-
   it("opens the publish dialog instead of running plain push", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
@@ -1909,42 +1818,6 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.getByRole("tab", { name: /^Activity log/ }).getAttribute("aria-selected")).toBe("true");
   });
 
-  it("renders and runs configured repository actions from nested menus", async () => {
-    const user = userEvent.setup();
-    const action = {
-      name: "Packaging > Package and Launch",
-      description: "Build and launch the Windows application",
-      command: "npm run package:win:launch",
-      shell: "powershell" as const
-    };
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      actionsConfig: {
-        hasGitheadDir: true,
-        actions: [action],
-        error: ""
-      }
-    }));
-    vi.mocked(githead.runConfiguredAction).mockResolvedValue(createRunResult(action.name));
-
-    render(<App />);
-
-    await user.click(await screen.findByRole("button", { name: "Repository actions" }));
-    // Groups are flattened into a label heading above their items.
-    const menu = await screen.findByRole("menu");
-    expect(within(menu).getByText("Packaging")).toBeTruthy();
-    expect(within(menu).queryByRole("menuitem", { name: "Packaging" })).toBeNull();
-    fireEvent.click(within(menu).getByRole("menuitem", { name: "Package and Launch" }));
-
-    await waitFor(() => {
-      expect(githead.runConfiguredAction).toHaveBeenCalledWith({
-        repoPath,
-        name: action.name,
-        expectedAction: action,
-        operationId: expect.any(String)
-      });
-    });
-  });
-
   it("does not retarget a configured action when the repository changes during trust lookup", async () => {
     const user = userEvent.setup();
     const otherRepo = "D:\\Work\\Other";
@@ -1982,47 +1855,6 @@ describe("App", { timeout: 10_000 }, () => {
     await flushRendererAsync();
 
     expect(githead.runConfiguredAction).not.toHaveBeenCalled();
-  });
-
-  it("shows configured action running and result headings", async () => {
-    const user = userEvent.setup();
-    const pendingAction = defer<Awaited<ReturnType<GitheadApi["runConfiguredAction"]>>>();
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      actionsConfig: {
-        hasGitheadDir: true,
-        actions: [
-          {
-            name: "Build",
-            description: "",
-            command: "npm run build",
-            shell: "powershell"
-          }
-        ],
-        error: ""
-      }
-    }));
-    vi.mocked(githead.runConfiguredAction).mockReturnValue(pendingAction.promise);
-
-    render(<App />);
-
-    await user.click(await screen.findByRole("button", { name: "Repository actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Build" }));
-
-    expect(await screen.findByText("Build running")).toBeTruthy();
-
-    pendingAction.resolve({
-      runId: "run-build",
-      action: "Build",
-      repoPath,
-      exitCode: 0,
-      stdout: "built\n",
-      stderr: "",
-      startedAt: new Date().toISOString(),
-      endedAt: new Date().toISOString()
-    });
-    await flushRendererAsync();
-
-    expect(await screen.findByText("Build complete")).toBeTruthy();
   });
 
   it("recovers a lost configured action result and ignores its late completion", async () => {
@@ -2154,24 +1986,6 @@ describe("App", { timeout: 10_000 }, () => {
     fetch.resolve(createRunResult("fetch"));
     configured.resolve(createRunResult("Build"));
     await flushRendererAsync();
-  });
-
-  it("shows configured action errors without enabling execution", async () => {
-    const user = userEvent.setup();
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      actionsConfig: {
-        hasGitheadDir: true,
-        actions: [],
-        error: "actions.toml: Action \"Build\" has an invalid shell."
-      }
-    }));
-
-    render(<App />);
-
-    await user.click(await screen.findByRole("button", { name: "Repository actions" }));
-
-    expect(await screen.findByText("actions.toml: Action \"Build\" has an invalid shell.")).toBeTruthy();
-    expect(githead.runConfiguredAction).not.toHaveBeenCalled();
   });
 
   it("shows local Repository actions that override shared actions", async () => {

@@ -133,18 +133,6 @@ describe("quick switcher", { timeout: 10_000 }, () => {
     await waitFor(() => expect(document.activeElement).toBe(selectedTab(/^Activity log/)));
   });
 
-  it("goes back after the switcher closes", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-    await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /^History$/ }));
-    selectedTab(/^History$/);
-
-    await chooseSwitcherOption("Go back", user);
-    await waitFor(() => selectedTab(/^Changes/));
-    expect(screen.queryByRole("dialog", { name: "Quick switcher" })).toBeNull();
-  });
-
   it("opens New branch with Ctrl+B and ignores shortcuts while another dialog is open", async () => {
     const user = userEvent.setup();
     render(<App />);

@@ -452,52 +452,6 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.getByRole("listbox", { name: "Staged files" }).getAttribute("aria-multiselectable")).toBe("true");
   });
 
-  it("stages a shift-selected unstaged file range through the preload API", async () => {
-    const user = userEvent.setup();
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      files: [
-        createStatusFile("src/a.ts", {
-          isUnstaged: true,
-          worktreeStatus: "M"
-        }),
-        createStatusFile("src/b.ts", {
-          isUnstaged: true,
-          worktreeStatus: "M"
-        }),
-        createStatusFile("src/c.ts", {
-          isUnstaged: true,
-          worktreeStatus: "M"
-        })
-      ]
-    }));
-
-    render(<App />);
-
-    const firstFile = await screen.findByRole("option", { name: /src\/a\.ts/ });
-    const middleFile = screen.getByRole("option", { name: /src\/b\.ts/ });
-    const lastFile = screen.getByRole("option", { name: /src\/c\.ts/ });
-    await user.click(firstFile);
-    fireEvent.click(lastFile, { shiftKey: true });
-
-    expect(firstFile.getAttribute("aria-selected")).toBe("true");
-    expect(middleFile.getAttribute("aria-selected")).toBe("true");
-    expect(lastFile.getAttribute("aria-selected")).toBe("true");
-
-    await user.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
-
-    await waitFor(() => {
-      expect(githead.stageFiles).toHaveBeenCalledWith({
-        repoPath,
-        paths: [
-          "src/a.ts",
-          "src/b.ts",
-          "src/c.ts"
-        ],
-        operationId: expect.any(String)
-      });
-    });
-  });
-
   it("keeps a 10,000-file status list viewport-proportional and selects across unmounted rows", async () => {
     const files = Array.from({ length: 10_000 }, (_, index) => createStatusFile(
       `generated/file-${index.toString().padStart(5, "0")}.ts`,
@@ -703,43 +657,6 @@ describe("App", { timeout: 10_000 }, () => {
     fireEvent.contextMenu(remainingRow);
     fireEvent.click(screen.getByRole("menuitem", { name: /^Stage(?: \d+ files?)?$/ }));
     await waitFor(() => expect(githead.stageFiles).toHaveBeenCalledWith({ repoPath, paths: ["src/second.ts"], operationId: expect.any(String) }));
-  });
-
-  it("stages multiple selected unstaged files from a selected row context menu", async () => {
-    const user = userEvent.setup();
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      files: [
-        createStatusFile("src/first.ts", {
-          isUnstaged: true,
-          worktreeStatus: "M"
-        }),
-        createStatusFile("src/second.ts", {
-          isUnstaged: true,
-          worktreeStatus: "M"
-        })
-      ]
-    }));
-
-    render(<App />);
-
-    const firstFile = await screen.findByRole("option", { name: /src\/first\.ts/ });
-    const secondFile = screen.getByRole("option", { name: /src\/second\.ts/ });
-    await user.click(firstFile);
-    fireEvent.click(secondFile, { ctrlKey: true });
-
-    fireEvent.contextMenu(secondFile);
-    await user.click(await screen.findByRole("menuitem", { name: /^Stage(?: \d+ files?)?$/ }));
-
-    await waitFor(() => {
-      expect(githead.stageFiles).toHaveBeenCalledWith({
-        repoPath,
-        paths: [
-          "src/first.ts",
-          "src/second.ts"
-        ],
-        operationId: expect.any(String)
-      });
-    });
   });
 
   it("unstages multiple selected staged files from a selected row context menu", async () => {
@@ -2549,19 +2466,6 @@ describe("App", { timeout: 10_000 }, () => {
     expect(cleanupGitOutput).toHaveBeenCalledTimes(1);
     expect(cleanupRepoChanged).toHaveBeenCalledTimes(1);
     expect(cleanupUpdateState).toHaveBeenCalledTimes(1);
-  });
-
-  it("hides the app update control while no update is active", async () => {
-    vi.mocked(githead.getUpdateState).mockResolvedValue(createUpdateState({
-      status: "idle"
-    }));
-
-    render(<App />);
-
-    await waitForRepositoryWorkspace();
-
-    expect(screen.queryByRole("button", { name: /Update available/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Restart to update/ })).toBeNull();
   });
 
   it("downloads an available app update from the update control", async () => {

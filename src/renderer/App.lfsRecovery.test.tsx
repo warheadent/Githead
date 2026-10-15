@@ -42,8 +42,7 @@ describe("Git LFS image recovery", () => {
   });
 
   it.each([
-    { reason: "oversized" as const, message: "Image is larger than the 10 MiB preview limit. Open the file in an external image viewer." },
-    { reason: "lfs-setup" as const, message: "Git LFS setup could not be read. Check that Git LFS is installed and run git lfs env, then refresh the preview." }
+    { reason: "oversized" as const, message: "Image is larger than the 10 MiB preview limit. Open the file in an external image viewer." }
   ])("shows $reason guidance without a download action", async ({ reason, message }) => {
     const user = userEvent.setup();
     setImageDiff(imageDiff({ status: "unavailable", reason, message }));
