@@ -286,8 +286,8 @@ import { getAheadBehindCounts, getPrimaryCommitAction, getPushableCommitCount, h
 import type { ConfiguredActionOutcome, ConfiguredActionRun } from "./configuredActionMenu";
 import { confirmAppUpdateInstall } from "./AppUpdateControl";
 import { QuickSwitcher } from "./QuickSwitcher";
-import { focusActiveViewTab, RepositoryHeader, type ConfiguredActionCancelTarget } from "./RepositoryHeader";
-import { buildQuickSwitcherSections, type QuickSwitcherItem, type QuickSwitcherMode } from "./quickSwitcherItems";
+import { focusActiveViewTab, RepositoryHeader, type AddViewOption, type ConfiguredActionCancelTarget } from "./RepositoryHeader";
+import { buildGoToItems, buildQuickSwitcherSections, type QuickSwitcherItem, type QuickSwitcherMode } from "./quickSwitcherItems";
 import { useAppShortcuts } from "./useAppShortcuts";
 import {
   moveRepoPath,
@@ -7383,6 +7383,19 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
   const { renderMenuItems: renderSwitcherRepositoryMenuItems, openRecovery: openSwitcherRepositoryRecovery, openOrganizer: openSwitcherRepositoryOrganizer } = switcherRepositoryActions;
 
   // Sections are built only while the switcher is open.
+  // The view switch's + menu lists the same views as the quick switcher's Go to section.
+  const addViewOptions = useMemo((): AddViewOption[] => buildGoToItems({
+    summary: state.summary,
+    stashCount: stashWorkspace.state.entries.length,
+    pullRequestCount: pullRequestTabCount,
+    issueCount: issueTabCount,
+    activityAttention: activityLogAttentionState,
+    activeView: state.activeView
+  }).flatMap((item) => item.kind === "view" && isGuestView(item.payload.view)
+    ? [{ view: item.payload.view, title: item.title, label: item.label, meta: item.meta }]
+    : []), [activityLogAttentionState, issueTabCount, pullRequestTabCount, stashWorkspace.state.entries.length, state.activeView, state.summary]);
+  const openGuestView = useCallback((view: GuestView): void => setWorkspaceView(view), [setWorkspaceView]);
+
   const quickSwitcherSections = useMemo(() => quickSwitcherMode ? buildQuickSwitcherSections(quickSwitcherMode, {
     repoPath: state.repoPath,
     repoRecents: state.repoRecents,
@@ -7895,6 +7908,8 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
           renderRepositoryMenuItems={renderHeaderRepositoryMenuItems}
           onOpenSwitcher={openQuickSwitcher}
           onCloseGuest={closeGuestView}
+          addViewOptions={addViewOptions}
+          onOpenView={openGuestView}
           onRunAction={runHeaderAction}
           onPullWithAction={runHeaderPullWithAction}
           onOpenPushToBranch={openPushToBranchDialog}

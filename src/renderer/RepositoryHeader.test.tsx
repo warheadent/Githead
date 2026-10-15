@@ -78,6 +78,11 @@ function headerProps(overrides: Partial<RepositoryHeaderProps> = {}): Repository
     appUpdate: createUpdateState(),
     onOpenSwitcher: vi.fn(),
     onCloseGuest: vi.fn(),
+    addViewOptions: [
+      { view: "stashes", title: "Stashes", label: "Stashes 2", meta: "2" },
+      { view: "activity", title: "Activity log", label: "Activity log" }
+    ],
+    onOpenView: vi.fn(),
     onRunAction: vi.fn(),
     onPullWithAction: vi.fn(),
     onOpenPushToBranch: vi.fn(),
@@ -368,6 +373,23 @@ describe("RepositoryHeader", () => {
       rerenderHeader({ changesCount: 0 });
       expect(screen.getByRole("tab", { name: "Changes" }).querySelector(".workspace-tab-count")).toBeNull();
       expect(screen.getAllByRole("tab")).toHaveLength(2);
+    });
+
+    it("opens a guest view from the + menu, outside the tablist, and reaches the quick switcher from it", async () => {
+      const user = userEvent.setup();
+      const { props } = renderHeader({ guestView: "activity" }, { value: "activity" });
+
+      const add = screen.getByRole("button", { name: "Open a view" });
+      expect(screen.getByRole("tablist").contains(add)).toBe(false);
+      await user.click(add);
+      const stashes = await screen.findByRole("menuitem", { name: "Stashes 2" });
+      expect(screen.getByRole("menuitem", { name: "Activity log, open" })).toBeTruthy();
+      await user.click(stashes);
+      expect(props.onOpenView).toHaveBeenCalledWith("stashes");
+
+      await user.click(screen.getByRole("button", { name: "Open a view" }));
+      await user.click(await screen.findByRole("menuitem", { name: /Quick switcher/ }));
+      expect(props.onOpenSwitcher).toHaveBeenCalledWith("all");
     });
 
     it("adds one guest segment with its count and a close button outside the tablist", async () => {

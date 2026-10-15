@@ -2,6 +2,7 @@ import {
   ArrowDown,
   ArrowDownUp,
   ArrowUp,
+  Check,
   ChevronDown,
   CircleCheck,
   CircleX,
@@ -11,6 +12,8 @@ import {
   GitBranch,
   Loader2,
   Play,
+  Plus,
+  Search,
   RefreshCw,
   SlidersHorizontal,
   TriangleAlert,
@@ -118,6 +121,9 @@ export interface RepositoryHeaderProps {
   renderRepositoryMenuItems?: () => ReactNode;
   onOpenSwitcher: (mode: RepositoryHeaderSwitcherMode) => void;
   onCloseGuest: () => void;
+  /** The views the + menu can open as the guest tab, built like the quick switcher's Go to section. */
+  addViewOptions: readonly AddViewOption[];
+  onOpenView: (view: GuestView) => void;
   onRunAction: (action: GitAction) => void;
   onPullWithAction: (action: GitConfiguredAction) => void;
   onOpenPushToBranch: () => void;
@@ -164,6 +170,8 @@ export const RepositoryHeader = memo(function RepositoryHeader({
   renderRepositoryMenuItems,
   onOpenSwitcher,
   onCloseGuest,
+  addViewOptions,
+  onOpenView,
   onRunAction,
   onPullWithAction,
   onOpenPushToBranch,
@@ -215,6 +223,9 @@ export const RepositoryHeader = memo(function RepositoryHeader({
               guestCount={guestCount}
               activityAttention={activityAttention}
               onCloseGuest={onCloseGuest}
+              addViewOptions={addViewOptions}
+              onOpenView={onOpenView}
+              onOpenSwitcher={onOpenSwitcher}
             />
           )}
         </div>
@@ -399,13 +410,19 @@ function ViewSwitch({
   guestView,
   guestCount,
   activityAttention,
-  onCloseGuest
+  onCloseGuest,
+  addViewOptions,
+  onOpenView,
+  onOpenSwitcher
 }: {
   changesCount: number;
   guestView: GuestView | null;
   guestCount: number | string | null;
   activityAttention: ActivityLogAttention;
   onCloseGuest: () => void;
+  addViewOptions: readonly AddViewOption[];
+  onOpenView: (view: GuestView) => void;
+  onOpenSwitcher: (mode: RepositoryHeaderSwitcherMode) => void;
 }): ReactNode {
   const guestLabel = guestView ? WORKSPACE_VIEW_LABELS[guestView] : "";
   // Narrow headers show these icons in place of the labels, which still name the tabs.
@@ -481,8 +498,55 @@ function ViewSwitch({
           <X />
         </TooltipButton>
       ) : null}
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="ghost" size="icon-xs" className="view-switch-add" aria-label="Open a view">
+                <Plus />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Open a view</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="end" className="w-60">
+          <DropdownMenuLabel>Open a view</DropdownMenuLabel>
+          {addViewOptions.map((option) => {
+            const Icon = WORKSPACE_VIEW_ICONS[option.view];
+            return (
+              <DropdownMenuItem
+                key={option.view}
+                aria-label={option.view === guestView ? `${option.label}, open` : option.label}
+                onSelect={() => onOpenView(option.view)}
+              >
+                <Icon />
+                {option.title}
+                {option.meta ? <DropdownMenuShortcut>{option.meta}</DropdownMenuShortcut> : null}
+                {option.view === guestView ? <Check className="ml-auto" aria-hidden="true" /> : null}
+              </DropdownMenuItem>
+            );
+          })}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => onOpenSwitcher("all")}>
+            <Search />
+            Quick switcher…
+            <DropdownMenuShortcut>Ctrl K</DropdownMenuShortcut>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
+}
+
+/** One view the view switch's + menu can open as the guest tab. */
+export interface AddViewOption {
+  view: GuestView;
+  /** The visible name. */
+  title: string;
+  /** The accessible name, including any count. */
+  label: string;
+  /** A short count shown at the end of the row. */
+  meta?: string | undefined;
 }
 
 function formatActivityLogLabel(attention: ActivityLogAttention): string {

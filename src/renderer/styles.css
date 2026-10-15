@@ -1009,16 +1009,36 @@ textarea,
   line-height: 16px;
 }
 
+/* The track wraps the tabs and the + so the + reads as the last segment while staying outside the tablist. */
 .view-switch {
   position: relative;
   display: inline-flex;
+  align-items: center;
+  gap: 2px;
   min-width: 0;
   max-width: 100%;
+  padding: 2px;
+  border-radius: var(--radius-md);
+  background: var(--muted);
 }
 
 .view-switch-list {
   min-width: 0;
   max-width: 100%;
+  padding: 0;
+  background: transparent;
+}
+
+.view-switch-add {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: var(--radius-sm);
+}
+
+.view-switch-add[data-state="open"] {
+  background: var(--hover);
+  color: var(--foreground);
 }
 
 /*
@@ -1051,7 +1071,8 @@ textarea,
   position: absolute;
   top: 0;
   bottom: 0;
-  right: 6px;
+  /* The wrapper padding, the + and the gap before it sit to the right of the guest tab. */
+  right: 36px;
   width: 18px;
   height: 18px;
   margin-block: auto;
