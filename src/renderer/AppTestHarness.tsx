@@ -1,5 +1,6 @@
 import { emptyGitConfigValues } from "../shared/gitConfig";
-import { act, cleanup, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import type { UserEvent } from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, vi } from "vite-plus/test";
 import type { Mock } from "vite-plus/test";
@@ -1092,8 +1093,100 @@ export function getStatusTone(row: HTMLElement): string | null {
   return row.querySelector(".status-chip")?.getAttribute("data-status-tone") ?? null;
 }
 
+/** Waits for the repository workspace. Setup-screen tests wait for the "Welcome to Githead" region instead. */
 export async function waitForRepositoryWorkspace(): Promise<void> {
-  await screen.findByRole("region", { name: "Repositories" });
+  await screen.findByRole("navigation", { name: "Workspace navigation" });
+}
+
+/** Opens the quick switcher with Ctrl+K unless it is open, and returns its dialog. */
+export async function openQuickSwitcher(user?: UserEvent): Promise<HTMLElement> {
+  const open = screen.queryByRole("dialog", { name: "Quick switcher" });
+  if (open) return open;
+  await waitForRepositoryWorkspace();
+  if (user) await user.keyboard("{Control>}k{/Control}");
+  else fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+  return screen.findByRole("dialog", { name: "Quick switcher" });
+}
+
+/** Closes the open quick switcher with its Esc button and waits until it unmounts. */
+export async function closeQuickSwitcher(user?: UserEvent): Promise<void> {
+  const dialog = screen.queryByRole("dialog", { name: "Quick switcher" });
+  if (!dialog) return;
+  const close = within(dialog).getByRole("button", { name: "Close quick switcher" });
+  if (user) await user.click(close);
+  else fireEvent.click(close);
+  await waitFor(() => {
+    if (screen.queryByRole("dialog", { name: "Quick switcher" })) throw new Error("The quick switcher is still open.");
+  });
+}
+
+/** Opens the quick switcher if needed and chooses the option with this accessible name. */
+export async function chooseSwitcherOption(name: string | RegExp, user?: UserEvent): Promise<void> {
+  const dialog = await openQuickSwitcher(user);
+  const option = await within(dialog).findByRole("option", { name });
+  if (user) await user.click(option);
+  else fireEvent.click(option);
+}
+
+/** Opens the quick switcher if needed and returns the repository option for this saved repository path. */
+export async function repositoryOption(path: string, user?: UserEvent): Promise<HTMLElement> {
+  const dialog = await openQuickSwitcher(user);
+  return within(dialog).findByRole("option", { name: new RegExp(`^Switch to ${escapeRegExp(path)}(?:,|$)`) });
+}
+
+/** Switches to a saved repository through the quick switcher. */
+export async function switchToRepository(path: string, user?: UserEvent): Promise<void> {
+  const option = await repositoryOption(path, user);
+  if (user) await user.click(option);
+  else fireEvent.click(option);
+}
+
+/** Clicks the header's repository switcher and returns the quick switcher it opens. */
+export async function openRepositorySwitcher(user?: UserEvent): Promise<HTMLElement> {
+  const button = await screen.findByRole("button", { name: /^Switch repository/ });
+  if (user) await user.click(button);
+  else fireEvent.click(button);
+  return screen.findByRole("dialog", { name: "Quick switcher" });
+}
+
+/** Clicks the header's branch pill and returns the quick switcher, which then shows only branch content. */
+export async function openBranchSwitcher(user?: UserEvent): Promise<HTMLElement> {
+  const button = await screen.findByRole("button", { name: "Switch branch" });
+  if (user) await user.click(button);
+  else fireEvent.click(button);
+  return screen.findByRole("dialog", { name: "Quick switcher" });
+}
+
+/** Opens a view from the switcher's Go to section and returns its selected tab. */
+export async function openWorkspaceView(label: string, user?: UserEvent): Promise<HTMLElement> {
+  const name = new RegExp(`^${escapeRegExp(label)}`);
+  await chooseSwitcherOption(name, user);
+  return screen.findByRole("tab", { name, selected: true });
+}
+
+/** Opens Settings with Ctrl+, and returns its dialog. */
+export async function openSettings(user?: UserEvent): Promise<HTMLElement> {
+  await waitForRepositoryWorkspace();
+  if (user) await user.keyboard("{Control>},{/Control}");
+  else fireEvent.keyDown(window, { key: ",", ctrlKey: true });
+  return screen.findByRole("dialog", { name: "Settings" });
+}
+
+/** Opens the add repository popover with Ctrl+O and returns it. */
+export async function openAddRepository(user?: UserEvent): Promise<HTMLElement> {
+  await waitForRepositoryWorkspace();
+  if (user) await user.keyboard("{Control>}o{/Control}");
+  else fireEvent.keyDown(window, { key: "o", ctrlKey: true });
+  return screen.findByRole("dialog", { name: "Add repository" });
+}
+
+/** Chooses "Create pull request…" in the quick switcher. */
+export async function openCreatePullRequest(user?: UserEvent): Promise<void> {
+  await chooseSwitcherOption("Create pull request…", user);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 export async function flushRendererAsync(): Promise<void> {

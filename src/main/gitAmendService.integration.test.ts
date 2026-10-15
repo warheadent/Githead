@@ -302,7 +302,8 @@ describe("Git amend service with real Git repositories", { timeout: 30_000 }, ()
       await fs.writeFile(hookPath, "#!/bin/sh\n: > .git/githead-amend-hook-started\nwhile :; do :; done\n");
       await fs.chmod(hookPath, 0o755);
       const oldHead = await repo.oid("HEAD");
-      const cancellableRunner = new CancellableProcessRunner(new NodeProcessRunner());
+      // Short grace windows keep the two cancellations fast; the outcome does not depend on them.
+      const cancellableRunner = new CancellableProcessRunner(new NodeProcessRunner(100, 100));
       const cancellableService = new GitService(cancellableRunner);
 
       let preview = (await cancellableService.getAmendPreview({ repoPath: repo.path, source: "history", mode: "message-only" })).preview!;

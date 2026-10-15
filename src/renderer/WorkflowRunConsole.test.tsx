@@ -176,11 +176,23 @@ describe("WorkflowRunConsole", () => {
     expect(screen.getByRole("list", { name: "build-linux steps" })).toBeTruthy();
   });
 
+  it("lists jobs under a heading and offers only the run actions GitHub supports", async () => {
+    renderConsole();
+    const jobs = await screen.findByRole("main", { name: "Workflow jobs" });
+
+    expect(within(jobs).getByRole("heading", { name: "Jobs" })).toBeTruthy();
+    expect(within(screen.getByRole("complementary", { name: "Run details" })).getByText("Duration")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Re-run all jobs" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Re-run failed/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Open on GitHub" })).toBeTruthy();
+  });
+
   it("closes with Escape only when focus is inside the console", async () => {
     const user = userEvent.setup();
     const { props } = renderConsole();
     await screen.findByRole("main", { name: "Workflow jobs" });
-    screen.getByRole("tab", { name: /Jobs/ }).focus();
+    expect(screen.queryByRole("tab")).toBeNull();
+    screen.getByRole("button", { name: /build-linux/ }).focus();
     await user.keyboard("{Escape}");
     expect(props.onClose).toHaveBeenCalledTimes(1);
 

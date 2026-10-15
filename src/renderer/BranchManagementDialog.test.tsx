@@ -40,7 +40,7 @@ describe("BranchManagementDialog", () => {
     const input = screen.getByRole("textbox", { name: "New name" }) as HTMLInputElement;
     expect(input.value).toBe("feature");
     fireEvent.change(input, { target: { value: "feature/renamed" } });
-    fireEvent.click(screen.getByRole("button", { name: "Rename Branch" }));
+    fireEvent.click(screen.getByRole("button", { name: "Rename branch" }));
 
     await waitFor(() => expect(props.onRename).toHaveBeenCalledWith("feature", "feature/renamed"));
     await waitFor(() => expect(screen.queryByRole("textbox", { name: "New name" })).toBeNull());
@@ -55,7 +55,7 @@ describe("BranchManagementDialog", () => {
     expect(row.querySelector("form")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Delete release" })).toBeTruthy();
     fireEvent.click(screen.getByRole("checkbox", { name: /Force delete/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Force Delete Branch" }));
+    fireEvent.click(screen.getByRole("button", { name: "Force delete branch" }));
 
     await waitFor(() => expect(props.onRemove).toHaveBeenCalledWith("feature", true));
   });
@@ -64,7 +64,7 @@ describe("BranchManagementDialog", () => {
     const { props } = renderDialog({ onRemove: vi.fn().mockResolvedValue("Branch is not fully merged.") });
 
     fireEvent.click(screen.getByRole("button", { name: "Delete feature" }));
-    fireEvent.click(screen.getByRole("button", { name: "Delete Branch" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete branch" }));
 
     expect((await screen.findByRole("alert")).textContent).toBe("Branch is not fully merged.");
     expect(props.onOpenChange).not.toHaveBeenCalled();
@@ -90,7 +90,7 @@ describe("BranchManagementDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete release" }));
 
     expect(screen.queryByRole("textbox", { name: "New name" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Delete Branch" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Delete branch" })).toBeTruthy();
   });
 
   it("keeps the active row visible while the search changes", () => {

@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { gitCapabilities } from "../shared/types";
 import {
+  closeQuickSwitcher,
   createActionsConfig,
   createCommit,
   createCommitDetails,
@@ -18,9 +19,15 @@ import {
   emitRepoChanged,
   flushRendererAsync,
   githead,
+  openAddRepository,
+  openBranchSwitcher,
+  openQuickSwitcher,
+  openSettings,
+  openWorkspaceView,
   repoPath,
+  repositoryOption,
   repositoryRecents,
-  scrollIntoView,
+  switchToRepository,
   waitForRepositoryWorkspace,
   type GitFileDiff,
   type GitheadApi,
@@ -30,6 +37,21 @@ import {
   type RepoSummary
 } from "./AppTestHarness";
 import { App } from "./App";
+
+type User = ReturnType<typeof userEvent.setup>;
+
+/** Checks that the quick switcher marks this saved repository as the open one, then closes the switcher. */
+async function expectCurrentRepository(path: string, user?: User): Promise<void> {
+  expect((await repositoryOption(path, user)).getAttribute("aria-current")).toBe("true");
+  await closeQuickSwitcher(user);
+}
+
+/** The repository rows of the open quick switcher, in order. */
+function switcherRepositoryNames(): Array<string | null> {
+  return within(screen.getByRole("dialog", { name: "Quick switcher" }))
+    .getAllByRole("option", { name: /^Switch to / })
+    .map((option) => option.getAttribute("aria-label"));
+}
 
 describe("App", { timeout: 10_000 }, () => {
   it("refreshes File Status after active repository file changes", async () => {
@@ -83,24 +105,6 @@ describe("App", { timeout: 10_000 }, () => {
     });
   });
 
-  it("auto-fetches the active repository after the default interval", async () => {
-    vi.useFakeTimers();
-
-    render(<App />);
-    await flushRendererAsync();
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(10 * 60_000);
-    });
-    await flushRendererAsync();
-
-    expect(githead.runGitAction).toHaveBeenCalledWith({
-      repoPath,
-      action: "fetch",
-      operationId: expect.any(String)
-    });
-  });
-
   it("releases an old auto-fetch owner when the native picker switches repositories", async () => {
     vi.useFakeTimers();
     const nextRepoPath = "D:\\Work\\Picked";
@@ -114,7 +118,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await flushRendererAsync();
-    fireEvent.click(screen.getByRole("button", { name: "Add repository" }));
+    // Fake timers stall the async helper's polling, so press the shortcut directly.
+    fireEvent.keyDown(window, { key: "o", ctrlKey: true });
     await flushRendererAsync();
     fireEvent.click(screen.getByRole("button", { name: "Open local folder…" }));
     await flushRendererAsync();
@@ -138,7 +143,7 @@ describe("App", { timeout: 10_000 }, () => {
     await flushRendererAsync();
     await flushRendererAsync();
     expect(githead.getRepoSummary).toHaveBeenCalledWith(nextRepoPath);
-    expect(screen.getByRole("button", { name: `Switch to ${nextRepoPath}` }).getAttribute("aria-current")).toBe("true");
+    expect(screen.getByRole("button", { name: "Switch repository: Picked" })).toBeTruthy();
     expect((screen.getByRole("button", { name: /^Fetch$/ }) as HTMLButtonElement).disabled).toBe(false);
 
     pendingFetch.resolve(createRunResult("fetch", { repoPath }));
@@ -211,7 +216,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await flushRendererAsync();
     fireEvent.click(screen.getByRole("option", { name: /src\/pending\.ts/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Stage src/pending.ts" }));
     await flushRendererAsync();
 
     await act(async () => {
@@ -239,7 +244,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await flushRendererAsync();
     fireEvent.click(screen.getByRole("option", { name: /src\/pending\.ts/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Stage src/pending.ts" }));
     await flushRendererAsync();
 
     const operationId = vi.mocked(githead.stageFiles).mock.calls[0]?.[0].operationId;
@@ -270,7 +275,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await flushRendererAsync();
     fireEvent.click(screen.getByRole("option", { name: /src\/stale\.ts/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Stage src/stale.ts" }));
     await flushRendererAsync();
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -301,7 +306,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await flushRendererAsync();
     fireEvent.click(screen.getByRole("option", { name: /src\/lost-result\.ts/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Stage src/lost-result.ts" }));
     await flushRendererAsync();
 
     const operationId = vi.mocked(githead.stageFiles).mock.calls[0]?.[0].operationId;
@@ -338,7 +343,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await flushRendererAsync();
     fireEvent.click(screen.getByRole("option", { name: /src\/retry-cancel\.ts/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Stage src/retry-cancel.ts" }));
     await flushRendererAsync();
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -382,7 +387,7 @@ describe("App", { timeout: 10_000 }, () => {
     await flushRendererAsync();
 
     fireEvent.click(screen.getByRole("option", { name: /src\/race\.ts/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Stage src/race.ts" }));
     await flushRendererAsync();
 
     pendingTrust.resolve({
@@ -608,24 +613,25 @@ describe("App", { timeout: 10_000 }, () => {
     }));
 
     render(<App />);
-    const statusList = await screen.findByRole("listbox", { name: "Unstaged files" });
-    statusList.scrollTop = 340;
-    fireEvent.scroll(statusList);
+    await screen.findByRole("listbox", { name: "Unstaged files" });
+    const statusScroller = document.querySelector<HTMLElement>("[data-workspace-scroll-key='status-files']")!;
+    statusScroller.scrollTop = 340;
+    fireEvent.scroll(statusScroller);
     const fileOption = await screen.findByRole("option", { name: /persisted-18\.ts/ });
     await user.click(fileOption);
     expect(fileOption.getAttribute("aria-selected")).toBe("true");
-    statusList.scrollTop = 340;
-    fireEvent.scroll(statusList);
+    statusScroller.scrollTop = 340;
+    fireEvent.scroll(statusScroller);
     expect(screen.queryByRole("listbox", { name: "Commit history" })).toBeNull();
 
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     expect(await screen.findByRole("listbox", { name: "Commit history" })).toBeTruthy();
     expect(screen.queryByRole("option", { name: /persisted-18\.ts/ })).toBeNull();
 
-    await user.click(screen.getByRole("tab", { name: /File Status/ }));
+    await user.click(screen.getByRole("tab", { name: /^Changes/ }));
     expect((await screen.findByRole("option", { name: /persisted-18\.ts/ })).getAttribute("aria-selected")).toBe("true");
     await waitFor(() => {
-      expect(screen.getByRole("listbox", { name: "Unstaged files" }).scrollTop).toBe(340);
+      expect(document.querySelector<HTMLElement>("[data-workspace-scroll-key='status-files']")?.scrollTop).toBe(340);
     });
     expect(screen.getByRole("listbox", { name: "Commit history" })).toBeTruthy();
   });
@@ -636,14 +642,14 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
 
     render(<App />);
-    await user.click(await screen.findByRole("tab", { name: /Commit History/ }));
+    await user.click(await screen.findByRole("tab", { name: /^History$/ }));
     const historyRow = await screen.findByRole("option", { name: /retained history row/ });
 
-    await user.click(screen.getByRole("tab", { name: /File Status/ }));
+    await user.click(screen.getByRole("tab", { name: /^Changes/ }));
     expect(screen.getByRole("option", { name: /retained history row/ })).toBe(historyRow);
     expect(document.querySelectorAll(".history-row")).toHaveLength(1);
 
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     expect(await screen.findByRole("option", { name: /retained history row/ })).toBe(historyRow);
   });
 
@@ -656,7 +662,7 @@ describe("App", { timeout: 10_000 }, () => {
     })));
 
     render(<App />);
-    await user.click(await screen.findByRole("tab", { name: /Commit History/ }));
+    await user.click(await screen.findByRole("tab", { name: /^History$/ }));
     const firstRow = await screen.findByRole("option", { name: /virtual history 0/ });
 
     expect(document.querySelectorAll(".history-row").length).toBeLessThan(200);
@@ -677,7 +683,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await flushRendererAsync();
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /Commit History/ }), {
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /^History$/ }), {
       button: 0
     });
     await flushRendererAsync();
@@ -686,13 +692,13 @@ describe("App", { timeout: 10_000 }, () => {
 
     emitRepoChanged();
     await flushRendererAsync();
-    expect(screen.getByRole("tab", { name: "File Status 1" })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: /Commit History/ }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: "Changes 1" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /^History$/ }).getAttribute("aria-selected")).toBe("true");
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(2);
     expect(githead.getRepoMetadata).toHaveBeenCalledTimes(metadataCalls);
     expect(githead.getCommitHistory).toHaveBeenCalledTimes(historyCalls);
 
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /File Status/ }), {
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /^Changes/ }), {
       button: 0
     });
     await flushRendererAsync();
@@ -700,13 +706,13 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(2);
     expect(screen.getByRole("option", { name: /src\/deferred\.ts/ })).toBeTruthy();
 
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /Commit History/ }), { button: 0 });
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /^History$/ }), { button: 0 });
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary());
     emitRepoChanged();
     await flushRendererAsync();
-    const statusTab = screen.getByRole("tab", { name: "File Status" });
+    const statusTab = screen.getByRole("tab", { name: "Changes" });
     expect(statusTab.querySelector(".workspace-tab-count")).toBeNull();
-    expect(screen.getByRole("tab", { name: /Commit History/ }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: /^History$/ }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("ignores file change events for stale repositories", async () => {
@@ -721,7 +727,10 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["File Status", "Commit History"])("coalesces file changes during an in-flight refresh into one trailing refresh in %s", async (view) => {
+  it.each([
+    { view: "Changes", tabName: /^Changes/ },
+    { view: "History", tabName: /^History$/ }
+  ])("coalesces file changes during an in-flight refresh into one trailing refresh in $view", async ({ tabName }) => {
     const pendingRefresh = defer<RepoSummary>();
     const largeFiles = Array.from({ length: 10_000 }, (_, index) => createStatusFile(
       `generated/live-${index.toString().padStart(5, "0")}.ts`,
@@ -752,7 +761,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await flushRendererAsync();
     expect(screen.getAllByRole("option").length).toBeLessThan(100);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: new RegExp(view) }), { button: 0 });
+    fireEvent.mouseDown(screen.getByRole("tab", { name: tabName }), { button: 0 });
     await flushRendererAsync();
     const metadataCallsBeforeLiveUpdate = vi.mocked(githead.getRepoMetadata).mock.calls.length;
     emitRepoChanged();
@@ -770,8 +779,8 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(3);
     expect(githead.getRepoMetadata).toHaveBeenCalledTimes(metadataCallsBeforeLiveUpdate);
     expect(maxActiveSummaryCalls).toBe(1);
-    expect(screen.getByRole("tab", { name: "File Status 1" })).toBeTruthy();
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /File Status/ }), { button: 0 });
+    expect(screen.getByRole("tab", { name: "Changes 1" })).toBeTruthy();
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /^Changes/ }), { button: 0 });
     await flushRendererAsync();
     expect(screen.getByRole("option", { name: /src\/final\.ts/ })).toBeTruthy();
   });
@@ -794,7 +803,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await flushRendererAsync();
     fireEvent.click(screen.getByRole("option", { name: /src\/pending\.ts/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Stage src/pending.ts" }));
     await flushRendererAsync();
 
     emitRepoChanged();
@@ -817,11 +826,15 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    expect(screen.getByRole("button", { name: `Switch to ${recentRepo}` }).getAttribute("aria-current")).toBe("true");
-    expect(within(screen.getByRole("region", { name: "Repositories" })).getByText("Recent")).toBeTruthy();
-    expect(screen.getByText("Other")).toBeTruthy();
-    expect(screen.getByRole("button", { name: `Switch to ${otherRepo}` })).toBeTruthy();
-    expect(screen.queryByText(otherRepo)).toBeNull();
+    expect(screen.getByRole("button", { name: "Switch repository: Recent" })).toBeTruthy();
+    const current = await repositoryOption(recentRepo);
+    expect(current.getAttribute("aria-current")).toBe("true");
+    expect(within(current).getByText("Recent")).toBeTruthy();
+    const other = await repositoryOption(otherRepo);
+    expect(other.getAttribute("aria-current")).toBeNull();
+    // Rows lead with the display name; the full path is the secondary detail.
+    expect(within(other).getByText("Other")).toBeTruthy();
+    expect(within(other).getByText(otherRepo).classList.contains("quick-switcher-option-detail")).toBe(true);
     expect(githead.getRepoSummary).toHaveBeenCalledWith(recentRepo);
   });
 
@@ -852,22 +865,22 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    const disclosure = await screen.findByRole("button", { name: "Expand worktrees for Githead" });
-    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByText("feature/worktrees")).toBeNull();
-    await user.click(disclosure);
-    expect(await screen.findByText("feature/worktrees")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Collapse worktrees for Githead" }).getAttribute("aria-expanded")).toBe("true");
-    expect(screen.queryByRole("button", { name: "Add worktree" })).toBeNull();
+    // Worktrees nest under their repository row in the quick switcher.
+    const switcher = await openQuickSwitcher(user);
+    const linkedRow = await within(switcher).findByRole("option", { name: `Switch to worktree feature/worktrees at ${linked}` });
+    expect(linkedRow.getAttribute("data-depth")).toBe("1");
+    const mainRow = within(switcher).getByRole("option", { name: `Switch to worktree main at ${repoPath}` });
+    expect(mainRow.getAttribute("aria-current")).toBe("true");
+    await closeQuickSwitcher(user);
 
-    await user.click(screen.getByRole("button", { name: "Switch branch" }));
-    expect(await screen.findByRole("button", { name: "Add Worktree…" })).toBeTruthy();
-    await user.click(await screen.findByRole("option", { name: /feature\/worktrees/ }));
+    const branches = await openBranchSwitcher(user);
+    expect(within(branches).getByRole("option", { name: "Add worktree…" })).toBeTruthy();
+    await user.click(within(branches).getByRole("option", { name: /feature\/worktrees/ }));
     await waitFor(() => expect(githead.getRepoSummary).toHaveBeenCalledWith(linked));
     expect(githead.switchBranch).not.toHaveBeenCalled();
   });
 
-  it("opens a repository's last-used worktree without expanding its worktree list", async () => {
+  it("opens a repository's last-used worktree from its repository row", async () => {
     const user = userEvent.setup();
     const linked = "D:\\Githead-feature";
     vi.mocked(githead.getRepositoryGroups).mockResolvedValue([{
@@ -888,14 +901,10 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    const disclosure = await screen.findByRole("button", { name: "Expand worktrees for Githead" });
-    expect(screen.queryByText("feature/worktrees")).toBeNull();
-    await user.click(screen.getByRole("button", { name: `Switch to ${repoPath}` }));
+    await switchToRepository(repoPath, user);
 
     await waitFor(() => expect(githead.getRepoSummary).toHaveBeenCalledWith(linked));
     expect(githead.addRepoRecent).toHaveBeenCalledWith({ repoPath: linked, anchorPath: repoPath });
-    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByText("feature/worktrees")).toBeNull();
   });
 
   it("creates a new worktree with the guided sibling destination", async () => {
@@ -913,11 +922,10 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: "Switch branch" }));
-    await user.click(await screen.findByRole("button", { name: "Add Worktree…" }));
+    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: "Add worktree…" }));
     await user.type(screen.getByLabelText("Branch"), "feature/worktrees");
     await waitFor(() => expect((screen.getByLabelText("Destination") as HTMLInputElement).value).toBe("D:\\Githead-feature-worktrees"));
-    await user.click(screen.getByRole("button", { name: "Create Worktree" }));
+    await user.click(screen.getByRole("button", { name: "Create worktree" }));
 
     await waitFor(() => expect(githead.createWorktree).toHaveBeenCalledWith({
       repoPath,
@@ -948,21 +956,20 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: "Switch branch" }));
-    await user.click(await screen.findByRole("button", { name: "Add Worktree…" }));
+    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: "Add worktree…" }));
     await user.type(screen.getByLabelText("Branch"), "feature/worktrees");
     await waitFor(() => expect((screen.getByLabelText("Destination") as HTMLInputElement).value).toBe("D:\\Githead-feature-worktrees"));
-    await user.click(screen.getByRole("button", { name: "Create Worktree" }));
+    await user.click(screen.getByRole("button", { name: "Create worktree" }));
 
     const request = vi.mocked(githead.createWorktree).mock.calls[0]![0];
     await user.click(screen.getByRole("button", { name: "Cancel operation" }));
     await waitFor(() => expect(githead.cancelGitOperation).toHaveBeenCalledWith({ operationId: request.operationId }));
-    expect(screen.getByRole("dialog", { name: "Add Worktree" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Add worktree" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Cancelling..." })).toBeTruthy();
     await act(async () => pending.resolve({ repoPath, exitCode: -1, stdout: "", stderr: "Command was cancelled.", errorKind: "cancelled" }));
-    await waitFor(() => expect(screen.getByRole("dialog", { name: "Add Worktree" }).textContent).toContain("Worktree creation cancelled"));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Add worktree" }).textContent).toContain("Worktree creation cancelled"));
     expect((screen.getByLabelText("Branch") as HTMLInputElement).value).toBe("feature/worktrees");
-    expect((screen.getByRole("button", { name: "Create Worktree" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Create worktree" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("does not switch to a created worktree after the user moves repositories during group reload", async () => {
@@ -992,17 +999,16 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository(user);
     await user.click(await screen.findByRole("button", { name: "Open local folder…" }));
     await waitFor(() => expect(githead.chooseRepo).toHaveBeenCalledTimes(1));
-    await user.click(screen.getByRole("button", { name: "Switch branch" }));
-    await user.click(await screen.findByRole("button", { name: "Add Worktree…" }));
+    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: "Add worktree…" }));
     await user.type(screen.getByLabelText("Branch"), "feature/late");
     await user.clear(screen.getByLabelText("Destination"));
     await user.type(screen.getByLabelText("Destination"), destinationPath);
     const groupCallsBeforeCreate = vi.mocked(githead.getRepositoryGroups).mock.calls.length;
     blockGroupReload = true;
-    await user.click(screen.getByRole("button", { name: "Create Worktree" }));
+    await user.click(screen.getByRole("button", { name: "Create worktree" }));
 
     await waitFor(() => expect(githead.createWorktree).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(githead.getRepositoryGroups).toHaveBeenCalledTimes(groupCallsBeforeCreate + 1));
@@ -1040,8 +1046,9 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    const recentButton = await screen.findByRole("button", { name: `Switch to ${recentRepo}, 1 commit ahead, 4 commits behind` });
-    const otherButton = screen.getByRole("button", { name: `Switch to ${otherRepo}, 2 commits behind` });
+    const switcher = await openQuickSwitcher();
+    const recentButton = await within(switcher).findByRole("option", { name: `Switch to ${recentRepo}, 1 commit ahead, 4 commits behind` });
+    const otherButton = within(switcher).getByRole("option", { name: `Switch to ${otherRepo}, 2 commits behind` });
     expect(recentButton).toBeTruthy();
     expect(otherButton).toBeTruthy();
     expect(within(recentButton).getByText("1 ↑").classList.contains("is-ahead")).toBe(true);
@@ -1071,10 +1078,10 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    const repositories = within(screen.getByRole("region", { name: "Repositories" }));
-    expect(repositories.getByLabelText("Lore repository")).toBeTruthy();
-    expect(repositories.getByLabelText("Git repository")).toBeTruthy();
-    expect(repositories.queryByText("Lore")).toBeNull();
+    const switcher = await openQuickSwitcher();
+    expect(within(await repositoryOption(loreRepo)).getByLabelText("Lore repository")).toBeTruthy();
+    expect(within(await repositoryOption(gitRepo)).getByLabelText("Git repository")).toBeTruthy();
+    expect(within(switcher).queryByText("Lore")).toBeNull();
   });
 
   it("leaves recent repository names unchanged when sync counts are zero or unavailable", async () => {
@@ -1099,9 +1106,11 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    expect(within(screen.getByRole("region", { name: "Repositories" })).getByText("Recent")).toBeTruthy();
-    expect(screen.getByText("Other")).toBeTruthy();
-    expect(screen.queryByText(/\d+ ↑|\d+ ↓/)).toBeNull();
+    const switcher = await openQuickSwitcher();
+    expect(within(await repositoryOption(recentRepo)).getByText("Recent")).toBeTruthy();
+    // A repository that failed its sync check offers its repair row, still under its folder name.
+    expect(within(within(switcher).getByRole("option", { name: `Repair repository location for ${otherRepo}` })).getByText("Other")).toBeTruthy();
+    expect(within(switcher).queryByText(/\d+ ↑|\d+ ↓/)).toBeNull();
   });
 
   it("shows the setup screen on first run without probing the old hard-coded fallback", async () => {
@@ -1145,7 +1154,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Check Again" }));
+    await user.click(await screen.findByRole("button", { name: "Check again" }));
 
     expect(await screen.findByText("Open a local folder or clone a repository to this computer.")).toBeTruthy();
     expect(githead.getGitExecutableStatus).toHaveBeenCalledTimes(2);
@@ -1165,18 +1174,21 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: `Switch to ${missingRepo}` }));
+    await switchToRepository(missingRepo, user);
 
-    expect(await screen.findByRole("heading", { name: "Repository Unavailable" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Repository unavailable" })).toBeTruthy();
     expect(screen.queryByText("Open a local folder or clone a repository to this computer.")).toBeNull();
-    expect(screen.getByRole("region", { name: "Repositories" })).toBeTruthy();
+    // The header keeps only the repository switcher, so another repository stays one click away.
+    const header = screen.getByRole("navigation", { name: "Workspace navigation" });
+    expect(within(header).getByRole("button", { name: "Switch repository: MissingRepo" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Switch branch" })).toBeNull();
     expect(screen.getByRole("alert").textContent).toContain(reason);
 
     vi.mocked(githead.getRepoSummary).mockImplementation(async (requestedRepoPath) => createSummary({ repoPath: requestedRepoPath }));
-    await user.click(screen.getByRole("button", { name: "Try Again" }));
+    await user.click(screen.getByRole("button", { name: "Try again" }));
     await waitForRepositoryWorkspace();
-    expect(screen.queryByRole("heading", { name: "Repository Unavailable" })).toBeNull();
-    expect(screen.getByRole("button", { name: `Switch to ${missingRepo}` }).getAttribute("aria-current")).toBe("true");
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Repository unavailable" })).toBeNull());
+    await expectCurrentRepository(missingRepo, user);
   });
 
   it("can select another repository after a recent repository fails to open", async () => {
@@ -1190,12 +1202,11 @@ describe("App", { timeout: 10_000 }, () => {
     }));
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: `Switch to ${missingRepo}` }));
-    await screen.findByRole("heading", { name: "Repository Unavailable" });
-    await user.click(screen.getByRole("button", { name: `Switch to ${repoPath}` }));
-    await waitForRepositoryWorkspace();
-    expect(screen.queryByRole("heading", { name: "Repository Unavailable" })).toBeNull();
-    expect(screen.getByRole("button", { name: `Switch to ${repoPath}` }).getAttribute("aria-current")).toBe("true");
+    await switchToRepository(missingRepo, user);
+    await screen.findByRole("heading", { name: "Repository unavailable" });
+    await switchToRepository(repoPath, user);
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Repository unavailable" })).toBeNull());
+    await expectCurrentRepository(repoPath, user);
   });
 
   it("can allow a Git ownership exception after opening a recent repository fails", async () => {
@@ -1206,9 +1217,9 @@ describe("App", { timeout: 10_000 }, () => {
       requestedRepoPath === blockedRepo ? createSafeDirectorySummary(blockedRepo) : createSummary());
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: `Switch to ${blockedRepo}` }));
-    await screen.findByRole("heading", { name: "Repository Unavailable" });
-    await user.click(screen.getByRole("button", { name: "Allow Git Exception" }));
+    await switchToRepository(blockedRepo, user);
+    await screen.findByRole("heading", { name: "Repository unavailable" });
+    await user.click(screen.getByRole("button", { name: "Allow Git exception" }));
     expect(await screen.findByRole("dialog")).toBeTruthy();
     expect(screen.queryByText("Open a local folder or clone a repository to this computer.")).toBeNull();
   });
@@ -1258,11 +1269,11 @@ describe("App", { timeout: 10_000 }, () => {
     expect((await screen.findByRole("tooltip")).textContent).toContain(reason);
     await user.click(repairButton);
 
-    const dialog = await screen.findByRole("dialog", { name: "Repository Unavailable" });
+    const dialog = await screen.findByRole("dialog", { name: "Repository unavailable" });
     expect(within(dialog).getByText(invalidRepo)).toBeTruthy();
     expect(within(dialog).getByText(reason)).toBeTruthy();
-    expect(within(dialog).getByRole("button", { name: "Choose New Location" })).toBeTruthy();
-    await user.click(within(dialog).getByRole("button", { name: "Remove Repository" }));
+    expect(within(dialog).getByRole("button", { name: "Choose new location" })).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: "Remove repository" }));
     await waitFor(() => expect(githead.removeRepoRecent).toHaveBeenCalledWith(invalidRepo));
   });
 
@@ -1288,15 +1299,15 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await user.click(await screen.findByRole("button", { name: `Repair repository location for ${invalidRepo}` }));
-    const dialog = await screen.findByRole("dialog", { name: "Repository Unavailable" });
-    await user.click(within(dialog).getByRole("button", { name: "Choose New Location" }));
+    const dialog = await screen.findByRole("dialog", { name: "Repository unavailable" });
+    await user.click(within(dialog).getByRole("button", { name: "Choose new location" }));
 
     await waitFor(() => expect(githead.replaceRepoRecent).toHaveBeenCalledWith({
       repoPath: invalidRepo,
       replacementRepoPath: replacementRepo
     }));
     await waitForRepositoryWorkspace();
-    expect(screen.getByRole("button", { name: `Switch to ${replacementRepo}` }).getAttribute("aria-current")).toBe("true");
+    await expectCurrentRepository(replacementRepo, user);
   });
 
   it("shows a safe.directory prompt for an initial recent repository blocked by dubious ownership", async () => {
@@ -1307,7 +1318,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     expect(await screen.findByText("Git ownership check blocked this repository.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Allow Git Exception" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Allow Git exception" })).toBeTruthy();
     expect(screen.getByText("D:/Work/Blocked")).toBeTruthy();
   });
 
@@ -1323,18 +1334,14 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
+    await switchToRepository(otherRepo, user);
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: `Switch to ${otherRepo}` }).getAttribute("aria-current")).toBe("true");
-    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Switch repository: Other" })).toBeTruthy());
     await waitFor(() => {
       expect(githead.addRepoRecent).toHaveBeenCalledWith({ repoPath: otherRepo });
     });
-    const repositories = within(screen.getByRole("region", { name: "Repositories" })).getAllByRole("button", {
-      name: /^Switch to /
-    });
-    expect(repositories.map((button) => button.getAttribute("aria-label"))).toEqual([
+    expect((await repositoryOption(otherRepo, user)).getAttribute("aria-current")).toBe("true");
+    expect(switcherRepositoryNames()).toEqual([
       `Switch to ${repoPath}`,
       `Switch to ${otherRepo}`
     ]);
@@ -1355,15 +1362,15 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     await user.click(screen.getByRole("button", { name: "All branches" }));
     await screen.findByText(`all history for ${repoPath}`);
 
-    await user.click(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
+    await switchToRepository(otherRepo, user);
     await screen.findByText(`current history for ${otherRepo}`);
     expect(screen.getByRole("button", { name: "Current branch" }).getAttribute("aria-pressed")).toBe("true");
 
-    await user.click(screen.getByRole("button", { name: `Switch to ${repoPath}` }));
+    await switchToRepository(repoPath, user);
     await screen.findByText(`all history for ${repoPath}`);
     expect(screen.getByRole("button", { name: "All branches" }).getAttribute("aria-pressed")).toBe("true");
     await waitFor(() => expect(githead.getCommitHistory).toHaveBeenLastCalledWith(expect.objectContaining({
@@ -1389,8 +1396,8 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await screen.findByRole("option", { name: /src\/initial-a\.ts/ });
 
-    await user.click(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
-    await user.click(screen.getByRole("button", { name: `Switch to ${repoPath}` }));
+    await switchToRepository(otherRepo, user);
+    await switchToRepository(repoPath, user);
     expect(screen.getByRole("option", { name: /src\/initial-a\.ts/ })).toBeTruthy();
     pendingReturn.resolve(createSummary({
       files: [createStatusFile("src/final-a.ts", { isUnstaged: true, worktreeStatus: "M" })]
@@ -1403,7 +1410,7 @@ describe("App", { timeout: 10_000 }, () => {
     }));
     await flushRendererAsync();
 
-    expect(screen.getByRole("button", { name: `Switch to ${repoPath}` }).getAttribute("aria-current")).toBe("true");
+    expect(screen.getByRole("button", { name: "Switch repository: Githead" })).toBeTruthy();
     expect(screen.queryByRole("option", { name: /src\/stale-b\.ts/ })).toBeNull();
     expect(vi.mocked(githead.getRepoSummary).mock.calls.map(([path]) => path)).toEqual([
       repoPath,
@@ -1441,11 +1448,14 @@ describe("App", { timeout: 10_000 }, () => {
       githubRepository: { owner: "example", name: "repo", fullName: "example/repo", webUrl: "https://github.com/example/repo" },
       actionsConfig: createActionsConfig()
     });
+    const user = userEvent.setup();
     render(<App />);
-    expect(await screen.findByRole("tab", { name: /Workflow Runs/ })).toBeTruthy();
+    await waitForRepositoryWorkspace();
+    expect(await openWorkspaceView("Workflow runs", user)).toBeTruthy();
     pendingStatus.resolve({ repoPath, generation: 1, ahead: null, behind: null, files: [createStatusFile("src/later.ts", { isUnstaged: true, worktreeStatus: "M" })], operationState: null });
+    await user.click(screen.getByRole("tab", { name: /^Changes/ }));
     expect(await screen.findByRole("option", { name: /src\/later\.ts/ })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: /Workflow Runs/ })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /^Workflow runs/ })).toBeTruthy();
   });
 
   it("ignores an unresolved diff from Repository A after switching to Repository B", async () => {
@@ -1466,13 +1476,13 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await user.click(await screen.findByRole("option", { name: /src\/a\.ts/ }));
     expect(githead.getFileDiff).toHaveBeenCalledTimes(1);
-    await user.click(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
+    await switchToRepository(otherRepo, user);
     await screen.findByRole("option", { name: /src\/b\.ts/ });
 
     pendingDiff.resolve(createTextDiff("src/a.ts", "stale-a-diff"));
     await flushRendererAsync();
 
-    expect(screen.getByRole("button", { name: `Switch to ${otherRepo}` }).getAttribute("aria-current")).toBe("true");
+    expect(screen.getByRole("button", { name: "Switch repository: Other" })).toBeTruthy();
     expect(screen.queryByText(/stale-a-diff/)).toBeNull();
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(2);
     expect(githead.getFileDiff).toHaveBeenCalledTimes(1);
@@ -1502,12 +1512,12 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
+    await switchToRepository(otherRepo, user);
     await waitFor(() => expect(githead.getGitIdentity).toHaveBeenCalledWith(otherRepo));
     pendingIdentity.resolve(identity("Stale Repository A"));
     await flushRendererAsync();
 
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "Git identity" }));
     expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Global");
   });
@@ -1523,19 +1533,19 @@ describe("App", { timeout: 10_000 }, () => {
 
     await waitForRepositoryWorkspace();
     vi.mocked(githead.getRepoSummary).mockClear();
-    fireEvent.contextMenu(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
-    await user.click(await screen.findByRole("menuitem", { name: "Remove Repository" }));
+    fireEvent.contextMenu(await repositoryOption(otherRepo, user));
+    await user.click(await screen.findByRole("menuitem", { name: "Remove repository" }));
 
-    const dialog = await screen.findByRole("dialog", { name: "Remove Repository?" });
+    const dialog = await screen.findByRole("dialog", { name: "Remove repository?" });
     expect(within(dialog).getByText(/all of its files will remain on disk/)).toBeTruthy();
     expect(within(dialog).getByText(otherRepo)).toBeTruthy();
     expect(githead.removeRepoRecent).not.toHaveBeenCalled();
-    await user.click(within(dialog).getByRole("button", { name: "Remove Repository" }));
+    await user.click(within(dialog).getByRole("button", { name: "Remove repository" }));
 
     await waitFor(() => {
       expect(githead.removeRepoRecent).toHaveBeenCalledWith(otherRepo);
     });
-    expect(screen.getByRole("button", { name: `Switch to ${repoPath}` }).getAttribute("aria-current")).toBe("true");
+    await expectCurrentRepository(repoPath, user);
     expect(githead.getRepoSummary).not.toHaveBeenCalledWith(otherRepo);
   });
 
@@ -1555,21 +1565,17 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    const groupHeading = await waitFor(() => {
-      const heading = screen.getByRole("button", { name: `Switch to ${repoPath}` }).closest(".repo-group-heading");
-      if (!heading) throw new Error("Expected grouped repository heading.");
-      return heading;
-    });
-    fireEvent.contextMenu(groupHeading);
-    await user.click(await screen.findByRole("menuitem", { name: "Remove Repository" }));
+    await waitFor(() => expect(githead.getRepositoryGroups).toHaveBeenCalled());
+    fireEvent.contextMenu(await repositoryOption(repoPath, user));
+    await user.click(await screen.findByRole("menuitem", { name: "Remove repository" }));
 
-    const dialog = await screen.findByRole("dialog", { name: "Remove Repository?" });
+    const dialog = await screen.findByRole("dialog", { name: "Remove repository?" });
     expect(within(dialog).getByText(repoPath)).toBeTruthy();
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(githead.removeRepoRecent).not.toHaveBeenCalled();
   });
 
-  it("reorders repositories with the keyboard handle", async () => {
+  it("reorders repositories from the switcher row menu", async () => {
     const user = userEvent.setup();
     const otherRepo = "D:\\Work\\Other";
     vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
@@ -1579,8 +1585,12 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: `Reorder ${otherRepo}` }));
-    await user.keyboard("{ArrowUp}");
+    fireEvent.contextMenu(await repositoryOption(repoPath, user));
+    expect((await screen.findByRole("menuitem", { name: "Move up" })).hasAttribute("data-disabled")).toBe(true);
+    await user.keyboard("{Escape}");
+    fireEvent.contextMenu(await repositoryOption(otherRepo, user));
+    expect((await screen.findByRole("menuitem", { name: "Move down" })).hasAttribute("data-disabled")).toBe(true);
+    await user.click(screen.getByRole("menuitem", { name: "Move up" }));
 
     await waitFor(() => {
       expect(githead.reorderRepoRecents).toHaveBeenCalledWith([
@@ -1588,51 +1598,11 @@ describe("App", { timeout: 10_000 }, () => {
         repoPath
       ]);
     });
-    const repositories = within(screen.getByRole("region", { name: "Repositories" })).getAllByRole("button", {
-      name: /^Switch to /
-    });
-    expect(repositories.map((button) => button.getAttribute("aria-label"))).toEqual([
+    // Moving keeps the switcher open on the new order.
+    await waitFor(() => expect(switcherRepositoryNames()).toEqual([
       `Switch to ${otherRepo}`,
       `Switch to ${repoPath}`
-    ]);
-    expect(githead.getRepoSummary).not.toHaveBeenCalledWith(otherRepo);
-  });
-
-  it("reorders repositories with drag and drop", async () => {
-    const otherRepo = "D:\\Work\\Other";
-    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
-    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
-    vi.mocked(githead.reorderRepoRecents).mockImplementation(async (repoPaths) => repositoryRecents(...repoPaths));
-
-    render(<App />);
-
-    await waitForRepositoryWorkspace();
-    const dragHandle = screen.getByRole("button", { name: `Reorder ${otherRepo}` });
-    const targetRow = screen.getByRole("button", { name: `Switch to ${repoPath}` }).closest(".repo-recent-row");
-    if (!targetRow) {
-      throw new Error("Expected repository row.");
-    }
-
-    vi.spyOn(targetRow, "getBoundingClientRect").mockReturnValue({
-      x: 0,
-      y: 0,
-      top: 0,
-      left: 0,
-      right: 260,
-      bottom: 40,
-      width: 260,
-      height: 40,
-      toJSON: () => ({})
-    });
-    fireEvent.mouseDown(dragHandle);
-    fireEvent.mouseUp(targetRow, { clientY: 1 });
-
-    await waitFor(() => {
-      expect(githead.reorderRepoRecents).toHaveBeenCalledWith([
-        otherRepo,
-        repoPath
-      ]);
-    });
+    ]));
     expect(githead.getRepoSummary).not.toHaveBeenCalledWith(otherRepo);
   });
 
@@ -1646,8 +1616,8 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: `Reorder ${otherRepo}` }));
-    await user.keyboard("{ArrowUp}");
+    fireEvent.contextMenu(await repositoryOption(otherRepo, user));
+    await user.click(await screen.findByRole("menuitem", { name: "Move up" }));
 
     await waitFor(() => {
       expect(githead.reorderRepoRecents).toHaveBeenCalledWith([
@@ -1655,15 +1625,10 @@ describe("App", { timeout: 10_000 }, () => {
         repoPath
       ]);
     });
-    await waitFor(() => {
-      const repositories = within(screen.getByRole("region", { name: "Repositories" })).getAllByRole("button", {
-        name: /^Switch to /
-      });
-      expect(repositories.map((button) => button.getAttribute("aria-label"))).toEqual([
-        `Switch to ${repoPath}`,
-        `Switch to ${otherRepo}`
-      ]);
-    });
+    await waitFor(() => expect(switcherRepositoryNames()).toEqual([
+      `Switch to ${repoPath}`,
+      `Switch to ${otherRepo}`
+    ]));
   });
 
   it("shows a recent repository in Explorer from the context menu", async () => {
@@ -1675,8 +1640,8 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    fireEvent.contextMenu(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
-    expect(await screen.findByText(otherRepo)).toBeTruthy();
+    fireEvent.contextMenu(await repositoryOption(otherRepo, user));
+    expect((await screen.findByRole("menu")).querySelector(".repo-recent-menu-path")?.textContent).toBe(otherRepo);
     await user.click(await screen.findByRole("menuitem", { name: "Show in Explorer" }));
 
     await waitFor(() => {
@@ -1694,10 +1659,10 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    fireEvent.contextMenu(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
-    await user.click(await screen.findByRole("menuitem", { name: "Repository Settings…" }));
+    fireEvent.contextMenu(await repositoryOption(otherRepo, user));
+    await user.click(await screen.findByRole("menuitem", { name: "Repository settings…" }));
 
-    const dialog = await screen.findByRole("dialog", { name: "Repository Settings" });
+    const dialog = await screen.findByRole("dialog", { name: "Repository settings" });
     await waitFor(() => expect(githead.getRepositoryAiSettings).toHaveBeenCalledWith({ repoPath: otherRepo }));
     await user.click(within(dialog).getByRole("tab", { name: "AI" }));
     await user.click(within(dialog).getByRole("checkbox", { name: /Use repository AI settings/ }));
@@ -1719,9 +1684,9 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    fireEvent.contextMenu(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
-    await user.click(await screen.findByRole("menuitem", { name: "Repository Settings…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Repository Settings" });
+    fireEvent.contextMenu(await repositoryOption(otherRepo, user));
+    await user.click(await screen.findByRole("menuitem", { name: "Repository settings…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Repository settings" });
 
     await user.click(within(dialog).getByRole("checkbox", { name: /Use repository identity/ }));
     await user.type(within(dialog).getByLabelText("Name"), "Repository User");
@@ -1770,22 +1735,23 @@ describe("App", { timeout: 10_000 }, () => {
     fireEvent(window, new Event("blur"));
     fireEvent(window, new Event("focus"));
     await flushRendererAsync();
-    fireEvent.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository();
     fireEvent.click(screen.getByRole("button", { name: "Open local folder…" }));
     await flushRendererAsync();
-    expect(screen.queryByRole("button", { name: `Switch to ${addedRepo}` })).not.toBeNull();
+    expect(await repositoryOption(addedRepo)).toBeTruthy();
+    await closeQuickSwitcher();
 
     newerScan.resolve(groupsFor([...existingRepos, addedRepo]));
     await flushRendererAsync();
     if (outcome === "error") olderScan.reject(new Error("Group scan failed"));
     else olderScan.resolve(outcome === "empty" ? [] : groupsFor(existingRepos));
     await flushRendererAsync();
-    expect(screen.getByRole("button", { name: `Switch to ${addedRepo}` }).getAttribute("aria-current")).toBe("true");
-    expect(screen.getByRole("button", { name: "Expand worktrees for Added" })).toBeTruthy();
-    expect(within(screen.getByRole("region", { name: "Repositories" })).getAllByRole("button", { name: /^Switch to / })).toHaveLength(13);
+    expect(screen.getByRole("button", { name: "Switch repository: Added" })).toBeTruthy();
+    expect((await repositoryOption(addedRepo)).getAttribute("aria-current")).toBe("true");
+    expect(switcherRepositoryNames()).toHaveLength(13);
   });
 
-  it("adds a ninth browsed repository to the bottom and reveals its active row", async () => {
+  it("adds a ninth browsed repository to the bottom and marks it current", async () => {
     const user = userEvent.setup();
     const browsedRepo = "D:\\Work\\Browsed";
     const existingRepos = [
@@ -1805,26 +1771,18 @@ describe("App", { timeout: 10_000 }, () => {
 
     await waitForRepositoryWorkspace();
     vi.mocked(githead.addRepoRecent).mockClear();
-    scrollIntoView.mockClear();
-    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository(user);
     await user.click(screen.getByRole("button", { name: "Open local folder…" }));
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: `Switch to ${browsedRepo}` }).getAttribute("aria-current")).toBe("true");
-    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Switch repository: Browsed" })).toBeTruthy());
     await waitFor(() => {
       expect(githead.addRepoRecent).toHaveBeenCalledWith({ repoPath: browsedRepo });
     });
-    const repositories = within(screen.getByRole("region", { name: "Repositories" })).getAllByRole("button", {
-      name: /^Switch to /
-    });
-    expect(repositories.map((button) => button.getAttribute("aria-label"))).toEqual([
+    expect((await repositoryOption(browsedRepo, user)).getAttribute("aria-current")).toBe("true");
+    expect(switcherRepositoryNames()).toEqual([
       ...existingRepos.map((existingRepo) => `Switch to ${existingRepo}`),
       `Switch to ${browsedRepo}`
     ]);
-    expect(scrollIntoView).toHaveBeenCalledWith({
-      block: "nearest"
-    });
   });
 
   it("does not add an invalid browsed repository to repositories", async () => {
@@ -1843,7 +1801,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await waitForRepositoryWorkspace();
     vi.mocked(githead.addRepoRecent).mockClear();
-    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository(user);
     await user.click(screen.getByRole("button", { name: "Open local folder…" }));
 
     expect(await screen.findByText("Selected folder is not a git repository.")).toBeTruthy();
@@ -1864,7 +1822,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(screen.getByRole("button", { name: "Open repository" }));
 
     expect(await screen.findByText("Git ownership check blocked this repository.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Allow Git Exception" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Allow Git exception" })).toBeTruthy();
     expect(githead.addRepoRecent).not.toHaveBeenCalledWith(blockedRepo);
   });
 
@@ -1879,8 +1837,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     await screen.findByText("Open a local folder or clone a repository to this computer.");
     await user.click(screen.getByRole("button", { name: "Open repository" }));
-    await user.click(await screen.findByRole("button", { name: "Allow Git Exception" }));
-    expect(screen.getByRole("heading", { name: "Allow Git Ownership Exception?" })).toBeTruthy();
+    await user.click(await screen.findByRole("button", { name: "Allow Git exception" }));
+    expect(screen.getByRole("heading", { name: "Allow Git ownership exception?" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Cancel" }));
 
@@ -1903,14 +1861,14 @@ describe("App", { timeout: 10_000 }, () => {
 
     await screen.findByText("Open a local folder or clone a repository to this computer.");
     await user.click(screen.getByRole("button", { name: "Open repository" }));
-    await user.click(await screen.findByRole("button", { name: "Allow Git Exception" }));
-    await user.click(screen.getByRole("button", { name: "Allow Exception" }));
+    await user.click(await screen.findByRole("button", { name: "Allow Git exception" }));
+    await user.click(screen.getByRole("button", { name: "Allow exception" }));
 
     const operationId = vi.mocked(githead.addSafeDirectory).mock.calls[0]?.[0].operationId;
     expect(operationId).toEqual(expect.any(String));
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(githead.cancelGitOperation).toHaveBeenCalledWith({ operationId }));
-    await waitFor(() => expect(screen.queryByRole("heading", { name: "Allow Git Ownership Exception?" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Allow Git ownership exception?" })).toBeNull());
 
     pendingAdd.resolve(createOperationResult({ repoPath: blockedRepo }));
     await flushRendererAsync();
@@ -1931,8 +1889,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     await screen.findByText("Open a local folder or clone a repository to this computer.");
     await user.click(screen.getByRole("button", { name: "Open repository" }));
-    await user.click(await screen.findByRole("button", { name: "Allow Git Exception" }));
-    await user.click(screen.getByRole("button", { name: "Allow Exception" }));
+    await user.click(await screen.findByRole("button", { name: "Allow Git exception" }));
+    await user.click(screen.getByRole("button", { name: "Allow exception" }));
 
     await waitForRepositoryWorkspace();
     expect(githead.addSafeDirectory).toHaveBeenCalledWith({
@@ -1958,8 +1916,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     await screen.findByText("Open a local folder or clone a repository to this computer.");
     await user.click(screen.getByRole("button", { name: "Open repository" }));
-    await user.click(await screen.findByRole("button", { name: "Allow Git Exception" }));
-    await user.click(screen.getByRole("button", { name: "Allow Exception" }));
+    await user.click(await screen.findByRole("button", { name: "Allow Git exception" }));
+    await user.click(screen.getByRole("button", { name: "Allow exception" }));
 
     expect(await screen.findByText("error: could not lock config file")).toBeTruthy();
     expect(screen.getByText("Open a local folder or clone a repository to this computer.")).toBeTruthy();

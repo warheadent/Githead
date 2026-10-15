@@ -4,6 +4,7 @@ import path from "node:path";
 import type { AppSettingsSaveRequest } from "../shared/types";
 import { describe, expect, it } from "vite-plus/test";
 import {
+  APP_SETTINGS_VERSION,
   AppSettingsService,
   DEFAULT_CODE_FONT,
   DEFAULT_APPEARANCE_MODE,
@@ -560,7 +561,7 @@ describe("AppSettingsService", () => {
         gitBehaviors: { tagPushBehavior: "none", quickCommitByDefault: true, remoteCheckLeaseSeconds: 0 },
         privacy: { shareAnonymousDiagnostics: false }
       });
-      expect(await fs.readFile(path.join(dir, "app-settings.json"), "utf8")).toBe(`${JSON.stringify(saved, null, 2)}\n`);
+      expect(await fs.readFile(path.join(dir, "app-settings.json"), "utf8")).toBe(`${JSON.stringify({ settingsVersion: APP_SETTINGS_VERSION, ...saved }, null, 2)}\n`);
     });
   });
 
@@ -747,6 +748,59 @@ describe("AppSettingsService", () => {
         codeFont: "papyrus" as "system-mono",
         zoomFactor: 1
       })).rejects.toThrow("Unknown code font.");
+    });
+  });
+});
+
+describe("font default migration", () => {
+  const legacyFonts = { uiFont: "inter", codeFont: "system-mono" };
+
+  it("moves unversioned old default fonts to the current defaults and writes the version on the next save", async () => {
+    await withTempDir(async (dir) => {
+      const settingsPath = path.join(dir, "app-settings.json");
+      await fs.writeFile(settingsPath, JSON.stringify({ colorTheme: "orchid", ...legacyFonts }), "utf8");
+      const service = new AppSettingsService(dir);
+
+      const migrated = await service.getSettings();
+      expect(migrated).toMatchObject({ colorTheme: "orchid", uiFont: DEFAULT_UI_FONT, codeFont: DEFAULT_CODE_FONT });
+      expect(JSON.parse(await fs.readFile(settingsPath, "utf8"))).toEqual({ colorTheme: "orchid", ...legacyFonts });
+
+      await service.saveSettings(migrated);
+      expect(JSON.parse(await fs.readFile(settingsPath, "utf8"))).toMatchObject({
+        settingsVersion: APP_SETTINGS_VERSION,
+        uiFont: DEFAULT_UI_FONT,
+        codeFont: DEFAULT_CODE_FONT
+      });
+
+      await service.saveSettings({ ...migrated, uiFont: "inter", codeFont: "system-mono" });
+      await expect(new AppSettingsService(dir).getSettings()).resolves.toMatchObject(legacyFonts);
+    });
+  });
+
+  it("keeps unversioned fonts that differ from the old defaults", async () => {
+    await withTempDir(async (dir) => {
+      await fs.writeFile(path.join(dir, "app-settings.json"), JSON.stringify({ uiFont: "roboto", codeFont: "fira-code" }), "utf8");
+
+      await expect(new AppSettingsService(dir).getSettings()).resolves.toMatchObject({ uiFont: "roboto", codeFont: "fira-code" });
+    });
+  });
+
+  it("migrates each unversioned font separately", async () => {
+    await withTempDir(async (dir) => {
+      const settingsPath = path.join(dir, "app-settings.json");
+      await fs.writeFile(settingsPath, JSON.stringify({ uiFont: "inter", codeFont: "jetbrains-mono" }), "utf8");
+      await expect(new AppSettingsService(dir).getSettings()).resolves.toMatchObject({ uiFont: DEFAULT_UI_FONT, codeFont: "jetbrains-mono" });
+
+      await fs.writeFile(settingsPath, JSON.stringify({ uiFont: "system", codeFont: "system-mono" }), "utf8");
+      await expect(new AppSettingsService(dir).getSettings()).resolves.toMatchObject({ uiFont: "system", codeFont: DEFAULT_CODE_FONT });
+    });
+  });
+
+  it("keeps old default fonts in versioned settings", async () => {
+    await withTempDir(async (dir) => {
+      await fs.writeFile(path.join(dir, "app-settings.json"), JSON.stringify({ settingsVersion: APP_SETTINGS_VERSION, ...legacyFonts }), "utf8");
+
+      await expect(new AppSettingsService(dir).getSettings()).resolves.toMatchObject(legacyFonts);
     });
   });
 });

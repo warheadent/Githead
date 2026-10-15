@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { gitCapabilities } from "../shared/types";
 import {
+  chooseSwitcherOption,
+  closeQuickSwitcher,
   createCommit,
   createCommitDetails,
   createGitHubSummary,
@@ -20,11 +22,18 @@ import {
   createWorkflowRun,
   createWorkflowRunDetail,
   defer,
+  emitRepoChanged,
   flushRendererAsync,
   githead,
   gitOutputCallback,
+  openAddRepository,
+  openCreatePullRequest,
+  openQuickSwitcher,
+  openSettings,
+  openWorkspaceView,
   repoPath,
   repositoryRecents,
+  switchToRepository,
   waitForRepositoryWorkspace,
   type GitheadApi,
 } from "./AppTestHarness";
@@ -45,12 +54,17 @@ function setupPrFlow(): void {
   vi.mocked(githead.getGitHubPullRequestTemplates).mockResolvedValue({ ok: true, data: [prTemplate], rateLimit: null });
 }
 
+/** Opens the quick switcher and returns its Go to section, where the guest views open from. */
+async function goToSection(): Promise<HTMLElement> {
+  return within(await openQuickSwitcher()).getByRole("group", { name: "Go to" });
+}
+
 describe("App", { timeout: 10_000 }, () => {
   it("loads a PR template, updates user notes, supports Undo, and restores the draft after remount", async () => {
     setupPrFlow();
     const user = userEvent.setup();
     const view = render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Create PR" }));
+    await openCreatePullRequest(user);
     await waitFor(() => expect((screen.getByLabelText("Description") as HTMLTextAreaElement).value).toBe(prTemplate.body));
     const notes = `${prTemplate.body}\nManually checked on Linux.`;
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: notes } });
@@ -63,7 +77,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(screen.getByRole("button", { name: "Close draft" }));
     view.unmount();
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Create PR" }));
+    await openCreatePullRequest(user);
     await waitFor(() => expect((screen.getByLabelText("Description") as HTMLTextAreaElement).value).toBe(notes));
     expect((screen.getByRole("checkbox", { name: "Create as draft" }) as HTMLInputElement).checked).toBe(true);
   });
@@ -74,10 +88,10 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getGitHubPullRequestTemplates).mockReturnValueOnce(pending.promise);
     const user = userEvent.setup();
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Create PR" }));
+    await openCreatePullRequest(user);
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Keep my notes" } });
     await user.click(screen.getByRole("button", { name: "Close draft" }));
-    await user.click(screen.getByRole("button", { name: "Create PR" }));
+    await openCreatePullRequest(user);
     await act(async () => pending.resolve({ ok: true, data: [{ ...prTemplate, body: "Late response" }], rateLimit: null }));
     await waitFor(() => expect((screen.getByLabelText("Description") as HTMLTextAreaElement).value).toBe("Keep my notes"));
     expect(githead.cancelGitHubRequest).toHaveBeenCalled();
@@ -89,7 +103,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getGitHubPullRequestTemplates).mockResolvedValue({ ok: true, data: [prTemplate, alternate], rateLimit: null });
     const user = userEvent.setup();
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Create PR" }));
+    await openCreatePullRequest(user);
     await waitFor(() => expect((screen.getByLabelText("Description") as HTMLTextAreaElement).value).toBe(prTemplate.body));
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "My answer" } });
     await user.click(screen.getByRole("button", { name: "Select pull request template" }));
@@ -102,21 +116,24 @@ describe("App", { timeout: 10_000 }, () => {
     savePullRequestDraft(repoPath, "feature/templates", { title: "Recovered", body: "Notes", baseBranch: "main", draft: true, templateId: "", undoBody: null, outcomeUnknown: true, applyDefaultTemplate: false });
     const user = userEvent.setup();
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Create PR" }));
+    await openCreatePullRequest(user);
     expect(await screen.findByText(/previous creation may have reached GitHub/)).toBeTruthy();
-    expect((within(screen.getByRole("dialog")).getByRole("button", { name: "Create Pull Request" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(screen.getByRole("dialog")).getByRole("button", { name: "Create pull request" }) as HTMLButtonElement).disabled).toBe(true);
     expect(loadPullRequestDraft(repoPath, "feature/templates")?.outcomeUnknown).toBe(true);
   });
-  it("shows GitHub tabs only for repositories with a supported GitHub origin", async () => {
+  it("offers GitHub views only for repositories with a supported GitHub origin", async () => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary());
 
     const { unmount } = render(<App />);
 
     await waitForRepositoryWorkspace();
-    expect(screen.queryByRole("tab", { name: /Workflow Runs/ })).toBeNull();
-    expect(screen.queryByRole("tab", { name: /Pull Requests/ })).toBeNull();
-    expect(screen.queryByRole("tab", { name: /Issues/ })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    let goTo = await goToSection();
+    expect(within(goTo).getByRole("option", { name: /^Activity log/ })).toBeTruthy();
+    expect(within(goTo).queryByRole("option", { name: /^Workflow runs/ })).toBeNull();
+    expect(within(goTo).queryByRole("option", { name: /^Pull requests/ })).toBeNull();
+    expect(within(goTo).queryByRole("option", { name: /^Issues/ })).toBeNull();
+    await closeQuickSwitcher();
+    await openSettings();
     fireEvent.change(await screen.findByRole("combobox", { name: "Settings category" }), { target: { value: "integrations" } });
     expect(screen.getByRole("heading", { name: "GitHub" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Connect GitHub" })).toBeTruthy();
@@ -126,12 +143,15 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByRole("tab", { name: /Workflow Runs/ });
-    expect(screen.getByRole("tab", { name: /Pull Requests/ })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: /Issues/ })).toBeTruthy();
+    await waitForRepositoryWorkspace();
+    goTo = await goToSection();
+    expect(await within(goTo).findByRole("option", { name: /^Workflow runs/ })).toBeTruthy();
+    expect(within(goTo).getByRole("option", { name: /^Pull requests/ })).toBeTruthy();
+    expect(within(goTo).getByRole("option", { name: /^Issues/ })).toBeTruthy();
+    expect(screen.queryByRole("tab", { name: /^Workflow runs/ })).toBeNull();
   });
 
-  it("loads GitHub open counts into pull request and issue tab titles", async () => {
+  it("loads GitHub open counts into the pull request and issue view names", async () => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
     vi.mocked(githead.getGitHubOpenCounts).mockResolvedValue({ ok: true, data: createOpenCounts({
       issues: 17,
@@ -145,14 +165,18 @@ describe("App", { timeout: 10_000 }, () => {
         repoPath
       }));
     });
-    expect(await screen.findByRole("tab", { name: /Pull Requests 4/ })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: /Issues 17/ })).toBeTruthy();
-    // Pull requests load eagerly (the Create PR button needs them); issues
-    // still load only when their tab is opened.
+    await waitForRepositoryWorkspace();
+    const goTo = await goToSection();
+    expect(await within(goTo).findByRole("option", { name: "Pull requests 4 open" })).toBeTruthy();
+    expect(within(goTo).getByRole("option", { name: "Issues 17" })).toBeTruthy();
+    await closeQuickSwitcher();
+    expect(await openWorkspaceView("Pull requests 4")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Pull requests 4", selected: true })).toBeTruthy();
+    // Issues load only when their view opens.
     expect(githead.getGitHubIssues).not.toHaveBeenCalled();
   });
 
-  it("compacts large GitHub open counts in tab titles", async () => {
+  it("compacts large GitHub open counts in the view names", async () => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
     vi.mocked(githead.getGitHubOpenCounts).mockResolvedValue({ ok: true, data: createOpenCounts({
       issues: 1100,
@@ -161,8 +185,10 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    expect(await screen.findByRole("tab", { name: /Issues 1\.1k/ })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: /Pull Requests 12k/ })).toBeTruthy();
+    await waitForRepositoryWorkspace();
+    const goTo = await goToSection();
+    expect(await within(goTo).findByRole("option", { name: "Issues 1.1k" })).toBeTruthy();
+    expect(within(goTo).getByRole("option", { name: "Pull requests 12k open" })).toBeTruthy();
   });
 
   it("loads workflow runs from GitHub when the Workflow Runs tab opens", async () => {
@@ -192,7 +218,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: /Workflow Runs/ }));
+    await openWorkspaceView("Workflow runs", user);
 
     await waitFor(() => {
       expect(githead.getGitHubWorkflowRuns).toHaveBeenCalledWith(expect.objectContaining({
@@ -234,7 +260,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: /Workflow Runs/ }));
+    await openWorkspaceView("Workflow runs", user);
     await user.click(await screen.findByRole("button", { name: "CI: Release failed" }));
     await user.click(await screen.findByRole("button", { name: "Re-run all jobs" }));
 
@@ -255,7 +281,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: /Workflow Runs/ }));
+    await openWorkspaceView("Workflow runs", user);
     await user.click(await screen.findByRole("button", { name: "CI: Deploy preview" }));
     await user.click(await screen.findByRole("button", { name: "Cancel run" }));
     expect(screen.getByRole("group", { name: "Confirm workflow cancellation" })).toBeTruthy();
@@ -296,7 +322,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: /Pull Requests/ }));
+    await openWorkspaceView("Pull requests", user);
 
     await waitFor(() => {
       expect(githead.getGitHubPullRequests).toHaveBeenCalledWith({
@@ -319,7 +345,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await user.click(screen.getByRole("button", { name: "Sort: Recently updated" }));
     await user.click(screen.getByRole("menuitemradio", { name: "Newest" }));
-    await user.click(screen.getByRole("button", { name: "Filters, 0 active" }));
+    await user.click(screen.getByRole("button", { name: "Filters, All open, 0 active" }));
     expect((screen.getByLabelText("Preset") as HTMLSelectElement).value).toBe("all");
     await user.keyboard("{Escape}");
 
@@ -353,10 +379,10 @@ describe("App", { timeout: 10_000 }, () => {
     }));
 
     render(<App />);
-    await user.click(await screen.findByRole("tab", { name: /Pull Requests/ }));
+    await openWorkspaceView("Pull requests", user);
     expect(await screen.findByRole("button", { name: "Only ready pull request" })).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: "Filters, 0 active" }));
+    await user.click(screen.getByRole("button", { name: "Filters, All open, 0 active" }));
     await user.selectOptions(screen.getByLabelText("Preset"), "drafts");
 
     const emptyHeading = await screen.findByRole("heading", { name: "No matching pull requests" });
@@ -369,6 +395,86 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.queryByRole("heading", { name: "No matching pull requests" })).toBeNull();
   });
 
+  it("offers Create pull request in the Pull requests list column", async () => {
+    setupPrFlow();
+    const user = userEvent.setup();
+    render(<App />);
+    await openWorkspaceView("Pull requests", user);
+
+    await user.click(await screen.findByRole("button", { name: "Create pull request…" }));
+
+    expect(await screen.findByRole("dialog", { name: "Create pull request" })).toBeTruthy();
+  });
+
+  it("links the current branch pull request from the Pull requests list column", async () => {
+    setupPrFlow();
+    const branchPullRequest = {
+      number: 42,
+      title: "Add templates",
+      state: "OPEN",
+      draft: false,
+      url: "https://github.com/openai/githead/pull/42",
+      baseRepositoryFullName: "openai/githead",
+      headRepositoryFullName: "openai/githead",
+      headBranch: "feature/templates",
+      headSha: "abc"
+    };
+    vi.mocked(githead.getGitHubHistoryInsights).mockResolvedValue({
+      ok: true,
+      data: { currentBranchPullRequests: [branchPullRequest], commits: [], unavailableCommitShas: [] },
+      rateLimit: null
+    });
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([createCommit({ hash: "a".repeat(40), subject: "feat: add templates" })]);
+    const user = userEvent.setup();
+    render(<App />);
+    // Branch pull requests load with the History view.
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: "History" }));
+    await waitFor(() => expect(githead.getGitHubHistoryInsights).toHaveBeenCalled());
+    await openWorkspaceView("Pull requests", user);
+
+    await user.click(await screen.findByRole("button", { name: "PR #42 · Open" }));
+
+    expect(githead.openExternalUrl).toHaveBeenCalledWith({ url: branchPullRequest.url });
+    expect(screen.queryByRole("button", { name: "Create pull request…" })).toBeNull();
+  });
+
+  it("drops the previous branch pull request after a branch switch outside History", async () => {
+    setupPrFlow();
+    vi.mocked(githead.getGitHubHistoryInsights).mockResolvedValue({
+      ok: true,
+      data: {
+        currentBranchPullRequests: [{
+          number: 42, title: "Add templates", state: "OPEN", draft: false,
+          url: "https://github.com/openai/githead/pull/42",
+          baseRepositoryFullName: "openai/githead", headRepositoryFullName: "openai/githead",
+          headBranch: "feature/templates", headSha: "abc"
+        }],
+        commits: [],
+        unavailableCommitShas: []
+      },
+      rateLimit: null
+    });
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([createCommit({ hash: "a".repeat(40), subject: "feat: add templates" })]);
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: "History" }));
+    await waitFor(() => expect(githead.getGitHubHistoryInsights).toHaveBeenCalled());
+    await openWorkspaceView("Pull requests", user);
+    expect(await screen.findByRole("button", { name: "PR #42 · Open" })).toBeTruthy();
+
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary({
+      branch: "feature/other", upstream: "origin/feature/other", ahead: 0, behind: 0,
+      branches: [{ name: "feature/other", current: true, upstream: "origin/feature/other" }],
+      remoteBranches: [{ name: "origin/main", remote: "origin", branch: "main" }], commitsAheadOfDefaultBranch: 1
+    }));
+    act(() => emitRepoChanged({ reason: "filesystem-metadata" }));
+
+    expect(await screen.findByRole("button", { name: "Create pull request…" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "PR #42 · Open" })).toBeNull();
+  });
+
   it("loads and merges another workflow page", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createGitHubSummary());
@@ -377,7 +483,7 @@ describe("App", { timeout: 10_000 }, () => {
       .mockResolvedValueOnce({ ok: true, data: { items: [createWorkflowRun({ id: "2", name: "Second" })], page: 2, nextPage: null, totalCount: 2 }, rateLimit: null });
 
     render(<App />);
-    await user.click(await screen.findByRole("tab", { name: /Workflow Runs/ }));
+    await openWorkspaceView("Workflow runs", user);
     await user.click(await screen.findByRole("button", { name: "Load more workflow runs" }));
 
     expect(await screen.findByText("First")).toBeTruthy();
@@ -415,7 +521,7 @@ describe("App", { timeout: 10_000 }, () => {
       repoPath, runId: "lfs-preview", action: "lfs-fetch", stream: "stdout",
       text: "Downloading LFS objects: 50% (1/2), 38 KB | 10 KB/s\r", timestamp: new Date().toISOString()
     }));
-    await user.click(screen.getByRole("tab", { name: /^Activity Log/ }));
+    await openWorkspaceView("Activity log", user);
     expect((await screen.findByRole("log")).textContent).toContain("Downloading LFS objects: 50%");
     expect(screen.getByRole("button", { name: "Cancel" }).hasAttribute("disabled")).toBe(false);
     expect(githead.getFileDiff).toHaveBeenCalledTimes(1);
@@ -465,9 +571,9 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Create PR" }));
+    await openCreatePullRequest(user);
 
-    const dialog = screen.getByRole("dialog", { name: "Create Pull Request" });
+    const dialog = screen.getByRole("dialog", { name: "Create pull request" });
     await user.click(within(dialog).getByRole("button", { name: "Generate pull request title" }));
 
     await waitFor(() => {
@@ -501,9 +607,9 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Create PR" }));
-    const dialog = screen.getByRole("dialog", { name: "Create Pull Request" });
-    await user.click(within(dialog).getByRole("button", { name: "Create Pull Request" }));
+    await openCreatePullRequest(user);
+    const dialog = screen.getByRole("dialog", { name: "Create pull request" });
+    await user.click(within(dialog).getByRole("button", { name: "Create pull request" }));
     await waitFor(() => expect(githead.createGitHubPullRequest).toHaveBeenCalledWith(expect.objectContaining({
       repoPath,
       headBranch: "feature/hung-pr",
@@ -513,12 +619,12 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(within(dialog).getByRole("button", { name: "Close draft" }));
     const operationId = vi.mocked(githead.createGitHubPullRequest).mock.calls[0]?.[0].operationId;
     await waitFor(() => expect(githead.cancelGitOperation).toHaveBeenCalledWith({ operationId }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Create Pull Request" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Create pull request" })).toBeNull());
 
     pendingCreate.resolve({ ok: true, data: { number: 42, url: "https://github.com/openai/githead/pull/42", title: "Late PR", draft: false }, rateLimit: null });
     await flushRendererAsync();
 
-    expect(screen.queryByRole("dialog", { name: "Create Pull Request" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Create pull request" })).toBeNull();
     expect(screen.queryByText(/Created pull request #42/)).toBeNull();
   });
 
@@ -540,14 +646,14 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Create PR" }));
-    const dialog = screen.getByRole("dialog", { name: "Create Pull Request" });
-    await user.click(within(dialog).getByRole("button", { name: "Create Pull Request" }));
+    await openCreatePullRequest(user);
+    const dialog = screen.getByRole("dialog", { name: "Create pull request" });
+    await user.click(within(dialog).getByRole("button", { name: "Create pull request" }));
 
     expect(await within(dialog).findByText("Operation timed out. Check GitHub before retrying; the pull request may have been created.")).toBeTruthy();
-    const createButton = within(dialog).getByRole("button", { name: "Create Pull Request" }) as HTMLButtonElement;
+    const createButton = within(dialog).getByRole("button", { name: "Create pull request" }) as HTMLButtonElement;
     expect(createButton.disabled).toBe(true);
-    await user.click(within(dialog).getByRole("button", { name: "Open Pull Requests" }));
+    await user.click(within(dialog).getByRole("button", { name: "Open pull requests" }));
     expect(githead.openExternalUrl).toHaveBeenCalledWith({ url: "https://github.com/openai/githead/pulls" });
     expect(createButton.disabled).toBe(false);
   });
@@ -569,7 +675,7 @@ describe("App", { timeout: 10_000 }, () => {
     });
 
     render(<App />);
-    await user.click(await screen.findByRole("tab", { name: /Issues/ }));
+    await openWorkspaceView("Issues", user);
     await user.click(await screen.findByRole("button", { name: "Connect GitHub" }));
 
     expect(await screen.findByRole("tabpanel", { name: "Integrations" })).toBeTruthy();
@@ -581,7 +687,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getGitHubIssues).mockResolvedValue({ ok: true, data: { items: [], page: 1, nextPage: null, totalCount: 0 }, rateLimit: null });
 
     render(<App />);
-    await user.click(await screen.findByRole("tab", { name: /Issues/ }));
+    await openWorkspaceView("Issues", user);
     await waitFor(() => expect(githead.getGitHubIssues).toHaveBeenCalled());
     const issueLoadsBeforeCreate = vi.mocked(githead.getGitHubIssues).mock.calls.length;
     const countLoadsBeforeCreate = vi.mocked(githead.getGitHubOpenCounts).mock.calls.length;
@@ -629,7 +735,7 @@ describe("App", { timeout: 10_000 }, () => {
     } });
 
     render(<App />);
-    await user.click(await screen.findByRole("tab", { name: /Issues/ }));
+    await openWorkspaceView("Issues", user);
     await user.click(await screen.findByRole("button", { name: "New issue" }));
     const dialog = screen.getByRole("dialog", { name: "New issue" });
     await user.click(await within(dialog).findByRole("button", { name: /Bug report/ }));
@@ -669,7 +775,7 @@ describe("App", { timeout: 10_000 }, () => {
     });
 
     render(<App />);
-    await user.click(await screen.findByRole("tab", { name: /Issues/ }));
+    await openWorkspaceView("Issues", user);
     await user.click(await screen.findByRole("button", { name: "New issue" }));
     const dialog = screen.getByRole("dialog", { name: "New issue" });
     await user.type(within(dialog).getByLabelText("Title"), "Possibly created issue");
@@ -677,7 +783,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     expect(await within(dialog).findByText("Operation timed out. Check GitHub before retrying; the issue may have been created.")).toBeTruthy();
     expect((within(dialog).getByRole("button", { name: "Create issue" }) as HTMLButtonElement).disabled).toBe(true);
-    await user.click(within(dialog).getByRole("button", { name: "Open Issues" }));
+    await user.click(within(dialog).getByRole("button", { name: "Open issues" }));
     expect(githead.openExternalUrl).toHaveBeenCalledWith({ url: "https://github.com/openai/githead/issues" });
     expect((within(dialog).getByRole("button", { name: "Create issue" }) as HTMLButtonElement).disabled).toBe(false);
   });
@@ -706,7 +812,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: /Issues/ }));
+    await openWorkspaceView("Issues", user);
 
     await waitFor(() => {
       expect(githead.getGitHubIssues).toHaveBeenCalledWith(expect.objectContaining({
@@ -723,7 +829,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.getByLabelText("4 comments")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Select an issue" })).toBeTruthy();
     expect(within(screen.getByRole("list", { name: "Issues" })).queryByRole("columnheader")).toBeNull();
-    expect(screen.getByRole("button", { name: "Filters, 0 active" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Filters, All open, 0 active" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Sort: Recently updated" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Refresh issues" })).toBeTruthy();
 
@@ -753,10 +859,10 @@ describe("App", { timeout: 10_000 }, () => {
     }));
 
     render(<App />);
-    await user.click(await screen.findByRole("tab", { name: /Issues/ }));
+    await openWorkspaceView("Issues", user);
     expect(await screen.findByRole("button", { name: "Assigned issue" })).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: "Filters, 0 active" }));
+    await user.click(screen.getByRole("button", { name: "Filters, All open, 0 active" }));
     await user.selectOptions(screen.getByLabelText("Preset"), "unassigned");
 
     const emptyHeading = await screen.findByRole("heading", { name: "No matching issues" });
@@ -768,20 +874,8 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.queryByRole("heading", { name: "No matching issues" })).toBeNull();
   });
 
-  it("shows upstream commits ready to pull in the Pull action", async () => {
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      ahead: 0,
-      behind: 3
-    }));
-
-    render(<App />);
-
-    const pullButton = await screen.findByRole("button", { name: "Pull 3 commits" });
-    expect(pullButton).toBeTruthy();
-    expect(within(pullButton).getByText("3")).toBeTruthy();
-  });
-
   it("does not show a zero count in the Pull action", async () => {
+    const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       ahead: 0,
       behind: 0
@@ -791,7 +885,10 @@ describe("App", { timeout: 10_000 }, () => {
 
     expect(await screen.findByRole("button", { name: /^Pull$/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Pull \(0\)$/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Pull with action" })).toBeNull();
+    // Without Pull-bound actions the menu holds only the push action.
+    await user.click(screen.getByRole("button", { name: "More pull and push actions" }));
+    expect(await screen.findByRole("menuitem", { name: "Push to another branch…" })).toBeTruthy();
+    expect(screen.queryByText("Pull, then run")).toBeNull();
   });
 
   it("runs a Pull-bound action after Git Pull succeeds", async () => {
@@ -811,7 +908,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Pull with action" }));
+    await user.click(await screen.findByRole("button", { name: "More pull and push actions" }));
+    expect(await screen.findByText("Pull, then run")).toBeTruthy();
     await user.click(await screen.findByRole("menuitem", { name: action.name }));
 
     await waitFor(() => expect(githead.runConfiguredAction).toHaveBeenCalledWith({
@@ -841,28 +939,12 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Pull with action" }));
+    await user.click(await screen.findByRole("button", { name: "More pull and push actions" }));
+    expect(await screen.findByText("Pull, then run")).toBeTruthy();
     await user.click(await screen.findByRole("menuitem", { name: action.name }));
 
     await waitFor(() => expect(githead.runGitAction).toHaveBeenCalled());
     expect(githead.runConfiguredAction).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    { action: "fetch", buttonName: /^Fetch$/, successLabel: "Fetched" },
-    { action: "pull", buttonName: /^Pull$/, successLabel: "Pulled" }
-  ])("animates $successLabel after a successful $action", async ({ action, buttonName }) => {
-    const user = userEvent.setup();
-    vi.mocked(githead.runGitAction).mockResolvedValue(createRunResult(action));
-
-    render(<App />);
-
-    const button = await screen.findByRole("button", { name: buttonName });
-    await user.click(button);
-
-    await waitFor(() => {
-      expect(button.querySelector(".operation-button-feedback")?.getAttribute("data-feedback")).toBe("success");
-    });
   });
 
   it("animates failed action feedback and points to the activity log until it is opened", async () => {
@@ -881,13 +963,15 @@ describe("App", { timeout: 10_000 }, () => {
       expect(button.querySelector(".operation-button-feedback")?.getAttribute("data-feedback")).toBe("error");
     });
 
-    const activityLogTab = screen.getByRole("tab", { name: "Activity Log, unread error details available" });
-    expect(activityLogTab.getAttribute("data-attention")).toBe("error");
-    expect(activityLogTab.querySelector(".activity-log-attention-indicator")).toBeTruthy();
+    const more = screen.getByRole("button", { name: "More" });
+    expect(more.getAttribute("data-attention")).toBe("error");
+    expect(more.querySelector(".activity-log-attention-indicator")).toBeTruthy();
 
-    await user.click(activityLogTab);
+    await chooseSwitcherOption("Activity log, unread error details available", user);
+    const activityLogTab = await screen.findByRole("tab", { name: "Activity log", selected: true });
     expect(activityLogTab.getAttribute("data-attention")).toBe("none");
-    expect(activityLogTab.getAttribute("aria-label")).toBe("Activity Log");
+    expect(more.getAttribute("data-attention")).toBe("none");
+    expect(more.querySelector(".activity-log-attention-indicator")).toBeNull();
   });
 
   it("opens guided recovery after a forced-update pull failure", async () => {
@@ -946,7 +1030,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(await screen.findByRole("button", { name: "Reapply my 2 local commits" }));
 
     expect(await screen.findByRole("dialog", { name: "Reapply paused because of conflicts" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Open File Status" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open Changes" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Abort and restore" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Continue after resolution" })).toBeTruthy();
   });
@@ -975,37 +1059,6 @@ describe("App", { timeout: 10_000 }, () => {
     });
   });
 
-  it("orders repository actions before Fetch, Pull, and Push", async () => {
-    render(<App />);
-
-    const actionsGroup = await screen.findByRole("group", { name: "Git actions" });
-    const buttons = within(actionsGroup).getAllByRole("button");
-
-    expect(buttons.slice(0, 4).map((button) => button.textContent?.trim())).toEqual([
-      "Actions",
-      "Fetch",
-      "Pull",
-      "Push"
-    ]);
-    expect(buttons[0]?.getAttribute("aria-label")).toBe("Repository actions");
-    expect(buttons[4]?.getAttribute("aria-label")).toBe("More push actions");
-  });
-
-  it("shows upstream commits ready to push in the Push action", async () => {
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      ahead: 2,
-      behind: 0
-    }));
-
-    render(<App />);
-
-    const actionsGroup = await screen.findByRole("group", { name: "Git actions" });
-
-    const pushButton = within(actionsGroup).getByRole("button", { name: "Push 2 commits" });
-    expect(pushButton).toBeTruthy();
-    expect(within(pushButton).getByText("2")).toBeTruthy();
-  });
-
   it("shows upstream commits ready to push in the primary commit action", async () => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       ahead: 5,
@@ -1018,18 +1071,6 @@ describe("App", { timeout: 10_000 }, () => {
     const pushButton = within(commitPanel).getByRole("button", { name: "Push 5 commits" });
     expect(pushButton).toBeTruthy();
     expect(within(pushButton).getByText("5")).toBeTruthy();
-  });
-
-  it("does not show a zero count in the Push action", async () => {
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      ahead: 0,
-      behind: 0
-    }));
-
-    render(<App />);
-
-    expect(await screen.findByRole("button", { name: /^Push$/ })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /^Push \(0\)$/ })).toBeNull();
   });
 
   it("runs Push from the sync toolbar", async () => {
@@ -1047,8 +1088,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: "Commit History" }));
-    expect(screen.getByRole("tab", { name: "Commit History" }).getAttribute("aria-selected")).toBe("true");
+    await user.click(await screen.findByRole("tab", { name: "History" }));
+    expect(screen.getByRole("tab", { name: "History" }).getAttribute("aria-selected")).toBe("true");
 
     const pushButton = await screen.findByRole("button", { name: /^Push$/ });
     await user.click(pushButton);
@@ -1063,8 +1104,8 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => {
       expect(pushButton.querySelector(".operation-button-feedback")?.getAttribute("data-feedback")).toBe("success");
     });
-    expect(screen.getByRole("tab", { name: "Commit History" }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByRole("tab", { name: /^Activity Log/ }).getAttribute("aria-selected")).toBe("false");
+    expect(screen.getByRole("tab", { name: "History" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.queryByRole("tab", { name: /^Activity log/ })).toBeNull();
   });
 
   it("shows branch-and-tag partial success explicitly after Push", async () => {
@@ -1084,8 +1125,9 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await user.click(await screen.findByRole("button", { name: /^Push$/ }));
 
-    expect(await screen.findByRole("heading", { name: "Push partially complete" })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Activity Log, unread error details available" })).toBeTruthy();
+    expect(await screen.findByText("Push partially complete")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "More" }).getAttribute("data-attention")).toBe("error");
+    expect(within(await goToSection()).getByRole("option", { name: "Activity log, unread error details available" })).toBeTruthy();
   });
 
   it("lazily renders and caches the working Markdown preview", async () => {
@@ -1121,7 +1163,7 @@ describe("App", { timeout: 10_000 }, () => {
       requestId: expect.stringMatching(/^file-preview:/)
     });
 
-    await user.click(screen.getByRole("button", { name: "Show Diff" }));
+    await user.click(screen.getByRole("button", { name: "Show diff" }));
     expect(screen.getByRole("button", { name: "Wrap diff lines" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Preview" }));
     expect(githead.getFilePreview).toHaveBeenCalledTimes(1);
@@ -1147,7 +1189,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.getFilePreviewImage).toHaveBeenCalledWith(expect.objectContaining({
       repoPath, path: file.path, source: { kind: "working" }
     }));
-    await user.click(screen.getByRole("button", { name: "Show Diff" }));
+    await user.click(screen.getByRole("button", { name: "Show diff" }));
     expect(screen.getByText("SVG source diff")).toBeTruthy();
     expect(revokeUrl).toHaveBeenCalledWith("blob:svg-preview");
     await user.click(screen.getByRole("button", { name: "Preview" }));
@@ -1234,7 +1276,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     await screen.findByRole("option", { name: /README\.md/ });
     expect((await screen.findByRole("button", { name: "Wrap diff lines" })).getAttribute("aria-pressed")).toBe("true");
     expect(document.querySelector(".diff-output.text")?.classList.contains("is-wrapped")).toBe(true);
@@ -1296,10 +1338,10 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "More push actions" }));
+    await user.click(await screen.findByRole("button", { name: "More pull and push actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Push to another branch…" }));
 
-    const dialog = await screen.findByRole("dialog", { name: "Push to Another Branch" });
+    const dialog = await screen.findByRole("dialog", { name: "Push to another branch" });
     expect(within(dialog).getByRole("button", { name: "Select push remote" }).textContent).toContain("upstream");
     expect(within(dialog).queryByRole("option", { name: "main" })).toBeNull();
     await user.click(within(dialog).getByRole("button", { name: "Select destination branch" }));
@@ -1319,7 +1361,7 @@ describe("App", { timeout: 10_000 }, () => {
       });
     });
     await waitFor(() => {
-      expect(screen.queryByRole("heading", { name: "Push to Another Branch" })).toBeNull();
+      expect(screen.queryByRole("heading", { name: "Push to another branch" })).toBeNull();
     });
     expect(githead.setBranchUpstream).not.toHaveBeenCalled();
   });
@@ -1341,9 +1383,9 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     expect(await screen.findByRole("button", { name: "Publish branch" })).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "More push actions" }));
+    await user.click(screen.getByRole("button", { name: "More pull and push actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Push to another branch…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Push to Another Branch" });
+    const dialog = await screen.findByRole("dialog", { name: "Push to another branch" });
     await user.click(within(dialog).getByRole("button", { name: "Select destination branch" }));
     await user.click(await screen.findByRole("option", { name: "New branch…" }));
     await user.type(within(dialog).getByLabelText("New branch name"), "release/candidate");
@@ -1383,20 +1425,22 @@ describe("App", { timeout: 10_000 }, () => {
     }));
 
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "More push actions" }));
+    await user.click(await screen.findByRole("button", { name: "More pull and push actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Push to another branch…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Push to Another Branch" });
+    const dialog = await screen.findByRole("dialog", { name: "Push to another branch" });
     await user.click(within(dialog).getByRole("button", { name: "Select destination branch" }));
     await user.click(await screen.findByRole("option", { name: /release.*origin/ }));
     await user.click(within(dialog).getByRole("button", { name: "Push" }));
 
     expect(await within(dialog).findByText("rejected non-fast-forward")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Push to Another Branch" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Push to another branch" })).toBeTruthy();
   });
 
   it("disables push-to-branch when no push remote exists and hides it when unsupported", async () => {
+    const user = userEvent.setup();
     const { unmount } = render(<App />);
-    expect((await screen.findByRole("button", { name: "More push actions" }) as HTMLButtonElement).disabled).toBe(true);
+    await user.click(await screen.findByRole("button", { name: "More pull and push actions" }));
+    expect((await screen.findByRole("menuitem", { name: "Push to another branch…" })).getAttribute("aria-disabled")).toBe("true");
 
     unmount();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
@@ -1407,25 +1451,7 @@ describe("App", { timeout: 10_000 }, () => {
     }));
     render(<App />);
     await screen.findByRole("button", { name: /^Push$/ });
-    expect(screen.queryByRole("button", { name: "More push actions" })).toBeNull();
-  });
-
-  it("shows Publish instead of Push when the current branch has no upstream", async () => {
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      upstream: null,
-      remotes: [
-        {
-          name: "origin",
-          url: "https://example.test/repo.git",
-          direction: "push"
-        }
-      ]
-    }));
-
-    render(<App />);
-
-    expect(await screen.findByRole("button", { name: "Publish branch" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /^Push$/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "More pull and push actions" })).toBeNull();
   });
 
   it("opens the publish dialog instead of running plain push", async () => {
@@ -1659,7 +1685,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: "Commit History" }));
+    await user.click(await screen.findByRole("tab", { name: "History" }));
     await user.click(await screen.findByRole("button", { name: /^Push$/ }));
 
     await waitFor(() => {
@@ -1668,23 +1694,23 @@ describe("App", { timeout: 10_000 }, () => {
       });
     });
     expect(githead.runGitAction).not.toHaveBeenCalled();
-    expect(screen.getByRole("tab", { name: "Commit History" }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByRole("tab", { name: /^Activity Log/ }).getAttribute("aria-selected")).toBe("false");
+    expect(screen.getByRole("tab", { name: "History" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.queryByRole("tab", { name: /^Activity log/ })).toBeNull();
   });
 
-  it("opens the Repository Actions manager without a .githead folder and saves a shared action", async () => {
+  it("opens the Repository actions manager without a .githead folder and saves a shared action", async () => {
     const user = userEvent.setup();
     render(<App />);
 
     await waitForRepositoryWorkspace();
 
     await user.click(screen.getByRole("button", { name: "Repository actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Manage repository actions…" }));
     await user.click(screen.getByRole("button", { name: "Add action" }));
     await user.type(screen.getByLabelText("Name"), "Build");
     await user.type(screen.getByLabelText(/Description/), " Compile the application ");
     await user.type(screen.getByLabelText("Command"), "npm run build");
-    await user.click(screen.getByRole("checkbox", { name: /Bind to Pull/ }));
+    await user.click(screen.getByRole("checkbox", { name: /Bind to pull/ }));
     await user.click(screen.getByRole("button", { name: "Save Shared" }));
 
     await waitFor(() => {
@@ -1705,7 +1731,7 @@ describe("App", { timeout: 10_000 }, () => {
     });
   });
 
-  it("keeps the Repository Actions body scrollable when many actions are configured", async () => {
+  it("keeps the Repository actions body scrollable when many actions are configured", async () => {
     const user = userEvent.setup();
     const sharedActions = Array.from({ length: 14 }, (_, index) => ({
       name: `Action ${index + 1}`,
@@ -1727,9 +1753,9 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Repository actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Manage repository actions…" }));
 
-    const actionsDialog = await screen.findByRole("dialog", { name: "Repository Actions" });
+    const actionsDialog = await screen.findByRole("dialog", { name: "Repository actions" });
     expect(actionsDialog.className).toContain("h-[min(760px,calc(100vh-2rem))]");
     expect(actionsDialog.className).toContain("max-h-[min(760px,calc(100vh-2rem))]");
     expect(actionsDialog.className).toContain("overflow-hidden");
@@ -1770,13 +1796,16 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: "Commit History" }));
-    expect(screen.getByRole("tab", { name: "Commit History" }).getAttribute("aria-selected")).toBe("true");
+    await user.click(await screen.findByRole("tab", { name: "History" }));
+    expect(screen.getByRole("tab", { name: "History" }).getAttribute("aria-selected")).toBe("true");
 
     await user.click(await screen.findByRole("button", { name: "Repository actions" }));
-    await user.hover(await screen.findByRole("menuitem", { name: "Build" }));
-    expect((await screen.findByRole("tooltip")).textContent).toContain("Compile the application");
-    await user.click(await screen.findByRole("menuitem", { name: "Build" }));
+    const buildItem = await screen.findByRole("menuitem", { name: "Build" });
+    // The description shows inline and describes the item.
+    const descriptionId = buildItem.getAttribute("aria-describedby") ?? "";
+    expect(descriptionId).not.toBe("");
+    expect(document.getElementById(descriptionId)?.textContent).toBe("Compile the application");
+    await user.click(buildItem);
 
     await waitFor(() => {
       expect(githead.runConfiguredAction).toHaveBeenCalledWith({
@@ -1786,40 +1815,7 @@ describe("App", { timeout: 10_000 }, () => {
         operationId: expect.any(String)
       });
     });
-    expect(screen.getByRole("tab", { name: /^Activity Log/ }).getAttribute("aria-selected")).toBe("true");
-  });
-
-  it("renders and runs configured repository actions from nested menus", async () => {
-    const user = userEvent.setup();
-    const action = {
-      name: "Packaging > Package and Launch",
-      description: "Build and launch the Windows application",
-      command: "npm run package:win:launch",
-      shell: "powershell" as const
-    };
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      actionsConfig: {
-        hasGitheadDir: true,
-        actions: [action],
-        error: ""
-      }
-    }));
-    vi.mocked(githead.runConfiguredAction).mockResolvedValue(createRunResult(action.name));
-
-    render(<App />);
-
-    await user.click(await screen.findByRole("button", { name: "Repository actions" }));
-    await user.hover(await screen.findByRole("menuitem", { name: "Packaging" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Package and Launch" }));
-
-    await waitFor(() => {
-      expect(githead.runConfiguredAction).toHaveBeenCalledWith({
-        repoPath,
-        name: action.name,
-        expectedAction: action,
-        operationId: expect.any(String)
-      });
-    });
+    expect(screen.getByRole("tab", { name: /^Activity log/ }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("does not retarget a configured action when the repository changes during trust lookup", async () => {
@@ -1852,54 +1848,13 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(await screen.findByRole("menuitem", { name: "Build" }));
     await waitFor(() => expect(githead.getRepoTrust).toHaveBeenCalledWith({ repoPath }));
 
-    fireEvent.click(screen.getByRole("button", { name: `Switch to ${otherRepo}` }));
-    await waitFor(() => expect(screen.getByRole("button", { name: `Switch to ${otherRepo}` }).getAttribute("aria-current")).toBe("true"));
+    await switchToRepository(otherRepo, user);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Switch repository: Other" })).toBeTruthy());
 
     pendingTrust.resolve({ trusted: true });
     await flushRendererAsync();
 
     expect(githead.runConfiguredAction).not.toHaveBeenCalled();
-  });
-
-  it("shows configured action running and result headings", async () => {
-    const user = userEvent.setup();
-    const pendingAction = defer<Awaited<ReturnType<GitheadApi["runConfiguredAction"]>>>();
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      actionsConfig: {
-        hasGitheadDir: true,
-        actions: [
-          {
-            name: "Build",
-            description: "",
-            command: "npm run build",
-            shell: "powershell"
-          }
-        ],
-        error: ""
-      }
-    }));
-    vi.mocked(githead.runConfiguredAction).mockReturnValue(pendingAction.promise);
-
-    render(<App />);
-
-    await user.click(await screen.findByRole("button", { name: "Repository actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Build" }));
-
-    expect(await screen.findByText("Build running")).toBeTruthy();
-
-    pendingAction.resolve({
-      runId: "run-build",
-      action: "Build",
-      repoPath,
-      exitCode: 0,
-      stdout: "built\n",
-      stderr: "",
-      startedAt: new Date().toISOString(),
-      endedAt: new Date().toISOString()
-    });
-    await flushRendererAsync();
-
-    expect(await screen.findByText("Build complete")).toBeTruthy();
   });
 
   it("recovers a lost configured action result and ignores its late completion", async () => {
@@ -1964,7 +1919,7 @@ describe("App", { timeout: 10_000 }, () => {
     }
 
     expect(await screen.findByText("2 actions running")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Repository actions" }).textContent).toContain("Actions 2");
+    expect(screen.getByRole("button", { name: "Repository actions" }).textContent).toContain("2 running");
 
     first.resolve(createRunResult("Build"));
     await flushRendererAsync();
@@ -1973,6 +1928,36 @@ describe("App", { timeout: 10_000 }, () => {
     second.resolve(createRunResult("Build"));
     await flushRendererAsync();
     expect(await screen.findByText("Build complete")).toBeTruthy();
+  });
+
+  it("shows a failed configured action on the Actions button until its output is read", async () => {
+    const user = userEvent.setup();
+    const pending = defer<Awaited<ReturnType<GitheadApi["runConfiguredAction"]>>>();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      actionsConfig: {
+        hasGitheadDir: true,
+        actions: [{ name: "Build", description: "", command: "npm run build", shell: "powershell" }],
+        error: ""
+      }
+    }));
+    vi.mocked(githead.runConfiguredAction).mockReturnValueOnce(pending.promise);
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Repository actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Build" }));
+    const actionsButton = screen.getByRole("button", { name: "Repository actions" });
+    await waitFor(() => expect(actionsButton.textContent).toContain("Build"));
+    // Leave the activity log the run opened, so its failure stays unread.
+    await user.click(screen.getByRole("tab", { name: /^Changes/ }));
+    await act(async () => pending.resolve(createRunResult("Build", { exitCode: 1, stderr: "Build broke." })));
+
+    await waitFor(() => expect(actionsButton.textContent).toContain("Build failed"));
+    expect(actionsButton.getAttribute("data-actions-state")).toBe("failed");
+    expect(screen.getByRole("button", { name: "More" }).getAttribute("data-attention")).toBe("error");
+
+    await user.click(screen.getByRole("tab", { name: /^Activity log/ }));
+    await waitFor(() => expect(actionsButton.getAttribute("data-actions-state")).toBe("idle"));
   });
 
   it("allows Fetch to start while a configured action is running", async () => {
@@ -2003,25 +1988,7 @@ describe("App", { timeout: 10_000 }, () => {
     await flushRendererAsync();
   });
 
-  it("shows configured action errors without enabling execution", async () => {
-    const user = userEvent.setup();
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      actionsConfig: {
-        hasGitheadDir: true,
-        actions: [],
-        error: "actions.toml: Action \"Build\" has an invalid shell."
-      }
-    }));
-
-    render(<App />);
-
-    await user.click(await screen.findByRole("button", { name: "Repository actions" }));
-
-    expect(await screen.findByText("actions.toml: Action \"Build\" has an invalid shell.")).toBeTruthy();
-    expect(githead.runConfiguredAction).not.toHaveBeenCalled();
-  });
-
-  it("shows local Repository Actions that override shared actions", async () => {
+  it("shows local Repository actions that override shared actions", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       actionsConfig: {
@@ -2062,13 +2029,16 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Repository actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Manage repository actions…" }));
 
     await user.click(screen.getByRole("tab", { name: /Local/ }));
-    expect(await screen.findByText("Overrides Shared")).toBeTruthy();
+    // The list row meta and the detail badge both name the override.
+    const overrideLabels = await screen.findAllByText("Overrides shared");
+    expect(overrideLabels).toHaveLength(2);
+    expect(overrideLabels.some((label) => label.getAttribute("data-slot") === "badge")).toBe(true);
   });
 
-  it("saves reordered Repository Actions in file order", async () => {
+  it("saves reordered Repository actions in file order", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       actionsConfig: {
@@ -2096,7 +2066,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Repository actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Manage repository actions…" }));
     await user.click(screen.getByRole("button", { name: /2Testbash/ }));
     await user.click(await screen.findByRole("button", { name: "Move Test up" }));
     await user.click(screen.getByRole("button", { name: "Save Shared" }));
@@ -2148,7 +2118,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Repository actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Manage repository actions…" }));
     await user.click(screen.getByRole("tab", { name: /Local/ }));
 
     expect(await screen.findByText("This file contains comments. Edit it manually to preserve them.")).toBeTruthy();
@@ -2171,7 +2141,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await user.click(await screen.findByRole("button", { name: "Repository actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Manage repository actions…" }));
     await user.click(await screen.findByRole("button", { name: "Delete Build" }));
 
     expect(screen.getByText("1 action removed")).toBeTruthy();
@@ -2181,23 +2151,23 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.queryByText("1 action removed")).toBeNull();
   });
 
-  it("warns before closing Repository Actions with unsaved changes", async () => {
+  it("warns before closing Repository actions with unsaved changes", async () => {
     const user = userEvent.setup();
     render(<App />);
     await waitForRepositoryWorkspace();
     await user.click(screen.getByRole("button", { name: "Repository actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Manage repository actions…" }));
     await user.click(screen.getByRole("button", { name: "Add action" }));
     await user.type(screen.getByLabelText("Name"), "Build");
     await user.click(screen.getByRole("button", { name: "Close" }));
 
     expect(await screen.findByRole("dialog", { name: "Discard unsaved changes?" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Keep editing" }));
-    expect(screen.getByRole("dialog", { name: "Repository Actions" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Repository actions" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Close" }));
     await user.click(await screen.findByRole("button", { name: "Discard changes" }));
-    expect(screen.queryByRole("dialog", { name: "Repository Actions" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Repository actions" })).toBeNull();
   });
 
   it("closes and clears a repository action draft when an open picker switches repositories", async () => {
@@ -2211,19 +2181,19 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository(user);
     await user.click(await screen.findByRole("button", { name: "Open local folder…" }));
     await user.click(screen.getByRole("button", { name: "Repository actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Manage repository actions…" }));
     await user.click(screen.getByRole("button", { name: "Add action" }));
     await user.type(screen.getByLabelText("Name"), "Repository A Draft");
 
     pendingRepositoryChoice.resolve(otherRepo);
     await waitFor(() => expect(githead.getRepoSummary).toHaveBeenCalledWith(otherRepo));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Repository Actions" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Repository actions" })).toBeNull());
 
     await user.click(screen.getByRole("button", { name: "Repository actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Manage Repository Actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Manage repository actions…" }));
     expect(screen.queryByDisplayValue("Repository A Draft")).toBeNull();
   });
 });

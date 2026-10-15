@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import type { GitStatusFile } from "../shared/types";
 import {
   getCommitFileStatusVisuals,
+  getFileStatusLetter,
   getFileStatusVisuals,
   getStatusTone
 } from "./fileStatusVisuals";
@@ -64,6 +65,31 @@ describe("file status visuals", () => {
       tone: "neutral",
       label: "Changed file"
     });
+  });
+
+  it("maps each status to one chip letter", () => {
+    expect(getFileStatusLetter(getCommitFileStatusVisuals("A"))).toBe("A");
+    expect(getFileStatusLetter(getCommitFileStatusVisuals("M"))).toBe("M");
+    expect(getFileStatusLetter(getCommitFileStatusVisuals("T"))).toBe("M");
+    expect(getFileStatusLetter(getCommitFileStatusVisuals("typechanged"))).toBe("M");
+    expect(getFileStatusLetter(getCommitFileStatusVisuals("D"))).toBe("D");
+    expect(getFileStatusLetter(getCommitFileStatusVisuals("R100"))).toBe("R");
+    expect(getFileStatusLetter(getCommitFileStatusVisuals("C75"))).toBe("C");
+    expect(getFileStatusLetter(getCommitFileStatusVisuals("UU"))).toBe("U");
+    expect(getFileStatusLetter(getCommitFileStatusVisuals("changed"))).toBe("•");
+    expect(getFileStatusLetter(getFileStatusVisuals(createStatusFile({ indexStatus: "?", worktreeStatus: "?", isUnstaged: true }), "unstaged"))).toBe("?");
+    expect(getFileStatusLetter(getFileStatusVisuals(createStatusFile({ indexStatus: "M", worktreeStatus: "D", isStaged: true, isUnstaged: true, isConflicted: true }), "unstaged"))).toBe("U");
+  });
+
+  it("marks submodules with S and keeps their conflict tone", () => {
+    const submodule = { commitChanged: true, trackedChanges: false, untrackedChanges: false, initialized: true, canStage: true, canUnstage: false };
+    const changed = getFileStatusVisuals(createStatusFile({ worktreeStatus: "M", isUnstaged: true, submodule }), "unstaged");
+    const conflicted = getFileStatusVisuals(createStatusFile({ worktreeStatus: "M", isUnstaged: true, isConflicted: true, submodule }), "unstaged");
+
+    expect(getFileStatusLetter(changed)).toBe("S");
+    expect(changed.tone).toBe("modified");
+    expect(getFileStatusLetter(conflicted)).toBe("S");
+    expect(conflicted.tone).toBe("conflict");
   });
 
   it("normalizes commit changed-file status words and codes", () => {

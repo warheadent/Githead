@@ -12,6 +12,9 @@ function systemReducesMotion(): boolean {
   return window.matchMedia?.(motionQuery).matches ?? false;
 }
 
+/** The --ease-out curve in styles.css, shared by every JS motion. motion.tsx re-exports it. */
+export const EASE_OUT = [0.23, 1, 0.32, 1] as const;
+
 const VisualEffectsContext = createContext({ effects: DEFAULT_VISUAL_EFFECTS, reduceMotion: false });
 export const useVisualEffects = () => useContext(VisualEffectsContext);
 
@@ -35,7 +38,7 @@ export function VisualEffectsProvider({ effects, motionPreference, children }: {
   const value = useMemo(() => ({ effects, reduceMotion }), [effects, reduceMotion]);
   return (
     <VisualEffectsContext value={value}>
-      <MotionConfig reducedMotion={reduceMotion ? "always" : "never"} transition={{ duration: 0.12, ease: "easeOut" }}>
+      <MotionConfig reducedMotion={reduceMotion ? "always" : "never"} transition={{ duration: 0.12, ease: EASE_OUT }}>
         {children}
       </MotionConfig>
     </VisualEffectsContext>

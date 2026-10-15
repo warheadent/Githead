@@ -374,7 +374,7 @@ export class GitIntegrationService {
         if (fresh.headOid !== preview.headOid) return invalid("Git finished the squash, but HEAD moved unexpectedly.");
         return isClean(fresh.statusText)
           ? { ok: true, outcome: "no-op", message: "Already up to date; there were no changes to stage." }
-          : { ok: true, outcome: "staged", message: "Squash changes are staged. Review them in File Status, then create the commit in the commit composer." };
+          : { ok: true, outcome: "staged", message: "Squash changes are staged. Review them in Changes, then create the commit in the commit composer." };
       }
       if (merge.alreadyUpToDate && fresh.headOid === preview.headOid) return { ok: true, outcome: "no-op", message: "Already up to date." };
       if (!fresh.headOid || fresh.headOid === preview.headOid) return invalid("Git reported success, but a fresh HEAD read did not confirm the merge.");

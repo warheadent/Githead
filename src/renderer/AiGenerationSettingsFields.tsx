@@ -77,7 +77,7 @@ export function AiGenerationSettingsFields<T extends AiGenerationSettingsDraft>(
         <Label htmlFor={`${idPrefix}-commit-plan-granularity`}>Group changes by</Label>
         <select
           id={`${idPrefix}-commit-plan-granularity`}
-          className="h-10 rounded-md border border-input bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+          className="form-select"
           value={draft.commitPlanGranularity}
           disabled={disabled}
           onChange={(event) => onDraftChange({
@@ -98,18 +98,18 @@ export function AiGenerationSettingsFields<T extends AiGenerationSettingsDraft>(
         </p>
       </div>
       <div className="settings-field grid gap-2">
-        <Label htmlFor={`${idPrefix}-commit-plan-model`}>Commit Plan Model</Label>
+        <Label htmlFor={`${idPrefix}-commit-plan-model`}>Commit plan model</Label>
         <Input id={`${idPrefix}-commit-plan-model`} type="text" autoComplete="off" placeholder="Leave blank to use the commit message model" value={draft.commitPlanModels[provider]} disabled={disabled} onChange={(event) => onDraftChange({ ...draft, commitPlanModels: { ...draft.commitPlanModels, [provider]: event.target.value } })} />
       </div>
-      <ReasoningEffortField id={`${idPrefix}-commit-plan-reasoning-effort`} label="Commit Plan Reasoning" value={draft.commitPlanReasoningEfforts[provider]} capabilities={commitPlanReasoning.capabilities} loading={commitPlanReasoning.loading} disabled={disabled} onChange={(reasoningEffort) => onDraftChange({ ...draft, commitPlanReasoningEfforts: { ...draft.commitPlanReasoningEfforts, [provider]: reasoningEffort } })} />
+      <ReasoningEffortField id={`${idPrefix}-commit-plan-reasoning-effort`} label="Commit plan reasoning" value={draft.commitPlanReasoningEfforts[provider]} capabilities={commitPlanReasoning.capabilities} loading={commitPlanReasoning.loading} disabled={disabled} onChange={(reasoningEffort) => onDraftChange({ ...draft, commitPlanReasoningEfforts: { ...draft.commitPlanReasoningEfforts, [provider]: reasoningEffort } })} />
     </SettingsCard>
 
     <SettingsCard title="Pull request generation" description="Optional model override and separate reasoning for pull request descriptions.">
       <div className="settings-field grid gap-2">
-        <Label htmlFor={`${idPrefix}-pr-description-model`}>PR Description Model</Label>
+        <Label htmlFor={`${idPrefix}-pr-description-model`}>PR description model</Label>
         <Input id={`${idPrefix}-pr-description-model`} type="text" autoComplete="off" placeholder="Leave blank to use the commit message model" value={draft.prDescriptionModels[provider]} disabled={disabled} onChange={(event) => onDraftChange({ ...draft, prDescriptionModels: { ...draft.prDescriptionModels, [provider]: event.target.value } })} />
       </div>
-      <ReasoningEffortField id={`${idPrefix}-pr-description-reasoning-effort`} label="PR Description Reasoning" value={draft.prDescriptionReasoningEfforts[provider]} capabilities={prDescriptionReasoning.capabilities} loading={prDescriptionReasoning.loading} disabled={disabled} onChange={(reasoningEffort) => onDraftChange({ ...draft, prDescriptionReasoningEfforts: { ...draft.prDescriptionReasoningEfforts, [provider]: reasoningEffort } })} />
+      <ReasoningEffortField id={`${idPrefix}-pr-description-reasoning-effort`} label="PR description reasoning" value={draft.prDescriptionReasoningEfforts[provider]} capabilities={prDescriptionReasoning.capabilities} loading={prDescriptionReasoning.loading} disabled={disabled} onChange={(reasoningEffort) => onDraftChange({ ...draft, prDescriptionReasoningEfforts: { ...draft.prDescriptionReasoningEfforts, [provider]: reasoningEffort } })} />
     </SettingsCard>
   </>;
 }
@@ -129,7 +129,7 @@ function SourceControlWritingStyleField<T extends AiGenerationSettingsDraft>({ d
         <Label htmlFor={selectId}>Writing style</Label>
         <Button type="button" variant="ghost" size="sm" disabled={disabled || isDefault} aria-label="Reset source control writing style to default" onClick={() => onDraftChange({ ...draft, sourceControlWritingStyle: { ...DEFAULT_SOURCE_CONTROL_WRITING_STYLE } })}><RotateCcw />Reset to default</Button>
       </div>
-      <select id={selectId} className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={style.mode} disabled={disabled} onChange={(event) => onDraftChange({ ...draft, sourceControlWritingStyle: { ...style, mode: event.target.value as SourceControlWritingStyleMode } })}>
+      <select id={selectId} className="form-select" value={style.mode} disabled={disabled} onChange={(event) => onDraftChange({ ...draft, sourceControlWritingStyle: { ...style, mode: event.target.value as SourceControlWritingStyleMode } })}>
         {SOURCE_CONTROL_WRITING_STYLE_MODES.map((mode) => <option key={mode} value={mode}>{SOURCE_CONTROL_WRITING_STYLE_OPTIONS[mode].label}</option>)}
       </select>
       {style.mode === "custom" ? <div className="grid gap-2 pt-2">
@@ -148,9 +148,9 @@ function useAiReasoningCapabilities(enabled: boolean, provider: AiCommitMessageP
 
 function ReasoningEffortField({ id, label, value, capabilities, loading, disabled, onChange }: { id: string; label: string; value: AiReasoningEffort; capabilities: AiReasoningCapabilities; loading: boolean; disabled: boolean; onChange: (effort: AiReasoningEffort) => void }): ReactNode {
   const supportedEfforts = AI_REASONING_EFFORTS.filter((effort) => capabilities.supportedEfforts.includes(effort)); const available = capabilities.status === "supported" && supportedEfforts.length > 0; const selectedValue = supportedEfforts.includes(value) ? value : supportedEfforts[0] ?? value; const helpId = `${id}-help`; const helpText = loading ? "Checking whether this model supports configurable reasoning…" : capabilities.status === "unsupported" ? "This model does not support configurable reasoning." : capabilities.status === "unknown" ? "Reasoning support could not be verified for this model." : "Lower effort favors speed and cost; higher effort favors deeper reasoning.";
-  return <div className="settings-field grid gap-2"><Label htmlFor={id}>{label}</Label><select id={id} className="h-10 rounded-md border border-input bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50" value={selectedValue} disabled={disabled || loading || !available} aria-describedby={helpId} onChange={(event) => onChange(event.target.value as AiReasoningEffort)}>{(available ? supportedEfforts : [value]).map((effort) => <option key={effort} value={effort}>{formatReasoningEffort(effort)}</option>)}</select><p id={helpId} className="text-sm text-muted-foreground" aria-live="polite">{helpText}</p></div>;
+  return <div className="settings-field grid gap-2"><Label htmlFor={id}>{label}</Label><select id={id} className="form-select" value={selectedValue} disabled={disabled || loading || !available} aria-describedby={helpId} onChange={(event) => onChange(event.target.value as AiReasoningEffort)}>{(available ? supportedEfforts : [value]).map((effort) => <option key={effort} value={effort}>{formatReasoningEffort(effort)}</option>)}</select><p id={helpId} className="text-sm text-muted-foreground" aria-live="polite">{helpText}</p></div>;
 }
 
 function formatReasoningEffort(effort: AiReasoningEffort): string {
-  return effort === "xhigh" ? "Extra High" : effort.charAt(0).toUpperCase() + effort.slice(1);
+  return effort === "xhigh" ? "Extra high" : effort.charAt(0).toUpperCase() + effort.slice(1);
 }

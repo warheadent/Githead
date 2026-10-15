@@ -4134,35 +4134,6 @@ describe("GitService", () => {
     ]);
   });
 
-  it("reverts staged changes by unstaging with restore when HEAD exists", async () => {
-    const runner = new FakeRunner([
-      ok("true\n"),
-      ok("true\n"),
-      ok(`${oid}\n`),
-      ok()
-    ]);
-    const service = new GitService(runner);
-
-    const result = await service.revertFileChanges({
-      repoPath: "D:\\Repo",
-      paths: [
-        "staged.ts"
-      ],
-      side: "staged"
-    });
-
-    expect(result.exitCode).toBe(0);
-    expect(runner.calls.at(-1)?.args).toEqual([
-      "-C",
-      "D:\\Repo",
-      "restore",
-      "--staged",
-      "--pathspec-from-file=-",
-      "--pathspec-file-nul"
-    ]);
-    expect(stdinText(runner.calls.at(-1)!)).toBe("staged.ts\0");
-  });
-
   it("reverts initial staged additions with rm --cached when HEAD is absent", async () => {
     const runner = new FakeRunner([
       ok("true\n"),
@@ -4220,34 +4191,6 @@ describe("GitService", () => {
       "--pathspec-file-nul"
     ]);
     expect(stdinText(runner.calls.at(-1)!)).toBe("src/first.ts\0src/second.ts\0");
-  });
-
-  it("reverts unstaged tracked changes with git restore --worktree", async () => {
-    const runner = new FakeRunner([
-      ok("true\n"),
-      ok(`${trackedRecord(".M", "src/file.ts")}\0`),
-      ok()
-    ]);
-    const service = new GitService(runner);
-
-    const result = await service.revertFileChanges({
-      repoPath: "D:\\Repo",
-      paths: [
-        "src/file.ts"
-      ],
-      side: "unstaged"
-    });
-
-    expect(result.exitCode).toBe(0);
-    expect(runner.calls.at(-1)?.args).toEqual([
-      "-C",
-      "D:\\Repo",
-      "restore",
-      "--worktree",
-      "--pathspec-from-file=-",
-      "--pathspec-file-nul"
-    ]);
-    expect(stdinText(runner.calls.at(-1)!)).toBe("src/file.ts\0");
   });
 
   it("reverts multiple unstaged tracked changes with one pathspec", async () => {

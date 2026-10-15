@@ -79,7 +79,7 @@ describe("PerformanceDiagnosticsDialog", () => {
     view.rerender(<PerformanceDiagnosticsDialog open onOpenChange={vi.fn()} />);
 
     await vi.waitFor(() => expect(startPerformanceDiagnostics).toHaveBeenCalledOnce());
-    expect(screen.getByRole("dialog", { name: "Performance Diagnostics" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Performance diagnostics" })).toBeTruthy();
     expect(getPerformanceDiagnosticsSnapshot).not.toHaveBeenCalled();
   });
 

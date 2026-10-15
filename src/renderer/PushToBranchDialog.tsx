@@ -58,7 +58,7 @@ export function PushToBranchDialog({
           onPush(event);
         }}>
           <DialogHeader>
-            <DialogTitle>Push to Another Branch</DialogTitle>
+            <DialogTitle>Push to another branch</DialogTitle>
             <DialogDescription>
               Push the current branch to a different remote branch without changing its upstream.
             </DialogDescription>
@@ -145,7 +145,7 @@ export function PushToBranchDialog({
           <p className="text-sm text-muted-foreground">
             This is a one-time push. The upstream for {state.sourceBranch || "the current branch"} will not change.
           </p>
-          <p className="min-h-5 text-sm text-destructive" role="alert">{state.error}</p>
+          <p className="dialog-error min-h-5" role="alert">{state.error}</p>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               {saving ? "Cancel push" : "Cancel"}

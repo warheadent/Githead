@@ -37,8 +37,8 @@ describe("ReviewConsole", () => {
       .mockResolvedValueOnce({ ok: true, data: createPullRequestDetail({ number: 24, title: "Review console" }), rateLimit: null })
       .mockResolvedValue({ ok: true, data: createPullRequestDetail({ number: 24, title: "Review console", canMerge: false, mergeStatus: "blocked" }), rateLimit: null });
     renderConsole();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Merge" }).hasAttribute("disabled")).toBe(false));
-    await user.click(screen.getByRole("button", { name: "Merge" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Merge into main" }).hasAttribute("disabled")).toBe(false));
+    await user.click(screen.getByRole("button", { name: "Merge into main" }));
     await user.click(screen.getByRole("button", { name: "Refresh details" }));
     await screen.findByText("Blocked");
 
@@ -164,6 +164,20 @@ describe("ReviewConsole", () => {
     outside.remove();
   });
 
+  it("names the merge target before details load and checks out from the footer", async () => {
+    const user = userEvent.setup();
+    const pending = defer<Awaited<ReturnType<typeof githead.getGitHubPullRequestDetail>>>();
+    vi.mocked(githead.getGitHubPullRequestDetail).mockReturnValue(pending.promise);
+    const { props } = renderConsole({ selection: { itemType: "pullRequest", item: createPullRequest({ number: 24, title: "Review console", targetBranch: "release" }) } });
+
+    const merge = screen.getByRole("button", { name: "Merge into release" });
+    expect(merge.hasAttribute("disabled")).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "Check out" }));
+    expect(props.onCheckout).toHaveBeenCalledWith(expect.objectContaining({ number: 24 }));
+    await act(async () => pending.resolve({ ok: true, data: createPullRequestDetail({ number: 24, title: "Review console", targetBranch: "release" }), rateLimit: null }));
+  });
+
   it("shows approve progress and mutation errors inside the drawer", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getGitHubPullRequestDetail).mockResolvedValue({ ok: true, data: createPullRequestDetail({ number: 24, title: "Review console" }), rateLimit: null });
@@ -202,6 +216,32 @@ describe("ReviewConsole", () => {
     expect((screen.getByRole("textbox", { name: "Write a comment" }) as HTMLTextAreaElement).value).toBe("");
   });
 
+  it("submits issue comments from the footer Comment button and focuses an empty composer", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getGitHubIssueDetail).mockResolvedValue({ ok: true, data: createIssueDetail({ number: 12, title: "Issue console" }), rateLimit: null });
+    renderConsole({ selection: { itemType: "issue", item: createIssue({ number: 12, title: "Issue console" }) } });
+
+    const drawer = within(await screen.findByRole("region", { name: "Issue console" }));
+    const input = await drawer.findByRole("textbox", { name: "Write a comment" });
+    expect(drawer.queryByRole("button", { name: "Add comment" })).toBeNull();
+    const commentButton = drawer.getByRole("button", { name: "Comment" });
+
+    await user.click(commentButton);
+    expect(document.activeElement).toBe(input);
+    expect(githead.commentOnGitHubItem).not.toHaveBeenCalled();
+
+    await user.type(input, "Reproduced on Windows.");
+    await user.click(commentButton);
+    await waitFor(() => expect(githead.commentOnGitHubItem).toHaveBeenCalledWith(expect.objectContaining({
+      repoPath,
+      itemType: "issue",
+      number: 12,
+      body: "Reproduced on Windows."
+    })));
+    await waitFor(() => expect((input as HTMLTextAreaElement).value).toBe(""));
+    expect(githead.commentOnGitHubItem).toHaveBeenCalledTimes(1);
+  });
+
   it("shows supported issue metadata and backed external links", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getGitHubIssueDetail).mockResolvedValue({ ok: true, data: createIssueDetail({
@@ -218,11 +258,13 @@ describe("ReviewConsole", () => {
     const { props } = renderConsole({ selection: { itemType: "issue", item: createIssue({ number: 12, title: "Issue console", state: "closed" }) } });
 
     const drawer = await screen.findByRole("region", { name: "Issue console" });
-    expect(within(drawer).getByRole("tab", { name: /Overview.*1 comment/ })).toBeTruthy();
-    expect(within(drawer).getByText("Activity")).toBeTruthy();
+    expect(within(drawer).queryByRole("tab")).toBeNull();
+    expect(within(drawer).getByRole("heading", { name: "Activity" })).toBeTruthy();
+    expect(within(drawer).getByText("1 comment")).toBeTruthy();
     expect(within(drawer).getByText("Tracked here.")).toBeTruthy();
     expect(within(drawer).getByText("enhancement")).toBeTruthy();
-    expect(within(drawer).queryByRole("button", { name: "Merge" })).toBeNull();
+    expect(within(drawer).queryByRole("button", { name: /^Merge/ })).toBeNull();
+    expect(within(drawer).queryByRole("button", { name: "Check out" })).toBeNull();
     expect(within(drawer).getByRole("button", { name: "Comment" })).toBeTruthy();
 
     await user.click(within(drawer).getByRole("button", { name: "alex" }));
@@ -238,8 +280,8 @@ describe("ReviewConsole", () => {
     vi.mocked(githead.getGitHubPullRequestDetail).mockResolvedValue({ ok: true, data: createPullRequestDetail({ number: 24, title: "Review console" }), rateLimit: null });
     const onMerged = vi.fn();
     const { unmount } = renderConsole({ onMerged });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Merge" }).hasAttribute("disabled")).toBe(false));
-    await user.click(screen.getByRole("button", { name: "Merge" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Merge into main" }).hasAttribute("disabled")).toBe(false));
+    await user.click(screen.getByRole("button", { name: "Merge into main" }));
     expect(githead.mergeGitHubPullRequest).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Confirm merge" }));
     await waitFor(() => expect(githead.mergeGitHubPullRequest).toHaveBeenCalledWith(expect.objectContaining({ number: 24, operationId: expect.any(String) })));
@@ -248,7 +290,7 @@ describe("ReviewConsole", () => {
 
     vi.mocked(githead.getGitHubPullRequestDetail).mockResolvedValue({ ok: true, data: createPullRequestDetail({ number: 25, title: "Conflicting", mergeable: false, mergeStatus: "conflicting", canMerge: false }), rateLimit: null });
     renderConsole({ selection: { itemType: "pullRequest", item: createPullRequest({ number: 25, title: "Conflicting" }) } });
-    const merge = await screen.findByRole("button", { name: "Merge" });
+    const merge = await screen.findByRole("button", { name: "Merge into main" });
     expect(merge.hasAttribute("disabled")).toBe(true);
     await screen.findByLabelText("GitHub reports merge conflicts.");
     const trigger = merge.parentElement!;

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { TOOLTIP_DELAY_MS, TooltipProvider, TooltipTarget } from "@/components/ui/tooltip"
 import { Button, TooltipButton } from "./button"
 
@@ -26,6 +27,41 @@ function renderTooltipButton(props: React.ComponentProps<typeof TooltipButton>) 
   )
 }
 
+function splitVariants(token: string) {
+  const parts: string[] = []
+  let depth = 0
+  let start = 0
+  for (let index = 0; index < token.length; index += 1) {
+    const char = token[index]
+    if (char === "[") depth += 1
+    else if (char === "]") depth -= 1
+    else if (char === ":" && depth === 0) {
+      parts.push(token.slice(start, index))
+      start = index + 1
+    }
+  }
+  parts.push(token.slice(start))
+  return parts
+}
+
+function attributeVariantSelector(variant: string) {
+  if (variant.startsWith("[&") && variant.endsWith("]")) return variant.slice(1, -1).replaceAll("&", "*").replaceAll("_", " ")
+  const aria = /^aria-([a-z]+)$/.exec(variant)
+  return aria ? `[aria-${aria[1]}="true"]` : null
+}
+
+// Utilities whose variants are all attribute selectors matching the element now; pointer, focus and media variants never count.
+function activeAttributeUtilities(element: Element) {
+  return [...element.classList].flatMap((token) => {
+    const [utility, ...variants] = splitVariants(token).reverse()
+    if (!variants.length) return []
+    return variants.every((variant) => {
+      const selector = attributeVariantSelector(variant)
+      return selector !== null && element.matches(selector)
+    }) ? [utility] : []
+  })
+}
+
 describe("Button", () => {
   it("does not call the action when disabled", () => {
     const onClick = vi.fn()
@@ -36,6 +72,40 @@ describe("Button", () => {
 
     expect((button as HTMLButtonElement).disabled).toBe(true)
     expect(onClick).not.toHaveBeenCalled()
+  })
+
+  it("keeps an expanded ghost disclosure toggle unfilled", () => {
+    render(<Button variant="ghost" aria-expanded>Run output</Button>)
+
+    const button = screen.getByRole("button", { name: "Run output" })
+
+    expect(button.getAttribute("aria-expanded")).toBe("true")
+    expect(activeAttributeUtilities(button)).not.toContain("bg-hover")
+    expect(activeAttributeUtilities(button)).not.toContain("text-foreground")
+  })
+
+  it("fills a ghost menu trigger only while its menu is open", async () => {
+    render(
+      <TooltipProvider>
+        <DropdownMenu modal={false}>
+          <DropdownMenuTrigger asChild>
+            <TooltipButton variant="ghost" tooltip="Repository actions" aria-label="Repository actions">Actions</TooltipButton>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuItem>Build</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </TooltipProvider>
+    )
+
+    const trigger = screen.getByRole("button", { name: "Repository actions" })
+    expect(activeAttributeUtilities(trigger)).not.toContain("bg-hover")
+
+    fireEvent.keyDown(trigger, { key: "Enter" })
+
+    await waitFor(() => expect(screen.getByRole("menuitem", { name: "Build" })).toBeTruthy())
+    expect(trigger.getAttribute("aria-expanded")).toBe("true")
+    expect(activeAttributeUtilities(trigger)).toEqual(expect.arrayContaining(["bg-hover", "text-foreground"]))
   })
 })
 

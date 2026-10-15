@@ -2,9 +2,15 @@ import { StrictMode, useCallback, useEffect, useRef, useState, type ReactNode } 
 import { createRoot } from "react-dom/client";
 import { ShieldCheck, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type {
-  WorkspaceTrustDialogContext,
-  WorkspaceTrustResponse
+import {
+  APP_APPEARANCE_MODES,
+  APP_CODE_FONTS,
+  APP_COLOR_THEMES,
+  APP_UI_FONTS,
+  DEFAULT_CODE_FONT,
+  DEFAULT_UI_FONT,
+  type WorkspaceTrustDialogContext,
+  type WorkspaceTrustResponse
 } from "../shared/types";
 import "./workspaceTrust.css";
 
@@ -36,48 +42,45 @@ function WorkspaceTrustDialog({ dialogContext }: { dialogContext: WorkspaceTrust
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [respond]);
 
+  // A fixed-size frameless window cannot show a radius or shadow, so the page itself takes the dialog look.
   return (
     <main
-      className="flex h-full flex-col bg-popover text-popover-foreground"
+      className="workspace-trust"
       role="dialog"
       aria-modal="true"
       aria-labelledby="workspace-trust-title"
       aria-describedby="workspace-trust-description"
     >
-      <section className="flex flex-1 flex-col gap-5 px-6 pt-6 pb-5">
-        <header className="flex items-start gap-4">
-          <div className="flex size-11 shrink-0 items-center justify-center rounded-lg border bg-muted text-primary">
-            <ShieldCheck className="size-5" aria-hidden="true" />
-          </div>
-          <div className="min-w-0 space-y-1.5">
-            <h1 id="workspace-trust-title" className="text-xl font-semibold tracking-[-0.015em]">
-              Do you trust this workspace?
-            </h1>
-            <p id="workspace-trust-description" className="text-sm leading-5 text-muted-foreground">
-              Githead needs your approval before it runs Git operations in this workspace.
-            </p>
-          </div>
-        </header>
-
-        <div className="space-y-2">
-          <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Workspace</p>
-          <p className="truncate rounded-md border bg-muted/50 px-3 py-2.5 font-mono text-sm" title={dialogContext.repoPath}>
-            {dialogContext.repoPath}
+      <header className="workspace-trust-header">
+        <span className="notice-tile" aria-hidden="true">
+          <ShieldCheck />
+        </span>
+        <div className="workspace-trust-heading">
+          <h1 id="workspace-trust-title">Do you trust this workspace?</h1>
+          <p id="workspace-trust-description">
+            Githead needs your approval before it runs Git operations in this workspace.
           </p>
         </div>
+      </header>
 
-        <div className="flex gap-3 rounded-md border bg-muted/35 px-3 py-3 text-sm leading-5 text-muted-foreground">
-          <TriangleAlert className="mt-0.5 size-4 shrink-0 text-foreground" aria-hidden="true" />
-          <p>Trusted Git operations may execute hooks, helpers, filters, or local configuration.</p>
-        </div>
-      </section>
+      <div className="workspace-trust-field">
+        <p className="workspace-trust-label">Workspace</p>
+        <p className="workspace-trust-path dialog-code-block" title={dialogContext.repoPath}>
+          {dialogContext.repoPath}
+        </p>
+      </div>
 
-      <footer className="flex justify-end gap-2 border-t bg-muted/25 px-6 py-4">
-        <Button type="button" variant="outline" disabled={responding} autoFocus onClick={() => respond("cancel")}>
+      <div className="workspace-trust-warning">
+        <TriangleAlert aria-hidden="true" />
+        <p>Trusted Git operations may execute hooks, helpers, filters, or local configuration.</p>
+      </div>
+
+      <footer className="workspace-trust-footer">
+        <Button type="button" variant="secondary" disabled={responding} autoFocus onClick={() => respond("cancel")}>
           Cancel
         </Button>
         <Button type="button" disabled={responding} onClick={() => respond("trust")}>
-          Trust Workspace
+          Trust workspace
         </Button>
       </footer>
     </main>
@@ -87,10 +90,10 @@ function WorkspaceTrustDialog({ dialogContext }: { dialogContext: WorkspaceTrust
 function readContext(params: URLSearchParams): WorkspaceTrustDialogContext {
   return {
     repoPath: params.get("repoPath") ?? "",
-    appearanceMode: readEnum(params.get("appearanceMode"), ["system", "light", "dark"], "system"),
-    colorTheme: readEnum(params.get("colorTheme"), ["githead", "tidepool", "ember", "orchid", "evergreen", "rosewood", "glacier", "sunbeam", "graphite", "copper", "sakura", "midnight"], "githead"),
-    uiFont: readEnum(params.get("uiFont"), ["system", "inter", "ibm-plex-sans", "roboto"], "inter"),
-    codeFont: readEnum(params.get("codeFont"), ["system-mono", "jetbrains-mono", "fira-code", "source-code-pro", "ibm-plex-mono"], "system-mono"),
+    appearanceMode: readEnum(params.get("appearanceMode"), APP_APPEARANCE_MODES, "system"),
+    colorTheme: readEnum(params.get("colorTheme"), APP_COLOR_THEMES, "githead"),
+    uiFont: readEnum(params.get("uiFont"), APP_UI_FONTS, DEFAULT_UI_FONT),
+    codeFont: readEnum(params.get("codeFont"), APP_CODE_FONTS, DEFAULT_CODE_FONT),
     zoomFactor: readZoomFactor(params.get("zoomFactor"))
   };
 }

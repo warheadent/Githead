@@ -4,6 +4,7 @@ import {
   Bot,
   CheckCircle2,
   CircleAlert,
+  Clock,
   Gauge,
   GitFork,
   GitCommitHorizontal,
@@ -15,7 +16,6 @@ import {
   Palette,
   Plug,
   RefreshCw,
-  Save,
   ShieldCheck,
   SlidersHorizontal,
   Sun
@@ -59,8 +59,7 @@ import { CODE_FONT_OPTIONS, UI_FONT_OPTIONS, type FontOption } from "./fonts";
 import { getAiProviderLabel, getCliStatusMessage, isCliProvider } from "../shared/aiProvider";
 import { GitIdentityFields } from "./GitIdentityFields";
 import { AiGenerationSettingsFields } from "./AiGenerationSettingsFields";
-import { MotionSwap } from "./motion";
-import { SettingsCard, SettingsCategoryLayout, SettingsPanel } from "./SettingsCategoryLayout";
+import { SettingsCard, SettingsCategoryLayout, SettingsDialogFrame, SettingsPanel } from "./SettingsCategoryLayout";
 export { GitIdentityFields } from "./GitIdentityFields";
 
 export interface SettingsDraft {
@@ -239,27 +238,23 @@ export function SettingsDialog({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={(nextOpen) => {
-        if (!nextOpen) requestClose();
-      }}>
-        <DialogContent
-          className="settings-dialog h-[min(780px,calc(100vh-2rem))] max-h-[min(780px,calc(100vh-2rem))] overflow-clip p-0 sm:max-w-[880px]"
-          aria-busy={saving}
-        >
-          <form className="settings-dialog-form grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]" onSubmit={(event) => {
-            if (saving) {
-              event.preventDefault();
-              return;
-            }
-            event.preventDefault();
-            void gitConfig.save().then((saved) => { if (saved) onSave(event); else setActiveCategory("git-configuration"); });
-          }}>
-            <DialogHeader className="settings-dialog-header border-b px-6 py-5 pr-14">
-              <p className="eyebrow">Preferences</p>
-              <DialogTitle>Settings</DialogTitle>
-              <DialogDescription>Configure Githead for the way you work.</DialogDescription>
-            </DialogHeader>
-
+      <SettingsDialogFrame
+        open={open}
+        busy={saving}
+        eyebrow="Preferences"
+        title="Settings"
+        description="Configure Githead for the way you work."
+        status={footerStatus}
+        saving={saving}
+        saveDisabled={saving || gitConfig.loading || !dirty}
+        cancelsOperation={saving}
+        onRequestClose={requestClose}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (saving) return;
+          void gitConfig.save().then((saved) => { if (saved) onSave(event); else setActiveCategory("git-configuration"); });
+        }}
+      >
             <SettingsCategoryLayout
               activeCategory={activeCategory}
               categories={categories}
@@ -335,7 +330,7 @@ export function SettingsDialog({
                       <Label htmlFor="remote-check-lease-seconds">Reuse a remote check for</Label>
                       <select
                         id="remote-check-lease-seconds"
-                        className="h-10 rounded-md border border-input bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                        className="form-select"
                         value={draft.remoteCheckLeaseSeconds}
                         disabled={saving}
                         onChange={(event) => {
@@ -357,7 +352,7 @@ export function SettingsDialog({
                       <Label htmlFor="tag-push-behavior">Tag push behavior</Label>
                       <select
                         id="tag-push-behavior"
-                        className="h-10 rounded-md border border-input bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                        className="form-select"
                         value={draft.tagPushBehavior}
                         disabled={saving}
                         aria-describedby="tag-push-behavior-description tag-push-behavior-help"
@@ -371,8 +366,8 @@ export function SettingsDialog({
                         {selectedTagPushBehavior.description}
                       </p>
                       {draft.tagPushBehavior === "all" ? (
-                        <p className="flex items-start gap-2 rounded-md border bg-muted/30 p-2.5 text-xs leading-relaxed" role="note">
-                          <CircleAlert className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                        <p className="dialog-notice" data-tone="neutral" role="note">
+                          <CircleAlert aria-hidden="true" />
                           <span>After a branch push succeeds, Githead also pushes every local tag to the same remote.</span>
                         </p>
                       ) : null}
@@ -432,12 +427,12 @@ export function SettingsDialog({
                     <SettingsCard title="Provider" description="Connection and model used for AI generation.">
                       <div className="settings-field grid gap-2">
                         <Label htmlFor="ai-provider">Provider</Label>
-                        <select id="ai-provider" className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={draft.selectedProvider} disabled={saving} onChange={(event) => onDraftChange({ ...draft, selectedProvider: event.target.value as AiCommitMessageProvider })}>
+                        <select id="ai-provider" className="form-select" value={draft.selectedProvider} disabled={saving} onChange={(event) => onDraftChange({ ...draft, selectedProvider: event.target.value as AiCommitMessageProvider })}>
                           {AI_COMMIT_MESSAGE_PROVIDERS.map((item) => <option key={item} value={item}>{getAiProviderLabel(item)}</option>)}
                         </select>
                       </div>
                       {isCliProvider(provider) ? (
-                        <div className="grid gap-2 rounded-md border bg-muted/30 p-3 text-sm">
+                        <div className="dialog-notice" data-tone="neutral">
                           <div className="flex items-center justify-between gap-3"><span className="font-medium">{getAiProviderLabel(provider)} status</span><Badge variant={provider === "codex-cli" ? "secondary" : "outline"}>CLI</Badge></div>
                           <p className="text-muted-foreground">{getCliStatusMessage(aiSettings, provider)}</p>
                         </div>
@@ -493,7 +488,7 @@ export function SettingsDialog({
                     <dl className="grid gap-4 text-sm">
                       <div className="grid gap-1 sm:grid-cols-[130px_minmax(0,1fr)]">
                         <dt className="text-muted-foreground">Version</dt>
-                        <dd className="font-mono selectable-text">{__APP_VERSION__}</dd>
+                        <dd className="selectable-text tabular-nums">{__APP_VERSION__}</dd>
                       </div>
                       <div className="grid gap-1 sm:grid-cols-[130px_minmax(0,1fr)]">
                         <dt className="text-muted-foreground">Last updated</dt>
@@ -504,22 +499,7 @@ export function SettingsDialog({
                   </SettingsCard>
                 </SettingsPanel>
             </SettingsCategoryLayout>
-
-            <div className="settings-dialog-footer flex min-h-16 flex-col gap-3 border-t bg-background px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
-              <MotionSwap
-                item={footerStatus}
-                className="relative min-h-5 min-w-0 text-sm"
-                presenceClassName=""
-                initialY={-2}
-              />
-              <DialogFooter className="settings-dialog-actions shrink-0">
-                <Button type="button" variant="outline" onClick={requestClose}>{saving ? "Cancel operation" : "Cancel"}</Button>
-                <Button type="submit" disabled={saving || gitConfig.loading || !dirty}>{saving ? <Loader2 className="animate-spin" /> : <Save />}{saving ? "Saving…" : "Save"}</Button>
-              </DialogFooter>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
+      </SettingsDialogFrame>
 
       <Dialog open={confirmDiscard} onOpenChange={setConfirmDiscard}>
         <DialogContent className="sm:max-w-[440px]">
@@ -544,11 +524,11 @@ function AppearanceSettings({ draft, saving, onDraftChange }: { draft: SettingsD
         <div className="visual-effects-options" aria-describedby="visual-effects-description">
           {([
             { id: "off", label: "Off", description: "Solid panels. No decorative effects." },
-            { id: "standard", label: "Standard", description: "Soft lighting and completion feedback." },
+            { id: "standard", label: "Standard", description: "Commit graph hover glow, start screen lighting, and completion feedback." },
             { id: "full", label: "Full", description: "Standard effects plus glass blur. Uses more graphics power." }
-          ] as const).map(({ id, label, description }) => <label key={id} className="visual-effects-option">
+          ] as const).map(({ id, label, description }) => <label key={id} className="choice-card">
             <input type="radio" name="visual-effects" value={id} checked={draft.visualEffects === id} onChange={() => onDraftChange({ ...draft, visualEffects: id })} />
-            <span><strong>{label}</strong><span>{description}</span></span>
+            <span><strong>{label}</strong><small>{description}</small></span>
           </label>)}
         </div>
       </fieldset>
@@ -607,7 +587,7 @@ function GitHubIntegrationSettings({
   return <SettingsCard title="GitHub" description="Use one GitHub account for workflow runs, issues, and pull requests.">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="flex min-w-0 items-center gap-3">
-        <span className="grid size-10 shrink-0 place-items-center rounded-lg border bg-muted/40"><GitFork className="size-5" aria-hidden="true" /></span>
+        <span className="grid size-10 shrink-0 place-items-center rounded-lg border bg-muted"><GitFork className="size-5" aria-hidden="true" /></span>
         <div className="min-w-0">
           <p className="font-medium">GitHub Desktop connection</p>
           <p className="text-sm text-muted-foreground">{loading ? "Checking GitHub connection…" : connection?.message ?? "GitHub is not connected."}</p>
@@ -618,19 +598,21 @@ function GitHubIntegrationSettings({
       </Badge>
     </div>
 
-    <dl className="grid gap-2 rounded-md border bg-muted/20 p-3 text-sm">
+    <dl className="grid gap-2 rounded-lg border p-3 text-sm">
       <div className="grid gap-1 sm:grid-cols-[130px_minmax(0,1fr)]"><dt className="text-muted-foreground">Active account</dt><dd className="font-medium">{connection?.accountLogin ? `@${connection.accountLogin}` : authenticated ? "Authenticated account unavailable" : "No account"}</dd></div>
       <div className="grid gap-1 sm:grid-cols-[130px_minmax(0,1fr)]"><dt className="text-muted-foreground">Access</dt><dd className="font-medium">{formatGitHubAccess(connection)}</dd></div>
       <div className="grid gap-1 sm:grid-cols-[130px_minmax(0,1fr)]"><dt className="text-muted-foreground">Credential source</dt><dd className="font-medium">{formatGitHubSource(connection?.source ?? "anonymous")}</dd></div>
     </dl>
 
-    {resetAt ? <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm" role="status">GitHub expects access to resume {formatSettingsTimestamp(resetAt)}. Cached results remain visible.</p> : null}
-    {error ? <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">{error}</p> : null}
+    {resetAt ? <p className="dialog-notice" data-tone="warning" role="status"><Clock aria-hidden="true" /><span>GitHub expects access to resume {formatSettingsTimestamp(resetAt)}. Cached results remain visible.</span></p> : null}
+    {error ? <p className="dialog-notice" data-tone="danger" role="alert"><CircleAlert aria-hidden="true" /><span>{error}</span></p> : null}
 
-    {deviceFlow ? <div className="grid gap-3 rounded-md border border-primary/30 bg-primary/5 p-3" role="status">
-      <div><p className="text-sm font-medium">Enter this code on GitHub</p><p className="mt-1 font-mono text-2xl font-semibold tracking-[0.2em] selectable-text">{deviceFlow.userCode}</p></div>
-      <p className="text-sm text-muted-foreground">Githead is waiting for authorization. This code expires {formatSettingsTimestamp(deviceFlow.expiresAt)}.</p>
-      <Button type="button" variant="outline" className="w-fit" disabled={disabled} onClick={() => void window.githead.openExternalUrl({ url: deviceFlow.verificationUri })}><ExternalLink />Open GitHub</Button>
+    {deviceFlow ? <div className="dialog-notice" data-tone="info" role="status">
+      <div className="grid gap-3">
+        <div><p className="text-sm font-medium">Enter this code on GitHub</p><p className="mt-1 font-mono text-2xl font-semibold tracking-[0.2em] selectable-text">{deviceFlow.userCode}</p></div>
+        <p className="text-sm text-muted-foreground">Githead is waiting for authorization. This code expires {formatSettingsTimestamp(deviceFlow.expiresAt)}.</p>
+        <Button type="button" variant="outline" className="w-fit" disabled={disabled} onClick={() => void window.githead.openExternalUrl({ url: deviceFlow.verificationUri })}><ExternalLink />Open GitHub</Button>
+      </div>
     </div> : null}
 
     <div className="flex flex-wrap gap-2">
@@ -679,7 +661,7 @@ function formatSettingsTimestamp(value: string): string {
 function FontSetting<T extends string>({ id, label, value, options, sample, disabled, onChange }: { id: string; label: string; value: T; options: readonly FontOption<T>[]; sample: string; disabled: boolean; onChange: (value: T) => void }): ReactNode {
   const selected = options.find((option) => option.id === value) ?? options[0];
   const helpId = `${id}-help`;
-  return <div className="font-setting"><Label htmlFor={id}>{label}</Label><select id={id} className="h-10 rounded-md border border-input bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50" value={value} disabled={disabled} aria-describedby={helpId} onChange={(event) => onChange(event.currentTarget.value as T)}>{options.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}</select><p id={helpId} className="text-xs text-muted-foreground">{selected?.description}</p><div className="font-preview" style={{ fontFamily: selected?.previewFamily }} aria-hidden="true">{sample}</div></div>;
+  return <div className="font-setting"><Label htmlFor={id}>{label}</Label><select id={id} className="form-select" value={value} disabled={disabled} aria-describedby={helpId} onChange={(event) => onChange(event.currentTarget.value as T)}>{options.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}</select><p id={helpId} className="text-xs text-muted-foreground">{selected?.description}</p><div className="font-preview" style={{ fontFamily: selected?.previewFamily }} aria-hidden="true">{sample}</div></div>;
 }
 
 

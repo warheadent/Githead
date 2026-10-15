@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { createCommit, createCommitDetails, createSummary, createTextDiff, defer, githead, repoPath, repositoryRecents, waitForRepositoryWorkspace, type RepoSummary } from "./AppTestHarness";
+import { chooseSwitcherOption, closeQuickSwitcher, createCommit, createCommitDetails, createSummary, createTextDiff, defer, githead, openQuickSwitcher, openSettings, openWorkspaceView, repoPath, repositoryRecents, switchToRepository, waitForRepositoryWorkspace, type RepoSummary } from "./AppTestHarness";
 import { App } from "./App";
 
 async function traverseHistory(direction: "back" | "forward"): Promise<void> {
@@ -19,6 +19,19 @@ async function goBack(): Promise<void> {
 
 async function goForward(): Promise<void> {
   await traverseHistory("forward");
+}
+
+/** Checks the quick switcher's Go back or Go forward command, then closes the switcher so history can move again. */
+async function expectNavigationCommand(name: "Go back" | "Go forward", enabled: boolean, user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  const dialog = await openQuickSwitcher(user);
+  const option = within(dialog).getByRole("option", { name });
+  expect(option.getAttribute("aria-disabled")).toBe(enabled ? null : "true");
+  await closeQuickSwitcher(user);
+}
+
+/** The header names the open repository on its switcher button. */
+function currentRepositoryButton(name: string): HTMLElement {
+  return within(screen.getByRole("navigation", { name: "Workspace navigation" })).getByRole("button", { name: `Switch repository: ${name}` });
 }
 
 function selectedTab(name: RegExp): HTMLElement {
@@ -39,9 +52,9 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     vi.mocked(githead.getStashDetails).mockResolvedValue({ stash, files: [] });
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(await screen.findByRole("tab", { name: "Stashes 1" }));
+    await openWorkspaceView("Stashes", user);
     await screen.findByRole("option", { name: /saved navigation work/ });
-    await user.click(screen.getByRole("button", { name: `Switch to ${otherPath}` }));
+    await switchToRepository(otherPath, user);
     await waitFor(() => expect(githead.getStashes).toHaveBeenCalledWith(expect.objectContaining({ repoPath: otherPath })));
     await waitFor(() => expect(screen.queryByRole("tab", { name: /Stashes/ })).toBeNull());
 
@@ -49,20 +62,21 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     vi.mocked(githead.getStashes).mockImplementation(({ repoPath: path }) => path === repoPath ? pending.promise : Promise.resolve([]));
     await goBack();
     selectedTab(/Stashes/);
-    expect(screen.getByRole("button", { name: "Go forward" }).hasAttribute("disabled")).toBe(false);
+    await expectNavigationCommand("Go forward", true, user);
+    selectedTab(/Stashes/);
     await act(async () => {
       if (outcome === "failed") pending.reject(new Error("Stash list unavailable"));
       else pending.resolve(outcome === "loaded" ? [stash] : []);
     });
     if (outcome === "empty") {
-      await waitFor(() => selectedTab(/File Status/));
+      await waitFor(() => selectedTab(/^Changes/));
       expect(screen.queryByRole("tab", { name: /Stashes/ })).toBeNull();
     } else {
       selectedTab(/Stashes/);
       if (outcome === "loaded") expect(await screen.findByRole("option", { name: /saved navigation work/ })).toBeTruthy();
       else expect(await screen.findByText("Stash list unavailable")).toBeTruthy();
       await goForward();
-      await waitFor(() => expect(screen.getByRole("button", { name: `Switch to ${otherPath}` }).getAttribute("aria-current")).toBe("true"));
+      await waitFor(() => expect(currentRepositoryButton("Other")).toBeTruthy());
     }
   });
 
@@ -79,20 +93,20 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     }));
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /src\/first\.ts/ }));
-    await user.click(await screen.findByRole("menuitem", { name: "Log Selected" }));
-    const first = await screen.findByRole("region", { name: "File History for src/first.ts" });
+    await user.click(await screen.findByRole("menuitem", { name: "Log selected" }));
+    const first = await screen.findByRole("region", { name: "File history for src/first.ts" });
     await within(first).findByText("diff for src/first.ts");
     await user.click(within(first).getByRole("button", { name: "Back" }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /src\/second\.ts/ }));
-    await user.click(await screen.findByRole("menuitem", { name: "Log Selected" }));
-    const second = await screen.findByRole("region", { name: "File History for src/second.ts" });
+    await user.click(await screen.findByRole("menuitem", { name: "Log selected" }));
+    const second = await screen.findByRole("region", { name: "File history for src/second.ts" });
     await within(second).findByText("diff for src/second.ts");
 
     await goBack();
     await goBack();
-    const restored = await screen.findByRole("region", { name: "File History for src/first.ts" });
+    const restored = await screen.findByRole("region", { name: "File history for src/first.ts" });
     expect(await within(restored).findByText("change to src/first.ts")).toBeTruthy();
     expect(await within(restored).findByText("diff for src/first.ts")).toBeTruthy();
     expect(within(restored).queryByText("change to src/second.ts")).toBeNull();
@@ -113,18 +127,18 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     vi.mocked(githead.getFileBlame).mockResolvedValue({ kind: "text", repoPath, hash: commit.hash, path: file.path, byteLength: 0, commits: [], lines: [] });
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
-    await user.click(await screen.findByRole("menuitem", { name: "Log Selected" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Log selected" }));
     await user.click(await screen.findByRole("button", { name: "Blame this version" }));
     await screen.findByRole("region", { name: `Blame for ${file.path}` });
-    await user.click(screen.getByRole("button", { name: `Switch to ${otherPath}` }));
-    await waitFor(() => expect(screen.getByRole("button", { name: `Switch to ${otherPath}` }).getAttribute("aria-current")).toBe("true"));
+    await switchToRepository(otherPath, user);
+    await waitFor(() => expect(currentRepositoryButton("Other")).toBeTruthy());
     await goBack();
     const blame = await screen.findByRole("region", { name: `Blame for ${file.path}` });
     await waitFor(() => expect(githead.getFileBlame).toHaveBeenCalledTimes(2));
-    await user.click(within(blame).getByRole("button", { name: "Back to File History" }));
-    const restored = await screen.findByRole("region", { name: `File History for ${file.path}` });
+    await user.click(within(blame).getByRole("button", { name: "Back to file history" }));
+    const restored = await screen.findByRole("region", { name: `File history for ${file.path}` });
     expect(await within(restored).findByText("restored file change")).toBeTruthy();
     expect(await within(restored).findByText("restored file diff")).toBeTruthy();
   });
@@ -133,35 +147,55 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     const user = userEvent.setup();
     render(<StrictMode><App /></StrictMode>);
     await waitForRepositoryWorkspace();
-    expect(screen.getByRole("button", { name: "Go back" }).hasAttribute("disabled")).toBe(true);
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
-    await user.click(screen.getByRole("tab", { name: /Activity/ }));
+    await expectNavigationCommand("Go back", false, user);
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
+    await openWorkspaceView("Activity log", user);
     await goBack();
-    selectedTab(/Commit History/);
+    selectedTab(/^History$/);
     await goBack();
-    selectedTab(/File Status/);
+    selectedTab(/^Changes/);
     await goForward();
-    selectedTab(/Commit History/);
-    await user.click(screen.getByRole("tab", { name: /File Status/ }));
-    expect(screen.getByRole("button", { name: "Go forward" }).hasAttribute("disabled")).toBe(true);
+    selectedTab(/^History$/);
+    await user.click(screen.getByRole("tab", { name: /^Changes/ }));
+    await expectNavigationCommand("Go forward", false, user);
     await goBack();
-    selectedTab(/Commit History/);
+    selectedTab(/^History$/);
   });
 
-  it("supports toolbar buttons and Alt+Left/Right without recording the same tab twice", async () => {
+  it("keeps one guest view beside Changes and History until it is closed", async () => {
     const user = userEvent.setup();
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    expect(screen.getAllByRole("tab").map((tab) => tab.getAttribute("aria-label") ?? tab.textContent)).toEqual(["Changes", "History"]);
+
+    await openWorkspaceView("Activity log", user);
+    await user.click(screen.getByRole("tab", { name: /^Changes/ }));
+    // The guest keeps its segment while a permanent view is active.
+    expect(screen.getByRole("tab", { name: "Activity log", selected: false })).toBeTruthy();
+
+    await user.click(screen.getByRole("tab", { name: "Activity log" }));
+    await user.click(screen.getByRole("button", { name: "Close Activity log view" }));
+    await waitFor(() => selectedTab(/^Changes/));
+    expect(screen.queryByRole("tab", { name: /^Activity log/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Close Activity log view" })).toBeNull();
+    // Keyboard users keep their place in the header instead of dropping to the page body.
+    expect(document.activeElement).toBe(screen.getByRole("tab", { name: /^Changes/, selected: true }));
+  });
+
+  it("supports the quick switcher commands and Alt+Left/Right without recording the same tab twice", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     fireEvent.keyDown(window, { key: "ArrowLeft", altKey: true });
-    await waitFor(() => selectedTab(/File Status/));
+    await waitFor(() => selectedTab(/^Changes/));
     fireEvent.keyDown(window, { key: "ArrowRight", altKey: true });
-    await waitFor(() => selectedTab(/Commit History/));
-    await user.click(screen.getByRole("button", { name: "Go back" }));
-    await waitFor(() => selectedTab(/File Status/));
-    await user.click(screen.getByRole("button", { name: "Go forward" }));
-    await waitFor(() => selectedTab(/Commit History/));
+    await waitFor(() => selectedTab(/^History$/));
+    await chooseSwitcherOption("Go back", user);
+    await waitFor(() => selectedTab(/^Changes/));
+    await chooseSwitcherOption("Go forward", user);
+    await waitFor(() => selectedTab(/^History$/));
   });
 
   it("restores file history and blame, and keeps commit selection out of the Back steps", async () => {
@@ -174,22 +208,22 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     vi.mocked(githead.getFileHistory).mockResolvedValue({ repoPath, startHash: commit.hash, requestedPath: file.path, hasMore: false, entries: [{ ...commit, path: file.path, status: "M" }] });
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
-    await user.click(await screen.findByRole("menuitem", { name: "Log Selected" }));
-    const fileHistory = await screen.findByRole("region", { name: `File History for ${file.path}` });
+    await user.click(await screen.findByRole("menuitem", { name: "Log selected" }));
+    const fileHistory = await screen.findByRole("region", { name: `File history for ${file.path}` });
     await user.click(await within(fileHistory).findByRole("button", { name: "Blame this version" }));
     await waitFor(() => expect(githead.getFileBlame).toHaveBeenCalled());
     await goBack();
-    expect(await screen.findByRole("region", { name: `File History for ${file.path}` })).toBeTruthy();
+    expect(await screen.findByRole("region", { name: `File history for ${file.path}` })).toBeTruthy();
     expect(githead.getFileHistory).toHaveBeenCalledTimes(1);
     await goBack();
     expect(await screen.findByRole("listbox", { name: "Commit history" })).toBeTruthy();
     await goBack();
-    selectedTab(/File Status/);
+    selectedTab(/^Changes/);
     await goForward();
     await goForward();
-    expect(await screen.findByRole("region", { name: `File History for ${file.path}` })).toBeTruthy();
+    expect(await screen.findByRole("region", { name: `File history for ${file.path}` })).toBeTruthy();
   });
 
   it("restores the repository and its screen together", async () => {
@@ -199,22 +233,22 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     vi.mocked(githead.getRepoSummary).mockImplementation(async (path) => createSummary({ repoPath: path }));
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Activity/ }));
-    await user.click(screen.getByRole("button", { name: `Switch to ${otherPath}` }));
+    await openWorkspaceView("Activity log", user);
+    await switchToRepository(otherPath, user);
     await waitFor(() => expect(githead.getRepoIdentity).toHaveBeenCalledWith(expect.objectContaining({ repoPath: otherPath })));
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     await goBack();
     await goBack();
-    await waitFor(() => selectedTab(/Activity/));
-    expect(within(screen.getByRole("navigation", { name: "Workspace navigation" })).getByRole("button", { name: "Githead" })).toBeTruthy();
+    await waitFor(() => selectedTab(/^Activity log/));
+    expect(currentRepositoryButton("Githead")).toBeTruthy();
   });
 
   it("does not leave the screen or reload while a dialog is open", async () => {
     const user = userEvent.setup();
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
+    await openSettings(user);
     await screen.findByRole("dialog");
     const before = window.history.state;
     await goBack();
@@ -226,18 +260,18 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     const user = userEvent.setup();
     const first = render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     first.unmount();
     render(<App />);
     await waitForRepositoryWorkspace();
     const initial = window.history.state;
     await goBack();
     await waitFor(() => expect(window.history.state).toEqual(initial));
-    selectedTab(/File Status/);
-    await user.click(screen.getByRole("tab", { name: /Activity/ }));
+    selectedTab(/^Changes/);
+    await openWorkspaceView("Activity log", user);
     await goBack();
-    selectedTab(/File Status/);
-    expect(screen.getByRole("button", { name: "Go back" }).hasAttribute("disabled")).toBe(true);
+    selectedTab(/^Changes/);
+    await expectNavigationCommand("Go back", false, user);
   });
 
   it("does not reopen a restored file screen after the user leaves during a repository refresh", async () => {
@@ -253,21 +287,21 @@ describe("workspace navigation", { timeout: 10_000 }, () => {
     vi.mocked(githead.getFileHistory).mockResolvedValue({ repoPath, startHash: commit.hash, requestedPath: file.path, hasMore: false, entries: [{ ...commit, path: file.path, status: "M" }] });
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /src\/App\.tsx/ }));
-    await user.click(await screen.findByRole("menuitem", { name: "Log Selected" }));
-    await screen.findByRole("region", { name: `File History for ${file.path}` });
-    await user.click(screen.getByRole("button", { name: `Switch to ${otherPath}` }));
-    await waitFor(() => expect(screen.getByRole("button", { name: `Switch to ${otherPath}` }).getAttribute("aria-current")).toBe("true"));
+    await user.click(await screen.findByRole("menuitem", { name: "Log selected" }));
+    await screen.findByRole("region", { name: `File history for ${file.path}` });
+    await switchToRepository(otherPath, user);
+    await waitFor(() => expect(currentRepositoryButton("Other")).toBeTruthy());
 
     const pending = defer<RepoSummary>();
     vi.mocked(githead.getRepoSummary).mockImplementation((path) => path === repoPath ? pending.promise : Promise.resolve(createSummary({ repoPath: path })));
     await goBack();
-    await user.click(screen.getByRole("tab", { name: /Activity/ }));
+    await openWorkspaceView("Activity log", user);
     await act(async () => pending.resolve(createSummary()));
-    selectedTab(/Activity/);
+    selectedTab(/^Activity log/);
     expect(githead.getFileHistory).toHaveBeenCalledTimes(1);
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     await waitFor(() => expect(githead.getFileHistory).toHaveBeenCalledTimes(2));
     expect(await screen.findByRole("button", { name: "Blame this version" })).toBeTruthy();
   });

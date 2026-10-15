@@ -153,7 +153,7 @@ export function ChartCard({
         <div className="analytics-card-actions">
           {actions}
           {table ? (
-            <Button type="button" variant="outline" size="xs" aria-pressed={showTable} onClick={() => setShowTable((value) => !value)}>
+            <Button type="button" variant="ghost" size="xs" aria-pressed={showTable} onClick={() => setShowTable((value) => !value)}>
               {showTable ? "Chart" : "Table"}
             </Button>
           ) : null}

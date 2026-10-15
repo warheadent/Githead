@@ -56,7 +56,7 @@ describe("GitHubQueryToolbar", () => {
   it("uses the themed menu for compact sorting", async () => {
     const user = userEvent.setup();
     const onSortChange = vi.fn();
-    render(<GitHubQueryToolbar compact view="pullRequests" search="" preset="all" presets={[{ value: "all", label: "All open" }]} sort="updated-desc" sortOptions={[{ value: "updated-desc", label: "Recently updated" }, { value: "created-desc", label: "Newest" }]} viewerAvailable status="" onSearchChange={vi.fn()} onPresetChange={vi.fn()} onSortChange={onSortChange} onClear={vi.fn()} />);
+    render(<TooltipProvider><GitHubQueryToolbar compact view="pullRequests" search="" preset="all" presets={[{ value: "all", label: "All open" }]} sort="updated-desc" sortOptions={[{ value: "updated-desc", label: "Recently updated" }, { value: "created-desc", label: "Newest" }]} viewerAvailable status="" onSearchChange={vi.fn()} onPresetChange={vi.fn()} onSortChange={onSortChange} onClear={vi.fn()} /></TooltipProvider>);
 
     await user.click(screen.getByRole("button", { name: "Sort: Recently updated" }));
     await user.click(screen.getByRole("menuitemradio", { name: "Newest" }));
@@ -82,9 +82,10 @@ describe("GitHubQueryToolbar", () => {
     const onRefresh = vi.fn();
     render(<TooltipProvider><GitHubQueryToolbar compact activeFilterCount={2} view="pullRequests" search="" preset="drafts" presets={[{ value: "all", label: "All open" }, { value: "drafts", label: "Drafts" }]} sort="updated-desc" sortOptions={[{ value: "updated-desc", label: "Recently updated" }]} viewerAvailable status="3 matching" onSearchChange={vi.fn()} onPresetChange={vi.fn()} onSortChange={vi.fn()} onClear={onClear} onRefresh={onRefresh}><label>Label<input /></label></GitHubQueryToolbar></TooltipProvider>);
 
-    expect(screen.getByRole("button", { name: "Filters, 2 active" })).toBeTruthy();
+    const filters = screen.getByRole("button", { name: "Filters, Drafts, 2 active" });
+    expect(filters.textContent).toContain("Drafts");
     expect(screen.queryByLabelText("Preset")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Filters, 2 active" }));
+    await user.click(filters);
     expect(screen.getByLabelText("Preset")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Clear filters" }));
     expect(onClear).toHaveBeenCalledOnce();
@@ -98,7 +99,7 @@ describe("GitHubQueryToolbar", () => {
     render(<TooltipProvider><GitHubQueryToolbar compact view="issues" search="" preset="all" presets={[{ value: "all", label: "All open" }]} sort="updated-desc" sortOptions={[{ value: "updated-desc", label: "Recently updated" }]} viewerAvailable status="2 open issues" onSearchChange={vi.fn()} onPresetChange={vi.fn()} onSortChange={vi.fn()} onClear={vi.fn()} onRefresh={onRefresh} /></TooltipProvider>);
 
     expect(screen.getByPlaceholderText("Search issues")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Filters, 0 active" }));
+    await user.click(screen.getByRole("button", { name: "Filters, All open, 0 active" }));
     expect(screen.getByText("Narrow the open issues.")).toBeTruthy();
     await user.keyboard("{Escape}");
     await user.click(screen.getByRole("button", { name: "Refresh issues" }));

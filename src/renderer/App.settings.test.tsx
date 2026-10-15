@@ -12,8 +12,13 @@ import {
   defer,
   flushRendererAsync,
   githead,
+  openAddRepository,
+  openBranchSwitcher,
+  openSettings,
   repoPath,
+  repositoryOption,
   repositoryRecents,
+  switchToRepository,
   waitForRepositoryWorkspace,
   type AiReasoningCapabilities,
   type AiSettings,
@@ -63,7 +68,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(await screen.findByRole("button", { name: "Clone a repository" }));
     await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
     await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
-    await user.click(screen.getByRole("button", { name: "Clone Repository" }));
+    await user.click(screen.getByRole("button", { name: "Clone repository" }));
 
     await waitFor(() => {
       expect(githead.cloneRepository).toHaveBeenCalledWith({
@@ -77,7 +82,7 @@ describe("App", { timeout: 10_000 }, () => {
       });
     });
     await waitForRepositoryWorkspace();
-    expect(screen.getByRole("button", { name: `Switch to ${clonedRepo}` }).getAttribute("aria-current")).toBe("true");
+    expect((await repositoryOption(clonedRepo, user)).getAttribute("aria-current")).toBe("true");
     await waitFor(() => {
       expect(githead.addRepoRecent).toHaveBeenCalledWith({ repoPath: clonedRepo });
     });
@@ -97,7 +102,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(await screen.findByRole("button", { name: "Clone a repository" }));
     await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
     await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
-    await user.click(screen.getByRole("button", { name: "Clone Repository" }));
+    await user.click(screen.getByRole("button", { name: "Clone repository" }));
 
     expect(await screen.findByText("fatal: authentication failed")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Back to repositories" })).toBeTruthy();
@@ -121,7 +126,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.type(screen.getByRole("combobox", { name: "Search or enter a branch..." }), "main");
     await user.click(screen.getByRole("button", { name: 'Use branch "main"' }));
     await user.type(screen.getByLabelText("Depth"), "1");
-    await user.click(screen.getByRole("button", { name: "Clone Repository" }));
+    await user.click(screen.getByRole("button", { name: "Clone repository" }));
 
     await waitFor(() => {
       expect(githead.cloneRepository).toHaveBeenCalledWith({
@@ -243,12 +248,12 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(await screen.findByRole("button", { name: "Clone a repository" }));
     await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
     await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
-    await user.click(screen.getByRole("button", { name: "Clone Repository" }));
+    await user.click(screen.getByRole("button", { name: "Clone repository" }));
 
     await waitFor(() => {
       expect(githead.getRepoSummary).toHaveBeenCalledWith(clonedRepo);
     });
-    fireEvent.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository();
     await flushRendererAsync();
     expect((screen.getByRole("button", { name: "Open local folder…" }) as HTMLButtonElement).disabled).toBe(false);
 
@@ -271,7 +276,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(screen.getByRole("button", { name: "Check" }));
 
     expect((await screen.findByRole("button", { name: "Checking" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Clone Repository" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Clone repository" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByRole("button", { name: "Back to repositories" }).hasAttribute("disabled")).toBe(true);
 
     await act(async () => {
@@ -296,7 +301,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect((screen.getByLabelText("Depth") as HTMLInputElement).value).toBe("0");
     await user.type(screen.getByLabelText("Repository URL or path"), "https://github.com/openai/repo.git");
     await user.type(screen.getByLabelText("Destination folder"), "D:\\Work");
-    await user.click(screen.getByRole("button", { name: "Clone Repository" }));
+    await user.click(screen.getByRole("button", { name: "Clone repository" }));
 
     await waitFor(() => {
       expect(githead.cloneRepository).toHaveBeenCalledWith(expect.objectContaining({
@@ -306,11 +311,11 @@ describe("App", { timeout: 10_000 }, () => {
     });
   });
 
-  it("opens the focused repository omnibox from the sidebar", async () => {
+  it("opens the focused repository omnibox below the repository switcher", async () => {
     const user = userEvent.setup();
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository(user);
     const input = screen.getByRole("combobox", { name: "Search repositories or paste a source" });
     expect(document.activeElement).toBe(input);
     expect(screen.getByRole("button", { name: /Open local folder/ })).toBeTruthy();
@@ -324,7 +329,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.keyboard("{Escape}");
     expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Search repositories or paste a source" }));
     await user.keyboard("{Escape}");
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add repository" })));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Switch repository/ })));
   });
 
   it("clones from the composer and remembers the destination for the next clone", async () => {
@@ -335,7 +340,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.addRepoRecent).mockImplementation(async (request) => repositoryRecents(repoPath, request.repoPath));
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository(user);
     await user.type(screen.getByRole("combobox", { name: "Search repositories or paste a source" }), "openai/repo{Enter}");
     await user.click(screen.getByRole("button", { name: "Destination folder" }));
     await user.type(screen.getByRole("textbox", { name: "Destination folder" }), "D:\\Work");
@@ -346,9 +351,9 @@ describe("App", { timeout: 10_000 }, () => {
       source: "https://github.com/openai/repo.git", parentPath: "D:\\Work", directoryName: "repo", branchName: "",
       depth: null, recurseSubmodules: true, operationId: expect.any(String)
     }));
-    await waitFor(() => expect(screen.getByRole("button", { name: `Switch to ${clonedRepo}` }).getAttribute("aria-current")).toBe("true"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Switch repository: repo" })).toBeTruthy());
     await waitFor(() => expect(screen.queryByRole("form", { name: "Clone repository" })).toBeNull());
-    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository(user);
     await user.type(screen.getByRole("combobox", { name: "Search repositories or paste a source" }), "openai/next{Enter}");
     expect(screen.getByRole("button", { name: "Destination folder" }).textContent).toContain("D:\\Work\\next");
   });
@@ -359,7 +364,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.cloneRepository).mockResolvedValue(createOperationResult({ repoPath: "D:\\Work\\repo", exitCode: 1, stderr: "fatal: authentication failed" }));
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository(user);
     await user.type(screen.getByRole("combobox", { name: "Search repositories or paste a source" }), "openai/repo{Enter}");
     await user.click(screen.getByRole("button", { name: "Destination folder" }));
     await user.click(screen.getByRole("button", { name: "Browse" }));
@@ -395,15 +400,15 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: `Switch to ${firstRepo}` }));
-    await user.click(screen.getByRole("button", { name: `Switch to ${secondRepo}` }));
+    await switchToRepository(firstRepo, user);
+    await switchToRepository(secondRepo, user);
 
     secondSummary.resolve(createSummary({
       repoPath: secondRepo,
       branch: "second"
     }));
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: `Switch to ${secondRepo}` }).getAttribute("aria-current")).toBe("true");
+      expect(screen.getByRole("button", { name: "Switch repository: Second" })).toBeTruthy();
     });
     expect(await screen.findByText("second")).toBeTruthy();
 
@@ -416,49 +421,14 @@ describe("App", { timeout: 10_000 }, () => {
     });
   });
 
-  it("switches branches from the repository panel", async () => {
-    const user = userEvent.setup();
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      branches: [
-        {
-          name: "main",
-          current: true,
-          upstream: "origin/main"
-        },
-        {
-          name: "feature/nav",
-          current: false,
-          upstream: null
-        }
-      ]
-    }));
-
-    render(<App />);
-
-    await screen.findByText("main");
-    const branchTrigger = screen.getByRole("button", { name: "Switch branch" });
-    expect(branchTrigger.textContent).toContain("main");
-    await user.click(branchTrigger);
-    expect((await screen.findByRole("option", { name: /main.*current/ })).getAttribute("aria-selected")).toBe("true");
-    await user.click(await screen.findByRole("option", { name: /feature\/nav/ }));
-
-    await waitFor(() => {
-      expect(githead.switchBranch).toHaveBeenCalledWith({
-        repoPath,
-        branchName: "feature/nav",
-        operationId: expect.any(String)
-      });
-    });
-  });
-
-  it("creates a branch from the repository panel", async () => {
+  it("creates a branch from the branch switcher", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary());
 
     render(<App />);
 
     await screen.findByText("main");
-    await user.click(screen.getByRole("button", { name: "Create branch" }));
+    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: /^New branch…/ }));
     await user.type(await screen.findByLabelText("Branch name"), "feature/new");
     await user.click(screen.getByRole("button", { name: "Create branch" }));
 
@@ -483,7 +453,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await screen.findByText("main");
-    await user.click(screen.getByRole("button", { name: "Create branch" }));
+    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: /^New branch…/ }));
     await user.type(await screen.findByLabelText("Branch name"), "main");
     await user.click(screen.getByRole("button", { name: "Create branch" }));
 
@@ -491,47 +461,13 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.getByLabelText("Branch name")).toBeTruthy();
   });
 
-  it("changes the current branch upstream from the repository panel", async () => {
-    const user = userEvent.setup();
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      remoteBranches: [
-        {
-          name: "origin/main",
-          remote: "origin",
-          branch: "main"
-        },
-        {
-          name: "origin/feature",
-          remote: "origin",
-          branch: "feature"
-        }
-      ]
-    }));
-
-    render(<App />);
-
-    await screen.findByText("origin/main");
-    await user.click(screen.getByRole("button", { name: "Change upstream" }));
-    await user.click(await screen.findByRole("option", { name: /origin\/feature/ }));
-
-    await waitFor(() => {
-      expect(githead.setBranchUpstream).toHaveBeenCalledWith({
-        repoPath,
-        branchName: "main",
-        upstream: "origin/feature",
-        operationId: expect.any(String)
-      });
-    });
-  });
-
-  it("clears the current branch upstream from the repository panel", async () => {
+  it("clears the current branch upstream from the branch switcher", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary());
 
     render(<App />);
 
-    await screen.findByText("origin/main");
-    await user.click(screen.getByRole("button", { name: "Change upstream" }));
+    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: "Change upstream…, origin/main" }));
     await user.click(await screen.findByRole("option", { name: /No upstream/ }));
 
     await waitFor(() => {
@@ -542,40 +478,6 @@ describe("App", { timeout: 10_000 }, () => {
         operationId: expect.any(String)
       });
     });
-  });
-
-  it("keeps the upstream picker available when changing upstream fails", async () => {
-    const user = userEvent.setup();
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      remoteBranches: [
-        {
-          name: "origin/main",
-          remote: "origin",
-          branch: "main"
-        },
-        {
-          name: "origin/feature",
-          remote: "origin",
-          branch: "feature"
-        }
-      ]
-    }));
-    vi.mocked(githead.setBranchUpstream).mockResolvedValue({
-      repoPath,
-      exitCode: -1,
-      stdout: "",
-      stderr: "Unable to set upstream."
-    });
-
-    render(<App />);
-
-    await screen.findByText("origin/main");
-    await user.click(screen.getByRole("button", { name: "Change upstream" }));
-    await user.click(await screen.findByRole("option", { name: /origin\/feature/ }));
-
-    expect(await screen.findByText("Unable to set upstream.")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Change upstream" }));
-    expect(await screen.findByRole("option", { name: /origin\/feature/ })).toBeTruthy();
   });
 
   it("saves OpenRouter settings with custom source control writing instructions", async () => {
@@ -599,8 +501,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: "Settings" });
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await waitForRepositoryWorkspace();
+    await openSettings(user);
 
     expect(screen.queryByLabelText("Site URL")).toBeNull();
     expect(screen.queryByLabelText("Site Title")).toBeNull();
@@ -614,7 +516,7 @@ describe("App", { timeout: 10_000 }, () => {
     fireEvent.change(screen.getByLabelText("OpenRouter API Key"), { target: { value: "sk-or-key" } });
     fireEvent.change(screen.getByLabelText("Model"), { target: { value: "openrouter/auto" } });
     fireEvent.change(screen.getByLabelText("Group changes by"), { target: { value: "hunk" } });
-    fireEvent.change(screen.getByLabelText("Commit Plan Model"), { target: { value: "openrouter/plan" } });
+    fireEvent.change(screen.getByLabelText("Commit plan model"), { target: { value: "openrouter/plan" } });
     fireEvent.change(instructions, { target: { value: "Write a single-line commit message." } });
     await user.click(screen.getByRole("button", { name: "Save" }));
 
@@ -697,8 +599,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: "Settings" });
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await waitForRepositoryWorkspace();
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "AI" }));
 
     expect((screen.getByLabelText("Writing style") as HTMLSelectElement).value).toBe("custom");
@@ -721,8 +623,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: "Settings" });
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await waitForRepositoryWorkspace();
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "AI" }));
 
     const provider = await screen.findByLabelText("Provider");
@@ -733,7 +635,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.getByText("Claude Code was not detected.")).toBeTruthy();
   });
 
-  it("checks out a fetched remote branch from the repository panel", async () => {
+  it("checks out a fetched remote branch from the branch switcher", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       remoteBranches: [{ name: "origin/feature/review", remote: "origin", branch: "feature/review" }]
@@ -761,9 +663,9 @@ describe("App", { timeout: 10_000 }, () => {
     }));
     render(<App />);
     await screen.findByText("main");
-    await user.click(screen.getByRole("button", { name: "Switch branch" }));
-    expect(screen.queryByRole("option", { name: /main.*origin/ })).toBeNull();
-    expect(await screen.findByRole("option", { name: /release.*origin/ })).toBeTruthy();
+    const remoteBranches = within(await openBranchSwitcher(user)).getByRole("group", { name: "Remote" });
+    expect(within(remoteBranches).queryByRole("option", { name: /main.*origin/ })).toBeNull();
+    expect(within(remoteBranches).getByRole("option", { name: /release.*origin/ })).toBeTruthy();
   });
 
   it("manages branches and explains safe-delete refusals", async () => {
@@ -774,14 +676,13 @@ describe("App", { timeout: 10_000 }, () => {
     ] }));
     render(<App />);
     await screen.findByText("main");
-    await user.click(screen.getByRole("button", { name: "Switch branch" }));
-    await user.click(await screen.findByRole("button", { name: "Manage Branches…" }));
+    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: "Manage branches…" }));
     expect(screen.getByRole("button", { name: "Delete main" }).hasAttribute("disabled")).toBe(true);
     await user.click(screen.getByRole("button", { name: "Rename feature/old" }));
     const input = screen.getByLabelText("New name");
     await user.clear(input);
     await user.type(input, "feature/new");
-    await user.click(screen.getByRole("button", { name: "Rename Branch" }));
+    await user.click(screen.getByRole("button", { name: "Rename branch" }));
     await waitFor(() => expect(githead.renameBranch).toHaveBeenCalledWith({ repoPath, branchName: "feature/old", newBranchName: "feature/new", operationId: expect.any(String) }));
     vi.mocked(githead.deleteBranch).mockResolvedValue({
       repoPath,
@@ -790,13 +691,13 @@ describe("App", { timeout: 10_000 }, () => {
       stderr: "error: the branch 'feature/old' is not fully merged\nhint: run git branch -D feature/old"
     });
     await user.click(await screen.findByRole("button", { name: "Delete feature/old" }));
-    await user.click(screen.getByRole("button", { name: "Delete Branch" }));
+    await user.click(screen.getByRole("button", { name: "Delete branch" }));
     expect(githead.deleteBranch).toHaveBeenCalledWith({ repoPath, branchName: "feature/old", force: false, operationId: expect.any(String) });
     expect(await screen.findByText("This branch has commits that haven’t been merged. Merge them into another branch before deleting it.")).toBeTruthy();
     expect(screen.queryByText(/git branch -D/)).toBeNull();
     vi.mocked(githead.deleteBranch).mockResolvedValue({ repoPath, exitCode: 0, stdout: "", stderr: "" });
     await user.click(screen.getByRole("checkbox", { name: /Force delete/ }));
-    await user.click(screen.getByRole("button", { name: "Force Delete Branch" }));
+    await user.click(screen.getByRole("button", { name: "Force delete branch" }));
     await waitFor(() => expect(githead.deleteBranch).toHaveBeenLastCalledWith({ repoPath, branchName: "feature/old", force: true, operationId: expect.any(String) }));
   });
 
@@ -809,22 +710,22 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: "Settings" });
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await waitForRepositoryWorkspace();
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "AI" }));
 
     const reasoning = await screen.findByLabelText("Reasoning") as HTMLSelectElement;
     await waitFor(() => expect(reasoning.disabled).toBe(false));
     expect(reasoning.value).toBe("low");
-    expect(within(reasoning).getByRole("option", { name: "Extra High" })).toBeTruthy();
+    expect(within(reasoning).getByRole("option", { name: "Extra high" })).toBeTruthy();
     await user.selectOptions(reasoning, "medium");
 
-    const commitPlanReasoning = await screen.findByLabelText("Commit Plan Reasoning") as HTMLSelectElement;
+    const commitPlanReasoning = await screen.findByLabelText("Commit plan reasoning") as HTMLSelectElement;
     await waitFor(() => expect(commitPlanReasoning.disabled).toBe(false));
     await user.selectOptions(commitPlanReasoning, "xhigh");
 
-    await user.type(screen.getByLabelText("PR Description Model"), "openai/gpt-5.4-nano");
-    const prReasoning = await screen.findByLabelText("PR Description Reasoning") as HTMLSelectElement;
+    await user.type(screen.getByLabelText("PR description model"), "openai/gpt-5.4-nano");
+    const prReasoning = await screen.findByLabelText("PR description reasoning") as HTMLSelectElement;
     await waitFor(() => expect(prReasoning.disabled).toBe(false));
     await user.selectOptions(prReasoning, "high");
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -845,8 +746,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: "Settings" });
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await waitForRepositoryWorkspace();
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "AI" }));
 
     const reasoning = await screen.findByLabelText("Reasoning") as HTMLSelectElement;
@@ -864,8 +765,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: "Settings" });
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await waitForRepositoryWorkspace();
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "AI" }));
     await waitFor(() => expect(githead.getAiReasoningCapabilities).toHaveBeenCalledTimes(1));
 
@@ -902,11 +803,11 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: "Settings" });
+    await waitForRepositoryWorkspace();
     await waitFor(() => {
       expect(githead.getGitIdentity).toHaveBeenCalled();
     });
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings(user);
 
     const settingsDialog = screen.getByRole("dialog", { name: "Settings" });
     expect(settingsDialog.className).toContain("sm:max-w-[880px]");
@@ -950,8 +851,8 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: "Settings" });
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await waitForRepositoryWorkspace();
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "Sync" }));
 
     const interval = screen.getByLabelText("Auto-fetch interval");
@@ -988,7 +889,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "Git behaviors" }));
     await user.click(screen.getByRole("checkbox", { name: /Check the upstream before committing/ }));
     await user.click(screen.getByRole("checkbox", { name: "Use Quick Commit by default" }));
@@ -1031,7 +932,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "Privacy" }));
     const checkbox = screen.getByRole("checkbox", { name: "Share anonymous diagnostics" }) as HTMLInputElement;
     expect(checkbox.checked).toBe(true);
@@ -1054,7 +955,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "AI" }));
     const model = screen.getByLabelText("Model");
     await user.clear(model);
@@ -1082,9 +983,9 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: "Settings" });
+    await waitForRepositoryWorkspace();
     vi.mocked(githead.getRepoTrust).mockClear();
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings(user);
     const name = screen.getByLabelText("Name");
     await user.type(name, "Global Identity");
     await user.type(screen.getByLabelText("Email"), "global@example.test");
@@ -1102,7 +1003,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await openSettings(user);
     expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
 
     await user.click(screen.getByRole("tab", { name: "Sync" }));
@@ -1137,16 +1038,16 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository(user);
     await user.click(await screen.findByRole("button", { name: "Open local folder…" }));
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.type(screen.getByLabelText("Name"), "Repository A Draft");
 
     pendingRepositoryChoice.resolve(otherRepo);
     await waitFor(() => expect(githead.getRepoSummary).toHaveBeenCalledWith(otherRepo));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull());
 
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings(user);
     expect((screen.getByLabelText("Name") as HTMLInputElement).value).not.toContain("Repository A Draft");
     expect(githead.saveGitIdentity).not.toHaveBeenCalled();
   });
@@ -1155,9 +1056,9 @@ describe("App", { timeout: 10_000 }, () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await screen.findByRole("button", { name: "Settings" });
+    await waitForRepositoryWorkspace();
     await waitFor(() => expect(document.documentElement.dataset.theme).toBe("githead"));
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "Appearance" }));
 
     const themes = within(screen.getByRole("group", { name: "Color theme" })).getAllByRole("radio");
@@ -1182,7 +1083,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(document.documentElement.dataset.theme).toBe("githead");
     expect(document.documentElement.classList.contains("dark")).toBe(false);
 
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "Appearance" }));
     await user.click(screen.getByRole("radio", { name: /Ember/ }));
     await user.click(screen.getByRole("radio", { name: "Light" }));
@@ -1214,7 +1115,7 @@ describe("App", { timeout: 10_000 }, () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "Appearance" }));
 
     const uiFont = screen.getByLabelText("Interface font") as HTMLSelectElement;
@@ -1232,7 +1133,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(document.documentElement.dataset.uiFont).toBe("inter");
     expect(document.documentElement.dataset.codeFont).toBe("system-mono");
 
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "Appearance" }));
     await user.selectOptions(screen.getByLabelText("Interface font"), "roboto");
     await user.selectOptions(screen.getByLabelText("Code font"), "source-code-pro");
@@ -1260,7 +1161,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.saveAiSettings).mockRejectedValue(new Error("Enter an OpenRouter API key."));
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "Appearance" }));
 
     const slider = screen.getByRole("slider", { name: "Interface scale" }) as HTMLInputElement;
@@ -1281,7 +1182,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(screen.getByRole("button", { name: "Discard changes" }));
     await waitFor(() => expect(githead.setWindowZoomFactor).toHaveBeenLastCalledWith(1));
 
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "Appearance" }));
     fireEvent.change(screen.getByRole("slider", { name: "Interface scale" }), { target: { value: "5" } });
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -1293,19 +1194,20 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.saveGitIdentity).not.toHaveBeenCalled();
   });
 
-  it("opens remote management from the sidebar and adds a local remote without fetching", async () => {
+  it("opens remote management from the branch switcher and adds a local remote without fetching", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ remotes: [], upstream: null, remoteBranches: [] }));
     vi.mocked(githead.getRemoteConfigs).mockResolvedValue([]);
 
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Manage remotes" }));
+    await waitForRepositoryWorkspace();
+    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: "Manage remotes…" }));
 
-    expect(await screen.findByRole("dialog", { name: "Manage Remotes" })).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Add Remote" }));
+    expect(await screen.findByRole("dialog", { name: "Manage remotes" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Add remote" }));
     expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("origin");
     await user.type(screen.getByLabelText("URL"), "https://example.test/project.git");
-    await user.click(screen.getByRole("button", { name: "Add Remote" }));
+    await user.click(screen.getByRole("button", { name: "Add remote" }));
 
     await waitFor(() => expect(githead.addRemote).toHaveBeenCalledWith({
       repoPath,
@@ -1316,14 +1218,15 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.runGitAction).not.toHaveBeenCalled();
   });
 
-  it("opens the hosted repository from the remote fact", async () => {
+  it("opens the hosted repository from the branch switcher", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       remotes: [{ name: "origin", url: "git@github.com:openai/codex.git", direction: "fetch" }]
     }));
 
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Open remote repository" }));
+    await waitForRepositoryWorkspace();
+    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: "Open remote repository" }));
 
     expect(githead.openExternalUrl).toHaveBeenCalledWith({
       url: "https://github.com/openai/codex"
@@ -1342,7 +1245,8 @@ describe("App", { timeout: 10_000 }, () => {
     ]);
 
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Manage remotes" }));
+    await waitForRepositoryWorkspace();
+    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: /^Manage remotes…/ }));
 
     expect(await screen.findByText("Advanced")).toBeTruthy();
     expect(screen.getByText("https://mirror.test/repo.git")).toBeTruthy();
@@ -1372,7 +1276,8 @@ describe("App", { timeout: 10_000 }, () => {
     ]);
 
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Manage remotes" }));
+    await waitForRepositoryWorkspace();
+    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: /^Manage remotes…/ }));
     await user.click(await screen.findByRole("button", { name: "Remove" }));
 
     expect(screen.getByText("Branch tracking will be cleared")).toBeTruthy();
@@ -1386,7 +1291,7 @@ describe("visual effect preferences", () => {
   it("previews, cancels, and saves effects and reduced motion", async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "Appearance" }));
     await user.click(screen.getByRole("radio", { name: /^Full/ }));
     await user.click(screen.getByRole("radio", { name: "Always" }));
@@ -1399,7 +1304,7 @@ describe("visual effect preferences", () => {
     expect(document.documentElement.dataset.reduceMotion).toBe("false");
     expect(githead.saveAppSettings).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings(user);
     await user.click(screen.getByRole("tab", { name: "Appearance" }));
     await user.click(screen.getByRole("radio", { name: /^Off/ }));
     await user.click(screen.getByRole("radio", { name: "Always" }));
@@ -1418,7 +1323,7 @@ it("keeps startup visual preferences if the later settings refresh fails", async
   render(<App initialAppSettings={{ ...initialAppSettings, visualEffects: "off", reduceMotion: "always" }} />);
   expect(document.documentElement.dataset.visualEffects).toBe("off");
   expect(document.documentElement.dataset.reduceMotion).toBe("true");
-  await screen.findByRole("button", { name: "Settings" });
+  await waitForRepositoryWorkspace();
   expect(document.documentElement.dataset.visualEffects).toBe("off");
   expect(document.documentElement.dataset.reduceMotion).toBe("true");
 });

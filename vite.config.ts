@@ -69,7 +69,10 @@ export default defineConfig({
   test: {
     fsModuleCache: true,
     environment: "node",
-    maxWorkers: 1,
+    // Test files run in parallel, and many main-process tests start real Git processes. On Windows CI those
+    // tests can take several seconds each, so the default allows 15s instead of 5s.
+    testTimeout: 15_000,
+    setupFiles: ["./test-setup.ts"],
     include: [
       "src/**/*.test.ts",
       "src/**/*.test.tsx",

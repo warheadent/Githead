@@ -1,9 +1,9 @@
 import type { GitCommitGraphRow } from "../shared/types";
 
-export const COMMIT_GRAPH_ROW_HEIGHT = 28;
+export const COMMIT_GRAPH_ROW_HEIGHT = 48;
 export const COMMIT_GRAPH_LANE_WIDTH = 18;
 export const COMMIT_GRAPH_PADDING_X = 14;
-export const COMMIT_GRAPH_MIN_WIDTH = 82;
+export const COMMIT_GRAPH_MIN_WIDTH = 28;
 export const COMMIT_GRAPH_COLOR_COUNT = 8;
 
 export interface CommitGraphNode {

@@ -9,7 +9,6 @@ import { SettingsCard } from "./SettingsCategoryLayout";
 import type { GitConfigEditorState } from "./useGitConfigSettings";
 
 const boolOptions = [["true", "On"], ["false", "Off"]] as const;
-const selectClassName = "h-10 w-full rounded-md border border-input bg-background px-3 text-sm disabled:opacity-50";
 
 type Options = readonly (readonly [string, string])[];
 
@@ -43,7 +42,7 @@ export function GitConfigSettingsFields({ editor, disabled }: { editor: GitConfi
     const custom = current !== null && !options.some(([value]) => value === current);
     return <div className="settings-field grid gap-2">
       <Label htmlFor={`${prefix}-${key}`}>{label}</Label>
-      <select id={`${prefix}-${key}`} className={selectClassName} disabled={locked} value={current ?? "inherit"} onChange={(event) => update(key, event.target.value === "inherit" ? null : event.target.value)}>
+      <select id={`${prefix}-${key}`} className="form-select" disabled={locked} value={current ?? "inherit"} onChange={(event) => update(key, event.target.value === "inherit" ? null : event.target.value)}>
         <option value="inherit">Inherit</option>
         {options.map(([value, text]) => <option key={value} value={value}>{text}</option>)}
         {custom ? <option value={current}>Existing value: {current}</option> : null}
@@ -94,7 +93,7 @@ export function GitConfigSettingsFields({ editor, disabled }: { editor: GitConfi
     <SettingsCard title="Pull and fetch">
       <div className="settings-field grid gap-2">
         <Label htmlFor={`${prefix}-pull`}>Pull behavior</Label>
-        <select id={`${prefix}-pull`} className={selectClassName} disabled={locked} value={pullMode(draft)} onChange={(event) => setDraft({ ...draft, ...pullValues(event.target.value) })}>
+        <select id={`${prefix}-pull`} className="form-select" disabled={locked} value={pullMode(draft)} onChange={(event) => setDraft({ ...draft, ...pullValues(event.target.value) })}>
           <option value="inherit">Inherit</option><option value="ff-only">Fast-forward only</option><option value="merge">Merge</option><option value="rebase">Rebase</option>
           {pullMode(draft) === "custom" ? <option value="custom">Existing Git configuration</option> : null}
         </select>
@@ -128,8 +127,8 @@ export function GitConfigSettingsFields({ editor, disabled }: { editor: GitConfi
         </SettingsCard>
       </div>
     </details>
-    {fileError ? <p role="alert" className="text-sm text-destructive">{fileError}</p> : null}
-    {editor.error ? <div className="grid gap-2"><p role="alert" className="text-sm text-destructive">{editor.error}</p><Button type="button" variant="outline" disabled={locked} onClick={() => { void editor.reload(); }}>Reload and discard Git edits</Button></div> : null}
+    {fileError ? <p role="alert" className="dialog-error">{fileError}</p> : null}
+    {editor.error ? <div className="grid gap-2"><p role="alert" className="dialog-error">{editor.error}</p><Button type="button" variant="outline" disabled={locked} onClick={() => { void editor.reload(); }}>Reload and discard Git edits</Button></div> : null}
     <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">Configuration file</summary><p className="mt-1 break-all">{settings.filePath}</p></details>
   </div>;
 }

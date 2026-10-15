@@ -129,10 +129,8 @@ export function ConflictResolutionDialog({
         aria-busy={busy || loading}
       >
         <DialogHeader className="border-b px-5 py-4 pr-14">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-md border border-amber-500/35 bg-amber-500/10 text-amber-700 dark:text-amber-400">
-              <GitMerge className="size-4" aria-hidden="true" />
-            </span>
+          <div className="flex min-w-0 items-start gap-2.5">
+            <GitMerge className="mt-0.5 size-4 shrink-0 text-status-conflict" aria-hidden="true" />
             <div className="min-w-0">
               <DialogTitle className="truncate">Resolve {selectedPath || "conflict"}</DialogTitle>
               <DialogDescription className="mt-1">
@@ -143,23 +141,23 @@ export function ConflictResolutionDialog({
         </DialogHeader>
 
         <div className="grid min-h-0 grid-cols-[190px_minmax(0,1fr)]">
-          <aside className="min-h-0 overflow-y-auto border-r bg-muted/20 p-3" aria-label="Unresolved files">
-            <p className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          <aside className="min-h-0 overflow-y-auto border-r bg-background p-2" aria-label="Unresolved files">
+            <p className="eyebrow px-2 pt-1 pb-2">
               Unresolved files · {conflictedPaths.length}
             </p>
-            <div className="grid gap-1">
+            <div className="grid gap-0.5">
               {conflictedPaths.map((filePath, index) => (
                 <button
                   key={filePath}
                   type="button"
-                  className={`flex min-w-0 items-center gap-2 rounded-md px-2 py-2 text-left text-xs transition-colors ${filePath === selectedPath ? "bg-accent font-semibold text-accent-foreground" : "hover:bg-accent/60"}`}
+                  className={`flex h-8 min-w-0 items-center gap-2 rounded-md px-2 text-left text-xs transition-colors duration-[120ms] ease-(--ease-out) focus-visible:-outline-offset-2 disabled:opacity-50 ${filePath === selectedPath ? "bg-selected font-medium text-foreground" : "hover:bg-hover"}`}
                   aria-current={filePath === selectedPath ? "true" : undefined}
                   disabled={busy}
                   onClick={() => setSelectedPath(filePath)}
                 >
-                  <FileWarning className="size-3.5 shrink-0 text-amber-700 dark:text-amber-400" aria-hidden="true" />
+                  <FileWarning className="size-3.5 shrink-0 text-status-conflict" aria-hidden="true" />
                   <span className="min-w-0 flex-1 truncate" title={filePath}>{filePath}</span>
-                  <span className="text-[10px] tabular-nums text-muted-foreground">{index + 1}</span>
+                  <span className="text-xs tabular-nums text-muted-foreground">{index + 1}</span>
                   <ChevronRight className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
                 </button>
               ))}
@@ -167,7 +165,7 @@ export function ConflictResolutionDialog({
           </aside>
 
           <main className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
-            <div className="flex items-center justify-between gap-3 border-b bg-muted/10 px-4 py-2">
+            <div className="flex items-center justify-between gap-3 border-b px-4 py-2">
               <p className="text-xs text-muted-foreground">
                 Compare both sides, edit the result, then stage it. Nothing is selected automatically.
               </p>
@@ -196,17 +194,17 @@ export function ConflictResolutionDialog({
                   tone="current"
                 />
 
-                <section className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] bg-background" aria-label="Resolution result">
-                  <div className="flex items-start justify-between gap-3 border-b border-t-2 border-t-emerald-500 px-3 py-2.5">
+                <section className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] bg-surface" aria-label="Resolution result">
+                  <div className="flex items-start justify-between gap-3 border-b border-t-2 border-t-status-added px-3 py-2.5">
                     <div>
                       <h3 className="text-xs font-semibold">Result</h3>
-                      <p className="mt-0.5 text-[10px] text-muted-foreground">Editable working file</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">Editable working file</p>
                     </div>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${hasMarkers ? "bg-amber-500/15 text-amber-800 dark:text-amber-300" : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"}`}>
+                    <span className={`rounded-full px-2 py-0.5 text-xs leading-4 font-medium ${hasMarkers ? "bg-status-modified/15 text-status-modified" : "bg-status-added/15 text-status-added"}`}>
                       {hasMarkers ? "Markers remain" : "Ready to stage"}
                     </span>
                   </div>
-                  <div className="grid h-10 grid-cols-3 items-center gap-1 border-b bg-muted/20 px-3">
+                  <div className="grid h-10 grid-cols-3 items-center gap-1 border-b px-3">
                     <Button type="button" size="xs" variant="outline" disabled={busy} onClick={() => setResultText(resolution.currentText ?? "")}>Use current</Button>
                     <Button type="button" size="xs" variant="outline" disabled={busy} onClick={() => setResultText(joinConflictSides(resolution.currentText, resolution.incomingText))}>Use both</Button>
                     <Button type="button" size="xs" variant="outline" disabled={busy} onClick={() => setResultText(resolution.incomingText ?? "")}>Use incoming</Button>
@@ -231,7 +229,7 @@ export function ConflictResolutionDialog({
               </div>
             ) : (
               <div className="flex min-h-0 flex-col items-center justify-center gap-3 p-8 text-center">
-                <FileWarning className="size-8 text-amber-700 dark:text-amber-400" aria-hidden="true" />
+                <FileWarning className="size-8 text-status-conflict" aria-hidden="true" />
                 <div>
                   <h3 className="text-sm font-semibold">This conflict cannot be edited here</h3>
                   <p className="mt-1 max-w-lg text-xs text-muted-foreground">{error || resolution?.message || "Reload the conflict or open it in your configured editor."}</p>
@@ -244,14 +242,14 @@ export function ConflictResolutionDialog({
           </main>
         </div>
 
-        <footer className="flex items-center justify-between gap-4 border-t bg-muted/10 px-5 py-3">
+        <footer className="flex items-center justify-between gap-4 border-t px-5 py-3">
           <div className="min-w-0">
-            {error && ready ? <p className="whitespace-pre-wrap text-xs text-destructive [overflow-wrap:anywhere]" role="alert">{error}</p> : null}
+            {error && ready ? <p className="dialog-error whitespace-pre-wrap" role="alert">{error}</p> : null}
             {!error && ready ? (
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 {hasMarkers
-                  ? <><FileWarning className="size-3.5 text-amber-700 dark:text-amber-400" />Remove every conflict marker before staging.</>
-                  : <><CheckCircle2 className="size-3.5 text-emerald-600" />The result has no conflict markers{changed ? " and is ready to save." : "."}</>}
+                  ? <><FileWarning className="size-3.5 text-status-modified" aria-hidden="true" />Remove every conflict marker before staging.</>
+                  : <><CheckCircle2 className="size-3.5 text-status-added" aria-hidden="true" />The result has no conflict markers{changed ? " and is ready to save." : "."}</>}
               </p>
             ) : null}
           </div>
@@ -291,12 +289,12 @@ function ConflictSide({
   }), [baseText, filePath, text, tone]);
 
   return (
-    <section className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] bg-muted/10" aria-label={title}>
-      <div className={`border-b border-t-2 px-3 py-2.5 ${tone === "current" ? "border-t-sky-500" : "border-t-violet-500"}`}>
+    <section className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] bg-background" aria-label={title}>
+      <div className={`border-b border-t-2 px-3 py-2.5 ${tone === "current" ? "border-t-status-renamed" : "border-t-status-conflict"}`}>
         <h3 className="text-xs font-semibold">{title}</h3>
-        <p className="mt-0.5 text-[10px] text-muted-foreground">{detail}</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">{detail}</p>
       </div>
-      <div className="h-10 border-b bg-muted/20" aria-hidden="true" />
+      <div className="h-10 border-b" aria-hidden="true" />
       {text === null ? (
         <div className="p-3 text-xs italic text-muted-foreground">File deleted on this side</div>
       ) : (

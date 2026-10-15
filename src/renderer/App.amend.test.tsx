@@ -42,7 +42,7 @@ describe("App amend entry points", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
 
     const olderRow = await screen.findByRole("option", { name: /Older commit/ });
     fireEvent.contextMenu(olderRow);
@@ -110,7 +110,7 @@ describe("App amend entry points", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /History staged/ }));
     await user.click(await screen.findByRole("menuitem", { name: "Amend last commit…" }));
 
@@ -127,7 +127,7 @@ describe("App amend entry points", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     fireEvent.contextMenu(await screen.findByRole("option", { name: /Busy HEAD/ }));
     const item = await screen.findByRole("menuitem", { name: "Amend last commit…" });
     expect(item.getAttribute("data-disabled")).not.toBeNull();
@@ -143,7 +143,7 @@ describe("App amend entry points", { timeout: 10_000 }, () => {
 
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(screen.getByRole("tab", { name: /Commit History/ }));
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
     const row = await screen.findByRole("option", { name: /Keyboard HEAD/ });
     row.focus();
     fireEvent.keyDown(row, { key: "F10", shiftKey: true });

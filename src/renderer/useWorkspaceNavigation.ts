@@ -78,7 +78,7 @@ export function useWorkspaceNavigation(
       const position = historyPosition(event.state);
       if (position === null || entries.current.length === 0 || position === index.current) return;
       const target = entries.current[position - firstIndex.current];
-      if (!target || document.querySelector('[role="dialog"], [role="alertdialog"]')) {
+      if (!target || isDialogOpen()) {
         window.history.go(index.current - position);
         return;
       }
@@ -91,7 +91,7 @@ export function useWorkspaceNavigation(
       if (event.defaultPrevented || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
       event.preventDefault();
-      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
+      if (isDialogOpen()) return;
       if (event.key === "ArrowLeft" && index.current > firstIndex.current) window.history.back();
       if (event.key === "ArrowRight" && index.current < firstIndex.current + entries.current.length - 1) window.history.forward();
     };
@@ -108,4 +108,12 @@ export function useWorkspaceNavigation(
     back: () => { if (index.current > firstIndex.current) window.history.back(); },
     forward: () => { if (index.current < firstIndex.current + entries.current.length - 1) window.history.forward(); }
   };
+}
+
+/**
+ * Navigation waits while a dialog is open. A dialog that is playing its close animation still sits in the DOM with
+ * data-state="closed"; it must not block, or a Back step taken as a dialog closes would be reverted.
+ */
+function isDialogOpen(): boolean {
+  return document.querySelector('[role="dialog"]:not([data-state="closed"]), [role="alertdialog"]:not([data-state="closed"])') !== null;
 }

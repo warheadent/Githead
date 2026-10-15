@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { GitHubHistoryInsights } from "../shared/types";
+import type { GitHubHistoryInsights, GitHubPullRequestAssociation } from "../shared/types";
 import { forkEffect, tryPromise } from "../shared/effectRuntime";
 
 interface GitHubHistoryScope {
@@ -13,6 +13,17 @@ interface GitHubHistoryScope {
 }
 
 const EMPTY_INSIGHTS: GitHubHistoryInsights = { currentBranchPullRequests: [], commits: [], unavailableCommitShas: [] };
+const NO_PULL_REQUESTS: GitHubPullRequestAssociation[] = [];
+
+/**
+ * Prefix of the effect key for results that hold the current branch's pull requests. A branch keeps
+ * its pull requests across new commits; a detached HEAD only matches the same commit.
+ */
+function branchPullRequestKeyPrefix(scope: GitHubHistoryScope): string | null {
+  if (!scope.repoPath || !scope.githubFullName) return null;
+  if (scope.currentBranch) return `${scope.repoPath}\0${scope.githubFullName}\0${scope.currentBranch}\0`;
+  return scope.headSha ? `${scope.repoPath}\0${scope.githubFullName}\0\0${scope.headSha}\0` : null;
+}
 
 export function useGitHubHistoryInsights(scope: GitHubHistoryScope) {
   const shasKey = useMemo(() => [...new Set(scope.commitShas)].sort().join(","), [scope.commitShas]);
@@ -57,5 +68,11 @@ export function useGitHubHistoryInsights(scope: GitHubHistoryScope) {
     };
   }, [generation, scope.currentBranch, scope.enabled, scope.githubFullName, scope.headSha, scope.repoPath, shasKey]);
 
-  return { ...state, retry };
+  // Insights refresh only while History is open, so the last result can belong to another
+  // repository or branch. Branch pull requests are exposed only for the current scope.
+  const branchKeyPrefix = branchPullRequestKeyPrefix(scope);
+  const branchPullRequestsLoaded = state.loaded && branchKeyPrefix !== null && state.key.startsWith(branchKeyPrefix);
+  const currentBranchPullRequests = branchPullRequestsLoaded ? state.data.currentBranchPullRequests : NO_PULL_REQUESTS;
+
+  return { ...state, retry, currentBranchPullRequests, branchPullRequestsLoaded };
 }

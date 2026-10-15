@@ -1,4 +1,4 @@
-import { ChevronDown, Loader2, RefreshCw, Search, SlidersHorizontal } from "lucide-react";
+import { ArrowDownUp, ListFilter, Loader2, RefreshCw, Search } from "lucide-react";
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { Button, TooltipButton } from "@/components/ui/button";
 import {
@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface Option { value: string; label: string; disabled?: boolean }
 export interface GitHubQueryToolbarProps {
@@ -45,6 +46,7 @@ export function GitHubQueryToolbar({ view, search, preset, presets, sort, sortOp
   const itemLabel = view === "pullRequests" ? "pull requests" : view === "issues" ? "issues" : "workflow runs";
   const displayedPlaceholder = compact ? `Search ${itemLabel}` : placeholder;
   const refreshLabel = `Refresh ${itemLabel}`;
+  const presetLabel = presets.find((option) => option.value === preset)?.label ?? "Custom";
 
   if (compact) {
     return <div className="github-query-toolbar github-query-toolbar-compact">
@@ -55,10 +57,10 @@ export function GitHubQueryToolbar({ view, search, preset, presets, sort, sortOp
       </label>
       <Popover>
         <PopoverTrigger asChild>
-          <Button type="button" variant="outline" className="github-filter-trigger" aria-label={`Filters, ${activeFilterCount} active`}>
-            <SlidersHorizontal />
-            Filters
-            <span className="github-filter-count" aria-hidden="true">{activeFilterCount}</span>
+          <Button type="button" variant="ghost" className="github-filter-trigger" aria-label={`Filters, ${presetLabel}, ${activeFilterCount} active`}>
+            <span className="github-filter-trigger-label">{presetLabel}</span>
+            {activeFilterCount > 0 ? <span className="github-filter-count" aria-hidden="true">{activeFilterCount}</span> : null}
+            <ListFilter aria-hidden="true" />
           </Button>
         </PopoverTrigger>
         <PopoverContent className="github-filter-popover" align="start">
@@ -76,7 +78,7 @@ export function GitHubQueryToolbar({ view, search, preset, presets, sort, sortOp
         </PopoverContent>
       </Popover>
       <CompactSortMenu value={sort} options={sortOptions} onValueChange={onSortChange} />
-      {onRefresh ? <TooltipButton type="button" variant="outline" size="icon" className="github-query-refresh" disabled={refreshDisabled || refreshing} aria-label={refreshLabel} tooltip={refreshLabel} onClick={onRefresh}>
+      {onRefresh ? <TooltipButton type="button" variant="ghost" size="icon" className="github-query-refresh" disabled={refreshDisabled || refreshing} aria-label={refreshLabel} tooltip={refreshLabel} onClick={onRefresh}>
         {refreshing ? <Loader2 className="animate-spin" /> : <RefreshCw />}
       </TooltipButton> : null}
       <span className="sr-only" role="status" aria-live="polite">{status}</span>
@@ -96,14 +98,18 @@ export function GitHubQueryToolbar({ view, search, preset, presets, sort, sortOp
 
 function CompactSortMenu({ value, options, onValueChange }: { value: string; options: Option[]; onValueChange: (value: string) => void }): ReactNode {
   const selected = options.find((option) => option.value === value) ?? options[0];
+  const label = `Sort: ${selected?.label ?? "Choose sorting"}`;
   return <DropdownMenu>
-    <DropdownMenuTrigger asChild>
-      <Button type="button" variant="outline" className="github-compact-sort" aria-label={`Sort: ${selected?.label ?? "Choose sorting"}`}>
-        <span>Sort:</span>
-        <span className="github-compact-sort-value">{selected?.label ?? "Choose sorting"}</span>
-        <ChevronDown aria-hidden="true" />
-      </Button>
-    </DropdownMenuTrigger>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <DropdownMenuTrigger asChild>
+          <Button type="button" variant="ghost" size="icon" className="github-compact-sort" aria-label={label}>
+            <ArrowDownUp aria-hidden="true" />
+          </Button>
+        </DropdownMenuTrigger>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
     <DropdownMenuContent align="end" className="github-sort-menu">
       <DropdownMenuRadioGroup value={value} onValueChange={onValueChange}>
         {options.map((option) => <DropdownMenuRadioItem key={option.value} value={option.value} {...(option.disabled === undefined ? {} : { disabled: option.disabled })}>{option.label}</DropdownMenuRadioItem>)}

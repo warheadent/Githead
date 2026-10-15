@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { createLinePatch, groupDiffRowsByHunk, isTechnicalFileHeader, parseUnifiedDiff } from "./diffParser";
+import { countDiffLineChanges, createLinePatch, groupDiffRowsByHunk, isTechnicalFileHeader, parseUnifiedDiff } from "./diffParser";
 
 describe("parseUnifiedDiff", () => {
   it("classifies file headers and metadata", () => {
@@ -57,6 +57,42 @@ describe("parseUnifiedDiff", () => {
         text: "const addedValue = 3;"
       }
     ]);
+  });
+
+  it("treats lines that look like file headers inside a hunk as changed content", () => {
+    const rows = parseUnifiedDiff([
+      "diff --git a/notes.md b/notes.md",
+      "--- a/notes.md",
+      "+++ b/notes.md",
+      "@@ -1,2 +1,2 @@",
+      "--- old rule",
+      "+++ new rule",
+      " context"
+    ].join("\n"));
+
+    expect(rows.map((row) => row.kind)).toEqual(["file", "meta", "meta", "hunk", "delete", "add", "context"]);
+    expect(rows.slice(4)).toMatchObject([
+      { kind: "delete", oldLine: 1, marker: "-", text: "-- old rule" },
+      { kind: "add", newLine: 1, marker: "+", text: "++ new rule" },
+      { kind: "context", oldLine: 2, newLine: 2, text: "context" }
+    ]);
+  });
+
+  it("reads file headers after a hunk's lines are used up, also without a diff --git line", () => {
+    const rows = parseUnifiedDiff([
+      "--- a/a.ts",
+      "+++ b/a.ts",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new",
+      "\\ No newline at end of file",
+      "--- a/b.ts",
+      "+++ b/b.ts",
+      "@@ -1 +0,0 @@",
+      "-gone"
+    ].join("\n"));
+
+    expect(rows.map((row) => row.kind)).toEqual(["meta", "meta", "hunk", "delete", "add", "notice", "meta", "meta", "hunk", "delete"]);
   });
 
   it("computes line numbers across multiple hunks", () => {
@@ -335,5 +371,87 @@ describe("isTechnicalFileHeader", () => {
     expect(rows.filter((row) => !isTechnicalFileHeader(row)).map((row) => row.text)).toEqual([
       "Binary files /dev/null and b/image.png differ"
     ]);
+  });
+});
+
+describe("countDiffLineChanges", () => {
+  it("ignores file headers and counts only hunk lines", () => {
+    expect(countDiffLineChanges([
+      "diff --git a/src/app.ts b/src/app.ts",
+      "index 1234567..89abcde 100644",
+      "--- a/src/app.ts",
+      "+++ b/src/app.ts",
+      "@@ -1,3 +1,3 @@",
+      " const unchanged = true;",
+      "-const oldValue = 1;",
+      "+const newValue = 2;",
+      " export {};"
+    ].join("\n"))).toEqual({ additions: 1, deletions: 1 });
+  });
+
+  it("counts content lines that look like file headers inside a hunk", () => {
+    expect(countDiffLineChanges([
+      "diff --git a/notes.md b/notes.md",
+      "--- a/notes.md",
+      "+++ b/notes.md",
+      "@@ -1,2 +1,2 @@",
+      "--- old rule",
+      "+++ new rule",
+      " context"
+    ].join("\n"))).toEqual({ additions: 1, deletions: 1 });
+  });
+
+  it("adds up several hunks and files and skips the headers between them", () => {
+    expect(countDiffLineChanges([
+      "diff --git a/a.ts b/a.ts",
+      "--- a/a.ts",
+      "+++ b/a.ts",
+      "@@ -1 +1,2 @@",
+      " first",
+      "+second",
+      "@@ -10,2 +11 @@",
+      "-removed",
+      " kept",
+      "diff --git a/b.ts b/b.ts",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/b.ts",
+      "@@ -0,0 +1,2 @@",
+      "+one",
+      "+two"
+    ].join("\n"))).toEqual({ additions: 3, deletions: 1 });
+  });
+
+  it("ends a hunk when its line counts are used up, also without a diff --git line", () => {
+    expect(countDiffLineChanges([
+      "--- a/a.ts",
+      "+++ b/a.ts",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new",
+      "--- a/b.ts",
+      "+++ b/b.ts",
+      "@@ -1 +0,0 @@",
+      "-gone"
+    ].join("\n"))).toEqual({ additions: 1, deletions: 2 });
+  });
+
+  it("ignores the no-newline marker and CRLF line endings", () => {
+    expect(countDiffLineChanges([
+      "diff --git a/a.txt b/a.txt",
+      "--- a/a.txt",
+      "+++ b/a.txt",
+      "@@ -1 +1 @@",
+      "-old",
+      "\\ No newline at end of file",
+      "+new",
+      "\\ No newline at end of file",
+      ""
+    ].join("\r\n"))).toEqual({ additions: 1, deletions: 1 });
+  });
+
+  it("returns zero for text without hunks", () => {
+    expect(countDiffLineChanges("")).toEqual({ additions: 0, deletions: 0 });
+    expect(countDiffLineChanges("Binary files a/image.png and b/image.png differ\n+not a hunk line")).toEqual({ additions: 0, deletions: 0 });
   });
 });

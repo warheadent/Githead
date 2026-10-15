@@ -1,6 +1,6 @@
 import { useGitConfigSettings } from "./useGitConfigSettings";
 import { GitConfigSettingsFields } from "./GitConfigSettingsFields";
-import { Bot, CircleAlert, GitCommitHorizontal, GitFork, Loader2, RefreshCw, Save } from "lucide-react";
+import { Bot, CircleAlert, GitCommitHorizontal, GitFork, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,7 +27,7 @@ import { AiGenerationSettingsFields, type AiGenerationSettingsDraft } from "./Ai
 import { getAiProviderLabel } from "../shared/aiProvider";
 import { GitIdentityFields } from "./GitIdentityFields";
 import { LoadingState } from "./LoadingState";
-import { SettingsCard, SettingsCategoryLayout, SettingsPanel } from "./SettingsCategoryLayout";
+import { SettingsCard, SettingsCategoryLayout, SettingsDialogFrame, SettingsPanel, type SettingsDialogStatus } from "./SettingsCategoryLayout";
 
 type RepositorySettingsCategory = "git-configuration" | "git-identity" | "sync" | "ai";
 
@@ -195,26 +195,34 @@ export function RepositorySettingsDialog({
 
   const disabled = loading || saving || gitConfig.loading || gitConfig.saving;
   const automaticFetchEnabled = Number(draft.autoFetchIntervalMinutes) > 0;
-  const footerMessage = error
-    ? <p className="flex items-center gap-2 text-destructive" role="alert"><CircleAlert className="size-4 shrink-0" aria-hidden="true" /><span>{error}</span></p>
-    : <p className="text-muted-foreground">{dirty ? "You have unsaved changes." : "All changes are saved."}</p>;
+  const footerStatus: SettingsDialogStatus = error ? {
+    key: "error",
+    content: <p className="flex items-center gap-2 text-destructive" role="alert"><CircleAlert className="size-4 shrink-0" aria-hidden="true" /><span>{error}</span></p>
+  } : dirty ? {
+    key: "dirty",
+    content: <p className="text-muted-foreground">You have unsaved changes.</p>
+  } : {
+    key: "saved",
+    content: <p className="text-muted-foreground">All changes are saved.</p>
+  };
 
   return <>
-    <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) requestClose(); }}>
-      <DialogContent
-        className="settings-dialog h-[min(780px,calc(100vh-2rem))] max-h-[min(780px,calc(100vh-2rem))] overflow-clip p-0 sm:max-w-[880px]"
-        aria-busy={disabled}
-      >
-        <form className="settings-dialog-form grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]" onSubmit={(event) => { void save(event); }}>
-          <DialogHeader className="settings-dialog-header border-b px-6 py-5 pr-14">
-            <p className="eyebrow">Repository preferences</p>
-            <DialogTitle>Repository Settings</DialogTitle>
-            <DialogDescription className="grid gap-1">
-              <span>Override Githead's global settings for this repository.</span>
-              <span className="truncate font-mono text-xs" title={repoPath}>{repoPath}</span>
-            </DialogDescription>
-          </DialogHeader>
-
+    <SettingsDialogFrame
+      open={open}
+      busy={disabled}
+      eyebrow="Repository preferences"
+      title="Repository settings"
+      description={<>
+        <span>Override Githead's global settings for this repository.</span>
+        <span className="truncate text-xs" title={repoPath}>{repoPath}</span>
+      </>}
+      status={footerStatus}
+      saving={saving}
+      saveDisabled={disabled || !dirty}
+      cancelDisabled={saving}
+      onRequestClose={requestClose}
+      onSubmit={(event) => { void save(event); }}
+    >
           {loading ? <LoadingState label="Loading repository settings" className="min-h-40" /> : (
             <SettingsCategoryLayout
               activeCategory={activeCategory}
@@ -312,7 +320,7 @@ export function RepositorySettingsDialog({
                       <Label htmlFor="repository-ai-provider">Provider</Label>
                       <select
                         id="repository-ai-provider"
-                        className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                        className="form-select"
                         value={draft.selectedProvider}
                         onChange={(event) => setDraft({ ...draft, selectedProvider: event.target.value as RepositorySettingsDraft["selectedProvider"] })}
                       >
@@ -326,17 +334,7 @@ export function RepositorySettingsDialog({
               </SettingsPanel>
             </SettingsCategoryLayout>
           )}
-
-          <div className="settings-dialog-footer flex min-h-16 flex-col gap-3 border-t bg-background px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-h-5 min-w-0 text-sm">{footerMessage}</div>
-            <DialogFooter className="settings-dialog-actions shrink-0">
-              <Button type="button" variant="outline" disabled={saving} onClick={requestClose}>Cancel</Button>
-              <Button type="submit" disabled={disabled || !dirty}>{saving ? <Loader2 className="animate-spin" /> : <Save />}{saving ? "Saving…" : "Save"}</Button>
-            </DialogFooter>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
+    </SettingsDialogFrame>
 
     <Dialog open={confirmDiscard} onOpenChange={setConfirmDiscard}>
       <DialogContent className="sm:max-w-[440px]">

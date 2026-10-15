@@ -14,6 +14,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { GitRepositoryOperationAction, GitRepositoryOperationState } from "../shared/types";
+import { OperationBanner } from "./OperationBanner";
 
 export interface GitOperationRecoveryBannerProps {
   state: GitRepositoryOperationState;
@@ -57,53 +58,68 @@ export function GitOperationRecoveryBanner({
     onAction(action);
   };
 
+  const kindLabel = operationKindName.toLowerCase();
+  const firstConflict = state.conflictedPaths[0];
+  const conflictsLocked = !emptyCommit && firstConflict !== undefined;
+
   return (
     <>
-      <section
-        className="border-b border-amber-500/35 bg-amber-500/[0.08] px-6 py-2.5"
-        aria-label={`${operationName} recovery guide`}
-        aria-busy={busy}
-      >
-        <div className="flex min-w-0 items-center justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-amber-500/35 bg-amber-500/10 text-amber-700 dark:text-amber-400">
-              <AlertTriangle className="size-4" aria-hidden="true" />
-            </span>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.11em] text-amber-800 dark:text-amber-300">
-                {operationName} recovery · Step {currentStep} of 3
-                {state.sequence ? <span>· Commit {state.sequence.current} of {state.sequence.total}</span> : null}
-                {branchName ? <span>· {branchName}</span> : null}
-              </div>
-              <div className="mt-0.5 flex min-w-0 items-baseline gap-2.5">
-                <h3 className="shrink-0 text-sm font-semibold">Finish this {operationKindName.toLowerCase()}</h3>
-                <p className="truncate text-[11px] text-muted-foreground" title={state.summary}>
-                  {state.summary}
-                </p>
-              </div>
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-2" role="group" aria-label={`${operationName} recovery options`}>
+      <OperationBanner
+        ariaLabel={`${operationName} recovery guide`}
+        busy={busy}
+        title={`Finish this ${kindLabel}`}
+        description={state.summary}
+        actionsLabel={`${operationName} recovery options`}
+        actions={(
+          <>
+            {conflictsLocked ? (
+              <>
+                <Button type="button" size="xs" variant="ghost" title={firstConflict} disabled={busy} onClick={() => onOpenConflict(firstConflict)}>
+                  Resolve conflict
+                </Button>
+                <Button type="button" size="xs" variant="ghost" title={firstConflict} disabled={busy} onClick={() => onOpenConflictFile(firstConflict)}>
+                  <ExternalLink />Open file
+                </Button>
+              </>
+            ) : null}
             {state.actions.skip.supported ? (
-              <Button type="button" size="sm" variant="outline" disabled={busy || !state.actions.skip.enabled} onClick={() => requestAction("skip")}>
+              <Button type="button" size="xs" variant="outline" disabled={busy || !state.actions.skip.enabled} onClick={() => requestAction("skip")}>
                 <SkipForward />Skip commit…
               </Button>
             ) : null}
             {emptyCommit && state.actions["keep-empty"].supported ? (
-              <Button type="button" size="sm" variant="outline" disabled={busy || !state.actions["keep-empty"].enabled} onClick={() => requestAction("keep-empty")}>
+              <Button type="button" size="xs" variant="outline" disabled={busy || !state.actions["keep-empty"].enabled} onClick={() => requestAction("keep-empty")}>
                 <Check />Keep empty commit…
               </Button>
             ) : null}
-            <Button type="button" size="sm" variant="outline" disabled={busy || !state.actions.abort.enabled} onClick={() => requestAction("abort")}>
-              <RotateCcw />Abort {operationKindName.toLowerCase()}…
+            <Button type="button" size="xs" variant="outline" disabled={busy || !state.actions.abort.enabled} onClick={() => requestAction("abort")}>
+              <RotateCcw />Abort {kindLabel}…
             </Button>
             {busy && cancellable ? (
-              <Button type="button" size="sm" variant="destructive" onClick={onCancel}>Cancel command</Button>
+              <Button type="button" size="xs" variant="destructive" onClick={onCancel}>Cancel command</Button>
             ) : null}
-          </div>
-        </div>
-
-        <ol className="mt-2 grid grid-cols-3 gap-1.5" aria-label="Recovery steps">
+            {conflictsLocked ? (
+              <>
+                <span className="operation-banner-hint" title={continueReason ?? undefined}>Stage conflicts to unlock</span>
+                <Button type="button" size="xs" disabled>
+                  <LockKeyhole />Continue {kindLabel}
+                </Button>
+              </>
+            ) : emptyCommit ? null : (
+              <Button type="button" size="xs" disabled={busy || !state.actions.continue.enabled} onClick={() => requestAction("continue")}>
+                {busy ? <Loader2 className="animate-spin" /> : <Play />}
+                Continue {kindLabel}
+              </Button>
+            )}
+          </>
+        )}
+      >
+        <span className="operation-banner-meta">
+          {operationName} recovery · Step {currentStep} of 3
+          {state.sequence ? <> · Commit {state.sequence.current} of {state.sequence.total}</> : null}
+          {branchName ? <> · {branchName}</> : null}
+        </span>
+        <ol className="operation-banner-steps" aria-label="Recovery steps">
           <RecoveryStep
             number={1}
             status={readyToContinue || emptyCommit ? "complete" : "current"}
@@ -123,7 +139,7 @@ export function GitOperationRecoveryBanner({
           <RecoveryStep
             number={3}
             status={readyToContinue || emptyCommit ? "current" : "locked"}
-            title={emptyCommit ? "Choose empty result" : `Continue ${operationKindName.toLowerCase()}`}
+            title={emptyCommit ? "Choose empty result" : `Continue ${kindLabel}`}
             detail={emptyCommit
               ? "Action needed"
               : readyToContinue
@@ -131,52 +147,26 @@ export function GitOperationRecoveryBanner({
               : "Locked"}
           />
         </ol>
-
         {emptyCommit ? (
-          <div className="mt-2 flex items-center justify-between gap-4 rounded-md border border-amber-500/35 bg-background/75 px-2.5 py-1.5">
-            <div className="flex min-w-0 items-center gap-2">
-              <AlertTriangle className="size-4 shrink-0 text-amber-700 dark:text-amber-400" aria-hidden="true" />
-              <p className="truncate text-xs font-semibold">This commit produces no changes. Choose Skip commit, Keep empty commit, or Abort above.</p>
-            </div>
-          </div>
-        ) : state.conflictedPaths.length > 0 ? (
-          <div className="mt-2 flex min-w-0 items-center gap-2 rounded-md border border-amber-500/30 bg-background/75 px-2.5 py-1.5" aria-label="Conflicted files">
-            <FileWarning className="size-3.5 shrink-0 text-amber-700 dark:text-amber-400" aria-hidden="true" />
-            <span className="shrink-0 text-[11px] font-semibold text-amber-800 dark:text-amber-300">
-              {formatConflictCount(state.conflictedPaths.length)}
-            </span>
-            <span className="min-w-0 flex-1 truncate text-xs font-medium" title={state.conflictedPaths[0]}>{state.conflictedPaths[0]}</span>
-            {state.conflictedPaths.length > 1 ? (
-              <span className="shrink-0 text-[11px] text-muted-foreground">+{state.conflictedPaths.length - 1} more</span>
-            ) : null}
-            <Button type="button" size="sm" variant="ghost" className="h-7 shrink-0 px-2 text-xs" disabled={busy} onClick={() => onOpenConflict(state.conflictedPaths[0]!)}>
-              Resolve conflict
-            </Button>
-            <Button type="button" size="sm" variant="outline" className="h-7 shrink-0 px-2 text-xs" disabled={busy} onClick={() => onOpenConflictFile(state.conflictedPaths[0]!)}>
-              <ExternalLink className="size-3.5" />Open file
-            </Button>
-            <span className="ml-1 shrink-0 border-l pl-3 text-[11px] font-medium text-amber-800 dark:text-amber-300" title={continueReason ?? undefined}>
-              Stage conflicts to unlock
-            </span>
-            <Button type="button" size="sm" variant="outline" className="h-7 shrink-0" disabled>
-              <LockKeyhole />Continue {operationKindName.toLowerCase()}
-            </Button>
-          </div>
+          <span className="operation-banner-note">
+            <AlertTriangle aria-hidden="true" />
+            This commit produces no changes. Choose Skip commit, Keep empty commit, or Abort.
+          </span>
+        ) : conflictsLocked ? (
+          <span className="operation-banner-note" title={firstConflict}>
+            <FileWarning aria-hidden="true" />
+            <strong>{formatConflictCount(state.conflictedPaths.length)}</strong>
+            <span className="operation-banner-path">{firstConflict}</span>
+            {state.conflictedPaths.length > 1 ? <span className="operation-banner-muted">+{state.conflictedPaths.length - 1} more</span> : null}
+          </span>
         ) : (
-          <div className="mt-2 flex items-center justify-between gap-4 rounded-md border border-emerald-500/35 bg-emerald-500/10 px-2.5 py-1.5">
-            <div className="flex min-w-0 items-center gap-2">
-              <CheckCircle2 className="size-4 shrink-0 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
-              <p className="truncate text-xs font-semibold">All conflicts are staged. Git is ready to finish the {operationKindName.toLowerCase()}.</p>
-            </div>
-            <Button type="button" size="sm" className="h-7" disabled={busy || !state.actions.continue.enabled} onClick={() => requestAction("continue")}>
-              {busy ? <Loader2 className="animate-spin" /> : <Play />}
-              Continue {operationKindName.toLowerCase()}
-            </Button>
-          </div>
+          <span className="operation-banner-note" data-tone="success">
+            <CheckCircle2 aria-hidden="true" />
+            All conflicts are staged. Git is ready to finish the {kindLabel}.
+          </span>
         )}
-
-        {error ? <p className="mt-2 rounded border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-xs text-destructive" role="alert">{error}</p> : null}
-      </section>
+        {error ? <p className="dialog-error operation-banner-error" role="alert">{error}</p> : null}
+      </OperationBanner>
 
       <Dialog open={confirmationAction !== null} onOpenChange={(open) => { if (!open && !busy) setConfirmationAction(null); }}>
         <DialogContent>
@@ -227,32 +217,13 @@ function RecoveryStep({
   title: string;
   detail: string;
 }): ReactNode {
-  const complete = status === "complete";
-  const current = status === "current";
   return (
-    <li
-      className={`flex min-w-0 items-center gap-2 rounded-md border px-2.5 py-1.5 ${
-        complete
-          ? "border-emerald-500/35 bg-emerald-500/10"
-          : current
-            ? "border-amber-500/45 bg-background shadow-sm"
-            : "border-border/70 bg-muted/35"
-      }`}
-      aria-current={current ? "step" : undefined}
-    >
-      <span className={`flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${
-        complete
-          ? "bg-emerald-600 text-white"
-          : current
-            ? "bg-amber-500 text-amber-950"
-            : "border bg-background text-muted-foreground"
-      }`}>
-        {complete ? <Check className="size-3" aria-hidden="true" /> : status === "locked" ? <LockKeyhole className="size-2.5" aria-hidden="true" /> : number}
+    <li className="operation-banner-step" data-status={status} aria-current={status === "current" ? "step" : undefined}>
+      <span className="operation-banner-step-marker">
+        {status === "complete" ? <Check aria-hidden="true" /> : status === "locked" ? <LockKeyhole aria-hidden="true" /> : number}
       </span>
-      <div className="flex min-w-0 items-baseline gap-1.5">
-        <p className="truncate text-xs font-semibold">{title}</p>
-        <p className="shrink-0 text-[10px] text-muted-foreground">· {detail}</p>
-      </div>
+      <span className="operation-banner-step-title">{title}</span>
+      <span className="operation-banner-muted">· {detail}</span>
     </li>
   );
 }

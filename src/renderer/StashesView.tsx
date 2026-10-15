@@ -1,18 +1,19 @@
-import { Archive, ArchiveRestore, ArrowDownToLine, ArrowUpDown, ChevronRight, Clock3, Files, GitBranch, MoreHorizontal, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowDownToLine, ChevronDown, ChevronRight, GitBranch, MoreHorizontal, RefreshCw, Search, SearchX, Trash2, X } from "lucide-react";
 import { useState, type KeyboardEvent, type ReactNode } from "react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, TooltipButton } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import type { GitStashDetails, GitStashEntry } from "../shared/types";
 import { findStashEntry } from "./stashIdentity";
+import { EmptyState } from "./EmptyState";
+import { ListDetailLayout } from "./ListDetailLayout";
 import { LoadingState } from "./LoadingState";
 import { FileStatusChip } from "./FileStatusChip";
 import { getCommitFileStatusVisuals } from "./fileStatusVisuals";
+import { formatRelativeDate } from "./relativeTime";
 import { fileName } from "./statusFileTree";
 import { usePersistentWorkspacePanelState } from "./workspacePanelState";
 
@@ -61,6 +62,8 @@ export function StashesView({
   const [submitting, setSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = usePersistentWorkspacePanelState("stashes-search-query", "");
   const [filesCollapsed, setFilesCollapsed] = usePersistentWorkspacePanelState("stashes-files-collapsed", false);
+  /** In a narrow window, Back shows the list until the user selects a stash again. */
+  const [listShownNarrow, setListShownNarrow] = useState(false);
   const selected = entries.find((entry) => entry.ref === selectedRef) ?? null;
   const actionsDisabled = disabled || loading;
   const currentDropTarget = findStashEntry(entries, dropTarget?.entry, dropTarget?.entries ?? []);
@@ -72,6 +75,11 @@ export function StashesView({
 
   const focusableRef = (visibleEntries.find((entry) => entry.ref === selectedRef) ?? visibleEntries[0])?.ref;
   const focusableFilePath = (details?.files.find((file) => file.path === selectedFilePath) ?? details?.files[0])?.path;
+
+  const selectStash = (stashRef: string): void => {
+    setListShownNarrow(false);
+    onSelect(stashRef);
+  };
 
   const openDropDialog = (entry: GitStashEntry): void => {
     setDialogError("");
@@ -109,33 +117,40 @@ export function StashesView({
 
   return (
     <>
-      <ResizablePanelGroup orientation="horizontal" className="stash-workspace h-full min-h-0 bg-background">
-        <ResizablePanel defaultSize="304px" minSize="240px" maxSize="400px" className="min-w-[240px]">
+      <ListDetailLayout
+        id="stashes"
+        listLabel="stash list"
+        detailOpen={selected !== null && !listShownNarrow}
+        onBack={() => setListShownNarrow(true)}
+        list={(
           <section className="stash-rail" aria-label="Stashes">
-            <header className="stash-list-header">
-              <div>
-                <div className="stash-list-heading"><Archive aria-hidden="true" /><h2>Stashes</h2><Badge variant="secondary">{entries.length}</Badge></div>
-                <p>Saved work, ready to resume.</p>
+            <div className="stash-list-toolbar">
+              <div className="stash-search">
+                <Search aria-hidden="true" />
+                <Input type="search" aria-label="Search stashes" placeholder="Search stashes" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} />
+                {searchQuery ? <Button type="button" variant="ghost" size="icon-xs" aria-label="Clear stash search" onClick={() => setSearchQuery("")}><X /></Button> : null}
               </div>
-              <Button type="button" variant="ghost" size="icon-sm" aria-label={loading ? "Refreshing stashes" : "Refresh stashes"} title="Refresh stashes" disabled={loading} onClick={onRefresh}><RefreshCw className={loading ? "animate-spin motion-reduce:animate-none" : undefined} /></Button>
-            </header>
-            <div className="stash-search">
-              <Search aria-hidden="true" />
-              <Input type="search" aria-label="Search stashes" placeholder="Search stashes..." value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} />
-              {searchQuery ? <Button type="button" variant="ghost" size="icon-sm" aria-label="Clear stash search" onClick={() => setSearchQuery("")}><X /></Button> : null}
+              <TooltipButton type="button" variant="ghost" size="icon-sm" aria-label={loading ? "Refreshing stashes" : "Refresh stashes"} tooltip="Refresh stashes" disabled={loading} onClick={onRefresh}>
+                <RefreshCw className={loading ? "animate-spin motion-reduce:animate-none" : undefined} />
+              </TooltipButton>
             </div>
             <div data-workspace-scroll-key="stash-list" className="stash-list-scroll">
-              {error ? <div className="stash-empty"><p role="alert">{error}</p><Button type="button" variant="outline" size="sm" onClick={onRefresh}>Try again</Button></div>
+              {error ? <EmptyState tone="error" role="alert" title={error} action={<Button type="button" variant="outline" size="sm" onClick={onRefresh}>Try again</Button>} />
                 : loading && entries.length === 0 ? <LoadingState label="Loading stashes" />
-                  : entries.length === 0 ? <div className="stash-empty"><Archive /><h3>No stashes</h3><p>Right-click changed files in File Status to create a stash.</p></div>
-                    : visibleEntries.length === 0 ? <div className="stash-empty stash-filter-empty"><Search /><h3>No matching stashes</h3><p>Try another name, branch, or stash reference.</p><Button type="button" variant="outline" size="sm" onClick={() => setSearchQuery("")}>Clear search</Button></div>
-                      : <div role="listbox" aria-label="Saved stashes" className="stash-list" onKeyDown={navigateStashList}>{visibleEntries.map((entry) => (
+                  : entries.length === 0 ? <EmptyState icon={<Archive />} headingLevel={3} title="No stashes" description="Right-click changed files in Changes to create a stash." />
+                    : visibleEntries.length === 0 ? <EmptyState icon={<SearchX />} headingLevel={3} title="No matching stashes" description="Try another name, branch, or stash reference." action={<Button type="button" variant="outline" size="sm" onClick={() => setSearchQuery("")}>Clear search</Button>} />
+                      : <div role="listbox" aria-label="Saved stashes" className="stash-list" onKeyDown={(event) => navigateStashList(event, (option) => {
+                        // Arrow keys move the selection only. A click or Enter opens the detail in a narrow window.
+                        const stashRef = option.dataset.stashRef;
+                        if (stashRef) onSelect(stashRef);
+                      })}>{visibleEntries.map((entry) => (
                       <ContextMenu key={entry.ref} open={contextTarget === entry} onOpenChange={(open) => setContextTarget(open ? entry : null)}>
                         <ContextMenuTrigger asChild>
-                          <button type="button" role="option" aria-selected={entry.ref === selectedRef} tabIndex={entry.ref === focusableRef ? 0 : -1} title={entry.message} className={`stash-list-row ${entry.ref === selectedRef ? "is-selected" : ""}`} onClick={() => onSelect(entry.ref)}>
-                            <span className="stash-list-row-top"><code>{entry.ref}</code><time dateTime={entry.createdAt} title={new Date(entry.createdAt).toLocaleString()}>{formatStashAge(entry.createdAt)}</time></span>
+                          <button type="button" role="option" aria-selected={entry.ref === selectedRef} tabIndex={entry.ref === focusableRef ? 0 : -1} title={entry.message} data-stash-ref={entry.ref} className={`stash-list-row ${entry.ref === selectedRef ? "is-selected" : ""}`} onClick={() => selectStash(entry.ref)}>
+                            <Archive className="stash-list-row-icon" aria-hidden="true" />
+                            <span className="stash-list-row-top"><code>{entry.ref}</code><time dateTime={entry.createdAt} title={new Date(entry.createdAt).toLocaleString()}>{formatRelativeDate(entry.createdAt)}</time></span>
                             <span className="stash-list-row-title">{entry.message}</span>
-                            <span className="stash-list-row-meta"><span title={entry.sourceBranch || "Detached HEAD"}><GitBranch aria-hidden="true" />{entry.sourceBranch || "Detached HEAD"}</span><ChevronRight className="stash-selection-arrow" aria-hidden="true" /></span>
+                            <span className="stash-list-row-branch">{entry.sourceBranch || "Detached HEAD"}</span>
                           </button>
                         </ContextMenuTrigger>
                         <ContextMenuContent>
@@ -148,61 +163,56 @@ export function StashesView({
                       </ContextMenu>
                     ))}</div>}
             </div>
-            <footer className="stash-rail-footer"><span><ArrowUpDown aria-hidden="true" />Newest first</span><span role="status">{normalizedQuery ? `${visibleEntries.length} of ${entries.length}` : `${entries.length} saved`}</span></footer>
+            <p className="stash-rail-footer">Newest first · <span role="status">{normalizedQuery ? `${visibleEntries.length} of ${entries.length}` : `${entries.length} saved`}</span></p>
           </section>
-        </ResizablePanel>
-        <ResizableHandle />
-        <ResizablePanel minSize="430px">
-          {!selected ? <div className="stash-empty h-full"><Archive /><h3>Select a stash</h3><p>Select a saved stash to inspect its files.</p></div>
-            : <section className="stash-details" aria-label={`Stash ${selected.message}`}>
+        )}
+        detail={!selected ? <EmptyState as="section" className="h-full" headingLevel={2} icon={<Archive />} title="Select a stash" description="Select a saved stash to inspect its files." />
+          : <section className="stash-details" aria-label={`Stash ${selected.message}`}>
               <header className="stash-details-header">
                 <div className="min-w-0">
-                  <div className="stash-details-label"><Archive aria-hidden="true" /><span>Saved stash</span><code>{selected.ref}</code></div>
                   <h2>{selected.message}</h2>
-                  <div className="stash-details-meta">
-                    <span><GitBranch />{selected.sourceBranch || "Detached HEAD"}</span>
-                    {details ? <span><Files />{details.files.length} {details.files.length === 1 ? "file" : "files"}</span> : null}
-                    <span><Clock3 />{formatStashAge(selected.createdAt)}</span>
-                  </div>
+                  <p className="stash-details-meta">
+                    <code>{selected.ref}</code>
+                    {` on ${selected.sourceBranch || "Detached HEAD"}`}
+                    {details ? ` · ${details.files.length} ${details.files.length === 1 ? "file" : "files"}` : null}
+                    {` · ${formatRelativeDate(selected.createdAt)} · `}
+                    Apply keeps this stash saved.
+                  </p>
                 </div>
                 <div className="stash-actions">
-                  <div className="flex items-center justify-end gap-2">
-                    <Button type="button" size="sm" disabled={actionsDisabled || detailsLoading} onClick={() => onApply(selected.ref)}><ArchiveRestore />Apply stash</Button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild><Button type="button" variant="outline" size="icon-sm" aria-label="More stash actions" disabled={actionsDisabled}><MoreHorizontal /></Button></DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="stash-action-menu">
-                        <DropdownMenuItem disabled={actionsDisabled} onSelect={() => onPop(selected.ref)}><ArrowDownToLine /><span>Pop stash<small>Apply changes and remove this stash</small></span></DropdownMenuItem>
-                        <DropdownMenuItem disabled={actionsDisabled} onSelect={() => openBranchDialog(selected)}><GitBranch /><span>Create branch...<small>Resume this work on a new branch</small></span></DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem disabled={actionsDisabled} variant="destructive" onSelect={() => openDropDialog(selected)}><Trash2 />Delete stash...</DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                  <p>Apply keeps this stash saved.</p>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon-sm" aria-label="More stash actions" disabled={actionsDisabled}><MoreHorizontal /></Button></DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="stash-action-menu">
+                      <DropdownMenuItem disabled={actionsDisabled} onSelect={() => onPop(selected.ref)}><ArrowDownToLine /><span>Pop stash<small>Apply changes and remove this stash</small></span></DropdownMenuItem>
+                      <DropdownMenuItem disabled={actionsDisabled} onSelect={() => openBranchDialog(selected)}><GitBranch /><span>Create branch...<small>Resume this work on a new branch</small></span></DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem disabled={actionsDisabled} variant="destructive" onSelect={() => openDropDialog(selected)}><Trash2 />Delete stash...</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <Button type="button" disabled={actionsDisabled || detailsLoading} onClick={() => onApply(selected.ref)}>Apply stash</Button>
                 </div>
               </header>
-              {detailsError ? <div className="stash-empty"><p role="alert">{detailsError}</p><Button type="button" variant="outline" size="sm" onClick={() => onSelect(selected.ref)}>Try again</Button></div>
+              {detailsError ? <EmptyState tone="error" role="alert" title={detailsError} action={<Button type="button" variant="outline" size="sm" onClick={() => onSelect(selected.ref)}>Try again</Button>} />
                 : detailsLoading || !details ? <LoadingState label="Loading stash details" className="h-full" />
                   : <div className={`stash-review-workspace ${filesCollapsed ? "files-collapsed" : ""}`}>
-                      <aside className="stash-file-panel" aria-label="Changed files">
+                      <div className="stash-file-panel">
                         <div className="stash-file-panel-header">
-                          {filesCollapsed ? null : <h3><Files aria-hidden="true" />Changed files <span>{details.files.length}</span></h3>}
-                          <Button type="button" variant="ghost" size="icon-sm" aria-label={filesCollapsed ? "Show changed files" : "Hide changed files"} aria-expanded={!filesCollapsed} onClick={() => setFilesCollapsed((current) => !current)}>
-                            {filesCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+                          <h3>Changed files <span>{details.files.length}</span></h3>
+                          <Button type="button" variant="ghost" size="icon-xs" aria-label={filesCollapsed ? "Show changed files" : "Hide changed files"} aria-expanded={!filesCollapsed} onClick={() => setFilesCollapsed((current) => !current)}>
+                            {filesCollapsed ? <ChevronRight /> : <ChevronDown />}
                           </Button>
                         </div>
-                        {filesCollapsed ? <span className="stash-file-count" aria-hidden="true">{details.files.length}</span> : <div role="listbox" aria-label="Stash files" className="stash-file-list" onKeyDown={navigateStashList}>{details.files.map((file) => (
+                        {filesCollapsed ? null : <div role="listbox" aria-label="Stash files" className="stash-file-list" onKeyDown={(event) => navigateStashList(event, (option) => option.click())}>{details.files.map((file) => (
                           <button key={`${file.status}:${file.path}`} type="button" role="option" aria-label={`${getCommitFileStatusVisuals(file.status).label} ${file.originalPath ? `${file.originalPath} → ` : ""}${file.path}`} aria-selected={file.path === selectedFilePath} tabIndex={file.path === focusableFilePath ? 0 : -1} title={file.originalPath ? `${file.originalPath} → ${file.path}` : file.path} className={`stash-file-row ${file.path === selectedFilePath ? "is-selected" : ""}`} onClick={() => onSelectFile(file.path)}>
                             <FileStatusChip visuals={getCommitFileStatusVisuals(file.status)} tooltip={false} />
-                            <span className="stash-file-name"><span>{fileName(file.path)}</span><small>{file.originalPath ? `From ${file.originalPath}` : file.path.slice(0, file.path.lastIndexOf("/") + 1) || "Repository root"}</small></span>
+                            <span className="stash-file-name"><span>{fileName(file.path)}</span><small>{file.originalPath ? `From ${file.originalPath}` : file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/")) : "Repository root"}</small></span>
                           </button>
                         ))}</div>}
-                      </aside>
+                      </div>
                       <div className="stash-diff-panel">{diffContent}</div>
                     </div>}
             </section>}
-        </ResizablePanel>
-      </ResizablePanelGroup>
+      />
 
       <Dialog open={Boolean(dropTarget)} onOpenChange={(open) => { if (!open && !submitting) setDropTarget(null); }}>
         <DialogContent showCloseButton={!submitting} className="sm:max-w-md">
@@ -228,7 +238,8 @@ export function StashesView({
   );
 }
 
-function navigateStashList(event: KeyboardEvent<HTMLDivElement>): void {
+/** Moves focus between the options of a listbox and passes the focused option to select. */
+function navigateStashList(event: KeyboardEvent<HTMLDivElement>, select: (option: HTMLButtonElement) => void): void {
   if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
   if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
   const options = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button[role="option"]'));
@@ -236,19 +247,8 @@ function navigateStashList(event: KeyboardEvent<HTMLDivElement>): void {
   if (current < 0) return;
   event.preventDefault();
   const next = event.key === "Home" ? 0 : event.key === "End" ? options.length - 1 : Math.max(0, Math.min(options.length - 1, current + (event.key === "ArrowDown" ? 1 : -1)));
-  options[next]?.focus();
-  options[next]?.click();
-}
-
-function formatStashAge(value: string): string {
-  const timestamp = Date.parse(value);
-  if (!Number.isFinite(timestamp)) return value || "Unknown time";
-  const seconds = Math.round((timestamp - Date.now()) / 1_000);
-  const absolute = Math.abs(seconds);
-  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
-  if (absolute < 60) return formatter.format(seconds, "second");
-  if (absolute < 3_600) return formatter.format(Math.round(seconds / 60), "minute");
-  if (absolute < 86_400) return formatter.format(Math.round(seconds / 3_600), "hour");
-  if (absolute < 2_592_000) return formatter.format(Math.round(seconds / 86_400), "day");
-  return new Date(timestamp).toLocaleDateString();
+  const option = options[next];
+  if (!option) return;
+  option.focus();
+  select(option);
 }

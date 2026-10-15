@@ -240,7 +240,7 @@ function classifyWatchReason(filename: string | Buffer | null): RepoChangedReaso
     normalized.endsWith("/.githead/actions.toml") ||
     normalized.endsWith("/.githead/actions.local.toml")
   ) {
-    // Mailmap edits affect Analytics author totals. Repository Actions are
+    // Mailmap edits affect Analytics author totals. Repository actions are
     // displayed from the metadata snapshot, but are
     // resolved again when they run. Force a full snapshot refresh so the
     // command the user sees is always the command the main process resolves.

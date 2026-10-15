@@ -14,11 +14,12 @@ import {
   RefreshCw,
   Workflow
 } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button, TooltipButton } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Segmented } from "@/components/ui/segmented";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -68,6 +69,7 @@ import {
   formatSignedChange,
   splitPath
 } from "./analyticsFormat";
+import { ListDetailLayout } from "./ListDetailLayout";
 import { LoadingState } from "./LoadingState";
 import { useGitHubWorkflowAnalytics, useRepositoryAnalytics } from "./useRepositoryAnalytics";
 import { usePersistentWorkspacePanelState } from "./workspacePanelState";
@@ -118,80 +120,118 @@ export function AnalyticsView({
   const ci = useGitHubWorkflowAnalytics(repoPath, enabled && githubAvailable, active && section === "ci", ciRange);
   const data = analytics.data;
   const historySection = section === "activity" || section === "code";
-  const sections: Array<{ value: AnalyticsSection; label: string; icon: ReactNode }> = [
-    { value: "activity", label: "Activity", icon: <Activity /> },
-    { value: "code", label: "Code", icon: <Code2 /> },
-    { value: "assets", label: "Assets", icon: <Boxes /> },
-    { value: "branches", label: "Branches", icon: <GitBranch /> },
-    ...(githubAvailable ? [{ value: "ci" as const, label: "CI", icon: <Workflow /> }] : [])
+  const sections: Array<{ value: AnalyticsSection; label: string; description: string; icon: ReactNode }> = [
+    { value: "activity", label: "Activity", description: "Commits, contributors, when work happens", icon: <Activity /> },
+    { value: "code", label: "Code", description: "Hotspots, ownership, commit size", icon: <Code2 /> },
+    { value: "assets", label: "Assets", description: "LFS storage and large files", icon: <Boxes /> },
+    { value: "branches", label: "Branches", description: "Drift, merged and stale branches", icon: <GitBranch /> },
+    ...(githubAvailable ? [{ value: "ci" as const, label: "CI", description: "Success rate and run time", icon: <Workflow /> }] : [])
   ];
+  const sectionLabel = sections.find((item) => item.value === section)?.label ?? "Activity";
   const refreshing = section === "ci" ? ci.loading : analytics.loading;
+  const navId = useId();
+  /** In a narrow window, Back shows the section list until the user picks a section. */
+  const [detailOpen, setDetailOpen] = useState(true);
 
   return (
-    <div className="analytics-view">
-      <div className="analytics-toolbar">
-        <Tabs value={section} onValueChange={(value) => setSection(value as AnalyticsSection)}>
-          <TabsList aria-label="Analytics sections">
-            {sections.map((item) => <TabsTrigger key={item.value} value={item.value}>{item.icon}{item.label}</TabsTrigger>)}
-          </TabsList>
-        </Tabs>
-        <div className="analytics-filters">
-          {historySection ? (
-            <>
-              <Segmented label="Date range" options={RANGE_OPTIONS} value={range} onChange={setRange} />
-              <span className="analytics-exclude">
-                <label className="analytics-check">
-                  <input type="checkbox" checked={excludePaths} onChange={(event) => setExcludePaths(event.target.checked)} />
-                  Exclude vendored paths
-                </label>
-                <TooltipButton type="button" variant="ghost" size="icon-xs" aria-label="Edit excluded paths" tooltip="Edit excluded paths" onClick={() => setExcludedPathsOpen(true)}><ListFilter /></TooltipButton>
-              </span>
-            </>
-          ) : null}
-          {section === "ci" ? <Segmented label="CI date range" options={CI_RANGE_OPTIONS} value={ciRange} onChange={setCiRange} /> : null}
-        </div>
-        <div className="analytics-toolbar-end">
-          <TooltipButton
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label={refreshing ? "Refreshing analytics" : "Refresh analytics"}
-            tooltip="Refresh analytics"
-            disabled={refreshing}
-            onClick={() => { void (section === "ci" ? ci.refresh() : analytics.refresh()); }}
+    <>
+      <ListDetailLayout
+        id="analytics"
+        listLabel="section list"
+        detailCard={false}
+        detailOpen={detailOpen}
+        onBack={() => setDetailOpen(false)}
+        list={(
+          <Tabs
+            orientation="vertical"
+            value={section}
+            onValueChange={(value) => setSection(value as AnalyticsSection)}
+            className="analytics-nav"
           >
-            <RefreshCw className={refreshing ? "animate-spin motion-reduce:animate-none" : undefined} />
-          </TooltipButton>
-        </div>
-      </div>
-      <div className="analytics-scroll" data-workspace-scroll-key="analytics">
-        <div className={cn("analytics-content", (section === "ci" ? ci.loading && ci.data : analytics.loading && data) && "is-refreshing")}>
-          <p className="analytics-status" aria-live="polite">{section === "ci" ? ciStatus(ci.data, ci.loading) : analyticsStatus(data, analytics.loading, analytics.progress)}</p>
-          {section === "ci" ? (
-            ci.data ? <CiSection data={ci.data} failure={ci.failure} renderFailure={(failure) => renderGitHubFailure(failure, () => { void ci.refresh(); })} onOpenWorkflowRuns={onOpenWorkflowRuns} />
-              : ci.failure ? renderGitHubFailure(ci.failure, () => { void ci.refresh(); })
-                : <LoadingState label="Loading workflow runs" className="min-h-48" />
-          ) : data ? (
-            <>
-              {analytics.error ? <Notice tone="warning">{analytics.error}</Notice> : null}
-              {data.history.truncated ? <Notice>Analysis covers the newest {formatCount(data.history.commits)} commits. Older history was skipped to keep memory use bounded.</Notice> : null}
-              {section === "activity" ? <ActivitySection data={data} range={range} /> : null}
-              {section === "code" ? <CodeSection data={data} range={range} canOpenFileHistory={canOpenFileHistory} onOpenFileHistory={onOpenFileHistory} /> : null}
-              {section === "assets" ? <AssetsSection data={data} canOpenFileHistory={canOpenFileHistory} onOpenFileHistory={onOpenFileHistory} /> : null}
-              {section === "branches" ? <BranchesSection data={data} onOpenBranchManager={onOpenBranchManager} /> : null}
-            </>
-          ) : analytics.error ? (
-            <div className="analytics-empty" role="alert">
-              <AlertTriangle aria-hidden="true" />
-              <h3>Unable to analyze this repository</h3>
-              <p className="selectable-text">{analytics.error}</p>
-              <Button type="button" variant="outline" size="sm" onClick={() => { void analytics.refresh(); }}>Try again</Button>
+            <TabsList aria-label="Analytics sections" className="analytics-nav-list">
+              {sections.map((item) => (
+                // The label alone names the tab, so the description cannot change its accessible name.
+                <TabsTrigger
+                  key={item.value}
+                  value={item.value}
+                  className="analytics-nav-item"
+                  aria-labelledby={`${navId}-${item.value}-label`}
+                  aria-describedby={`${navId}-${item.value}-description`}
+                  // A click or Enter opens the section in a narrow window. Arrow keys only move between sections.
+                  onClick={() => setDetailOpen(true)}
+                >
+                  {item.icon}
+                  <span className="analytics-nav-text">
+                    <span id={`${navId}-${item.value}-label`} className="analytics-nav-label">{item.label}</span>
+                    <span id={`${navId}-${item.value}-description`} className="analytics-nav-description">{item.description}</span>
+                  </span>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        )}
+        detail={(
+          <div className="analytics-view">
+            <header className="analytics-header">
+              <h2>{sectionLabel}</h2>
+              <div className="analytics-filters">
+                {historySection ? (
+                  <>
+                    <span className="analytics-exclude">
+                      <label className="analytics-check">
+                        <input type="checkbox" checked={excludePaths} onChange={(event) => setExcludePaths(event.target.checked)} />
+                        Exclude vendored paths
+                      </label>
+                      <TooltipButton type="button" variant="ghost" size="icon-xs" aria-label="Edit excluded paths" tooltip="Edit excluded paths" onClick={() => setExcludedPathsOpen(true)}><ListFilter /></TooltipButton>
+                    </span>
+                    <Segmented label="Date range" options={RANGE_OPTIONS} value={range} onChange={setRange} />
+                  </>
+                ) : null}
+                {section === "ci" ? <Segmented label="CI date range" options={CI_RANGE_OPTIONS} value={ciRange} onChange={setCiRange} /> : null}
+                <TooltipButton
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={refreshing ? "Refreshing analytics" : "Refresh analytics"}
+                  tooltip="Refresh analytics"
+                  disabled={refreshing}
+                  onClick={() => { void (section === "ci" ? ci.refresh() : analytics.refresh()); }}
+                >
+                  <RefreshCw className={refreshing ? "animate-spin motion-reduce:animate-none" : undefined} />
+                </TooltipButton>
+              </div>
+            </header>
+            <div className="analytics-scroll" data-workspace-scroll-key="analytics">
+              <div className={cn("analytics-content", (section === "ci" ? ci.loading && ci.data : analytics.loading && data) && "is-refreshing")}>
+                <p className="analytics-status" aria-live="polite">{section === "ci" ? ciStatus(ci.data, ci.loading) : analyticsStatus(data, analytics.loading, analytics.progress)}</p>
+                {section === "ci" ? (
+                  ci.data ? <CiSection data={ci.data} failure={ci.failure} renderFailure={(failure) => renderGitHubFailure(failure, () => { void ci.refresh(); })} onOpenWorkflowRuns={onOpenWorkflowRuns} />
+                    : ci.failure ? renderGitHubFailure(ci.failure, () => { void ci.refresh(); })
+                      : <LoadingState label="Loading workflow runs" className="min-h-48" />
+                ) : data ? (
+                  <>
+                    {analytics.error ? <Notice tone="warning">{analytics.error}</Notice> : null}
+                    {data.history.truncated ? <Notice>Analysis covers the newest {formatCount(data.history.commits)} commits. Older history was skipped to keep memory use bounded.</Notice> : null}
+                    {section === "activity" ? <ActivitySection data={data} range={range} /> : null}
+                    {section === "code" ? <CodeSection data={data} range={range} canOpenFileHistory={canOpenFileHistory} onOpenFileHistory={onOpenFileHistory} /> : null}
+                    {section === "assets" ? <AssetsSection data={data} canOpenFileHistory={canOpenFileHistory} onOpenFileHistory={onOpenFileHistory} /> : null}
+                    {section === "branches" ? <BranchesSection data={data} onOpenBranchManager={onOpenBranchManager} /> : null}
+                  </>
+                ) : analytics.error ? (
+                  <div className="analytics-empty" role="alert">
+                    <AlertTriangle aria-hidden="true" />
+                    <h3>Unable to analyze this repository</h3>
+                    <p className="selectable-text">{analytics.error}</p>
+                    <Button type="button" variant="outline" size="sm" onClick={() => { void analytics.refresh(); }}>Try again</Button>
+                  </div>
+                ) : (
+                  <AnalyticsProgress progress={analytics.progress} />
+                )}
+              </div>
             </div>
-          ) : (
-            <AnalyticsProgress progress={analytics.progress} />
-          )}
-        </div>
-      </div>
+          </div>
+        )}
+      />
       <ExcludedPathsDialog
         open={excludedPathsOpen}
         repoPath={repoPath}
@@ -201,7 +241,7 @@ export function AnalyticsView({
           void analytics.refresh();
         }}
       />
-    </div>
+    </>
   );
 }
 
@@ -233,21 +273,6 @@ function AnalyticsProgress({ progress }: { progress: RepositoryAnalyticsProgress
       </p>
       <div className="analytics-progress" aria-hidden="true"><span style={{ width: `${Math.round((fraction ?? (progress ? 1 : 0.05)) * 100)}%` }} /></div>
       <p className="analytics-empty-hint">The first analysis reads full history. Later updates only read new commits.</p>
-    </div>
-  );
-}
-
-function Segmented<T extends string>({ label, options, value, onChange }: {
-  label: string;
-  options: Array<{ value: T; label: string }>;
-  value: T;
-  onChange: (value: T) => void;
-}): ReactNode {
-  return (
-    <div className="analytics-segmented" role="group" aria-label={label}>
-      {options.map((option) => (
-        <button key={option.value} type="button" aria-pressed={option.value === value} onClick={() => onChange(option.value)}>{option.label}</button>
-      ))}
     </div>
   );
 }

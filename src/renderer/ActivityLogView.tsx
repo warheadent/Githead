@@ -1,10 +1,17 @@
-import { Clipboard, Eraser, WrapText } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import { Button, TooltipButton } from "@/components/ui/button";
 import type { ActivityLogState } from "./activityLog";
-import { hasActivityLogOutput } from "./activityLog";
+import { formatActivityAction, formatOutcome, hasActivityLogOutput, isActivityLogRunFailed } from "./activityLog";
 import { ActivityLogOutput } from "./ActivityLogOutput";
+import { ActivityLogRunList } from "./ActivityLogRunList";
+import { ListDetailLayout } from "./ListDetailLayout";
 import { usePersistentWorkspacePanelState } from "./workspacePanelState";
+
+/**
+ * The stored selection when the newest run is selected. The selection then moves to each run that
+ * starts later, so the detail keeps showing the latest output.
+ */
+const NEWEST_RUN = "\u0000newest";
 
 interface ActivityLogViewProps {
   log: ActivityLogState;
@@ -20,33 +27,67 @@ export function ActivityLogView({
   onCopyRawLog
 }: ActivityLogViewProps): ReactNode {
   const [wrapLines, setWrapLines] = usePersistentWorkspacePanelState("activity-wrap-lines", false);
+  /** Null shows all output. A run id shows that run, and NEWEST_RUN follows the newest run. */
+  const [storedSelection, setStoredSelection] = usePersistentWorkspacePanelState<string | null>("activity-selected-run", null);
+  const [detailOpen, setDetailOpen] = useState(true);
   const [copyStatus, setCopyStatus] = useState("");
   const hasOutput = hasActivityLogOutput(log);
   const hasRawText = log.rawTextLength > 0;
-  const title = hasOutput ? "Output Available" : "Empty";
-  const showStatus = statusLabel !== title;
-  const copy = async (runId?: string): Promise<void> => {
+  const newestRunId = log.runs.at(-1)?.id ?? null;
+  // A cleared or trimmed run falls back to all output.
+  const selectedRun = storedSelection === null
+    ? null
+    : log.runs.find((run) => run.id === (storedSelection === NEWEST_RUN ? newestRunId : storedSelection)) ?? null;
+  const allOutputTitle = hasOutput ? "Output available" : "Empty";
+  const failed = selectedRun ? isActivityLogRunFailed(selectedRun) : false;
+  const startedAt = selectedRun ? new Date(selectedRun.startedAt) : null;
+
+  const copy = useCallback(async (runId?: string): Promise<void> => {
     try {
       await onCopyRawLog(runId);
       setCopyStatus("Copied to clipboard.");
     } catch {
       setCopyStatus("Unable to copy output. Try again.");
     }
-  };
+  }, [onCopyRawLog]);
+  const copyRun = useCallback((runId: string) => { void copy(runId); }, [copy]);
+  const selectRun = useCallback((runId: string | null) => {
+    setStoredSelection(runId !== null && runId === newestRunId ? NEWEST_RUN : runId);
+    setDetailOpen(true);
+  }, [newestRunId, setStoredSelection]);
 
   return (
-    <section className="activity-log-view" aria-label="Activity log">
-      <div className="activity-log-header">
-        <div className="min-w-0">
-          <p className="eyebrow">Activity Log</p>
-          <h2 className="text-sm font-semibold">{title}</h2>
-          {showStatus ? <p className="activity-log-status">Status: {statusLabel}</p> : null}
-        </div>
-        <div className="activity-log-actions" aria-label="Activity log controls">
-          <TooltipButton
+    <ListDetailLayout
+      id="activity-log"
+      listLabel="run list"
+      detailCard={false}
+      detailOpen={detailOpen}
+      onBack={() => setDetailOpen(false)}
+      list={<ActivityLogRunList runs={log.runs} selectedRunId={selectedRun?.id ?? null} onSelect={selectRun} onCopyRun={copyRun} />}
+      detail={(
+        <section className="activity-log-view" aria-label="Activity log">
+          <header className="activity-log-header">
+            <div className="min-w-0">
+              {selectedRun ? (
+                <>
+                  <h2>{formatActivityAction(selectedRun.action)}</h2>
+                  <p className="activity-log-status" data-failed={failed}>
+                    {formatOutcome(selectedRun)}
+                    {startedAt && Number.isFinite(startedAt.getTime()) ? ` · started ${startedAt.toLocaleTimeString()}` : null}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h2>{allOutputTitle}</h2>
+                  {statusLabel !== allOutputTitle ? <p className="activity-log-status">Status: {statusLabel}</p> : null}
+                </>
+              )}
+            </div>
+            <div className="activity-log-actions" role="group" aria-label="Activity log controls">
+              <TooltipButton
                 type="button"
-                variant={wrapLines ? "default" : "secondary"}
-                size="icon-sm"
+                variant="outline"
+                size="sm"
                 aria-label={wrapLines ? "Disable line wrap" : "Enable line wrap"}
                 aria-pressed={wrapLines}
                 disabled={!hasOutput}
@@ -56,20 +97,23 @@ export function ActivityLogView({
                   setWrapLines((current) => !current);
                 }}
               >
-                <WrapText />
-          </TooltipButton>
-          <Button type="button" variant="secondary" disabled={!hasRawText} onClick={() => { void copy(); }}>
-            <Clipboard />
-            Copy Raw
-          </Button>
-          <Button type="button" variant="secondary" disabled={!hasOutput} onClick={onClearLog}>
-            <Eraser />
-            Clear Log
-          </Button>
-        </div>
-      </div>
-      <span className="sr-only" role="status">{copyStatus}</span>
-      <ActivityLogOutput log={log} wrapLines={wrapLines} onCopyRun={(runId) => { void copy(runId); }} />
-    </section>
+                Wrap
+              </TooltipButton>
+              <Button type="button" variant="outline" size="sm" disabled={!hasRawText} onClick={() => { void copy(); }}>
+                Copy raw
+              </Button>
+              <Button type="button" variant="outline" size="sm" disabled={!hasOutput} onClick={onClearLog}>
+                Clear log
+              </Button>
+            </div>
+          </header>
+          <span className="sr-only" role="status">{copyStatus}</span>
+          <div className="activity-log-output-card">
+            {/* A new key lays out the other selection from scratch: at its end while following, else at its top. */}
+            <ActivityLogOutput key={selectedRun?.id ?? ""} log={log} wrapLines={wrapLines} runId={selectedRun?.id ?? null} onCopyRun={copyRun} />
+          </div>
+        </section>
+      )}
+    />
   );
 }

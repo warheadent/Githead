@@ -1,5 +1,4 @@
-import { RepositoryAliasDialog, RepositoryOrganizationDialog, RepositoryOrganizationMenu } from "./RepositoryOrganizationDialog";
-import { repositoryName as getRepoDisplayName, organizeRepositories, repositoryLabels, repositoryPreference, useRepositoryOrganization, type RepositoryPreference } from "./repositoryOrganization";
+import { repositoryName as getRepoDisplayName, organizeRepositories, repositoryLabels, repositoryPreference, useRepositoryOrganization, type RepositoryOrganization } from "./repositoryOrganization";
 import { CheckoutTagDialog } from "./CheckoutTagDialog";
 import { RepositoryOmnibox } from "./RepositoryOmnibox";
 import { CloneOptions } from "./CloneOptions";
@@ -11,14 +10,15 @@ import {
   Archive,
   ArrowLeft,
   ArrowRight,
+  ArrowUp,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  CircleCheck,
   CircleDot,
   Clipboard,
-  CloudDownload,
-  Copy,
   Download,
+  Ellipsis,
   ExternalLink,
   Eye,
   FileCode2,
@@ -27,15 +27,17 @@ import {
   GitFork,
   GitCommitHorizontal,
   GitBranch as GitBranchIcon,
+  GitMerge,
   GitPullRequest,
+  GitPullRequestClosed,
+  GitPullRequestDraft,
   GripVertical,
   History,
+  ListFilter,
   ListTree,
-  ChartColumnBig,
   List,
   Loader2,
   MapPinned,
-  Maximize2,
   MessageSquare,
   Minus,
   Plus,
@@ -47,12 +49,12 @@ import {
   SlidersHorizontal,
   Pin,
   EyeOff,
-  Settings,
   ShieldAlert,
   Sparkles,
   Tag,
   Trash2,
   TriangleAlert,
+  Undo2,
   Upload,
   WrapText,
   Workflow,
@@ -66,7 +68,6 @@ import {
   useCallback,
   useEffect,
   useId,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -76,10 +77,12 @@ import {
   type FormEvent,
   type KeyboardEvent,
   type MouseEvent,
+  type ReactElement,
   type ReactNode
 } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button, TooltipButton } from "@/components/ui/button";
+import { EmptyState } from "./EmptyState";
 import { LoadingState } from "./LoadingState";
 import {
   createOperationButtonFeedbackEvent,
@@ -107,10 +110,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -120,17 +122,12 @@ import {
   PopoverContent,
   PopoverTrigger
 } from "@/components/ui/popover";
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup
-} from "@/components/ui/resizable";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs } from "@/components/ui/tabs";
+import { Segmented, type SegmentedOption } from "@/components/ui/segmented";
 import { Textarea } from "@/components/ui/textarea";
 import { motion } from "motion/react";
-import type { PanelImperativeHandle } from "react-resizable-panels";
 import { TagDialog, type TagDialogState } from "./TagDialog";
-import { MotionPresence, MotionSwap } from "./motion";
+import { EASE_OUT, MotionPresence, MotionSwap } from "./motion";
 import {
   RepositoryActionsDialog,
   type RepositoryActionDraft,
@@ -139,16 +136,10 @@ import {
 import { SettingsDialog as RedesignedSettingsDialog, type SettingsCategory, type SettingsDraft as SettingsDialogDraft } from "./SettingsDialog";
 import { publishTelemetryPreference } from "./telemetryPreference";
 import { RepositorySettingsDialog } from "./RepositorySettingsDialog";
-import { ReferencePicker, type ReferencePickerOption } from "./ReferencePicker";
+import { ReferencePicker } from "./ReferencePicker";
 import { GitIdentityFields } from "./GitIdentityFields";
 import { getAiProviderLabel, isApiKeyProvider, isCliProvider } from "../shared/aiProvider";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTarget,
-  TooltipTrigger
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTarget, TooltipTrigger } from "@/components/ui/tooltip";
 import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import { DEFAULT_PR_DESCRIPTION_PROMPT } from "../shared/prDescriptionPrompt";
 import { DEFAULT_SOURCE_CONTROL_WRITING_STYLE } from "../shared/sourceControlWritingStyle";
@@ -167,7 +158,6 @@ import type {
   CommitPlanValidationRequest,
   CommitPlanValidationResult,
   GenerateCommitPlanResult,
-  GitBranch,
   GitAction,
   GitAmendEntryPoint,
   GitAmendExecuteRequest,
@@ -198,9 +188,9 @@ import type {
   GitHubDeviceFlow,
   GitHubFailure,
   GitHubCommitAssociation,
-  GitHubPullRequestAssociation,
   GitHubRepository,
   GitHubPullRequest,
+  GitHubPullRequestAssociation,
   GitHubPullRequestQuery,
   GitHubWorkflowRun,
   GitHubWorkflowRunQuery,
@@ -241,13 +231,13 @@ import type {
   RepositoryGroup,
   StatusFileViewMode
 } from "../shared/types";
-import { AI_COMMIT_MESSAGE_PROVIDERS, DEFAULT_COMMIT_PLAN_GRANULARITY, DEFAULT_REMOTE_CHECK_LEASE_SECONDS, DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS, DEFAULT_TAG_PUSH_BEHAVIOR, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
+import { AI_COMMIT_MESSAGE_PROVIDERS, DEFAULT_CODE_FONT, DEFAULT_COMMIT_PLAN_GRANULARITY, DEFAULT_REMOTE_CHECK_LEASE_SECONDS, DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS, DEFAULT_TAG_PUSH_BEHAVIOR, DEFAULT_UI_FONT, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
 import { isMarkdownPath, isSvgPath } from "../shared/filePreview";
 import { parseCommitSubject, type ParsedCommitSubject } from "../shared/commitSubject";
 import { parseGitHubReferences } from "../shared/githubReference";
-import { getRepositoryWebUrl } from "../shared/remoteWebUrl";
 import { ActivityLogPanel } from "./ActivityLogPanel";
 import { CommitPlanView } from "./CommitPlanView";
+import { ListDetailLayout } from "./ListDetailLayout";
 import { canStageStatusFile } from "../shared/statusFiles";
 import { BranchManagementDialog } from "./BranchManagementDialog";
 import { GitIntegrationDialog } from "./GitIntegrationDialog";
@@ -255,22 +245,29 @@ import { AmendDialog } from "./AmendDialog";
 import { WorktreeCreateDialog, WorktreeRemoveDialog } from "./WorktreeDialogs";
 import { PullRecoveryDialog } from "./PullRecoveryDialog";
 import { GitOperationRecoveryBanner } from "./GitOperationRecoveryBanner";
+import { OperationBanner } from "./OperationBanner";
 import { ConflictResolutionDialog } from "./ConflictResolutionDialog";
 import { emptyPushToBranchDialog, type PushToBranchDialogState } from "./pushToBranchState";
 import { gitHubQueryStore, useGitHubQueries } from "./useGitHubQueries";
 import { GitHubQueryToolbar } from "./GitHubQueryToolbar";
 import { CreateIssueDialog, type CreateIssueDraft } from "./CreateIssueDialog";
-import { WorkflowRunConsole } from "./WorkflowRunConsole";
+import { RunStatusIcon, WorkflowRunConsole } from "./WorkflowRunConsole";
+import { formatRelativeDate } from "./relativeTime";
 import { WorkflowDuration } from "./WorkflowDuration";
 import { DEFAULT_ISSUE_QUERY, DEFAULT_PULL_REQUEST_QUERY, DEFAULT_WORKFLOW_QUERY, filterLoadedWorkflowRuns, sortLoadedWorkflowRuns } from "./githubViewQuery";
 import { useGitHubHistoryInsights } from "./useGitHubHistoryInsights";
 import {
-  AdjustableColumnHeader,
   ColumnVisibilityMenu,
-  OrderedCells,
   usePersistentColumnLayout,
   type ColumnDefinition
 } from "./columnLayout";
+import {
+  CommitActionContextMenuItems,
+  CommitActionDropdownMenuItems,
+  getCommitActionItems,
+  type CommitActionItem,
+  type CommitContextActionKind
+} from "./commitActionMenu";
 import { RepositorySnapshotCache, getRepoPathKey } from "./repositorySnapshotCache";
 import {
   RepositoryRefreshCoordinator,
@@ -285,13 +282,40 @@ import {
   WorkspacePanelStateStore,
   usePersistentWorkspacePanelState
 } from "./workspacePanelState";
-import { getAheadBehindCounts, getPrimaryCommitAction, getPullableCommitCount, getPushableCommitCount, hasStagedChanges, hasUnpushedCommits } from "./commitActions";
-import { buildConfiguredActionMenu, type ConfiguredActionMenuEntry } from "./configuredActionMenu";
+import { getAheadBehindCounts, getPrimaryCommitAction, getPushableCommitCount, hasStagedChanges, hasUnpushedCommits } from "./commitActions";
+import type { ConfiguredActionOutcome, ConfiguredActionRun } from "./configuredActionMenu";
+import { confirmAppUpdateInstall } from "./AppUpdateControl";
+import { QuickSwitcher } from "./QuickSwitcher";
+import { focusActiveViewTab, RepositoryHeader, type AddViewOption, type ConfiguredActionCancelTarget } from "./RepositoryHeader";
+import { buildGoToItems, buildQuickSwitcherSections, type QuickSwitcherItem, type QuickSwitcherMode } from "./quickSwitcherItems";
+import { useAppShortcuts } from "./useAppShortcuts";
+import {
+  moveRepoPath,
+  useRepositoryRowActions,
+  type RepositoryMenuTarget,
+  type RenderRepositoryMenuItems,
+  type RepositoryDropPosition,
+  type RepositoryMoveDirection,
+  type RepositoryRecoveryResult
+} from "./RepositoryMenu";
+import { WindowControls } from "./WindowControls";
+import { formatRepoSyncStatusDescription, RecentRepositoryVcsIcon, RepoSyncStatusChips, SyncCountChip } from "./SyncCountChip";
+import {
+  formatActionCountLabel,
+  formatCommitCountLabel,
+  formatPullRequestAssociationState,
+  getPushRemotes,
+  getRemoteDefaultBranch,
+  getRepositoryActionKey,
+  shouldPublishInsteadOfPush,
+  shouldShowCreatePullRequest,
+} from "./remoteActions";
+import { isGitHubView, isGuestView, type GuestView } from "./workspaceViews";
 import { buildCommitGraphLayout, COMMIT_GRAPH_COLOR_COUNT, COMMIT_GRAPH_ROW_HEIGHT, type CommitGraphLayout } from "./commitGraph";
-import { createLinePatch, isTechnicalFileHeader, type DiffRow, type DiffRowGroup } from "./diffParser";
+import { countDiffLineChanges, createLinePatch, isTechnicalFileHeader, type DiffLineChangeCounts, type DiffRow, type DiffRowGroup } from "./diffParser";
 import { createDiffProcessingSession, type ProcessedDiff } from "./diffProcessingClient";
 import { areFileDiffsEqual } from "./diffFreshness";
-import { getCommitFileStatusVisuals, getFileStatusVisuals } from "./fileStatusVisuals";
+import { getCommitFileStatusVisuals, getFileStatusVisuals, type FileStatusVisuals } from "./fileStatusVisuals";
 import { FileStatusChip } from "./FileStatusChip";
 import { filterStatusFiles, type StatusFileFilter } from "./statusFileFilter";
 import { FixedSizeVirtualList, type VirtualRowProps } from "./FixedSizeVirtualList";
@@ -315,9 +339,6 @@ import { useImageFilePreview, useMarkdownFilePreview } from "./useFilePreview";
 import { useSelectionSafeValue } from "./useSelectionSafeValue";
 import { repositoryHistoryRoute, targetFromCommitFile, targetFromHistoryEntry, type HistoricalFileTarget, type HistoryRoute } from "./historyNavigation";
 import { useWorkspaceNavigation, type WorkspaceLocation, type WorkspaceView } from "./useWorkspaceNavigation";
-import { WorkspaceBreadcrumbs } from "./WorkspaceBreadcrumbs";
-import gitIconUrl from "./assets/git-icon-white.svg";
-import loreIconUrl from "./assets/lore-icon-white.svg";
 
 const BasicMarkdown = lazy(() => import("./BasicMarkdown.js").then((module) => ({ default: module.BasicMarkdown })));
 const BlameView = lazy(() => import("./BlameView.js").then((module) => ({ default: module.BlameView })));
@@ -456,6 +477,8 @@ interface AppState {
   createPrDialog: CreatePrDialogState;
   runningAction: string | null;
   configuredActionRuns: ConfiguredActionRun[];
+  /** The last configured action run that settled in this repository, for the header's Actions button. */
+  configuredActionOutcome: ConfiguredActionOutcome | null;
   runningOperation: string | null;
   activeOperation: ActiveRendererOperation | null;
   lastResult: GitRunResult | null;
@@ -493,6 +516,8 @@ interface AppState {
   actionManager: RepositoryActionManagerState;
   remoteManager: RemoteManagerState;
   activeView: WorkspaceView;
+  /** The view in the single guest slot of the view switch. It stays while Changes or History is active. */
+  guestView: GuestView | null;
   historyScope: CommitHistoryScope;
   history: GitCommitGraphRow[];
   historyLoading: boolean;
@@ -587,15 +612,6 @@ interface RequestIds {
   identity: number;
   remoteConfigs: number;
   commitPlanValidation: number;
-}
-
-interface ConfiguredActionRun {
-  id: number;
-  operationId: string;
-  name: string;
-  repoPath: string;
-  cancelStatus: OperationCancelStatus;
-  cancelError: string;
 }
 
 type RendererCancellationTarget =
@@ -731,8 +747,8 @@ const emptySettingsDraft: SettingsDraft = {
   colorTheme: "githead",
   appearanceMode: "system",
   ...defaultVisualPreferences,
-  uiFont: "inter",
-  codeFont: "system-mono",
+  uiFont: DEFAULT_UI_FONT,
+  codeFont: DEFAULT_CODE_FONT,
   zoomFactor: 1,
   tagPushBehavior: DEFAULT_TAG_PUSH_BEHAVIOR,
   requireUpToDateUpstreamBeforeCommit: false,
@@ -885,6 +901,7 @@ const initialState: AppState = {
   createPrDialog: emptyCreatePrDialog,
   runningAction: null,
   configuredActionRuns: [],
+  configuredActionOutcome: null,
   runningOperation: null,
   activeOperation: null,
   lastResult: null,
@@ -922,6 +939,7 @@ const initialState: AppState = {
   actionManager: emptyActionManager,
   remoteManager: emptyRemoteManager,
   activeView: "status",
+  guestView: null,
   historyScope: "current",
   history: [],
   historyLoading: false,
@@ -973,7 +991,6 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
   const [performanceDiagnosticsOpen, setPerformanceDiagnosticsOpen] = useState(false);
   const [conflictResolverPath, setConflictResolverPath] = useState<string | null>(null);
   const [statusWorkspaceMode, setStatusWorkspaceMode] = useState<"files" | "plan">("files");
-  const [repositoryPanelOpen, setRepositoryPanelOpen] = useState(false);
   const [workingTreeChangeVersion, setWorkingTreeChangeVersion] = useState(0);
   const [stashComposer, setStashComposer] = useState<StashComposerState>(emptyStashComposer);
   const [repositorySettingsPath, setRepositorySettingsPath] = useState("");
@@ -1019,8 +1036,8 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     ? state.settingsDraft.appearanceMode
     : state.appSettings?.appearanceMode ?? "system";
   useAppearanceModeClass(appearanceMode);
-  const uiFont = state.settingsOpen ? state.settingsDraft.uiFont : state.appSettings?.uiFont ?? "inter";
-  const codeFont = state.settingsOpen ? state.settingsDraft.codeFont : state.appSettings?.codeFont ?? "system-mono";
+  const uiFont = state.settingsOpen ? state.settingsDraft.uiFont : state.appSettings?.uiFont ?? DEFAULT_UI_FONT;
+  const codeFont = state.settingsOpen ? state.settingsDraft.codeFont : state.appSettings?.codeFont ?? DEFAULT_CODE_FONT;
   useFontPreferences(uiFont, codeFont);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -1075,22 +1092,26 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
   const configuredActionRunIdRef = useRef(0);
   const fileStatusGenerationRef = useRef(0);
   const acknowledgedFileStatusGenerationRef = useRef(0);
+  // While a hunk is applied, the refreshed status moves the selection to the other group in the same
+  // update that removes the file from its group, so the selection never passes through null.
+  const hunkSelectionFollowRef = useRef<{ repoPath: string; selection: FileSelection } | null>(null);
   const startupAttemptRef = useRef(0);
   const refreshDirtyFileStatusRef = useRef<() => Promise<void>>(async () => undefined);
   const windowFocusedRef = useRef(true);
   const updateState = useCallback((updater: AppStateUpdater): void => {
     const base = stateRef.current;
-    const optimistic = typeof updater === "function" ? updater(base) : {
+    // Every write goes through the guest reconcile, so any path that activates a guest view also puts it in the slot.
+    const optimistic = reconcileGuestView(typeof updater === "function" ? updater(base) : {
       ...base,
       ...updater
-    };
+    });
     stateRef.current = optimistic;
     setState((current) => {
       const next = current === base
         ? optimistic
-        : typeof updater === "function"
+        : reconcileGuestView(typeof updater === "function"
           ? updater(current)
-          : { ...current, ...updater };
+          : { ...current, ...updater });
       stateRef.current = next;
       return next;
     });
@@ -1819,6 +1840,10 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     lastRepositoryRefreshRef.current = { repoPath, succeeded: false };
     repoRefreshInFlightRef.current = true;
 
+    const getFollowSelection = (): FileSelection | null => {
+      const follow = hunkSelectionFollowRef.current;
+      return follow && isSameRepoPath(follow.repoPath, repoPath) ? follow.selection : null;
+    };
     const cancelRefreshReads = (): void => {
       cancelRepositoryRead("identity", requestId);
       cancelRepositoryRead("status", requestId);
@@ -1850,7 +1875,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
         if (requestId !== requestIds.current.repo || !isSameRepoPath(status.repoPath, stateRef.current.repoPath)) return;
         acknowledgedFileStatusGenerationRef.current = Math.max(acknowledgedFileStatusGenerationRef.current, fileStatusGeneration);
         refreshSucceeded = true;
-        updateState((current) => current.summary ? reconcileSelection({ ...current, summary: { ...current.summary, ...status } }) : current);
+        updateState((current) => current.summary ? reconcileSelection({ ...current, summary: { ...current.summary, ...status } }, getFollowSelection()) : current);
         return;
       }
 
@@ -1898,7 +1923,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
               ...current.repoSyncStatuses,
               [getRepoPathKey(repoPath)]: createRepoSyncStatusFromSummary(summary)
             }
-          }), current.summary);
+          }, getFollowSelection()), current.summary);
         });
         return true;
       };
@@ -1974,7 +1999,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
           return;
         }
         if (options.statusOnly && stateRef.current.summary?.isValid) {
-          updateState((current) => ({ ...current, lastOperationResult: { repoPath, exitCode: -1, stdout: "", stderr: error instanceof Error ? error.message : "Unable to refresh File Status." } }));
+          updateState((current) => ({ ...current, lastOperationResult: { repoPath, exitCode: -1, stdout: "", stderr: error instanceof Error ? error.message : "Unable to refresh changes." } }));
           return;
         }
         const summary = createInvalidSummary(
@@ -2258,6 +2283,9 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       actionManager: changingRepositories ? emptyActionManager : base.actionManager,
       remoteManager: emptyRemoteManager,
       activeView: cached?.activeView ?? (isGitHubView(current.activeView) || current.activeView === "stashes" ? "status" : current.activeView),
+      // Another repository starts without a guest view; the reconcile restores one that stays active.
+      guestView: changingRepositories ? null : base.guestView,
+      configuredActionOutcome: changingRepositories ? null : base.configuredActionOutcome,
       selection: cached?.selection ?? null,
       diff: null,
       diffLoading: false,
@@ -2355,8 +2383,8 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
           colorTheme: "githead",
           appearanceMode: "system",
           ...defaultVisualPreferences,
-          uiFont: "inter",
-          codeFont: "system-mono",
+          uiFont: DEFAULT_UI_FONT,
+          codeFont: DEFAULT_CODE_FONT,
           zoomFactor: 1,
           statusFileViewMode: "list",
           wrapDiffLines: false,
@@ -3365,6 +3393,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       name: action.name,
       repoPath,
       operationId: createRendererOperationId(++rendererOperationTokenRef.current),
+      startedAt: Date.now(),
       cancelStatus: "idle",
       cancelError: ""
     };
@@ -3389,7 +3418,8 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       if (!invocationIsTracked()) return;
       updateState((latest) => isSameRepoPath(repoPath, latest.repoPath) ? {
         ...latest,
-        lastResult
+        lastResult,
+        configuredActionOutcome: createConfiguredActionOutcome(invocation, lastResult.exitCode)
       } : latest);
     } catch (error) {
       if (!invocationIsTracked()) return;
@@ -3405,7 +3435,11 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
         endedAt: new Date().toISOString()
       };
       activityLogStore.completeRun(lastResult);
-      updateState((latest) => isSameRepoPath(repoPath, latest.repoPath) ? { ...latest, lastResult } : latest);
+      updateState((latest) => isSameRepoPath(repoPath, latest.repoPath) ? {
+        ...latest,
+        lastResult,
+        configuredActionOutcome: createConfiguredActionOutcome(invocation, lastResult.exitCode)
+      } : latest);
     } finally {
       const completionIsTracked = invocationIsTracked();
       if (completionIsTracked) {
@@ -3651,7 +3685,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
           ...latest,
           actionManager: {
             ...latest.actionManager,
-            error: result.stderr || "Unable to save Repository Actions."
+            error: result.stderr || "Unable to save repository actions."
           }
         }));
         return;
@@ -3673,7 +3707,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
         ...latest,
         actionManager: {
           ...latest.actionManager,
-          error: error instanceof Error ? error.message : "Unable to save Repository Actions."
+          error: error instanceof Error ? error.message : "Unable to save repository actions."
         }
       }));
     }
@@ -3988,7 +4022,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     const repositoryGroup = stateRef.current.repositoryGroups.find((group) =>
       group.worktrees.some((worktree) => isSameRepoPath(worktree.path, repoPath)));
     if (!(await ensureTrustedRepo(repoPath))) return "Trust this workspace before creating a worktree.";
-    if (!isInvocationCurrent(repoPath, (latest) => latest.worktreeDialogOpen)) return "The active repository changed. Reopen Add Worktree and try again.";
+    if (!isInvocationCurrent(repoPath, (latest) => latest.worktreeDialogOpen)) return "The active repository changed. Reopen Add worktree and try again.";
     const result = await runRepoOperation("Creating worktree", undefined, (operationId) => window.githead.createWorktree({ ...request, repoPath, operationId } as GitWorktreeCreateRequest & { operationId: string }));
     if (!result) return "Another repository operation is already running.";
     if (result.exitCode !== 0) {
@@ -3997,7 +4031,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
         ? "Worktree creation was cancelled. Check the destination before retrying. Git may have left a folder or created the branch."
         : result.stderr || "Unable to create worktree.";
     }
-    if (!isSameRepoPath(repoPath, stateRef.current.repoPath)) return "The active repository changed. Reopen Add Worktree and try again.";
+    if (!isSameRepoPath(repoPath, stateRef.current.repoPath)) return "The active repository changed. Reopen Add worktree and try again.";
     updateState({ worktreeDialogOpen: false });
     await loadRepositoryGroups();
     if (!isSameRepoPath(repoPath, stateRef.current.repoPath)) return null;
@@ -4145,7 +4179,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       return "Trust this workspace before changing remotes.";
     }
     if (stateRef.current.repoPath !== repoPath || !stateRef.current.remoteManager.open) {
-      return "The active repository changed. Reopen Manage Remotes and try again.";
+      return "The active repository changed. Reopen Manage remotes and try again.";
     }
     setRemoteMutationRunning(true);
     try {
@@ -4210,7 +4244,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     const repoPath = snapshot.repoPath;
     if (!(await ensureTrustedRepo(repoPath))) return "Trust this workspace before changing branches.";
     const latest = stateRef.current;
-    if (latest.repoPath !== repoPath || !latest.branchManagerOpen) return "The active repository changed. Reopen Manage Branches and try again.";
+    if (latest.repoPath !== repoPath || !latest.branchManagerOpen) return "The active repository changed. Reopen Manage branches and try again.";
     if (action === "remove" && latest.summary?.branch === branchName) return "Switch to another branch before removing this branch.";
     setBranchMutationRunning(true);
     try {
@@ -5220,45 +5254,51 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       return;
     }
     const repoPath = current.repoPath;
+    const follow = { repoPath, selection };
+    hunkSelectionFollowRef.current = follow;
+    let nextSelection: FileSelection | null;
+    try {
+      const result = discard
+        ? await runRepoOperation("Reverting hunk", selection, (operationId) =>
+            window.githead.discardHunk({ repoPath, path: selection.path, side: selection.side, patch, operationId })
+          )
+        : selection.side === "unstaged"
+        ? await runRepoOperation("Staging hunk", selection, (operationId) =>
+            window.githead.stageHunk({
+              repoPath,
+              path: selection.path,
+              side: selection.side,
+              patch,
+              operationId
+            })
+          )
+        : await runRepoOperation("Unstaging hunk", selection, (operationId) =>
+            window.githead.unstageHunk({
+              repoPath,
+              path: selection.path,
+              side: selection.side,
+              patch,
+              operationId
+            })
+          );
 
-    const result = discard
-      ? await runRepoOperation("Reverting hunk", selection, (operationId) =>
-          window.githead.discardHunk({ repoPath, path: selection.path, side: selection.side, patch, operationId })
-        )
-      : selection.side === "unstaged"
-      ? await runRepoOperation("Staging hunk", selection, (operationId) =>
-          window.githead.stageHunk({
-            repoPath,
-            path: selection.path,
-            side: selection.side,
-            patch,
-            operationId
-          })
-        )
-      : await runRepoOperation("Unstaging hunk", selection, (operationId) =>
-          window.githead.unstageHunk({
-            repoPath,
-            path: selection.path,
-            side: selection.side,
-            patch,
-            operationId
-          })
-        );
+      if (result?.exitCode !== 0 || !isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        return;
+      }
 
-    if (result?.exitCode !== 0 || !isSameRepoPath(repoPath, stateRef.current.repoPath)) {
-      return;
+      await refreshRepo({ reason: "operation" });
+      if (!isSameRepoPath(repoPath, stateRef.current.repoPath)) {
+        return;
+      }
+      nextSelection = resolvePostHunkSelection(stateRef.current.summary, selection);
+      updateState({
+        selection: nextSelection,
+        diff: null,
+        diffChanged: false
+      });
+    } finally {
+      if (hunkSelectionFollowRef.current === follow) hunkSelectionFollowRef.current = null;
     }
-
-    await refreshRepo({ reason: "operation" });
-    if (!isSameRepoPath(repoPath, stateRef.current.repoPath)) {
-      return;
-    }
-    const nextSelection = resolvePostHunkSelection(stateRef.current.summary, selection);
-    updateState({
-      selection: nextSelection,
-      diff: null,
-      diffChanged: false
-    });
 
     if (nextSelection) {
       await loadSelectedDiff(nextSelection);
@@ -5864,8 +5904,8 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
         appearanceMode: appSettings?.appearanceMode ?? "system",
         visualEffects: appSettings?.visualEffects ?? defaultVisualPreferences.visualEffects,
         reduceMotion: appSettings?.reduceMotion ?? defaultVisualPreferences.reduceMotion,
-        uiFont: appSettings?.uiFont ?? "inter",
-        codeFont: appSettings?.codeFont ?? "system-mono",
+        uiFont: appSettings?.uiFont ?? DEFAULT_UI_FONT,
+        codeFont: appSettings?.codeFont ?? DEFAULT_CODE_FONT,
         zoomFactor: appSettings?.zoomFactor ?? 1,
         tagPushBehavior: appSettings?.gitBehaviors?.tagPushBehavior ?? DEFAULT_TAG_PUSH_BEHAVIOR,
         requireUpToDateUpstreamBeforeCommit: appSettings?.gitBehaviors?.requireUpToDateUpstreamBeforeCommit ?? false,
@@ -6177,6 +6217,13 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     if (view === "issues") void github.ensure("issues");
   }, [activityLogStore, github.ensure, loadCommitDetails, loadCommitHistory, loadFileBlame, loadFileHistory, refreshDirtyFileStatus, stashWorkspace.refresh, updateState]);
 
+  /** Empties the guest slot. A guest that is the active view hands over to Changes first. */
+  const closeGuestView = useCallback((): void => {
+    const current = stateRef.current;
+    if (current.guestView && current.activeView === current.guestView) setWorkspaceView("status");
+    updateState({ guestView: null });
+  }, [setWorkspaceView, updateState]);
+
   const openAnalyticsFileHistory = useCallback((path: string, headHash: string): void => {
     if (!stateRef.current.summary?.capabilities.fileHistory) return;
     void loadFileHistory({ hash: headHash, path, status: "M" });
@@ -6287,9 +6334,9 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       return;
     }
 
-    setWorkspaceView("status");
+    closeGuestView();
   }, [
-    setWorkspaceView,
+    closeGuestView,
     stashWorkspace.state.entries.length,
     stashWorkspace.state.loadedRepoPath,
     stashWorkspace.state.loading,
@@ -7040,6 +7087,22 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       })
     );
   }, [runIndependentOperation, runRepoOperation, stageFiles, switchRepo, unstageFiles]);
+  // Stable, so that the memoised file lists skip a render when only the commit box changed.
+  const stageStatusFiles = useCallback((paths: string[], selection?: FileSelection): void => {
+    void stageFiles(paths, selection);
+  }, [stageFiles]);
+  const unstageStatusFiles = useCallback((paths: string[], selection?: FileSelection): void => {
+    void unstageFiles(paths, selection);
+  }, [unstageFiles]);
+  const runStatusFileContextAction = useCallback((
+    file: GitStatusFile,
+    side: GitDiffSide,
+    kind: ContextActionKind,
+    paths?: string[],
+    expectedSnapshot?: string
+  ): void => {
+    void runContextFileOperation(file, side, kind, paths, expectedSnapshot);
+  }, [runContextFileOperation]);
 
   const updateSubmodules = useCallback(async (path?: string): Promise<void> => {
     const repoPath = stateRef.current.repoPath;
@@ -7249,14 +7312,432 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     : null;
   const showGitHubTabs = Boolean(state.summary?.githubRepository);
   const showAnalyticsTab = Boolean(state.summary?.isValid && state.summary.capabilities.analytics);
+  // The stashes panel stays mounted while it holds the guest slot, even when it is not the active view.
   const showStashesTab = Boolean(
-    state.summary?.capabilities.stashes && (stashWorkspace.state.entries.length > 0 || state.activeView === "stashes")
+    state.summary?.capabilities.stashes
+      && (stashWorkspace.state.entries.length > 0 || state.activeView === "stashes" || state.guestView === "stashes")
   );
+  const selectedStashFile = stashWorkspace.state.details?.files.find((file) => file.path === stashWorkspace.state.selectedFilePath) ?? null;
   const pullRequestTabCount = github.counts.data ? formatCompactCount(github.counts.data.pullRequests) : null;
   const issueTabCount = github.counts.data ? formatCompactCount(github.counts.data.issues) : null;
   const activityLogAttentionState = state.activeView === "activity" ? "none" : activityLogAttention;
-  const hasUnreadActivityLog = activityLogAttentionState !== "none";
-  const hasUnviewedOperationError = activityLogAttentionState === "error";
+
+  const [quickSwitcherMode, setQuickSwitcherMode] = useState<QuickSwitcherMode | null>(null);
+  const [quickSwitcherQuery, setQuickSwitcherQuery] = useState("");
+  const [showHiddenRepositories, setShowHiddenRepositories] = useState(false);
+  const pendingSwitcherNavigationRef = useRef<"back" | "forward" | null>(null);
+  // Set when the chosen switcher item changes the view, so focus lands on the active tab instead of the opener.
+  const switcherFocusesViewRef = useRef(false);
+  const navigationRef = useRef(navigation);
+  navigationRef.current = navigation;
+  const repositoryOrganization = useRepositoryOrganization();
+  const workspaceRoute = state.startupStatus === "ready" && Boolean(state.repoPath) && !state.showSetup
+    && state.gitExecutableStatus?.available !== false;
+  const quickSwitcherSearching = quickSwitcherQuery.trim().length > 0;
+
+  /** Opens the switcher in a mode, or changes the mode of the open switcher, with an empty query. */
+  const openQuickSwitcher = useCallback((mode: QuickSwitcherMode): void => {
+    switcherFocusesViewRef.current = false;
+    setQuickSwitcherQuery("");
+    setQuickSwitcherMode(mode);
+  }, []);
+
+  const closeQuickSwitcher = useCallback((): void => {
+    setQuickSwitcherMode(null);
+    setQuickSwitcherQuery("");
+  }, []);
+
+  // Leaving the workspace (setup screen, Git missing) closes the switcher so it never reappears on return.
+  useEffect(() => {
+    if (!workspaceRoute) closeQuickSwitcher();
+  }, [closeQuickSwitcher, workspaceRoute]);
+
+  const removeRepositoryFromSwitcher = useCallback((repoPath: string): void => {
+    void removeRecentRepo(repoPath);
+  }, [removeRecentRepo]);
+  const showRepositoryInExplorerFromSwitcher = useCallback((repoPath: string): void => {
+    void showRecentRepositoryInExplorer(repoPath);
+  }, [showRecentRepositoryInExplorer]);
+  const removeWorktreeFromSwitcher = useCallback((worktree: GitWorktree): void => {
+    void openWorktreeRemoval(worktree);
+  }, [openWorktreeRemoval]);
+  const reorderRepositoriesFromSwitcher = useCallback((repoPaths: string[]): void => {
+    void reorderRepositories(repoPaths);
+  }, [reorderRepositories]);
+
+  // Row actions of the switcher's repository rows. Their dialogs mount beside the workspace dialogs, never inside the
+  // switcher, and every action that opens one closes the switcher first.
+  const switcherRepositoryActions = useRepositoryRowActions({
+    repoPaths: state.repoRecents,
+    activeRepoPath: state.repoPath,
+    disabled: running || repositoryOperationActive,
+    organization: repositoryOrganization,
+    onRemove: removeRepositoryFromSwitcher,
+    onRecover: recoverRecentRepo,
+    onShowInExplorer: showRepositoryInExplorerFromSwitcher,
+    onOpenRepositorySettings: setRepositorySettingsPath,
+    onRemoveWorktree: removeWorktreeFromSwitcher,
+    onReorder: reorderRepositoriesFromSwitcher,
+    onBeforeOpen: closeQuickSwitcher
+  });
+  const { renderMenuItems: renderSwitcherRepositoryMenuItems, openRecovery: openSwitcherRepositoryRecovery, openOrganizer: openSwitcherRepositoryOrganizer } = switcherRepositoryActions;
+
+  // Sections are built only while the switcher is open.
+  // The view switch's + menu lists the same views as the quick switcher's Go to section.
+  const addViewOptions = useMemo((): AddViewOption[] => buildGoToItems({
+    summary: state.summary,
+    stashCount: stashWorkspace.state.entries.length,
+    pullRequestCount: pullRequestTabCount,
+    issueCount: issueTabCount,
+    activityAttention: activityLogAttentionState,
+    activeView: state.activeView
+  }).flatMap((item) => item.kind === "view" && isGuestView(item.payload.view)
+    ? [{ view: item.payload.view, title: item.title, label: item.label, meta: item.meta }]
+    : []), [activityLogAttentionState, issueTabCount, pullRequestTabCount, stashWorkspace.state.entries.length, state.activeView, state.summary]);
+  const openGuestView = useCallback((view: GuestView): void => setWorkspaceView(view), [setWorkspaceView]);
+
+  const quickSwitcherSections = useMemo(() => quickSwitcherMode ? buildQuickSwitcherSections(quickSwitcherMode, {
+    repoPath: state.repoPath,
+    repoRecents: state.repoRecents,
+    repositoryGroups: state.repositoryGroups,
+    organization: repositoryOrganization.organization,
+    repoSyncStatuses: state.repoSyncStatuses,
+    showHidden: showHiddenRepositories,
+    searching: quickSwitcherSearching,
+    running,
+    summary: state.summary,
+    stashCount: stashWorkspace.state.entries.length,
+    pullRequestCount: pullRequestTabCount,
+    issueCount: issueTabCount,
+    activityAttention: activityLogAttentionState,
+    activeView: state.activeView,
+    branchPullRequests: historyInsights.currentBranchPullRequests,
+    hasPullRequestData: historyInsights.branchPullRequestsLoaded,
+    appUpdate: state.appUpdate,
+    canGoBack: navigation.canGoBack,
+    canGoForward: navigation.canGoForward
+  }) : null, [
+    activityLogAttentionState,
+    historyInsights.currentBranchPullRequests,
+    historyInsights.branchPullRequestsLoaded,
+    issueTabCount,
+    navigation.canGoBack,
+    navigation.canGoForward,
+    pullRequestTabCount,
+    quickSwitcherMode,
+    quickSwitcherSearching,
+    repositoryOrganization.organization,
+    running,
+    showHiddenRepositories,
+    stashWorkspace.state.entries.length,
+    state.activeView,
+    state.appUpdate,
+    state.repoPath,
+    state.repoRecents,
+    state.repoSyncStatuses,
+    state.repositoryGroups,
+    state.summary
+  ]);
+
+  // useWorkspaceNavigation reverts history moves while a dialog is open, so Go back and Go forward wait until the
+  // switcher has unmounted.
+  useEffect(() => {
+    if (quickSwitcherMode !== null) return;
+    const direction = pendingSwitcherNavigationRef.current;
+    if (!direction) return;
+    pendingSwitcherNavigationRef.current = null;
+    if (direction === "back") navigationRef.current.back();
+    else navigationRef.current.forward();
+  }, [quickSwitcherMode]);
+
+  const runQuickSwitcherItem = useCallback((item: QuickSwitcherItem): void => {
+    if (item.disabled) return;
+    // These items change the switcher itself and keep it open.
+    if (item.kind === "notice") return;
+    if (item.kind === "toggle-hidden-repositories") {
+      setShowHiddenRepositories(item.payload.showHidden);
+      return;
+    }
+    if (item.kind === "branch-action" && item.payload.action === "change-upstream") {
+      openQuickSwitcher("upstream");
+      return;
+    }
+    if (item.kind === "upstream") {
+      // The switcher stays open so a failure shows in it, and closes once the upstream changed.
+      void setBranchUpstream(item.payload.upstream).then(() => {
+        if (!stateRef.current.upstreamError) setQuickSwitcherMode((mode) => mode === "upstream" ? null : mode);
+      });
+      return;
+    }
+
+    // Everything else closes the switcher before it opens a dialog, a view or another repository.
+    closeQuickSwitcher();
+    switch (item.kind) {
+      case "repository":
+        void selectRecentRepo(item.payload.path);
+        return;
+      case "repair":
+        openSwitcherRepositoryRecovery(item.payload.path, item.payload.reason);
+        return;
+      case "add-repository":
+        setClonePanelOpen(true);
+        return;
+      case "organize-repositories":
+        openSwitcherRepositoryOrganizer();
+        return;
+      case "branch": {
+        const choice = item.payload.choice;
+        if (choice?.kind === "switch") void switchBranch(choice.branchName);
+        else if (choice?.kind === "open-worktree") void selectRecentRepo(choice.worktreePath);
+        else if (choice?.kind === "checkout-remote") checkoutRemoteBranch(choice.remoteBranch);
+        return;
+      }
+      case "branch-action":
+        switch (item.payload.action) {
+          case "new-branch":
+            openBranchDialog();
+            return;
+          case "merge":
+            setIntegrationDialog({ kind: "merge" });
+            return;
+          case "rebase":
+            setIntegrationDialog({ kind: "rebase" });
+            return;
+          case "checkout-tag":
+            void openTagCheckout();
+            return;
+          case "add-worktree":
+            openWorktreeDialog();
+            return;
+          case "manage-branches":
+            openBranchManager();
+            return;
+          default:
+            return;
+        }
+      case "open-remote":
+        if (item.payload.url) openExternalUrl(item.payload.url);
+        return;
+      case "manage-remotes":
+        openRemoteManager();
+        return;
+      case "repository-action":
+        void runConfiguredAction(item.payload.action);
+        return;
+      case "view":
+        switcherFocusesViewRef.current = true;
+        setWorkspaceView(item.payload.view);
+        return;
+      case "settings":
+        openSettingsDialog();
+        return;
+      case "open-pull-request":
+        openExternalUrl(item.payload.pullRequest.url);
+        return;
+      case "create-pull-request":
+        openCreatePrDialog();
+        return;
+      case "repository-settings":
+        setRepositorySettingsPath(item.payload.path);
+        return;
+      case "app-update":
+        if (item.payload.action === "check") void checkForAppUpdates();
+        else if (item.payload.action === "download") void downloadAppUpdate();
+        else if (confirmAppUpdateInstall()) void installAppUpdate();
+        return;
+      case "performance-diagnostics":
+        setPerformanceDiagnosticsOpen(true);
+        return;
+      case "navigate":
+        // Back and Forward change the view, so focus returns to the active tab instead of the opener.
+        switcherFocusesViewRef.current = true;
+        pendingSwitcherNavigationRef.current = item.payload.direction;
+        return;
+      case "manage-repository-actions":
+        openActionManager();
+        return;
+      case "push-to-branch":
+        openPushToBranchDialog();
+        return;
+      default:
+        return;
+    }
+  }, [
+    checkForAppUpdates,
+    checkoutRemoteBranch,
+    closeQuickSwitcher,
+    downloadAppUpdate,
+    installAppUpdate,
+    openActionManager,
+    openBranchDialog,
+    openBranchManager,
+    openCreatePrDialog,
+    openExternalUrl,
+    openPushToBranchDialog,
+    openQuickSwitcher,
+    openRemoteManager,
+    openSettingsDialog,
+    openSwitcherRepositoryOrganizer,
+    openSwitcherRepositoryRecovery,
+    openTagCheckout,
+    openWorktreeDialog,
+    runConfiguredAction,
+    selectRecentRepo,
+    setBranchUpstream,
+    setClonePanelOpen,
+    setWorkspaceView,
+    switchBranch
+  ]);
+
+  const restoreQuickSwitcherFocus = useCallback(
+    (): boolean => switcherFocusesViewRef.current && focusActiveViewTab(),
+    []
+  );
+
+  const renderQuickSwitcherContextMenu = useCallback((item: QuickSwitcherItem, row: ReactElement): ReactNode => {
+    if (item.kind !== "repository" && item.kind !== "repair") return row;
+    const { menuPath, group, worktree } = item.payload;
+    return (
+      <ContextMenu>
+        <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+        <ContextMenuContent className="w-72">
+          <ContextMenuLabel className="repo-recent-menu-path">{menuPath}</ContextMenuLabel>
+          <ContextMenuSeparator />
+          {renderSwitcherRepositoryMenuItems(menuPath, worktree
+            ? { ...(group ? { group } : {}), worktree }
+            : { ...(group ? { group } : {}), reorder: true })}
+        </ContextMenuContent>
+      </ContextMenu>
+    );
+  }, [renderSwitcherRepositoryMenuItems]);
+
+  useAppShortcuts(workspaceRoute, {
+    quickSwitcherOpen: quickSwitcherMode !== null,
+    workspaceValid: Boolean(state.summary?.isValid),
+    onToggleQuickSwitcher: () => {
+      if (quickSwitcherMode !== null) closeQuickSwitcher();
+      else openQuickSwitcher("all");
+    },
+    onCloseQuickSwitcher: closeQuickSwitcher,
+    onOpenSettings: () => openSettingsDialog(),
+    onNewBranch: openBranchDialog,
+    onAddRepository: () => setClonePanelOpen(true)
+  });
+
+  const changeWorkspaceTab = useCallback((value: string): void => {
+    setWorkspaceView(value as WorkspaceView);
+  }, [setWorkspaceView]);
+  const headerRepository = useMemo(
+    () => getHeaderRepository(state.repoPath, state.repoRecents, state.repositoryGroups, repositoryOrganization.organization),
+    [repositoryOrganization.organization, state.repoPath, state.repoRecents, state.repositoryGroups]
+  );
+  const renderHeaderRepositoryMenuItems = useCallback(
+    (): ReactNode => renderSwitcherRepositoryMenuItems(headerRepository.menuPath, headerRepository.menuTarget),
+    [headerRepository, renderSwitcherRepositoryMenuItems]
+  );
+  const headerGuestCount = state.guestView === "stashes"
+    ? stashWorkspace.state.entries.length
+    : state.guestView === "pullRequests"
+      ? pullRequestTabCount
+      : state.guestView === "issues" ? issueTabCount : null;
+  const repoSwitcherRef = useRef<HTMLButtonElement>(null);
+  const repositoryAdditionDisabled = running || repositoryOperationActive;
+  const cloneCancelStatus = cloneCancellation?.cancelStatus ?? "idle";
+  const cloneCancelError = cloneCancellation?.cancelError ?? "";
+  const cancelCloneOperation = useCallback((): void => {
+    const operation = stateRef.current.activeOperation;
+    if (operation?.kind !== "clone" && operation?.kind !== "clone-check") return;
+    void cancelRunningOperation({ kind: "active", token: operation.token, operationId: operation.operationId });
+  }, [cancelRunningOperation]);
+  const openLocalRepository = useCallback((path?: string): void => { void chooseRepo(path); }, [chooseRepo]);
+  const connectGitHubFromOmnibox = useCallback((): void => {
+    openSettingsDialog("integrations");
+    void connectGitHub();
+  }, [connectGitHub, openSettingsDialog]);
+  const changeCloneSource = useCallback((draft: CloneDraft): void => {
+    updateCloneDraft(draft);
+    resetCloneCheckState();
+  }, [resetCloneCheckState, updateCloneDraft]);
+  const chooseCloneParentFromOmnibox = useCallback((): void => { void chooseCloneParent(); }, [chooseCloneParent]);
+  const submitClone = useCallback((event: FormEvent<HTMLFormElement>, fork?: boolean): void => {
+    event.preventDefault();
+    void cloneRepository(fork);
+  }, [cloneRepository]);
+  // The add-repository popover opens below the repository switcher and returns focus to it. Its callbacks stay
+  // stable, because the composer starts its automatic access check when they change.
+  const wrapRepoSwitcher = useCallback((node: ReactNode): ReactNode => (
+    <RepositoryOmnibox
+      anchor={node}
+      returnFocusRef={repoSwitcherRef}
+      open={state.clonePanelOpen}
+      disabled={repositoryAdditionDisabled}
+      onOpenChange={setClonePanelOpen}
+      onOpenLocal={openLocalRepository}
+      onConnectGitHub={connectGitHubFromOmnibox}
+      onAbandonCheck={abandonCloneCheck}
+      cloneDraft={state.cloneDraft}
+      cloneError={state.cloneError}
+      cloneRunning={state.cloneRunning}
+      cloneCheckRunning={state.cloneCheckRunning}
+      cloneCheckStatus={state.cloneCheckStatus}
+      cloneCheckMessage={state.cloneCheckMessage}
+      cloneBranches={state.cloneBranches}
+      cancelStatus={cloneCancelStatus}
+      cancelError={cloneCancelError}
+      onCloneDraftChange={updateCloneDraft}
+      onCloneSourceChange={changeCloneSource}
+      onChooseCloneParent={chooseCloneParentFromOmnibox}
+      onCheckRepositoryAccess={checkRepositoryAccess}
+      onClone={submitClone}
+      onCancelOperation={cancelCloneOperation}
+    />
+  ), [
+    abandonCloneCheck,
+    cancelCloneOperation,
+    changeCloneSource,
+    checkRepositoryAccess,
+    chooseCloneParentFromOmnibox,
+    cloneCancelError,
+    cloneCancelStatus,
+    connectGitHubFromOmnibox,
+    openLocalRepository,
+    repositoryAdditionDisabled,
+    setClonePanelOpen,
+    state.cloneBranches,
+    state.cloneCheckMessage,
+    state.cloneCheckRunning,
+    state.cloneCheckStatus,
+    state.cloneDraft,
+    state.cloneError,
+    state.clonePanelOpen,
+    state.cloneRunning,
+    submitClone,
+    updateCloneDraft
+  ]);
+  const runHeaderAction = useCallback((action: GitAction): void => {
+    // Pull during a pull recovery reopens the recovery instead of pulling again.
+    if (action === "pull" && stateRef.current.pullRecovery) {
+      updateState({ pullRecoveryOpen: true, pullRecoveryError: "" });
+    } else {
+      void runAction(action, undefined, "action-bar");
+    }
+  }, [runAction, updateState]);
+  const runHeaderPullWithAction = useCallback((action: GitConfiguredAction): void => {
+    void runPullWithConfiguredAction(action);
+  }, [runPullWithConfiguredAction]);
+  const runHeaderConfiguredAction = useCallback((action: GitConfiguredAction): void => {
+    void runConfiguredAction(action);
+  }, [runConfiguredAction]);
+  // Without a target, cancellation picks the running operation the header shows Cancel for.
+  const cancelHeaderOperation = useCallback((): void => {
+    void cancelRunningOperation();
+  }, [cancelRunningOperation]);
+  const cancelHeaderConfiguredAction = useCallback((target: ConfiguredActionCancelTarget): void => {
+    void cancelRunningOperation(target);
+  }, [cancelRunningOperation]);
+  const checkForHeaderAppUpdates = useCallback((): void => { void checkForAppUpdates(); }, [checkForAppUpdates]);
+  const downloadHeaderAppUpdate = useCallback((): void => { void downloadAppUpdate(); }, [downloadAppUpdate]);
+  const installHeaderAppUpdate = useCallback((): void => { void installAppUpdate(); }, [installAppUpdate]);
 
   const visualPreferences = state.settingsOpen ? state.settingsDraft : state.appSettings ?? defaultVisualPreferences;
   if (state.startupStatus === "loading") {
@@ -7372,296 +7853,116 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
   }
 
   const selectedFileHistoryEntry = state.fileHistoryEntries.find((entry) => entry.hash === state.selectedFileHistoryHash) ?? null;
+  const blameRoute = state.historyRoute.kind === "blame" ? state.historyRoute : null;
+  // Blame shows the loaded file history beside it only when that history contains the blamed version.
+  const blameVersions = blameRoute && state.fileHistoryOrigin
+    && state.fileHistoryEntries.some((entry) => entry.hash === blameRoute.target.hash && entry.path === blameRoute.target.path)
+    ? state.fileHistoryEntries
+    : null;
+  /** Leaves File History or Blame for the commit history, and drops their pending reads. */
+  const openRepositoryHistoryRoute = (): void => {
+    cancelRepositoryRead("file-history", requestIds.current.fileHistory);
+    cancelRepositoryRead("file-history-diff", requestIds.current.fileHistoryDiff);
+    cancelRepositoryRead("file-blame", requestIds.current.fileBlame);
+    requestIds.current.fileHistory += 1;
+    requestIds.current.fileHistoryDiff += 1;
+    requestIds.current.fileBlame += 1;
+    updateState({ historyRoute: repositoryHistoryRoute });
+  };
 
   return (
     <AppChrome
       visualPreferences={visualPreferences}
       isMaximized={windowState.isMaximized}
+      titleBar={false}
       onMinimize={minimizeWindow}
       onToggleMaximize={toggleMaximizeWindow}
       onClose={closeWindow}
-      repositoryPanelOpen={repositoryPanelOpen}
-      onToggleRepositoryPanel={() => setRepositoryPanelOpen((open) => !open)}
     >
-      <div className="app-workspace-shell" data-repository-panel-open={repositoryPanelOpen ? "true" : "false"}>
-        <button
-          type="button"
-          className="repository-panel-scrim"
-          aria-label="Close repositories"
-          aria-hidden={!repositoryPanelOpen}
-          tabIndex={repositoryPanelOpen ? 0 : -1}
-          onClick={() => setRepositoryPanelOpen(false)}
+      {/* The header's view switch and the view panels share this Tabs root. */}
+      <Tabs value={state.activeView} onValueChange={changeWorkspaceTab} className="app-workspace-shell">
+        {/* The header sits outside the repository-keyed panel provider, so switching repositories never remounts it. */}
+        {/* The header reads per-repository panel state (action folders). This provider has no key, so switching
+            repositories changes its namespace without remounting the header. */}
+        <WorkspacePanelStateProvider store={workspacePanelStateStore} namespace={getRepoPathKey(state.repoPath) || "setup"}>
+        <RepositoryHeader
+          repoPath={state.repoPath}
+          displayName={headerRepository.displayName}
+          summary={state.summary}
+          isMaximized={windowState.isMaximized}
+          changesCount={pendingFileCount}
+          guestView={state.guestView}
+          guestCount={headerGuestCount}
+          activityAttention={activityLogAttentionState}
+          actionHeading={actionHeading}
+          runningAction={state.runningAction}
+          feedbackEvent={state.operationButtonFeedback?.repoPath === state.repoPath ? state.operationButtonFeedback : null}
+          configuredActionRuns={state.configuredActionRuns}
+          configuredActionOutcome={state.configuredActionOutcome}
+          disabled={disableUnrelatedMutations}
+          pullRecovery={state.pullRecovery}
+          cancellable={Boolean(cancellationTarget)}
+          cancelStatus={cancellationTarget?.cancelStatus ?? "idle"}
+          cancelLabel={state.runningOperation === "Generating commit message" ? "Stop" : "Cancel"}
+          cancelingLabel={state.runningOperation === "Generating commit message" ? "Stopping…" : "Cancelling"}
+          appUpdate={state.appUpdate}
+          repoSwitcherRef={repoSwitcherRef}
+          wrapRepoSwitcher={wrapRepoSwitcher}
+          renderRepositoryMenuItems={renderHeaderRepositoryMenuItems}
+          onOpenSwitcher={openQuickSwitcher}
+          onCloseGuest={closeGuestView}
+          addViewOptions={addViewOptions}
+          onOpenView={openGuestView}
+          onRunAction={runHeaderAction}
+          onPullWithAction={runHeaderPullWithAction}
+          onOpenPushToBranch={openPushToBranchDialog}
+          onRunConfiguredAction={runHeaderConfiguredAction}
+          onManageActions={openActionManager}
+          onCancel={cancelHeaderOperation}
+          onCancelOperation={cancelHeaderConfiguredAction}
+          onCheckForUpdates={checkForHeaderAppUpdates}
+          onDownloadUpdate={downloadHeaderAppUpdate}
+          onInstallUpdate={installHeaderAppUpdate}
+          onMinimize={minimizeWindow}
+          onToggleMaximize={toggleMaximizeWindow}
+          onCloseWindow={closeWindow}
         />
-        <ResizablePanelGroup orientation="horizontal" className="app-workspace h-full min-h-0">
-          <ResizablePanel
-            defaultSize="27%"
-            minSize="292px"
-            maxSize="460px"
-            className="repository-panel-shell min-w-[292px]"
-            data-layout-panel="repository"
-            id="repository-panel"
-          >
-            <RepositoryPanel
+        </WorkspacePanelStateProvider>
+        <div className="operation-banner-slot">
+          {state.summary?.isValid !== false && cancellationTarget?.cancelError ? (
+            <p className="operation-banner-alert selectable-text" role="alert">{cancellationTarget.cancelError}</p>
+          ) : null}
+          {state.summary?.isValid !== false && state.summary?.operationState ? (
+            <GitOperationRecoveryBanner
+              state={state.summary.operationState}
+              busy={running}
+              cancellable={Boolean(cancellationRequestTarget)}
+              error={state.repositoryOperationError}
+              onAction={(action) => { void resolveRepositoryOperation(action); }}
+              onOpenConflict={openRepositoryOperationConflict}
+              onOpenConflictFile={openRepositoryOperationConflictFile}
+              onCancel={cancelHeaderOperation}
+            />
+          ) : null}
+        </div>
+        <div className="app-workspace-body">
+          {state.summary?.isValid === false ? (
+            <RepositoryErrorView
+              key={state.repoPath}
               repoPath={state.repoPath}
-              repoRecents={state.repoRecents}
-              repositoryGroups={state.repositoryGroups}
-              repoSyncStatuses={state.repoSyncStatuses}
-              summary={state.summary}
-              upstreamError={state.upstreamError}
-              running={running || repositoryOperationActive}
-              appUpdate={state.appUpdate}
-              clonePanelOpen={state.clonePanelOpen}
-              cloneDraft={state.cloneDraft}
-              cloneError={state.cloneError}
-              cloneRunning={state.cloneRunning}
-              cloneCheckRunning={state.cloneCheckRunning}
-              cloneCheckStatus={state.cloneCheckStatus}
-              cloneCheckMessage={state.cloneCheckMessage}
-              cloneBranches={state.cloneBranches}
-              cancelStatus={cloneCancellation?.cancelStatus ?? "idle"}
-              cancelError={cloneCancellation?.cancelError ?? ""}
-              onClonePanelOpenChange={setClonePanelOpen}
-              onChooseRepo={(path) => {
-                setRepositoryPanelOpen(false);
-                void chooseRepo(path);
-              }}
-              onSelectRecent={(repoPath) => {
-                setRepositoryPanelOpen(false);
-                void selectRecentRepo(repoPath);
-              }}
-              onRemoveRecent={(repoPath) => {
-                void removeRecentRepo(repoPath);
-              }}
-              onRecoverRecent={recoverRecentRepo}
-              onReorderRepositories={(repoPaths) => {
-                void reorderRepositories(repoPaths);
-              }}
-              onShowInExplorer={(repoPath) => {
-                void showRecentRepositoryInExplorer(repoPath);
-              }}
-              onOpenRepositorySettings={(repoPath) => {
-                setRepositoryPanelOpen(false);
-                setRepositorySettingsPath(repoPath);
-              }}
-              onAddWorktree={openWorktreeDialog}
-              onRemoveWorktree={(worktree) => { void openWorktreeRemoval(worktree); }}
-              onSwitchBranch={(branchName) => {
-                void switchBranch(branchName);
-              }}
-              onCheckoutTag={() => { void openTagCheckout(); }}
-              onCheckoutRemoteBranch={checkoutRemoteBranch}
-              onOpenBranchDialog={openBranchDialog}
-              onOpenBranchManager={openBranchManager}
-              onOpenMerge={() => setIntegrationDialog({ kind: "merge" })}
-              onOpenRebase={() => setIntegrationDialog({ kind: "rebase" })}
-              onChangeUpstream={(upstream) => {
-                void setBranchUpstream(upstream);
-              }}
-              onOpenRemoteManager={openRemoteManager}
-              onOpenExternalUrl={openExternalUrl}
-              onOpenSettings={() => {
-                setRepositoryPanelOpen(false);
-                openSettingsDialog();
-              }}
-              onConnectGitHub={() => {
-                openSettingsDialog("integrations");
-                void connectGitHub();
-              }}
-              onAbandonCheck={abandonCloneCheck}
-              onCloneDraftChange={updateCloneDraft}
-              onCloneSourceChange={(draft) => {
-                updateCloneDraft(draft);
-                resetCloneCheckState();
-              }}
-              onChooseCloneParent={() => {
-                void chooseCloneParent();
-              }}
-              onCheckRepositoryAccess={checkRepositoryAccess}
-              onClone={(event, fork) => {
-                event.preventDefault();
-                void cloneRepository(fork);
-              }}
-              onCancelOperation={() => {
-                if (cloneCancellationRequestTarget) void cancelRunningOperation(cloneCancellationRequestTarget);
-              }}
-              onCheckForUpdates={() => {
-                void checkForAppUpdates();
-              }}
-              onDownloadUpdate={() => {
-                void downloadAppUpdate();
-              }}
-              onInstallUpdate={() => {
-                void installAppUpdate();
-              }}
+              error={state.setupError || state.summary.validationErrors.join(" ")}
+              safeDirectory={state.summary.safeDirectory}
+              busy={running || state.repoLoading}
+              onRetry={() => { void refreshRepo({ reason: "user", addToRecents: true }); }}
+              onRecover={() => recoverRecentRepo(state.repoPath)}
+              onAllowGitException={openSafeDirectoryDialog}
             />
-          </ResizablePanel>
-          <ResizableHandle className="app-workspace-resize-handle" />
-          <ResizablePanel minSize="520px" className="main-workspace-panel" data-layout-panel="workspace">
-            <section className="app-workspace-main flex h-full min-w-0 flex-col overflow-hidden">
-              <WorkspaceBreadcrumbs
-                location={workspaceLocation}
-                repositoryName={getRepoDisplayName(state.repoPath)}
-                canGoBack={navigation.canGoBack}
-                canGoForward={navigation.canGoForward}
-                onBack={navigation.back}
-                onForward={navigation.forward}
-                onNavigate={restoreWorkspaceLocation}
-              />
-              {state.summary?.isValid === false ? (
-                <RepositoryErrorView
-                  key={state.repoPath}
-                  repoPath={state.repoPath}
-                  error={state.setupError || state.summary.validationErrors.join(" ")}
-                  safeDirectory={state.summary.safeDirectory}
-                  busy={running || state.repoLoading}
-                  onRetry={() => { void refreshRepo({ reason: "user", addToRecents: true }); }}
-                  onRecover={() => recoverRecentRepo(state.repoPath)}
-                  onAllowGitException={openSafeDirectoryDialog}
-                />
-              ) : <>
-              <ActionBar
-              heading={actionHeading}
-              summary={state.summary}
-              runningAction={state.runningAction}
-              feedbackEvent={state.operationButtonFeedback?.repoPath === state.repoPath ? state.operationButtonFeedback : null}
-              configuredActionRuns={state.configuredActionRuns}
-              disabled={disableUnrelatedMutations}
-              cancellable={Boolean(cancellationTarget)}
-              cancelStatus={cancellationTarget?.cancelStatus ?? "idle"}
-              cancelError={cancellationTarget?.cancelError ?? ""}
-              cancelLabel={state.runningOperation === "Generating commit message" ? "Stop" : "Cancel"}
-              cancelingLabel={state.runningOperation === "Generating commit message" ? "Stopping…" : "Cancelling"}
-              showCreatePullRequest={shouldShowCreatePullRequest(state.summary, historyInsights.data.currentBranchPullRequests, historyInsights.loaded)}
-              branchPullRequests={historyInsights.data.currentBranchPullRequests}
-              pullRecovery={state.pullRecovery}
-              onOpenExternalUrl={openExternalUrl}
-              onRunAction={(action) => {
-                if (action === "pull" && stateRef.current.pullRecovery) {
-                  updateState({ pullRecoveryOpen: true, pullRecoveryError: "" });
-                } else {
-                  void runAction(action, undefined, "action-bar");
-                }
-              }}
-              onOpenPushToBranch={openPushToBranchDialog}
-              onRunConfiguredAction={(action) => {
-                void runConfiguredAction(action);
-              }}
-              onPullWithAction={(action) => {
-                void runPullWithConfiguredAction(action);
-              }}
-              onManageActions={openActionManager}
-              onCreatePullRequest={openCreatePrDialog}
-              onCancel={() => {
-                if (cancellationRequestTarget) void cancelRunningOperation(cancellationRequestTarget);
-              }}
-            />
-
-            {state.summary?.operationState ? (
-              <GitOperationRecoveryBanner
-                state={state.summary.operationState}
-                busy={running}
-                cancellable={Boolean(cancellationRequestTarget)}
-                error={state.repositoryOperationError}
-                onAction={(action) => { void resolveRepositoryOperation(action); }}
-                onOpenConflict={openRepositoryOperationConflict}
-                onOpenConflictFile={openRepositoryOperationConflictFile}
-                onCancel={() => {
-                  if (cancellationRequestTarget) void cancelRunningOperation(cancellationRequestTarget);
-                }}
-              />
-            ) : null}
-
+          ) : (
             <WorkspacePanelStateProvider
               key={getRepoPathKey(state.repoPath) || "setup"}
               store={workspacePanelStateStore}
               namespace={getRepoPathKey(state.repoPath) || "setup"}
             >
-              <Tabs
-                value={state.activeView}
-                onValueChange={(value) => {
-                  setWorkspaceView(value as WorkspaceView);
-                }}
-                className="workspace-tabs flex min-h-0 flex-1 flex-col"
-              >
-              <div className="workspace-tabs-bar border-b bg-card px-4 pt-2">
-                <TabsList variant="line" className="h-9 w-max min-w-full bg-transparent p-0">
-                  <TabsTrigger
-                    value="status"
-                    aria-label={pendingFileCount ? `File Status ${pendingFileCount}` : "File Status"}
-                    className="workspace-tab-trigger h-9 rounded-none"
-                  >
-                    <ListTree />
-                    File Status
-                    {pendingFileCount ? <span className="workspace-tab-count">{pendingFileCount}</span> : null}
-                  </TabsTrigger>
-                  {showStashesTab ? (
-                    <TabsTrigger
-                      value="stashes"
-                      aria-label={stashWorkspace.state.entries.length ? `Stashes ${stashWorkspace.state.entries.length}` : "Stashes"}
-                      className="workspace-tab-trigger h-9 rounded-none"
-                    >
-                      <Archive />
-                      Stashes
-                      {stashWorkspace.state.entries.length ? <span className="workspace-tab-count">{stashWorkspace.state.entries.length}</span> : null}
-                    </TabsTrigger>
-                  ) : null}
-                  <TabsTrigger value="history" className="workspace-tab-trigger h-9 rounded-none">
-                    <History />
-                    Commit History
-                  </TabsTrigger>
-                  {showAnalyticsTab ? (
-                    <TabsTrigger value="analytics" className="workspace-tab-trigger h-9 rounded-none">
-                      <ChartColumnBig />
-                      Analytics
-                    </TabsTrigger>
-                  ) : null}
-                  {showGitHubTabs ? (
-                    <>
-                      <TabsTrigger value="workflows" className="workspace-tab-trigger h-9 rounded-none">
-                        <Workflow />
-                        Workflow Runs
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="pullRequests"
-                        aria-label={pullRequestTabCount ? `Pull Requests ${pullRequestTabCount}` : "Pull Requests"}
-                        className="workspace-tab-trigger h-9 rounded-none"
-                      >
-                        <GitPullRequest />
-                        Pull Requests
-                        {pullRequestTabCount ? <span className="workspace-tab-count">{pullRequestTabCount}</span> : null}
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="issues"
-                        aria-label={issueTabCount ? `Issues ${issueTabCount}` : "Issues"}
-                        className="workspace-tab-trigger h-9 rounded-none"
-                      >
-                        <CircleDot />
-                        Issues
-                        {issueTabCount ? <span className="workspace-tab-count">{issueTabCount}</span> : null}
-                      </TabsTrigger>
-                    </>
-                  ) : null}
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <TabsTrigger
-                        value="activity"
-                        aria-label={hasUnviewedOperationError
-                          ? "Activity Log, unread error details available"
-                          : hasUnreadActivityLog ? "Activity Log, unread output available" : "Activity Log"}
-                        className="workspace-tab-trigger workspace-tab-trigger-end activity-log-tab h-9 rounded-none"
-                        data-attention={hasUnviewedOperationError ? "error" : hasUnreadActivityLog ? "unread" : "none"}
-                      >
-                        <Clipboard />
-                        <span className="activity-log-attention-indicator" aria-hidden="true" />
-                      </TabsTrigger>
-                    </TooltipTrigger>
-                    <TooltipContent>{hasUnviewedOperationError
-                      ? "View unread error details in Activity Log"
-                      : hasUnreadActivityLog ? "View unread Activity Log output" : "Activity Log"}</TooltipContent>
-                  </Tooltip>
-                </TabsList>
-              </div>
-
               <PersistentWorkspaceTabsContent panelKey="status" active={state.activeView === "status"} value="status" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
                 <StatusView
                   stagedFiles={stagedFiles}
@@ -7683,20 +7984,14 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                   wrapLines={state.appSettings?.wrapDiffLines ?? false}
                   onWrapLinesChange={setWrapDiffLines}
                   onSelectFile={selectFile}
-                  onStageFiles={(paths, selection) => {
-                    void stageFiles(paths, selection);
-                  }}
-                  onUnstageFiles={(paths, selection) => {
-                    void unstageFiles(paths, selection);
-                  }}
+                  onStageFiles={stageStatusFiles}
+                  onUnstageFiles={unstageStatusFiles}
                   onRefreshDiff={() => {
                     void loadSelectedDiff();
                   }}
                   onDownloadImage={() => { void downloadStatusLfsPreview(); }}
                   onApplyHunk={applySelectedHunk}
-                  onContextAction={(file, side, kind, paths, expectedSnapshot) => {
-                    void runContextFileOperation(file, side, kind, paths, expectedSnapshot);
-                  }}
+                  onContextAction={runStatusFileContextAction}
                   onUpdateSubmodules={(path) => { void updateSubmodules(path); }}
                   onSyncSubmodules={() => { void syncSubmodules(); }}
                   canGeneratePlan={canUseSelectedAiProvider(state.aiSettings)}
@@ -7719,6 +8014,77 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                       onManage={() => setWorkspaceView("stashes")}
                       onCreate={createStash}
                       onGenerateMessage={generateStashMessage}
+                    />
+                  ) : null}
+                  commitBox={statusWorkspaceMode === "files" && !repositoryOperationActive ? (
+                    <CommitPanel
+                      commitMessage={state.commitMessage}
+                      commitMessageSuggestion={state.commitMessageSuggestion}
+                      commitPushSafetyNotice={state.commitPushSafetyNotice}
+                      generationError={state.commitMessageGenerationError}
+                      generating={state.runningOperation === "Generating commit message"}
+                      disabled={disableUnrelatedMutations}
+                      primaryCommitAction={primaryCommitAction}
+                      stagedCount={stagedFiles.length}
+                      quickCommitByDefault={state.summary?.kind === "git" && state.appSettings?.gitBehaviors?.quickCommitByDefault === true}
+                      summary={state.summary}
+                      selection={state.selection}
+                      quickCommitAiReady={canUseSelectedAiProvider(state.aiSettings)}
+                      quickCommitPhase={state.activeOperation?.label === "Generating quick commit message" ? state.runningOperation === "Committing selected files" ? "committing" : "generating" : null}
+                      onQuickCommit={(paths) => { void quickCommitSelectedFiles(paths); }}
+                      onManualCommit={() => { void commitChanges(); }}
+                      pushableCommitCount={getPushableCommitCount(state.summary)}
+                      feedbackEvent={state.operationButtonFeedback?.repoPath === state.repoPath ? state.operationButtonFeedback : null}
+                      canCommit={canCommit(state)}
+                      canGenerateCommitMessage={canGenerateCommitMessage(state)}
+                      generateTitle={getGenerateMessageTitle(state)}
+                      onCommit={() => {
+                        if (primaryCommitAction === "commit") {
+                          void commitChanges();
+                        } else if (primaryCommitAction === "push") {
+                          void runAction("push", undefined, "commit-panel");
+                        }
+                      }}
+                      onCommitAndPush={() => {
+                        void commitAndPush();
+                      }}
+                      onUndoFailedCommitPush={() => {
+                        void undoFailedCommitPush();
+                      }}
+                      showAmendAction={state.summary?.kind === "git"}
+                      canAmend={Boolean(state.summary?.kind === "git" && state.summary.hasHead)}
+                      amendDisabled={disableUnrelatedMutations}
+                      amendDisabledReason={getAmendDisabledReason(state)}
+                      onOpenAmend={() => openAmendDialog("composer")}
+                      onGenerateMessage={() => {
+                        void generateCommitMessage();
+                      }}
+                      onOpenGenerateWithContext={() => {
+                        updateState({
+                          generateContextDialog: {
+                            open: true,
+                            context: ""
+                          }
+                        });
+                      }}
+                      onCommitMessageChange={(commitMessage) => {
+                        updateState({
+                          commitMessage,
+                          commitMessageGenerationError: ""
+                        });
+                      }}
+                      onApplyCommitMessageSuggestion={() => {
+                        const suggestion = stateRef.current.commitMessageSuggestion;
+                        if (!suggestion) return;
+                        updateState({
+                          commitMessage: suggestion.message,
+                          commitMessageSuggestion: null,
+                          commitMessageGenerationError: ""
+                        });
+                      }}
+                      onDismissCommitMessageSuggestion={() => {
+                        updateState({ commitMessageSuggestion: null });
+                      }}
                     />
                   ) : null}
                 />
@@ -7747,6 +8113,8 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                         repoPath={state.repoPath}
                         wrapLines={state.appSettings?.wrapDiffLines ?? false}
                         onWrapLinesChange={setWrapDiffLines}
+                        variant="embedded"
+                        status={selectedStashFile ? getCommitFileStatusVisuals(selectedStashFile.status) : undefined}
                       />
                     }
                     onRefresh={() => { void stashWorkspace.refresh(); }}
@@ -7770,13 +8138,8 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                     loading={state.fileHistoryLoading}
                     error={state.fileHistoryError}
                     hasMore={state.fileHistoryHasMore}
-                    onBack={() => {
-                      cancelRepositoryRead("file-history", requestIds.current.fileHistory);
-                      cancelRepositoryRead("file-history-diff", requestIds.current.fileHistoryDiff);
-                      requestIds.current.fileHistory += 1;
-                      requestIds.current.fileHistoryDiff += 1;
-                      updateState({ historyRoute: repositoryHistoryRoute });
-                    }}
+                    onBack={openRepositoryHistoryRoute}
+                    onOpenRepositoryHistory={openRepositoryHistoryRoute}
                     onRetry={() => { void loadFileHistory(state.historyRoute.kind === "file" ? state.historyRoute.origin : state.fileHistoryOrigin!); }}
                     onSelect={(entry) => { void loadFileHistoryDiff(entry); }}
                     onBlame={(entry) => { void loadFileBlame(targetFromHistoryEntry(entry), "file"); }}
@@ -7791,31 +8154,44 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                         repoPath={state.repoPath}
                         wrapLines={state.appSettings?.wrapDiffLines ?? false}
                         onWrapLinesChange={setWrapDiffLines}
+                        variant="card"
+                        status={selectedFileHistoryEntry ? getCommitFileStatusVisuals(selectedFileHistoryEntry.status) : undefined}
                       />
                     }
                   />
                   </OptionalFeatureBoundary>
-                ) : state.historyRoute.kind === "blame" ? (
+                ) : blameRoute ? (
                   <OptionalFeatureBoundary name="blame view">
                   <BlameView
-                    path={state.historyRoute.target.path}
+                    path={blameRoute.target.path}
+                    hash={blameRoute.target.hash}
                     result={state.fileBlame}
                     loading={state.fileBlameLoading}
                     error={state.fileBlameError}
-                    backLabel={state.historyRoute.returnTo === "file" ? "Back to File History" : "Back"}
+                    backLabel={blameRoute.returnTo === "file" ? "Back to file history" : "Back"}
+                    versions={blameVersions}
+                    fileHistoryDisabled={!blameVersions && !state.summary?.capabilities.fileHistory}
                     onBack={() => {
                       restoreWorkspaceLocation({
                         ...workspaceLocation,
-                        historyRoute: state.historyRoute.kind === "blame" && state.historyRoute.returnTo === "file" && state.fileHistoryOrigin
+                        historyRoute: blameRoute.returnTo === "file" && state.fileHistoryOrigin
                           ? { kind: "file", origin: state.fileHistoryOrigin }
                           : repositoryHistoryRoute
                       });
                     }}
-                    onRetry={() => { if (state.historyRoute.kind === "blame") void loadFileBlame(state.historyRoute.target, state.historyRoute.returnTo); }}
+                    onOpenRepositoryHistory={openRepositoryHistoryRoute}
+                    onShowFileHistory={() => {
+                      // The loaded history is shown again as it is. Otherwise the history of the blamed version loads.
+                      if (blameVersions && state.fileHistoryOrigin) {
+                        restoreWorkspaceLocation({ ...workspaceLocation, historyRoute: { kind: "file", origin: state.fileHistoryOrigin } });
+                      } else if (state.summary?.capabilities.fileHistory) {
+                        void loadFileHistory(blameRoute.target);
+                      }
+                    }}
+                    onSelectVersion={(entry) => { void loadFileBlame(targetFromHistoryEntry(entry), "file"); }}
+                    onRetry={() => { void loadFileBlame(blameRoute.target, blameRoute.returnTo); }}
                     onOpenCommit={(hash) => {
-                      cancelRepositoryRead("file-blame", requestIds.current.fileBlame);
-                      requestIds.current.fileBlame += 1;
-                      updateState({ historyRoute: repositoryHistoryRoute });
+                      openRepositoryHistoryRoute();
                       selectCommit(hash);
                     }}
                   />
@@ -7952,6 +8328,10 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                       onConnectGitHub={() => openSettingsDialog("integrations")}
                       onReviewAccess={() => { void window.githead.openExternalUrl({ url: GITHUB_APP_INSTALL_URL }); }}
                       onCheckRemote={openRemoteManager}
+                      showCreatePullRequest={shouldShowCreatePullRequest(state.summary, historyInsights.currentBranchPullRequests, historyInsights.branchPullRequestsLoaded)}
+                      branchPullRequests={historyInsights.currentBranchPullRequests}
+                      createPullRequestDisabled={disableUnrelatedMutations}
+                      onCreatePullRequest={openCreatePrDialog}
                     />
                   </PersistentWorkspaceTabsContent>
 
@@ -7994,84 +8374,27 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
                   onCopyRawLog={copyActivityLogRawText}
                 />
               </PersistentWorkspaceTabsContent>
-              </Tabs>
 
-            {state.activeView === "status" && statusWorkspaceMode === "files" && !repositoryOperationActive ? (
-              <CommitPanel
-                commitMessage={state.commitMessage}
-                commitMessageSuggestion={state.commitMessageSuggestion}
-                commitPushSafetyNotice={state.commitPushSafetyNotice}
-                generationError={state.commitMessageGenerationError}
-                generating={state.runningOperation === "Generating commit message"}
-                disabled={disableUnrelatedMutations}
-                primaryCommitAction={primaryCommitAction}
-                quickCommitByDefault={state.summary?.kind === "git" && state.appSettings?.gitBehaviors?.quickCommitByDefault === true}
-                summary={state.summary}
-                selection={state.selection}
-                quickCommitAiReady={canUseSelectedAiProvider(state.aiSettings)}
-                quickCommitPhase={state.activeOperation?.label === "Generating quick commit message" ? state.runningOperation === "Committing selected files" ? "committing" : "generating" : null}
-                onQuickCommit={(paths) => { void quickCommitSelectedFiles(paths); }}
-                onManualCommit={() => { void commitChanges(); }}
-                pushableCommitCount={getPushableCommitCount(state.summary)}
-                feedbackEvent={state.operationButtonFeedback?.repoPath === state.repoPath ? state.operationButtonFeedback : null}
-                canCommit={canCommit(state)}
-                canGenerateCommitMessage={canGenerateCommitMessage(state)}
-                generateTitle={getGenerateMessageTitle(state)}
-                onCommit={() => {
-                  if (primaryCommitAction === "commit") {
-                    void commitChanges();
-                  } else if (primaryCommitAction === "push") {
-                    void runAction("push", undefined, "commit-panel");
-                  }
-                }}
-                onCommitAndPush={() => {
-                  void commitAndPush();
-                }}
-                onUndoFailedCommitPush={() => {
-                  void undoFailedCommitPush();
-                }}
-                showAmendAction={state.summary?.kind === "git"}
-                canAmend={Boolean(state.summary?.kind === "git" && state.summary.hasHead)}
-                amendDisabled={disableUnrelatedMutations}
-                amendDisabledReason={getAmendDisabledReason(state)}
-                onOpenAmend={() => openAmendDialog("composer")}
-                onGenerateMessage={() => {
-                  void generateCommitMessage();
-                }}
-                onOpenGenerateWithContext={() => {
-                  updateState({
-                    generateContextDialog: {
-                      open: true,
-                      context: ""
-                    }
-                  });
-                }}
-                onCommitMessageChange={(commitMessage) => {
-                  updateState({
-                    commitMessage,
-                    commitMessageGenerationError: ""
-                  });
-                }}
-                onApplyCommitMessageSuggestion={() => {
-                  const suggestion = stateRef.current.commitMessageSuggestion;
-                  if (!suggestion) return;
-                  updateState({
-                    commitMessage: suggestion.message,
-                    commitMessageSuggestion: null,
-                    commitMessageGenerationError: ""
-                  });
-                }}
-                onDismissCommitMessageSuggestion={() => {
-                  updateState({ commitMessageSuggestion: null });
-                }}
-              />
-            ) : null}
             </WorkspacePanelStateProvider>
-            </>}
-            </section>
-          </ResizablePanel>
-        </ResizablePanelGroup>
-      </div>
+          )}
+        </div>
+      </Tabs>
+
+      {quickSwitcherMode && quickSwitcherSections ? (
+        <QuickSwitcher
+          mode={quickSwitcherMode}
+          sections={quickSwitcherSections}
+          query={quickSwitcherQuery}
+          onQueryChange={setQuickSwitcherQuery}
+          onSelect={runQuickSwitcherItem}
+          onClose={closeQuickSwitcher}
+          onModeChange={openQuickSwitcher}
+          renderItemContextMenu={renderQuickSwitcherContextMenu}
+          restoreFocus={restoreQuickSwitcherFocus}
+          upstreamError={state.upstreamError}
+        />
+      ) : null}
+      {switcherRepositoryActions.dialogs}
 
       <GitIndexLockRecovery
         key={state.repoPath}
@@ -8285,7 +8608,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
               The rebased branch no longer fast-forwards its upstream. Publishing is a separate, explicit action and uses force-with-lease so Git refuses if the remote changed.
             </DialogDescription>
           </DialogHeader>
-          {forceLeaseOffer ? <div className="rounded-md border border-amber-500/45 bg-amber-500/10 p-3 text-sm"><p className="font-medium">{forceLeaseOffer.branchName} → {forceLeaseOffer.remoteName}/{forceLeaseOffer.remoteBranchName}</p><p className="mt-1 text-muted-foreground">Plain force is never used. No push has happened yet.</p></div> : null}
+          {forceLeaseOffer ? <div className="dialog-notice" data-tone="warning"><TriangleAlert aria-hidden="true" /><div><p className="dialog-notice-title">{forceLeaseOffer.branchName} → {forceLeaseOffer.remoteName}/{forceLeaseOffer.remoteBranchName}</p><p className="text-muted-foreground">Plain force is never used. No push has happened yet.</p></div></div> : null}
           <DialogFooter>
             <Button type="button" variant="outline" disabled={running} onClick={() => setForceLeaseOffer(null)}>Not now</Button>
             <Button type="button" variant="destructive" disabled={running || !forceLeaseOffer} onClick={() => { void publishRebasedBranch(); }}>{running ? <Loader2 className="animate-spin" /> : <Upload />}Publish with force-with-lease</Button>
@@ -8595,141 +8918,43 @@ interface AppChromeProps {
   visualPreferences: Pick<AppSettings, "visualEffects" | "reduceMotion">;
   children: ReactNode;
   isMaximized: boolean;
-  repositoryPanelOpen?: boolean;
+  /** The window title strip. The workspace turns it off because its repository header is the title bar. */
+  titleBar?: boolean;
   onMinimize(): void;
   onToggleMaximize(): void;
   onClose(): void;
-  onToggleRepositoryPanel?(): void;
 }
 
 function AppChrome({
   visualPreferences,
   children,
   isMaximized,
-  repositoryPanelOpen = false,
+  titleBar = true,
   onMinimize,
   onToggleMaximize,
-  onClose,
-  onToggleRepositoryPanel
+  onClose
 }: AppChromeProps): ReactNode {
   return (
     <VisualEffectsProvider effects={visualPreferences.visualEffects} motionPreference={visualPreferences.reduceMotion}>
       <TooltipProvider>
-        <main className="app-shell bg-background text-foreground">
-          <header className="window-chrome" data-maximized={isMaximized ? "true" : "false"}>
-            <div className="window-title">
-              <svg className="window-title-mark" width="20" height="20" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-                <rect className="window-title-mark-background" x="1" y="1" width="62" height="62" rx="16" strokeWidth="1.5" />
-                <g transform="translate(13 13) scale(1.583333)" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M15 6a9 9 0 0 0-9 9V3" />
-                  <circle cx="18" cy="6" r="3" />
-                  <circle cx="6" cy="18" r="3" />
-                </g>
-              </svg>
-              <span>Githead</span>
-              {onToggleRepositoryPanel ? (
-                <button
-                  type="button"
-                  className="repository-drawer-toggle"
-                  aria-label={repositoryPanelOpen ? "Hide repositories" : "Show repositories"}
-                  aria-expanded={repositoryPanelOpen}
-                  aria-controls="repository-panel"
-                  onClick={onToggleRepositoryPanel}
-                >
-                  {repositoryPanelOpen ? <X /> : <List />}
-                </button>
-              ) : null}
-            </div>
-            <WindowControls
-              isMaximized={isMaximized}
-              onMinimize={onMinimize}
-              onToggleMaximize={onToggleMaximize}
-              onClose={onClose}
-            />
-          </header>
+        <main className="app-shell bg-background text-foreground" data-title-bar={titleBar ? "true" : "false"}>
+          {titleBar ? (
+            // A bare drag strip: the brand lives in StartLayout, so the strip carries only the window controls.
+            <header className="window-chrome" data-maximized={isMaximized ? "true" : "false"}>
+              <WindowControls
+                isMaximized={isMaximized}
+                onMinimize={onMinimize}
+                onToggleMaximize={onToggleMaximize}
+                onClose={onClose}
+              />
+            </header>
+          ) : null}
           <section className="app-content">
             {children}
           </section>
         </main>
       </TooltipProvider>
     </VisualEffectsProvider>
-  );
-}
-
-interface WindowControlsProps {
-  isMaximized: boolean;
-  onMinimize(): void;
-  onToggleMaximize(): void;
-  onClose(): void;
-}
-
-function WindowControls({
-  isMaximized,
-  onMinimize,
-  onToggleMaximize,
-  onClose
-}: WindowControlsProps): ReactNode {
-  const maximizeLabel = isMaximized ? "Restore window" : "Maximize window";
-  const MaximizeIcon = isMaximized ? Copy : Maximize2;
-
-  return (
-    <div className="window-controls" aria-label="Window controls">
-      <WindowControlButton label="Minimize window" onClick={onMinimize}>
-        <Minus />
-      </WindowControlButton>
-      <WindowControlButton label={maximizeLabel} onClick={onToggleMaximize}>
-        <MaximizeIcon />
-      </WindowControlButton>
-      <WindowControlButton label="Close window" destructive onClick={onClose}>
-        <X />
-      </WindowControlButton>
-    </div>
-  );
-}
-
-interface WindowControlButtonProps {
-  children: ReactNode;
-  destructive?: boolean;
-  label: string;
-  onClick(): void;
-}
-
-function WindowControlButton({
-  children,
-  destructive = false,
-  label,
-  onClick
-}: WindowControlButtonProps): ReactNode {
-  const [open, setOpen] = useState(false);
-
-  const closeTooltip = (): void => {
-    setOpen(false);
-  };
-
-  const handleClick = (): void => {
-    closeTooltip();
-    onClick();
-  };
-
-  return (
-    <Tooltip open={open} onOpenChange={setOpen}>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className={destructive ? "window-control window-control-close" : "window-control"}
-          aria-label={label}
-          onBlur={closeTooltip}
-          onClick={handleClick}
-          onMouseLeave={closeTooltip}
-          onPointerLeave={closeTooltip}
-        >
-          {children}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
   );
 }
 
@@ -8749,30 +8974,28 @@ function GitRequiredScreen({
   return (
     <StartLayout>
       <section className="git-required-screen" aria-labelledby="git-required-title">
-        <div className="git-required-panel">
-          <div className="git-required-icon" aria-hidden="true">
-            <GitFork />
-          </div>
-          <div className="git-required-copy">
-            <h1 id="git-required-title">{unavailable ? "Git could not be started" : "Git is required"}</h1>
-            <p>
-              {unavailable
-                ? "Githead found Git, but the command failed. Reinstall Git or check your system PATH."
-                : "Githead could not find Git on this computer. Install Git before opening or cloning repositories."}
-            </p>
-            <p>After installation, check again. You do not need to restart Githead.</p>
-          </div>
-          <div className="git-required-actions">
-            <Button type="button" onClick={onInstall} disabled={checking}>
-              <Download />
-              Download Git
-              <ExternalLink />
-            </Button>
-            <Button type="button" variant="outline" onClick={onCheckAgain} disabled={checking}>
-              <RefreshCw className={checking ? "animate-spin" : undefined} />
-              {checking ? "Checking for Git" : "Check Again"}
-            </Button>
-          </div>
+        <span className={unavailable ? "notice-tile is-warning" : "notice-tile"} aria-hidden="true">
+          {unavailable ? <TriangleAlert /> : <GitFork />}
+        </span>
+        <div className="git-required-copy">
+          <h1 id="git-required-title">{unavailable ? "Git could not be started" : "Git is required"}</h1>
+          <p>
+            {unavailable
+              ? "Githead found Git, but the command failed. Reinstall Git or check your system PATH."
+              : "Githead could not find Git on this computer. Install Git before opening or cloning repositories."}
+          </p>
+          <p>After installation, check again. You do not need to restart Githead.</p>
+        </div>
+        <div className="git-required-actions">
+          <Button type="button" variant="secondary" onClick={onCheckAgain} disabled={checking}>
+            <RefreshCw className={checking ? "animate-spin" : undefined} />
+            {checking ? "Checking for Git" : "Check again"}
+          </Button>
+          <Button type="button" onClick={onInstall} disabled={checking}>
+            <Download />
+            Download Git
+            <ExternalLink />
+          </Button>
         </div>
       </section>
     </StartLayout>
@@ -8793,22 +9016,21 @@ function RepositoryErrorView({ repoPath, error, safeDirectory, busy, onRetry, on
   const disabled = busy || recovering;
 
   return (
-    <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-8">
-      <section className="flex w-full max-w-lg flex-col items-start gap-4" aria-labelledby="repository-error-heading">
-        <TriangleAlert className="size-8 text-destructive" aria-hidden="true" />
-        <h2 id="repository-error-heading" className="text-xl font-semibold">Repository Unavailable</h2>
-        <p className="text-muted-foreground">Githead cannot open this repository. Try again or select another repository from the list.</p>
-        <p className="selectable-text break-all font-mono text-sm">{repoPath}</p>
-        <p className="selectable-text break-words text-sm text-destructive" role="alert">{recoveryError || error}</p>
-        {safeDirectory?.required ? <p className="text-sm text-muted-foreground">Git ownership check blocked this repository.</p> : null}
-        <div className="flex flex-wrap gap-2">
-          <Button disabled={disabled} onClick={onRetry}>
-            {busy ? <Loader2 className="animate-spin" /> : <RefreshCw />}Try Again
-          </Button>
+    <div className="repository-error">
+      <section className="repository-error-panel" aria-labelledby="repository-error-heading">
+        <span className="notice-tile is-destructive" aria-hidden="true"><TriangleAlert /></span>
+        <div className="repository-error-copy">
+          <h2 id="repository-error-heading">Repository unavailable</h2>
+          <p>Githead cannot open this repository. Try again or select another repository from the list.</p>
+        </div>
+        <p className="dialog-code-block">{repoPath}</p>
+        <p className="repository-error-message selectable-text" role="alert">{recoveryError || error}</p>
+        {safeDirectory?.required ? <p className="repository-error-caption">Git ownership check blocked this repository.</p> : null}
+        <div className="repository-error-actions">
           {safeDirectory?.required ? (
-            <Button variant="outline" disabled={disabled} onClick={onAllowGitException}><ShieldAlert />Allow Git Exception</Button>
+            <Button variant="secondary" disabled={disabled} onClick={onAllowGitException}><ShieldAlert />Allow Git exception</Button>
           ) : (
-            <Button variant="outline" disabled={disabled} onClick={() => {
+            <Button variant="secondary" disabled={disabled} onClick={() => {
               setRecovering(true);
               setRecoveryError("");
               void onRecover().then((result) => {
@@ -8816,9 +9038,12 @@ function RepositoryErrorView({ repoPath, error, safeDirectory, busy, onRetry, on
               }).finally(() => setRecovering(false));
             }}>
               {recovering ? <Loader2 className="animate-spin" /> : <FolderOpen />}
-              {recovering ? "Checking Location" : "Choose New Location"}
+              {recovering ? "Checking location" : "Choose new location"}
             </Button>
           )}
+          <Button disabled={disabled} onClick={onRetry}>
+            {busy ? <Loader2 className="animate-spin" /> : <RefreshCw />}Try again
+          </Button>
         </div>
       </section>
     </div>
@@ -8911,26 +9136,24 @@ function RepositorySetupScreen({
             <Button type="button" variant="ghost" className="setup-back" onClick={returnToWelcome} disabled={cloneBusy}>
               <ArrowLeft /> Back to repositories
             </Button>
-            <div className="setup-clone-card">
-                <CloneRepositoryForm
-                  idPrefix="clone"
-                  cloneDraft={cloneDraft}
-                  cloneError={cloneError}
-                  cloneRunning={cloneRunning}
-                  cloneCheckRunning={cloneCheckRunning}
-                  cloneCheckStatus={cloneCheckStatus}
-                  cloneCheckMessage={cloneCheckMessage}
-                  cloneBranches={cloneBranches}
-                  cancelStatus={cancelStatus}
-                  cancelError={cancelError}
-                  onCloneDraftChange={onCloneDraftChange}
-                  onCloneSourceChange={onCloneSourceChange}
-                  onChooseCloneParent={onChooseCloneParent}
-                  onCheckRepositoryAccess={onCheckRepositoryAccess}
-                  onClone={onClone}
-                  onCancelOperation={onCancelOperation}
-                />
-            </div>
+            <CloneRepositoryForm
+              idPrefix="clone"
+              cloneDraft={cloneDraft}
+              cloneError={cloneError}
+              cloneRunning={cloneRunning}
+              cloneCheckRunning={cloneCheckRunning}
+              cloneCheckStatus={cloneCheckStatus}
+              cloneCheckMessage={cloneCheckMessage}
+              cloneBranches={cloneBranches}
+              cancelStatus={cancelStatus}
+              cancelError={cancelError}
+              onCloneDraftChange={onCloneDraftChange}
+              onCloneSourceChange={onCloneSourceChange}
+              onChooseCloneParent={onChooseCloneParent}
+              onCheckRepositoryAccess={onCheckRepositoryAccess}
+              onClone={onClone}
+              onCancelOperation={onCancelOperation}
+            />
           </div>
         ) : (
           <>
@@ -8938,16 +9161,16 @@ function RepositorySetupScreen({
               <h2>{repoRecents.length ? "Pick up where you left off." : "Start with a repository."}</h2>
               <p>Open a local folder or clone a repository to this computer.</p>
             </header>
-            <div className="setup-actions">
-              <button type="button" className="setup-action is-primary" aria-label="Open repository" onClick={onChooseRepo} disabled={running}>
-                <span className="setup-action-icon"><FolderOpen aria-hidden="true" /></span>
+            <div className="start-card">
+              <button type="button" className="setup-action" aria-label="Open repository" onClick={onChooseRepo} disabled={running}>
+                <FolderOpen className="setup-action-icon" aria-hidden="true" />
                 <span className="setup-action-copy"><strong>Open repository</strong><span>Choose an existing folder on your computer</span></span>
-                <ArrowRight aria-hidden="true" />
+                <ChevronRight className="setup-action-chevron" aria-hidden="true" />
               </button>
               <button type="button" ref={cloneButtonRef} className="setup-action" aria-label="Clone a repository" onClick={() => setStep("clone")} disabled={running}>
-                <span className="setup-action-icon"><GitFork aria-hidden="true" /></span>
+                <GitFork className="setup-action-icon" aria-hidden="true" />
                 <span className="setup-action-copy"><strong>Clone a repository</strong><span>Download a repository from a URL or path</span></span>
-                <ArrowRight aria-hidden="true" />
+                <ChevronRight className="setup-action-chevron" aria-hidden="true" />
               </button>
             </div>
             {setupError ? (
@@ -8955,22 +9178,27 @@ function RepositorySetupScreen({
             ) : null}
             {safeDirectory?.required ? (
               <div className="setup-safe-directory" role="status">
-                <div className="setup-safe-directory-heading">
-                  <ShieldAlert />
-                  <span>Git ownership check blocked this repository.</span>
-                </div>
-                <p>Allow an exception for this folder to add it to Git's global safe.directory list.</p>
-                <p className="setup-safe-directory-path selectable-text">{safeDirectory.path}</p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="justify-center"
-                  onClick={onOpenSafeDirectoryDialog}
-                  disabled={running || safeDirectoryRunning}
+                <OperationBanner
+                  className="is-inline"
+                  ariaLabel="Git ownership check"
+                  icon={<ShieldAlert />}
+                  title="Git ownership check blocked this repository."
+                  description="Allow an exception for this folder to add it to Git's global safe.directory list."
+                  actions={(
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="xs"
+                      onClick={onOpenSafeDirectoryDialog}
+                      disabled={running || safeDirectoryRunning}
+                    >
+                      {safeDirectoryRunning ? <Loader2 className="animate-spin" /> : <ShieldAlert />}
+                      {safeDirectoryRunning ? "Adding exception" : "Allow Git exception"}
+                    </Button>
+                  )}
                 >
-                  {safeDirectoryRunning ? <Loader2 className="animate-spin" /> : <ShieldAlert />}
-                  {safeDirectoryRunning ? "Adding Exception" : "Allow Git Exception"}
-                </Button>
+                  <span className="operation-banner-path selectable-text">{safeDirectory.path}</span>
+                </OperationBanner>
               </div>
             ) : null}
             {selectedRepoPath ? (
@@ -8980,7 +9208,7 @@ function RepositorySetupScreen({
               <div className="setup-recent-title"><h3>Recent repositories</h3><span>{repoRecents.length}</span></div>
               {repoRecents.length > 0 ? (
                 <RepositoryList
-                  className="setup-recents"
+                  className="setup-recents start-card"
                   repoPath=""
                   repoPaths={repoRecents}
                   syncStatuses={repoSyncStatuses}
@@ -8993,10 +9221,12 @@ function RepositorySetupScreen({
                   onOpenRepositorySettings={onOpenRepositorySettings}
                 />
               ) : (
-                <div className="setup-recents-empty">
-                  <History aria-hidden="true" />
-                  <div><strong>Your repositories will appear here</strong><p>Open or clone your first repository to get started.</p></div>
-                </div>
+                <EmptyState
+                  className="start-card"
+                  icon={<History />}
+                  title="Your repositories will appear here"
+                  description="Open or clone your first repository to get started."
+                />
               )}
             </div>
           </>
@@ -9025,7 +9255,7 @@ interface RepositoryListProps {
 
 interface RecentRepositoryRowProps {
   label?: { name: string; detail: string };
-  organizationMenu?: ReactNode;
+  renderMenuItems: RenderRepositoryMenuItems;
   hidden?: boolean;
   active?: boolean;
   disabled: boolean;
@@ -9041,18 +9271,8 @@ interface RecentRepositoryRowProps {
   onPointerDragStart: (repoPath: string) => void;
   onKeyboardMove: (repoPath: string, direction: RepositoryMoveDirection) => void;
   onSelect: (repoPath: string) => void;
-  onRemove: (repoPath: string) => void;
   onRecover: (repoPath: string, reason: string) => void;
-  onShowInExplorer: (repoPath: string) => void;
-  onOpenRepositorySettings: (repoPath: string) => void;
 }
-
-type RepositoryDropPosition = "before" | "after";
-type RepositoryMoveDirection = "up" | "down";
-type RepositoryRecoveryResult =
-  | { status: "success" }
-  | { status: "cancelled" }
-  | { status: "error"; message: string };
 
 function RepositoryList({
   className = "repo-recents",
@@ -9074,26 +9294,28 @@ function RepositoryList({
   const repositoryRowsRef = useRef(new Map<string, HTMLDivElement>());
   const [draggedRepoPath, setDraggedRepoPath] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ repoPath: string; position: RepositoryDropPosition } | null>(null);
-  const { organization, update: updateOrganization, saveError } = useRepositoryOrganization();
+  const repositoryOrganization = useRepositoryOrganization();
+  const { organization, update: updateOrganization, saveError } = repositoryOrganization;
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
-  const [organizerQuery, setOrganizerQuery] = useState<string | null>(null);
-  const [renamePath, setRenamePath] = useState<string | null>(null);
   const orderedPaths = repoPaths;
+  const { renderMenuItems, changePreference, openRecovery, openOrganizer, dialogs } = useRepositoryRowActions({
+    repoPaths: orderedPaths,
+    activeRepoPath: repoPath,
+    disabled,
+    organization: repositoryOrganization,
+    onRemove,
+    onRecover,
+    onShowInExplorer,
+    onOpenRepositorySettings,
+    ...(onRemoveWorktree ? { onRemoveWorktree } : {})
+  });
   const groupsByPath = useMemo(() => new Map(groups?.map((group) => [getRepoPathKey(group.anchorPath), group]) ?? []), [groups]);
   const labels = useMemo(() => repositoryLabels(orderedPaths, organization), [orderedPaths, organization]);
   const sections = useMemo(() => organizeRepositories(orderedPaths, groups ?? [], organization, query, showHidden, repoPath), [orderedPaths, groups, organization, query, showHidden, repoPath]);
   const visiblePaths = sections.flatMap((section) => section.collapsed ? [] : section.paths);
   const hiddenCount = orderedPaths.filter((path) => repositoryPreference(organization, path).hidden).length;
-  const changePreference = (path: string, patch: Partial<RepositoryPreference>) => updateOrganization((current) => ({
-    ...current, repositories: { ...current.repositories, [getRepoPathKey(path)]: { ...repositoryPreference(current, path), ...patch } }
-  }));
-  const organizationMenu = (path: string) => <RepositoryOrganizationMenu preference={repositoryPreference(organization, path)} onChange={(patch) => { changePreference(path, patch); }} onOrganize={() => setOrganizerQuery(path)} onRename={() => setRenamePath(path)} />;
-  const [removeTarget, setRemoveTarget] = useState<string | null>(null);
-  const [recoveryTarget, setRecoveryTarget] = useState<{ repoPath: string; reason: string } | null>(null);
-  const [recoveryError, setRecoveryError] = useState("");
-  const [recoveryRunning, setRecoveryRunning] = useState(false);
   const repositoryOrderDependency = orderedPaths.map(getRepoPathKey).join("\u0000");
   useEffect(() => {
     const activeKey = repoPath ? getRepoPathKey(repoPath) : null;
@@ -9203,7 +9425,7 @@ function RepositoryList({
             group={group}
             label={labels.get(key)!}
             hidden={repositoryPreference(organization, group.anchorPath).hidden}
-            organizationMenu={organizationMenu(group.anchorPath)}
+            renderMenuItems={renderMenuItems}
             activeRepoPath={repoPath}
             active={active}
             searchExpanded={Boolean(query.trim())}
@@ -9220,14 +9442,7 @@ function RepositoryList({
             onDragEnd={() => { draggedRepoPathRef.current = null; setDraggedRepoPath(null); setDropTarget(null); }}
             onKeyboardMove={moveRepositoryByKeyboard}
             onSelect={onSelect}
-            onRemove={() => setRemoveTarget(group.anchorPath)}
-            onRecover={(reason) => {
-              setRecoveryError("");
-              setRecoveryTarget({ repoPath: group.anchorPath, reason });
-            }}
-            onShowInExplorer={onShowInExplorer}
-            onOpenRepositorySettings={onOpenRepositorySettings}
-            {...(onRemoveWorktree ? { onRemoveWorktree } : {})}
+            onRecover={(reason) => openRecovery(group.anchorPath, reason)}
           />;
         }
           const key = getRepoPathKey(recentRepoPath);
@@ -9242,7 +9457,7 @@ function RepositoryList({
               repoPath={recentRepoPath}
               label={labels.get(key)!}
               hidden={repositoryPreference(organization, recentRepoPath).hidden}
-              organizationMenu={organizationMenu(recentRepoPath)}
+              renderMenuItems={renderMenuItems}
               rowRef={(element) => {
                 if (element) {
                   repositoryRowsRef.current.set(key, element);
@@ -9266,13 +9481,7 @@ function RepositoryList({
               }}
               onKeyboardMove={moveRepositoryByKeyboard}
               onSelect={onSelect}
-              onRemove={setRemoveTarget}
-              onRecover={(targetRepoPath, reason) => {
-                setRecoveryError("");
-                setRecoveryTarget({ repoPath: targetRepoPath, reason });
-              }}
-              onShowInExplorer={onShowInExplorer}
-              onOpenRepositorySettings={onOpenRepositorySettings}
+              onRecover={openRecovery}
             />
           );
   };
@@ -9284,7 +9493,7 @@ function RepositoryList({
         <p className="repo-recents-label">Repositories</p>
         <div className="flex items-center gap-1">
           <TooltipButton type="button" variant="ghost" size="icon-sm" aria-label="Search repositories" tooltip="Search repositories" aria-expanded={searchOpen || Boolean(query)} onMouseDown={(event) => event.preventDefault()} onClick={() => { if (searchOpen || query) { setQuery(""); setSearchOpen(false); } else { setSearchOpen(true); } }}><Search /></TooltipButton>
-          <TooltipButton type="button" variant="ghost" size="icon-sm" aria-label="Organize repositories" tooltip="Organize repositories" onClick={() => setOrganizerQuery("")}><SlidersHorizontal /></TooltipButton>
+          <TooltipButton type="button" variant="ghost" size="icon-sm" aria-label="Organize repositories" tooltip="Organize repositories" onClick={() => openOrganizer()}><SlidersHorizontal /></TooltipButton>
           {headingAction}
         </div>
       </div>
@@ -9320,82 +9529,15 @@ function RepositoryList({
       </div>
       {hiddenCount > 0 ? <button type="button" className="repository-show-hidden" aria-pressed={showHidden} onClick={() => setShowHidden((current) => !current)}>{showHidden ? "Hide inactive repositories" : `Show hidden (${hiddenCount})`}</button> : null}
     </section>
-    {renamePath !== null ? <RepositoryAliasDialog key={renamePath} path={renamePath} alias={repositoryPreference(organization, renamePath).alias} onClose={() => setRenamePath(null)} onSave={(alias) => changePreference(renamePath, { alias })} /> : null}
-    {organizerQuery !== null ? <RepositoryOrganizationDialog organization={organization} paths={orderedPaths} initialQuery={organizerQuery} onClose={() => setOrganizerQuery(null)} onSave={(draft) => updateOrganization((current) => ({ ...draft, expandedWorktrees: current.expandedWorktrees }))} /> : null}
-    <Dialog open={Boolean(removeTarget)} onOpenChange={(open) => { if (!open) setRemoveTarget(null); }}>
-      <DialogContent className="sm:max-w-[440px]">
-        <DialogHeader>
-          <DialogTitle>Remove Repository?</DialogTitle>
-          <DialogDescription>
-            This repository will no longer be tracked by Githead. The repository and all of its files will remain on disk.
-          </DialogDescription>
-        </DialogHeader>
-        <p className="break-all rounded-md border bg-muted/30 p-3 text-sm">{removeTarget}</p>
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => setRemoveTarget(null)}>Cancel</Button>
-          <Button type="button" variant="destructive" onClick={() => {
-            if (!removeTarget) return;
-            onRemove(removeTarget);
-            setRemoveTarget(null);
-          }}><Trash2 />Remove Repository</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-    <Dialog open={Boolean(recoveryTarget)} onOpenChange={(open) => {
-      if (!open && !recoveryRunning) {
-        setRecoveryTarget(null);
-        setRecoveryError("");
-      }
-    }}>
-      <DialogContent className="min-w-0 overflow-hidden sm:max-w-[480px]" showCloseButton={!recoveryRunning}>
-        <DialogHeader className="min-w-0">
-          <DialogTitle>Repository Unavailable</DialogTitle>
-          <DialogDescription className="min-w-0 break-words">
-            Githead cannot open this saved repository. Choose its new location if it still exists, or remove it from Githead.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid min-w-0 max-w-full gap-2 overflow-hidden rounded-md border bg-muted/30 p-3 text-sm">
-          <p className="break-all font-medium">{recoveryTarget?.repoPath}</p>
-          <p className="break-words text-destructive">{recoveryTarget?.reason}</p>
-        </div>
-        {recoveryError ? <p className="text-sm text-destructive" role="alert">{recoveryError}</p> : null}
-        <DialogFooter className="min-w-0 sm:flex-wrap">
-          <Button type="button" variant="outline" disabled={recoveryRunning} onClick={() => {
-            setRecoveryTarget(null);
-            setRecoveryError("");
-          }}>Cancel</Button>
-          <Button type="button" variant="destructive" disabled={recoveryRunning} onClick={() => {
-            if (!recoveryTarget) return;
-            onRemove(recoveryTarget.repoPath);
-            setRecoveryTarget(null);
-            setRecoveryError("");
-          }}><Trash2 />Remove Repository</Button>
-          <Button type="button" disabled={recoveryRunning} onClick={() => {
-            if (!recoveryTarget) return;
-            setRecoveryRunning(true);
-            setRecoveryError("");
-            void onRecover(recoveryTarget.repoPath).then((result) => {
-              if (result.status === "success") {
-                setRecoveryTarget(null);
-              } else if (result.status === "error") {
-                setRecoveryError(result.message);
-              }
-            }).finally(() => setRecoveryRunning(false));
-          }}>
-            {recoveryRunning ? <Loader2 className="animate-spin" /> : <FolderOpen />}
-            {recoveryRunning ? "Checking Location" : "Choose New Location"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    {dialogs}
     </>
   );
 }
 
-function RepositoryGroupRow({ searchExpanded, label, organizationMenu, hidden, group, activeRepoPath, active, expanded, disabled, dragging, dropPosition, syncStatuses, layoutDependency, rowRef, onToggle, onDragStart, onPointerDragStart, onDragEnd, onKeyboardMove, onSelect, onRemove, onRecover, onShowInExplorer, onOpenRepositorySettings, onRemoveWorktree }: {
+function RepositoryGroupRow({ searchExpanded, label, renderMenuItems, hidden, group, activeRepoPath, active, expanded, disabled, dragging, dropPosition, syncStatuses, layoutDependency, rowRef, onToggle, onDragStart, onPointerDragStart, onDragEnd, onKeyboardMove, onSelect, onRecover }: {
   searchExpanded: boolean;
   label?: { name: string; detail: string };
-  organizationMenu?: ReactNode;
+  renderMenuItems: RenderRepositoryMenuItems;
   hidden?: boolean;
   group: RepositoryGroup;
   activeRepoPath: string;
@@ -9413,11 +9555,7 @@ function RepositoryGroupRow({ searchExpanded, label, organizationMenu, hidden, g
   onDragEnd: () => void;
   onKeyboardMove: (repoPath: string, direction: RepositoryMoveDirection) => void;
   onSelect: (repoPath: string) => void;
-  onRemove: () => void;
   onRecover: (reason: string) => void;
-  onShowInExplorer: (repoPath: string) => void;
-  onOpenRepositorySettings: (repoPath: string) => void;
-  onRemoveWorktree?: (worktree: GitWorktree) => void;
 }): ReactNode {
   const worktreeListId = useId();
   const worktrees = group.worktrees.length ? group.worktrees : [{ path: group.anchorPath, head: null, branch: null, isMain: true, isBare: false, isDetached: false, locked: false, lockReason: null, prunable: false, prunableReason: null } satisfies GitWorktree];
@@ -9434,25 +9572,25 @@ function RepositoryGroupRow({ searchExpanded, label, organizationMenu, hidden, g
       onKeyboardMove(group.anchorPath, event.key === "ArrowUp" ? "up" : "down");
     }
   };
-  return <motion.div ref={rowRef} layout="position" layoutDependency={layoutDependency} transition={{ layout: { duration: 0.12, ease: "easeOut" } }} className={rowClassName} data-repo-path={group.anchorPath}>
+  return <motion.div ref={rowRef} layout="position" layoutDependency={layoutDependency} transition={{ layout: { duration: 0.12, ease: EASE_OUT } }} className={rowClassName} data-repo-path={group.anchorPath}>
     <ContextMenu><ContextMenuTrigger asChild><div className="repo-group-heading">
       <button type="button" className="repo-recent-drag-handle" draggable onDragStart={(event) => onDragStart(event, group.anchorPath)} onMouseDown={() => onPointerDragStart(group.anchorPath)} onDragEnd={onDragEnd} onKeyDown={handleKeyDown} aria-label={`Reorder ${group.anchorPath}`}><GripVertical /></button>
       <button type="button" className="repo-group-toggle" disabled={searchExpanded} title={searchExpanded ? "Clear search to collapse worktrees" : undefined} onClick={onToggle} aria-expanded={expanded} aria-controls={worktreeListId} aria-label={`${expanded ? "Collapse" : "Expand"} worktrees for ${displayName}`}><ChevronRight className="repo-group-chevron" /></button>
       <button type="button" className="repo-group-main" disabled={disabled || navigationActive || navigationUnavailable || Boolean(unavailableReason)} onClick={() => onSelect(group.lastUsedPath)} aria-current={navigationActive ? "true" : undefined} aria-label={`Switch to ${group.anchorPath}`}><RecentRepositoryVcsIcon kind={group.kind} /><span className="repo-recent-title" title={group.anchorPath}>{displayName}{label?.detail ? <span className="repository-path-detail">{label.detail}</span> : null}</span>{hidden ? <EyeOff className="repository-hidden-icon" aria-label="Hidden repository" /> : null}</button>
       {unavailableReason ? <RepositoryUnavailableButton repoPath={group.anchorPath} reason={unavailableReason} disabled={disabled} onClick={() => onRecover(unavailableReason)} /> : null}
-    </div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{group.anchorPath}</ContextMenuLabel><ContextMenuSeparator />{organizationMenu}<ContextMenuItem disabled={navigationUnavailable} onSelect={() => onOpenRepositorySettings(group.lastUsedPath)}><Settings />Repository Settings…</ContextMenuItem><ContextMenuItem disabled={navigationUnavailable} onSelect={() => onShowInExplorer(group.anchorPath)}><MapPinned />Show in Explorer</ContextMenuItem><ContextMenuSeparator /><ContextMenuItem variant="destructive" onSelect={onRemove}><Trash2 />Remove Repository</ContextMenuItem></ContextMenuContent></ContextMenu>
+    </div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{group.anchorPath}</ContextMenuLabel><ContextMenuSeparator />{renderMenuItems(group.anchorPath, { group })}</ContextMenuContent></ContextMenu>
     <MotionPresence present={expanded} id={worktreeListId} className="repo-worktree-list" initialY={-2}>{worktrees.map((worktree) => {
       const workspaceActive = isSameRepoPath(worktree.path, activeRepoPath);
       const unavailable = worktree.isBare || worktree.prunable;
       const status = syncStatuses[getRepoPathKey(worktree.path)] ?? null;
-      return <ContextMenu key={getRepoPathKey(worktree.path)}><ContextMenuTrigger asChild><div className={`repo-worktree-row ${workspaceActive ? "is-active" : ""}`}><button type="button" className="repo-worktree-main" disabled={disabled || workspaceActive || unavailable} onClick={() => onSelect(worktree.path)} aria-current={workspaceActive ? "true" : undefined}><GitBranchIcon /><span className="min-w-0 flex-1"><span className="repo-worktree-branch">{worktree.branch ?? (worktree.isDetached ? "Detached HEAD" : getRepoDisplayName(worktree.path))}</span>{!isSameRepoPath(worktree.path, group.anchorPath) ? <span className="repo-worktree-path">{getRepoDisplayName(worktree.path)}</span> : null}</span>{worktree.isMain ? <Badge variant="outline" className="repo-worktree-main-badge">Main</Badge> : null}{worktree.locked ? <Badge variant="outline">Locked</Badge> : null}{worktree.prunable ? <Badge variant="destructive">Missing</Badge> : null}<RepoSyncStatusChips status={status} /></button></div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{worktree.path}</ContextMenuLabel><ContextMenuSeparator /><ContextMenuItem disabled={unavailable} onSelect={() => onOpenRepositorySettings(worktree.path)}><Settings />Repository Settings…</ContextMenuItem><ContextMenuItem disabled={unavailable} onSelect={() => onShowInExplorer(worktree.path)}><MapPinned />Show in Explorer</ContextMenuItem>{!worktree.isMain && !workspaceActive && onRemoveWorktree ? <ContextMenuItem disabled={disabled || unavailable || worktree.locked} onSelect={() => onRemoveWorktree(worktree)}><Trash2 />Remove Worktree…</ContextMenuItem> : null}</ContextMenuContent></ContextMenu>;
+      return <ContextMenu key={getRepoPathKey(worktree.path)}><ContextMenuTrigger asChild><div className={`repo-worktree-row ${workspaceActive ? "is-active" : ""}`}><button type="button" className="repo-worktree-main" disabled={disabled || workspaceActive || unavailable} onClick={() => onSelect(worktree.path)} aria-current={workspaceActive ? "true" : undefined}><GitBranchIcon /><span className="min-w-0 flex-1"><span className="repo-worktree-branch">{worktree.branch ?? (worktree.isDetached ? "Detached HEAD" : getRepoDisplayName(worktree.path))}</span>{!isSameRepoPath(worktree.path, group.anchorPath) ? <span className="repo-worktree-path">{getRepoDisplayName(worktree.path)}</span> : null}</span>{worktree.isMain ? <Badge variant="outline" className="repo-worktree-main-badge">Main</Badge> : null}{worktree.locked ? <Badge variant="outline">Locked</Badge> : null}{worktree.prunable ? <Badge variant="destructive">Missing</Badge> : null}<RepoSyncStatusChips status={status} /></button></div></ContextMenuTrigger><ContextMenuContent className="w-72"><ContextMenuLabel className="repo-recent-menu-path">{worktree.path}</ContextMenuLabel><ContextMenuSeparator />{renderMenuItems(worktree.path, { group, worktree })}</ContextMenuContent></ContextMenu>;
     })}{group.error ? <p className="px-3 py-2 text-xs text-destructive">{group.error}</p> : null}</MotionPresence>
   </motion.div>;
 }
 
 function RecentRepositoryRow({
   label,
-  organizationMenu,
+  renderMenuItems,
   hidden,
   active = false,
   disabled,
@@ -9468,10 +9606,7 @@ function RecentRepositoryRow({
   onPointerDragStart,
   onKeyboardMove,
   onSelect,
-  onRemove,
-  onRecover,
-  onShowInExplorer,
-  onOpenRepositorySettings
+  onRecover
 }: RecentRepositoryRowProps): ReactNode {
   const displayName = label?.name ?? getRepoDisplayName(repoPath);
   const syncDescription = formatRepoSyncStatusDescription(syncStatus);
@@ -9499,7 +9634,7 @@ function RecentRepositoryRow({
           ref={rowRef}
           layout="position"
           layoutDependency={layoutDependency}
-          transition={{ layout: { duration: 0.12, ease: "easeOut" } }}
+          transition={{ layout: { duration: 0.12, ease: EASE_OUT } }}
           className={rowClassName}
           data-repo-path={repoPath}
         >
@@ -9546,20 +9681,7 @@ function RecentRepositoryRow({
           <ContextMenuLabel className="repo-recent-menu-path">{repoPath}</ContextMenuLabel>
         </TooltipTarget>
         <ContextMenuSeparator />
-        {organizationMenu}
-        <ContextMenuItem onSelect={() => onOpenRepositorySettings(repoPath)}>
-          <Settings />
-          Repository Settings…
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={() => onShowInExplorer(repoPath)}>
-          <MapPinned />
-          Show in Explorer
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem variant="destructive" onSelect={() => onRemove(repoPath)}>
-          <Trash2 />
-          Remove Repository
-        </ContextMenuItem>
+        {renderMenuItems(repoPath)}
       </ContextMenuContent>
     </ContextMenu>
   );
@@ -9585,69 +9707,6 @@ function RepositoryUnavailableButton({ repoPath, reason, disabled, onClick }: {
         <TriangleAlert />
       </button>
     </TooltipTarget>
-  );
-}
-
-function RecentRepositoryVcsIcon({ kind }: { kind: RepoSyncStatus["kind"] }): ReactNode {
-  const icon = kind === "lore"
-    ? {
-      label: "Lore repository",
-      src: loreIconUrl
-    }
-    : {
-      label: "Git repository",
-      src: gitIconUrl
-    };
-
-  return (
-    <TooltipTarget content={icon.label}>
-      <span
-        className={`repo-recent-vcs-icon ${kind === "lore" ? "is-lore" : "is-git"}`}
-        role="img"
-        aria-label={icon.label}
-      >
-        <img src={icon.src} alt="" aria-hidden="true" />
-      </span>
-    </TooltipTarget>
-  );
-}
-
-function SyncCountChip({
-  children,
-  className = "",
-  title
-}: {
-  children: ReactNode;
-  className?: string;
-  title?: string;
-}): ReactNode {
-  const classNames = ["sync-count-chip", className].filter(Boolean).join(" ");
-
-  return (
-    <TooltipTarget content={title}>
-      <span className={classNames} aria-hidden="true">{children}</span>
-    </TooltipTarget>
-  );
-}
-
-function RepoSyncStatusChips({ status }: { status: RepoSyncStatus | null }): ReactNode {
-  if (!status?.isValid || (status.ahead <= 0 && status.behind <= 0)) {
-    return null;
-  }
-
-  return (
-    <span className="repo-recent-sync" aria-hidden="true">
-      {status.ahead > 0 ? (
-        <SyncCountChip className="is-ahead" title={formatCommitCountLabel(status.ahead, "ahead")}>
-          {status.ahead} ↑
-        </SyncCountChip>
-      ) : null}
-      {status.behind > 0 ? (
-        <SyncCountChip className="is-behind" title={formatCommitCountLabel(status.behind, "behind")}>
-          {status.behind} ↓
-        </SyncCountChip>
-      ) : null}
-    </span>
   );
 }
 
@@ -9696,103 +9755,102 @@ function CloneRepositoryForm({
 
   return (
     <form className="setup-clone-form" onSubmit={onClone}>
-      <div className="setup-panel-heading">
-        <GitFork />
-        <div>
-          <h2>Clone repository</h2>
-          <p>Create a local copy of a repository.</p>
-        </div>
-      </div>
+      <header className="setup-header">
+        <h2>Clone repository</h2>
+        <p>Create a local copy of a repository.</p>
+      </header>
 
-      <div className="grid gap-2">
-        <Label htmlFor={sourceId}>Repository URL or path</Label>
-        <div className="setup-clone-input-row">
-          <Input
-            id={sourceId}
-            value={cloneDraft.source}
-            disabled={cloneBusy}
-            placeholder="https://github.com/owner/repo.git"
-            onChange={(event) => {
-              updateSource(event.target.value);
-            }}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onCheckRepositoryAccess}
-            disabled={cloneBusy || !cloneDraft.source.trim()}
-          >
-            {cloneCheckRunning ? <Loader2 className="animate-spin" /> : <CheckCircle2 />}
-            {cloneCheckRunning ? "Checking" : "Check"}
-          </Button>
+      <div className="start-card setup-clone-fields">
+        <div className="setup-clone-field">
+          <Label htmlFor={sourceId}>Repository URL or path</Label>
+          <div className="setup-clone-input-row">
+            <Input
+              id={sourceId}
+              value={cloneDraft.source}
+              disabled={cloneBusy}
+              placeholder="https://github.com/owner/repo.git"
+              onChange={(event) => {
+                updateSource(event.target.value);
+              }}
+            />
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={onCheckRepositoryAccess}
+              disabled={cloneBusy || !cloneDraft.source.trim()}
+            >
+              {cloneCheckRunning ? <Loader2 className="animate-spin" /> : <CheckCircle2 />}
+              {cloneCheckRunning ? "Checking" : "Check"}
+            </Button>
+          </div>
         </div>
-      </div>
 
-      <div className="grid gap-2">
-        <Label htmlFor={parentId}>Destination folder</Label>
-        <div className="setup-clone-input-row">
+        <div className="setup-clone-field">
+          <Label htmlFor={parentId}>Destination folder</Label>
+          <div className="setup-clone-input-row">
+            <Input
+              id={parentId}
+              value={cloneDraft.parentPath}
+              disabled={cloneRunning}
+              placeholder="Choose a parent folder"
+              onChange={(event) => {
+                onCloneDraftChange({
+                  ...cloneDraft,
+                  parentPath: event.target.value
+                });
+              }}
+            />
+            <Button type="button" variant="secondary" onClick={onChooseCloneParent} disabled={cloneRunning}>
+              <FolderOpen />
+              Browse
+            </Button>
+          </div>
+        </div>
+
+        <div className="setup-clone-field">
+          <Label htmlFor={directoryId}>Folder name</Label>
           <Input
-            id={parentId}
-            value={cloneDraft.parentPath}
+            id={directoryId}
+            value={cloneDraft.directoryName}
+            placeholder="From repository name"
             disabled={cloneRunning}
-            placeholder="Choose a parent folder"
             onChange={(event) => {
               onCloneDraftChange({
                 ...cloneDraft,
-                parentPath: event.target.value
+                directoryName: event.target.value
               });
             }}
           />
-          <Button type="button" variant="outline" onClick={onChooseCloneParent} disabled={cloneRunning}>
-            <FolderOpen />
-            Browse
-          </Button>
         </div>
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor={directoryId}>Folder name</Label>
-        <Input
-          id={directoryId}
-          value={cloneDraft.directoryName}
-          placeholder="From repository name"
-          disabled={cloneRunning}
-          onChange={(event) => {
-            onCloneDraftChange({
-              ...cloneDraft,
-              directoryName: event.target.value
-            });
-          }}
-        />
-      </div>
-      <details className="setup-clone-advanced">
-        <summary>Clone options<ChevronDown aria-hidden="true" /></summary>
-        <div className="setup-clone-advanced-body">
-          <div className="setup-clone-options">
-            <div className="grid gap-2">
-              <Label htmlFor={branchId}>Branch</Label>
-              <ReferencePicker
-                id={branchId}
-                value={cloneDraft.branchName}
-                {...(cloneDraft.branchName ? { displayValue: cloneDraft.branchName } : {})}
-                options={[
-                  { value: "", label: "Default branch", icon: <GitBranchIcon /> },
-                  ...cloneBranches.map((branch) => ({ value: branch, label: branch, icon: <GitBranchIcon /> }))
-                ]}
-                disabled={cloneRunning}
-                ariaLabel="Choose branch"
-                placeholder="Optional"
-                searchPlaceholder="Search or enter a branch..."
-                emptyMessage="No branches found."
-                triggerIcon={<GitBranchIcon />}
-                customValueLabel={(query) => `Use branch "${query}"`}
-                onValueChange={(branchName) => onCloneDraftChange({ ...cloneDraft, branchName })}
-              />
+        <details className="setup-clone-advanced">
+          <summary>Clone options<ChevronDown aria-hidden="true" /></summary>
+          <div className="setup-clone-advanced-body">
+            <div className="setup-clone-options">
+              <div className="setup-clone-field">
+                <Label htmlFor={branchId}>Branch</Label>
+                <ReferencePicker
+                  id={branchId}
+                  value={cloneDraft.branchName}
+                  {...(cloneDraft.branchName ? { displayValue: cloneDraft.branchName } : {})}
+                  options={[
+                    { value: "", label: "Default branch", icon: <GitBranchIcon /> },
+                    ...cloneBranches.map((branch) => ({ value: branch, label: branch, icon: <GitBranchIcon /> }))
+                  ]}
+                  disabled={cloneRunning}
+                  ariaLabel="Choose branch"
+                  placeholder="Optional"
+                  searchPlaceholder="Search or enter a branch..."
+                  emptyMessage="No branches found."
+                  triggerIcon={<GitBranchIcon />}
+                  customValueLabel={(query) => `Use branch "${query}"`}
+                  onValueChange={(branchName) => onCloneDraftChange({ ...cloneDraft, branchName })}
+                />
+              </div>
             </div>
+            {!isLoreSource(cloneDraft.source) ? <CloneOptions draft={cloneDraft} disabled={cloneRunning} idPrefix={idPrefix} onChange={onCloneDraftChange} /> : null}
           </div>
-          {!isLoreSource(cloneDraft.source) ? <CloneOptions draft={cloneDraft} disabled={cloneRunning} idPrefix={idPrefix} onChange={onCloneDraftChange} /> : null}
-        </div>
-      </details>
+        </details>
+      </div>
 
       {cloneError ? (
         <p className="setup-error selectable-text" role="alert">{cloneError}</p>
@@ -9810,915 +9868,33 @@ function CloneRepositoryForm({
         presenceClassName="clone-check-message-presence"
         initialY={-2}
       />
-
-      <Button type="submit" className="w-full justify-center" disabled={cloneBusy}>
-        {cloneRunning ? <Loader2 className="animate-spin" /> : <Download />}
-        {cloneRunning ? "Cloning" : "Clone Repository"}
-      </Button>
-      {cloneBusy ? (
-        <Button
-          type="button"
-          variant="destructive"
-          className="w-full justify-center"
-          disabled={cancelStatus === "canceling"}
-          onClick={onCancelOperation}
-        >
-          {cancelStatus === "canceling" ? <Loader2 className="animate-spin" /> : <X />}
-          {cancelStatus === "canceling"
-            ? "Cancelling"
-            : cloneCheckRunning
-              ? "Cancel Check"
-              : "Cancel Clone"}
-        </Button>
-      ) : null}
       {cancelError ? (
         <p className="setup-error selectable-text" role="alert">{cancelError}</p>
       ) : null}
+
+      <div className="setup-clone-footer">
+        {cloneBusy ? (
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={cancelStatus === "canceling"}
+            onClick={onCancelOperation}
+          >
+            {cancelStatus === "canceling" ? <Loader2 className="animate-spin" /> : <X />}
+            {cancelStatus === "canceling"
+              ? "Cancelling"
+              : cloneCheckRunning
+                ? "Cancel check"
+                : "Cancel clone"}
+          </Button>
+        ) : null}
+        <Button type="submit" disabled={cloneBusy}>
+          {cloneRunning ? <Loader2 className="animate-spin" /> : <Download />}
+          {cloneRunning ? "Cloning" : "Clone repository"}
+        </Button>
+      </div>
     </form>
   );
-}
-
-function RepositoryPanel({
-  repoPath,
-  repoRecents,
-  repositoryGroups,
-  repoSyncStatuses,
-  summary,
-  upstreamError,
-  running,
-  appUpdate,
-  clonePanelOpen,
-  cloneDraft,
-  cloneError,
-  cloneRunning,
-  cloneCheckRunning,
-  cloneCheckStatus,
-  cloneCheckMessage,
-  cloneBranches,
-  cancelStatus,
-  cancelError,
-  onClonePanelOpenChange,
-  onChooseRepo,
-  onConnectGitHub,
-  onAbandonCheck,
-  onSelectRecent,
-  onRemoveRecent,
-  onRecoverRecent,
-  onReorderRepositories,
-  onShowInExplorer,
-  onOpenRepositorySettings,
-  onAddWorktree,
-  onRemoveWorktree,
-  onSwitchBranch,
-  onCheckoutRemoteBranch,
-  onCheckoutTag,
-  onOpenBranchDialog,
-  onOpenBranchManager,
-  onOpenMerge,
-  onOpenRebase,
-  onChangeUpstream,
-  onOpenRemoteManager,
-  onOpenExternalUrl,
-  onOpenSettings,
-  onCloneDraftChange,
-  onCloneSourceChange,
-  onChooseCloneParent,
-  onCheckRepositoryAccess,
-  onClone,
-  onCancelOperation,
-  onCheckForUpdates,
-  onDownloadUpdate,
-  onInstallUpdate
-}: {
-  repoPath: string;
-  repoRecents: string[];
-  repositoryGroups: RepositoryGroup[];
-  repoSyncStatuses: Record<string, RepoSyncStatus>;
-  summary: RepoSummary | null;
-  upstreamError: string;
-  running: boolean;
-  appUpdate: AppUpdateState;
-  clonePanelOpen: boolean;
-  cloneDraft: CloneDraft;
-  cloneError: string;
-  cloneRunning: boolean;
-  cloneCheckRunning: boolean;
-  cloneCheckStatus: "idle" | "success" | "error";
-  cloneCheckMessage: string;
-  cloneBranches: string[];
-  cancelStatus: OperationCancelStatus;
-  cancelError: string;
-  onClonePanelOpenChange: (open: boolean) => void;
-  onChooseRepo: (path?: string) => void;
-  onConnectGitHub: () => void;
-  onAbandonCheck: () => void;
-  onSelectRecent: (repoPath: string) => void;
-  onRemoveRecent: (repoPath: string) => void;
-  onRecoverRecent: (repoPath: string) => Promise<RepositoryRecoveryResult>;
-  onReorderRepositories: (repoPaths: string[]) => void;
-  onShowInExplorer: (repoPath: string) => void;
-  onOpenRepositorySettings: (repoPath: string) => void;
-  onAddWorktree: () => void;
-  onRemoveWorktree: (worktree: GitWorktree) => void;
-  onSwitchBranch: (branchName: string) => void;
-  onCheckoutRemoteBranch: (remoteBranch: GitRemoteBranch) => void;
-  onCheckoutTag: () => void;
-  onOpenBranchDialog: () => void;
-  onOpenBranchManager: () => void;
-  onOpenMerge: () => void;
-  onOpenRebase: () => void;
-  onChangeUpstream: (upstream: string | null) => void;
-  onOpenRemoteManager: () => void;
-  onOpenExternalUrl: (url: string) => void;
-  onOpenSettings: () => void;
-  onCloneDraftChange: (draft: CloneDraft) => void;
-  onCloneSourceChange: (draft: CloneDraft) => void;
-  onChooseCloneParent: () => void;
-  onCheckRepositoryAccess: () => void;
-  onClone: (event: FormEvent<HTMLFormElement>, fork?: boolean) => void;
-  onCancelOperation: () => void;
-  onCheckForUpdates: () => void;
-  onDownloadUpdate: () => void;
-  onInstallUpdate: () => void;
-}): ReactNode {
-  const remotes = summary?.remotes.length
-    ? [...new Set(summary.remotes.map((remote) => remote.name))].join(", ")
-    : "-";
-  const repositoryUrl = getRepositoryWebUrl(summary?.remotes ?? []);
-
-  return (
-    <aside className="repository-sidebar flex h-full min-h-0 flex-col gap-4 overflow-hidden border-r bg-sidebar p-4 text-sidebar-foreground">
-      <RepositoryList
-        repoPath={repoPath}
-        repoPaths={repoRecents}
-        groups={repositoryGroups}
-        syncStatuses={repoSyncStatuses}
-        disabled={running}
-        onSelect={onSelectRecent}
-        onRemove={onRemoveRecent}
-        onRecover={onRecoverRecent}
-        onReorder={onReorderRepositories}
-        onShowInExplorer={onShowInExplorer}
-        onOpenRepositorySettings={onOpenRepositorySettings}
-        onRemoveWorktree={onRemoveWorktree}
-        headingAction={(
-          <RepositoryOmnibox
-            open={clonePanelOpen}
-            disabled={running}
-            onOpenChange={onClonePanelOpenChange}
-            onOpenLocal={onChooseRepo}
-            onConnectGitHub={onConnectGitHub}
-            onAbandonCheck={onAbandonCheck}
-            trigger={<TooltipButton type="button" variant="outline" size="icon-sm" aria-label="Add repository" tooltip="Add repository"><Plus /></TooltipButton>}
-            cloneDraft={cloneDraft}
-            cloneError={cloneError}
-            cloneRunning={cloneRunning}
-            cloneCheckRunning={cloneCheckRunning}
-            cloneCheckStatus={cloneCheckStatus}
-            cloneCheckMessage={cloneCheckMessage}
-            cloneBranches={cloneBranches}
-            cancelStatus={cancelStatus}
-            cancelError={cancelError}
-            onCloneDraftChange={onCloneDraftChange}
-            onCloneSourceChange={onCloneSourceChange}
-            onChooseCloneParent={onChooseCloneParent}
-            onCheckRepositoryAccess={onCheckRepositoryAccess}
-            onClone={onClone}
-            onCancelOperation={onCancelOperation}
-          />
-        )}
-      />
-
-      <dl className="repo-facts">
-        <BranchFact
-          repoPath={repoPath}
-          currentBranch={summary?.branch ?? null}
-          branches={summary?.branches ?? []}
-          remoteBranches={summary?.remoteBranches ?? []}
-          integrationEnabled={summary?.kind === "git"}
-          disabled={running || !summary?.isValid}
-          onSwitchBranch={onSwitchBranch}
-          onOpenWorktree={onSelectRecent}
-          onCheckoutRemoteBranch={onCheckoutRemoteBranch}
-          onCheckoutTag={onCheckoutTag}
-          currentTag={summary?.currentTag ?? null}
-          onCreateBranch={onOpenBranchDialog}
-          onCreateWorktree={onAddWorktree}
-          onManageBranches={onOpenBranchManager}
-          onMerge={onOpenMerge}
-          onRebase={onOpenRebase}
-        />
-        {(summary?.capabilities.setUpstream ?? true) ? (
-          <UpstreamFact
-            upstream={summary?.upstream ?? null}
-            error={upstreamError}
-            currentBranch={summary?.branch ?? null}
-            remoteBranches={summary?.remoteBranches ?? []}
-            disabled={running || !summary?.isValid}
-            onChangeUpstream={onChangeUpstream}
-          />
-        ) : null}
-        {(summary?.capabilities.manageRemotes ?? false) ? (
-          <RemoteFact
-            remotes={remotes}
-            repositoryUrl={repositoryUrl}
-            disabled={!summary?.isValid}
-            onOpen={onOpenExternalUrl}
-            onManage={onOpenRemoteManager}
-          />
-        ) : (
-          <Fact label={(summary?.capabilities.multipleRemotes ?? true) ? "Remotes" : "Remote"} value={remotes} />
-        )}
-      </dl>
-
-      <div className="mt-auto grid gap-2">
-        <AppUpdateControl
-          state={appUpdate}
-          onCheck={onCheckForUpdates}
-          onDownload={onDownloadUpdate}
-          onInstall={onInstallUpdate}
-        />
-        <Button type="button" variant="secondary" onClick={onOpenSettings}>
-          <Settings />
-          Settings
-        </Button>
-      </div>
-    </aside>
-  );
-}
-
-function BranchFact({
-  repoPath,
-  currentBranch,
-  currentTag,
-  branches,
-  remoteBranches,
-  integrationEnabled,
-  disabled,
-  onSwitchBranch,
-  onOpenWorktree,
-  onCheckoutRemoteBranch,
-  onCheckoutTag,
-  onCreateBranch,
-  onCreateWorktree,
-  onManageBranches,
-  onMerge,
-  onRebase
-}: {
-  repoPath: string;
-  currentBranch: string | null;
-  currentTag: string | null;
-  branches: GitBranch[];
-  remoteBranches: GitRemoteBranch[];
-  integrationEnabled: boolean;
-  disabled: boolean;
-  onSwitchBranch: (branchName: string) => void;
-  onOpenWorktree: (repoPath: string) => void;
-  onCheckoutRemoteBranch: (remoteBranch: GitRemoteBranch) => void;
-  onCheckoutTag: () => void;
-  onCreateBranch: () => void;
-  onCreateWorktree: () => void;
-  onManageBranches: () => void;
-  onMerge: () => void;
-  onRebase: () => void;
-}): ReactNode {
-  const switchableBranches = branches.filter((branch) => !branch.current && branch.name !== currentBranch);
-  const activeBranch = branches.find((branch) => branch.current || branch.name === currentBranch) ?? null;
-  const localUpstreams = new Set(branches.flatMap((branch) => branch.upstream ? [branch.upstream] : []));
-  const checkoutableRemoteBranches = remoteBranches.filter((remoteBranch) => !localUpstreams.has(remoteBranch.name));
-  const activeBranchValue = currentBranch ? `local:${currentBranch}` : "";
-  const branchOptions: ReferencePickerOption[] = [
-    ...(activeBranch ? [{
-      value: `local:${activeBranch.name}`,
-      label: activeBranch.name,
-      detail: "current",
-      group: "Local branches",
-      icon: <GitBranchIcon />
-    }] : []),
-    ...switchableBranches.map((branch) => {
-      const occupiedElsewhere = Boolean(branch.worktreePath && !isSameRepoPath(branch.worktreePath, repoPath));
-      return {
-        value: `local:${branch.name}`,
-        label: branch.name,
-        ...(occupiedElsewhere
-          ? { detail: getRepoDisplayName(branch.worktreePath ?? "") }
-          : branch.upstream ? { detail: branch.upstream } : {}),
-        group: "Local branches",
-        icon: occupiedElsewhere ? <FolderOpen /> : <GitBranchIcon />
-      };
-    }),
-    ...checkoutableRemoteBranches.map((remoteBranch) => ({
-      value: `remote:${remoteBranch.name}`,
-      label: remoteBranch.branch,
-      detail: remoteBranch.remote,
-      group: "Remote branches",
-      icon: <Download />
-    }))
-  ];
-
-  return (
-    <div className="repo-branch-fact">
-      <dt>Branch</dt>
-      <dd>
-        <ReferencePicker
-          value={activeBranchValue}
-          options={branchOptions}
-          disabled={disabled}
-          ariaLabel="Switch branch"
-          placeholder={currentBranch ?? (currentTag ? `Tag: ${currentTag}` : "Detached HEAD")}
-          displayValue={currentBranch ?? (currentTag ? `Tag: ${currentTag}` : "Detached HEAD")}
-          searchPlaceholder="Search branches..."
-          emptyMessage="No branches found."
-          triggerIcon={!currentBranch && currentTag ? <Tag /> : <GitBranchIcon />}
-          compact
-          onValueChange={(value) => {
-            if (value.startsWith("local:")) {
-              const name = value.slice("local:".length);
-              const branch = branches.find((candidate) => candidate.name === name);
-              if (!branch || branch.name === currentBranch) return;
-              const occupiedElsewhere = Boolean(branch.worktreePath && !isSameRepoPath(branch.worktreePath, repoPath));
-              if (occupiedElsewhere && branch.worktreePath) onOpenWorktree(branch.worktreePath);
-              else onSwitchBranch(branch.name);
-              return;
-            }
-            const remoteBranch = remoteBranches.find((candidate) => `remote:${candidate.name}` === value);
-            if (remoteBranch) onCheckoutRemoteBranch(remoteBranch);
-          }}
-          actions={[
-            ...(integrationEnabled ? [{ label: "Check out tag…", icon: <Tag />, onSelect: onCheckoutTag }] : []),
-            { label: "New Branch", icon: <Plus />, onSelect: onCreateBranch },
-            ...(integrationEnabled ? [
-              { label: "Add Worktree…", icon: <GitFork />, onSelect: onCreateWorktree },
-              { label: "Merge Branch…", icon: <GitFork />, onSelect: onMerge },
-              { label: "Rebase Branch…", icon: <History />, onSelect: onRebase }
-            ] : []),
-            { label: "Manage Branches…", icon: <Settings />, onSelect: onManageBranches }
-          ]}
-        />
-        <span className="repo-branch-actions">
-          <TooltipButton type="button" variant="outline" size="icon-xs" onClick={onManageBranches} aria-label="Manage branches" tooltip="Manage branches"><Settings /></TooltipButton>
-          <TooltipButton
-            type="button"
-            variant="outline"
-            size="icon-xs"
-            disabled={disabled}
-            onClick={onCreateBranch}
-            aria-label="Create branch"
-            tooltip="Create branch"
-          >
-            <Plus />
-          </TooltipButton>
-        </span>
-      </dd>
-    </div>
-  );
-}
-
-function UpstreamFact({
-  upstream,
-  error,
-  currentBranch,
-  remoteBranches,
-  disabled,
-  onChangeUpstream
-}: {
-  upstream: string | null;
-  error: string;
-  currentBranch: string | null;
-  remoteBranches: GitRemoteBranch[];
-  disabled: boolean;
-  onChangeUpstream: (upstream: string | null) => void;
-}): ReactNode {
-  const canChange = !disabled && Boolean(currentBranch) && (remoteBranches.length > 0 || Boolean(upstream));
-  const options: ReferencePickerOption[] = [
-    ...remoteBranches.map((remoteBranch) => ({
-      value: remoteBranch.name,
-      label: remoteBranch.name,
-      detail: remoteBranch.branch,
-      group: remoteBranch.remote,
-      icon: <GitBranchIcon />
-    })),
-    {
-      value: "",
-      label: "No upstream",
-      detail: upstream ? `Stop tracking ${upstream}` : "Do not track a remote branch",
-      group: "Tracking",
-      icon: <Minus />
-    }
-  ];
-
-  return (
-    <div className="repo-upstream-fact">
-      <dt>Upstream</dt>
-      <dd>
-        <TooltipTarget content={!canChange
-          ? !currentBranch
-            ? "Select a branch before changing its upstream"
-            : "Add a remote before setting an upstream"
-          : upstream}>
-          <span className="min-w-0">
-            <ReferencePicker
-              value={upstream ?? ""}
-              options={options}
-              disabled={!canChange}
-              ariaLabel="Change upstream"
-              placeholder="-"
-              searchPlaceholder="Search remote branches..."
-              emptyMessage="No remote branches found."
-              triggerIcon={<GitBranchIcon />}
-              compact
-              onValueChange={(value) => onChangeUpstream(value || null)}
-            />
-          </span>
-        </TooltipTarget>
-        {error ? <p className="repo-upstream-error" role="alert">{error}</p> : null}
-      </dd>
-    </div>
-  );
-}
-
-function Fact({ label, value }: { label: string; value: ReactNode }): ReactNode {
-  return (
-    <div>
-      <dt>{label}</dt>
-      <dd>{value}</dd>
-    </div>
-  );
-}
-
-function AppUpdateControl({
-  state,
-  onCheck,
-  onDownload,
-  onInstall
-}: {
-  state: AppUpdateState;
-  onCheck: () => void;
-  onDownload: () => void;
-  onInstall: () => void;
-}): ReactNode {
-  const action = resolveAppUpdateAction(state);
-  const present = action !== "none";
-  const visibleStateRef = useRef(state);
-  if (present) {
-    visibleStateRef.current = state;
-  }
-  const visibleState = present ? state : visibleStateRef.current;
-  const visibleAction = resolveAppUpdateAction(visibleState);
-  const version = visibleState.downloadedVersion ?? visibleState.availableVersion;
-  const label = getAppUpdateButtonLabel(visibleState);
-  const disabled = visibleState.status === "checking" || visibleState.status === "downloading";
-  const icon = visibleState.status === "downloaded"
-    ? <RotateCcw />
-    : visibleState.status === "checking" || visibleState.status === "downloading"
-      ? <Loader2 className="animate-spin" />
-      : visibleAction === "check"
-        ? <RefreshCw />
-        : <Download />;
-
-  const runAction = (): void => {
-    if (visibleAction === "check") {
-      onCheck();
-      return;
-    }
-
-    if (visibleAction === "download") {
-      onDownload();
-      return;
-    }
-
-    if (window.confirm("Restart Githead now to install the downloaded update?")) {
-      onInstall();
-    }
-  };
-
-  return (
-    <MotionPresence
-      present={present}
-      className={`app-update-control is-${visibleState.status}`}
-      element="section"
-      ariaLabel="App update"
-      enterDuration={200}
-      initialY={4}
-    >
-      {visibleState.message ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant={visibleState.status === "error" ? "outline" : "secondary"}
-              disabled={disabled}
-              onClick={runAction}
-              aria-label={`${label}: ${visibleState.message}`}
-            >
-              {icon}
-              {label}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent className="[--tooltip-max-width:18rem]">
-            {visibleState.message}
-          </TooltipContent>
-        </Tooltip>
-      ) : (
-        <Button
-          type="button"
-          variant={visibleState.status === "error" ? "outline" : "secondary"}
-          disabled={disabled}
-          onClick={runAction}
-        >
-          {icon}
-          {label}
-        </Button>
-      )}
-      {version ? (
-        <div className="app-update-version-row">
-          <p className="app-update-version">Version {version}</p>
-          {visibleState.releaseNotes ? <AppUpdateReleaseNotesPopover state={visibleState} /> : null}
-        </div>
-      ) : null}
-    </MotionPresence>
-  );
-}
-
-function AppUpdateReleaseNotesPopover({ state }: { state: AppUpdateState }): ReactNode {
-  const releaseNotes = state.releaseNotes;
-  if (!releaseNotes) {
-    return null;
-  }
-
-  const openReleaseNotes = (): void => {
-    if (releaseNotes.url) {
-      void window.githead.openExternalUrl({ url: releaseNotes.url });
-    }
-  };
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button type="button" variant="ghost" size="sm" className="app-update-release-notes-trigger">
-          Release Notes
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="app-update-release-notes-popover" align="end">
-        <div className="app-update-release-notes-header">
-          <div className="min-w-0">
-            <p className="eyebrow">Release</p>
-            <h3>{releaseNotes.title || `Version ${releaseNotes.version}`}</h3>
-          </div>
-          {releaseNotes.url ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="shrink-0"
-              onClick={openReleaseNotes}
-            >
-              <ExternalLink />
-              Open on GitHub
-            </Button>
-          ) : null}
-        </div>
-        {releaseNotes.loading ? (
-          <LoadingState label="Loading release notes" className="min-h-10 p-2" />
-        ) : releaseNotes.error ? (
-          <p className="app-update-release-notes-error" role="status" aria-live="polite">{releaseNotes.error}</p>
-        ) : releaseNotes.body ? (
-          <div className="app-update-release-notes-body selectable-text">
-            <OptionalFeatureBoundary name="release notes">
-              <BasicMarkdown externalLinks>{releaseNotes.body}</BasicMarkdown>
-            </OptionalFeatureBoundary>
-          </div>
-        ) : (
-          <p className="app-update-release-notes-status">No release notes published for this version.</p>
-        )}
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function ActionBar({
-  heading,
-  summary,
-  runningAction,
-  feedbackEvent,
-  configuredActionRuns,
-  disabled,
-  cancellable,
-  cancelStatus,
-  cancelError,
-  cancelLabel,
-  cancelingLabel,
-  showCreatePullRequest,
-  branchPullRequests,
-  pullRecovery,
-  onRunAction,
-  onOpenPushToBranch,
-  onRunConfiguredAction,
-  onPullWithAction,
-  onManageActions,
-  onCreatePullRequest,
-  onCancel,
-  onOpenExternalUrl
-}: {
-  heading: string;
-  summary: RepoSummary | null;
-  runningAction: string | null;
-  feedbackEvent: OperationButtonFeedbackEvent | null;
-  configuredActionRuns: ConfiguredActionRun[];
-  disabled: boolean;
-  cancellable: boolean;
-  cancelStatus: OperationCancelStatus;
-  cancelError: string;
-  cancelLabel: string;
-  cancelingLabel: string;
-  showCreatePullRequest: boolean;
-  branchPullRequests: GitHubPullRequestAssociation[];
-  pullRecovery: GitPullRecovery | null;
-  onRunAction: (action: GitAction) => void;
-  onOpenPushToBranch: () => void;
-  onRunConfiguredAction: (action: GitConfiguredAction) => void;
-  onPullWithAction: (action: GitConfiguredAction) => void;
-  onManageActions: () => void;
-  onCreatePullRequest: () => void;
-  onCancel: () => void;
-  onOpenExternalUrl: (url: string) => void;
-}): ReactNode {
-  const capabilities = summary?.capabilities ?? null;
-  // Lore is centralized: it has no "fetch", and "pull" maps to `lore sync`.
-  const showFetch = capabilities?.fetch ?? true;
-  const usesSync = capabilities?.sync ?? false;
-  const pullableCommitCount = getPullableCommitCount(summary);
-  const pullLabel = pullRecovery ? "Resolve" : usesSync ? "Sync" : "Pull";
-  const pullAriaLabel = pullRecovery
-    ? "Resolve remote history change"
-    : !usesSync && pullableCommitCount > 0
-    ? formatActionCountLabel("Pull", pullableCommitCount)
-    : undefined;
-  const publishInsteadOfPush = shouldPublishInsteadOfPush(summary);
-  const pushableCommitCount = getPushableCommitCount(summary);
-  const pushVariant = runningAction === "push"
-    ? "secondary"
-    : publishInsteadOfPush || pushableCommitCount > 0
-    ? "default"
-    : "outline";
-  const pushAriaLabel = publishInsteadOfPush
-    ? "Publish branch"
-    : pushableCommitCount > 0
-    ? formatActionCountLabel("Push", pushableCommitCount)
-    : undefined;
-  const showPushMenu = capabilities?.pushToBranch ?? false;
-  const pushMenuDisabled = disabled || !summary?.branch || getPushRemotes(summary).length === 0;
-  const actionsConfig = summary?.actionsConfig;
-  const configuredActions = actionsConfig?.actions ?? [];
-  const actionsConfigError = actionsConfig?.error.trim() ?? "";
-  const hasConfiguredActions = configuredActions.length > 0;
-  const pullBoundActions = !usesSync && !pullRecovery
-    ? configuredActions.filter((action) => action.bindToPull)
-    : [];
-  const pullDisabled = disabled || (summary?.kind === "git" && !summary.branch && !pullRecovery);
-  const pullDisabledReason = summary?.kind === "git" && !summary.branch && !pullRecovery ? "Switch to a branch before pulling." : undefined;
-  const showPullMenu = pullBoundActions.length > 0;
-  const runningConfiguredAction = configuredActionRuns.length > 0;
-  const actionsMenuDisabled = !summary?.isValid;
-
-  return (
-    <header className="action-bar flex items-center justify-between gap-4 border-b bg-card px-4 py-4">
-      <div className="min-w-0">
-        <p className="eyebrow">Sync</p>
-        <h2 className="truncate text-base font-semibold">{heading}</h2>
-        {cancelError ? <p className="mt-1 max-w-xl text-xs text-destructive" role="alert">{cancelError}</p> : null}
-      </div>
-      <div className="action-bar-actions flex flex-wrap justify-end gap-2" role="group" aria-label="Git actions">
-        {cancellable ? (
-          <Button type="button" variant="destructive" disabled={cancelStatus === "canceling"} onClick={onCancel}>
-            {cancelStatus === "canceling" ? <Loader2 className="animate-spin" /> : <X />}
-            {cancelStatus === "canceling" ? cancelingLabel : cancelStatus === "error" ? `Retry ${cancelLabel}` : cancelLabel}
-          </Button>
-        ) : null}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant={runningConfiguredAction ? "secondary" : "ghost"}
-              disabled={actionsMenuDisabled}
-              aria-label="Repository actions"
-              className="min-w-28"
-            >
-              {runningConfiguredAction ? <Loader2 className="animate-spin" /> : <Workflow />}
-              Actions
-              {configuredActionRuns.length > 1 ? ` ${configuredActionRuns.length}` : null}
-              <ChevronDown />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {actionsConfigError ? (
-              <DropdownMenuItem disabled className="max-w-80 whitespace-normal">
-                {actionsConfigError}
-              </DropdownMenuItem>
-            ) : hasConfiguredActions ? (
-              <ConfiguredActionMenuItems
-                entries={buildConfiguredActionMenu(configuredActions)}
-                onRunConfiguredAction={onRunConfiguredAction}
-              />
-            ) : (
-              <DropdownMenuItem disabled>
-                No configured actions
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={onManageActions}>
-              <Settings />
-              Manage Repository Actions
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        {showFetch ? (
-          <Button
-            type="button"
-            variant={runningAction === "fetch" ? "secondary" : "ghost"}
-            disabled={disabled}
-            onClick={() => onRunAction("fetch")}
-            className="min-w-24"
-          >
-            <OperationButtonFeedback
-              action="fetch"
-              event={feedbackEvent}
-              successLabel="Fetched"
-              surface="action-bar"
-            >
-              {runningAction === "fetch" ? <Loader2 className="animate-spin" /> : <CloudDownload />}
-              Fetch
-            </OperationButtonFeedback>
-          </Button>
-        ) : null}
-        <div className="flex items-stretch">
-          <TooltipButton
-            type="button"
-            variant={runningAction === "pull" ? "secondary" : "outline"}
-            disabled={pullDisabled}
-            tooltip={pullLabel}
-            disabledTooltip={pullDisabledReason}
-            onClick={() => onRunAction("pull")}
-            aria-label={pullAriaLabel}
-            className={`min-w-24 ${showPullMenu ? "rounded-r-none" : ""}`}
-          >
-            <OperationButtonFeedback
-              action="pull"
-              event={feedbackEvent}
-              successLabel={usesSync ? "Synced" : "Pulled"}
-              surface="action-bar"
-            >
-              {runningAction === "pull" ? <Loader2 className="animate-spin" /> : pullRecovery ? <ShieldAlert /> : <Download />}
-              {pullLabel}
-              {!pullRecovery && !usesSync && pullableCommitCount > 0 ? (
-                <SyncCountChip title={formatCommitCountLabel(pullableCommitCount, "behind")}>
-                  {pullableCommitCount}
-                </SyncCountChip>
-              ) : null}
-            </OperationButtonFeedback>
-          </TooltipButton>
-          {showPullMenu ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <TooltipButton
-                  type="button"
-                  variant={runningAction === "pull" ? "secondary" : "outline"}
-                  disabled={pullDisabled}
-                  tooltip="Pull with action"
-                  disabledTooltip={pullDisabledReason}
-                  aria-label="Pull with action"
-                  className="rounded-l-none border-l-border px-2"
-                >
-                  <ChevronDown />
-                </TooltipButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {pullBoundActions.map((action) => (
-                  <DropdownMenuItem key={getRepositoryActionKey(action.name)} onSelect={() => onPullWithAction(action)}>
-                    <Workflow />
-                    {action.name}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-        </div>
-        <div className="flex items-stretch">
-          <Button
-            type="button"
-            variant={pushVariant}
-            disabled={disabled}
-            onClick={() => onRunAction("push")}
-            aria-label={pushAriaLabel}
-            className={`min-w-24 ${showPushMenu ? "rounded-r-none" : ""}`}
-          >
-            <OperationButtonFeedback
-              action="push"
-              event={feedbackEvent}
-              successLabel="Pushed"
-              surface="action-bar"
-            >
-              {runningAction === "push" ? <Loader2 className="animate-spin" /> : <Upload />}
-              {publishInsteadOfPush ? "Publish" : "Push"}
-              {!publishInsteadOfPush && pushableCommitCount > 0 ? (
-                <SyncCountChip title={formatCommitCountLabel(pushableCommitCount, "ahead")}>
-                  {pushableCommitCount}
-                </SyncCountChip>
-              ) : null}
-            </OperationButtonFeedback>
-          </Button>
-          {showPushMenu ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant={pushVariant}
-                  disabled={pushMenuDisabled}
-                  aria-label="More push actions"
-                  className="rounded-l-none border-l-border px-2"
-                >
-                  <ChevronDown />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={onOpenPushToBranch}>
-                  <GitBranchIcon />
-                  Push to another branch…
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-        </div>
-        {branchPullRequests.length === 1 ? (
-          <Button type="button" variant="outline" onClick={() => onOpenExternalUrl(branchPullRequests[0]!.url)} className="min-w-24">
-            <GitPullRequest />
-            PR #{branchPullRequests[0]!.number} · {formatPullRequestAssociationState(branchPullRequests[0]!)}
-          </Button>
-        ) : branchPullRequests.length > 1 ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button type="button" variant="outline"><GitPullRequest />Multiple pull requests<ChevronDown /></Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {branchPullRequests.map((pullRequest) => (
-                <DropdownMenuItem key={`${pullRequest.headRepositoryFullName}:${pullRequest.number}`} onSelect={() => onOpenExternalUrl(pullRequest.url)}>
-                  {pullRequest.headRepositoryFullName ?? pullRequest.baseRepositoryFullName} #{pullRequest.number} · {formatPullRequestAssociationState(pullRequest)}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : showCreatePullRequest ? (
-          <Button
-            type="button"
-            variant="outline"
-            disabled={disabled}
-            onClick={onCreatePullRequest}
-            className="min-w-24"
-          >
-            <GitPullRequest />
-            Create PR
-          </Button>
-        ) : null}
-      </div>
-    </header>
-  );
-}
-
-function ConfiguredActionMenuItems({
-  entries,
-  onRunConfiguredAction
-}: {
-  entries: ConfiguredActionMenuEntry[];
-  onRunConfiguredAction: (action: GitConfiguredAction) => void;
-}): ReactNode {
-  return entries.map((entry) => {
-    if (entry.type === "group") {
-      return (
-        <DropdownMenuSub key={entry.key}>
-          <DropdownMenuSubTrigger>
-            <Workflow />
-            {entry.label}
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent>
-            <ConfiguredActionMenuItems entries={entry.entries} onRunConfiguredAction={onRunConfiguredAction} />
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-      );
-    }
-
-    const item = (
-      <DropdownMenuItem onSelect={() => onRunConfiguredAction(entry.action)}>
-        <Workflow />
-        {entry.label}
-      </DropdownMenuItem>
-    );
-    return entry.action.description ? (
-      <Tooltip key={entry.key}>
-        <TooltipTrigger asChild>{item}</TooltipTrigger>
-        <TooltipContent side="left">{entry.action.description}</TooltipContent>
-      </Tooltip>
-    ) : <Fragment key={entry.key}>{item}</Fragment>;
-  });
 }
 
 function StatusView({
@@ -10753,7 +9929,8 @@ function StatusView({
   onGeneratePlan,
   onValidatePlan,
   onQuickCommit,
-  composer
+  composer,
+  commitBox
 }: {
   stagedFiles: GitStatusFile[];
   unstagedFiles: GitStatusFile[];
@@ -10787,31 +9964,72 @@ function StatusView({
   onValidatePlan: (request: CommitPlanValidationRequest) => Promise<CommitPlanValidationResult>;
   onQuickCommit: (changes: GitQuickCommitChange[], message: string) => Promise<GitOperationResult | null>;
   composer?: ReactNode;
+  /** The commit box, docked at the bottom of the list column. The plan view replaces it. */
+  commitBox?: ReactNode;
 }): ReactNode {
   const [query, setQuery] = usePersistentWorkspacePanelState("status-file-query", "");
   const [statusFilter, setStatusFilter] = usePersistentWorkspacePanelState<StatusFileFilter>("status-file-filter", "all");
   const [expandEmptyStaged, setExpandEmptyStaged] = usePersistentWorkspacePanelState("status-expand-empty-staged", false);
   const [expandEmptyUnstaged, setExpandEmptyUnstaged] = usePersistentWorkspacePanelState("status-expand-empty-unstaged", false);
+  const [collapseStaged, setCollapseStaged] = usePersistentWorkspacePanelState("status-collapse-staged", false);
+  const [collapseUnstaged, setCollapseUnstaged] = usePersistentWorkspacePanelState("status-collapse-unstaged", false);
+  // Both file groups render their rows into this one scroller, so its ref must be state.
+  const [fileScroller, setFileScroller] = useState<HTMLDivElement | null>(null);
+  const [narrowDetailOpen, setNarrowDetailOpen] = useState(false);
   const matchingStagedFiles = useMemo(() => filterStatusFiles(stagedFiles, "staged", query, statusFilter), [stagedFiles, query, statusFilter]);
   const matchingUnstagedFiles = useMemo(() => filterStatusFiles(unstagedFiles, "unstaged", query, statusFilter), [unstagedFiles, query, statusFilter]);
   const filtering = query.trim().length > 0 || statusFilter !== "all";
   const matchingPaths = useMemo(() => new Set((selection?.side === "staged" ? matchingStagedFiles : matchingUnstagedFiles).map((file) => file.path)), [matchingStagedFiles, matchingUnstagedFiles, selection?.side]);
-  const selectedPaths = selection ? getSelectionPaths(selection).filter((path) => matchingPaths.has(path)) : [];
-  const matchingSelection = selection && selectedPaths.length > 0
-    ? createFileSelection(selection.side, selectedPaths, selection.path, selection.anchorPath)
-    : null;
-  const stagedSelectionPaths = matchingSelection?.side === "staged" ? selectedPaths : [];
-  const unstagedSelectionPaths = matchingSelection?.side === "unstaged" ? selectedPaths : [];
-  const stagedCollapsed = stagedFiles.length === 0 && unstagedFiles.length > 0 && !expandEmptyStaged;
-  const unstagedCollapsed = unstagedFiles.length === 0 && stagedFiles.length > 0 && !expandEmptyUnstaged;
-  const stagedPanelRef = useRef<PanelImperativeHandle | null>(null);
-  const unstagedPanelRef = useRef<PanelImperativeHandle | null>(null);
-  useLayoutEffect(() => {
-    if (stagedCollapsed) stagedPanelRef.current?.collapse();
-    else stagedPanelRef.current?.expand();
-    if (unstagedCollapsed) unstagedPanelRef.current?.collapse();
-    else unstagedPanelRef.current?.expand();
-  }, [stagedCollapsed, unstagedCollapsed, workspaceMode]);
+  // Memoised so that the file groups skip a render when only the commit box changed.
+  const matchingSelection = useMemo(() => {
+    if (!selection) return null;
+    const selectedPaths = getSelectionPaths(selection).filter((path) => matchingPaths.has(path));
+    return selectedPaths.length > 0
+      ? createFileSelection(selection.side, selectedPaths, selection.path, selection.anchorPath)
+      : null;
+  }, [matchingPaths, selection]);
+  // A stage or unstage from this view moves the selection to the other group. Both groups share one
+  // scroller, so revealing the moved row would scroll the list away from where the user works.
+  const selectionKey = selection ? `${selection.side}:${selection.path}` : null;
+  const [selectionMove, setSelectionMove] = useState<{
+    selectionKey: string | null;
+    expected: { side: GitDiffSide; paths: ReadonlySet<string> } | null;
+    moved: boolean;
+  }>(() => ({ selectionKey, expected: null, moved: false }));
+  if (selectionMove.selectionKey !== selectionKey) {
+    const { expected } = selectionMove;
+    setSelectionMove({
+      selectionKey,
+      expected: null,
+      moved: Boolean(selection && expected?.side === selection.side && expected.paths.has(selection.path))
+    });
+  }
+  const expectSelectionMove = useCallback((side: GitDiffSide, paths: readonly string[]): void => {
+    setSelectionMove((current) => ({ ...current, expected: { side, paths: new Set(paths) } }));
+  }, []);
+  const stageGroupFiles = useCallback((paths: string[], nextSelection?: FileSelection): void => {
+    if (nextSelection) expectSelectionMove(nextSelection.side, paths);
+    onStageFiles(paths, nextSelection);
+  }, [expectSelectionMove, onStageFiles]);
+  const unstageGroupFiles = useCallback((paths: string[], nextSelection?: FileSelection): void => {
+    if (nextSelection) expectSelectionMove(nextSelection.side, paths);
+    onUnstageFiles(paths, nextSelection);
+  }, [expectSelectionMove, onUnstageFiles]);
+  // An empty group starts collapsed to its header; a group with files collapses only when the user asks.
+  const stagedEmpty = stagedFiles.length === 0;
+  const unstagedEmpty = unstagedFiles.length === 0;
+  const stagedCollapsed = stagedEmpty ? !expandEmptyStaged : collapseStaged;
+  const unstagedCollapsed = unstagedEmpty ? !expandEmptyUnstaged : collapseUnstaged;
+  const toggleStaged = useCallback(() => {
+    if (stagedEmpty) setExpandEmptyStaged((value) => !value);
+    else setCollapseStaged((value) => !value);
+  }, [setCollapseStaged, setExpandEmptyStaged, stagedEmpty]);
+  const toggleUnstaged = useCallback(() => {
+    if (unstagedEmpty) setExpandEmptyUnstaged((value) => !value);
+    else setCollapseUnstaged((value) => !value);
+  }, [setCollapseUnstaged, setExpandEmptyUnstaged, unstagedEmpty]);
+  const openDetail = useCallback(() => setNarrowDetailOpen(true), []);
+  const closeDetail = useCallback(() => setNarrowDetailOpen(false), []);
   const clean = summary?.isValid && stagedFiles.length === 0 && unstagedFiles.length === 0;
   const [discardTarget, setDiscardTarget] = useState<{
     file: GitStatusFile; side: GitDiffSide; paths: string[]; repoPath: string; version: number;
@@ -10854,24 +10072,22 @@ function StatusView({
         : null;
   const discardChecking = Boolean(discardTarget?.snapshot && !discardCheckReady);
   const discardCurrent = Boolean(discardTarget && !discardError && !discardChecking);
-  const handleContextAction = (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind, explicitPaths?: string[]): void => {
+  const repoPath = summary?.repoPath ?? "";
+  const repositoryKind = summary?.kind;
+  const handleContextAction = useCallback((file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind, explicitPaths?: string[]): void => {
     const paths = explicitPaths ?? getContextActionPaths(matchingSelection, file, side);
     if (kind === "revert") {
-      const repoPath = summary?.repoPath ?? "";
       setDiscardTarget({
         file, side, paths, repoPath, version: repositoryStatusVersion,
-        snapshot: summary?.kind === "git"
+        snapshot: repositoryKind === "git"
           ? window.githead.getDiscardSnapshot({ repoPath, paths, side }).catch(() => null)
           : null
       });
     } else {
+      if (kind === "toggle-stage") expectSelectionMove(side === "staged" ? "unstaged" : "staged", paths);
       onContextAction(file, side, kind, paths);
     }
-  };
-  const stageableUnstagedPaths = useMemo(
-    () => new Set(matchingUnstagedFiles.filter(canStageStatusFile).map((file) => file.path)),
-    [matchingUnstagedFiles]
-  );
+  }, [expectSelectionMove, matchingSelection, onContextAction, repoPath, repositoryKind, repositoryStatusVersion]);
   const selectedFile = selection
     ? (selection.side === "staged" ? stagedFiles : unstagedFiles).find((file) => file.path === selection.path) ?? null
     : null;
@@ -10883,219 +10099,215 @@ function StatusView({
     (summary?.capabilities.hunkStaging ?? true)
   );
   const selectedSide = selection?.side;
-  const hunkAction = useMemo<DiffHunkAction | undefined>(() => (
-    canApplyHunks && selectedSide
-      ? {
-          side: selectedSide,
-          disabled: disabled || diffChanged,
-          onApply: onApplyHunk,
-          onDiscard: selectedSide === "unstaged" ? (patch) => onApplyHunk(patch, true) : undefined
-        }
-      : undefined
-  ), [canApplyHunks, diffChanged, disabled, onApplyHunk, selectedSide]);
+  const selectedPath = selection?.path;
+  const hunkAction = useMemo<DiffHunkAction | undefined>(() => {
+    if (!canApplyHunks || !selectedSide || selectedPath === undefined) return undefined;
+    // The selection follows the file to the other group when its last hunk leaves this side.
+    const applyHunk = (patch: string, discard?: boolean): void => {
+      expectSelectionMove(selectedSide === "staged" ? "unstaged" : "staged", [selectedPath]);
+      onApplyHunk(patch, discard);
+    };
+    return {
+      side: selectedSide,
+      disabled: disabled || diffChanged,
+      onApply: applyHunk,
+      onDiscard: selectedSide === "unstaged" ? (patch) => applyHunk(patch, true) : undefined
+    };
+  }, [canApplyHunks, diffChanged, disabled, expectSelectionMove, onApplyHunk, selectedPath, selectedSide]);
+  const fileViewMode = workspaceMode === "plan" ? "plan" : viewMode;
+  const ready = Boolean(summary?.isValid);
+
+  const list = (
+    <div className={`status-changes-list${workspaceMode === "plan" ? " is-plan" : ""}`}>
+      <div className="status-file-toolbar">
+        {workspaceMode === "files" ? <>
+          <div className="status-file-search">
+            <Search className="status-file-search-icon" aria-hidden="true" />
+            <Input aria-label="Search changed files" placeholder="Filter files…" spellCheck={false} value={query} className="status-file-search-input"
+              onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setQuery(""); }} />
+            {query ? <TooltipButton type="button" variant="ghost" size="icon-xs" aria-label="Clear file search" tooltip="Clear file search" onClick={() => setQuery("")}><X /></TooltipButton> : null}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button type="button" className="status-file-filter-trigger" data-active={statusFilter !== "all" ? "true" : undefined} aria-label="Filter files by status" title="Filter files by status">
+                  <ListFilter aria-hidden="true" />
+                  <span>{STATUS_FILE_FILTER_OPTIONS.find((option) => option.value === statusFilter)?.short ?? "All"}</span>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuRadioGroup value={statusFilter} onValueChange={(value) => setStatusFilter(value as StatusFileFilter)}>
+                  {STATUS_FILE_FILTER_OPTIONS.map((option) => (
+                    <DropdownMenuRadioItem key={option.value} value={option.value}>{option.label}</DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </> : <h2 className="status-plan-title">Commit plan</h2>}
+        {(summary?.submodules?.length ?? 0) > 0 ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <TooltipButton type="button" variant="ghost" size="icon-sm" aria-label="Submodules" tooltip="Submodules" disabled={disabled || recoveryMode}>
+                <GitFork />
+              </TooltipButton>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem onSelect={() => onUpdateSubmodules()}>
+                <RefreshCw />
+                Update all submodules
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onSyncSubmodules}>
+                <GitFork />
+                Sync submodule URLs
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+        <Segmented<StatusFileViewMode | "plan">
+          label="Changed file view mode"
+          className="status-file-view-mode ml-auto shrink-0"
+          value={fileViewMode}
+          onChange={(mode) => {
+            if (mode === "plan") {
+              onWorkspaceModeChange("plan");
+              return;
+            }
+            onWorkspaceModeChange("files");
+            onViewModeChange(mode);
+          }}
+          options={[
+            { value: "list", label: <List />, ariaLabel: "List view", title: "Show files as a list" },
+            { value: "tree", label: <ListTree />, ariaLabel: "Tree view", title: "Show files as a tree" },
+            { value: "plan", label: <Sparkles />, ariaLabel: "Commit plan view", title: "Group files into planned commits", disabled: recoveryMode }
+          ]}
+        />
+      </div>
+      {workspaceMode === "plan" ? (
+        <CommitPlanView
+          repoPath={repoPath}
+          files={unstagedFiles}
+          stagedCount={stagedFiles.length}
+          selectedPath={selection?.side === "unstaged" ? selection.path : null}
+          disabled={disabled || recoveryMode}
+          supported={summary?.kind === "git"}
+          canGenerate={canGeneratePlan}
+          generateTitle={generatePlanTitle}
+          repositoryChangeVersion={repositoryChangeVersion}
+          onSelectFile={(file) => {
+            onSelectFile(file, "unstaged", { extendRange: false, selectAll: false, toggle: false });
+            openDetail();
+          }}
+          onGenerate={onGeneratePlan}
+          onValidatePlan={onValidatePlan}
+          onQuickCommit={onQuickCommit}
+        />
+      ) : (
+        <div ref={setFileScroller} className="status-file-scroll" data-workspace-scroll-key="status-files">
+          {clean ? (
+            <EmptyState
+              className="status-clean-state"
+              icon={<CircleCheck />}
+              title="Working tree clean"
+              description={summary?.branch ? `Nothing to commit on ${summary.branch}` : "Nothing to commit"}
+            />
+          ) : <>
+          <FileGroup
+            title="Staged files"
+            label="Staged"
+            side="staged"
+            files={matchingStagedFiles}
+            totalCount={stagedFiles.length}
+            filtering={filtering}
+            collapsed={stagedCollapsed}
+            onToggle={toggleStaged}
+            emptyMessage="No staged files"
+            ready={ready}
+            selection={matchingSelection}
+            disabled={disabled}
+            recoveryMode={recoveryMode}
+            viewMode={viewMode}
+            scrollContainer={fileScroller}
+            onSelectFile={onSelectFile}
+            onOpenFile={openDetail}
+            onStageFiles={stageGroupFiles}
+            onUnstageFiles={unstageGroupFiles}
+            onContextAction={handleContextAction}
+            revealSelection={!selectionMove.moved}
+          />
+          <FileGroup
+            title="Unstaged files"
+            label="Changes"
+            side="unstaged"
+            files={matchingUnstagedFiles}
+            totalCount={unstagedFiles.length}
+            filtering={filtering}
+            collapsed={unstagedCollapsed}
+            onToggle={toggleUnstaged}
+            emptyMessage="No unstaged files"
+            ready={ready}
+            selection={matchingSelection}
+            disabled={disabled}
+            recoveryMode={recoveryMode}
+            viewMode={viewMode}
+            scrollContainer={fileScroller}
+            onSelectFile={onSelectFile}
+            onOpenFile={openDetail}
+            onStageFiles={stageGroupFiles}
+            onUnstageFiles={unstageGroupFiles}
+            onContextAction={handleContextAction}
+            revealSelection={!selectionMove.moved}
+          />
+          </>}
+        </div>
+      )}
+      {workspaceMode === "plan" ? null : commitBox}
+    </div>
+  );
 
   return (
-    <ResizablePanelGroup orientation="horizontal" className="status-workspace h-full min-h-0 bg-background">
-      <ResizablePanel defaultSize="38%" minSize="300px" className="min-w-[300px]" data-status-panel="files">
-        <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] border-r bg-card">
-          <div className="status-file-toolbar">
-            {workspaceMode === "files" ? <>
-              <div className="relative min-w-0 flex-1">
-                <Search className="pointer-events-none absolute left-2 top-2 size-4 text-muted-foreground" />
-                <Input aria-label="Search changed files" placeholder="Search files…" spellCheck={false} value={query} className="h-8 pl-8 pr-8"
-                  onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setQuery(""); }} />
-                {query ? <TooltipButton type="button" variant="ghost" size="icon-xs" aria-label="Clear file search" tooltip="Clear file search" className="absolute right-1 top-1" onClick={() => setQuery("")}><X /></TooltipButton> : null}
-              </div>
-              <select aria-label="Filter files by status" className="status-file-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFileFilter)}>
-                <option value="all">All statuses</option>
-                <option value="modified">Modified</option>
-                <option value="untracked">Untracked</option>
-                <option value="added">Added</option>
-                <option value="deleted">Deleted</option>
-                <option value="renamed">Renamed</option>
-                <option value="copied">Copied</option>
-                <option value="conflict">Conflicted</option>
-              </select>
-            </> : null}
-            {(summary?.submodules?.length ?? 0) > 0 ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button type="button" variant="outline" size="sm" disabled={disabled || recoveryMode}>
-                    <GitFork />
-                    Submodules
-                    <ChevronDown />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <DropdownMenuItem onSelect={() => onUpdateSubmodules()}>
-                    <RefreshCw />
-                    Update all submodules
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={onSyncSubmodules}>
-                    <GitFork />
-                    Sync submodule URLs
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : null}
-            <div className="ml-auto inline-flex rounded-md border p-0.5" role="group" aria-label="Changed file view mode">
-              <TooltipButton type="button" variant={workspaceMode === "files" && viewMode === "list" ? "secondary" : "ghost"} size="icon-xs" aria-pressed={workspaceMode === "files" && viewMode === "list"} aria-label="List view" tooltip="Show files as a list" onClick={() => { onWorkspaceModeChange("files"); onViewModeChange("list"); }}><List /></TooltipButton>
-              <TooltipButton type="button" variant={workspaceMode === "files" && viewMode === "tree" ? "secondary" : "ghost"} size="icon-xs" aria-pressed={workspaceMode === "files" && viewMode === "tree"} aria-label="Tree view" tooltip="Show files as a tree" onClick={() => { onWorkspaceModeChange("files"); onViewModeChange("tree"); }}><ListTree /></TooltipButton>
-              <TooltipButton type="button" variant={workspaceMode === "plan" ? "secondary" : "ghost"} size="icon-xs" aria-pressed={workspaceMode === "plan"} aria-label="Commit plan view" tooltip="Group files into planned commits" disabled={recoveryMode} onClick={() => onWorkspaceModeChange("plan")}><Sparkles /></TooltipButton>
-            </div>
-          </div>
-          {workspaceMode === "plan" ? (
-            <CommitPlanView
-              repoPath={summary?.repoPath ?? ""}
-              files={unstagedFiles}
-              stagedCount={stagedFiles.length}
-              selectedPath={selection?.side === "unstaged" ? selection.path : null}
-              disabled={disabled || recoveryMode}
-              supported={summary?.kind === "git"}
-              canGenerate={canGeneratePlan}
-              generateTitle={generatePlanTitle}
-              repositoryChangeVersion={repositoryChangeVersion}
-              onSelectFile={(file) => onSelectFile(file, "unstaged", { extendRange: false, selectAll: false, toggle: false })}
-              onGenerate={onGeneratePlan}
-              onValidatePlan={onValidatePlan}
-              onQuickCommit={onQuickCommit}
+    <>
+      <ListDetailLayout
+        id="changes"
+        listLabel="changed files"
+        list={list}
+        detailOpen={narrowDetailOpen && selection !== null}
+        onBack={closeDetail}
+        detail={
+          <div className="changes-detail">
+            <DiffPanel
+              title={selection?.path ?? "Select a file"}
+              eyebrow={selection ? `${capitalize(selection.side)} diff` : "Diff"}
+              diff={diff}
+              filePath={selection?.path ?? ""}
+              loading={diffLoading}
+              emptyMessage={selection ? "Refresh the diff to view this file." : clean ? "No changes to show" : "Select a file to view the diff"}
+              onDownloadImage={onDownloadImage}
+              imageDownloadLoading={disabled}
+              repoPath={repoPath}
+              previewSource={selection && selectedFile && !selectedFile.submodule && (isMarkdownPath(selection.path) || isSvgPath(selection.path)) && !isDeletedOnSide(selectedFile, selection.side)
+                ? { kind: selection.side === "staged" ? "staged" : "working" }
+                : undefined}
+              hunkAction={hunkAction}
+              onRefresh={selection ? onRefreshDiff : undefined}
+              refreshDisabled={disabled}
+              changed={diffChanged}
+              wrapLines={wrapLines}
+              onWrapLinesChange={onWrapLinesChange}
+              variant="card"
+              status={selection && selectedFile ? getFileStatusVisuals(selectedFile, selection.side) : undefined}
             />
-          ) : (
-          <ResizablePanelGroup id="status-file-groups" orientation="vertical" className="min-h-0">
-            <ResizablePanel id="staged-file-group" panelRef={stagedPanelRef} defaultSize="50%" minSize="96px" collapsible collapsedSize="56px" disabled={stagedCollapsed}>
-              <FileGroup
-                title="Staged files"
-                side="staged"
-                files={matchingStagedFiles}
-                totalCount={stagedFiles.length}
-                filtering={filtering}
-                collapsed={stagedCollapsed}
-                onToggleEmpty={stagedFiles.length === 0 && unstagedFiles.length > 0 ? () => setExpandEmptyStaged((value) => !value) : undefined}
-                emptyMessage="No staged files"
-                summary={summary}
-                selection={matchingSelection}
-                disabled={disabled}
-                recoveryMode={recoveryMode}
-                viewMode={viewMode}
-                actions={
-                  <>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={disabled || matchingStagedFiles.length === 0}
-                      onClick={() => onUnstageFiles(matchingStagedFiles.map((file) => file.path))}
-                    >
-                      {filtering ? `Unstage ${matchingStagedFiles.length} matching` : "Unstage All"}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={disabled || stagedSelectionPaths.length === 0}
-                      onClick={() => {
-                        if (selection?.side === "staged" && stagedSelectionPaths.length > 0) {
-                          onUnstageFiles(
-                            stagedSelectionPaths,
-                            createFileSelection("unstaged", stagedSelectionPaths, selection.path, selection.anchorPath)
-                          );
-                        }
-                      }}
-                    >
-                      {fileActionLabel("Unstage", stagedSelectionPaths.length)}
-                    </Button>
-                  </>
-                }
-                onSelectFile={onSelectFile}
-                onContextAction={handleContextAction}
-              />
-            </ResizablePanel>
-            <ResizableHandle withHandle aria-label="Resize staged and unstaged file lists" />
-            <ResizablePanel id="unstaged-file-group" panelRef={unstagedPanelRef} defaultSize="50%" minSize="96px" collapsible collapsedSize="56px" disabled={unstagedCollapsed}>
-              <FileGroup
-                title="Unstaged files"
-                side="unstaged"
-                files={matchingUnstagedFiles}
-                totalCount={unstagedFiles.length}
-                filtering={filtering}
-                collapsed={unstagedCollapsed}
-                onToggleEmpty={unstagedFiles.length === 0 && stagedFiles.length > 0 ? () => setExpandEmptyUnstaged((value) => !value) : undefined}
-                emptyMessage="No unstaged files"
-                summary={summary}
-                selection={matchingSelection}
-                disabled={disabled}
-                recoveryMode={recoveryMode}
-                viewMode={viewMode}
-                actions={
-                  <>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={disabled || stageableUnstagedPaths.size === 0}
-                      onClick={() => onStageFiles([...stageableUnstagedPaths])}
-                    >
-                      {filtering ? `Stage ${stageableUnstagedPaths.size} matching` : "Stage All"}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={disabled || !unstagedSelectionPaths.some((path) => stageableUnstagedPaths.has(path))}
-                      onClick={() => {
-                        if (selection?.side === "unstaged" && unstagedSelectionPaths.length > 0) {
-                          onStageFiles(
-                            unstagedSelectionPaths.filter((path) => stageableUnstagedPaths.has(path)),
-                            createFileSelection("staged", unstagedSelectionPaths, selection.path, selection.anchorPath)
-                          );
-                        }
-                      }}
-                    >
-                      {fileActionLabel("Stage", unstagedSelectionPaths.filter((path) => stageableUnstagedPaths.has(path)).length)}
-                    </Button>
-                  </>
-                }
-                onSelectFile={onSelectFile}
-                onContextAction={handleContextAction}
-              />
-            </ResizablePanel>
-          </ResizablePanelGroup>
-          )}
-        </div>
-      </ResizablePanel>
-      <ResizableHandle className="status-workspace-resize-handle" />
-      <ResizablePanel minSize="240px" data-status-panel="diff">
-        <DiffPanel
-          title={selection?.path ?? "Select a file"}
-          eyebrow={selection ? `${capitalize(selection.side)} diff` : "Diff"}
-          diff={diff}
-          filePath={selection?.path ?? ""}
-          loading={diffLoading}
-          emptyMessage={selection ? "Refresh the diff to view this file." : clean ? "Working tree clean" : "Select a file to view the diff"}
-          onDownloadImage={onDownloadImage}
-          imageDownloadLoading={disabled}
-          repoPath={summary?.repoPath ?? ""}
-          previewSource={selection && selectedFile && !selectedFile.submodule && (isMarkdownPath(selection.path) || isSvgPath(selection.path)) && !isDeletedOnSide(selectedFile, selection.side)
-            ? { kind: selection.side === "staged" ? "staged" : "working" }
-            : undefined}
-          hunkAction={hunkAction}
-          onRefresh={selection ? onRefreshDiff : undefined}
-          refreshDisabled={disabled}
-          changed={diffChanged}
-          wrapLines={wrapLines}
-          onWrapLinesChange={onWrapLinesChange}
-        />
-      </ResizablePanel>
+          </div>
+        }
+      />
       <Dialog open={Boolean(discardTarget)} onOpenChange={(open) => { if (!open) setDiscardTarget(null); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{fileActionLabel("Discard changes in", discardTarget?.paths.length ?? 0)}?</DialogTitle>
             <DialogDescription>Discard the {discardTarget?.side} changes in these files. This cannot be undone.</DialogDescription>
           </DialogHeader>
-          <ul className="max-h-48 overflow-auto text-sm">{discardTarget?.paths.slice(0, 100).map((path) => <li key={path} className="break-all font-mono">{path}</li>)}</ul>
+          <ul className="dialog-code-block discard-path-list">{discardTarget?.paths.slice(0, 100).map((path) => <li key={path}>{path}</li>)}</ul>
           {discardTarget && discardTarget.paths.length > 100 ? <p className="text-sm text-muted-foreground">Showing the first 100 of {discardTarget.paths.length} files.</p> : null}
           {discardChecking ? <p role="status" className="text-sm text-muted-foreground">Checking selected files…</p> : null}
-          {discardError ? <p role="alert" className="text-sm text-destructive">{discardError}</p> : null}
+          {discardError ? <p role="alert" className="dialog-error">{discardError}</p> : null}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setDiscardTarget(null)}>Cancel</Button>
             <Button type="button" variant="destructive" disabled={disabled || recoveryMode || !discardCurrent} onClick={() => {
@@ -11108,47 +10320,77 @@ function StatusView({
         </DialogContent>
       </Dialog>
       {composer}
-    </ResizablePanelGroup>
+    </>
   );
 }
 
 type ContextActionKind = "open" | "show" | "copy" | "toggle-stage" | "stash" | "delete" | "revert" | "ignore" | "update-submodule";
-type CommitContextActionKind = "amend" | "tag" | "reset" | "revert" | "cherry-pick" | "copy";
 type CommitFileContextActionKind = "log" | "blame" | "reset" | "open-current" | "open-selected" | "copy";
 
-function FileGroup({
+const STATUS_FILE_ROW_HEIGHT = 32;
+
+const STATUS_FILE_FILTER_OPTIONS: ReadonlyArray<{ value: StatusFileFilter; label: string; short: string }> = [
+  { value: "all", label: "All statuses", short: "All" },
+  { value: "modified", label: "Modified", short: "Modified" },
+  { value: "untracked", label: "Untracked", short: "Untracked" },
+  { value: "added", label: "Added", short: "Added" },
+  { value: "deleted", label: "Deleted", short: "Deleted" },
+  { value: "renamed", label: "Renamed", short: "Renamed" },
+  { value: "copied", label: "Copied", short: "Copied" },
+  { value: "conflict", label: "Conflicted", short: "Conflicted" }
+];
+
+/** Memoised so that typing in the commit box, which re-renders the status view, skips both file lists. */
+const FileGroup = memo(function FileGroup({
   title,
+  label,
   totalCount,
   filtering,
   collapsed,
-  onToggleEmpty,
+  onToggle,
   emptyMessage,
   side,
   files,
-  summary,
+  ready,
   selection,
   disabled,
   recoveryMode,
   viewMode,
-  actions,
+  scrollContainer,
+  revealSelection,
   onSelectFile,
+  onOpenFile,
+  onStageFiles,
+  onUnstageFiles,
   onContextAction
 }: {
+  /** The accessible name of the group and its list. */
   title: string;
+  /** The visible group name. */
+  label: string;
   totalCount: number;
   filtering: boolean;
   collapsed: boolean;
-  onToggleEmpty?: (() => void) | undefined;
+  /** Collapses or expands the group. Empty groups start collapsed to their header. */
+  onToggle: () => void;
   emptyMessage: string;
   side: GitDiffSide;
   files: GitStatusFile[];
-  summary: RepoSummary | null;
+  /** False while the repository summary is missing or invalid. */
+  ready: boolean;
   selection: FileSelection | null;
   disabled: boolean;
   recoveryMode: boolean;
   viewMode: StatusFileViewMode;
-  actions: ReactNode;
+  /** The list column scroller that both file groups share. Null while its ref is pending. */
+  scrollContainer: HTMLElement | null;
+  /** False while the selection is one that a stage or unstage moved here from the other group. */
+  revealSelection: boolean;
   onSelectFile: (file: GitStatusFile, side: GitDiffSide, modifiers: FileSelectionModifiers) => void;
+  /** Shows the diff in a narrow window. */
+  onOpenFile: () => void;
+  onStageFiles: (paths: string[], selection?: FileSelection) => void;
+  onUnstageFiles: (paths: string[], selection?: FileSelection) => void;
   onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind, paths?: string[]) => void;
 }): ReactNode {
   const selectedPathSet = useMemo(
@@ -11158,6 +10400,17 @@ function FileGroup({
   const selectedFiles = useMemo(() => files.filter((file) => selectedPathSet.has(file.path)), [files, selectedPathSet]);
   const stageableSelectedCount = side === "staged" ? selectedFiles.length : selectedFiles.filter(canStageStatusFile).length;
   const canDiscardSelection = selectedFiles.every(canDiscardStatusFile);
+  // The selection already holds only matching paths, in selection order.
+  const selectionPaths = useMemo(() => selection?.side === side ? getSelectionPaths(selection) : [], [selection, side]);
+  const actionablePaths = useMemo(
+    () => (side === "staged" ? files : files.filter(canStageStatusFile)).map((file) => file.path),
+    [files, side]
+  );
+  const actionablePathSet = useMemo(() => new Set(actionablePaths), [actionablePaths]);
+  const selectionActionPaths = useMemo(
+    () => side === "staged" ? selectionPaths : selectionPaths.filter((path) => actionablePathSet.has(path)),
+    [actionablePathSet, selectionPaths, side]
+  );
   const tree = useMemo(() => buildStatusFileTree(files), [files]);
   const [collapsedFolders, setCollapsedFolders] = usePersistentWorkspacePanelState<Set<string>>(
     `status-${side}-collapsed-folders`,
@@ -11185,30 +10438,85 @@ function FileGroup({
     else next.add(id);
     return next;
   });
+  const applyToSelection = (): void => {
+    if (selection?.side !== side || selectionActionPaths.length === 0) return;
+    const targetSide: GitDiffSide = side === "staged" ? "unstaged" : "staged";
+    const nextSelection = createFileSelection(targetSide, selectionPaths, selection.path, selection.anchorPath);
+    if (side === "staged") onUnstageFiles(selectionActionPaths, nextSelection);
+    else onStageFiles(selectionActionPaths, nextSelection);
+  };
+  const renderFileRow = (file: GitStatusFile, index: number, rowProps: VirtualRowProps, treeLevel?: number): ReactNode => {
+    const selected = selectedPathSet.has(file.path);
+    return (
+      <FileRow
+        key={`${side}:${file.path}`}
+        file={file}
+        side={side}
+        selected={selected}
+        selectedCount={selected ? selectedPathSet.size : 1}
+        stageCount={selected ? stageableSelectedCount : side === "staged" || canStageStatusFile(file) ? 1 : 0}
+        canDiscard={selected ? canDiscardSelection : canDiscardStatusFile(file)}
+        disabled={disabled}
+        recoveryMode={recoveryMode}
+        onSelectFile={selectVisibleFile}
+        onOpenFile={onOpenFile}
+        onStageFiles={onStageFiles}
+        onUnstageFiles={onUnstageFiles}
+        onContextAction={onContextAction}
+        treeLevel={treeLevel}
+        virtualIndex={index}
+        virtualRowProps={rowProps}
+      />
+    );
+  };
+  const countLabel = filtering ? `${files.length} of ${totalCount}` : String(totalCount);
+  const groupActionLabel = side === "staged"
+    ? filtering ? `Unstage ${actionablePaths.length} matching` : "Unstage all"
+    : filtering ? `Stage ${actionablePaths.length} matching` : "Stage all";
+  const listRole = viewMode === "tree" ? "tree" : "listbox";
 
   return (
-    <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]" aria-label={title}>
+    <section className="status-file-group" aria-label={title}>
       <div className="status-file-group-header">
-        <h2 className="min-w-0 text-sm font-semibold">
-          {onToggleEmpty ? <button type="button" className="inline-flex items-center gap-1" aria-label={`${collapsed ? "Expand" : "Collapse"} ${title.toLowerCase()}`} aria-expanded={!collapsed} onClick={onToggleEmpty}>
-            {collapsed ? <ChevronRight className="size-4" /> : <ChevronDown className="size-4" />}{title} (0)
-          </button> : <>{title} <span className="font-normal text-muted-foreground">({filtering ? `${files.length} of ${totalCount}` : totalCount})</span></>}
-        </h2>
-        {!collapsed ? <div className="flex flex-wrap justify-end gap-1">{actions}</div> : <span className="text-xs text-muted-foreground">{emptyMessage}</span>}
+        <button type="button" className="status-file-group-toggle" aria-label={`${collapsed ? "Expand" : "Collapse"} ${title.toLowerCase()}`} aria-expanded={!collapsed} onClick={onToggle}>
+          {collapsed ? <ChevronRight aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
+        </button>
+        <h2 className="status-file-group-title" onClick={onToggle}>{label} <span className="status-file-count">{countLabel}</span></h2>
+        <div className="status-file-group-actions">
+          {selectionPaths.length > 1 ? (
+            <Button type="button" variant="ghost" size="xs" disabled={disabled || selectionActionPaths.length === 0} onClick={applyToSelection}>
+              {fileActionLabel(side === "staged" ? "Unstage" : "Stage", selectionActionPaths.length)}
+            </Button>
+          ) : null}
+          {totalCount > 0 ? (
+            <TooltipButton
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              aria-label={groupActionLabel}
+              tooltip={groupActionLabel}
+              disabled={disabled || actionablePaths.length === 0}
+              onClick={() => side === "staged" ? onUnstageFiles(actionablePaths) : onStageFiles(actionablePaths)}
+            >
+              {side === "staged" ? <Minus /> : <Plus />}
+            </TooltipButton>
+          ) : null}
+        </div>
       </div>
-      {collapsed ? null : !summary?.isValid ? (
-        <div className="file-list" role={viewMode === "tree" ? "tree" : "listbox"} aria-label={title} aria-multiselectable="true" />
+      {collapsed ? null : !ready ? (
+        <div className="file-list" role={listRole} aria-label={title} aria-multiselectable="true" />
       ) : files.length === 0 ? (
-        <div className="file-list flex items-center justify-center p-4 text-center text-sm text-muted-foreground" role={viewMode === "tree" ? "tree" : "listbox"} aria-label={title} aria-multiselectable="true">
-          <p>{filtering && totalCount > 0 ? "No files match your search and filter" : emptyMessage}</p>
+        <div className="file-list is-empty" role={listRole} aria-label={title} aria-multiselectable="true">
+          <EmptyState title={filtering && totalCount > 0 ? "No files match your search and filter" : emptyMessage} />
         </div>
       ) : viewMode === "tree" ? (
         <FixedSizeVirtualList
           items={treeRows}
           itemKey={(row) => row.kind === "folder" ? `${side}:folder:${row.folder.id}` : `${side}:${row.file.path}`}
-          rowHeight={34}
+          rowHeight={STATUS_FILE_ROW_HEIGHT}
           ariaLabel={title}
           role="tree"
+          scrollContainer={scrollContainer}
           onNavigate={(row, event) => { if (row.kind === "file") navigateToFile(row.file, event); }}
           onItemKeyDown={(row, index, event) => {
             if (event.key === "ArrowRight" && row.kind === "folder") {
@@ -11233,6 +10541,7 @@ function FileGroup({
             return undefined;
           }}
           selectedKey={selection?.side === side ? `${side}:${selection.path}` : null}
+          revealSelection={revealSelection}
           className="file-list"
           renderItem={(row, index, rowProps) => {
             const treeRowProps = {
@@ -11241,37 +10550,20 @@ function FileGroup({
               "aria-setsize": row.setSize
             };
             return row.kind === "folder" ? (
-            <StatusFileTreeFolderRow
-              key={`${side}:folder:${row.folder.id}`}
-              folder={row.folder}
-              side={side}
-              level={row.level}
-              collapsed={collapsedFolders.has(row.folder.id)}
-              disabled={disabled}
-              recoveryMode={recoveryMode}
-              virtualIndex={index}
-              virtualRowProps={treeRowProps}
-              onToggle={() => toggleFolder(row.folder.id)}
-              onContextAction={onContextAction}
-            />
-          ) : (
-            <FileRow
-              key={`${side}:${row.file.path}`}
-              file={row.file}
-              side={side}
-              selected={selectedPathSet.has(row.file.path)}
-              selectedCount={selectedPathSet.has(row.file.path) ? selectedPathSet.size : 1}
-              stageCount={selectedPathSet.has(row.file.path) ? stageableSelectedCount : side === "staged" || canStageStatusFile(row.file) ? 1 : 0}
-              canDiscard={selectedPathSet.has(row.file.path) ? canDiscardSelection : canDiscardStatusFile(row.file)}
-              disabled={disabled}
-              recoveryMode={recoveryMode}
-              onSelectFile={selectVisibleFile}
-              onContextAction={onContextAction}
-              treeLevel={row.level}
-              virtualIndex={index}
-              virtualRowProps={treeRowProps}
-            />
-            );
+              <StatusFileTreeFolderRow
+                key={`${side}:folder:${row.folder.id}`}
+                folder={row.folder}
+                side={side}
+                level={row.level}
+                collapsed={collapsedFolders.has(row.folder.id)}
+                disabled={disabled}
+                recoveryMode={recoveryMode}
+                virtualIndex={index}
+                virtualRowProps={treeRowProps}
+                onToggle={() => toggleFolder(row.folder.id)}
+                onContextAction={onContextAction}
+              />
+            ) : renderFileRow(row.file, index, treeRowProps, row.level);
           }}
         />
       ) : (
@@ -11279,32 +10571,18 @@ function FileGroup({
           items={files}
           onNavigate={navigateToFile}
           itemKey={(file) => `${side}:${file.path}`}
-          rowHeight={34}
+          rowHeight={STATUS_FILE_ROW_HEIGHT}
           ariaLabel={title}
+          scrollContainer={scrollContainer}
           selectedKey={selection?.side === side ? `${side}:${selection.path}` : null}
+          revealSelection={revealSelection}
           className="file-list"
-          renderItem={(file, index, rowProps) => (
-            <FileRow
-              key={`${side}:${file.path}`}
-              file={file}
-              side={side}
-              selected={selectedPathSet.has(file.path)}
-              selectedCount={selectedPathSet.has(file.path) ? selectedPathSet.size : 1}
-              stageCount={selectedPathSet.has(file.path) ? stageableSelectedCount : side === "staged" || canStageStatusFile(file) ? 1 : 0}
-              canDiscard={selectedPathSet.has(file.path) ? canDiscardSelection : canDiscardStatusFile(file)}
-              disabled={disabled}
-              recoveryMode={recoveryMode}
-              onSelectFile={selectVisibleFile}
-              onContextAction={onContextAction}
-              virtualIndex={index}
-              virtualRowProps={rowProps}
-            />
-          )}
+          renderItem={(file, index, rowProps) => renderFileRow(file, index, rowProps)}
         />
       )}
     </section>
   );
-}
+});
 
 function StatusFileTreeFolderRow({ folder, side, level, collapsed, disabled, recoveryMode, virtualIndex, virtualRowProps, onToggle, onContextAction }: {
   folder: StatusFileTreeFolder;
@@ -11382,6 +10660,9 @@ function FileRow({
   disabled,
   recoveryMode,
   onSelectFile,
+  onOpenFile,
+  onStageFiles,
+  onUnstageFiles,
   onContextAction,
   treeLevel,
   virtualIndex,
@@ -11396,13 +10677,20 @@ function FileRow({
   disabled: boolean;
   recoveryMode: boolean;
   onSelectFile: (file: GitStatusFile, side: GitDiffSide, modifiers: FileSelectionModifiers) => void;
+  onOpenFile: () => void;
+  onStageFiles: (paths: string[], selection?: FileSelection) => void;
+  onUnstageFiles: (paths: string[], selection?: FileSelection) => void;
   onContextAction: (file: GitStatusFile, side: GitDiffSide, kind: ContextActionKind, paths?: string[]) => void;
-  treeLevel?: number;
+  treeLevel?: number | undefined;
   virtualIndex?: number;
   virtualRowProps?: VirtualRowProps;
 }): ReactNode {
   const actionLabel = side === "unstaged" ? "Stage" : "Unstage";
   const deleted = isDeletedOnSide(file, side);
+  // The row buttons act on this file only. A selected file moves its selection to the other side.
+  const nextSelection = (targetSide: GitDiffSide): FileSelection | undefined => selected
+    ? createFileSelection(targetSide, [file.path], file.path, file.path)
+    : undefined;
 
   return (
     <ContextMenu>
@@ -11414,46 +10702,82 @@ function FileRow({
           }
         }}
       >
-        <button
-          type="button"
-          className={`file-row ${selected ? "is-selected" : ""}`}
+        <div
+          className={`file-row${selected ? " is-selected" : ""}`}
           data-path={file.path}
-          role={treeLevel ? "treeitem" : "option"}
-          aria-level={treeLevel}
-          aria-selected={selected}
-          aria-label={`${getFileStatusVisuals(file, side).label} ${file.originalPath ? `${file.originalPath} -> ` : ""}${file.path}`}
-          tabIndex={virtualRowProps?.tabIndex}
-          aria-posinset={virtualRowProps?.["aria-posinset"]}
-          aria-setsize={virtualRowProps?.["aria-setsize"]}
-          data-virtual-index={virtualIndex}
           style={treeLevel
-            ? { ...virtualRowProps?.style, paddingLeft: `${(treeLevel - 1) * 18 + 8}px` }
+            ? { ...virtualRowProps?.style, paddingLeft: `${(treeLevel - 1) * 18}px` }
             : virtualRowProps?.style}
-          onClick={(event: MouseEvent<HTMLButtonElement>) => onSelectFile(file, side, {
-            extendRange: event.shiftKey,
-            selectAll: false,
-            toggle: event.ctrlKey || event.metaKey
-          })}
-          onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
-            if (event.key.toLowerCase() === "a" && (event.ctrlKey || event.metaKey)) {
-              event.preventDefault();
-              onSelectFile(file, side, {
-                extendRange: false,
-                selectAll: true,
-                toggle: false
-              });
-            }
-          }}
         >
-          <StatusBadge file={file} side={side} />
-          <TooltipTarget content={file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}>
-            <span className="status-file-path">
-              <span className="status-file-name">{fileName(file.path)}</span>
-              {!treeLevel && file.path.includes("/") ? <span className="status-file-directory">{file.path.slice(0, file.path.lastIndexOf("/"))}</span> : null}
-              {file.originalPath ? <span className="status-file-directory">← {file.originalPath}</span> : null}
-            </span>
-          </TooltipTarget>
-        </button>
+          <button
+            type="button"
+            className="file-row-main"
+            role={treeLevel ? "treeitem" : "option"}
+            aria-level={treeLevel}
+            aria-selected={selected}
+            aria-label={`${getFileStatusVisuals(file, side).label} ${file.originalPath ? `${file.originalPath} -> ` : ""}${file.path}`}
+            tabIndex={virtualRowProps?.tabIndex}
+            aria-posinset={virtualRowProps?.["aria-posinset"]}
+            aria-setsize={virtualRowProps?.["aria-setsize"]}
+            data-virtual-index={virtualIndex}
+            onClick={(event: MouseEvent<HTMLButtonElement>) => {
+              const extendRange = event.shiftKey;
+              const toggle = event.ctrlKey || event.metaKey;
+              onSelectFile(file, side, { extendRange, selectAll: false, toggle });
+              if (!extendRange && !toggle) onOpenFile();
+            }}
+            onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
+              if (event.key.toLowerCase() === "a" && (event.ctrlKey || event.metaKey)) {
+                event.preventDefault();
+                onSelectFile(file, side, {
+                  extendRange: false,
+                  selectAll: true,
+                  toggle: false
+                });
+              }
+            }}
+          >
+            <StatusBadge file={file} side={side} />
+            <TooltipTarget content={file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}>
+              <span className="status-file-path">
+                <span className="status-file-name">{fileName(file.path)}</span>
+                {!treeLevel && file.path.includes("/") ? <span className="status-file-directory">{file.path.slice(0, file.path.lastIndexOf("/"))}</span> : null}
+                {file.originalPath ? <span className="status-file-directory">← {file.originalPath}</span> : null}
+              </span>
+            </TooltipTarget>
+          </button>
+          <span className="file-row-actions">
+            {side === "unstaged" && canDiscardStatusFile(file) ? (
+              <FileRowActionButton
+                label={`Discard changes in ${file.path}`}
+                tooltip="Discard changes"
+                disabled={disabled || recoveryMode}
+                onClick={() => onContextAction(file, side, "revert", [file.path])}
+              >
+                <Undo2 />
+              </FileRowActionButton>
+            ) : null}
+            {side === "unstaged" ? canStageStatusFile(file) ? (
+              <FileRowActionButton
+                label={`Stage ${file.path}`}
+                tooltip="Stage file"
+                disabled={disabled}
+                onClick={() => onStageFiles([file.path], nextSelection("staged"))}
+              >
+                <Plus />
+              </FileRowActionButton>
+            ) : null : (
+              <FileRowActionButton
+                label={`Unstage ${file.path}`}
+                tooltip="Unstage file"
+                disabled={disabled}
+                onClick={() => onUnstageFiles([file.path], nextSelection("unstaged"))}
+              >
+                <Minus />
+              </FileRowActionButton>
+            )}
+          </span>
+        </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-64">
         <ContextMenuLabel>{selectedCount === 1 ? "1 file selected" : `${selectedCount} files selected`}</ContextMenuLabel>
@@ -11466,13 +10790,13 @@ function FileRow({
         <ContextMenuSeparator />
         {selectedCount > 1 ? <ContextMenuLabel className="truncate" title={file.path}>For {fileName(file.path)}</ContextMenuLabel> : null}
         <ContextMenuItem disabled={deleted || (Boolean(file.submodule) && disabled)} onSelect={() => onContextAction(file, side, "open")}>
-          <ExternalLink />{file.submodule ? "Open Submodule" : "Open"}
+          <ExternalLink />{file.submodule ? "Open submodule" : "Open"}
         </ContextMenuItem>
         <ContextMenuItem onSelect={() => onContextAction(file, side, "show")}>
           <MapPinned />Show in Explorer
         </ContextMenuItem>
         <ContextMenuItem onSelect={() => onContextAction(file, side, "copy")}>
-          <Clipboard />Copy Path
+          <Clipboard />Copy path
         </ContextMenuItem>
         {file.submodule ? <ContextMenuItem disabled={disabled || recoveryMode} onSelect={() => onContextAction(file, side, "update-submodule")}>
           <RefreshCw />Initialize / Update
@@ -11490,6 +10814,37 @@ function FileRow({
         </> : null}
       </ContextMenuContent>
     </ContextMenu>
+  );
+}
+
+/**
+ * A row hover action. It is out of the tab order: the row is one stop in the list, and the context
+ * menu offers the same actions from the keyboard.
+ */
+function FileRowActionButton({ label, tooltip, disabled, onClick, children }: {
+  label: string;
+  tooltip: string;
+  disabled: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}): ReactNode {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          tabIndex={-1}
+          aria-label={label}
+          disabled={disabled}
+          onClick={onClick}
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{tooltip}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -11521,9 +10876,12 @@ function DiffPanel({
   onDownloadImage,
   imageDownloadLoading = false,
   wrapLines,
-  onWrapLinesChange
+  onWrapLinesChange,
+  variant = "default",
+  status
 }: {
   title: string;
+  /** Names the panel for assistive technology and its scroll key. Only the default variant shows it. */
   eyebrow: string;
   diff: GitFileDiff | null;
   filePath: string;
@@ -11539,8 +10897,20 @@ function DiffPanel({
   imageDownloadLoading?: boolean;
   wrapLines: boolean;
   onWrapLinesChange: (wrap: boolean) => void;
+  /**
+   * "default" keeps the eyebrow header. "card" fills a surface card with the V2 file header
+   * (status chip, path, line stats, icon actions). "embedded" uses the same header inside a card
+   * that also shows other content.
+   */
+  variant?: DiffPanelVariant;
+  /** The status chip that the card and embedded headers show before the path. */
+  status?: FileStatusVisuals | undefined;
 }): ReactNode {
   const [showPreview, setShowPreview] = useState(false);
+  const fileHeader = variant !== "default";
+  const diffText = fileHeader && diff?.kind === "text" && !diff.truncated ? diff.text : null;
+  // A truncated diff would undercount, so the header shows no stats for it.
+  const lineChanges = useMemo(() => diffText === null ? null : countDiffLineChanges(diffText), [diffText]);
   const previewKey = previewSource
     ? `${repoPath}\0${filePath}\0${previewSource.kind}\0${previewSource.kind === "commit" ? previewSource.hash : ""}`
     : "";
@@ -11556,7 +10926,7 @@ function DiffPanel({
     setShowPreview(!previewVisible);
   };
 
-  let content: ReactNode = emptyMessage;
+  let content: ReactNode = <EmptyState title={emptyMessage} />;
   let outputClass = "diff-output";
 
   if (previewVisible && previewSource && svgFile) {
@@ -11596,12 +10966,87 @@ function DiffPanel({
         : diff.text;
   }
 
+  const output = (
+    <div data-workspace-scroll-key={`diff:${eyebrow}`} className={`${outputClass}${changed ? " is-changed" : ""}`}>
+      {content}
+    </div>
+  );
+
+  if (fileHeader) {
+    return (
+      <section className="diff-panel" data-variant={variant} aria-label={eyebrow}>
+        <div className="diff-panel-header">
+          <div className="diff-panel-heading">
+            {status ? <FileStatusChip visuals={status} /> : null}
+            <TooltipTarget overflowOnly content={title}><h2 className="diff-panel-path">{title}</h2></TooltipTarget>
+            {changed ? <p className="diff-changed-description" role="status">Loaded diff is out of date</p> : null}
+          </div>
+          <div className="diff-panel-actions">
+            {lineChanges && !previewVisible ? (
+              <span className="diff-panel-stats">
+                <span className="sr-only">{formatDiffLineChanges(lineChanges)}</span>
+                <span className="diff-panel-additions" aria-hidden="true">+{lineChanges.additions}</span>
+                <span className="diff-panel-deletions" aria-hidden="true">−{lineChanges.deletions}</span>
+              </span>
+            ) : null}
+            {diff?.kind === "text" && !previewVisible ? (
+              <TooltipButton
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                className="aria-pressed:bg-selected aria-pressed:text-foreground"
+                aria-label="Wrap diff lines"
+                aria-pressed={wrapLines}
+                tooltip={wrapLines ? "Use horizontal scrolling" : "Wrap long diff lines"}
+                onClick={() => onWrapLinesChange(!wrapLines)}
+              >
+                <WrapText />
+              </TooltipButton>
+            ) : null}
+            {previewSource ? (
+              <Button type="button" variant="ghost" size="xs" aria-pressed={previewVisible} onClick={togglePreview}>
+                <Eye />
+                {previewVisible ? "Show diff" : "Preview"}
+              </Button>
+            ) : null}
+            {onRefresh && changed ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                className="diff-changed-refresh"
+                disabled={refreshDisabled || loading}
+                onClick={() => onRefresh()}
+              >
+                <RefreshCw />
+                New diff available
+              </Button>
+            ) : onRefresh ? (
+              <TooltipButton
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label={loading ? "Loading diff" : "Refresh diff"}
+                tooltip={loading ? "Loading diff" : "Refresh diff"}
+                disabled={refreshDisabled || loading}
+                onClick={() => onRefresh()}
+              >
+                <RefreshCw className={loading ? "animate-spin motion-reduce:animate-none" : undefined} />
+              </TooltipButton>
+            ) : null}
+          </div>
+        </div>
+        {output}
+      </section>
+    );
+  }
+
   return (
-    <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-card" aria-label={eyebrow}>
+    <section className="diff-panel grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-card" data-variant={variant} aria-label={eyebrow}>
       <div className="flex min-h-14 items-center justify-between gap-4 border-b px-4 py-3">
         <div className="min-w-0">
           <p className="eyebrow">{eyebrow}</p>
-          <TooltipTarget overflowOnly content={title}><h2 className="truncate font-mono text-sm font-medium">{title}</h2></TooltipTarget>
+          <TooltipTarget overflowOnly content={title}><h2 className="truncate text-sm font-medium">{title}</h2></TooltipTarget>
           {changed ? <p className="diff-changed-description" role="status">Loaded diff is out of date</p> : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -11627,7 +11072,7 @@ function DiffPanel({
               onClick={togglePreview}
             >
               <Eye />
-              {previewVisible ? "Show Diff" : "Preview"}
+              {previewVisible ? "Show diff" : "Preview"}
             </Button>
           ) : null}
           {onRefresh ? (
@@ -11641,16 +11086,20 @@ function DiffPanel({
               onRefresh();
             }}>
               <RefreshCw />
-              {changed ? "New diff available" : loading ? "Loading diff" : "Refresh Diff"}
+              {changed ? "New diff available" : loading ? "Loading diff" : "Refresh diff"}
             </Button>
           ) : null}
         </div>
       </div>
-      <div data-workspace-scroll-key={`diff:${eyebrow}`} className={`${outputClass}${changed ? " is-changed" : ""}`}>
-        {content}
-      </div>
+      {output}
     </section>
   );
+}
+
+type DiffPanelVariant = "default" | "card" | "embedded";
+
+function formatDiffLineChanges({ additions, deletions }: DiffLineChangeCounts): string {
+  return `${additions} ${additions === 1 ? "line" : "lines"} added, ${deletions} ${deletions === 1 ? "line" : "lines"} deleted`;
 }
 
 interface DiffHunkAction {
@@ -11717,8 +11166,6 @@ const DiffRows = memo(function DiffRows({
     : null;
   const groups = processed?.groups ?? [];
 
-  let hunkNumber = 0;
-
   return (
     <div className="diff-rows" ref={rootRef} aria-busy={!processed} onPointerDownCapture={onPointerDownCapture}>
       {!processed ? <LoadingState label="Processing diff" className="min-h-32" /> : null}
@@ -11751,35 +11198,31 @@ const DiffRows = memo(function DiffRows({
             />
           ] : [];
         });
-        const hunkActionLabel = hunkAction?.side === "unstaged" ? "Stage Hunk" : "Unstage Hunk";
+        const hunkActionLabel = hunkAction?.side === "unstaged" ? "Stage hunk" : "Unstage hunk";
 
         if (group.kind === "hunk") {
-          hunkNumber += 1;
-
           return (
             <div className="diff-hunk-block" key={groupKey}>
               <div className="diff-hunk-toolbar">
-                <span aria-hidden="true" />
-                <span aria-hidden="true" />
-                <span className="diff-hunk-title">{formatHunkTitle(group.rows, hunkNumber)}</span>
+                <span className="diff-hunk-header">{group.rows[0]?.text}</span>
                 <span className="diff-hunk-actions">
                   {hunkAction?.onDiscard && group.patch ? (
                     <Button
                       type="button"
-                      variant="outline"
+                      variant="ghost"
                       size="xs"
                       className="diff-hunk-action"
                       disabled={hunkAction.disabled}
                       onClick={() => setDiscardTarget({ patch: group.patch!, filePath, text })}
                     >
-                      Discard Hunk
+                      Discard hunk
                     </Button>
                   ) : null}
                   {hunkAction && group.patch ? (
                     <TooltipTarget content={hunkActionLabel}>
                       <Button
                         type="button"
-                        variant="outline"
+                        variant="ghost"
                         size="xs"
                         className="diff-hunk-action"
                         aria-label={hunkActionLabel}
@@ -11836,22 +11279,6 @@ function createDiffLineAction(
       if (patch) hunkAction.onApply(patch);
     }
   };
-}
-
-function formatHunkTitle(rows: DiffRow[], hunkNumber: number): string {
-  const lineNumbers = rows
-    .flatMap((row) => row.newLine ?? row.oldLine ?? [])
-    .filter((lineNumber) => Number.isInteger(lineNumber));
-  const minLine = Math.min(...lineNumbers);
-  const maxLine = Math.max(...lineNumbers);
-
-  if (!Number.isFinite(minLine) || !Number.isFinite(maxLine)) {
-    return `Hunk ${hunkNumber}`;
-  }
-
-  return minLine === maxLine
-    ? `Hunk ${hunkNumber}: Line ${minLine}`
-    : `Hunk ${hunkNumber}: Lines ${minLine}-${maxLine}`;
 }
 
 function DiffRowView({
@@ -11973,168 +11400,170 @@ function HistoryView({
     graphMainBranch && graphMainRemote ? [graphMainBranch, graphMainRemote] : undefined
   ), [history, graphMainBranch, graphMainRemote]);
   const associations = useMemo(() => createCommitAssociationMap(insights), [insights]);
-  const historyColumns = useMemo(() => [
-    { id: "graph", label: "Graph", defaultWidth: Math.max(82, graphLayout.width), minWidth: graphLayout.width },
-    { id: "description", label: "Description", defaultWidth: 360, minWidth: 180 },
-    { id: "date", label: "Date", defaultWidth: 112, minWidth: 90 },
-    { id: "author", label: "Author", defaultWidth: 150, minWidth: 90 },
-    { id: "commit", label: "Commit", defaultWidth: 80, minWidth: 72 },
-    { id: "references", label: "References", defaultWidth: 220, minWidth: 120, defaultVisible: false },
-    { id: "pullRequest", label: "Pull request", defaultWidth: 120, minWidth: 92, defaultVisible: false },
-    { id: "checks", label: "Checks", defaultWidth: 110, minWidth: 82, defaultVisible: false }
-  ] as const satisfies readonly ColumnDefinition<HistoryColumnId>[], [graphLayout.width]);
-  const columnLayout = usePersistentColumnLayout("githead.column-layout.history", historyColumns, { fillColumn: "description", gap: 10, padding: 24 });
+  const columnLayout = usePersistentColumnLayout("githead.column-layout.history", HISTORY_COLUMNS);
+  const columnVisibility = columnLayout.layout.visibility;
+  const [narrowDetailOpen, setNarrowDetailOpen] = useState(false);
+  const openDetail = useCallback(() => setNarrowDetailOpen(true), []);
+  const closeDetail = useCallback(() => setNarrowDetailOpen(false), []);
   const selectedCommitFile = selectedCommitFilePath
     ? commitDetails?.files.find((file) => file.path === selectedCommitFilePath) ?? null
     : null;
+  const selectedHistoryCommit = useMemo(
+    () => selectedCommitHash ? history.find((commit) => commit.hash === selectedCommitHash) ?? null : null,
+    [history, selectedCommitHash]
+  );
+  // A parent opened from the card can be outside the loaded rows, so the card falls back to the details.
+  const detailsCommit = useMemo(() => commitDetails ? createCommitRowFromDetails(commitDetails) : null, [commitDetails]);
+  const cardCommit = commitDetails
+    ? selectedHistoryCommit?.hash === commitDetails.hash ? selectedHistoryCommit : detailsCommit
+    : null;
+  const tagsEnabled = summary?.capabilities.tags ?? true;
+  const containedInCurrentBranch = historyScope === "current";
   const showHistoryScope = summary?.isValid && summary.kind === "git";
-  const graphVisible = columnLayout.layout.visibility.graph;
-  const graphColumnIndex = columnLayout.layout.order.indexOf("graph");
-  const graphOffset = ["12px", ...columnLayout.layout.order
-    .slice(0, graphColumnIndex)
-    .filter((id) => columnLayout.layout.visibility[id])
-    .map((id) => `var(--data-grid-width-${id}) + 10px`)].join(" + ");
+  const graphVisible = columnVisibility.graph;
   const historyStyle = {
-    ...columnLayout.style,
-    "--history-graph-offset": `calc(${graphOffset})`
+    // The list padding (8px) plus the row padding (4px), measured from the list column edge.
+    "--history-graph-offset": "calc(12px)",
+    "--history-graph-width": `${graphLayout.width}px`
   } as CSSProperties;
 
-  return (
-    <ResizablePanelGroup orientation="vertical" className="h-full min-h-0 bg-background">
-      <ResizablePanel defaultSize="44%" minSize="180px">
-        <section ref={columnLayout.containerRef} style={historyStyle} className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] border-b bg-card" aria-label="Commit list" onScrollCapture={(event) => {
-          const source = event.target;
-          if (!(source instanceof HTMLElement)) return;
-          if (source.classList.contains("history-list") && source.scrollTop > 0
-            && source.scrollHeight - source.scrollTop - source.clientHeight < COMMIT_GRAPH_ROW_HEIGHT * 8
-            && historyHasMore && !historyLoading && !historyError) onLoadMoreHistory();
-          const targetClass = source.classList.contains("history-list") ? ".history-table-header"
-            : source.classList.contains("history-table-header") ? ".history-list" : null;
-          const target = targetClass ? event.currentTarget.querySelector<HTMLElement>(targetClass) : null;
-          if (target && target.scrollLeft !== source.scrollLeft) target.scrollLeft = source.scrollLeft;
-        }}>
-          <div className="history-scope-toolbar">
-            {showHistoryScope ? (
-              <>
-              <div className="history-scope-control" role="group" aria-label="Commit history scope">
-                {(["current", "all"] as const).map((scope) => (
-                  <Button
-                    key={scope}
-                    type="button"
-                    size="xs"
-                    variant={historyScope === scope ? "secondary" : "ghost"}
-                    aria-pressed={historyScope === scope}
-                    onClick={() => onHistoryScopeChange(scope)}
-                  >
-                    {scope === "current" ? "Current branch" : "All branches"}
-                  </Button>
-                ))}
+  const list = (
+    <section style={historyStyle} className="history-list-column grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]" aria-label="Commit list" onScrollCapture={(event) => {
+      const source = event.target;
+      if (!(source instanceof HTMLElement)) return;
+      if (source.classList.contains("history-list") && source.scrollTop > 0
+        && source.scrollHeight - source.scrollTop - source.clientHeight < COMMIT_GRAPH_ROW_HEIGHT * 8
+        && historyHasMore && !historyLoading && !historyError) onLoadMoreHistory();
+    }}>
+      <div className="history-scope-toolbar">
+        {showHistoryScope ? (
+          <Segmented<CommitHistoryScope>
+            label="Commit history scope"
+            size="sm"
+            value={historyScope}
+            options={HISTORY_SCOPE_OPTIONS}
+            onChange={onHistoryScopeChange}
+          />
+        ) : null}
+        <ColumnVisibilityMenu columns={HISTORY_COLUMNS} controller={columnLayout} iconOnly />
+      </div>
+      <div className="history-list-shell">
+        {insightsError ? (
+          <div className="history-insights-error" role="status">
+            <span>GitHub annotations unavailable.</span>
+            <Button type="button" variant="ghost" size="sm" onClick={onRetryInsights}>Retry</Button>
+          </div>
+        ) : insightsLoading ? <span className="sr-only" role="status">Loading GitHub annotations</span> : null}
+        {history.length === 0 ? (
+          <div className="history-list" role={historyError ? "group" : "listbox"} aria-label="Commit history">
+            {historyLoading ? (
+              <LoadingState label="Loading commit history" className="h-full" />
+            ) : historyError ? (
+              <div className="space-y-3 p-4">
+                <p className="bad selectable-text" role="alert">{historyError}</p>
+                <Button type="button" variant="outline" size="sm" aria-label="Retry loading commit history" onClick={onRetryHistory}>
+                  Retry
+                </Button>
               </div>
-              </>
+            ) : summary?.isValid ? (
+              <EmptyState title="No commits in this repository." />
             ) : null}
-            <ColumnVisibilityMenu columns={historyColumns} controller={columnLayout} />
           </div>
-          <div className="history-list-shell">
-            <AdjustableColumnHeader columns={historyColumns} controller={columnLayout} className="history-table-header" />
-            {insightsError ? (
-              <div className="history-insights-error" role="status">
-                <span>GitHub annotations unavailable.</span>
-                <Button type="button" variant="ghost" size="sm" onClick={onRetryInsights}>Retry</Button>
+        ) : (
+          <>
+            {historyLoading ? <span className="sr-only" role="status">Refreshing commit history</span> : null}
+            {historyError ? (
+              <div className="history-refresh-error selectable-text" role="status">
+                Unable to load commit history: {historyError}
               </div>
-            ) : insightsLoading ? <span className="sr-only" role="status">Loading GitHub annotations</span> : null}
-            {history.length === 0 ? (
-              <div className="history-list" role={historyError ? "group" : "listbox"} aria-label="Commit history">
-                {historyLoading ? (
-                  <LoadingState label="Loading commit history" className="h-full" />
-                ) : historyError ? (
-                  <div className="space-y-3 p-4">
-                    <p className="bad selectable-text" role="alert">{historyError}</p>
-                    <Button type="button" variant="outline" size="sm" aria-label="Retry loading commit history" onClick={onRetryHistory}>
-                      Retry
-                    </Button>
-                  </div>
-                ) : summary?.isValid ? (
-                  <p className="empty-state">No commits in this repository.</p>
-                ) : null}
-              </div>
-            ) : (
-              <>
-                {historyLoading ? <span className="sr-only" role="status">Refreshing commit history</span> : null}
-                {historyError ? (
-                  <div className="history-refresh-error selectable-text" role="status">
-                    Unable to load commit history: {historyError}
-                  </div>
-                ) : null}
-                <FixedSizeVirtualList
-                  items={history}
-                  itemKey={(commit) => commit.hash}
-                  rowHeight={COMMIT_GRAPH_ROW_HEIGHT}
-                  overscan={6}
-                  ariaLabel="Commit history"
-                  selectedKey={selectedCommitHash}
-                  className="history-list"
-                  multiSelectable={false}
-                  renderOverlay={(range) => graphVisible ? (
-                    <CommitGraphSvg
-                      layout={graphLayout}
-                      selectedCommitHash={selectedCommitHash}
-                      visibleStartRow={range.start}
-                      visibleEndRow={range.end}
-                    />
-                  ) : null}
-                  renderItem={(commit, _index, virtualRowProps) => (
-                    <HistoryRow
-                      commit={commit}
-                      selected={commit.hash === selectedCommitHash}
-                      tagsEnabled={summary?.capabilities.tags ?? true}
-                      containedInCurrentBranch={historyScope === "current"}
-                      allowCherryPickingContainedCommits={allowCherryPickingContainedCommits}
-                      isHead={commit.hash === currentHeadHash}
-                      amendDisabled={disabled}
-                      amendDisabledReason={amendDisabledReason}
-                      {...(associations.get(commit.hash) ? { association: associations.get(commit.hash)! } : {})}
-                      onOpenExternalUrl={onOpenExternalUrl}
-                      onSelectCommit={onSelectCommit}
-                      onCommitContextAction={onCommitContextAction}
-                      columnOrder={columnLayout.visibleOrder}
-                      virtualRowProps={virtualRowProps}
-                    />
-                  )}
+            ) : null}
+            <FixedSizeVirtualList
+              items={history}
+              itemKey={(commit) => commit.hash}
+              rowHeight={COMMIT_GRAPH_ROW_HEIGHT}
+              overscan={6}
+              ariaLabel="Commit history"
+              selectedKey={selectedCommitHash}
+              className="history-list"
+              multiSelectable={false}
+              renderOverlay={(range) => graphVisible ? (
+                <CommitGraphSvg
+                  layout={graphLayout}
+                  selectedCommitHash={selectedCommitHash}
+                  visibleStartRow={range.start}
+                  visibleEndRow={range.end}
                 />
-                {historyHasMore ? (
-                  <div className="flex items-center justify-center border-t px-3 py-1">
-                    <Button type="button" variant="ghost" size="sm" disabled={historyLoading} onClick={onLoadMoreHistory}>
-                      {historyLoadingMore ? "Loading commits…" : historyError ? "Retry loading commits" : "Load more commits"}
-                    </Button>
-                  </div>
-                ) : null}
-              </>
-            )}
-          </div>
-        </section>
-      </ResizablePanel>
-      <ResizableHandle />
-      <ResizablePanel minSize="260px">
-        <ResizablePanelGroup orientation="horizontal" className="h-full min-h-0">
-          <ResizablePanel defaultSize="42%" minSize="300px" className="min-w-[300px]">
-            <CommitDetailsPanel
-              onCopyCommit={onCopyCommit}
-              details={commitDetails}
-              loading={commitDetailsLoading}
-              error={commitDetailsError}
-              repository={summary?.githubRepository ?? null}
-              onOpenExternalUrl={onOpenExternalUrl}
-              selectedFilePath={selectedCommitFilePath}
-              disabled={disabled}
-              fileHistoryEnabled={Boolean(summary?.capabilities.fileHistory)}
-              blameEnabled={Boolean(summary?.capabilities.blame)}
-              onSelectCommit={onSelectCommit}
-              onSelectCommitFile={onSelectCommitFile}
-              onCommitFileContextAction={onCommitFileContextAction}
+              ) : null}
+              renderItem={(commit, _index, virtualRowProps) => (
+                <HistoryRow
+                  commit={commit}
+                  selected={commit.hash === selectedCommitHash}
+                  tagsEnabled={tagsEnabled}
+                  containedInCurrentBranch={containedInCurrentBranch}
+                  allowCherryPickingContainedCommits={allowCherryPickingContainedCommits}
+                  isHead={commit.hash === currentHeadHash}
+                  amendDisabled={disabled}
+                  amendDisabledReason={amendDisabledReason}
+                  {...(associations.get(commit.hash) ? { association: associations.get(commit.hash)! } : {})}
+                  onOpenExternalUrl={onOpenExternalUrl}
+                  onSelectCommit={onSelectCommit}
+                  onOpenDetail={openDetail}
+                  onCommitContextAction={onCommitContextAction}
+                  columnVisibility={columnVisibility}
+                  virtualRowProps={virtualRowProps}
+                />
+              )}
             />
-          </ResizablePanel>
-          <ResizableHandle />
-          <ResizablePanel minSize="240px">
+            {historyHasMore ? (
+              <div className="history-load-more">
+                <Button type="button" variant="ghost" size="sm" disabled={historyLoading} onClick={onLoadMoreHistory}>
+                  {historyLoadingMore ? "Loading commits…" : historyError ? "Retry loading commits" : "Load more commits"}
+                </Button>
+              </div>
+            ) : null}
+          </>
+        )}
+      </div>
+    </section>
+  );
+
+  return (
+    <ListDetailLayout
+      id="history"
+      listLabel="commit list"
+      list={list}
+      detailOpen={narrowDetailOpen && selectedCommitHash !== null}
+      onBack={closeDetail}
+      detailCard={false}
+      detail={
+        <CommitDetailsPanel
+          onCopyCommit={onCopyCommit}
+          details={commitDetails}
+          loading={commitDetailsLoading}
+          error={commitDetailsError}
+          repository={summary?.githubRepository ?? null}
+          onOpenExternalUrl={onOpenExternalUrl}
+          selectedFilePath={selectedCommitFilePath}
+          disabled={disabled}
+          fileHistoryEnabled={Boolean(summary?.capabilities.fileHistory)}
+          blameEnabled={Boolean(summary?.capabilities.blame)}
+          onSelectCommit={onSelectCommit}
+          onSelectCommitFile={onSelectCommitFile}
+          onCommitFileContextAction={onCommitFileContextAction}
+          actions={cardCommit ? (
+            <CommitActionsMenu
+              commit={cardCommit}
+              items={getCommitActionItems({
+                tagsEnabled,
+                cherryPickDisabled: containedInCurrentBranch && !allowCherryPickingContainedCommits,
+                isHead: cardCommit.hash === currentHeadHash,
+                amendDisabled: disabled,
+                amendDisabledReason
+              })}
+              onAction={onCommitContextAction}
+            />
+          ) : null}
+          diff={
             <DiffPanel
               title={selectedCommitFilePath ?? "Select a file"}
               eyebrow="Commit diff"
@@ -12150,11 +11579,67 @@ function HistoryView({
                 : undefined}
               wrapLines={wrapLines}
               onWrapLinesChange={onWrapLinesChange}
+              variant="embedded"
+              status={selectedCommitFile ? getCommitFileStatusVisuals(selectedCommitFile.status) : undefined}
             />
-          </ResizablePanel>
-        </ResizablePanelGroup>
-      </ResizablePanel>
-    </ResizablePanelGroup>
+          }
+        />
+      }
+    />
+  );
+}
+
+const HISTORY_SCOPE_OPTIONS = [
+  { value: "current", label: "Current branch" },
+  { value: "all", label: "All branches" }
+] as const satisfies readonly SegmentedOption<CommitHistoryScope>[];
+
+/** The widths only keep the stored layout readable. The two-line rows use the visibility alone. */
+const HISTORY_COLUMNS = [
+  { id: "graph", label: "Graph", defaultWidth: 82, minWidth: 28 },
+  { id: "description", label: "Description", defaultWidth: 360, minWidth: 180 },
+  { id: "date", label: "Date", defaultWidth: 112, minWidth: 90 },
+  { id: "author", label: "Author", defaultWidth: 150, minWidth: 90 },
+  { id: "commit", label: "Commit", defaultWidth: 80, minWidth: 72 },
+  { id: "references", label: "References", defaultWidth: 220, minWidth: 120, defaultVisible: false },
+  { id: "pullRequest", label: "Pull request", defaultWidth: 120, minWidth: 92, defaultVisible: false },
+  { id: "checks", label: "Checks", defaultWidth: 110, minWidth: 82, defaultVisible: false }
+] as const satisfies readonly ColumnDefinition<HistoryColumnId>[];
+
+function createCommitRowFromDetails(details: GitCommitDetails): GitCommitGraphRow {
+  return {
+    hash: details.hash,
+    shortHash: details.shortHash,
+    parents: details.parents,
+    refs: details.refs,
+    subject: details.subject,
+    authorName: details.authorName,
+    authorEmail: details.authorEmail,
+    authorDate: details.authorDate,
+    relativeDate: ""
+  };
+}
+
+function CommitActionsMenu({
+  commit,
+  items,
+  onAction
+}: {
+  commit: GitCommitGraphRow;
+  items: readonly CommitActionItem[];
+  onAction: (commit: GitCommitGraphRow, action: CommitContextActionKind) => void;
+}): ReactNode {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <TooltipButton type="button" variant="ghost" size="icon-xs" className="commit-actions-trigger" aria-label="Commit actions" tooltip="Commit actions">
+          <Ellipsis />
+        </TooltipButton>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64">
+        <CommitActionDropdownMenuItems items={items} commit={commit} onAction={onAction} />
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -12209,7 +11694,6 @@ function WorkflowRunsView({
 }): ReactNode {
   const repository = summary?.githubRepository ?? null;
   const [selectedRun, setSelectedRun] = useState<GitHubWorkflowRun | null>(null);
-  const selectedRunRef = useRef<HTMLButtonElement | null>(null);
   const displayedRuns = useMemo(() => sortLoadedWorkflowRuns(filterLoadedWorkflowRuns(workflowRuns, search), query.sortDirection), [workflowRuns, search, query.sortDirection]);
   const filtered = Boolean(search || query.branch || query.event || query.status);
   const countLabel = loaded ? (search ? `${displayedRuns.length} matches in ${workflowRuns.length} loaded runs` : formatLoadedCount(workflowRuns.length, totalCount, "run", "runs")) : "-";
@@ -12224,30 +11708,35 @@ function WorkflowRunsView({
   };
   useEffect(() => {
     setSelectedRun(null);
-    selectedRunRef.current = null;
   }, [summary?.repoPath]);
   useEffect(() => {
     setSelectedRun((current) => current ? workflowRuns.find((run) => run.id === current.id) ?? current : null);
   }, [workflowRuns]);
   const closeDetail = (): void => {
+    const runId = selectedRun?.id;
     setSelectedRun(null);
-    requestAnimationFrame(() => selectedRunRef.current?.focus());
+    if (runId !== undefined) focusGitHubRowLater(`workflowRun:${runId}`);
   };
 
   return (
-    <GitHubDetailWorkspace persistent listDefaultSize="38%" open={selectedRun !== null} emptyDrawer={<WorkflowRunEmptyDetails />} drawer={selectedRun && repository ? (
-      <WorkflowRunConsole
-        active={active}
-        repoPath={summary?.repoPath ?? ""}
-        githubFullName={repository.fullName}
-        run={selectedRun}
-        onClose={closeDetail}
-        onOpenExternalUrl={onOpenExternalUrl}
-        onRunChanged={onRefresh}
-      />
-    ) : null}>
-      <section className="github-view workflow-runs-grid" aria-label="Workflow runs">
-        <GitHubSelectorHeader repositoryName={repository?.fullName ?? "-"} countLabel={countLabel} />
+    <ListDetailLayout
+      id="github-workflow-runs"
+      listLabel="workflow run list"
+      detailOpen={selectedRun !== null}
+      onBack={closeDetail}
+      detail={selectedRun && repository ? (
+        <WorkflowRunConsole
+          active={active}
+          repoPath={summary?.repoPath ?? ""}
+          githubFullName={repository.fullName}
+          run={selectedRun}
+          onClose={closeDetail}
+          onOpenExternalUrl={onOpenExternalUrl}
+          onRunChanged={onRefresh}
+        />
+      ) : <WorkflowRunEmptyDetails />}
+      list={(
+      <section className="github-view" aria-label="Workflow runs">
         <GitHubQueryToolbar compact activeFilterCount={activeFilterCount} refreshDisabled={!repository} refreshing={loading || busy} onRefresh={onRefresh} view="workflows" search={search} preset={preset} presets={[{ value: "all", label: "All runs" }, { value: "branch", label: "Current branch", disabled: !summary?.branch }, { value: "failed", label: "Failed" }, { value: "progress", label: "In progress" }, { value: "custom", label: "Custom" }]} sort={query.sortDirection} sortOptions={[{ value: "desc", label: "Newest" }, { value: "asc", label: "Oldest loaded" }]} viewerAvailable status={loading || busy ? "Loading workflow runs" : countLabel} onSearchChange={(value) => { onPresetChange("custom"); onSearchChange(value); }} onPresetChange={applyPreset} onSortChange={(value) => { onPresetChange("custom"); onQueryChange({ ...query, sortDirection: value as "asc" | "desc" }); }} onClear={() => { onSearchChange(""); applyPreset("all"); }}>
           <label className="github-query-field"><span>Event</span><input value={query.event ?? ""} placeholder="push" onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, event: event.target.value || undefined }); }} /></label>
           <label className="github-query-field"><span>Status</span><select value={query.status ?? ""} onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, status: (event.target.value || undefined) as GitHubWorkflowRunQuery["status"] }); }}><option value="">Any</option><option value="queued">Queued</option><option value="in_progress">In progress</option><option value="completed">Completed</option><option value="success">Success</option><option value="failure">Failure</option><option value="cancelled">Cancelled</option></select></label>
@@ -12265,17 +11754,16 @@ function WorkflowRunsView({
               : <GitHubListEmptyState icon={<Workflow />} title="No workflow runs" description="Workflow runs for this repository will appear here." />
           ) : (
             displayedRuns.map((run) => (
-              <WorkflowRunRow key={run.id} run={run} active={active} selected={selectedRun?.id === run.id} onSelect={(item, button) => {
-                selectedRunRef.current = button;
-                setSelectedRun(item);
-              }} />
+              <WorkflowRunRow key={run.id} run={run} active={active} selected={selectedRun?.id === run.id} onSelect={setSelectedRun} />
             ))
           )}
           {error && workflowRuns.length ? <GitHubFailureState failure={failure} fallback={error} stale onRetry={onRefresh} onConnect={onConnectGitHub} onReviewAccess={onReviewAccess} onCheckRemote={onCheckRemote} /> : null}
           <GitHubListFooter label="workflow runs" nextPage={nextPage} loading={loadingMore} error="" disabled={busy} onLoadMore={onLoadMore} />
         </div>
+        <GitHubListCaption countLabel={countLabel} />
       </section>
-    </GitHubDetailWorkspace>
+      )}
+    />
   );
 }
 
@@ -12288,7 +11776,7 @@ function WorkflowRunRow({
   run: GitHubWorkflowRun;
   active: boolean;
   selected: boolean;
-  onSelect: (run: GitHubWorkflowRun, button: HTMLButtonElement) => void;
+  onSelect: (run: GitHubWorkflowRun) => void;
 }): ReactNode {
   const statusText = formatWorkflowRunStatus(run);
   const title = run.displayTitle || run.commitMessage || run.name;
@@ -12298,29 +11786,26 @@ function WorkflowRunRow({
       className={`github-row workflow-run-row ${selected ? "is-selected" : ""}`}
       role="listitem"
       aria-current={selected ? "true" : undefined}
+      data-github-row={`workflowRun:${run.id}`}
     >
-      <button type="button" className="workflow-run-row-select" aria-label={`${run.name}: ${title}`} aria-pressed={selected} onClick={(event) => onSelect(run, event.currentTarget)}>
-        <span className={`workflow-run-row-state ${getWorkflowRunStatusClass(run)}`}>
-          <span className="github-status-dot" aria-hidden="true" />
-          <span>{statusText}</span>
+      <button type="button" className="github-row-button" aria-label={`${run.name}: ${title}`} aria-pressed={selected} onClick={() => onSelect(run)}>
+        <span className="github-row-icon">
+          <RunStatusIcon status={run.status} conclusion={run.conclusion} />
+          <span className="sr-only">{statusText}</span>
         </span>
-        <span className="workflow-run-row-content">
+        <span className="github-row-body">
           <span className="workflow-run-row-heading">
             <TooltipTarget overflowOnly content={run.name}><strong>{run.name}</strong></TooltipTarget>
-            <span>{run.runNumber === null ? "Run" : `#${run.runNumber}`}</span>
+            <span className="github-issue-number">{run.runNumber === null ? "Run" : `#${run.runNumber}`}</span>
+            <TooltipTarget content={<WorkflowRunTiming run={run} active={active} />}>
+              <span className="github-row-time">{formatRelativeDate(run.updatedAt)}</span>
+            </TooltipTarget>
           </span>
-          <TooltipTarget overflowOnly content={title}><span className="github-primary-text workflow-run-row-title">{title}</span></TooltipTarget>
-          <span className="workflow-run-row-meta github-secondary-text">
-            <TooltipTarget overflowOnly content={run.actor.login}><span className="truncate">{run.actor.login}</span></TooltipTarget>
-            <span aria-hidden="true">·</span>
+          <TooltipTarget overflowOnly content={title}><span className="github-row-title">{title}</span></TooltipTarget>
+          <span className="github-row-meta">
             <TooltipTarget overflowOnly content={run.branch}><span className="truncate">{run.branch}</span></TooltipTarget>
-          </span>
-          <span className="workflow-run-row-details github-secondary-text">
-            <span>{formatWorkflowEvent(run.event)}</span>
             <span aria-hidden="true">·</span>
-            <TooltipTarget content={formatDate(run.updatedAt)}><span>updated {formatRelativeDate(run.updatedAt)}</span></TooltipTarget>
-            <span aria-hidden="true">·</span>
-            <span><WorkflowDuration startedAt={run.startedAt} completedAt={run.status === "completed" ? run.updatedAt : ""} running={run.status === "in_progress"} active={active} /></span>
+            <span className="truncate">{formatWorkflowEvent(run.event)}</span>
           </span>
         </span>
       </button>
@@ -12328,41 +11813,46 @@ function WorkflowRunRow({
   );
 }
 
-function WorkflowRunEmptyDetails(): ReactNode {
-  return <section className="review-console-empty" aria-labelledby="workflow-run-empty-heading">
-    <Workflow aria-hidden="true" />
-    <h2 id="workflow-run-empty-heading">Select a workflow run</h2>
-    <p>Choose a run to inspect jobs, steps, timing, logs, and available run actions.</p>
-  </section>;
+/** Tooltip details that the compact run row leaves out. */
+function WorkflowRunTiming({ run, active }: { run: GitHubWorkflowRun; active: boolean }): ReactNode {
+  return <span className="grid gap-0.5">
+    <span>Updated {formatDate(run.updatedAt)}</span>
+    <span>Triggered by {run.actor.login}</span>
+    <span>Duration <WorkflowDuration startedAt={run.startedAt} completedAt={run.status === "completed" ? run.updatedAt : ""} running={run.status === "in_progress"} active={active} /></span>
+  </span>;
 }
 
-function GitHubDetailWorkspace({ open, drawer, emptyDrawer, persistent = false, listDefaultSize = "40%", children }: { open: boolean; drawer: ReactNode; emptyDrawer?: ReactNode; persistent?: boolean; listDefaultSize?: string; children: ReactNode }): ReactNode {
-  const showDrawer = open || persistent;
-  return (
-    <ResizablePanelGroup orientation="horizontal" className="review-console-workspace" data-detail-open={open ? "true" : "false"}>
-      <ResizablePanel
-        defaultSize={showDrawer ? listDefaultSize : "100%"}
-        minSize="280px"
-        className="review-console-list-panel"
-        data-review-panel="list"
-      >
-        {children}
-      </ResizablePanel>
-      {showDrawer ? (
-        <>
-          <ResizableHandle withHandle className="review-console-resize-handle" aria-label="Resize review console" />
-          <ResizablePanel
-            defaultSize={listDefaultSize === "38%" ? "62%" : "60%"}
-            minSize="420px"
-            className="review-console-drawer-panel"
-            data-review-panel="drawer"
-          >
-            {open ? drawer : emptyDrawer}
-          </ResizablePanel>
-        </>
-      ) : null}
-    </ResizablePanelGroup>
-  );
+function WorkflowRunEmptyDetails(): ReactNode {
+  return <EmptyState
+    as="section"
+    className="h-full"
+    headingLevel={2}
+    icon={<Workflow />}
+    title="Select a workflow run"
+    description="Choose a run to inspect jobs, steps, timing, logs, and available run actions."
+  />;
+}
+
+/**
+ * Returns focus to a list row after its detail closes. The row is found again by its key, because a
+ * narrow window mounts the list again when the detail closes.
+ */
+function focusGitHubRowLater(rowKey: string): void {
+  requestAnimationFrame(() => {
+    const row = Array.from(document.querySelectorAll<HTMLElement>("[data-github-row]")).find((element) => element.dataset.githubRow === rowKey);
+    row?.querySelector<HTMLButtonElement>(":scope > button")?.focus();
+  });
+}
+
+/** The caption row at the bottom of a GitHub list column: the count, then optional actions. */
+function GitHubListCaption({ countLabel, children }: { countLabel: string; children?: ReactNode }): ReactNode {
+  const showCount = countLabel !== "-";
+  if (!showCount && !children) return null;
+  return <div className="github-list-caption">
+    {/* The toolbar's status region announces the same count. */}
+    {showCount ? <p aria-hidden="true">{countLabel}</p> : null}
+    {children}
+  </div>;
 }
 
 function PullRequestsView({
@@ -12390,7 +11880,11 @@ function PullRequestsView({
   onMerged,
   onConnectGitHub,
   onReviewAccess,
-  onCheckRemote
+  onCheckRemote,
+  showCreatePullRequest,
+  branchPullRequests,
+  createPullRequestDisabled,
+  onCreatePullRequest
 }: {
   active: boolean;
   summary: RepoSummary | null;
@@ -12417,10 +11911,15 @@ function PullRequestsView({
   onConnectGitHub: () => void;
   onReviewAccess: () => void;
   onCheckRemote: () => void;
+  /** Shows the Create pull request action when the current branch has no pull request yet. */
+  showCreatePullRequest: boolean;
+  /** Pull requests whose head is the current branch. */
+  branchPullRequests: GitHubPullRequestAssociation[];
+  createPullRequestDisabled: boolean;
+  onCreatePullRequest: () => void;
 }): ReactNode {
   const repository = summary?.githubRepository ?? null;
   const [selectedPullRequest, setSelectedPullRequest] = useState<GitHubPullRequest | null>(null);
-  const selectedTitleRef = useRef<HTMLButtonElement | null>(null);
   const filtered = Object.keys(query).some((key) => !["sort", "direction"].includes(key)) || query.sort !== "updated" || query.direction !== "desc";
   const countLabel = loaded ? (filtered && totalCount !== null ? `${totalCount} matching` : formatLoadedCount(pullRequests.length, openCount, "open pull request", "open pull requests")) : "-";
   const activeFilterCount = Object.entries(query).filter(([key, value]) => !["search", "sort", "direction"].includes(key) && value !== undefined && value !== "").length;
@@ -12436,31 +11935,36 @@ function PullRequestsView({
   };
   useEffect(() => {
     setSelectedPullRequest(null);
-    selectedTitleRef.current = null;
   }, [summary?.repoPath]);
   const closeDetail = (): void => {
+    const number = selectedPullRequest?.number;
     setSelectedPullRequest(null);
-    requestAnimationFrame(() => selectedTitleRef.current?.focus());
+    if (number !== undefined) focusGitHubRowLater(`pullRequest:${number}`);
   };
 
   return (
-    <GitHubDetailWorkspace persistent listDefaultSize="38%" open={selectedPullRequest !== null} emptyDrawer={<PullRequestEmptyDetails />} drawer={selectedPullRequest && repository ? (
-      <Suspense fallback={<LoadingState label="Loading review console" className="h-full" />}>
-        <ReviewConsole
-          active={active}
-          repoPath={summary?.repoPath ?? ""}
-          githubFullName={repository.fullName}
-          selection={{ itemType: "pullRequest", item: selectedPullRequest }}
-          onClose={closeDetail}
-          onCheckout={onCheckout}
-          onOpenExternalUrl={onOpenExternalUrl}
-          onMerged={onMerged}
-        />
-      </Suspense>
-    ) : null}>
-    <section className="github-view pull-requests-grid" aria-label="Pull requests">
-      <GitHubSelectorHeader repositoryName={repository?.fullName ?? "-"} countLabel={countLabel} />
-      <GitHubQueryToolbar compact activeFilterCount={activeFilterCount} refreshDisabled={!repository} refreshing={loading || busy} onRefresh={onRefresh} view="pullRequests" search={query.search ?? ""} preset={preset} presets={[{ value: "all", label: "All open" }, { value: "branch", label: "Current Branch", disabled: !summary?.branch }, { value: "authored", label: "Authored by me", disabled: !viewerLogin }, { value: "assigned", label: "Assigned to me", disabled: !viewerLogin }, { value: "review", label: "Review requested", disabled: !viewerLogin }, { value: "drafts", label: "Drafts" }, { value: "custom", label: "Custom" }]} sort={`${query.sort}-${query.direction}`} sortOptions={[{ value: "updated-desc", label: "Recently updated" }, { value: "created-desc", label: "Newest" }, { value: "created-asc", label: "Oldest" }]} viewerAvailable={Boolean(viewerLogin)} status={loading || busy ? "Loading pull requests" : countLabel} onSearchChange={(value) => { onPresetChange("custom"); onQueryChange({ ...query, search: value || undefined }); }} onPresetChange={applyPreset} onSortChange={(value) => { const [sort, direction] = value.split("-") as ["updated" | "created", "asc" | "desc"]; onQueryChange({ ...query, sort, direction }); }} onClear={() => applyPreset("all")}>
+    <ListDetailLayout
+      id="github-pull-requests"
+      listLabel="pull request list"
+      detailOpen={selectedPullRequest !== null}
+      onBack={closeDetail}
+      detail={selectedPullRequest && repository ? (
+        <Suspense fallback={<LoadingState label="Loading review console" className="h-full" />}>
+          <ReviewConsole
+            active={active}
+            repoPath={summary?.repoPath ?? ""}
+            githubFullName={repository.fullName}
+            selection={{ itemType: "pullRequest", item: selectedPullRequest }}
+            onClose={closeDetail}
+            onCheckout={onCheckout}
+            onOpenExternalUrl={onOpenExternalUrl}
+            onMerged={onMerged}
+          />
+        </Suspense>
+      ) : <PullRequestEmptyDetails />}
+      list={(
+    <section className="github-view" aria-label="Pull requests">
+      <GitHubQueryToolbar compact activeFilterCount={activeFilterCount} refreshDisabled={!repository} refreshing={loading || busy} onRefresh={onRefresh} view="pullRequests" search={query.search ?? ""} preset={preset} presets={[{ value: "all", label: "All open" }, { value: "branch", label: "Current branch", disabled: !summary?.branch }, { value: "authored", label: "Authored by me", disabled: !viewerLogin }, { value: "assigned", label: "Assigned to me", disabled: !viewerLogin }, { value: "review", label: "Review requested", disabled: !viewerLogin }, { value: "drafts", label: "Drafts" }, { value: "custom", label: "Custom" }]} sort={`${query.sort}-${query.direction}`} sortOptions={[{ value: "updated-desc", label: "Recently updated" }, { value: "created-desc", label: "Newest" }, { value: "created-asc", label: "Oldest" }]} viewerAvailable={Boolean(viewerLogin)} status={loading || busy ? "Loading pull requests" : countLabel} onSearchChange={(value) => { onPresetChange("custom"); onQueryChange({ ...query, search: value || undefined }); }} onPresetChange={applyPreset} onSortChange={(value) => { const [sort, direction] = value.split("-") as ["updated" | "created", "asc" | "desc"]; onQueryChange({ ...query, sort, direction }); }} onClear={() => applyPreset("all")}>
         <label className="github-query-field"><span>Label</span><input value={query.label ?? ""} onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, label: event.target.value || undefined }); }} /></label>
         <label className="github-query-field"><span>Draft</span><select value={query.draft ?? ""} onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, draft: (event.target.value || undefined) as GitHubPullRequestQuery["draft"] }); }}><option value="">Any</option><option value="draft">Draft</option><option value="ready">Ready</option></select></label>
       </GitHubQueryToolbar>
@@ -12481,19 +11985,63 @@ function PullRequestsView({
               key={pullRequest.number}
               pullRequest={pullRequest}
               selected={selectedPullRequest?.number === pullRequest.number}
-              onSelect={(item, button) => {
-                selectedTitleRef.current = button;
-                setSelectedPullRequest(item);
-              }}
+              onSelect={setSelectedPullRequest}
             />
           ))
         )}
         {error && pullRequests.length ? <GitHubFailureState failure={failure} fallback={error} stale onRetry={onRefresh} onConnect={onConnectGitHub} onReviewAccess={onReviewAccess} onCheckRemote={onCheckRemote} /> : null}
         <GitHubListFooter label="pull requests" nextPage={nextPage} loading={loadingMore} error="" disabled={busy} onLoadMore={onLoadMore} />
       </div>
+      <GitHubListCaption countLabel={countLabel}>
+        <CurrentBranchPullRequestAction
+          showCreatePullRequest={showCreatePullRequest}
+          branchPullRequests={branchPullRequests}
+          disabled={createPullRequestDisabled}
+          onCreatePullRequest={onCreatePullRequest}
+          onOpenExternalUrl={onOpenExternalUrl}
+        />
+      </GitHubListCaption>
     </section>
-    </GitHubDetailWorkspace>
+      )}
+    />
   );
+}
+
+/** The current branch's pull request, or the Create pull request action when it has none. */
+function CurrentBranchPullRequestAction({ showCreatePullRequest, branchPullRequests, disabled, onCreatePullRequest, onOpenExternalUrl }: {
+  showCreatePullRequest: boolean;
+  branchPullRequests: GitHubPullRequestAssociation[];
+  disabled: boolean;
+  onCreatePullRequest: () => void;
+  onOpenExternalUrl: (url: string) => void;
+}): ReactNode {
+  const [onlyPullRequest] = branchPullRequests;
+  if (branchPullRequests.length === 1 && onlyPullRequest) {
+    return <Button type="button" variant="outline" className="github-list-caption-action" onClick={() => onOpenExternalUrl(onlyPullRequest.url)}>
+      <GitPullRequest />
+      PR #{onlyPullRequest.number} · {formatPullRequestAssociationState(onlyPullRequest)}
+      <ExternalLink />
+    </Button>;
+  }
+  if (branchPullRequests.length > 1) {
+    return <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" variant="outline" className="github-list-caption-action"><GitPullRequest />Multiple pull requests<ChevronDown /></Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" side="top">
+        {branchPullRequests.map((pullRequest) => (
+          <DropdownMenuItem key={`${pullRequest.headRepositoryFullName}:${pullRequest.number}`} onSelect={() => onOpenExternalUrl(pullRequest.url)}>
+            {pullRequest.headRepositoryFullName ?? pullRequest.baseRepositoryFullName} #{pullRequest.number} · {formatPullRequestAssociationState(pullRequest)}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>;
+  }
+  if (!showCreatePullRequest) return null;
+  return <Button type="button" variant="outline" className="github-list-caption-action" disabled={disabled} onClick={onCreatePullRequest}>
+    <Plus />
+    Create pull request…
+  </Button>;
 }
 
 function PullRequestRow({
@@ -12503,7 +12051,7 @@ function PullRequestRow({
 }: {
   pullRequest: GitHubPullRequest;
   selected: boolean;
-  onSelect: (pullRequest: GitHubPullRequest, button: HTMLButtonElement) => void;
+  onSelect: (pullRequest: GitHubPullRequest) => void;
 }): ReactNode {
   return <GitHubItemRow
     itemType="pullRequest"
@@ -12516,7 +12064,7 @@ function PullRequestRow({
     labels={pullRequest.labels}
     comments={pullRequest.comments}
     selected={selected}
-    onSelect={(button) => onSelect(pullRequest, button)}
+    onSelect={() => onSelect(pullRequest)}
   />;
 }
 
@@ -12576,7 +12124,6 @@ function IssuesView({
   const repository = summary?.githubRepository ?? null;
   const [selectedIssue, setSelectedIssue] = useState<GitHubIssue | null>(null);
   const [createIssueDialog, setCreateIssueDialog] = useState<CreateIssueDialogState>(EMPTY_CREATE_ISSUE_DIALOG);
-  const selectedTitleRef = useRef<HTMLButtonElement | null>(null);
   const createIssueOperationRef = useRef<string | null>(null);
   const createIssueGenerationRef = useRef(0);
   const abandonCreateIssueMutation = useCallback((): void => {
@@ -12597,13 +12144,13 @@ function IssuesView({
   };
   useEffect(() => {
     setSelectedIssue(null);
-    selectedTitleRef.current = null;
     setCreateIssueDialog(EMPTY_CREATE_ISSUE_DIALOG);
     return abandonCreateIssueMutation;
   }, [abandonCreateIssueMutation, summary?.repoPath]);
   const closeDetail = (): void => {
+    const number = selectedIssue?.number;
     setSelectedIssue(null);
-    requestAnimationFrame(() => selectedTitleRef.current?.focus());
+    if (number !== undefined) focusGitHubRowLater(`issue:${number}`);
   };
   const closeCreateIssueDialog = (): void => {
     abandonCreateIssueMutation();
@@ -12661,26 +12208,27 @@ function IssuesView({
 
   return (
     <>
-    <GitHubDetailWorkspace persistent listDefaultSize="38%" open={selectedIssue !== null} emptyDrawer={<IssueEmptyDetails />} drawer={selectedIssue && repository ? (
-      <Suspense fallback={<LoadingState label="Loading review console" className="h-full" />}>
-        <ReviewConsole
-          active={active}
-          repoPath={summary?.repoPath ?? ""}
-          githubFullName={repository.fullName}
-          selection={{ itemType: "issue", item: selectedIssue }}
-          onClose={closeDetail}
-          onCheckout={() => undefined}
-          onOpenExternalUrl={onOpenExternalUrl}
-          onMerged={() => undefined}
-        />
-      </Suspense>
-    ) : null}>
-    <section className="github-view issues-grid" aria-label="Issues">
-      <GitHubSelectorHeader repositoryName={repository?.fullName ?? "-"} countLabel={countLabel} actions={
-        <Button type="button" size="sm" disabled={!repository} onClick={() => setCreateIssueDialog({ ...EMPTY_CREATE_ISSUE_DIALOG, open: true })}>
-          <Plus />New issue
-        </Button>
-      } />
+    <ListDetailLayout
+      id="github-issues"
+      listLabel="issue list"
+      detailOpen={selectedIssue !== null}
+      onBack={closeDetail}
+      detail={selectedIssue && repository ? (
+        <Suspense fallback={<LoadingState label="Loading review console" className="h-full" />}>
+          <ReviewConsole
+            active={active}
+            repoPath={summary?.repoPath ?? ""}
+            githubFullName={repository.fullName}
+            selection={{ itemType: "issue", item: selectedIssue }}
+            onClose={closeDetail}
+            onCheckout={() => undefined}
+            onOpenExternalUrl={onOpenExternalUrl}
+            onMerged={() => undefined}
+          />
+        </Suspense>
+      ) : <IssueEmptyDetails />}
+      list={(
+    <section className="github-view" aria-label="Issues">
       <GitHubQueryToolbar compact activeFilterCount={activeFilterCount} refreshDisabled={!repository} refreshing={loading || busy} onRefresh={onRefresh} view="issues" search={query.search ?? ""} preset={preset} presets={[{ value: "all", label: "All open" }, { value: "authored", label: "Authored by me", disabled: !viewerLogin }, { value: "assigned", label: "Assigned to me", disabled: !viewerLogin }, { value: "unassigned", label: "Unassigned" }, { value: "custom", label: "Custom" }]} sort={`${query.sort}-${query.direction}`} sortOptions={[{ value: "updated-desc", label: "Recently updated" }, { value: "created-desc", label: "Newest" }, { value: "created-asc", label: "Oldest" }]} viewerAvailable={Boolean(viewerLogin)} status={loading || busy ? "Loading issues" : countLabel} onSearchChange={(value) => { onPresetChange("custom"); onQueryChange({ ...query, search: value || undefined }); }} onPresetChange={applyPreset} onSortChange={(value) => { const [sort, direction] = value.split("-") as ["updated" | "created", "asc" | "desc"]; onPresetChange("custom"); onQueryChange({ ...query, sort, direction }); }} onClear={() => applyPreset("all")}>
         <label className="github-query-field"><span>Label</span><input value={query.label ?? ""} onChange={(event) => { onPresetChange("custom"); onQueryChange({ ...query, label: event.target.value || undefined }); }} /></label>
       </GitHubQueryToolbar>
@@ -12701,18 +12249,21 @@ function IssuesView({
               key={issue.number}
               issue={issue}
               selected={selectedIssue?.number === issue.number}
-              onSelect={(item, button) => {
-                selectedTitleRef.current = button;
-                setSelectedIssue(item);
-              }}
+              onSelect={setSelectedIssue}
             />
           ))
         )}
         {error && issues.length ? <GitHubFailureState failure={failure} fallback={error} stale onRetry={onRefresh} onConnect={onConnectGitHub} onReviewAccess={onReviewAccess} onCheckRemote={onCheckRemote} /> : null}
         <GitHubListFooter label="issues" nextPage={nextPage} loading={loadingMore} error="" disabled={busy} onLoadMore={onLoadMore} />
       </div>
+      <GitHubListCaption countLabel={countLabel}>
+        <Button type="button" variant="outline" className="github-list-caption-action" disabled={!repository} onClick={() => setCreateIssueDialog({ ...EMPTY_CREATE_ISSUE_DIALOG, open: true })}>
+          New issue
+        </Button>
+      </GitHubListCaption>
     </section>
-    </GitHubDetailWorkspace>
+      )}
+    />
     <CreateIssueDialog
       open={createIssueDialog.open}
       repoPath={summary?.repoPath ?? ""}
@@ -12765,7 +12316,7 @@ function IssueRow({
 }: {
   issue: GitHubIssue;
   selected: boolean;
-  onSelect: (issue: GitHubIssue, button: HTMLButtonElement) => void;
+  onSelect: (issue: GitHubIssue) => void;
 }): ReactNode {
   return <GitHubItemRow
     itemType="issue"
@@ -12778,7 +12329,7 @@ function IssueRow({
     labels={issue.labels}
     comments={issue.comments}
     selected={selected}
-    onSelect={(button) => onSelect(issue, button)}
+    onSelect={() => onSelect(issue)}
   />;
 }
 
@@ -12786,27 +12337,18 @@ function IssueEmptyDetails(): ReactNode {
   return <GitHubSelectionEmptyDetails itemType="issue" />;
 }
 
-function GitHubSelectorHeader({ repositoryName, countLabel, actions }: { repositoryName: string; countLabel: string; actions?: ReactNode }): ReactNode {
-  return <div className="github-view-header github-selector-header">
-    <div className="min-w-0">
-      <p className="eyebrow">GitHub</p>
-      <TooltipTarget overflowOnly content={repositoryName}><h2 className="truncate text-sm font-semibold">{repositoryName}</h2></TooltipTarget>
-      <p className="github-secondary-text">{countLabel}</p>
-    </div>
-    {actions ? <div className="github-view-actions">{actions}</div> : null}
-  </div>;
-}
-
 function GitHubSelectionEmptyDetails({ itemType }: { itemType: "pullRequest" | "issue" }): ReactNode {
   const pullRequest = itemType === "pullRequest";
-  const headingId = `github-${itemType}-empty-heading`;
-  return <section className="review-console-empty" aria-labelledby={headingId}>
-    {pullRequest ? <GitPullRequest aria-hidden="true" /> : <CircleDot aria-hidden="true" />}
-    <h2 id={headingId}>Select {pullRequest ? "a pull request" : "an issue"}</h2>
-    <p>{pullRequest
+  return <EmptyState
+    as="section"
+    className="h-full"
+    headingLevel={2}
+    icon={pullRequest ? <GitPullRequest /> : <CircleDot />}
+    title={`Select ${pullRequest ? "a pull request" : "an issue"}`}
+    description={pullRequest
       ? "Choose a pull request to view details, checks, files, and review activity."
-      : "Choose an issue to view its description, activity, and project details."}</p>
-  </section>;
+      : "Choose an issue to view its description, activity, and project details."}
+  />;
 }
 
 function GitHubItemRow({ itemType, number, title, state, qualifier, authorLogin, updatedAt, labels, comments, selected, onSelect }: {
@@ -12820,54 +12362,64 @@ function GitHubItemRow({ itemType, number, title, state, qualifier, authorLogin,
   labels: string[];
   comments: number;
   selected: boolean;
-  onSelect: (button: HTMLButtonElement) => void;
+  onSelect: () => void;
 }): ReactNode {
   const pullRequest = itemType === "pullRequest";
+  const visualState = getGitHubItemVisualState(itemType, state, qualifier === "Draft");
   return <div
-    className={`github-row github-item-row ${pullRequest ? "pull-request-row" : "issue-row"} ${selected ? "is-selected" : ""}`}
+    className={`github-row github-item-row ${selected ? "is-selected" : ""}`}
     role="listitem"
     aria-current={selected ? "true" : undefined}
+    data-github-row={`${itemType}:${number}`}
   >
     <button
       type="button"
-      className="github-item-row-select"
+      className="github-row-button"
       aria-label={title}
       aria-pressed={selected}
       title={`${capitalize(state)} ${pullRequest ? "pull request" : "issue"} #${number}`}
-      onClick={(event) => onSelect(event.currentTarget)}
+      onClick={onSelect}
     >
-      <span className={`github-item-row-state is-${itemType}`} aria-hidden="true">
-        {pullRequest ? <><GitPullRequest /><CircleDot className="github-item-open-state" /></> : <CircleDot />}
-        <span className="github-issue-number">#{number}</span>
-        {qualifier ? <span className="github-item-qualifier">{qualifier}</span> : null}
+      <span className="github-row-icon" data-state={visualState} aria-hidden="true">
+        {pullRequest
+          ? visualState === "draft" ? <GitPullRequestDraft /> : visualState === "closed" ? <GitPullRequestClosed /> : visualState === "merged" ? <GitMerge /> : <GitPullRequest />
+          : visualState === "completed" ? <CircleCheck /> : <CircleDot />}
       </span>
-      <span className="github-item-row-content">
-        <TooltipTarget overflowOnly content={title}><span className="github-primary-text github-item-row-title">{title}</span></TooltipTarget>
-        <span className="github-item-row-meta github-secondary-text">
+      <span className="github-row-body">
+        <TooltipTarget overflowOnly content={title}><span className="github-row-title">{title}</span></TooltipTarget>
+        <span className="github-row-meta">
+          <span className="github-issue-number">#{number}</span>
+          {qualifier ? <span className="github-item-qualifier">{qualifier}</span> : null}
           <TooltipTarget overflowOnly content={authorLogin}><span className="truncate">{authorLogin}</span></TooltipTarget>
           <span aria-hidden="true">·</span>
-          <TooltipTarget content={formatDate(updatedAt)}><span className="truncate">updated {formatRelativeDate(updatedAt)}</span></TooltipTarget>
+          <TooltipTarget content={formatDate(updatedAt)}><span className="github-row-time">{formatRelativeDate(updatedAt)}</span></TooltipTarget>
         </span>
-        <span className="github-item-row-details">
-          <span className="github-item-comment-count github-secondary-text" aria-label={`${comments} ${comments === 1 ? "comment" : "comments"}`}><MessageSquare />{comments}</span>
-          <GitHubLabels labels={labels} max={2} />
-        </span>
+        <GitHubLabels labels={labels} max={2} />
       </span>
+      {comments > 0 ? (
+        <span className="github-item-comment-count" aria-label={`${comments} ${comments === 1 ? "comment" : "comments"}`}><MessageSquare aria-hidden="true" />{comments}</span>
+      ) : null}
     </button>
   </div>;
 }
 
+/** The icon state of a pull request or issue row. A closed issue is completed; a draft pull request is not yet open for review. */
+function getGitHubItemVisualState(itemType: "pullRequest" | "issue", state: string, draft: boolean): "open" | "draft" | "closed" | "merged" | "completed" {
+  const normalized = state.toLowerCase();
+  if (itemType === "issue") return normalized === "closed" ? "completed" : "open";
+  if (normalized === "merged") return "merged";
+  if (normalized === "closed") return "closed";
+  return draft ? "draft" : "open";
+}
+
 function GitHubLabels({ labels, max = 3 }: { labels: string[]; max?: number }): ReactNode {
+  if (labels.length === 0) return null;
   return (
     <TooltipTarget content={labels.join(", ")}>
       <span className="github-labels">
-        {labels.length === 0 ? (
-          <span className="github-secondary-text">-</span>
-        ) : (
-          labels.slice(0, max).map((label) => (
-            <span key={label} className="github-label-chip">{label}</span>
-          ))
-        )}
+        {labels.slice(0, max).map((label) => (
+          <span key={label} className="github-label-chip">{label}</span>
+        ))}
       </span>
     </TooltipTarget>
   );
@@ -12897,19 +12449,22 @@ function GitHubFailureState({
 }): ReactNode {
   const kind = failure?.kind ?? "unexpected";
   const retryAt = failure?.retryAfterAt ?? failure?.rateLimit?.resetAt ?? null;
-  return <div className={`grid gap-2 border-destructive/30 bg-destructive/5 p-4 text-sm ${stale ? "border-y" : "m-4 rounded-md border"}`} role="alert">
-    <div>
-      <p className="font-medium">{getGitHubFailureTitle(kind)}</p>
-      <p className="selectable-text text-muted-foreground">{fallback}</p>
-      {failure?.missingPermission ? <p className="mt-1 font-medium">Missing permission: {failure.missingPermission}</p> : null}
-      {stale ? <p className="mt-1 text-muted-foreground">Showing cached results while Githead recovers.</p> : null}
-      {retryAt ? <p className="mt-1 text-muted-foreground">Try again {formatDateTime(retryAt)}.</p> : null}
-    </div>
-    <div className="flex flex-wrap gap-2">
-      {kind === "authentication" ? <Button type="button" size="sm" onClick={onConnect}>Connect GitHub</Button> : null}
-      {kind === "authorization" ? <Button type="button" size="sm" onClick={onReviewAccess}>Review access</Button> : null}
-      {kind === "notFound" ? <Button type="button" size="sm" variant="outline" onClick={onCheckRemote}>Check remote</Button> : null}
-      {failure?.retryable || kind === "offline" || kind === "transient" || kind === "timeout" || kind === "rateLimited" || !failure ? <Button type="button" size="sm" variant="outline" onClick={onRetry}><RefreshCw />Retry</Button> : null}
+  const canRetry = failure?.retryable || kind === "offline" || kind === "transient" || kind === "timeout" || kind === "rateLimited" || !failure;
+  return <div className="dialog-notice github-failure" data-tone="danger" data-stale={stale ? "true" : "false"} role="alert">
+    <TriangleAlert aria-hidden="true" />
+    <div className="github-failure-body">
+      <p className="dialog-notice-title">{getGitHubFailureTitle(kind)}</p>
+      <p className="selectable-text github-failure-text">{fallback}</p>
+      {failure?.missingPermission ? <p className="github-failure-text font-medium text-foreground">Missing permission: {failure.missingPermission}</p> : null}
+      {stale ? <p className="github-failure-text">Showing cached results while Githead recovers.</p> : null}
+      {retryAt ? <p className="github-failure-text">Try again {formatDateTime(retryAt)}.</p> : null}
+      <div className="github-failure-actions">
+        {/* Secondary actions first, so the primary action is last. */}
+        {kind === "notFound" ? <Button type="button" size="sm" variant="outline" onClick={onCheckRemote}>Check remote</Button> : null}
+        {canRetry ? <Button type="button" size="sm" variant="outline" onClick={onRetry}><RefreshCw />Retry</Button> : null}
+        {kind === "authorization" ? <Button type="button" size="sm" onClick={onReviewAccess}>Review access</Button> : null}
+        {kind === "authentication" ? <Button type="button" size="sm" onClick={onConnect}>Connect GitHub</Button> : null}
+      </div>
     </div>
   </div>;
 }
@@ -12936,13 +12491,15 @@ function GitHubListEmptyState({ icon, title, description, actionLabel, onAction 
   actionLabel?: string;
   onAction?: () => void;
 }): ReactNode {
-  const headingId = useId();
-  return <section className="github-list-empty" aria-labelledby={headingId}>
-    <span className="github-list-empty-icon" aria-hidden="true">{icon}</span>
-    <h3 id={headingId}>{title}</h3>
-    <p>{description}</p>
-    {actionLabel && onAction ? <Button type="button" variant="outline" size="sm" onClick={onAction}>{actionLabel}</Button> : null}
-  </section>;
+  return <EmptyState
+    as="section"
+    className="github-list-empty"
+    headingLevel={3}
+    icon={icon}
+    title={title}
+    description={description}
+    action={actionLabel && onAction ? <Button type="button" variant="outline" size="sm" onClick={onAction}>{actionLabel}</Button> : undefined}
+  />;
 }
 
 function GitHubListFooter({ label, nextPage, loading, error, disabled, onLoadMore }: {
@@ -12965,6 +12522,10 @@ function GitHubListFooter({ label, nextPage, loading, error, disabled, onLoadMor
     </div>
   );
 }
+
+/** Nodes are hollow rings in the lane colour; the selected node is filled and ringed. */
+const COMMIT_GRAPH_DOT_RADIUS = 4.5;
+const COMMIT_GRAPH_SELECTION_RADIUS = 7;
 
 const CommitGraphSvg = memo(function CommitGraphSvg({
   layout,
@@ -13003,6 +12564,8 @@ const CommitGraphSvg = memo(function CommitGraphSvg({
       height={height}
       style={{ top, "--commit-graph-hover-filter": `url("#${glowId}")` } as CSSProperties}
       viewBox={`0 ${top} ${layout.width} ${height}`}
+      // The stylesheet caps a wide graph, and slicing clips the lanes past the cap instead of shrinking it.
+      preserveAspectRatio="xMinYMin slice"
       aria-hidden="true"
     >
       {hoverEnabled ? <defs>
@@ -13032,11 +12595,11 @@ const CommitGraphSvg = memo(function CommitGraphSvg({
             data-graph-hash={node.hash}
             className={`commit-graph-node lane-${node.lane % COMMIT_GRAPH_COLOR_COUNT} ${node.isMerge ? "is-merge" : ""} ${node.hash === selectedCommitHash ? "is-selected" : ""}`}
           >
-            {node.hash === selectedCommitHash ? <circle className="commit-graph-selection" cx={node.x} cy={node.y} r="7" /> : null}
-            <circle data-testid="commit-graph-node" className="commit-graph-dot" cx={node.x} cy={node.y} r={node.isMerge ? 4.5 : 3.25} />
+            {node.hash === selectedCommitHash ? <circle className="commit-graph-selection" cx={node.x} cy={node.y} r={COMMIT_GRAPH_SELECTION_RADIUS} /> : null}
+            <circle data-testid="commit-graph-node" className="commit-graph-dot" cx={node.x} cy={node.y} r={COMMIT_GRAPH_DOT_RADIUS} />
             {hoverEnabled ? <g className="commit-graph-glow">
-              {node.hash === selectedCommitHash ? <circle className="commit-graph-selection" cx={node.x} cy={node.y} r="7" /> : null}
-              <circle className="commit-graph-dot" cx={node.x} cy={node.y} r={node.isMerge ? 4.5 : 3.25} />
+              {node.hash === selectedCommitHash ? <circle className="commit-graph-selection" cx={node.x} cy={node.y} r={COMMIT_GRAPH_SELECTION_RADIUS} /> : null}
+              <circle className="commit-graph-dot" cx={node.x} cy={node.y} r={COMMIT_GRAPH_DOT_RADIUS} />
             </g> : null}
           </g>
         ))}
@@ -13057,8 +12620,10 @@ interface HistoryRowProps {
   association?: GitHubCommitAssociation;
   onOpenExternalUrl: (url: string) => void;
   onSelectCommit: (hash: string) => void;
+  /** Shows the commit card in a narrow window. A context menu selects without opening it. */
+  onOpenDetail: () => void;
   onCommitContextAction: (commit: GitCommitGraphRow, action: CommitContextActionKind) => void;
-  columnOrder: readonly HistoryColumnId[];
+  columnVisibility: Readonly<Record<HistoryColumnId, boolean>>;
   virtualRowProps: VirtualRowProps;
 }
 
@@ -13074,11 +12639,22 @@ const HistoryRow = memo(function HistoryRow({
   association,
   onOpenExternalUrl,
   onSelectCommit,
+  onOpenDetail,
   onCommitContextAction,
-  columnOrder,
+  columnVisibility,
   virtualRowProps
 }: HistoryRowProps): ReactNode {
-  const cherryPickDisabled = containedInCurrentBranch && !allowCherryPickingContainedCommits;
+  const showAuthor = columnVisibility.author;
+  const showDate = columnVisibility.date;
+  const expandedPullRequests = columnVisibility.pullRequest && association && association.pullRequests.length > 0;
+  const expandedChecks = columnVisibility.checks && association;
+  const compactPullRequests = association && !columnVisibility.pullRequest;
+  const compactChecks = association && !columnVisibility.checks;
+  const showCaption = showAuthor || showDate || expandedPullRequests || expandedChecks;
+  const openCommit = (): void => {
+    onSelectCommit(commit.hash);
+    onOpenDetail();
+  };
   return (
     <ContextMenu>
       <ContextMenuTrigger
@@ -13097,7 +12673,7 @@ const HistoryRow = memo(function HistoryRow({
           data-commit-hash={commit.hash}
           data-virtual-index={virtualRowProps["aria-posinset"] - 1}
           {...virtualRowProps}
-          onClick={() => onSelectCommit(commit.hash)}
+          onClick={openCommit}
           onKeyDown={(event) => {
             if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
               event.preventDefault();
@@ -13112,101 +12688,82 @@ const HistoryRow = memo(function HistoryRow({
             }
             if (event.key === "Enter" || event.key === " ") {
               event.preventDefault();
-              onSelectCommit(commit.hash);
+              openCommit();
             }
           }}
         >
-          <OrderedCells order={columnOrder} cells={{
-            graph: <span className="history-graph-cell" aria-hidden="true" />,
-            description: <span className="history-description">
-              <TooltipTarget content={commit.subject || undefined}>
-                <span className="history-subject-tooltip">
-                  <CommitSubject
-                    subject={commit.subject}
-                    className="history-subject"
-                    scopeClassName="history-scope"
-                    descriptionClassName="history-description-text"
-                  />
-                </span>
-              </TooltipTarget>
-              {!columnOrder.includes("references") ? <HistoryReferences commit={commit} compact /> : null}
-              {association && (!columnOrder.includes("pullRequest") || !columnOrder.includes("checks")) ? (
+          {columnVisibility.graph ? <span className="history-graph-cell" aria-hidden="true" /> : null}
+          <span className="history-row-content">
+            <span className="history-description">
+              {columnVisibility.references ? <HistoryReferences commit={commit} /> : <HistoryReferences commit={commit} compact />}
+              {columnVisibility.description ? (
+                <TooltipTarget content={commit.subject || undefined}>
+                  <span className="history-subject-tooltip">
+                    <CommitSubject
+                      subject={commit.subject}
+                      className="history-subject"
+                      scopeClassName="history-scope"
+                      descriptionClassName="history-description-text"
+                    />
+                  </span>
+                </TooltipTarget>
+              ) : null}
+            </span>
+            {showCaption ? (
+              <span className="history-row-caption">
+                {showAuthor ? <TooltipTarget content={commit.authorEmail}><span className="history-author">{commit.authorName}</span></TooltipTarget> : null}
+                {showAuthor && showDate ? <span className="history-caption-separator" aria-hidden="true">·</span> : null}
+                {showDate ? (
+                  <TooltipTarget content={formatDate(commit.authorDate)}>
+                    <span className="history-date">{commit.relativeDate || formatDate(commit.authorDate)}</span>
+                  </TooltipTarget>
+                ) : null}
+                {expandedPullRequests ? <HistoryPullRequests association={association} onOpenExternalUrl={onOpenExternalUrl} /> : null}
+                {expandedChecks ? <HistoryCheckState association={association} /> : null}
+              </span>
+            ) : null}
+          </span>
+          {columnVisibility.commit || compactPullRequests || compactChecks ? (
+            <span className="history-row-trailing">
+              {columnVisibility.commit ? (
+                <TooltipTarget content={commit.hash}><span className="history-hash">{commit.shortHash}</span></TooltipTarget>
+              ) : null}
+              {compactPullRequests || compactChecks ? (
                 <span className="history-github-badges">
-                  {!columnOrder.includes("pullRequest") ? <HistoryPullRequests association={association} onOpenExternalUrl={onOpenExternalUrl} /> : null}
-                  {!columnOrder.includes("checks") ? <HistoryCheckState association={association} compact /> : null}
+                  {compactPullRequests ? <HistoryPullRequests association={association} onOpenExternalUrl={onOpenExternalUrl} compact /> : null}
+                  {compactChecks ? <HistoryCheckState association={association} compact /> : null}
                 </span>
               ) : null}
-              </span>,
-            date: <TooltipTarget content={formatDate(commit.authorDate)}>
-              <span className="history-date">{commit.relativeDate || formatDate(commit.authorDate)}</span>
-            </TooltipTarget>,
-            author: <TooltipTarget content={commit.authorEmail}><span className="history-author">{commit.authorName}</span></TooltipTarget>,
-            commit: <TooltipTarget content={commit.hash}><span className="history-hash">{commit.shortHash}</span></TooltipTarget>,
-            references: <HistoryReferences commit={commit} showEmpty />,
-            pullRequest: association ? <HistoryPullRequests association={association} onOpenExternalUrl={onOpenExternalUrl} showEmpty /> : <span className="github-secondary-text">-</span>,
-            checks: association ? <HistoryCheckState association={association} /> : <span className="github-secondary-text">-</span>
-          }} />
+            </span>
+          ) : null}
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-64">
-        {tagsEnabled ? (
-          <ContextMenuItem onSelect={() => onCommitContextAction(commit, "tag")}>
-            <Tag />
-            Tag
-          </ContextMenuItem>
-        ) : null}
-        <TooltipTarget
-          content={cherryPickDisabled ? "This commit is already included in the current branch." : undefined}
-          contentProps={{ side: "right", sideOffset: 8 }}
-        >
-          <ContextMenuItem
-            disabled={cherryPickDisabled}
-            className={cherryPickDisabled ? "data-[disabled]:pointer-events-auto" : undefined}
-            onSelect={() => onCommitContextAction(commit, "cherry-pick")}
-          >
-            <GitFork />
-            Cherry-pick commit…
-          </ContextMenuItem>
-        </TooltipTarget>
-        <ContextMenuSeparator />
-        <ContextMenuItem onSelect={() => onCommitContextAction(commit, "reset")}>
-          <GitBranchIcon />
-          Reset current branch to this commit
-        </ContextMenuItem>
-        <ContextMenuItem onSelect={() => onCommitContextAction(commit, "revert")}>
-          <RotateCcw />
-          Reverse commit
-        </ContextMenuItem>
-        {isHead ? (
-          <TooltipTarget
-            content={amendDisabled ? amendDisabledReason ?? "Wait for the current Git operation to finish." : undefined}
-            contentProps={{ side: "right", sideOffset: 8 }}
-          >
-            <ContextMenuItem
-              disabled={amendDisabled}
-              className={amendDisabled ? "data-[disabled]:pointer-events-auto" : undefined}
-              onSelect={() => onCommitContextAction(commit, "amend")}
-            >
-              <GitCommitHorizontal />
-              Amend last commit…
-            </ContextMenuItem>
-          </TooltipTarget>
-        ) : null}
-        <ContextMenuSeparator />
-        <ContextMenuItem onSelect={() => onCommitContextAction(commit, "copy")}>
-          <Clipboard />
-          Copy SHA to clipboard
-        </ContextMenuItem>
+        <CommitActionContextMenuItems
+          items={getCommitActionItems({
+            tagsEnabled,
+            cherryPickDisabled: containedInCurrentBranch && !allowCherryPickingContainedCommits,
+            isHead,
+            amendDisabled,
+            amendDisabledReason
+          })}
+          commit={commit}
+          onAction={onCommitContextAction}
+        />
       </ContextMenuContent>
     </ContextMenu>
   );
 }, areHistoryRowPropsEqual);
 
-function HistoryReferences({ commit, showEmpty = false, compact = false }: { commit: GitCommitGraphRow; showEmpty?: boolean; compact?: boolean }): ReactNode {
-  if (commit.refs.length === 0) return showEmpty ? <span className="github-secondary-text">-</span> : null;
+function HistoryReferences({ commit, compact = false, className }: {
+  commit: Pick<GitCommitGraphRow, "hash" | "refs">;
+  compact?: boolean;
+  className?: string;
+}): ReactNode {
+  if (commit.refs.length === 0) return null;
   const visibleRefs = compact ? [commit.refs.find((ref) => ref.kind === "branch") ?? commit.refs[0]!] : commit.refs;
   return (
-    <span className={`history-refs ${compact ? "is-compact" : ""}`}>
+    <span className={["history-refs", compact ? "is-compact" : "", className ?? ""].filter(Boolean).join(" ")}>
       {visibleRefs.map((ref) => (
         <span key={`${commit.hash}:${ref.kind}:${ref.name}`} className={`ref-badge ${ref.kind}`}>
           {ref.kind === "tag" ? <Tag aria-hidden="true" /> : null}
@@ -13235,13 +12792,14 @@ function HistoryReferences({ commit, showEmpty = false, compact = false }: { com
 function HistoryPullRequests({
   association,
   onOpenExternalUrl,
-  showEmpty = false
+  compact = false
 }: {
   association: GitHubCommitAssociation;
   onOpenExternalUrl: (url: string) => void;
-  showEmpty?: boolean;
+  compact?: boolean;
 }): ReactNode {
-  if (association.pullRequests.length === 0) return showEmpty ? <span className="github-secondary-text">-</span> : null;
+  const prefix = compact ? "#" : "PR #";
+  if (association.pullRequests.length === 0) return null;
   if (association.pullRequests.length === 1) {
     const pullRequest = association.pullRequests[0]!;
     return (
@@ -13249,7 +12807,7 @@ function HistoryPullRequests({
         event.stopPropagation();
         onOpenExternalUrl(pullRequest.url);
       }}>
-        PR #{pullRequest.number}
+        {prefix}{pullRequest.number}
       </button>
     );
   }
@@ -13257,7 +12815,7 @@ function HistoryPullRequests({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button type="button" className="history-github-badge" aria-label={`${association.pullRequests.length} associated pull requests`} onClick={(event) => event.stopPropagation()}>
-          PR #{association.pullRequests[0]!.number} +{association.pullRequests.length - 1}
+          {prefix}{association.pullRequests[0]!.number} +{association.pullRequests.length - 1}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent onClick={(event) => event.stopPropagation()}>
@@ -13328,7 +12886,9 @@ function CommitDetailsPanel({
   blameEnabled,
   onSelectCommit,
   onSelectCommitFile,
-  onCommitFileContextAction
+  onCommitFileContextAction,
+  actions,
+  diff
 }: {
   details: GitCommitDetails | null;
   onCopyCommit: (commit: Pick<GitCommitGraphRow, "hash">) => Promise<void>;
@@ -13343,105 +12903,105 @@ function CommitDetailsPanel({
   onSelectCommit: (hash: string) => void;
   onSelectCommitFile: (filePath: string) => void;
   onCommitFileContextAction: (file: GitCommitChangedFile, action: CommitFileContextActionKind) => void;
+  /** The card's commit actions menu, shown beside the title. */
+  actions: ReactNode;
+  /** The embedded diff for the selected file. The card shows it once the details load. */
+  diff: ReactNode;
 }): ReactNode {
-  let meta: ReactNode;
-  let files: ReactNode;
-  let fileCount = "No files";
-  let changeSummary: ReactNode = null;
-
-  if (loading) {
-    meta = <LoadingState label="Loading commit details" />;
-    files = null;
-  } else if (error) {
-    meta = <p className="empty-state bad selectable-text">{error}</p>;
-    files = null;
-  } else if (!details) {
-    meta = <p className="empty-state">Select a commit.</p>;
-    files = null;
-  } else {
-    fileCount = `${details.files.length} ${details.files.length === 1 ? "file" : "files"}`;
-    const totals = details.files.reduce((sum, file) => ({ additions: sum.additions + file.additions, deletions: sum.deletions + file.deletions }), { additions: 0, deletions: 0 });
-    changeSummary = <span className="commit-change-summary"><span className="good">+{totals.additions}</span><span className="bad">−{totals.deletions}</span></span>;
-    const parsedSubject = parseCommitSubject(details.subject);
-    const references = parseGitHubReferences(`${details.subject}\n${details.body}`, repository);
-    meta = (
-      <div className="commit-meta-card selectable-text">
-        <TooltipTarget content={details.subject || undefined}>
-          <h2 className="commit-title text-sm font-semibold">
-            <CommitSubject
-              subject={details.subject}
-              className="commit-title-subject"
-              scopeClassName="commit-title-scope"
-              descriptionClassName="commit-title-description"
-              showType={false}
-            />
-          </h2>
-        </TooltipTarget>
-        <div className="commit-summary-meta">
-          <TooltipTarget content={details.authorEmail}><span>{details.authorName}</span></TooltipTarget>
-          <time dateTime={details.authorDate}>{formatDate(details.authorDate)}</time>
-          <TooltipButton type="button" variant="ghost" size="xs" className="commit-copy-hash" aria-label="Copy commit SHA" tooltip="Copy full commit SHA" onClick={() => { void onCopyCommit(details); }}>
-            <Clipboard />{details.shortHash}
-          </TooltipButton>
-          {parsedSubject ? <CommitTypeBadge {...parsedSubject} /> : null}
+  if (loading || error || !details) {
+    return (
+      <section className="commit-details-panel" aria-label="Commit details">
+        <div className="commit-meta-scroll">
+          {loading ? (
+            <LoadingState label="Loading commit details" />
+          ) : error ? (
+            <EmptyState tone="error" className="selectable-text" title={error} />
+          ) : (
+            <EmptyState title="Select a commit." />
+          )}
         </div>
-        <details key={details.hash} className="commit-expanded-details">
-          <summary>Commit details</summary>
-          <dl className="commit-facts">
-            <Fact label="Commit" value={details.hash} />
-            <Fact label="Parents" value={<ParentCommitLinks parents={details.parents} onSelectCommit={onSelectCommit} />} />
-            <Fact label="Author" value={`${details.authorName} <${details.authorEmail}>`} />
-            {references.length > 0 ? (
-              <Fact label="References" value={
-                <span className="commit-reference-list">
-                  {references.map((reference) => (
-                    <button key={`${reference.owner}/${reference.repository}#${reference.number}:${reference.kind}`} type="button" className="commit-reference-link" onClick={() => {
-                      if (reference.targetUrl) onOpenExternalUrl(reference.targetUrl);
-                    }}>{reference.displayText}</button>
-                  ))}
-                </span>
-              } />
-            ) : null}
-          </dl>
-        </details>
-        {details.body ? (
-          <div className="commit-body">
-            <OptionalFeatureBoundary name="commit message">
-              <BasicMarkdown externalLinks>{details.body}</BasicMarkdown>
-            </OptionalFeatureBoundary>
-          </div>
-        ) : null}
-      </div>
-    );
-    files = details.files.length === 0 ? (
-      <p className="empty-state">No changed files.</p>
-    ) : (
-      details.files.map((file) => (
-        <CommitFileRow
-          key={file.path}
-          file={file}
-          selected={file.path === selectedFilePath}
-          disabled={disabled}
-          fileHistoryEnabled={fileHistoryEnabled}
-          blameEnabled={blameEnabled}
-          onSelectCommitFile={onSelectCommitFile}
-          onContextAction={onCommitFileContextAction}
-        />
-      ))
+      </section>
     );
   }
 
+  const fileCount = `${details.files.length} ${details.files.length === 1 ? "file" : "files"}`;
+  const totals = details.files.reduce((sum, file) => ({ additions: sum.additions + file.additions, deletions: sum.deletions + file.deletions }), { additions: 0, deletions: 0 });
+  const parsedSubject = parseCommitSubject(details.subject);
+  const references = parseGitHubReferences(`${details.subject}\n${details.body}`, repository);
+
   return (
-    <section className="commit-details-panel grid h-full min-h-0 border-r bg-card" aria-label="Commit details">
-      <div className="commit-meta-scroll border-b">{meta}</div>
-      <div className="commit-file-list-header flex min-h-10 items-center justify-between gap-3 border-b px-4 text-sm">
-        <span className="text-muted-foreground">{fileCount}</span>
+    <section className="commit-details-panel" aria-label="Commit details">
+      <div className="commit-meta-scroll">
+        <div className="commit-meta-card selectable-text">
+          <div className="commit-title-row">
+            <TooltipTarget content={details.subject || undefined}>
+              <h2 className="commit-title">
+                <CommitSubject
+                  subject={details.subject}
+                  className="commit-title-subject"
+                  scopeClassName="commit-title-scope"
+                  descriptionClassName="commit-title-description"
+                  showType={false}
+                />
+              </h2>
+            </TooltipTarget>
+            {actions}
+          </div>
+          <div className="commit-summary-meta">
+            <TooltipTarget content={details.authorEmail}><span>{details.authorName}</span></TooltipTarget>
+            <time dateTime={details.authorDate}>{formatDate(details.authorDate)}</time>
+            <TooltipButton type="button" variant="ghost" size="xs" className="commit-copy-hash" aria-label="Copy commit SHA" tooltip="Copy full commit SHA" onClick={() => { void onCopyCommit(details); }}>
+              <Clipboard />{details.shortHash}
+            </TooltipButton>
+            {parsedSubject ? <CommitTypeBadge {...parsedSubject} /> : null}
+            {details.parents.length > 0 ? (
+              <span className="commit-parents">
+                {details.parents.length > 1 ? "Parents" : "Parent"}
+                <ParentCommitLinks parents={details.parents} onSelectCommit={onSelectCommit} />
+              </span>
+            ) : null}
+          </div>
+          {details.refs.length > 0 ? <HistoryReferences commit={details} className="commit-refs" /> : null}
+          {references.length > 0 ? (
+            <div className="commit-reference-list" aria-label="Linked issues and pull requests">
+              {references.map((reference) => (
+                <button key={`${reference.owner}/${reference.repository}#${reference.number}:${reference.kind}`} type="button" className="commit-reference-link" onClick={() => {
+                  if (reference.targetUrl) onOpenExternalUrl(reference.targetUrl);
+                }}>{reference.displayText}</button>
+              ))}
+            </div>
+          ) : null}
+          {details.body ? (
+            <div className="commit-body">
+              <OptionalFeatureBoundary name="commit message">
+                <BasicMarkdown externalLinks>{details.body}</BasicMarkdown>
+              </OptionalFeatureBoundary>
+            </div>
+          ) : null}
+        </div>
+      </div>
+      <div className="commit-file-list-header">
+        <span>{fileCount}</span>
         <span className="sr-only">Sorted by file status</span>
-        {changeSummary}
+        <span className="commit-change-summary"><span className="good">+{totals.additions}</span><span className="bad">−{totals.deletions}</span></span>
       </div>
       <div className="commit-file-list" role="listbox" aria-label="Changed files">
-        {files}
+        {details.files.length === 0 ? (
+          <EmptyState title="No changed files." />
+        ) : details.files.map((file) => (
+          <CommitFileRow
+            key={file.path}
+            file={file}
+            selected={file.path === selectedFilePath}
+            disabled={disabled}
+            fileHistoryEnabled={fileHistoryEnabled}
+            blameEnabled={blameEnabled}
+            onSelectCommitFile={onSelectCommitFile}
+            onContextAction={onCommitFileContextAction}
+          />
+        ))}
       </div>
+      {diff}
     </section>
   );
 }
@@ -13459,9 +13019,8 @@ function ParentCommitLinks({
 
   return (
     <span className="commit-parent-links">
-      {parents.map((parent, index) => (
+      {parents.map((parent) => (
         <Fragment key={parent}>
-          {index > 0 ? <span aria-hidden="true">, </span> : null}
           <TooltipTarget content={parent}>
             <a
               className="commit-link"
@@ -13471,7 +13030,7 @@ function ParentCommitLinks({
                 onSelectCommit(parent);
               }}
             >
-              {parent.slice(0, 10)}
+              {parent.slice(0, 7)}
             </a>
           </TooltipTarget>
         </Fragment>
@@ -13531,28 +13090,28 @@ function CommitFileRow({
       <ContextMenuContent className="w-56">
         <ContextMenuItem disabled={!fileHistoryEnabled} onSelect={() => onContextAction(file, "log")}>
           <History />
-          Log Selected
+          Log selected
         </ContextMenuItem>
         <ContextMenuItem disabled={!blameEnabled || file.status === "D"} onSelect={() => onContextAction(file, "blame")}>
           <GitFork />
-          Blame Selected
+          Blame selected
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem variant="destructive" disabled={disabled} onSelect={() => onContextAction(file, "reset")}>
           <RotateCcw />
-          Reset to Commit
+          Reset to commit
         </ContextMenuItem>
         <ContextMenuItem onSelect={() => onContextAction(file, "open-current")}>
           <ExternalLink />
-          Open Current Version
+          Open current version
         </ContextMenuItem>
         <ContextMenuItem onSelect={() => onContextAction(file, "open-selected")}>
           <FileCode2 />
-          Open Selected Version
+          Open selected version
         </ContextMenuItem>
         <ContextMenuItem onSelect={() => onContextAction(file, "copy")}>
           <Clipboard />
-          Copy Path to Clipboard
+          Copy path to clipboard
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
@@ -13567,6 +13126,7 @@ function CommitPanel({
   generating,
   disabled,
   primaryCommitAction,
+  stagedCount,
   quickCommitByDefault,
   summary,
   selection,
@@ -13600,6 +13160,7 @@ function CommitPanel({
   generating: boolean;
   disabled: boolean;
   primaryCommitAction: "commit" | "quick-commit" | "push" | null;
+  stagedCount: number;
   quickCommitByDefault: boolean;
   summary: RepoSummary | null;
   selection: FileSelection | null;
@@ -13637,7 +13198,10 @@ function CommitPanel({
     || (primaryCommitAction === "commit" && !commitAllowed);
   const primaryActionLabel = quickCommitPhase === "generating" ? "Generating…"
     : quickCommitPhase === "committing" ? "Committing…"
-    : primaryCommitAction === "push" ? "Push" : quickCommitByDefault ? "Quick Commit" : "Commit";
+    : primaryCommitAction === "push" ? "Push"
+    : quickCommitByDefault ? "Quick Commit"
+    : primaryCommitAction === "commit" && stagedCount > 0 ? `Commit ${stagedCount} ${stagedCount === 1 ? "file" : "files"}`
+    : "Commit";
   const primaryActionAriaLabel = primaryCommitAction === "push" && pushableCommitCount > 0
     ? formatActionCountLabel("Push", pushableCommitCount)
     : undefined;
@@ -13649,11 +13213,11 @@ function CommitPanel({
 
   return (
     <section
-      className="commit-panel grid min-h-0 gap-2.5 border-t bg-card px-6 py-4"
+      className="commit-panel"
       aria-label="Commit staged files"
       aria-busy={generating || quickCommitPhase !== null}
     >
-      <label className="commit-message-label" htmlFor="commit-message">Commit message</label>
+      <label className="sr-only" htmlFor="commit-message">Commit message</label>
       {generating || commitMessageSuggestion ? (
         <p className="sr-only" role="status" aria-live="polite" aria-label="Commit message generation status">
           {generating ? "Generating commit message." : "Generated commit message is ready for review."}
@@ -13669,41 +13233,39 @@ function CommitPanel({
         />
         {commitMessageSuggestion ? (
           <div
-            className="grid gap-2 rounded-md border border-primary/25 bg-primary/5 px-3 py-2.5"
+            className="commit-compose-band commit-suggestion-band"
             role="status"
             aria-label="Generated commit message suggestion"
           >
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <Sparkles className="size-4 text-primary" aria-hidden="true" />
-              Generated suggestion
+            <div className="commit-suggestion-header">
+              <Sparkles aria-hidden="true" />
+              <span className="commit-suggestion-title">Generated suggestion</span>
+              <Button type="button" variant="ghost" size="xs" onClick={onDismissCommitMessageSuggestion}>
+                Dismiss
+              </Button>
+              <Button type="button" variant="ghost" size="xs" className="commit-suggestion-apply" onClick={onApplyCommitMessageSuggestion}>
+                {commitMessage.trim() ? "Replace" : "Apply"}
+              </Button>
             </div>
-            <p className="selectable-text text-sm leading-5">{commitMessageSuggestion.message}</p>
-            <p className="text-xs text-muted-foreground">
+            <p className="commit-suggestion-message selectable-text">{commitMessageSuggestion.message}</p>
+            <p className="commit-suggestion-reason">
               {commitMessageSuggestion.reason === "quick-commit-failed"
                 ? "Quick Commit did not complete. This message is saved here for review and retry. Your draft has been preserved."
                 : commitMessageSuggestion.reason === "repository-changed"
                 ? "Staged changes changed while this message was being generated. Review it before replacing your draft."
                 : "Your draft changed while this message was being generated. Review it before replacing your draft."}
             </p>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" size="sm" onClick={onDismissCommitMessageSuggestion}>
-                Dismiss
-              </Button>
-              <Button type="button" variant="secondary" size="sm" onClick={onApplyCommitMessageSuggestion}>
-                {commitMessage.trim() ? "Replace" : "Apply"}
-              </Button>
-            </div>
           </div>
         ) : null}
         {generationError ? (
-          <p className="text-sm text-destructive" role="alert">{generationError}</p>
+          <p className="commit-compose-band commit-error-band" role="alert">{generationError}</p>
         ) : null}
         {commitPushSafetyNotice ? (
-          <div className="flex items-start gap-3 rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm" role="alert">
-            <ShieldAlert className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-300" />
-            <p className="min-w-0 flex-1 leading-5">{commitPushSafetyNotice.message}</p>
+          <div className="commit-compose-band commit-safety-band" role="alert">
+            <ShieldAlert aria-hidden="true" />
+            <p className="min-w-0 flex-1">{commitPushSafetyNotice.message}</p>
             {commitPushSafetyNotice.undoRequest ? (
-              <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={onUndoFailedCommitPush} className="shrink-0">
+              <Button type="button" variant="outline" size="xs" disabled={disabled} onClick={onUndoFailedCommitPush} className="shrink-0">
                 <RotateCcw />
                 Undo commit
               </Button>
@@ -13742,16 +13304,17 @@ function CommitPanel({
               <DropdownMenuContent align="end" side="top">
                 <DropdownMenuItem onSelect={onOpenGenerateWithContext}>
                   <Sparkles />
-                  Generate with Context
+                  Generate with context
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-          <div className="flex min-w-0 items-center gap-2">
           {summary?.kind === "git" && quickCommitPaths.length > 0 ? (
-            <span className="text-xs text-muted-foreground">{quickCommitByDefault ? "" : "Quick Commit: "}{quickCommitPaths.length} selected {quickCommitPaths.length === 1 ? "file" : "files"}</span>
+            <TooltipTarget content={`Quick Commit uses ${quickCommitPaths.length === 1 ? "this selected file" : "these selected files"}`}>
+              <span className="commit-quick-count" tabIndex={0}>{quickCommitPaths.length} selected {quickCommitPaths.length === 1 ? "file" : "files"}</span>
+            </TooltipTarget>
           ) : null}
-          <div className="commit-submit-group">
+          <div className="commit-submit-group" data-primary={commitDisabled ? undefined : ""}>
             <TooltipButton
               type="button"
               variant="ghost"
@@ -13768,7 +13331,7 @@ function CommitPanel({
                 successLabel={feedbackAction === "push" ? "Pushed" : "Committed"}
                 surface="commit-panel"
               >
-                {quickCommitPhase ? <Loader2 className="animate-spin" /> : primaryCommitAction === "push" ? <Upload /> : quickCommitByDefault ? <Sparkles /> : <CheckCircle2 />}
+                {quickCommitPhase ? <Loader2 className="animate-spin" /> : primaryCommitAction === "push" ? <ArrowUp /> : quickCommitByDefault ? <Sparkles /> : <CheckCircle2 />}
                 {primaryActionLabel}
                 {primaryCommitAction === "push" && pushableCommitCount > 0 ? (
                   <SyncCountChip title={formatCommitCountLabel(pushableCommitCount, "ahead")}>
@@ -13829,7 +13392,6 @@ function CommitPanel({
               </DropdownMenu>
             ) : null}
           </div>
-          </div>
         </div>
       </div>
     </section>
@@ -13879,7 +13441,7 @@ function GenerateWithContextDialog({
             />
           </div>
 
-          {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
+          {error ? <p className="dialog-error" role="alert">{error}</p> : null}
 
           <DialogFooter>
             <Button
@@ -13945,7 +13507,7 @@ function BranchDialog({
             />
           </div>
 
-          <p className="min-h-5 text-sm text-destructive" role="alert">{error}</p>
+          <p className="dialog-error min-h-5" role="alert">{error}</p>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
@@ -14065,6 +13627,7 @@ function ResetCommitFileDialog({
               id="reset-file-paths"
               value={filesText}
               readOnly
+              className="dialog-code-block resize-none"
               rows={Math.max(1, Math.min(6, state.paths.length))}
             />
           </div>
@@ -14182,7 +13745,7 @@ function PublishBranchDialog({
             />
           </div>
 
-          <p className="min-h-5 text-sm text-destructive" role="alert">{error}</p>
+          <p className="dialog-error min-h-5" role="alert">{error}</p>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
@@ -14235,8 +13798,8 @@ function CreatePullRequestDialog({
     : state.step === "creating"
     ? "Creating…"
     : needsPush
-    ? "Push & Create"
-    : "Create Pull Request";
+    ? "Push & create"
+    : "Create pull request";
 
   return (
     <Dialog open={state.open} onOpenChange={onOpenChange}>
@@ -14244,7 +13807,7 @@ function CreatePullRequestDialog({
         <form onSubmit={onSubmit}>
           <div className="create-pr-content">
             <DialogHeader>
-              <DialogTitle>Create Pull Request</DialogTitle>
+              <DialogTitle>Create pull request</DialogTitle>
               <DialogDescription className="sr-only">
                 {`Open a GitHub pull request from ${state.headBranch || "the current branch"}${state.baseBranch ? ` into ${state.baseBranch}` : ""}.`}
               </DialogDescription>
@@ -14371,16 +13934,16 @@ function CreatePullRequestDialog({
               </div>
             </div>
 
-            {templateUnavailable && !state.templatesLoading ? <p className="text-sm text-muted-foreground" role="status">Select an available template or No template before generating. Your text is preserved.</p> : null}
-            {state.templateError ? <div className="flex items-center gap-2 text-sm text-destructive" role="alert">
+            {templateUnavailable && !state.templatesLoading ? <p className="dialog-notice" data-tone="neutral" role="status">Select an available template or No template before generating. Your text is preserved.</p> : null}
+            {state.templateError ? <div className="dialog-error flex items-center gap-2" role="alert">
               <span>{state.templateError}</span>
               <Button type="button" variant="outline" size="sm" disabled={busy || generating || state.templatesLoading}
                 onClick={() => onStateChange({ ...state, templateRequest: state.templateRequest + 1 })}>Retry</Button>
             </div> : null}
-            {state.draftSaveError ? <p className="text-sm text-destructive" role="alert">Unable to save this draft on this device. Keep this window open or copy your text.</p> : null}
-            {state.error ? <p className="text-sm text-destructive" role="alert">{state.error}</p> : null}
+            {state.draftSaveError ? <p className="dialog-error" role="alert">Unable to save this draft on this device. Keep this window open or copy your text.</p> : null}
+            {state.error ? <p className="dialog-error" role="alert">{state.error}</p> : null}
             {state.failure?.outcomeUnknown && !state.unknownOutcomeReviewed ? (
-              <Button type="button" variant="outline" className="w-fit" onClick={onReviewUnknownOutcome}><ExternalLink />Open Pull Requests</Button>
+              <Button type="button" variant="outline" className="w-fit" onClick={onReviewUnknownOutcome}><ExternalLink />Open pull requests</Button>
             ) : null}
           </div>
           <div className="create-pr-footer">
@@ -14424,14 +13987,14 @@ function SafeDirectoryDialog({
     }}>
       <DialogContent className="sm:max-w-[520px]" showCloseButton={!saving}>
         <DialogHeader>
-          <DialogTitle>Allow Git Ownership Exception?</DialogTitle>
+          <DialogTitle>Allow Git ownership exception?</DialogTitle>
           <DialogDescription>
             Git blocked this repository because its ownership differs from your current user. Githead will add this exact folder to Git's global safe.directory list.
           </DialogDescription>
         </DialogHeader>
 
         {safeDirectory?.path ? (
-          <p className="rounded-md border bg-muted/50 px-3 py-2 text-sm font-medium text-muted-foreground">
+          <p className="dialog-code-block">
             {safeDirectory.path}
           </p>
         ) : null}
@@ -14442,7 +14005,7 @@ function SafeDirectoryDialog({
           </Button>
           <Button type="button" onClick={onAllow} disabled={saving || !safeDirectory?.path} autoFocus>
             {saving ? <Loader2 className="animate-spin" /> : <ShieldAlert />}
-            {saving ? "Adding Exception" : "Allow Exception"}
+            {saving ? "Adding exception" : "Allow exception"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -14470,8 +14033,8 @@ function GitIdentityDialog({
       <DialogContent className="sm:max-w-[520px]">
         <form className="grid gap-4" onSubmit={onSave}>
           <DialogHeader>
-            <p className="eyebrow">Git Identity</p>
-            <DialogTitle>Set Git Author Identity</DialogTitle>
+            <p className="eyebrow">Git identity</p>
+            <DialogTitle>Set Git author identity</DialogTitle>
             <DialogDescription>
               Git needs a name and email before it can create commits.
             </DialogDescription>
@@ -14492,14 +14055,14 @@ function GitIdentityDialog({
             })}
           />
 
-          <p id="git-identity-prompt-error" className="min-h-5 text-sm text-destructive" role="alert">{state.error}</p>
+          <p id="git-identity-prompt-error" className="dialog-error min-h-5" role="alert">{state.error}</p>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={saving}>
               {saving ? <Loader2 className="animate-spin" /> : <Save />}
-              {saving ? "Saving" : "Save and Retry Commit"}
+              {saving ? "Saving" : "Save and retry commit"}
             </Button>
           </DialogFooter>
         </form>
@@ -14515,11 +14078,15 @@ function ImageDiffView({ filePath, before, after, onDownload, downloading }: { f
   return (
     <div className="image-diff-wrap" aria-label={`${isAdded ? "Image preview" : "Image comparison"} for ${filePath}`}>
       {canDownload && onDownload ? (
-        <div className="image-diff-download">
-          <Button type="button" variant="outline" size="sm" aria-label={needsRepair ? "Retry corrupt Git LFS image preview" : "Download missing Git LFS image preview"} disabled={downloading} onClick={onDownload}>
-            {downloading ? <Loader2 className="animate-spin" /> : <Download />}
-            {downloading ? "Downloading..." : needsRepair ? "Retry Preview" : "Download Preview"}
-          </Button>
+        <div className="dialog-notice image-diff-notice" data-tone="warning">
+          <TriangleAlert aria-hidden="true" />
+          <div className="image-diff-notice-body">
+            <span>{needsRepair ? "The Git LFS copy of this image on this device is damaged." : "This Git LFS image has not been downloaded to this device."}</span>
+            <Button type="button" variant="outline" size="xs" aria-label={needsRepair ? "Retry corrupt Git LFS image preview" : "Download missing Git LFS image preview"} disabled={downloading} onClick={onDownload}>
+              {downloading ? <Loader2 className="animate-spin" /> : <Download />}
+              {downloading ? "Downloading..." : needsRepair ? "Retry preview" : "Download preview"}
+            </Button>
+          </div>
         </div>
       ) : null}
       <div className={`image-diff${isAdded ? " is-single" : ""}`}>
@@ -14661,10 +14228,6 @@ function getActionFileLabel(target: GitConfiguredActionFile): string {
   return target === "shared" ? "Shared" : "Local";
 }
 
-function getRepositoryActionKey(name: string): string {
-  return name.trim().toLocaleLowerCase();
-}
-
 function createFallbackActionFileConfig(target: GitConfiguredActionFile): GitConfiguredActionFileConfig {
   return {
     target,
@@ -14766,9 +14329,18 @@ function markAppUpdateError(
   };
 }
 
-function reconcileSelection(state: AppState): AppState {
+function reconcileSelection(state: AppState, followSelection: FileSelection | null = null): AppState {
   if (!state.selection || !state.summary?.isValid) {
     return state;
+  }
+
+  // A hunk operation hands over the selection it started from, so that the file follows its last
+  // hunk to the other group (see resolvePostHunkSelection) instead of losing the selection.
+  if (followSelection && followSelection.side === state.selection.side && followSelection.path === state.selection.path) {
+    const followed = resolvePostHunkSelection(state.summary, state.selection);
+    if (followed && followed.side !== state.selection.side) {
+      return { ...state, selection: followed, diff: null, diffChanged: false };
+    }
   }
 
   const files = getFilesForSide(state.summary, state.selection.side);
@@ -14807,14 +14379,25 @@ function areHistoryRowPropsEqual(previous: HistoryRowProps, next: HistoryRowProp
     && previous.tagsEnabled === next.tagsEnabled
     && previous.containedInCurrentBranch === next.containedInCurrentBranch
     && previous.allowCherryPickingContainedCommits === next.allowCherryPickingContainedCommits
+    && previous.isHead === next.isHead
+    && previous.amendDisabled === next.amendDisabled
+    && previous.amendDisabledReason === next.amendDisabledReason
     && previous.association === next.association
     && previous.onOpenExternalUrl === next.onOpenExternalUrl
     && previous.onSelectCommit === next.onSelectCommit
+    && previous.onOpenDetail === next.onOpenDetail
     && previous.onCommitContextAction === next.onCommitContextAction
-    && areStringArraysEqual(previous.columnOrder, next.columnOrder)
+    && areHistoryColumnVisibilityEqual(previous.columnVisibility, next.columnVisibility)
     && previous.virtualRowProps["aria-posinset"] === next.virtualRowProps["aria-posinset"]
     && previous.virtualRowProps["aria-setsize"] === next.virtualRowProps["aria-setsize"]
     && previous.virtualRowProps.style.top === next.virtualRowProps.style.top;
+}
+
+function areHistoryColumnVisibilityEqual(
+  left: Readonly<Record<HistoryColumnId, boolean>>,
+  right: Readonly<Record<HistoryColumnId, boolean>>
+): boolean {
+  return left === right || HISTORY_COLUMNS.every((column) => left[column.id] === right[column.id]);
 }
 
 function resolvePostHunkSelection(summary: RepoSummary | null, selection: FileSelection): FileSelection | null {
@@ -14878,6 +14461,13 @@ function resetGitHubUiState(state: AppState): AppState {
   };
 }
 
+/** Puts an active guest view into the guest slot. Returns the same state when nothing changes. */
+function reconcileGuestView(state: AppState): AppState {
+  return isGuestView(state.activeView) && state.activeView !== state.guestView
+    ? { ...state, guestView: state.activeView }
+    : state;
+}
+
 function reconcileGitHubUiState(state: AppState, previousSummary: RepoSummary | null): AppState {
   const previousGitHubKey = previousSummary?.githubRepository?.fullName.toLowerCase() ?? "";
   const nextGitHubKey = state.summary?.githubRepository?.fullName.toLowerCase() ?? "";
@@ -14889,11 +14479,17 @@ function reconcileGitHubUiState(state: AppState, previousSummary: RepoSummary | 
       activeView: "status"
     };
   }
+  if (!nextGitHubKey && next.guestView && isGitHubView(next.guestView)) {
+    next = { ...next, guestView: null };
+  }
   if (next.activeView === "analytics" && state.summary && !state.summary.capabilities.analytics) {
     next = {
       ...next,
       activeView: "status"
     };
+  }
+  if (next.guestView === "analytics" && state.summary && !state.summary.capabilities.analytics) {
+    next = { ...next, guestView: null };
   }
 
   return next;
@@ -14948,10 +14544,6 @@ function getCurrentHistoryHeadSha(
   return decoratedHead?.hash ?? (scope === "current" ? history[0]?.hash ?? null : null);
 }
 
-function isGitHubView(view: WorkspaceView): boolean {
-  return view === "workflows" || view === "pullRequests" || view === "issues";
-}
-
 function getCommitByHash(history: GitCommitGraphRow[], hash: string): GitCommitGraphRow | null {
   return history.find((commit) => commit.hash === hash) ?? null;
 }
@@ -14963,24 +14555,6 @@ function getCommitTags(commit: GitCommitGraphRow): Array<{ name: string }> {
 function getCommitSummaryLabel(commit: GitCommitGraphRow): string {
   const subject = commit.subject || "(no subject)";
   return `${commit.shortHash}: ${subject}`;
-}
-
-function getPushRemotes(summary: RepoSummary | null): string[] {
-  if (!summary) {
-    return [];
-  }
-
-  return [...new Set(summary.remotes.filter((remote) => remote.direction === "push").map((remote) => remote.name))];
-}
-
-function shouldPublishInsteadOfPush(summary: RepoSummary | null): summary is RepoSummary {
-  return Boolean(
-    summary?.isValid &&
-    (summary.capabilities.setUpstream ?? true) &&
-    summary.branch &&
-    !summary.upstream &&
-    getPushRemotes(summary).length > 0
-  );
 }
 
 function getDefaultPublishRemote(summary: RepoSummary): string {
@@ -14999,19 +14573,6 @@ function getDefaultPushRemote(summary: RepoSummary): string {
   return pushRemotes.includes("origin") ? "origin" : pushRemotes[0] ?? "";
 }
 
-function getRemoteDefaultBranch(summary: RepoSummary | null): GitRemoteBranch | null {
-  if (!summary?.isValid) {
-    return null;
-  }
-
-  // origin/HEAD can be locally unset (e.g. manually added remotes), so fall
-  // back to the conventional default branch names.
-  return summary.defaultRemoteBranch
-    ?? summary.remoteBranches.find((remoteBranch) => remoteBranch.name === "origin/main")
-    ?? summary.remoteBranches.find((remoteBranch) => remoteBranch.name === "origin/master")
-    ?? null;
-}
-
 function getCreatePrBaseBranches(summary: RepoSummary | null): string[] {
   if (!summary?.isValid) {
     return [];
@@ -15021,35 +14582,6 @@ function getCreatePrBaseBranches(summary: RepoSummary | null): string[] {
   return summary.remoteBranches
     .filter((remoteBranch) => remoteBranch.remote === remoteName)
     .map((remoteBranch) => remoteBranch.branch);
-}
-
-function shouldShowCreatePullRequest(
-  summary: RepoSummary | null,
-  pullRequests: GitHubPullRequestAssociation[],
-  _hasPullRequestData: boolean
-): boolean {
-  if (!summary?.isValid || !summary.capabilities.github || !summary.githubRepository || !summary.branch) {
-    return false;
-  }
-
-  const defaultBranch = getRemoteDefaultBranch(summary);
-  if (!defaultBranch || summary.branch === defaultBranch.branch) {
-    return false;
-  }
-
-  const aheadOfDefault = summary.commitsAheadOfDefaultBranch !== null
-    ? summary.commitsAheadOfDefaultBranch > 0
-    : hasUnpushedCommits(summary) || shouldPublishInsteadOfPush(summary);
-  if (!aheadOfDefault) {
-    return false;
-  }
-
-  return pullRequests.length === 0;
-}
-
-function formatPullRequestAssociationState(pullRequest: GitHubPullRequestAssociation): string {
-  if (pullRequest.draft) return "Draft";
-  return pullRequest.state.charAt(0).toUpperCase() + pullRequest.state.slice(1).toLowerCase();
 }
 
 function formatCheckStateLabel(state: import("../shared/types").GitHubCheckState): string {
@@ -15108,50 +14640,6 @@ function getFilesForSide(summary: RepoSummary | null, side: GitDiffSide): GitSta
 
 function canDiscardStatusFile(file: GitStatusFile): boolean {
   return !file.submodule && !file.isConflicted && getFileStatusVisuals(file, "unstaged").tone !== "untracked";
-}
-
-function RemoteFact({ remotes, repositoryUrl, disabled, onOpen, onManage }: {
-  remotes: string;
-  repositoryUrl: string | null;
-  disabled: boolean;
-  onOpen: (url: string) => void;
-  onManage: () => void;
-}): ReactNode {
-  return (
-    <div className="repo-upstream-fact">
-      <dt>Remotes</dt>
-      <dd>
-        <TooltipTarget content={remotes === "-" ? undefined : remotes}><span className="repo-upstream-name">{remotes}</span></TooltipTarget>
-        <span className="repo-remote-actions">
-          <TooltipButton
-            type="button"
-            variant="outline"
-            size="icon-xs"
-            disabled={disabled || !repositoryUrl}
-            onClick={() => {
-              if (repositoryUrl) onOpen(repositoryUrl);
-            }}
-            aria-label="Open remote repository"
-            tooltip="Open remote repository"
-            disabledTooltip={!repositoryUrl ? "No hosted repository URL available" : undefined}
-          >
-            <ExternalLink />
-          </TooltipButton>
-          <TooltipButton
-            type="button"
-            variant="outline"
-            size="icon-xs"
-            disabled={disabled}
-            onClick={onManage}
-            aria-label="Manage remotes"
-            tooltip="Manage remotes"
-          >
-            <Settings />
-          </TooltipButton>
-        </span>
-      </dd>
-    </div>
-  );
 }
 
 function buildFileSelection(
@@ -15517,70 +15005,6 @@ function getAmendDisabledReason(state: AppState): string | null {
   return null;
 }
 
-type AppUpdateAction = "check" | "download" | "install" | "none";
-
-function resolveAppUpdateAction(state: AppUpdateState): AppUpdateAction {
-  if (state.status === "available") {
-    return "download";
-  }
-
-  if (state.status === "downloaded") {
-    return "install";
-  }
-
-  if (state.status === "error" && state.canRetry) {
-    return "check";
-  }
-
-  if (state.status === "checking" || state.status === "downloading") {
-    return "check";
-  }
-
-  return "none";
-}
-
-function getAppUpdateButtonLabel(state: AppUpdateState): string {
-  if (state.status === "checking") {
-    return "Checking for updates";
-  }
-
-  if (state.status === "downloading") {
-    return typeof state.downloadPercent === "number"
-      ? `Downloading ${Math.floor(state.downloadPercent)}%`
-      : "Downloading update";
-  }
-
-  if (state.status === "downloaded") {
-    return "Restart to update";
-  }
-
-  if (state.status === "error") {
-    return getAppUpdateMessageSummary(state);
-  }
-
-  if (state.status === "available" && state.errorContext === "download") {
-    return "Retry update download";
-  }
-
-  return "Update available";
-}
-
-function getAppUpdateMessageSummary(state: AppUpdateState): string {
-  if (state.status !== "error") {
-    return state.message ?? "";
-  }
-
-  if (state.errorContext === "download") {
-    return "Update download failed";
-  }
-
-  if (state.errorContext === "install") {
-    return "Update install failed";
-  }
-
-  return "Update check failed";
-}
-
 function isSameRepoPath(left: string, right: string): boolean {
   return getRepoPathKey(left) === getRepoPathKey(right);
 }
@@ -15595,6 +15019,36 @@ function getRepositoryWorkspacePaths(groups: RepositoryGroup[], fallback: string
     ? group.worktrees.filter((worktree) => !worktree.isBare && !worktree.prunable).map((worktree) => worktree.path)
     : [group.anchorPath]);
   return [...new Map(paths.map((repoPath) => [getRepoPathKey(repoPath), repoPath])).values()];
+}
+
+interface HeaderRepository {
+  displayName: string;
+  /** The path the repository context menu acts on, with the row it belongs to. */
+  menuPath: string;
+  menuTarget: RepositoryMenuTarget;
+}
+
+/** Names the open repository like its quick switcher row: a saved repository by its alias, a worktree by its folder. */
+function getHeaderRepository(
+  repoPath: string,
+  repoRecents: string[],
+  groups: RepositoryGroup[],
+  organization: RepositoryOrganization
+): HeaderRepository {
+  const group = findRepositoryGroup(groups, repoPath);
+  const worktree = group && !isSameRepoPath(group.anchorPath, repoPath)
+    ? group.worktrees.find((candidate) => isSameRepoPath(candidate.path, repoPath)) ?? null
+    : null;
+  if (group && worktree) {
+    return { displayName: getRepoDisplayName(repoPath), menuPath: worktree.path, menuTarget: { group, worktree } };
+  }
+  const savedPath = group?.anchorPath ?? repoRecents.find((path) => isSameRepoPath(path, repoPath)) ?? null;
+  const labelPath = savedPath ?? repoPath;
+  return {
+    displayName: repositoryPreference(organization, labelPath).alias || getRepoDisplayName(labelPath),
+    menuPath: labelPath,
+    menuTarget: { ...(group ? { group } : {}), ...(savedPath ? { reorder: true } : {}) }
+  };
 }
 
 function findRepositoryGroup(groups: RepositoryGroup[], repoPath: string): RepositoryGroup | null {
@@ -15651,47 +15105,6 @@ function createRepoSyncStatusFromSummary(summary: RepoSummary): RepoSyncStatus {
     behind: counts?.behind ?? 0,
     error: summary.isValid ? "" : summary.validationErrors.join(" ")
   };
-}
-
-function formatRepoSyncStatusDescription(status: RepoSyncStatus | null): string {
-  if (!status?.isValid) {
-    return "";
-  }
-
-  return [
-    status.ahead > 0 ? formatCommitCountLabel(status.ahead, "ahead") : "",
-    status.behind > 0 ? formatCommitCountLabel(status.behind, "behind") : ""
-  ].filter(Boolean).join(", ");
-}
-
-function formatActionCountLabel(action: "Pull" | "Push", count: number): string {
-  return `${action} ${count} ${count === 1 ? "commit" : "commits"}`;
-}
-
-function formatCommitCountLabel(count: number, direction: "ahead" | "behind"): string {
-  return `${count} ${count === 1 ? "commit" : "commits"} ${direction}`;
-}
-
-function moveRepoPath(repoPaths: string[], fromRepoPath: string, toRepoPath: string, position: RepositoryDropPosition): string[] {
-  const fromIndex = repoPaths.findIndex((repoPath) => isSameRepoPath(repoPath, fromRepoPath));
-  const toIndex = repoPaths.findIndex((repoPath) => isSameRepoPath(repoPath, toRepoPath));
-  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
-    return repoPaths;
-  }
-
-  const next = [...repoPaths];
-  const [moved] = next.splice(fromIndex, 1);
-  if (!moved) {
-    return repoPaths;
-  }
-
-  const adjustedToIndex = next.findIndex((repoPath) => isSameRepoPath(repoPath, toRepoPath));
-  if (adjustedToIndex < 0) {
-    return repoPaths;
-  }
-
-  next.splice(position === "before" ? adjustedToIndex : adjustedToIndex + 1, 0, moved);
-  return next;
 }
 
 function getDropPosition(clientY: number, element: HTMLElement): RepositoryDropPosition {
@@ -15754,6 +15167,10 @@ function getActivityLogOperationStatus(state: AppState): string | null {
   return null;
 }
 
+function createConfiguredActionOutcome(run: ConfiguredActionRun, exitCode: number): ConfiguredActionOutcome {
+  return { name: run.name, exitCode, operationId: run.operationId, finishedAt: Date.now() };
+}
+
 function getConfiguredActionRunningHeading(runs: ConfiguredActionRun[]): string {
   if (runs.length === 1) {
     return `${runs[0]?.name ?? "Action"} running`;
@@ -15795,20 +15212,6 @@ function formatCompactUnit(value: number, unit: string): string {
   return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}${unit}`;
 }
 
-function formatRelativeDate(value: string): string {
-  const timestamp = Date.parse(value);
-  if (!Number.isFinite(timestamp)) return value || "unknown";
-  const seconds = Math.round((timestamp - Date.now()) / 1_000);
-  const absolute = Math.abs(seconds);
-  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
-  if (absolute < 60) return formatter.format(seconds, "second");
-  if (absolute < 3_600) return formatter.format(Math.round(seconds / 60), "minute");
-  if (absolute < 86_400) return formatter.format(Math.round(seconds / 3_600), "hour");
-  if (absolute < 2_592_000) return formatter.format(Math.round(seconds / 86_400), "day");
-  if (absolute < 31_536_000) return formatter.format(Math.round(seconds / 2_592_000), "month");
-  return formatter.format(Math.round(seconds / 31_536_000), "year");
-}
-
 function formatDate(value: string): string {
   if (!value) {
     return "-";
@@ -15828,21 +15231,6 @@ function formatWorkflowEvent(value: string): string {
 
 function waitForMilliseconds(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
-}
-
-function getWorkflowRunStatusClass(run: GitHubWorkflowRun): string {
-  const status = (run.conclusion ?? run.status).toLowerCase();
-  if (status === "success") {
-    return "success";
-  }
-  if (status === "failure" || status === "timed_out" || status === "cancelled") {
-    return "failure";
-  }
-  if (status === "queued" || status === "in_progress" || status === "requested" || status === "waiting") {
-    return "running";
-  }
-
-  return "neutral";
 }
 
 function isDeletedOnSide(file: GitStatusFile, side: GitDiffSide): boolean {

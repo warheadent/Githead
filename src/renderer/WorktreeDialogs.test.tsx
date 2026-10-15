@@ -45,18 +45,18 @@ describe("WorktreeRemoveDialog", () => {
     const onRemove = vi.fn();
     render(<WorktreeRemoveDialog target={target} check={dirtyCheck} checking={false} busy={false} onClose={vi.fn()} onRemove={onRemove} />);
 
-    const removeButton = screen.getByRole("button", { name: "Remove Worktree (3)" }) as HTMLButtonElement;
+    const removeButton = screen.getByRole("button", { name: "Remove worktree (3)" }) as HTMLButtonElement;
     expect(removeButton.disabled).toBe(true);
     expect(screen.queryByText(/available after 3 seconds/i)).toBeNull();
 
     act(() => vi.advanceTimersByTime(1_000));
-    expect(screen.getByRole("button", { name: "Remove Worktree (2)" })).toBe(removeButton);
+    expect(screen.getByRole("button", { name: "Remove worktree (2)" })).toBe(removeButton);
     act(() => vi.advanceTimersByTime(1_000));
-    expect(screen.getByRole("button", { name: "Remove Worktree (1)" })).toBe(removeButton);
+    expect(screen.getByRole("button", { name: "Remove worktree (1)" })).toBe(removeButton);
     act(() => vi.advanceTimersByTime(999));
     expect(removeButton.disabled).toBe(true);
     act(() => vi.advanceTimersByTime(1));
-    expect(screen.getByRole("button", { name: "Remove Worktree" })).toBe(removeButton);
+    expect(screen.getByRole("button", { name: "Remove worktree" })).toBe(removeButton);
     expect(removeButton.disabled).toBe(false);
     fireEvent.click(removeButton);
     expect(onRemove).toHaveBeenCalledOnce();
@@ -65,7 +65,7 @@ describe("WorktreeRemoveDialog", () => {
   it("does not unlock non-forceable removal failures", () => {
     vi.useFakeTimers();
     render(<WorktreeRemoveDialog target={target} check={{ ...dirtyCheck, canForceRemove: false, reason: "Worktree is locked." }} checking={false} busy={false} onClose={vi.fn()} onRemove={vi.fn()} />);
-    const removeButton = screen.getByRole("button", { name: "Remove Worktree" }) as HTMLButtonElement;
+    const removeButton = screen.getByRole("button", { name: "Remove worktree" }) as HTMLButtonElement;
 
     act(() => vi.advanceTimersByTime(3_000));
     expect(removeButton.disabled).toBe(true);
@@ -77,7 +77,7 @@ describe("WorktreeRemoveDialog", () => {
     render(<WorktreeRemoveDialog target={target} check={{ ...dirtyCheck, canRemove: true }} checking={false} busy onClose={onClose} onRemove={onRemove} />);
 
     const cancel = screen.getByRole("button", { name: "Cancel operation" }) as HTMLButtonElement;
-    const remove = screen.getByRole("button", { name: "Remove Worktree (3)" }) as HTMLButtonElement;
+    const remove = screen.getByRole("button", { name: "Remove worktree (3)" }) as HTMLButtonElement;
     expect(cancel.disabled).toBe(false);
     expect(remove.disabled).toBe(true);
     fireEvent.click(remove);
@@ -129,21 +129,21 @@ describe("WorktreeCreateDialog", () => {
     const onCreate = vi.fn().mockResolvedValue(failure);
     render(<WorktreeCreateDialog open group={group} branches={[]} remoteBranches={[]} busy={false} onCancel={vi.fn()} onOpenChange={vi.fn()} onChooseParent={vi.fn()} onCreate={onCreate} />);
     fireEvent.change(screen.getByLabelText("Branch"), { target: { value: "feature/test" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create Worktree" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create worktree" }));
     const alert = await screen.findByRole("alert");
     expect(alert.querySelectorAll("p")[1]?.textContent).toBe("fatal: disk full");
     expect(alert.querySelector("details")?.open).toBe(false);
     expect(alert.querySelector("pre")!.textContent!.length).toBeLessThanOrEqual(16_384);
     expect((screen.getByLabelText("Branch") as HTMLInputElement).value).toBe("feature/test");
-    expect((screen.getByRole("button", { name: "Create Worktree" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Create worktree" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("restores the form after a rejected request", async () => {
     render(<WorktreeCreateDialog open group={group} branches={[]} remoteBranches={[]} busy={false} onCancel={vi.fn()} onOpenChange={vi.fn()} onChooseParent={vi.fn()} onCreate={vi.fn().mockRejectedValue(new Error("Connection lost"))} />);
     fireEvent.change(screen.getByLabelText("Branch"), { target: { value: "feature/test" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create Worktree" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create worktree" }));
     expect((await screen.findByRole("alert")).textContent).toContain("Connection lost");
-    expect((screen.getByRole("button", { name: "Create Worktree" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Create worktree" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("keeps cancellation available while creation controls remain disabled", () => {
@@ -152,7 +152,7 @@ describe("WorktreeCreateDialog", () => {
     render(<WorktreeCreateDialog open group={group} branches={[]} remoteBranches={[]} busy onCancel={onOpenChange} onOpenChange={onOpenChange} onChooseParent={vi.fn()} onCreate={onCreate} />);
 
     const cancel = screen.getByRole("button", { name: "Cancel operation" }) as HTMLButtonElement;
-    const create = screen.getByRole("button", { name: "Creating Worktree..." }) as HTMLButtonElement;
+    const create = screen.getByRole("button", { name: "Creating worktree..." }) as HTMLButtonElement;
     expect(cancel.disabled).toBe(false);
     expect(create.disabled).toBe(true);
     fireEvent.click(create);

@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TooltipTarget } from "@/components/ui/tooltip";
 import type { GitRemoteConfig } from "../shared/types";
+import { EmptyState } from "./EmptyState";
 import { LoadingState } from "./LoadingState";
 
 type RemoteDialogMode =
@@ -144,17 +145,16 @@ export function RemoteManagementDialog({
     ? mode.remote
     : null;
   const impactsGitHub = selectedRemote?.name === "origin" && hasGitHubOrigin;
-  const title = mode.kind === "list" ? "Manage Remotes"
-    : mode.kind === "add" ? "Add Remote"
-    : mode.kind === "rename" ? "Rename Remote"
-    : mode.kind === "edit" ? "Edit Remote URL"
-    : "Remove Remote";
+  const title = mode.kind === "list" ? "Manage remotes"
+    : mode.kind === "add" ? "Add remote"
+    : mode.kind === "rename" ? "Rename remote"
+    : mode.kind === "edit" ? "Edit remote URL"
+    : "Remove remote";
   const description = mode.kind === "list" ? "Manage the repositories you fetch from and push to."
     : mode.kind === "add" ? "Connect this repository to another location."
     : mode.kind === "rename" ? "Choose a new local name for this remote."
     : mode.kind === "edit" ? "Update the address used for fetch and push."
     : "Review what will change before removing this remote.";
-  const HeaderIcon = mode.kind === "remove" ? Trash2 : mode.kind === "edit" ? Link2 : Network;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -162,18 +162,11 @@ export function RemoteManagementDialog({
         className={`max-h-[85vh] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden p-0 ${mode.kind === "list" ? "sm:max-w-2xl" : "sm:max-w-xl"}`}
         aria-busy={busy}
       >
-        <DialogHeader className="gap-4 border-b px-6 py-5 text-left">
-          <div className="flex items-start gap-3 pr-6">
-            <div className={`flex size-10 shrink-0 items-center justify-center rounded-lg border ${mode.kind === "remove" ? "border-destructive/20 bg-destructive/10 text-destructive" : "border-primary/15 bg-primary/10 text-primary"}`}>
-              <HeaderIcon className="size-5" aria-hidden="true" />
-            </div>
-            <div className="grid min-w-0 gap-1.5">
-              <DialogTitle className="leading-6">{title}</DialogTitle>
-              <DialogDescription className="text-pretty leading-5">{description}</DialogDescription>
-            </div>
-          </div>
+        <DialogHeader className="border-b px-6 py-5 pr-14">
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription className="text-pretty">{description}</DialogDescription>
           <TooltipTarget content={repoPath}>
-            <p className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+            <p className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
               <FolderGit2 className="size-3.5 shrink-0" aria-hidden="true" />
               <span className="selectable-text truncate">{repoPath}</span>
             </p>
@@ -206,7 +199,7 @@ export function RemoteManagementDialog({
                 });
               }}
             />
-            <div className="flex items-center justify-between gap-4 border-t bg-muted/20 px-6 py-4">
+            <div className="flex items-center justify-between gap-4 border-t px-6 py-4">
               <LocalChangesNote />
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Done</Button>
             </div>
@@ -215,7 +208,7 @@ export function RemoteManagementDialog({
           <form key={mode.kind} className="grid min-h-0 grid-rows-[minmax(0,1fr)_auto]" onSubmit={submit}>
             <div className="grid content-start gap-5 overflow-y-auto px-6 py-5">
               {selectedRemote ? (
-                <div className="grid min-w-0 gap-3 rounded-lg border bg-muted/20 p-4">
+                <div className="grid min-w-0 gap-3 rounded-lg border bg-surface p-4">
                   <div className="flex min-w-0 items-center gap-2">
                     <Network className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                     <span className="selectable-text break-all text-sm font-semibold">{selectedRemote.name}</span>
@@ -245,9 +238,9 @@ export function RemoteManagementDialog({
                     <Input id="remote-new-name" value={name} onChange={(event) => setName(event.target.value)} disabled={busy} autoFocus aria-invalid={Boolean(error)} aria-describedby={error ? "remote-error" : undefined} autoComplete="off" spellCheck={false} />
                   </div>
                   {mode.remote.trackedBranches.length > 0 || impactsGitHub ? (
-                    <div className="grid gap-4 rounded-lg border bg-muted/20 p-4">
+                    <div className="grid gap-2">
                       {mode.remote.trackedBranches.length > 0 ? (
-                        <ImpactNotice title="Branch tracking will be updated">
+                        <ImpactNotice title="Branch tracking will be updated" tone="info">
                           Git will update the upstream configuration for {formatBranches(mode.remote.trackedBranches)}.
                         </ImpactNotice>
                       ) : null}
@@ -269,12 +262,12 @@ export function RemoteManagementDialog({
 
               {mode.kind === "remove" ? (
                 <>
-                  <div className="grid gap-4 rounded-lg border border-destructive/25 bg-destructive/5 p-4">
-                    <ImpactNotice title="Remote connection will be removed" destructive>
+                  <div className="grid gap-2">
+                    <ImpactNotice title="Remote connection will be removed" tone="danger">
                       This removes the local remote configuration and remote-tracking references. Your local branches and the remote repository are kept.
                     </ImpactNotice>
                     {mode.remote.trackedBranches.length > 0 ? (
-                      <ImpactNotice title="Branch tracking will be cleared" destructive>
+                      <ImpactNotice title="Branch tracking will be cleared" tone="danger">
                         The upstream will be removed from {formatBranches(mode.remote.trackedBranches)}.
                       </ImpactNotice>
                     ) : null}
@@ -283,10 +276,10 @@ export function RemoteManagementDialog({
                 </>
               ) : null}
 
-              {error ? <p id="remote-error" className="selectable-text break-words rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">{error}</p> : null}
+              {error ? <p id="remote-error" className="dialog-error" role="alert">{error}</p> : null}
             </div>
 
-            <div className="grid gap-4 border-t bg-muted/20 px-6 py-4">
+            <div className="grid gap-4 border-t px-6 py-4">
               <LocalChangesNote />
               <DialogFooter className="sm:justify-between">
                 <Button type="button" variant="outline" autoFocus={mode.kind === "remove"} onClick={busy ? () => onOpenChange(false) : returnToList}>
@@ -294,7 +287,7 @@ export function RemoteManagementDialog({
                 </Button>
                 <Button type="submit" variant={mode.kind === "remove" ? "destructive" : "default"} disabled={busy || mutationBlocked}>
                   {busy ? <Loader2 className="animate-spin" /> : null}
-                  {mode.kind === "add" ? "Add Remote" : mode.kind === "rename" ? "Rename Remote" : mode.kind === "edit" ? "Save URL" : "Remove Remote"}
+                  {mode.kind === "add" ? "Add remote" : mode.kind === "rename" ? "Rename remote" : mode.kind === "edit" ? "Save URL" : "Remove remote"}
                 </Button>
               </DialogFooter>
             </div>
@@ -331,29 +324,33 @@ function RemoteList({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="flex items-center gap-2 text-sm font-medium">Configured remotes <Badge variant="secondary" className="tabular-nums">{remotes.length}</Badge></p>
         <Button type="button" size="sm" onClick={onAdd} disabled={loading || busy}>
-          <Plus /> Add Remote
+          <Plus /> Add remote
         </Button>
       </div>
       <div className="space-y-3 overflow-y-auto" aria-live="polite" aria-busy={loading}>
         {loading ? <LoadingState label="Loading remotes" /> : null}
         {!loading && error ? (
-          <div className="grid gap-3 rounded-md border border-destructive/40 p-4" role="alert">
-            <p className="error-text selectable-text">{error}</p>
-            <Button type="button" variant="outline" size="sm" className="justify-self-start" onClick={onReload}>Try Again</Button>
+          <div className="dialog-notice" data-tone="danger" role="alert">
+            <TriangleAlert aria-hidden="true" />
+            <div className="grid justify-items-start gap-3">
+              <p className="dialog-error">{error}</p>
+              <Button type="button" variant="outline" size="sm" onClick={onReload}>Try again</Button>
+            </div>
           </div>
         ) : null}
         {!loading && !error && remotes.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed px-6 py-8 text-center">
-            <Network className="mb-1 size-6 text-muted-foreground" aria-hidden="true" />
-            <p className="text-sm font-medium">No remotes configured</p>
-            <p className="max-w-xs text-sm leading-5 text-muted-foreground">Add a remote to fetch changes or push your commits to another repository.</p>
-          </div>
+          <EmptyState
+            className="rounded-lg border border-dashed"
+            icon={<Network />}
+            title="No remotes configured"
+            description="Add a remote to fetch changes or push your commits to another repository."
+          />
         ) : null}
         {!loading && !error ? remotes.map((remote) => {
           const advanced = !isRemoteUrlEditable(remote);
           return (
-            <section key={remote.name} className="overflow-hidden rounded-lg border bg-card" aria-label={`Remote ${remote.name}`}>
-              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b bg-muted/20 px-4 py-3">
+            <section key={remote.name} className="overflow-hidden rounded-lg border bg-surface" aria-label={`Remote ${remote.name}`}>
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b px-4 py-2">
                 <div className="flex min-w-0 flex-1 items-center gap-2">
                   <Network className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                   <h3 className="selectable-text break-all text-sm font-semibold">{remote.name}</h3>
@@ -407,13 +404,13 @@ function LocalChangesNote(): ReactNode {
   );
 }
 
-function ImpactNotice({ title, destructive = false, children }: { title: string; destructive?: boolean; children: ReactNode }): ReactNode {
-  const Icon = destructive ? TriangleAlert : Info;
+function ImpactNotice({ title, tone, children }: { title: string; tone: "info" | "warning" | "danger"; children: ReactNode }): ReactNode {
+  const Icon = tone === "info" ? Info : TriangleAlert;
   return (
-    <div className="flex items-start gap-2.5">
-      <Icon className={`mt-0.5 size-4 shrink-0 ${destructive ? "text-destructive" : "text-muted-foreground"}`} aria-hidden="true" />
+    <div className="dialog-notice" data-tone={tone}>
+      <Icon aria-hidden="true" />
       <div className="min-w-0">
-        <p className="text-sm font-medium">{title}</p>
+        <p className="dialog-notice-title">{title}</p>
         <p className="selectable-text mt-1 break-words text-xs leading-5 text-muted-foreground">{children}</p>
       </div>
     </div>
@@ -422,7 +419,7 @@ function ImpactNotice({ title, destructive = false, children }: { title: string;
 
 function GitHubImpactNotice({ action }: { action: "renaming" | "removing" }): ReactNode {
   return (
-    <ImpactNotice title="GitHub views will be disconnected" destructive={action === "removing"}>
+    <ImpactNotice title="GitHub views will be disconnected" tone={action === "removing" ? "danger" : "warning"}>
       {action === "renaming" ? "Renaming" : "Removing"} origin disables Workflow Runs, Pull Requests, and Issues until a supported GitHub remote is named origin again.
     </ImpactNotice>
   );

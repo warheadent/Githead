@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { loreCapabilities, type RepositoryAnalytics } from "../shared/types";
-import { createSummary, githead, repoPath, waitForRepositoryWorkspace } from "./AppTestHarness";
+import { createSummary, githead, openQuickSwitcher, openWorkspaceView, repoPath, waitForRepositoryWorkspace } from "./AppTestHarness";
 import { App } from "./App";
 
 function emptyRange(): RepositoryAnalytics["ranges"]["all"] {
@@ -33,20 +33,23 @@ describe("analytics workspace tab", () => {
     vi.mocked(githead.getRepositoryAnalytics).mockResolvedValue(analytics());
     render(<App />);
     await waitForRepositoryWorkspace();
-    await user.click(await screen.findByRole("tab", { name: "Analytics" }));
+    await openWorkspaceView("Analytics", user);
     await waitFor(() => expect(githead.getRepositoryAnalytics).toHaveBeenCalledWith(expect.objectContaining({ repoPath, excludePaths: true })));
     await user.click(await screen.findByRole("tab", { name: "Code" }));
     await user.click(await screen.findByRole("button", { name: "Open file history for src/app.ts" }));
     await waitFor(() => expect(githead.getFileHistory).toHaveBeenCalledWith(expect.objectContaining({ repoPath, startHash: "b".repeat(40), path: "src/app.ts" })));
-    expect(screen.getByRole("tab", { name: "Commit History" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: "History" }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("hides analytics for repositories that do not support it", async () => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ kind: "lore", capabilities: loreCapabilities() }));
     render(<App />);
     await waitForRepositoryWorkspace();
-    await screen.findByRole("tab", { name: /File Status/ });
+    await screen.findByRole("tab", { name: /^Changes/ });
     expect(screen.queryByRole("tab", { name: "Analytics" })).toBeNull();
+    const switcher = await openQuickSwitcher();
+    expect(within(switcher).getByRole("option", { name: /^Activity log/ })).toBeTruthy();
+    expect(within(switcher).queryByRole("option", { name: /^Analytics/ })).toBeNull();
     expect(githead.getRepositoryAnalytics).not.toHaveBeenCalled();
   });
 });

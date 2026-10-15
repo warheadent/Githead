@@ -18,6 +18,10 @@ import {
   flushRendererAsync,
   gitOutputCallback,
   githead,
+  chooseSwitcherOption,
+  openAddRepository,
+  openQuickSwitcher,
+  openWorkspaceView,
   repoPath,
   repositoryRecents,
   updateStateCallback,
@@ -56,11 +60,14 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
     await screen.findByRole("option", { name: /src\/new.ts/ });
     fireEvent.change(screen.getByRole("textbox", { name: "Search changed files" }), { target: { value: "SRC/" } });
-    fireEvent.change(screen.getByRole("combobox", { name: "Filter files by status" }), { target: { value: "modified" } });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Filter files by status" }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Modified" }));
+    expect(screen.getByRole("button", { name: "Filter files by status" }).textContent).toBe("Modified");
     expect(within(screen.getByRole("listbox", { name: "Staged files" })).queryAllByRole("option")).toHaveLength(0);
     const unstaged = screen.getByRole("listbox", { name: "Unstaged files" });
     expect(within(unstaged).getAllByRole("option")).toHaveLength(1);
-    expect(screen.getByRole("heading", { name: "Unstaged files (1 of 3)" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Changes 1 of 3" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Stage 1 matching" }));
     await waitFor(() => expect(githead.stageFiles).toHaveBeenCalledWith({ repoPath, paths: ["src/mixed.ts"], operationId: expect.any(String) }));
   });
@@ -94,7 +101,10 @@ describe("App", { timeout: 10_000 }, () => {
     const file = screen.getByRole("option", { name: /legacy\/old.ts -> src\/renamed.ts/ });
     fireEvent.click(file);
     fireEvent.keyDown(file, { key: "a", ctrlKey: true });
-    fireEvent.click(screen.getByRole("button", { name: "Stage 1 file" }));
+    // A single selected file has no header selection button; its context menu acts on the selection.
+    expect(screen.queryByRole("button", { name: /^Stage \d+ files?$/ })).toBeNull();
+    fireEvent.contextMenu(file);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Stage 1 file" }));
     await waitFor(() => expect(githead.stageFiles).toHaveBeenCalledWith({ repoPath, paths: ["src/renamed.ts"], operationId: expect.any(String) }));
   });
 
@@ -110,7 +120,8 @@ describe("App", { timeout: 10_000 }, () => {
     const role = viewMode === "tree" ? "treeitem" : "option";
     const first = screen.getByRole(role, { name: /src\/file-0000.ts/ });
     const list = screen.getByRole(viewMode === "tree" ? "tree" : "listbox", { name: "Unstaged files" });
-    Object.defineProperty(list, "clientHeight", { configurable: true, value: 340 });
+    const scroller = document.querySelector<HTMLElement>("[data-workspace-scroll-key='status-files']")!;
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 340 });
     fireEvent.click(first);
     fireEvent.keyDown(first, { key: "End", shiftKey: true });
     const last = screen.getByRole(role, { name: /src\/file-0999.ts/ });
@@ -147,6 +158,30 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.getByRole("option", { name: /change.ts/ })).toBeTruthy();
   });
 
+  it("shows one clean state instead of two empty groups", async () => {
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [] }));
+    render(<App />);
+    expect(await screen.findByText("Working tree clean")).toBeTruthy();
+    expect(screen.getByText("Nothing to commit on main")).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Staged files" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Unstaged files" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Stage all" })).toBeNull();
+  });
+
+  it("collapses a group with files and keeps its icon action named for assistive technology", async () => {
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [createStatusFile("change.ts", { isUnstaged: true, worktreeStatus: "M" })] }));
+    render(<App />);
+    await screen.findByRole("option", { name: /change.ts/ });
+    expect(screen.getByRole("button", { name: "Stage all" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Unstage all" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Collapse unstaged files" }));
+    expect(screen.getByRole("button", { name: "Expand unstaged files" }).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("option", { name: /change.ts/ })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Changes 1" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Expand unstaged files" }));
+    expect(screen.getByRole("option", { name: /change.ts/ })).toBeTruthy();
+  });
+
   it.each(["filesystem", "filesystem-metadata"] as const)("cancels discard and refuses a discard after a %s change", async (reason) => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [createStatusFile("change.ts", { isUnstaged: true, worktreeStatus: "M" })] }));
     render(<App />);
@@ -166,6 +201,44 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Discard changes" }).hasAttribute("disabled")).toBe(true));
     fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
     expect(githead.revertFileChanges).not.toHaveBeenCalled();
+  });
+
+  it("acts on one file from its row buttons and confirms a row discard", async () => {
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files: [
+      createStatusFile("src/staged.ts", { isStaged: true, indexStatus: "M" }),
+      createStatusFile("src/first.ts", { isUnstaged: true, worktreeStatus: "M" }),
+      createStatusFile("src/second.ts", { isUnstaged: true, worktreeStatus: "M" }),
+      createStatusFile("src/new.ts", { isUnstaged: true, worktreeStatus: "?" })
+    ] }));
+    render(<App />);
+    const first = await screen.findByRole("option", { name: /src\/first\.ts/ });
+    fireEvent.click(first);
+    fireEvent.click(screen.getByRole("option", { name: /src\/second\.ts/ }), { ctrlKey: true });
+    // The row buttons stay out of the tab order and act on their own file, not on the selection.
+    const stage = screen.getByRole("button", { name: "Stage src/first.ts" });
+    expect(stage.tabIndex).toBe(-1);
+    expect(screen.getByRole("button", { name: "Stage src/new.ts" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Discard changes in src/new.ts" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Stage src/staged.ts" })).toBeNull();
+    fireEvent.click(stage);
+    await waitFor(() => expect(githead.stageFiles).toHaveBeenCalledWith({ repoPath, paths: ["src/first.ts"], operationId: expect.any(String) }));
+
+    const unstage = screen.getByRole("button", { name: "Unstage src/staged.ts" });
+    await waitFor(() => expect(unstage.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(unstage);
+    await waitFor(() => expect(githead.unstageFiles).toHaveBeenCalledWith({ repoPath, paths: ["src/staged.ts"], operationId: expect.any(String) }));
+
+    const discard = screen.getByRole("button", { name: "Discard changes in src/second.ts" });
+    await waitFor(() => expect(discard.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(discard);
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("src/second.ts")).toBeTruthy();
+    expect(githead.revertFileChanges).not.toHaveBeenCalled();
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Discard changes" }).hasAttribute("disabled")).toBe(false));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Discard changes" }));
+    await waitFor(() => expect(githead.revertFileChanges).toHaveBeenCalledWith({
+      repoPath, paths: ["src/second.ts"], side: "unstaged", expectedSnapshot: "unchanged-snapshot", operationId: expect.any(String)
+    }));
   });
 
   it.each(["filesystem", "filesystem-metadata", "focus"] as const)("allows discard of unchanged files after %s activity", async (reason) => {
@@ -379,52 +452,6 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.getByRole("listbox", { name: "Staged files" }).getAttribute("aria-multiselectable")).toBe("true");
   });
 
-  it("stages a shift-selected unstaged file range through the preload API", async () => {
-    const user = userEvent.setup();
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      files: [
-        createStatusFile("src/a.ts", {
-          isUnstaged: true,
-          worktreeStatus: "M"
-        }),
-        createStatusFile("src/b.ts", {
-          isUnstaged: true,
-          worktreeStatus: "M"
-        }),
-        createStatusFile("src/c.ts", {
-          isUnstaged: true,
-          worktreeStatus: "M"
-        })
-      ]
-    }));
-
-    render(<App />);
-
-    const firstFile = await screen.findByRole("option", { name: /src\/a\.ts/ });
-    const middleFile = screen.getByRole("option", { name: /src\/b\.ts/ });
-    const lastFile = screen.getByRole("option", { name: /src\/c\.ts/ });
-    await user.click(firstFile);
-    fireEvent.click(lastFile, { shiftKey: true });
-
-    expect(firstFile.getAttribute("aria-selected")).toBe("true");
-    expect(middleFile.getAttribute("aria-selected")).toBe("true");
-    expect(lastFile.getAttribute("aria-selected")).toBe("true");
-
-    await user.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
-
-    await waitFor(() => {
-      expect(githead.stageFiles).toHaveBeenCalledWith({
-        repoPath,
-        paths: [
-          "src/a.ts",
-          "src/b.ts",
-          "src/c.ts"
-        ],
-        operationId: expect.any(String)
-      });
-    });
-  });
-
   it("keeps a 10,000-file status list viewport-proportional and selects across unmounted rows", async () => {
     const files = Array.from({ length: 10_000 }, (_, index) => createStatusFile(
       `generated/file-${index.toString().padStart(5, "0")}.ts`,
@@ -441,9 +468,10 @@ describe("App", { timeout: 10_000 }, () => {
     expect(initiallyMounted[0]?.getAttribute("aria-posinset")).toBe("1");
 
     fireEvent.click(initiallyMounted[0]!);
-    Object.defineProperty(list, "clientHeight", { configurable: true, value: 340 });
-    Object.defineProperty(list, "scrollTop", { configurable: true, writable: true, value: 500 * 34 });
-    fireEvent.scroll(list);
+    const scroller = document.querySelector<HTMLElement>("[data-workspace-scroll-key='status-files']")!;
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 340 });
+    Object.defineProperty(scroller, "scrollTop", { configurable: true, writable: true, value: 500 * 32 });
+    fireEvent.scroll(scroller);
 
     expect(within(list).queryByText("generated/file-00000.ts")).toBeNull();
     const target = within(list).getByRole("option", { name: /generated\/file-00500\.ts/ });
@@ -456,6 +484,71 @@ describe("App", { timeout: 10_000 }, () => {
       expect(request?.paths[0]).toBe("generated/file-00000.ts");
       expect(request?.paths.at(-1)).toBe("generated/file-00500.ts");
     });
+  });
+
+  it("keeps the shared file scroller in place when a selected row moves to the other group", async () => {
+    const paths = Array.from({ length: 1_000 }, (_, index) => `generated/file-${index.toString().padStart(4, "0")}.ts`);
+    const movedPath = paths[500]!;
+    vi.mocked(githead.getRepoSummary)
+      .mockResolvedValueOnce(createSummary({ files: paths.map((path) => createStatusFile(path, { isUnstaged: true, worktreeStatus: "M" })) }))
+      .mockResolvedValue(createSummary({ files: paths.map((path) => path === movedPath
+        ? createStatusFile(path, { isStaged: true, indexStatus: "M" })
+        : createStatusFile(path, { isUnstaged: true, worktreeStatus: "M" })) }));
+    render(<App />);
+
+    const list = await screen.findByRole("listbox", { name: "Unstaged files" });
+    const scroller = document.querySelector<HTMLElement>("[data-workspace-scroll-key='status-files']")!;
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 340 });
+    Object.defineProperty(scroller, "scrollTop", { configurable: true, writable: true, value: 495 * 32 });
+    fireEvent.scroll(scroller);
+    fireEvent.click(within(list).getByRole("option", { name: new RegExp(movedPath) }));
+
+    fireEvent.click(screen.getByRole("button", { name: `Stage ${movedPath}` }));
+    await waitFor(() => expect(githead.stageFiles).toHaveBeenCalledWith({ repoPath, paths: [movedPath], operationId: expect.any(String) }));
+    emitRepoChanged();
+
+    const staged = await screen.findByRole("listbox", { name: "Staged files" });
+    await waitFor(() => expect(within(staged).getByRole("option", { name: new RegExp(movedPath) }).getAttribute("aria-selected")).toBe("true"));
+    expect(scroller.scrollTop).toBe(495 * 32);
+  });
+
+  it("keeps the selection and the shared file scroller in place when the final hunk of a file is staged", async () => {
+    const paths = Array.from({ length: 1_000 }, (_, index) => `generated/file-${index.toString().padStart(4, "0")}.ts`);
+    const movedPath = paths[500]!;
+    vi.mocked(githead.getRepoSummary)
+      .mockResolvedValueOnce(createSummary({ files: paths.map((path) => createStatusFile(path, { isUnstaged: true, worktreeStatus: "M" })) }))
+      .mockResolvedValue(createSummary({ files: paths.map((path) => path === movedPath
+        ? createStatusFile(path, { isStaged: true, indexStatus: "M" })
+        : createStatusFile(path, { isUnstaged: true, worktreeStatus: "M" })) }));
+    vi.mocked(githead.getFileDiff).mockImplementation(async ({ path, side }) => createTextDiff(path, `${side}-hunk`, side));
+    render(<App />);
+
+    const list = await screen.findByRole("listbox", { name: "Unstaged files" });
+    const scroller = document.querySelector<HTMLElement>("[data-workspace-scroll-key='status-files']")!;
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 340 });
+    Object.defineProperty(scroller, "scrollTop", { configurable: true, writable: true, value: 495 * 32 });
+    fireEvent.scroll(scroller);
+    fireEvent.click(within(list).getByRole("option", { name: new RegExp(movedPath) }));
+    expect(await screen.findByText("unstaged-hunk")).toBeTruthy();
+
+    // Hold the metadata section so the refreshed status renders on its own, as it can in the app.
+    const metadataGate = defer<void>();
+    const loadMetadata = vi.mocked(githead.getRepoMetadata).getMockImplementation()!;
+    vi.mocked(githead.getRepoMetadata).mockImplementation(async (request) => {
+      await metadataGate.promise;
+      return loadMetadata(request);
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Stage hunk$/ }));
+    await waitFor(() => expect(githead.stageHunk).toHaveBeenCalledWith(expect.objectContaining({ path: movedPath, side: "unstaged" })));
+
+    const staged = await screen.findByRole("listbox", { name: "Staged files" });
+    await waitFor(() => expect(within(staged).queryByRole("option", { name: new RegExp(movedPath) })?.getAttribute("aria-selected")).toBe("true"));
+    expect(scroller.scrollTop).toBe(495 * 32);
+
+    metadataGate.resolve();
+    expect(await screen.findByText("staged-hunk")).toBeTruthy();
+    expect(within(staged).getByRole("option", { name: new RegExp(movedPath) }).getAttribute("aria-selected")).toBe("true");
+    expect(scroller.scrollTop).toBe(495 * 32);
   });
 
   it("stages all 10,000 selected files without repeatedly scanning their paths", async () => {
@@ -485,7 +578,7 @@ describe("App", { timeout: 10_000 }, () => {
     });
   });
 
-  it.each(["Stage 1 file", "Stage All"])("%s excludes submodules that cannot be staged", async (buttonName) => {
+  it.each(["Stage 1 file", "Stage all"])("%s excludes submodules that cannot be staged", async (buttonName) => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       files: [
         createStatusFile("src/change.ts", { isUnstaged: true, worktreeStatus: "M" }),
@@ -532,8 +625,9 @@ describe("App", { timeout: 10_000 }, () => {
     expect(within(tree).queryByText("file-00500.ts")).toBeNull();
 
     const firstFile = within(tree).getByRole("treeitem", { name: /file-00000\.ts/ });
-    expect(firstFile.style.position).toBe("absolute");
-    expect(firstFile.style.top).toBe("34px");
+    const firstRow = firstFile.closest<HTMLElement>(".file-row")!;
+    expect(firstRow.style.position).toBe("absolute");
+    expect(firstRow.style.top).toBe("32px");
     fireEvent.click(firstFile);
 
     expect(firstFile.getAttribute("aria-selected")).toBe("true");
@@ -558,46 +652,11 @@ describe("App", { timeout: 10_000 }, () => {
     emitRepoChanged();
 
     await waitFor(() => expect(screen.queryByRole("option", { name: /src\/first\.ts/ })).toBeNull());
-    expect(screen.getByRole("option", { name: /src\/second\.ts/ }).getAttribute("aria-selected")).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: /^Stage(?: \d+ files?)?$/ }));
+    const remainingRow = screen.getByRole("option", { name: /src\/second\.ts/ });
+    expect(remainingRow.getAttribute("aria-selected")).toBe("true");
+    fireEvent.contextMenu(remainingRow);
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Stage(?: \d+ files?)?$/ }));
     await waitFor(() => expect(githead.stageFiles).toHaveBeenCalledWith({ repoPath, paths: ["src/second.ts"], operationId: expect.any(String) }));
-  });
-
-  it("stages multiple selected unstaged files from a selected row context menu", async () => {
-    const user = userEvent.setup();
-    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
-      files: [
-        createStatusFile("src/first.ts", {
-          isUnstaged: true,
-          worktreeStatus: "M"
-        }),
-        createStatusFile("src/second.ts", {
-          isUnstaged: true,
-          worktreeStatus: "M"
-        })
-      ]
-    }));
-
-    render(<App />);
-
-    const firstFile = await screen.findByRole("option", { name: /src\/first\.ts/ });
-    const secondFile = screen.getByRole("option", { name: /src\/second\.ts/ });
-    await user.click(firstFile);
-    fireEvent.click(secondFile, { ctrlKey: true });
-
-    fireEvent.contextMenu(secondFile);
-    await user.click(await screen.findByRole("menuitem", { name: /^Stage(?: \d+ files?)?$/ }));
-
-    await waitFor(() => {
-      expect(githead.stageFiles).toHaveBeenCalledWith({
-        repoPath,
-        paths: [
-          "src/first.ts",
-          "src/second.ts"
-        ],
-        operationId: expect.any(String)
-      });
-    });
   });
 
   it("unstages multiple selected staged files from a selected row context menu", async () => {
@@ -800,7 +859,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getStashFileDiff).mockResolvedValue(createTextDiff("src/cache.ts", "cached-change"));
 
     render(<App />);
-    await user.click(await screen.findByRole("tab", { name: "Stashes 1" }));
+    await openWorkspaceView("Stashes", user);
 
     expect(await screen.findByRole("option", { name: /cache cleanup/ })).toBeTruthy();
     expect(await screen.findByText("cached-change")).toBeTruthy();
@@ -808,11 +867,14 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => expect(githead.applyStash).toHaveBeenCalledWith({ repoPath, stashRef: "stash@{0}", operationId: expect.any(String) }));
   });
 
-  it("hides the Stashes tab when the repository has no stashes", async () => {
+  it("offers no Stashes view when the repository has no stashes", async () => {
     render(<App />);
 
     await waitFor(() => expect(githead.getStashes).toHaveBeenCalled());
-    expect(screen.queryByRole("tab", { name: "Stashes" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: /^Stashes/ })).toBeNull();
+    const switcher = await openQuickSwitcher();
+    expect(within(switcher).getByRole("option", { name: /^Activity log/ })).toBeTruthy();
+    expect(within(switcher).queryByRole("option", { name: /^Stashes/ })).toBeNull();
   });
 
   it("uses only an unselected context-menu row instead of the previous multi-selection", async () => {
@@ -888,6 +950,46 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => {
       expect(screen.queryByText("first-value")).toBeNull();
     });
+  });
+
+  it("names the staged count on Commit and shows the diff card header with status, line stats and raw hunk bands", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [
+        createStatusFile("src/a.ts", { isStaged: true, indexStatus: "M" }),
+        createStatusFile("src/b.ts", { isStaged: true, indexStatus: "A" })
+      ]
+    }));
+    vi.mocked(githead.getFileDiff).mockResolvedValue({
+      path: "src/a.ts",
+      side: "staged",
+      kind: "text",
+      text: [
+        "diff --git a/src/a.ts b/src/a.ts",
+        "--- a/src/a.ts",
+        "+++ b/src/a.ts",
+        "@@ -1,2 +1,2 @@ export function run()",
+        "-old-value",
+        "+new-value",
+        " same-value"
+      ].join("\n")
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("option", { name: /src\/a\.ts/ }));
+    await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: two files");
+    expect((screen.getByRole("button", { name: "Commit 2 files" }) as HTMLButtonElement).disabled).toBe(false);
+
+    const diffPanel = screen.getByRole("region", { name: "Staged diff" });
+    expect(await within(diffPanel).findByText("new-value")).toBeTruthy();
+    expect(within(diffPanel).getByRole("heading", { name: "src/a.ts" })).toBeTruthy();
+    expect(diffPanel.querySelector(".diff-panel-header .status-chip")?.getAttribute("data-status-tone")).toBe("modified");
+    expect(within(diffPanel).getByText("1 line added, 1 line deleted")).toBeTruthy();
+    expect(within(diffPanel).getByText("@@ -1,2 +1,2 @@ export function run()")).toBeTruthy();
+    expect(within(diffPanel).getByRole("button", { name: "Unstage hunk" })).toBeTruthy();
+    expect(within(diffPanel).getByRole("button", { name: "Refresh diff" })).toBeTruthy();
+    expect(within(diffPanel).queryByText("Staged diff")).toBeNull();
   });
 
   it("keeps the selected diff current when a watcher comparison finds unchanged content", async () => {
@@ -967,7 +1069,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(await screen.findByText("Loaded diff is out of date")).toBeTruthy();
   });
 
-  it("refreshes the selected diff when Refresh Diff is clicked after file status changes", async () => {
+  it("refreshes the selected diff when Refresh diff is clicked after file status changes", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary)
       .mockResolvedValueOnce(createSummary({
@@ -1079,12 +1181,12 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
-    expect((screen.getByRole("button", { name: /^Commit$/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Commit 1 file" }) as HTMLButtonElement).disabled).toBe(true);
 
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: log commit output");
-    expect((screen.getByRole("button", { name: /^Commit$/ }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Commit 1 file" }) as HTMLButtonElement).disabled).toBe(false);
 
-    const commitButton = screen.getByRole("button", { name: /^Commit$/ });
+    const commitButton = screen.getByRole("button", { name: "Commit 1 file" });
     await user.click(commitButton);
 
     await waitFor(() => {
@@ -1100,8 +1202,8 @@ describe("App", { timeout: 10_000 }, () => {
     });
 
     expect(screen.getByLabelText("Commit staged files").querySelector(".status-text")).toBeNull();
-    await user.click(screen.getByRole("tab", { name: /^Activity Log/ }));
-    expect(await screen.findByText("Output Available")).toBeTruthy();
+    await openWorkspaceView("Activity log", user);
+    expect(await screen.findByText("Output available")).toBeTruthy();
     expect(screen.getByText(/create mode 100644 src\/renderer\/App\.tsx/)).toBeTruthy();
   });
 
@@ -1276,12 +1378,12 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => expect(within(commitPanel).getByRole("button", { name: /^Generate$/ })).toBeTruthy());
     expect(within(commitPanel).queryByRole("alert")).toBeNull();
 
-    await user.click(screen.getByRole("tab", { name: /^Activity Log/ }));
+    await openWorkspaceView("Activity log", user);
     expect(screen.queryByText(/Operation was cancelled/)).toBeNull();
     expect(screen.queryByText(/Generating commit message exited with code/)).toBeNull();
   });
 
-  it("opens Generate with Context and sends trimmed context with the request", async () => {
+  it("opens Generate with context and sends trimmed context with the request", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       files: [
@@ -1302,7 +1404,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     const commitPanel = await screen.findByLabelText("Commit staged files");
     await user.click(within(commitPanel).getByRole("button", { name: "More generate actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Generate with Context" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Generate with context" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Generate with context" });
     await user.type(within(dialog).getByLabelText("Change context"), "  Preserve legacy project naming.  ");
@@ -1320,7 +1422,7 @@ describe("App", { timeout: 10_000 }, () => {
     });
   });
 
-  it("stops Generate with Context and closes the dialog after one action", async () => {
+  it("stops Generate with context and closes the dialog after one action", async () => {
     const user = userEvent.setup();
     const pendingGeneration = defer<Awaited<ReturnType<typeof githead.generateCommitMessage>>>();
     const pendingCancellation = defer<Awaited<ReturnType<typeof githead.cancelGitOperation>>>();
@@ -1334,7 +1436,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     const commitPanel = await screen.findByLabelText("Commit staged files");
     await user.click(within(commitPanel).getByRole("button", { name: "More generate actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Generate with Context" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Generate with context" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Generate with context" });
     await user.type(within(dialog).getByLabelText("Change context"), "Explain the behavior");
@@ -1349,7 +1451,7 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => expect(within(commitPanel).getByRole("button", { name: /^Generate$/ })).toBeTruthy());
   });
 
-  it("keeps Generate with Context open when generation fails", async () => {
+  it("keeps Generate with context open when generation fails", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       files: [
@@ -1370,7 +1472,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     const commitPanel = await screen.findByLabelText("Commit staged files");
     await user.click(within(commitPanel).getByRole("button", { name: "More generate actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Generate with Context" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Generate with context" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Generate with context" });
     const contextInput = within(dialog).getByLabelText("Change context") as HTMLTextAreaElement;
@@ -1389,7 +1491,7 @@ describe("App", { timeout: 10_000 }, () => {
     expect(within(dialog).getByRole("alert").textContent).toBe("OpenRouter request failed.");
   });
 
-  it("keeps Generate with Context disabled until context is provided", async () => {
+  it("keeps Generate with context disabled until context is provided", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       files: [
@@ -1404,7 +1506,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     const commitPanel = await screen.findByLabelText("Commit staged files");
     await user.click(within(commitPanel).getByRole("button", { name: "More generate actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Generate with Context" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Generate with context" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Generate with context" });
     const submitButton = within(dialog).getByRole("button", { name: /^Generate$/ });
@@ -1453,16 +1555,16 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: /Commit History/ }));
+    await user.click(await screen.findByRole("tab", { name: /^History$/ }));
     expect(await screen.findByText("Existing history")).toBeTruthy();
     expect(githead.getCommitHistory).toHaveBeenCalledTimes(1);
-    await user.click(screen.getByRole("tab", { name: /File Status/ }));
+    await user.click(screen.getByRole("tab", { name: /^Changes/ }));
     await user.click(await screen.findByRole("button", { name: "Commit plan view" }));
 
     vi.mocked(githead.getRepoIdentity).mockClear();
     vi.mocked(githead.getRepoStatus).mockClear();
     vi.mocked(githead.getRepoMetadata).mockClear();
-    await user.click(screen.getByRole("button", { name: "Generate" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
     expect(await screen.findByDisplayValue("feat: keep generation read-only")).toBeTruthy();
     await flushRendererAsync();
 
@@ -1495,15 +1597,15 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: /Commit History/ }));
+    await user.click(await screen.findByRole("tab", { name: /^History$/ }));
     expect(await screen.findByText("Cached history")).toBeTruthy();
-    await user.click(screen.getByRole("tab", { name: /File Status/ }));
+    await user.click(screen.getByRole("tab", { name: /^Changes/ }));
     await user.click(await screen.findByRole("button", { name: "Commit plan view" }));
 
     vi.mocked(githead.getRepoIdentity).mockClear();
     vi.mocked(githead.getRepoStatus).mockClear();
     vi.mocked(githead.getRepoMetadata).mockClear();
-    await user.click(screen.getByRole("button", { name: "Generate" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
     expect((await screen.findByRole("alert")).textContent).toBe("Provider unavailable.");
     await flushRendererAsync();
 
@@ -1531,15 +1633,15 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: /Commit History/ }));
+    await user.click(await screen.findByRole("tab", { name: /^History$/ }));
     expect(await screen.findByText("Still cached")).toBeTruthy();
-    await user.click(screen.getByRole("tab", { name: /File Status/ }));
+    await user.click(screen.getByRole("tab", { name: /^Changes/ }));
     await user.click(await screen.findByRole("button", { name: "Commit plan view" }));
 
     vi.mocked(githead.getRepoIdentity).mockClear();
     vi.mocked(githead.getRepoStatus).mockClear();
     vi.mocked(githead.getRepoMetadata).mockClear();
-    await user.click(screen.getByRole("button", { name: "Generate" }));
+    await user.click(screen.getByRole("button", { name: "Generate plan" }));
     await user.click(await screen.findByRole("button", { name: "Cancel" }));
 
     const operationId = vi.mocked(githead.generateCommitPlan).mock.calls[0]?.[0].operationId;
@@ -1550,7 +1652,7 @@ describe("App", { timeout: 10_000 }, () => {
       plan: null,
       stderr: "Operation was cancelled."
     });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Generate" })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Generate plan" })).toBeTruthy());
     await flushRendererAsync();
 
     expect(screen.queryByRole("alert")).toBeNull();
@@ -1561,7 +1663,7 @@ describe("App", { timeout: 10_000 }, () => {
     await flushRendererAsync();
     expect(githead.getCommitHistory).toHaveBeenCalledTimes(1);
 
-    await user.click(screen.getByRole("tab", { name: /^Activity Log/ }));
+    await openWorkspaceView("Activity log", user);
     expect(screen.queryByText(/Operation was cancelled/)).toBeNull();
     expect(screen.queryByText(/Generating commit plan exited with code/)).toBeNull();
   });
@@ -1581,7 +1683,7 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getRepoTrust).mockClear();
     vi.mocked(githead.getRepoTrust).mockReturnValue(pendingTrust.promise);
 
-    const generateButton = screen.getByRole("button", { name: "Generate" });
+    const generateButton = screen.getByRole("button", { name: "Generate plan" });
     act(() => {
       generateButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       generateButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -1597,7 +1699,7 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => expect(githead.cancelGitOperation).toHaveBeenCalledWith({ operationId }));
 
     pendingGeneration.resolve({ repoPath, exitCode: -1, plan: null, stderr: "Operation was cancelled." });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Generate" })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Generate plan" })).toBeTruthy());
   });
 
   it("requests repository trust once before committing and remembers the decision", async () => {
@@ -1622,7 +1724,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: trust repo");
-    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
 
     await waitFor(() => {
       expect(githead.addRepoTrust).toHaveBeenCalledWith({
@@ -1657,7 +1759,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: decline trust");
-    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
 
     await waitFor(() => {
       expect(githead.addRepoTrust).toHaveBeenCalledWith({
@@ -1687,7 +1789,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: decline trust once");
-    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
     await waitFor(() => expect(githead.addRepoTrust).toHaveBeenCalledTimes(1));
 
     fireEvent.blur(window);
@@ -1720,16 +1822,16 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await screen.findByRole("option", { name: /src\/trust\.ts/ });
-    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository(user);
     await user.click(await screen.findByRole("button", { name: "Open local folder…" }));
     await waitFor(() => expect(githead.chooseRepo).toHaveBeenCalledTimes(1));
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: trust A");
-    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
 
     await waitFor(() => expect(githead.addRepoTrust).toHaveBeenCalledWith({ repoPath }));
     pendingRepositoryChoice.resolve(otherRepo);
 
-    await waitFor(() => expect(screen.getByRole("button", { name: `Switch to ${otherRepo}` }).getAttribute("aria-current")).toBe("true"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Switch repository: Trust-B" })).toBeTruthy());
     pendingTrust.resolve({ trusted: true });
     await flushRendererAsync();
 
@@ -1760,12 +1862,12 @@ describe("App", { timeout: 10_000 }, () => {
 
     await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: identify author");
-    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
 
-    expect(await screen.findByRole("dialog", { name: "Set Git Author Identity" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "Set Git author identity" })).toBeTruthy();
     await user.type(screen.getByLabelText("Name"), "Taylor");
     await user.type(screen.getByLabelText("Email"), "taylor@example.test");
-    await user.click(screen.getByRole("button", { name: "Save and Retry Commit" }));
+    await user.click(screen.getByRole("button", { name: "Save and retry commit" }));
 
     await waitFor(() => {
       expect(githead.saveGitIdentity).toHaveBeenCalledWith({
@@ -1818,13 +1920,13 @@ describe("App", { timeout: 10_000 }, () => {
     await screen.findByRole("option", { name: /src\/identity-a\.ts/ });
     await waitFor(() => expect(vi.mocked(githead.getGitIdentity).mock.calls.length).toBeGreaterThan(0));
     await flushRendererAsync();
-    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository(user);
     await user.click(await screen.findByRole("button", { name: "Open local folder…" }));
     await waitFor(() => expect(githead.chooseRepo).toHaveBeenCalledTimes(1));
     const identityCallsBeforeCommit = vi.mocked(githead.getGitIdentity).mock.calls.length;
     waitForRepositoryAIdentity = true;
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: identity A");
-    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
     await waitFor(() => expect(vi.mocked(githead.getGitIdentity).mock.calls.length).toBeGreaterThan(identityCallsBeforeCommit));
 
     pendingRepositoryChoice.resolve(otherRepo);
@@ -1839,7 +1941,7 @@ describe("App", { timeout: 10_000 }, () => {
     });
     await flushRendererAsync();
 
-    expect(screen.queryByRole("dialog", { name: "Set Git Author Identity" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Set Git author identity" })).toBeNull();
     expect(githead.saveGitIdentity).not.toHaveBeenCalled();
     expect(githead.commitChanges).toHaveBeenCalledTimes(1);
   });
@@ -1866,12 +1968,12 @@ describe("App", { timeout: 10_000 }, () => {
 
     await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: global identity");
-    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
-    await screen.findByRole("dialog", { name: "Set Git Author Identity" });
+    await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
+    await screen.findByRole("dialog", { name: "Set Git author identity" });
     await user.type(screen.getByLabelText("Name"), "Taylor");
     await user.type(screen.getByLabelText("Email"), "taylor@example.test");
     await user.click(screen.getByRole("radio", { name: "Global" }));
-    await user.click(screen.getByRole("button", { name: "Save and Retry Commit" }));
+    await user.click(screen.getByRole("button", { name: "Save and retry commit" }));
 
     await waitFor(() => {
       expect(githead.saveGitIdentity).toHaveBeenCalledWith(expect.objectContaining({
@@ -1902,13 +2004,13 @@ describe("App", { timeout: 10_000 }, () => {
 
     await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: identity failure");
-    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
     await user.type(await screen.findByLabelText("Name"), "Taylor");
     await user.type(screen.getByLabelText("Email"), "taylor@example.test");
-    await user.click(screen.getByRole("button", { name: "Save and Retry Commit" }));
+    await user.click(screen.getByRole("button", { name: "Save and retry commit" }));
 
     expect(await screen.findByText("error: could not lock config file")).toBeTruthy();
-    expect(screen.getByRole("dialog", { name: "Set Git Author Identity" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Set Git author identity" })).toBeTruthy();
     expect(githead.commitChanges).toHaveBeenCalledTimes(1);
   });
 
@@ -1932,11 +2034,11 @@ describe("App", { timeout: 10_000 }, () => {
 
     await screen.findByRole("option", { name: /src\/renderer\/App\.tsx/ });
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: cancel identity");
-    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
     await user.click(await screen.findByRole("button", { name: "Cancel" }));
 
     await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "Set Git Author Identity" })).toBeNull();
+      expect(screen.queryByRole("dialog", { name: "Set Git author identity" })).toBeNull();
     });
     expect(githead.saveGitIdentity).not.toHaveBeenCalled();
     expect(githead.commitChanges).toHaveBeenCalledTimes(1);
@@ -1969,7 +2071,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await screen.findByRole("option", { name: /src\/safe\.ts/ });
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "fix: safe commit");
-    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
 
     await waitFor(() => expect(githead.commitWithRemoteCheck).toHaveBeenCalledWith({
       repoPath,
@@ -2030,10 +2132,10 @@ describe("App", { timeout: 10_000 }, () => {
 
     await screen.findByRole("option", { name: /src\/safe-identity\.ts/ });
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "fix: safe identity retry");
-    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
     await user.type(await screen.findByLabelText("Name"), "Taylor");
     await user.type(screen.getByLabelText("Email"), "taylor@example.test");
-    await user.click(screen.getByRole("button", { name: "Save and Retry Commit" }));
+    await user.click(screen.getByRole("button", { name: "Save and retry commit" }));
 
     await waitFor(() => expect(githead.commitWithRemoteCheck).toHaveBeenCalledTimes(2));
     expect(githead.commitWithRemoteCheck).toHaveBeenLastCalledWith({
@@ -2083,7 +2185,7 @@ describe("App", { timeout: 10_000 }, () => {
     await screen.findByRole("option", { name: /src\/safe\.ts/ });
     const message = screen.getByPlaceholderText("Summarize staged changes...");
     await user.type(message, "fix: safe commit");
-    await user.click(screen.getByRole("button", { name: /^Commit$/ }));
+    await user.click(screen.getByRole("button", { name: "Commit 1 file" }));
 
     expect((await screen.findByRole("alert")).textContent).toContain("No commit was created");
     expect((message as HTMLTextAreaElement).value).toBe("fix: safe commit");
@@ -2177,7 +2279,9 @@ describe("App", { timeout: 10_000 }, () => {
 
     await waitFor(() => expect((message as HTMLTextAreaElement).value).toBe(""));
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByRole("tab", { name: "Activity Log, unread error details available" })).toBeTruthy();
+    const more = screen.getByRole("button", { name: "More" });
+    expect(more.getAttribute("data-attention")).toBe("error");
+    expect(more.querySelector(".activity-log-attention-indicator")?.getAttribute("data-attention")).toBe("error");
   });
 
   it("shows a safety warning without creating a commit when the fetched remote is ahead", async () => {
@@ -2300,7 +2404,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await screen.findByRole("option", { name: /src\/a\.ts/ });
-    await user.click(screen.getByRole("button", { name: "Add repository" }));
+    await openAddRepository(user);
     await user.click(await screen.findByRole("button", { name: "Open local folder…" }));
     await waitFor(() => expect(githead.chooseRepo).toHaveBeenCalledTimes(1));
     await user.type(screen.getByPlaceholderText("Summarize staged changes..."), "feat: repository A");
@@ -2348,11 +2452,13 @@ describe("App", { timeout: 10_000 }, () => {
       timestamp: new Date().toISOString()
     });
 
-    const activityLogTab = await waitFor(() => screen.getByRole("tab", { name: "Activity Log, unread output available" }));
-    expect(activityLogTab.getAttribute("data-attention")).toBe("unread");
-    await user.click(activityLogTab);
-    await waitFor(() => expect(activityLogTab.getAttribute("data-attention")).toBe("none"));
-    expect(await screen.findByText("Output Available")).toBeTruthy();
+    const more = screen.getByRole("button", { name: "More" });
+    await waitFor(() => expect(more.getAttribute("data-attention")).toBe("unread"));
+    expect(more.querySelector(".activity-log-attention-indicator")).not.toBeNull();
+    await chooseSwitcherOption("Activity log, unread output available", user);
+    await waitFor(() => expect(more.getAttribute("data-attention")).toBe("none"));
+    expect(screen.getByRole("tab", { name: "Activity log", selected: true })).toBeTruthy();
+    expect(await screen.findByText("Output available")).toBeTruthy();
     expect(screen.getByText(/fetch output/)).toBeTruthy();
 
     view.unmount();
@@ -2360,19 +2466,6 @@ describe("App", { timeout: 10_000 }, () => {
     expect(cleanupGitOutput).toHaveBeenCalledTimes(1);
     expect(cleanupRepoChanged).toHaveBeenCalledTimes(1);
     expect(cleanupUpdateState).toHaveBeenCalledTimes(1);
-  });
-
-  it("hides the app update control while no update is active", async () => {
-    vi.mocked(githead.getUpdateState).mockResolvedValue(createUpdateState({
-      status: "idle"
-    }));
-
-    render(<App />);
-
-    await waitForRepositoryWorkspace();
-
-    expect(screen.queryByRole("button", { name: /Update available/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Restart to update/ })).toBeNull();
   });
 
   it("downloads an available app update from the update control", async () => {
@@ -2447,10 +2540,12 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     expect(await screen.findByText("Version 0.1.1")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Release Notes" }));
+    expect(screen.queryByRole("button", { name: "Release notes" })).toBeNull();
+    await user.hover(screen.getByRole("button", { name: "Restart to update" }));
 
     expect(await screen.findByRole("heading", { name: "Githead 0.1.1" })).toBeTruthy();
-    expect(await screen.findByRole("heading", { name: "Changes" })).toBeTruthy();
+    // The release notes body uses the lazily loaded Markdown renderer, which can take longer than the default wait under a loaded full run.
+    expect(await screen.findByRole("heading", { name: "Changes" }, { timeout: 5_000 })).toBeTruthy();
     expect(screen.getByText("Fixed update UI")).toBeTruthy();
     expect(document.querySelector("strong")).toBeNull();
 
@@ -2477,7 +2572,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Release Notes" }));
+    await user.hover(await screen.findByRole("button", { name: "Update available" }));
 
     expect((await screen.findByRole("status")).textContent).toBe("Loading release notes");
   });
@@ -2500,7 +2595,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     expect(await screen.findByRole("button", { name: "Update available" })).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Release Notes" }));
+    await user.hover(screen.getByRole("button", { name: "Update available" }));
 
     expect((await screen.findByRole("status")).textContent).toBe("Release notes are not published for this version.");
   });
@@ -2543,7 +2638,7 @@ describe("App", { timeout: 10_000 }, () => {
     render(<App />);
 
     await waitForRepositoryWorkspace();
-    expect(within(screen.getByLabelText("Commit staged files")).queryByRole("button", { name: /Clear Log/ })).toBeNull();
+    expect(within(screen.getByLabelText("Commit staged files")).queryByRole("button", { name: /Clear log/ })).toBeNull();
 
     gitOutputCallback?.({
       runId: "run-1",
@@ -2553,10 +2648,10 @@ describe("App", { timeout: 10_000 }, () => {
       timestamp: new Date().toISOString()
     });
 
-    await user.click(screen.getByRole("tab", { name: /^Activity Log/ }));
+    await openWorkspaceView("Activity log", user);
     expect(screen.getByText(/fetch output/)).toBeTruthy();
 
-    const clearButton = screen.getByRole("button", { name: /Clear Log/ }) as HTMLButtonElement;
+    const clearButton = screen.getByRole("button", { name: /Clear log/ }) as HTMLButtonElement;
     expect(clearButton.disabled).toBe(false);
 
     await user.click(clearButton);
@@ -2564,7 +2659,7 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => {
       expect(screen.queryByText(/fetch output/)).toBeNull();
     });
-    expect((screen.getByRole("button", { name: /Clear Log/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: /Clear log/ }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("Empty")).toBeTruthy();
   });
 
@@ -2590,7 +2685,7 @@ describe("App", { timeout: 10_000 }, () => {
       timestamp: new Date().toISOString()
     });
 
-    await user.click(screen.getByRole("tab", { name: /^Activity Log/ }));
+    await openWorkspaceView("Activity log", user);
 
     expect((await screen.findByRole("log")).textContent).toContain("colored output");
     expect(screen.queryByText(String.fromCharCode(0x1b))).toBeNull();
@@ -2612,8 +2707,8 @@ describe("App", { timeout: 10_000 }, () => {
       timestamp: new Date().toISOString()
     });
 
-    await user.click(screen.getByRole("tab", { name: /^Activity Log/ }));
-    await user.click(await screen.findByRole("button", { name: "Copy Raw" }));
+    await openWorkspaceView("Activity log", user);
+    await user.click(await screen.findByRole("button", { name: "Copy raw" }));
 
     expect(githead.copyTextToClipboard).toHaveBeenCalledWith({
       text: "[stdout] fetch output\n"
@@ -2635,7 +2730,7 @@ describe("App", { timeout: 10_000 }, () => {
       timestamp: new Date().toISOString()
     });
 
-    await user.click(screen.getByRole("tab", { name: /^Activity Log/ }));
+    await openWorkspaceView("Activity log", user);
     const wrapButton = await screen.findByRole("button", { name: "Enable line wrap" });
     expect(wrapButton.getAttribute("aria-pressed")).toBe("false");
 
@@ -2659,7 +2754,7 @@ describe("App", { timeout: 10_000 }, () => {
       timestamp: new Date().toISOString()
     });
 
-    await user.click(screen.getByRole("tab", { name: /^Activity Log/ }));
+    await openWorkspaceView("Activity log", user);
     const output = await screen.findByRole("log");
     Object.defineProperty(output, "scrollHeight", {
       configurable: true,

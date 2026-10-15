@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { ActivityLogOutput } from "./ActivityLogOutput";
-import { appendActivityLogEvent, createActivityLogState } from "./activityLog";
+import { appendActivityLogEvent, appendActivityOperationResult, createActivityLogState } from "./activityLog";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
@@ -43,14 +43,51 @@ describe("ActivityLogOutput", () => {
     });
     const view = render(<ActivityLogOutput log={log} wrapLines={false} onCopyRun={() => {}} />);
     const output = screen.getByRole("log");
-    // jsdom has no layout. Supply the viewport and scroll extent for the scroll handler.
-    Object.defineProperties(output, { clientHeight: { value: 400 }, scrollHeight: { value: 12_044 } });
+    // jsdom has no layout. Supply the viewport and the scroll extent: a 40px run header and 500 lines of 20px.
+    Object.defineProperties(output, { clientHeight: { value: 400 }, scrollHeight: { value: 10_040 } });
     fireEvent.scroll(output, { target: { scrollTop: 0 } });
     expect(screen.getByText("line 0")).toBeTruthy();
     expect(view.container.querySelectorAll(".activity-log-block").length).toBeLessThan(60);
-    fireEvent.scroll(output, { target: { scrollTop: 11_644 } });
+    fireEvent.scroll(output, { target: { scrollTop: 9_640 } });
     expect(screen.getByText("line 499")).toBeTruthy();
     expect(screen.queryByText("line 0")).toBeNull();
     expect(view.container.querySelectorAll(".activity-log-block").length).toBeLessThan(60);
+  });
+
+  it("shows only the selected run's output and the notices, without run headers", () => {
+    let log = history();
+    log = appendActivityOperationResult(log, "Pull", { repoPath: "/repo", exitCode: 1, stdout: "", stderr: "fatal: diverged" }, "pull");
+    render(<ActivityLogOutput log={log} wrapLines={false} runId="first" onCopyRun={() => {}} />);
+
+    expect(screen.getByText("first output")).toBeTruthy();
+    expect(screen.queryByText("second output")).toBeNull();
+    expect(screen.queryByText(/fatal: diverged/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "first" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copy first run" })).toBeNull();
+    expect(screen.getByRole("log", { name: "Command output" })).toBeTruthy();
+  });
+
+  it("keeps the trimmed-output notice above a filtered run", () => {
+    let log = createActivityLogState();
+    for (let index = 0; index < 101; index++) log = appendActivityLogEvent(log, {
+      runId: `run-${index}`, action: "fetch", repoPath: "/repo", stream: "stdout", text: `output ${index}
+`, timestamp: "2026-09-04T12:00:00Z"
+    });
+    expect(log.trimmed).toBe(true);
+    const view = render(<ActivityLogOutput log={log} wrapLines={false} runId="run-100" onCopyRun={() => {}} />);
+
+    expect(view.container.querySelector(".activity-log-notice")?.textContent).toContain("older output trimmed");
+    expect(screen.getByText("output 100")).toBeTruthy();
+    expect(screen.queryByText("output 99")).toBeNull();
+  });
+
+  it("shows the empty state for a run that has no output", () => {
+    const log = appendActivityLogEvent(createActivityLogState(), {
+      runId: "silent", action: "fetch", repoPath: "/repo", stream: "system", text: "", timestamp: "2026-09-04T12:00:02Z",
+      startedAt: "2026-09-04T12:00:00Z", exitCode: 0
+    });
+    render(<ActivityLogOutput log={log} wrapLines={false} runId="silent" onCopyRun={() => {}} />);
+
+    expect(screen.getByText("No command output yet.")).toBeTruthy();
   });
 });

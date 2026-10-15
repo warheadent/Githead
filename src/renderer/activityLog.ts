@@ -59,6 +59,33 @@ export function hasActivityLogOutput(state: ActivityLogState): boolean {
   return state.runs.length > 0;
 }
 
+/** A run that finished with a nonzero exit code. A running run has no exit code yet. */
+export function isActivityLogRunFailed(run: ActivityLogRun): boolean {
+  return run.exitCode !== null && run.exitCode !== 0;
+}
+
+/**
+ * The outcome caption for a run, for example "Succeeded · 2.0s" or "Failed, code 1 · 2.0s".
+ * The run list, the output header and the run headers in the full output all show this text.
+ */
+export function formatOutcome(run: ActivityLogRun): string {
+  if (run.exitCode === null || !run.endedAt) return "Running";
+  const seconds = Math.max(0, Date.parse(run.endedAt) - Date.parse(run.startedAt)) / 1000;
+  const outcome = run.exitCode === 0 ? "Succeeded" : `Failed, code ${run.exitCode}`;
+  return seconds > 0 ? `${outcome} · ${seconds.toFixed(1)}s` : outcome;
+}
+
+/**
+ * A readable name for a run's action. Built-in actions are lowercase command ids such as "fetch"
+ * or "lfs-fetch"; a configured action keeps the name its author gave it.
+ */
+export function formatActivityAction(action: string): string {
+  if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(action)) return action;
+  const words = action.split("-").map((word) => word === "lfs" ? "LFS" : word);
+  const [first = "", ...rest] = words;
+  return [first.charAt(0).toUpperCase() + first.slice(1), ...rest].join(" ");
+}
+
 export function appendActivityLogEvent(state: ActivityLogState, event: GitOutputEvent): ActivityLogState {
   if (!event.text && event.exitCode === undefined) return state;
   const previousRun = state.runs.find((run) => run.id === event.runId);
@@ -169,7 +196,7 @@ function trimActivityLog(state: ActivityLogState): ActivityLogState {
   blocks = blocks.slice(removeCount);
   if (trimmed) {
     const notice = state.blocks[0]?.kind === "notice" ? state.blocks[0] : {
-      id: nextBlockId++, kind: "notice" as const, stream: "system" as const, runId: "trimmed", action: "Activity Log",
+      id: nextBlockId++, kind: "notice" as const, stream: "system" as const, runId: "trimmed", action: "Activity log",
       rawText: TRIM_NOTICE_TEXT, html: TRIM_NOTICE_TEXT, continuation: false, sealed: true
     };
     blocks.unshift(notice);

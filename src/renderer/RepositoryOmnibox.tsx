@@ -1,26 +1,43 @@
-import { Fragment, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { ArrowDownUp, ClipboardPaste, CornerDownLeft, FolderOpen, GitFork, Globe, Loader2, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { parseRepositorySource, type RepositorySource } from "../shared/repositorySource";
 import type { GitHubCloneRepository, GitHubFailure, GitHubRepositoryDiscovery } from "../shared/types";
 import { repositoryMeta, type CloneRepositoryControls } from "./cloneRepository";
 import { RepositoryComposer } from "./RepositoryComposer";
 
-interface RepositoryOmniboxProps extends CloneRepositoryControls {
+interface RepositoryOmniboxBaseProps extends CloneRepositoryControls {
   open: boolean;
   disabled: boolean;
-  trigger: ReactNode;
+  /** Receives focus when the popover closes. Use it when the popover has an anchor instead of a trigger. */
+  returnFocusRef?: RefObject<HTMLElement | null>;
   onOpenChange(open: boolean): void;
   onOpenLocal(path?: string): void;
   onConnectGitHub(): void;
   onAbandonCheck(): void;
 }
 
+/** The popover either owns a trigger button or positions itself below an anchor that something else opens it from. */
+type RepositoryOmniboxPlacement =
+  | { trigger: ReactNode; anchor?: never }
+  | { anchor: ReactNode; trigger?: never };
+
+type RepositoryOmniboxProps = RepositoryOmniboxBaseProps & RepositoryOmniboxPlacement;
+
 export function RepositoryOmnibox(props: RepositoryOmniboxProps) {
   const [selected, setSelected] = useState<{ source: RepositorySource; repository?: GitHubCloneRepository } | null>(null);
   const [query, setQuery] = useState("");
+  const [wasOpen, setWasOpen] = useState(props.open);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Set when the popover is dismissed by a pointer or focus outside it; the user chose where focus goes then.
+  const interactedOutsideRef = useRef(false);
+  // Every opening starts from an empty search, whether the trigger, an anchor owner, a shortcut or the quick switcher
+  // opened it, so reset on every open rather than in changeOpen.
+  if (props.open !== wasOpen) {
+    setWasOpen(props.open);
+    if (props.open) { setSelected(null); setQuery(""); }
+  }
 
   const back = () => {
     if (props.cloneRunning) return;
@@ -30,7 +47,6 @@ export function RepositoryOmnibox(props: RepositoryOmniboxProps) {
   const changeOpen = (open: boolean) => {
     if (!open && props.cloneRunning) return;
     if (!open) props.onAbandonCheck();
-    if (open) { setSelected(null); setQuery(""); }
     props.onOpenChange(open);
   };
   const openLocal = (path?: string) => {
@@ -38,11 +54,35 @@ export function RepositoryOmnibox(props: RepositoryOmniboxProps) {
     changeOpen(false);
     props.onOpenLocal(path);
   };
+  const anchored = props.anchor !== undefined;
+  const returnFocusRef = props.returnFocusRef;
   return <Popover open={props.open} onOpenChange={changeOpen}>
-    <PopoverTrigger asChild>{props.trigger}</PopoverTrigger>
-    <PopoverContent align="start" side="right" sideOffset={12} collisionPadding={12} className="repo-omnibox-popover"
+    {anchored ? <PopoverAnchor asChild>{props.anchor}</PopoverAnchor> : <PopoverTrigger asChild>{props.trigger}</PopoverTrigger>}
+    <PopoverContent align="start" side={anchored ? "bottom" : "right"} sideOffset={anchored ? 6 : 12} collisionPadding={12}
+      className="repo-omnibox-popover" data-anchored={anchored ? "true" : undefined}
       aria-label="Add repository"
-      onOpenAutoFocus={(event) => { event.preventDefault(); inputRef.current?.focus(); }}
+      onOpenAutoFocus={(event) => {
+        interactedOutsideRef.current = false;
+        event.preventDefault();
+        inputRef.current?.focus();
+      }}
+      onInteractOutside={(event) => {
+        // A running clone keeps the popover open, so the outside interaction must not count as a dismissal.
+        if (props.cloneRunning) { event.preventDefault(); return; }
+        interactedOutsideRef.current = true;
+      }}
+      {...(returnFocusRef ? {
+        onCloseAutoFocus: (event: Event) => {
+          const interactedOutside = interactedOutsideRef.current;
+          interactedOutsideRef.current = false;
+          // Like Radix, leave focus where an outside click or focus move put it.
+          if (interactedOutside) { event.preventDefault(); return; }
+          const target = returnFocusRef.current;
+          if (!target?.isConnected) return;
+          event.preventDefault();
+          target.focus();
+        }
+      } : {})}
       onEscapeKeyDown={(event) => {
         if (selected) { event.preventDefault(); back(); }
         else if (props.cloneRunning) event.preventDefault();
@@ -220,12 +260,12 @@ function RepositoryPicker({ inputRef, query, onQueryChange, disabled, onSelect, 
       </div>
       {loading ? <p className="repo-omnibox-notice" role="status"><Loader2 className="animate-spin" />Loading repositories…</p> : null}
       {failure ? <DiscoveryFailure failure={failure} onRetry={() => setRetry((value) => value + 1)} /> : null}
-      {failure?.kind === "authentication" || failure?.kind === "authorization" ? <div className="repo-omnibox-notice"><Button type="button" variant="outline" onClick={onConnectGitHub}><GitFork />Reconnect GitHub</Button></div> : null}
+      {failure?.kind === "authentication" || failure?.kind === "authorization" ? <div className="repo-omnibox-notice"><Button type="button" variant="secondary" onClick={onConnectGitHub}><GitFork />Reconnect GitHub</Button></div> : null}
       {notConnected ? <div className="repo-omnibox-empty">
         <span className="repo-omnibox-empty-icon"><GitFork /></span>
         <h3>Your repositories will appear here</h3>
         <p>URLs, owner/repo and local paths still work without connecting.</p>
-        <Button type="button" variant="outline" onClick={onConnectGitHub}><GitFork />Connect GitHub</Button>
+        <Button type="button" variant="secondary" onClick={onConnectGitHub}><GitFork />Connect GitHub</Button>
       </div> : !loading && !failure && !choices.length ? <p className="repo-omnibox-notice">No repositories available. Paste a URL or open a local folder.</p> : null}
       {discovery?.connection.source === "githubApp" ? <p className="repo-omnibox-notice">Only repositories available to the Githead GitHub App are listed. Check the app's installation access if a repository is missing.</p> : null}
       {discovery?.hasMore ? <Button type="button" variant="ghost" className="repo-omnibox-load-more" disabled={loading || !!failure} onClick={() => setPage((value) => value + 1)}>Load more repositories</Button> : null}
@@ -243,7 +283,7 @@ function RepositoryPicker({ inputRef, query, onQueryChange, disabled, onSelect, 
 function DiscoveryFailure({ failure, onRetry }: { failure: GitHubFailure; onRetry(): void }) {
   return <div className="repo-omnibox-notice is-error" role="alert">
     <span>{failure.message}{failure.retryAfterAt ? ` Retry after ${new Date(failure.retryAfterAt).toLocaleTimeString()}.` : ""}</span>
-    <Button type="button" variant="outline" size="sm" onClick={onRetry}>Retry</Button>
+    <Button type="button" variant="secondary" size="sm" onClick={onRetry}>Retry</Button>
   </div>;
 }
 

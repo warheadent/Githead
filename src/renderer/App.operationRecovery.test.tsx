@@ -16,10 +16,10 @@ import { App } from "./App";
 
 describe("App repository operation recovery", { timeout: 10_000 }, () => {
   it.each([
+    // Loading does not depend on the kind; cherry-pick uses a separate label branch.
+    // GitOperationRecoveryBanner.test.tsx covers each kind's heading.
     ["merge", "Finish this merge"],
-    ["rebase", "Finish this rebase"],
-    ["cherry-pick", "Finish this cherry-pick"],
-    ["revert", "Finish this revert"]
+    ["cherry-pick", "Finish this cherry-pick"]
   ] as const)("restores a pre-existing %s operation during repository load", async (kind, heading) => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
       operationState: createRepositoryOperationState(kind)

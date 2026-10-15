@@ -2,6 +2,7 @@ import {
   ArrowDown,
   ArrowUp,
   ChevronDown,
+  CircleAlert,
   Loader2,
   Plus,
   RotateCcw,
@@ -39,6 +40,7 @@ import type {
   RepoSummary
 } from "../shared/types";
 import { GIT_CONFIGURED_ACTION_SHELLS } from "../shared/types";
+import { EmptyState } from "./EmptyState";
 
 export interface RepositoryActionDraft extends GitConfiguredAction {
   id: string;
@@ -227,7 +229,7 @@ export function RepositoryActionsDialog({
               <p className="eyebrow">Repository</p>
               <div className="flex items-center gap-2">
                 <Workflow className="size-5 text-muted-foreground" aria-hidden="true" />
-                <DialogTitle>Repository Actions</DialogTitle>
+                <DialogTitle>Repository actions</DialogTitle>
               </div>
               <DialogDescription>
                 Create commands that run from this repository through the Actions menu.
@@ -382,7 +384,7 @@ function FilePanel({
   return (
     <TabsContent value={target} className="min-h-0 overflow-hidden" data-testid={`repository-actions-${target}-panel`}>
       <div className="grid h-full min-h-0 md:grid-cols-[minmax(220px,0.72fr)_minmax(360px,1.5fr)]" data-testid="repository-actions-scroll-area">
-        <aside className="flex min-h-0 flex-col overflow-x-hidden border-b bg-muted/20 md:border-r md:border-b-0" aria-label={`${getActionFileLabel(target)} actions`}>
+        <aside className="flex min-h-0 flex-col overflow-x-hidden border-b bg-background md:border-r md:border-b-0" aria-label={`${getActionFileLabel(target)} actions`}>
           <div className="flex items-start justify-between gap-3 border-b px-4 py-3">
             <div className="min-w-0">
               <p className="text-sm font-medium">{getActionFileLabel(target)} actions</p>
@@ -400,25 +402,27 @@ function FilePanel({
           </div>
 
           {blockedMessage ? (
-            <div className="m-3 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm" role="alert">
-              <p className="font-medium">Read-only configuration</p>
-              <p className="mt-1 text-xs text-muted-foreground">{blockedMessage}</p>
+            <div className="dialog-notice m-3" data-tone="danger" role="alert">
+              <CircleAlert aria-hidden="true" />
+              <div>
+                <p className="dialog-notice-title">Read-only configuration</p>
+                <p className="mt-1 text-xs text-muted-foreground">{blockedMessage}</p>
+              </div>
             </div>
           ) : null}
 
           <div className="min-h-24 flex-1 overflow-x-hidden overflow-y-auto p-2">
             {actions.length === 0 ? (
-              <div className="grid h-full min-h-32 place-content-center gap-3 px-4 text-center">
-                <div>
-                  <p className="text-sm font-medium">No {getActionFileLabel(target).toLowerCase()} actions</p>
-                  <p className="mt-1 text-xs text-muted-foreground">Add a command to make it available from the Actions menu.</p>
-                </div>
-                <Button type="button" size="sm" variant="outline" disabled={disabled} onClick={() => onAdd(target)}>
+              <EmptyState
+                className="h-full min-h-32"
+                title={`No ${getActionFileLabel(target).toLowerCase()} actions`}
+                description="Add a command to make it available from the Actions menu."
+                action={<Button type="button" size="sm" variant="outline" disabled={disabled} onClick={() => onAdd(target)}>
                   <Plus /> Add action
-                </Button>
-              </div>
+                </Button>}
+              />
             ) : (
-              <ol className="grid gap-1">
+              <ol className="grid gap-0.5">
                 {actions.map((action, index) => {
                   const selected = action.id === selectedId;
                   const overridden = target === "local" && overrideNames.has(getRepositoryActionKey(action.name));
@@ -426,17 +430,17 @@ function FilePanel({
                     <li key={action.id}>
                       <button
                         type="button"
-                        className={`group flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${selected ? "bg-accent text-accent-foreground" : "hover:bg-accent/60"}`}
+                        className={`group flex w-full items-center gap-3 rounded-md px-2.5 py-1.5 text-left transition-colors duration-[120ms] ease-(--ease-out) focus-visible:-outline-offset-2 ${selected ? "bg-selected text-foreground" : "hover:bg-hover"}`}
                         aria-current={selected ? "true" : undefined}
                         onClick={() => onSelect(action.id)}
                       >
-                        <span className="grid size-6 shrink-0 place-content-center rounded bg-background text-xs tabular-nums text-muted-foreground">{index + 1}</span>
+                        <span className="grid size-6 shrink-0 place-content-center rounded-sm bg-muted text-xs tabular-nums text-muted-foreground">{index + 1}</span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-medium">{action.name.trim() || "Untitled action"}</span>
                           <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                             <span>{action.shell}</span>
                             {overridden ? <><span aria-hidden="true">·</span><span>Overrides shared</span></> : null}
-                            {action.bindToPull ? <><span aria-hidden="true">·</span><span>Bound to Pull</span></> : null}
+                            {action.bindToPull ? <><span aria-hidden="true">·</span><span>Bound to pull</span></> : null}
                           </span>
                         </span>
                       </button>
@@ -457,15 +461,15 @@ function FilePanel({
           ) : null}
         </aside>
 
-        <section className="flex min-h-0 flex-col bg-card" aria-label="Action editor">
+        <section className="flex min-h-0 flex-col bg-surface" aria-label="Action editor">
           {selectedAction ? (
             <>
               <div className="flex items-center justify-between gap-3 border-b px-5 py-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <h3 className="truncate text-sm font-semibold">{selectedAction.name.trim() || "Untitled action"}</h3>
-                    {target === "local" && overrideNames.has(getRepositoryActionKey(selectedAction.name)) ? <Badge variant="secondary">Overrides Shared</Badge> : null}
-                    {selectedAction.bindToPull ? <Badge variant="secondary">Bound to Pull</Badge> : null}
+                    {target === "local" && overrideNames.has(getRepositoryActionKey(selectedAction.name)) ? <Badge variant="secondary">Overrides shared</Badge> : null}
+                    {selectedAction.bindToPull ? <Badge variant="secondary">Bound to pull</Badge> : null}
                   </div>
                   <p className="text-xs text-muted-foreground">Action {selectedIndex + 1} of {actions.length}</p>
                 </div>
@@ -498,32 +502,32 @@ function FilePanel({
                       <Textarea id={`${target}-action-${selectedAction.id}-description`} value={selectedAction.description} disabled={disabled} className="min-h-16 resize-y" onChange={(event) => onDraftChange(target, selectedIndex, { description: event.target.value })} />
                     </div>
                   </div>
-                  <label className="flex items-start gap-3 rounded-md border p-3">
+                  <label className="choice-card">
                     <input
                       type="checkbox"
-                      className="mt-1 size-4 shrink-0"
                       checked={Boolean(selectedAction.bindToPull)}
                       disabled={disabled}
                       onChange={(event) => onDraftChange(target, selectedIndex, { bindToPull: event.target.checked })}
                     />
                     <span>
-                      <span className="block text-sm font-medium">Bind to Pull</span>
-                      <span className="block text-xs text-muted-foreground">Add this action to the Pull menu. Githead runs it only after Git Pull succeeds.</span>
+                      <strong>Bind to pull</strong>
+                      <small>Add this action to the Pull menu. Githead runs it only after Git Pull succeeds.</small>
                     </span>
                   </label>
-                  {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
+                  {error ? <p className="dialog-error" role="alert">{error}</p> : null}
                 </div>
               </div>
             </>
           ) : (
-            <div className="grid h-full min-h-48 place-content-center px-6 text-center">
-              <Workflow className="mx-auto size-8 text-muted-foreground/60" aria-hidden="true" />
-              <p className="mt-3 text-sm font-medium">Select an action to edit</p>
-              <p className="mt-1 max-w-72 text-xs text-muted-foreground">Choose an action from the list, or add a new one to configure its command.</p>
-            </div>
+            <EmptyState
+              className="h-full min-h-48"
+              icon={<Workflow />}
+              title="Select an action to edit"
+              description="Choose an action from the list, or add a new one to configure its command."
+            />
           )}
 
-          <div className="flex items-center justify-between gap-3 border-t bg-muted/15 px-5 py-3">
+          <div className="flex items-center justify-between gap-3 border-t px-5 py-3">
             <p className="text-xs text-muted-foreground">{dirty ? "This file has unsaved changes" : "No unsaved changes"}</p>
             <Button type="button" size="sm" disabled={disabled || !dirty} onClick={() => onSave(target)}>
               {isSaving ? <Loader2 className="animate-spin" /> : <Save />}
@@ -540,7 +544,7 @@ function ActionShellSelect({ id, value, disabled, onValueChange }: { id: string;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button id={id} type="button" variant="outline" disabled={disabled} className="h-9 w-full justify-between px-3 font-normal"><span>{value}</span><ChevronDown /></Button>
+        <Button id={id} type="button" variant="outline" disabled={disabled} className="w-full justify-between px-2.5 font-normal"><span>{value}</span><ChevronDown /></Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)]">
         <DropdownMenuRadioGroup value={value} onValueChange={(nextValue) => {
@@ -584,7 +588,7 @@ function getValidation(error: string, actions: RepositoryActionDraft[]): FileVal
 
 function formatDirtyFiles(dirty: Record<GitConfiguredActionFile, boolean>): string {
   if (dirty.shared && dirty.local) {
-    return "Shared and Local actions";
+    return "Shared and local actions";
   }
   return dirty.shared ? "Shared actions" : "Local actions";
 }

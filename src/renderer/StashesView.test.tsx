@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import type { GitStashDetails, GitStashEntry } from "../shared/types";
 import { StashesView } from "./StashesView";
 import { WorkspacePanelStateProvider, WorkspacePanelStateStore } from "./workspacePanelState";
@@ -87,6 +89,33 @@ describe("StashesView", () => {
     fireEvent.keyDown(lastFile, { key: "ArrowUp" });
     expect(onSelectFile).toHaveBeenCalledWith("src/cache.ts");
     expect(document.activeElement).toBe(screen.getByRole("option", { name: "Modified file src/cache.ts" }));
+  });
+
+  it("keeps the list visible in a narrow window while the arrow keys move the selection", () => {
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(max-width: 839px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+    const onSelect = vi.fn();
+    function SelectingView() {
+      const [selectedRef, setSelectedRef] = useState("stash@{0}");
+      return stashView({ selectedRef, onSelect: (stashRef) => { onSelect(stashRef); setSelectedRef(stashRef); } });
+    }
+    render(<SelectingView />, { wrapper: TooltipProvider });
+    expect(screen.queryByRole("option", { name: /cache cleanup/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /back/i }));
+
+    const first = screen.getByRole("option", { name: /cache cleanup/ });
+    first.focus();
+    fireEvent.keyDown(first, { key: "ArrowDown" });
+    expect(onSelect).toHaveBeenLastCalledWith("stash@{1}");
+    const second = screen.getByRole("option", { name: /icon refactor/ });
+    expect(second.getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(second);
+    fireEvent.keyDown(second, { key: "ArrowDown" });
+    expect(onSelect).toHaveBeenLastCalledWith("stash@{2}");
+    expect(document.activeElement).toBe(screen.getByRole("option", { name: /temporary logs/ }));
+
+    fireEvent.click(screen.getByRole("option", { name: /temporary logs/ }));
+    expect(screen.queryByRole("option", { name: /temporary logs/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /back/i })).toBeTruthy();
   });
 
   it("keeps duplicate file names distinct and exposes rename paths", () => {
@@ -247,7 +276,7 @@ describe("StashesView", () => {
 });
 
 function renderView(overrides: Partial<Parameters<typeof StashesView>[0]> = {}) {
-  return render(stashView(overrides));
+  return render(stashView(overrides), { wrapper: TooltipProvider });
 }
 
 function stashView(overrides: Partial<Parameters<typeof StashesView>[0]> = {}) {
@@ -274,7 +303,7 @@ function stashView(overrides: Partial<Parameters<typeof StashesView>[0]> = {}) {
 }
 
 function renderPersistentView(store: WorkspacePanelStateStore, visible: boolean) {
-  return render(persistentView(store, visible));
+  return render(persistentView(store, visible), { wrapper: TooltipProvider });
 }
 
 function persistentView(store: WorkspacePanelStateStore, visible: boolean) {
