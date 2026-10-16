@@ -6,7 +6,7 @@ import {
 } from "./releaseSummaryClient.mjs";
 
 const payload = {
-  model: "openai/gpt-5.6-luna",
+  model: "anthropic/claude-haiku-5.5",
   temperature: 0.2,
   max_tokens: 900,
   messages: []
@@ -20,7 +20,7 @@ describe("generateReleaseSummary", () => {
 
     expect(summary).toEqual({ body: "# Release notes", serviceTier: FLEX_SERVICE_TIER });
     expect(requestTier(fetchImpl, 0)).toBe(FLEX_SERVICE_TIER);
-    expect(requestModel(fetchImpl, 0)).toBe("openai/gpt-5.6-luna");
+    expect(requestModel(fetchImpl, 0)).toBe("anthropic/claude-haiku-5.5");
   });
 
   it("retries temporary Flex failures three times before succeeding", async () => {

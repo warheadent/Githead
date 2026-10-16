@@ -11,7 +11,7 @@ import {
   renderReleaseNotes
 } from "./releaseNotes.mjs";
 
-const DEFAULT_MODEL = "openai/gpt-5.6-luna";
+const DEFAULT_MODEL = "anthropic/claude-haiku-5.5";
 
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run") || process.env.RELEASE_SUMMARY_DRY_RUN === "1";

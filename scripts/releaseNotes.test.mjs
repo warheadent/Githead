@@ -27,13 +27,13 @@ const evidence = [
 describe("release-note generation contract", () => {
   it("builds a structured Luna request with balanced commit evidence", () => {
     const payload = buildReleaseSummaryPayload({
-      model: "openai/gpt-5.6-luna",
+      model: "anthropic/claude-haiku-5.5",
       currentTag: "v1.2.3",
       previousTag: "v1.2.2",
       evidence
     });
 
-    expect(payload.model).toBe("openai/gpt-5.6-luna");
+    expect(payload.model).toBe("anthropic/claude-haiku-5.5");
     expect(payload).not.toHaveProperty("temperature");
     expect(payload.provider.require_parameters).toBe(true);
     expect(payload.response_format.type).toBe("json_schema");
