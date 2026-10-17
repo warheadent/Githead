@@ -7205,8 +7205,7 @@ textarea,
   padding-block: 4px;
 }
 
-/* Inner toolbar: Generate on the left, the Quick Commit count, then the submit group. */
-/* The buttons stay on one row; a narrow box moves the count onto its own caption line. */
+/* Inner toolbar: Generate on the left, then the submit group. */
 .commit-compose-actions {
   display: flex;
   flex-wrap: nowrap;
@@ -7222,37 +7221,6 @@ textarea,
 
 .commit-generate-button {
   color: var(--muted-foreground);
-}
-
-.commit-quick-count {
-  flex: 1 1 0;
-  min-width: 0;
-  overflow: hidden;
-  border-radius: var(--radius-sm);
-  color: var(--muted-foreground);
-  font-size: 12px;
-  text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.commit-quick-count:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: -2px;
-}
-
-/* Below this width the widest labels ("Generating…", "Commit 999 files") leave no room for the count. */
-@container commit-compose (max-width: 459px) {
-  .commit-compose-actions {
-    flex-wrap: wrap;
-    row-gap: 2px;
-  }
-
-  .commit-quick-count {
-    order: -1;
-    flex-basis: 100%;
-    padding: 2px 8px 0;
-  }
 }
 
 /* Disabled: a secondary outline with faint text. data-primary: the one filled primary on screen. */

@@ -81,7 +81,6 @@ describe("File Status Quick Commit", { timeout: 15_000 }, () => {
     fireEvent.click(file);
     fireEvent.keyDown(file, { key: "a", ctrlKey: true });
     fireEvent.change(screen.getByRole("textbox", { name: "Search changed files" }), { target: { value: "src/" } });
-    expect(screen.getByText("1 selected file")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Quick Commit" }));
     await waitFor(() => expect(githead.generateAndCommit).toHaveBeenCalledWith({ repoPath, paths: ["src/selected.ts"], operationId: expect.any(String) }));
   });
