@@ -615,7 +615,7 @@ describe("CommitMessageService", () => {
     expect(prompt).not.toContain("  This preserves legacy project naming.  ");
   });
 
-  it("sends complete large staged diffs to providers", async () => {
+  it("bounds large staged diffs sent to providers", async () => {
     const { service, calls } = createService({
       diff: `diff --git a/a.ts b/a.ts\n${"x".repeat(70_000)}`
     });
@@ -628,11 +628,34 @@ describe("CommitMessageService", () => {
       messages: Array<{ content: string }>;
     };
     const prompt = body.messages.at(-1)?.content ?? "";
-    expect(prompt).not.toContain("The diff was truncated");
-    expect(prompt).toContain("x".repeat(70_000));
+    expect(prompt).toContain("The diff was truncated");
+    expect(prompt.length).toBeLessThan(62_000);
+    expect(prompt).not.toContain("x".repeat(70_000));
   });
 
-  it("warns before requesting a complete large diff and retains the warning on failure", async () => {
+  it("detects changes in omitted content using the complete staged diff", async () => {
+    const diff = `diff --git a/design.pen b/design.pen\n${"+data\n".repeat(30_000)}`;
+    for (const changed of [false, true]) {
+      const { service } = createService({ diff: [diff, changed ? `${diff}+later change` : diff] });
+      await expect(service.generateCommitMessage({ repoPath: "D:\\Repo" }))
+        .resolves.toMatchObject({ exitCode: 0, sourceChanged: changed });
+    }
+  });
+
+  it("bounds a captured single-file selection before sending it to Codex CLI", async () => {
+    const runner = new FakeProcessRunner();
+    const { service } = createService({ provider: "codex-cli", runner });
+    const diff = `diff --git a/Design/skilltree.pen b/Design/skilltree.pen\nnew file mode 100644\n${"+design data\n".repeat(300_000)}`;
+    const result = await service.generateCommitMessageFromDiff({ repoPath: "D:\\Repo" }, diff);
+    expect(result.exitCode).toBe(0);
+    expect(result.sourceChanged).toBeUndefined();
+    expect(result.stderr).toContain("truncated");
+    expect(runner.calls[0]?.options?.stdin?.length).toBeLessThan(62_000);
+    expect(runner.calls[0]?.options?.stdin).toContain("Design/skilltree.pen");
+    expect(runner.calls[0]?.options?.stdin).toContain("new file mode 100644");
+  });
+
+  it("warns before requesting a truncated diff and retains the warning on failure", async () => {
     for (const responseOk of [true, false]) {
       const diff = `diff --git a/a.ts b/a.ts\n${"+large change\n".repeat(25_000)}+final change\n`;
       const { service, calls } = createService({ diff, responseOk });
@@ -642,11 +665,12 @@ describe("CommitMessageService", () => {
         warnings.push(warning);
       });
       expect(warnings).toHaveLength(1);
-      expect(warnings[0]).toContain("openrouter/auto");
+      expect(warnings[0]).toContain("truncated");
       expect(result.stderr).toContain(warnings[0]);
       expect(result.exitCode === 0).toBe(responseOk);
       const body = JSON.parse(String(calls[0]?.init?.body));
-      expect(body.messages.at(-1).content).toContain(diff.trim());
+      expect(body.messages.at(-1).content).not.toContain(diff.trim());
+      expect(body.messages.at(-1).content.length).toBeLessThan(62_000);
     }
   });
 

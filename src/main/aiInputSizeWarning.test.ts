@@ -36,6 +36,14 @@ describe("AI input size warnings", () => {
     expect(warning).toContain("roughly 32,000 tokens");
   });
 
+  it("describes the actual input when the diff was truncated", async () => {
+    const warning = await createAiInputSizeWarning(request, "a".repeat(3_000), {
+      getInputTokenLimit: async () => 1_000
+    }, undefined, true);
+    expect(warning).toContain("sending a truncated diff");
+    expect(warning).not.toContain("sending the full diff");
+  });
+
   it("preserves cancellation during metadata lookup", async () => {
     const controller = new AbortController();
     const reason = new Error("cancelled");

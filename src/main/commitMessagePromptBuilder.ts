@@ -5,6 +5,39 @@ import {
 } from "../shared/sourceControlWritingStyle";
 import type { SourceControlWritingStyle } from "../shared/types";
 
+const MAX_MESSAGE_DIFF_CHARS = 60_000;
+const TRUNCATION_WARNING = "The diff was truncated for message generation. Githead sent file names and limited patch samples. Add context for details that were omitted.";
+
+/** Bound model input without changing the captured diff used to validate the index. */
+export function prepareMessageDiff(diff: string): { text: string; warning: string } {
+  if (diff.length <= MAX_MESSAGE_DIFF_CHARS) return { text: diff, warning: "" };
+
+  const notice = "The diff was truncated. Use the file names and visible patch samples only. Do not invent details from omitted content.\n";
+  const headers = Array.from(diff.matchAll(/^diff --git .*$/gm));
+  if (headers.length === 0) {
+    return {
+      text: notice + diff.slice(0, MAX_MESSAGE_DIFF_CHARS - notice.length),
+      warning: TRUNCATION_WARNING
+    };
+  }
+
+  const files = "Changed files, listed as diff headers:\n";
+  const omitted = "\n[remaining file names omitted]\n";
+  const headerBudget = Math.floor(MAX_MESSAGE_DIFF_CHARS / 2);
+  const allNames = headers.map((header) => header[0]).join("\n");
+  const names = allNames.length > headerBudget
+    ? allNames.slice(0, headerBudget - omitted.length) + omitted
+    : allNames;
+  const prefix = notice + files + names + "\nPatch samples:\n";
+  const sampleBudget = Math.floor((MAX_MESSAGE_DIFF_CHARS - prefix.length) / headers.length);
+  const samples = headers.map((header, index) => {
+    if (sampleBudget < header[0].length + 2) return "";
+    const end = headers[index + 1]?.index ?? diff.length;
+    return diff.slice(header.index, Math.min(end, header.index + sampleBudget - 1)) + "\n";
+  }).join("");
+  return { text: prefix + samples, warning: TRUNCATION_WARNING };
+}
+
 export function createCommitMessageSystemPrompt(
   style: SourceControlWritingStyle = DEFAULT_SOURCE_CONTROL_WRITING_STYLE,
   target: "commit" | "stash" = "commit"

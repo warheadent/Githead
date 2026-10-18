@@ -13,7 +13,8 @@ export async function createAiInputSizeWarning(
   request: GetAiReasoningCapabilitiesRequest,
   prompt: string,
   resolver?: AiInputLimitResolver,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  diffTruncated = false
 ): Promise<string> {
   signal?.throwIfAborted();
   const estimatedTokens = Math.ceil(Buffer.byteLength(prompt, "utf8") / 3);
@@ -32,5 +33,6 @@ export async function createAiInputSizeWarning(
   const capacity = limit === null
     ? "Its input limit is unknown."
     : `Its advertised input limit is ${limit.toLocaleString("en-US")} tokens.`;
-  return `Large diff for ${model}: the full prompt is roughly ${size} tokens. ${capacity} The token count is an estimate. Generation may be slower, cost more, or exceed the model's limit. Githead is sending the full diff. Consider selecting fewer changes.`;
+  const diffNotice = diffTruncated ? "Githead is sending a truncated diff." : "Githead is sending the full diff.";
+  return `Large diff for ${model}: the full prompt is roughly ${size} tokens. ${capacity} The token count is an estimate. Generation may be slower, cost more, or exceed the model's limit. ${diffNotice} Consider selecting fewer changes.`;
 }

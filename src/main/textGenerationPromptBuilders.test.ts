@@ -3,7 +3,8 @@ import { DEFAULT_COMMIT_MESSAGE_PROMPT } from "../shared/commitMessagePrompt";
 import { DEFAULT_PR_DESCRIPTION_PROMPT } from "../shared/prDescriptionPrompt";
 import {
   createCommitMessageSystemPrompt,
-  createCommitMessageUserPrompt
+  createCommitMessageUserPrompt,
+  prepareMessageDiff
 } from "./commitMessagePromptBuilder";
 import {
   createPrDescriptionSystemPrompt,
@@ -13,6 +14,38 @@ import {
 } from "./prDescriptionPromptBuilder";
 
 describe("text generation prompts", () => {
+  it("preserves small diffs exactly", () => {
+    const diff = "diff --git a/logo.png b/logo.png\nBinary files differ";
+    expect(prepareMessageDiff(diff)).toEqual({ text: diff, warning: "" });
+  });
+
+  it("keeps file names and later patch samples after a very large file", () => {
+    const diff = `diff --git a/Design/skilltree.pen b/Design/skilltree.pen\nnew file mode 100644\n${"+design data\n".repeat(300_000)}diff --git a/app.ts b/app.ts\n+fixLaterFile();`;
+    const result = prepareMessageDiff(diff);
+    expect(result.text.length).toBeLessThanOrEqual(60_000);
+    expect(result.text).toContain("Design/skilltree.pen");
+    expect(result.text).toContain("new file mode 100644");
+    expect(result.text).toContain("+fixLaterFile();");
+    expect(result.text).toContain("Do not invent details");
+    expect(result.warning).toContain("truncated");
+  });
+
+  it("falls back to bounded file names when patches cannot fit", () => {
+    const diff = Array.from({ length: 2_000 }, (_, index) =>
+      `diff --git a/file-${index}.ts b/file-${index}.ts\n+change\n`
+    ).join("");
+    const result = prepareMessageDiff(diff);
+    expect(result.text.length).toBeLessThanOrEqual(60_000);
+    expect(result.text).toContain("diff --git a/file-0.ts b/file-0.ts");
+    expect(result.text).toContain("remaining file names omitted");
+  });
+
+  it("bounds diffs without Git headers, including a single long line", () => {
+    const result = prepareMessageDiff("x".repeat(4_000_000));
+    expect(result.text.length).toBeLessThanOrEqual(60_000);
+    expect(result.text).toContain("The diff was truncated");
+  });
+
   it("uses the staged patch and concise commit rules", () => {
     const systemPrompt = createCommitMessageSystemPrompt();
     const userPrompt = createCommitMessageUserPrompt("", "diff --git a/a.ts b/a.ts");

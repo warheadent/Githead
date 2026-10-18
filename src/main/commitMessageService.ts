@@ -20,7 +20,8 @@ import {
 import {
   createCommitMessageSystemPrompt,
   createCommitMessageUserPrompt,
-  normalizeGeneratedMessage
+  normalizeGeneratedMessage,
+  prepareMessageDiff
 } from "./commitMessagePromptBuilder";
 import type { ProcessRunner } from "./processRunner";
 import type { VcsService } from "./vcsService";
@@ -114,20 +115,23 @@ export class CommitMessageService {
       );
       throwIfAborted(signal);
       const systemPrompt = createCommitMessageSystemPrompt(settings.sourceControlWritingStyle, target);
+      const promptDiff = prepareMessageDiff(diff);
       const userPrompt = createCommitMessageUserPrompt(
         settings.commitMessagePrompt,
-        diff,
+        promptDiff.text,
         request.additionalContext,
         settings.sourceControlWritingStyle,
         recentCommits.map((commit) => commit.subject),
         target
       );
-      inputWarning = await createAiInputSizeWarning(
+      const sizeWarning = await createAiInputSizeWarning(
         { provider: selectedProvider, model: providerSettings.model },
         `${systemPrompt}\n${userPrompt}`,
         this.reasoningCapabilities,
-        signal
+        signal,
+        Boolean(promptDiff.warning)
       );
+      inputWarning = [promptDiff.warning, sizeWarning].filter(Boolean).join("\n");
       if (inputWarning) onWarning?.(inputWarning);
       const generation = await generateCompleteText(resolution.provider, {
         repoPath: request.repoPath,
