@@ -239,6 +239,9 @@ const emptySummary = (
 });
 
 const DIFF_TEXT_LIMIT = 250_000;
+// UTF-8 needs at most 3 bytes per UTF-16 code unit, so a cut at this byte
+// count still decodes to more than DIFF_TEXT_LIMIT characters.
+const DIFF_OUTPUT_LIMIT_BYTES = DIFF_TEXT_LIMIT * 3 + 4;
 // Keep status pathspec arguments well below CreateProcessW's command-line
 // limit. The cost estimate allows room for quoting and the fixed Git args.
 const GIT_STATUS_PATHSPEC_CHARACTER_BUDGET = 12_000;
@@ -583,7 +586,7 @@ export class GitService {
       : (await this.getStatusFiles(request.repoPath, [request.path]))[0];
 
     const diffResult = request.side === "staged"
-      ? await this.runGit(request.repoPath, [
+      ? await this.runGitDiff(request.repoPath, [
         "diff",
         "--cached",
         "--submodule=short",
@@ -738,10 +741,10 @@ export class GitService {
       "--",
       pathResult.path
     ];
-    let result = await this.runGit(request.repoPath, diffArgs(stashRef));
+    let result = await this.runGitDiff(request.repoPath, diffArgs(stashRef));
     if (result.exitCode === 0 && !result.stdout) {
       const untrackedParent = await this.runGit(request.repoPath, ["rev-parse", "--verify", `${stashRef}^3`]);
-      if (untrackedParent.exitCode === 0) result = await this.runGit(request.repoPath, diffArgs(`${stashRef}^3`));
+      if (untrackedParent.exitCode === 0) result = await this.runGitDiff(request.repoPath, diffArgs(`${stashRef}^3`));
     }
     return normalizeDiffResult({ repoPath: request.repoPath, path: pathResult.path, side: "staged" }, result);
   }
@@ -934,7 +937,7 @@ export class GitService {
       };
     }
 
-    const diffResult = await this.runGit(request.repoPath, [
+    const diffResult = await this.runGitDiff(request.repoPath, [
       "show",
       "--format=",
       "--no-color",
@@ -3466,6 +3469,15 @@ export class GitService {
     ], options);
   }
 
+  /** Runs a diff command whose output is shown in a diff viewer. */
+  private runGitDiff(repoPath: string, args: string[]): Promise<ProcessResult> {
+    return this.runner.run("git", [
+      "-C",
+      repoPath,
+      ...args
+    ], diffViewRunOptions());
+  }
+
   private runGitEffect(
     repoPath: string,
     args: string[],
@@ -3638,9 +3650,9 @@ export class GitService {
         "--",
         "/dev/null",
         filePath
-      ], {
+      ], diffViewRunOptions({
         cwd: repoPath
-      });
+      }));
 
       return {
         ...result,
@@ -3648,7 +3660,7 @@ export class GitService {
       };
     }
 
-    return this.runGit(repoPath, [
+    return this.runGitDiff(repoPath, [
       "diff",
       ...(submoduleShort ? ["--submodule=short"] : []),
       "--no-color",
@@ -4357,6 +4369,16 @@ function areConfiguredActionsEqual(left: GitConfiguredAction, right: GitConfigur
     && left.command === right.command
     && left.shell === right.shell
     && Boolean(left.bindToPull) === Boolean(right.bindToPull);
+}
+
+/**
+ * Run options for every diff shown in a viewer. Output past the viewer limit is
+ * dropped while the command still runs to its real exit status, so a huge diff
+ * is shown truncated instead of failing at the default process output cap and
+ * memory stays bounded. `normalizeDiffResult` applies the character limit.
+ */
+function diffViewRunOptions(options: ProcessRunOptions = {}): ProcessRunOptions {
+  return { ...options, maxOutputBytes: DIFF_OUTPUT_LIMIT_BYTES, outputMode: "truncate" };
 }
 
 function createRunOptions(
@@ -5334,9 +5356,22 @@ function normalizeDiffResult(request: GitFileDiffRequest, result: ProcessResult,
     path: request.path,
     side: request.side,
     kind: "text",
-    text: truncated ? result.stdout.slice(0, textLimit) : result.stdout,
+    text: truncated ? truncateDiffText(result.stdout, textLimit) : result.stdout,
     ...(truncated ? { truncated } : {})
   };
+}
+
+/**
+ * Cuts truncated diff text at the last complete line when one ends in the
+ * second half of the limit, and never inside a surrogate pair. A single very
+ * long line (minified code) keeps its visible prefix instead.
+ */
+function truncateDiffText(text: string, limit: number): string {
+  const sliced = text.slice(0, limit);
+  const lineEnd = sliced.lastIndexOf("\n");
+  if (lineEnd >= sliced.length / 2) return sliced.slice(0, lineEnd + 1);
+  const lastCode = sliced.charCodeAt(sliced.length - 1);
+  return lastCode >= 0xD800 && lastCode <= 0xDBFF ? sliced.slice(0, -1) : sliced;
 }
 
 function pathStatusArgs(filePath: string): string[] {

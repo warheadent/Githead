@@ -2899,6 +2899,7 @@ describe("GitService", () => {
     expect(diff.truncated).toBe(true);
     expect(diff.text.length).toBe(250_000);
     expect(runner.calls.at(-1)).toMatchObject({
+      options: { maxOutputBytes: 750_004, outputMode: "truncate" },
       args: [
         "-C",
         "D:\\Repo",
@@ -4482,6 +4483,32 @@ describe("GitService", () => {
     await expect(new GitService(new FakeRunner([failure("fatal: not a git repository")]))
       .getFileDiffFingerprint({ repoPath: "D:\\Repo", path: "a.ts", side: "unstaged" }))
       .resolves.toEqual({ fingerprint: null });
+  });
+
+  it("bounds every viewer diff read and shows cut output as truncated text", async () => {
+    const viewerLimit = { maxOutputBytes: 750_004, outputMode: "truncate" };
+    const cutOutput: ProcessResult = {
+      ...ok(`diff --git a/a.ts b/a.ts\n${"+line\n".repeat(60_000)}+partial`),
+      stdoutTruncated: true
+    };
+    const runner = new FakeRunner([
+      ok("true\n"), ok(`${trackedRecord("M.", "a.ts")}\0`), cutOutput,
+      ok("true\n"), ok("? new.ts\0"), { ...ok("diff --git a/new.ts b/new.ts\n+new\n"), exitCode: 1 },
+      ok("true\n"), ok("diff --git a/a.ts b/a.ts\n+stashed\n")
+    ]);
+    const service = new GitService(runner);
+
+    const staged = await service.getFileDiff({ repoPath: "D:\\Repo", path: "a.ts", side: "staged" });
+    expect(staged).toMatchObject({ kind: "text", truncated: true });
+    expect(staged.text.length).toBeLessThanOrEqual(250_000);
+    expect(staged.text.endsWith("+line\n")).toBe(true);
+    expect(runner.calls[2]?.options).toMatchObject(viewerLimit);
+
+    await service.getFileDiff({ repoPath: "D:\\Repo", path: "new.ts", side: "unstaged" });
+    expect(runner.calls[5]?.options).toMatchObject({ ...viewerLimit, cwd: "D:\\Repo" });
+
+    await service.getStashFileDiff({ repoPath: "D:\\Repo", stashRef: "stash@{0}", path: "a.ts" });
+    expect(runner.calls[7]?.options).toMatchObject(viewerLimit);
   });
 
   it("reads commit-plan diffs with one repository validation and one File Status call", async () => {
