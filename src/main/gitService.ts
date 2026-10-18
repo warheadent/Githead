@@ -130,6 +130,7 @@ import { mapWithConcurrency } from "./asyncMap";
 import { validateCloneRequest } from "./cloneValidation";
 import type { ProcessOutput, ProcessResult, ProcessRunOptions, ProcessRunner } from "./processRunner";
 import { mapRepoSyncStatuses } from "./repoSyncStatus";
+import { completeStatusRecords, GIT_STATUS_MAX_OUTPUT_BYTES, GIT_STATUS_OUTPUT_OPTIONS } from "./gitStatusOutput";
 import { IMAGE_PREVIEW_LIMIT, imageFallbackText, imageVersionFromBytes, isPreviewableImagePath, isPreviewableRasterImagePath, type ImageReadResult } from "./imageDiff";
 import { escapeLfsIncludePath, isGitLfsPointerDiff, parseGitLfsPointer, parseLocalMediaDir, resolveLocalLfsImage, type GitLfsPointer } from "./gitLfs";
 import { resolvePreviewFile, validatePreviewPath, readMarkdownPreviewFile, validateMarkdownPreviewPath, validateMarkdownPreviewText } from "./filePreview";
@@ -309,16 +310,23 @@ export class GitService {
   }
 
   async getRepoStatus(request: RepoSectionRequest): Promise<RepoStatusSection> {
-    const result = await this.runGitStatus(request.repoPath, ["--porcelain=v2", "-z", "--branch", "--untracked-files=all"]);
+    const result = await this.runGitStatus(request.repoPath, ["--porcelain=v2", "-z", "--branch", "--untracked-files=all"], GIT_STATUS_OUTPUT_OPTIONS);
     if (result.exitCode !== 0 || result.exceededLimit || (result.terminationReason && result.terminationReason !== "exited")) {
       throw new Error(result.stderr.trim() || result.error || "Unable to read repository file status.");
     }
-    const status = parsePorcelainStatus(result.stdout);
+    const truncated = Boolean(result.stdoutTruncated);
+    const records = completeStatusRecords(result);
+    const status = parsePorcelainStatus(records, { truncated });
     const [submodules, operationState] = await Promise.all([
       this.getSubmodules(request.repoPath, status.files),
-      this.operationRecovery.detect(request.repoPath, result.stdout)
+      this.operationRecovery.detect(request.repoPath, records)
     ]);
-    return { repoPath: request.repoPath, generation: request.generation, ahead: status.ahead, behind: status.behind, files: status.files, operationState, submodules };
+    // Git lists tracked changes before untracked files, so any untracked entry
+    // means every staged, modified, and conflicted file was read.
+    const statusTruncation = truncated
+      ? { shownFileCount: status.files.length, outputLimitBytes: GIT_STATUS_MAX_OUTPUT_BYTES, trackedComplete: status.files.some((file) => file.indexStatus === "?") }
+      : null;
+    return { repoPath: request.repoPath, generation: request.generation, ahead: status.ahead, behind: status.behind, files: status.files, operationState, submodules, statusTruncation };
   }
 
   async getRepositoryOperationState(repoPath: string): Promise<GitRepositoryOperationState | null> {
@@ -3972,14 +3980,14 @@ export class GitService {
     throw message === error.message ? error : new Error(message);
   }
 
-  private runGitStatus(repoPath: string, args: string[], signal?: AbortSignal): Promise<ProcessResult> {
+  private runGitStatus(repoPath: string, args: string[], options?: ProcessRunOptions): Promise<ProcessResult> {
     return this.runner.run("git", [
       "-C",
       repoPath,
       "--no-optional-locks",
       "status",
       ...args
-    ], signal ? { signal } : undefined);
+    ], options);
   }
 
   private async runGitStatusWithRetry(repoPath: string, args: string[]): Promise<ProcessResult> {
@@ -4218,7 +4226,7 @@ export class GitService {
       "--untracked-files=all",
       "--",
       ...paths
-    ], signal));
+    ], signal ? { signal } : undefined));
     signal?.throwIfAborted();
     const failed = statusResults.find((result) => result.exitCode !== 0);
     if (failed) {
@@ -5407,7 +5415,12 @@ function splitAtFirst(text: string, separator: string): [string, string] {
   ];
 }
 
-export function parsePorcelainStatus(text: string): { files: GitStatusFile[]; ahead: number | null; behind: number | null } {
+/**
+ * Parses `git status --porcelain=v2 -z` output. For truncated output, pass only
+ * complete records (see `completeStatusRecords`) and `truncated`, so a rename
+ * whose original path was cut off is dropped instead of misread.
+ */
+export function parsePorcelainStatus(text: string, options: { truncated?: boolean } = {}): { files: GitStatusFile[]; ahead: number | null; behind: number | null } {
   const records = text.split("\0").filter((record) => record.length > 0);
   const files: GitStatusFile[] = [];
   let ahead: number | null = null;
@@ -5440,6 +5453,7 @@ export function parsePorcelainStatus(text: string): { files: GitStatusFile[]; ah
     }
 
     if (record.startsWith("2 ")) {
+      if (options.truncated && index + 1 >= records.length) break;
       const parsed = parseTrackedRecord(record, 9);
       const originalPath = records[index + 1];
       if (parsed) {

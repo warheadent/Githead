@@ -276,7 +276,7 @@ export function createGitheadMock(): GitheadApi {
     }),
     getRepoStatus: vi.fn(async (request) => {
       const summary = await progressiveSummary(request);
-      return { repoPath: summary.repoPath, generation: request.generation, ahead: summary.ahead, behind: summary.behind, files: summary.files, operationState: summary.operationState, ...(summary.submodules ? { submodules: summary.submodules } : {}) };
+      return { repoPath: summary.repoPath, generation: request.generation, ahead: summary.ahead, behind: summary.behind, files: summary.files, operationState: summary.operationState, ...(summary.submodules ? { submodules: summary.submodules } : {}), ...(summary.statusTruncation !== undefined ? { statusTruncation: summary.statusTruncation } : {}) };
     }),
     getRepoMetadata: vi.fn(async (request) => {
       const summary = await progressiveSummary(request);

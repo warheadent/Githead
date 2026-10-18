@@ -574,6 +574,7 @@ export interface RepoSummary {
   files: GitStatusFile[];
   operationState: GitRepositoryOperationState | null;
   submodules?: GitSubmodule[];
+  statusTruncation?: GitStatusTruncation | null;
   validationErrors: string[];
   safeDirectory: GitSafeDirectoryInfo | null;
   actionsConfig: GitActionsConfig;
@@ -912,6 +913,14 @@ export interface RepoIdentitySection {
   validationErrors: string[];
 }
 
+/** Git printed more status than Githead reads, so `files` lists only the first entries. */
+export interface GitStatusTruncation {
+  shownFileCount: number;
+  outputLimitBytes: number;
+  /** True when only untracked files were cut and every tracked change is listed. */
+  trackedComplete: boolean;
+}
+
 export interface RepoStatusSection {
   repoPath: string;
   generation: number;
@@ -920,6 +929,8 @@ export interface RepoStatusSection {
   files: GitStatusFile[];
   operationState: GitRepositoryOperationState | null;
   submodules?: GitSubmodule[];
+  /** Null when the file list is complete. Git status reads always set it so a refresh clears it. */
+  statusTruncation?: GitStatusTruncation | null;
 }
 
 export interface RepoMetadataSection {

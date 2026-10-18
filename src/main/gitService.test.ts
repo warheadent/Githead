@@ -7,6 +7,7 @@ import type { BinaryProcessResult, ProcessResult, ProcessRunOptions, ProcessRunn
 import { NodeProcessRunner } from "./processRunner";
 import { createTerminalColorEnv, GitService, parsePorcelainStatus, parseWorktrees } from "./gitService";
 import { createCommitPlanChanges } from "./commitPlanChanges";
+import { completeStatusRecords } from "./gitStatusOutput";
 import { CancellableProcessRunner } from "./cancellableProcessRunner";
 import { NETWORK_OPERATION_TIMEOUT_MS } from "./operationTimeouts";
 import { runWithRepositoryGitOutput } from "./gitOutputBatcher";
@@ -119,6 +120,60 @@ describe("GitService progressive Repository sections", () => {
     await expect(service.getRepoStatus({ repoPath: "D:\\Repo", generation: 2 })).rejects.toThrow(expected);
 
     expect(runner.calls).toHaveLength(1);
+  });
+
+  const statusHeader = "# branch.oid 0123456789abcdef0123456789abcdef01234567\0# branch.head main\0# branch.upstream origin/main\0# branch.ab +1 -2\0";
+  const statusObject = "0123456789abcdef0123456789abcdef01234567";
+  const modifiedRecord = `1 .M N... 100644 100644 100644 ${statusObject} ${statusObject} src/app.ts\0`;
+  const renamedRecord = `2 R. N... 100644 100644 100644 ${statusObject} ${statusObject} R100 src/new name.ts\0src/old name.ts\0`;
+
+  it("reads File Status in truncate mode and reports a complete list as untruncated", async () => {
+    const runner = new FakeRunner([ok(`${statusHeader}${modifiedRecord}? notes.txt\0`)]);
+
+    await expect(new GitService(runner).getRepoStatus({ repoPath: "D:\\Repo", generation: 2 })).resolves.toMatchObject({
+      files: [expect.objectContaining({ path: "src/app.ts" }), expect.objectContaining({ path: "notes.txt" })],
+      statusTruncation: null
+    });
+    expect(runner.calls[0]?.options).toMatchObject({ outputMode: "truncate", maxOutputBytes: 8 * 1024 * 1024 });
+  });
+
+  it("returns the complete records of an oversized File Status with an untracked-file notice", async () => {
+    const runner = new FakeRunner([{ ...ok(`${statusHeader}${modifiedRecord}${renamedRecord}? build/a.js\0? build/b.js\0? build/par`), stdoutTruncated: true }]);
+
+    const status = await new GitService(runner).getRepoStatus({ repoPath: "D:\\Repo", generation: 2 });
+
+    expect(status.files.map((file) => [file.path, file.originalPath])).toEqual([
+      ["src/app.ts", undefined],
+      ["src/new name.ts", "src/old name.ts"],
+      ["build/a.js", undefined],
+      ["build/b.js", undefined]
+    ]);
+    expect(status).toMatchObject({ ahead: 1, behind: 2, statusTruncation: { shownFileCount: 4, outputLimitBytes: 8 * 1024 * 1024, trackedComplete: true } });
+  });
+
+  it.each([
+    ["inside the new path", `${statusHeader}${modifiedRecord}${renamedRecord.slice(0, renamedRecord.indexOf("new name"))}`],
+    ["before the original path", `${statusHeader}${modifiedRecord}${renamedRecord.slice(0, renamedRecord.indexOf("\0") + 1)}`],
+    ["inside the original path", `${statusHeader}${modifiedRecord}${renamedRecord.slice(0, renamedRecord.indexOf("old"))}`]
+  ])("drops a rename cut off %s and marks tracked changes incomplete", async (_label, stdout) => {
+    const runner = new FakeRunner([{ ...ok(stdout), stdoutTruncated: true }]);
+
+    const status = await new GitService(runner).getRepoStatus({ repoPath: "D:\\Repo", generation: 2 });
+
+    expect(status.files.map((file) => file.path)).toEqual(["src/app.ts"]);
+    expect(status.statusTruncation).toEqual({ shownFileCount: 1, outputLimitBytes: 8 * 1024 * 1024, trackedComplete: false });
+  });
+
+  it("parses every truncation point of a status stream as a prefix of the complete file list", () => {
+    const stream = `${statusHeader}${modifiedRecord}${renamedRecord}u UU N... 100644 100644 100644 100644 ${statusObject} ${statusObject} ${statusObject} conflict.ts\0? é dir/ü.txt\0? z.txt\0`;
+    const complete = parsePorcelainStatus(stream).files;
+    const bytes = Buffer.from(stream, "utf8");
+    for (let length = 0; length < bytes.length; length += 1) {
+      // The process runner never emits a partial UTF-8 sequence.
+      const stdout = new TextDecoder("utf-8", { fatal: false }).decode(bytes.subarray(0, length)).replace(/\uFFFD$/, "");
+      const files = parsePorcelainStatus(completeStatusRecords({ stdout, stdoutTruncated: true }), { truncated: true }).files;
+      expect(files).toEqual(complete.slice(0, files.length));
+    }
   });
 });
 

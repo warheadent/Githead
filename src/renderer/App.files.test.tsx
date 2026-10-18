@@ -72,6 +72,28 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => expect(githead.stageFiles).toHaveBeenCalledWith({ repoPath, paths: ["src/mixed.ts"], operationId: expect.any(String) }));
   });
 
+  it("shows a non-blocking notice while File Status lists only the first files", async () => {
+    const files = [
+      createStatusFile("src/app.ts", { isUnstaged: true, worktreeStatus: "M" }),
+      createStatusFile("node_modules/a.js", { isUnstaged: true, indexStatus: "?", worktreeStatus: "?" })
+    ];
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files, statusTruncation: { shownFileCount: 12_345, outputLimitBytes: 8 * 1024 * 1024, trackedComplete: true } }));
+    render(<App />);
+    const notice = (await screen.findByText("Too many untracked files")).closest("[role='status']");
+    expect(notice?.textContent).toContain("Showing the first 12,345 changed files. Every staged and modified file is listed.");
+    expect(screen.getByRole("option", { name: /node_modules\/a.js/ })).toBeTruthy();
+
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files, statusTruncation: { shownFileCount: 2, outputLimitBytes: 8 * 1024 * 1024, trackedComplete: false } }));
+    act(() => emitRepoChanged({ reason: "filesystem" }));
+    await waitFor(() => expect(screen.getByText("Too many changed files")).toBeTruthy());
+    expect(screen.getByText(/Some staged or modified files are not listed/)).toBeTruthy();
+
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files, statusTruncation: null }));
+    act(() => emitRepoChanged({ reason: "filesystem" }));
+    await waitFor(() => expect(screen.queryByText("Too many changed files")).toBeNull());
+    expect(screen.getByRole("option", { name: /src\/app.ts/ })).toBeTruthy();
+  });
+
   it("keeps filtered range selection and context actions scoped to matching files", async () => {
     const files = ["src/a.ts", "src/b.md", "src/c.ts"].map((path) => createStatusFile(path, { isUnstaged: true, worktreeStatus: "M" }));
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files }));

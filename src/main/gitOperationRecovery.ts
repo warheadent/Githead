@@ -13,7 +13,8 @@ import type {
   GitRepositoryOperationKind,
   GitRepositoryOperationState
 } from "../shared/types";
-import type { ProcessResult, ProcessRunner } from "./processRunner";
+import type { ProcessResult, ProcessRunOptions, ProcessRunner } from "./processRunner";
+import { completeStatusRecords, GIT_STATUS_OUTPUT_OPTIONS } from "./gitStatusOutput";
 import { containsGitConflictMarkers } from "../shared/conflictMarkers";
 
 const METADATA_FILE_LIMIT = 1024 * 1024;
@@ -354,12 +355,12 @@ export class GitOperationRecoveryService {
       "-z",
       "--branch",
       "--untracked-files=all"
-    ]);
-    return result.exitCode === 0 ? result.stdout : null;
+    ], GIT_STATUS_OUTPUT_OPTIONS);
+    return result.exitCode === 0 ? completeStatusRecords(result) : null;
   }
 
-  private runGit(repoPath: string, args: string[]): Promise<ProcessResult> {
-    return this.runner.run("git", ["-C", repoPath, ...args]);
+  private runGit(repoPath: string, args: string[], options?: ProcessRunOptions): Promise<ProcessResult> {
+    return this.runner.run("git", ["-C", repoPath, ...args], options);
   }
 }
 

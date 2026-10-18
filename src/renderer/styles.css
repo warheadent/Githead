@@ -4717,6 +4717,10 @@ textarea,
   padding: 8px 16px;
 }
 
+.status-truncation-notice {
+  margin: 0 16px 8px;
+}
+
 /* Search, clear and the status filter share one 32px field so the toolbar reads as one control language. */
 .status-file-search {
   display: flex;

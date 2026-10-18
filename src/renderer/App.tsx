@@ -220,6 +220,7 @@ import type {
   GitRunResult,
   GitSafeDirectoryInfo,
   GitStatusFile,
+  GitStatusTruncation,
   GitStashSelection,
   GitUndoCommitRequest,
   RepoSyncStatus,
@@ -10276,6 +10277,7 @@ function StatusView({
           ]}
         />
       </div>
+      {summary?.statusTruncation ? <StatusTruncationNotice truncation={summary.statusTruncation} /> : null}
       {workspaceMode === "plan" ? (
         <CommitPlanView
           repoPath={repoPath}
@@ -10744,6 +10746,23 @@ interface StashComposerState {
   paths: string[];
 }
 
+
+function StatusTruncationNotice({ truncation }: { truncation: GitStatusTruncation }): ReactNode {
+  const shown = `Showing the first ${truncation.shownFileCount.toLocaleString()} changed files.`;
+  return (
+    <div className="dialog-notice status-truncation-notice" data-tone="warning" role="status">
+      <TriangleAlert aria-hidden="true" />
+      <div>
+        <p className="dialog-notice-title">{truncation.trackedComplete ? "Too many untracked files" : "Too many changed files"}</p>
+        <p className="text-muted-foreground">
+          {truncation.trackedComplete
+            ? `${shown} Every staged and modified file is listed. Add generated folders to .gitignore to see the rest.`
+            : `${shown} Some staged or modified files are not listed.`}
+        </p>
+      </div>
+    </div>
+  );
+}
 
 function FileRow({
   file,
