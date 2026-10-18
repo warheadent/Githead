@@ -76,4 +76,24 @@ describe("RepoTrustService", () => {
       await expect(service.isTrusted(duplicatePath)).resolves.toBe(true);
     });
   });
+
+  it("reuses the parsed trust list but honors edits made outside this service", async () => {
+    await withTempDir(async (dir) => {
+      const trustPath = path.join(dir, "repo-trust.json");
+      const first = path.join(dir, "First");
+      const second = path.join(dir, "Second");
+      const service = new RepoTrustService(dir);
+      await service.trustRepo(first);
+      await expect(service.isTrusted(first)).resolves.toBe(true);
+      await expect(service.isTrusted(second)).resolves.toBe(false);
+
+      // Another instance adds a repository, then the user revokes the first.
+      await fs.writeFile(trustPath, `${JSON.stringify({ trustedRepos: [first, second] })}\n`, "utf8");
+      await expect(service.isTrusted(second)).resolves.toBe(true);
+      await fs.writeFile(trustPath, `${JSON.stringify({ trustedRepos: [second] })}\n`, "utf8");
+      await expect(service.isTrusted(first)).resolves.toBe(false);
+      await fs.rm(trustPath);
+      await expect(service.isTrusted(second)).resolves.toBe(false);
+    });
+  });
 });

@@ -6,9 +6,21 @@ interface StoredRepoTrust {
   trustedRepos?: unknown;
 }
 
+interface CachedTrustList {
+  signature: string;
+  keys: Set<string>;
+  trustedRepos: string[];
+}
+
 export class RepoTrustService {
   private readonly trustPath: string;
   private mutationQueue: Promise<unknown> = Promise.resolve();
+  /**
+   * Parsed trust list, reused while the file's stat signature is unchanged.
+   * The stat keeps external edits (another instance, manual revocation)
+   * effective without re-reading and parsing the file on every check.
+   */
+  private cached: CachedTrustList | null = null;
 
   constructor(userDataPath: string) {
     this.trustPath = path.join(userDataPath, "repo-trust.json");
@@ -20,9 +32,7 @@ export class RepoTrustService {
       return false;
     }
 
-    const trustedRepos = await this.readTrustedRepos();
-    const key = getRepoPathKey(normalizedPath);
-    return trustedRepos.some((trustedRepo) => getRepoPathKey(trustedRepo) === key);
+    return (await this.readTrustList()).keys.has(getRepoPathKey(normalizedPath));
   }
 
   async trustRepo(repoPath: string): Promise<boolean> {
@@ -32,18 +42,39 @@ export class RepoTrustService {
     }
 
     return this.enqueueMutation(async () => {
-      const trustedRepos = await this.readTrustedRepos();
-      const key = getRepoPathKey(normalizedPath);
-      const next = trustedRepos.some((trustedRepo) => getRepoPathKey(trustedRepo) === key)
+      const { trustedRepos, keys } = await this.readTrustList();
+      const next = keys.has(getRepoPathKey(normalizedPath))
         ? trustedRepos
         : [
             normalizedPath,
             ...trustedRepos
           ];
 
+      this.cached = null;
       await this.writeTrustedRepos(next);
       return true;
     });
+  }
+
+  private async readTrustList(): Promise<CachedTrustList> {
+    const signature = await this.readTrustSignature();
+    if (this.cached && this.cached.signature === signature) return this.cached;
+    const trustedRepos = await this.readTrustedRepos();
+    // A write between the stat and the read leaves a stale signature, which
+    // only causes one extra read on the next check.
+    const next = { signature, trustedRepos, keys: new Set(trustedRepos.map(getRepoPathKey)) };
+    this.cached = next;
+    return next;
+  }
+
+  private async readTrustSignature(): Promise<string> {
+    try {
+      const stat = await fs.stat(this.trustPath);
+      return `${stat.mtimeMs}:${stat.ctimeMs}:${stat.size}:${stat.ino}`;
+    } catch (error) {
+      if (isNodeError(error) && error.code === "ENOENT") return "missing";
+      throw error;
+    }
   }
 
   private async readTrustedRepos(): Promise<string[]> {
