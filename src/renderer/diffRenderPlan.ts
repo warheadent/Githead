@@ -5,7 +5,7 @@ import { isTechnicalFileHeader, type DiffRowGroup } from "./diffParser";
  * with content-visibility while it is off screen, so a large diff costs layout, paint, and hit
  * testing only for the chunks near the viewport.
  */
-export const DIFF_RENDER_CHUNK_ROWS = 64;
+export const DIFF_RENDER_CHUNK_ROWS = 32;
 /** Matches the unwrapped .diff-row height in styles.css. */
 export const DIFF_ROW_HEIGHT_PX = 20;
 /** Matches the .diff-hunk-toolbar min-height in styles.css. */

@@ -58,7 +58,7 @@ describe("DiffRows", () => {
     expect(initialRows).toBeLessThan(1_000);
     expect(diffRoot().getAttribute("aria-busy")).toBe("true");
     const pending = document.querySelector<HTMLElement>("[data-pending]")!;
-    expect(pending.style.getPropertyValue("--diff-chunk-height")).toBe("1280px");
+    expect(pending.style.getPropertyValue("--diff-chunk-height")).toBe("640px");
     expect(pending.style.getPropertyValue("--diff-chunk-width")).toMatch(/^calc\(166px \+ \d+ch\)$/);
 
     await runMountStep();
@@ -97,14 +97,14 @@ describe("DiffRows", () => {
     render(<DiffRows filePath="file.ts" text={additionDiff(1_000)} truncated={false} />);
     await waitFor(() => expect(rows().length).toBeGreaterThan(0));
     const chunk = (index: number) => document.querySelector<HTMLElement>(`[data-diff-chunk="${index}"]`)!;
-    expect(chunk(12).hasAttribute("data-pending")).toBe(true);
+    expect(chunk(25).hasAttribute("data-pending")).toBe(true);
 
-    act(() => intersectionCallback!([{ target: chunk(12), isIntersecting: true } as unknown as IntersectionObserverEntry], {} as IntersectionObserver));
+    act(() => intersectionCallback!([{ target: chunk(25), isIntersecting: true } as unknown as IntersectionObserverEntry], {} as IntersectionObserver));
     await runMountStep();
 
-    expect(chunk(12).hasAttribute("data-pending")).toBe(false);
-    expect(chunk(12).querySelectorAll(".diff-row").length).toBeGreaterThan(0);
-    expect(chunk(10).hasAttribute("data-pending")).toBe(true);
+    expect(chunk(25).hasAttribute("data-pending")).toBe(false);
+    expect(chunk(25).querySelectorAll(".diff-row").length).toBeGreaterThan(0);
+    expect(chunk(20).hasAttribute("data-pending")).toBe(true);
   });
 
   it("disables line and hunk actions without remounting rows and applies a line patch when enabled", async () => {

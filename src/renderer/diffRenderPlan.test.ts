@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { groupDiffRowsByHunk, parseUnifiedDiff } from "./diffParser";
 import {
   DIFF_HUNK_TOOLBAR_HEIGHT_PX,
+  DIFF_RENDER_CHUNK_ROWS,
   DIFF_ROW_HEIGHT_PX,
   measureDiffLineColumns,
   planDiffRender
@@ -58,7 +59,7 @@ describe("planDiffRender", () => {
 
     expect(plan.rowCount).toBe(10_000);
     expect(plan.chunks.reduce((sum, chunk) => sum + chunk.rowCount, 0)).toBe(10_000);
-    expect(Math.max(...plan.chunks.map((chunk) => chunk.rowCount))).toBeLessThanOrEqual(64);
+    expect(Math.max(...plan.chunks.map((chunk) => chunk.rowCount))).toBeLessThanOrEqual(DIFF_RENDER_CHUNK_ROWS);
   });
 });
 

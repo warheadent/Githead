@@ -5326,7 +5326,7 @@ textarea,
 }
 
 /*
- * A render chunk of about 64 rows. Off screen, the browser skips its layout, paint, and hit testing
+ * A render chunk of about 32 rows. Off screen, the browser skips its layout, paint, and hit testing
  * and sizes it from the row estimate: unwrapped rows have a fixed height, so the estimate is exact,
  * and the width covers its longest line, so horizontal scrolling keeps the full width.
  */
