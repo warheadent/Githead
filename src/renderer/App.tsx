@@ -315,14 +315,13 @@ import {
 import { isGitHubView, isGuestView, type GuestView } from "./workspaceViews";
 import { applyHistoryPage, fullHistoryRead, historyReadRequest, planHistoryRead, type HistoryRead } from "./historyPaging";
 import { buildCommitGraphLayout, COMMIT_GRAPH_COLOR_COUNT, COMMIT_GRAPH_ROW_HEIGHT, type CommitGraphLayout } from "./commitGraph";
-import { countDiffLineChanges, createLinePatch, isTechnicalFileHeader, type DiffLineChangeCounts, type DiffRow, type DiffRowGroup } from "./diffParser";
-import { createDiffProcessingSession, type ProcessedDiff } from "./diffProcessingClient";
+import { countDiffLineChanges, type DiffLineChangeCounts } from "./diffParser";
+import { DiffRows, type DiffHunkAction } from "./DiffRows";
 import { areFileDiffsEqual } from "./diffFreshness";
 import { getCommitFileStatusVisuals, getFileStatusVisuals, type FileStatusVisuals } from "./fileStatusVisuals";
 import { FileStatusChip } from "./FileStatusChip";
 import { filterStatusFiles, type StatusFileFilter } from "./statusFileFilter";
 import { FixedSizeVirtualList, type VirtualRowProps } from "./FixedSizeVirtualList";
-import type { HighlightedCode } from "./syntaxHighlighter";
 import { buildStatusFileTree, fileName, flattenStatusFileTree, type StatusFileTreeFolder } from "./statusFileTree";
 import { applyColorTheme } from "./themes";
 import { OptionalFeatureBoundary } from "./OptionalFeatureBoundary";
@@ -339,7 +338,6 @@ import { VisualEffectsProvider, defaultVisualPreferences, useVisualEffects } fro
 import { StartLayout } from "./StartLayout";
 import { useGitStashes } from "./useGitStashes";
 import { useImageFilePreview, useMarkdownFilePreview } from "./useFilePreview";
-import { useSelectionSafeValue } from "./useSelectionSafeValue";
 import { repositoryHistoryRoute, targetFromCommitFile, targetFromHistoryEntry, type HistoricalFileTarget, type HistoryRoute } from "./historyNavigation";
 import { useWorkspaceNavigation, type WorkspaceLocation, type WorkspaceView } from "./useWorkspaceNavigation";
 
@@ -11214,223 +11212,6 @@ type DiffPanelVariant = "default" | "card" | "embedded";
 
 function formatDiffLineChanges({ additions, deletions }: DiffLineChangeCounts): string {
   return `${additions} ${additions === 1 ? "line" : "lines"} added, ${deletions} ${deletions === 1 ? "line" : "lines"} deleted`;
-}
-
-interface DiffHunkAction {
-  onDiscard?: ((patch: string) => void) | undefined;
-  side: GitDiffSide;
-  disabled: boolean;
-  onApply: (patch: string) => void;
-}
-
-const DiffRows = memo(function DiffRows({
-  filePath,
-  text,
-  truncated,
-  hunkAction
-}: {
-  filePath: string;
-  text: string;
-  truncated: boolean;
-  hunkAction?: DiffHunkAction | undefined;
-}): ReactNode {
-  const [discardTarget, setDiscardTarget] = useState<{ patch: string; filePath: string; text: string } | null>(null);
-  const discardTargetCurrent = discardTarget?.filePath === filePath && discardTarget.text === text;
-  const sessionRef = useRef<ReturnType<typeof createDiffProcessingSession> | null>(null);
-  const {
-    value: processedValue,
-    requestValue: requestProcessedValue,
-    rootRef,
-    onPointerDownCapture
-  } = useSelectionSafeValue<{
-    filePath: string;
-    text: string;
-    truncated: boolean;
-    result: ProcessedDiff;
-  } | null>(null);
-
-  useEffect(() => {
-    const session = createDiffProcessingSession();
-    sessionRef.current = session;
-    return () => {
-      session.dispose();
-      if (sessionRef.current === session) sessionRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    const session = sessionRef.current;
-    if (!session) return;
-    let cancelled = false;
-
-    void session.process({ filePath, text, truncated }).then((result) => {
-      if (!cancelled && result) requestProcessedValue({ filePath, text, truncated, result });
-    });
-
-    return () => {
-      cancelled = true;
-      session.cancel();
-    };
-  }, [filePath, requestProcessedValue, text, truncated]);
-
-  const processed = processedValue?.filePath === filePath
-    && processedValue.text === text
-    && processedValue.truncated === truncated
-    ? processedValue.result
-    : null;
-  const groups = processed?.groups ?? [];
-
-  return (
-    <div className="diff-rows" ref={rootRef} aria-busy={!processed} onPointerDownCapture={onPointerDownCapture}>
-      {!processed ? <LoadingState label="Processing diff" className="min-h-32" /> : null}
-      <Dialog open={Boolean(discardTarget && discardTargetCurrent && hunkAction?.onDiscard)} onOpenChange={(open) => { if (!open) setDiscardTarget(null); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Discard this hunk?</DialogTitle>
-            <DialogDescription>The changes in this hunk will be discarded. Other hunks and staged changes will be kept.</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setDiscardTarget(null)}>Cancel</Button>
-            <Button type="button" variant="destructive" disabled={hunkAction?.disabled || !discardTargetCurrent} onClick={() => {
-              if (discardTarget && discardTargetCurrent && !hunkAction?.disabled) hunkAction?.onDiscard?.(discardTarget.patch);
-              setDiscardTarget(null);
-            }}>Discard changes</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      {groups.map((group, groupIndex) => {
-        const groupKey = `${groupIndex}:${group.kind}:${group.rows[0]?.text ?? ""}`;
-        const rowViews = group.rows.flatMap((row, rowIndex) => {
-          const visible = group.kind === "hunk" ? row.kind !== "hunk" : !isTechnicalFileHeader(row);
-          const lineAction = visible ? createDiffLineAction(group, row, rowIndex, hunkAction) : undefined;
-          return visible ? [
-            <DiffRowView
-              key={`${rowIndex}:${row.kind}:${row.oldLine ?? ""}:${row.newLine ?? ""}`}
-              row={row}
-              highlighted={processed?.highlightedRows[groupIndex]?.[rowIndex] ?? { kind: "plain", value: row.text }}
-              lineAction={lineAction}
-            />
-          ] : [];
-        });
-        const hunkActionLabel = hunkAction?.side === "unstaged" ? "Stage hunk" : "Unstage hunk";
-
-        if (group.kind === "hunk") {
-          return (
-            <div className="diff-hunk-block" key={groupKey}>
-              <div className="diff-hunk-toolbar">
-                <span className="diff-hunk-header">{group.rows[0]?.text}</span>
-                <span className="diff-hunk-actions">
-                  {hunkAction?.onDiscard && group.patch ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="xs"
-                      className="diff-hunk-action"
-                      disabled={hunkAction.disabled}
-                      onClick={() => setDiscardTarget({ patch: group.patch!, filePath, text })}
-                    >
-                      Discard hunk
-                    </Button>
-                  ) : null}
-                  {hunkAction && group.patch ? (
-                    <TooltipTarget content={hunkActionLabel}>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="xs"
-                        className="diff-hunk-action"
-                        aria-label={hunkActionLabel}
-                        disabled={hunkAction.disabled}
-                        onClick={() => hunkAction.onApply(group.patch!)}
-                      >
-                        {hunkActionLabel}
-                      </Button>
-                    </TooltipTarget>
-                  ) : null}
-                </span>
-              </div>
-              {rowViews}
-            </div>
-          );
-        }
-
-        return (
-          <Fragment key={groupKey}>
-            {rowViews}
-          </Fragment>
-        );
-      })}
-    </div>
-  );
-});
-
-interface DiffLineAction {
-  label: string;
-  disabled: boolean;
-  onApply: () => void;
-}
-
-function createDiffLineAction(
-  group: DiffRowGroup,
-  row: DiffRow,
-  rowIndex: number,
-  hunkAction: DiffHunkAction | undefined
-): DiffLineAction | undefined {
-  if (!hunkAction || (row.kind !== "add" && row.kind !== "delete")) return undefined;
-
-  const lineNumber = row.newLine ?? row.oldLine;
-  const verb = hunkAction.side === "unstaged" ? "Stage" : "Unstage";
-  const changeKind = row.kind === "add" ? "added" : "deleted";
-  const label = Number.isInteger(lineNumber)
-    ? `${verb} ${changeKind} line ${lineNumber}`
-    : `${verb} ${changeKind} line`;
-
-  return {
-    label,
-    disabled: hunkAction.disabled,
-    onApply: () => {
-      const patch = createLinePatch(group, rowIndex, hunkAction.side);
-      if (patch) hunkAction.onApply(patch);
-    }
-  };
-}
-
-function DiffRowView({
-  row,
-  highlighted,
-  lineAction
-}: {
-  row: DiffRow;
-  highlighted: HighlightedCode;
-  lineAction?: DiffLineAction | undefined;
-}): ReactNode {
-  return (
-    <div className={`diff-row ${row.kind}`}>
-      <span className="diff-line-number old-line">{row.oldLine === null ? "" : row.oldLine}</span>
-      <span className="diff-line-number new-line">{row.newLine === null ? "" : row.newLine}</span>
-      {lineAction ? (
-        <button
-          type="button"
-          className="diff-marker diff-line-action"
-          aria-label={lineAction.label}
-          title={lineAction.label}
-          disabled={lineAction.disabled}
-          onClick={lineAction.onApply}
-        >
-          {row.marker}
-        </button>
-      ) : <span className="diff-marker">{row.marker}</span>}
-      <DiffCode highlighted={highlighted} />
-    </div>
-  );
-}
-
-function DiffCode({ highlighted }: { highlighted: HighlightedCode }): ReactNode {
-  if (highlighted.kind === "highlighted") {
-    return <span className="diff-code hljs" dangerouslySetInnerHTML={{ __html: highlighted.value }} />;
-  }
-
-  return <span className="diff-code">{highlighted.value}</span>;
 }
 
 function HistoryView({

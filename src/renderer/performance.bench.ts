@@ -6,6 +6,7 @@ import { appendActivityLogEvent, createActivityLogState, getActivityLogRawText }
 import { buildCommitGraphLayout } from "./commitGraph";
 import { processDiff } from "./diffProcessing";
 import { processDiffPlain } from "./diffProcessingPlain";
+import { planDiffRender } from "./diffRenderPlan";
 import { buildStatusFileTree, flattenStatusFileTree } from "./statusFileTree";
 
 // Run separately from tests/builds to avoid CPU contention. Compare the same
@@ -49,6 +50,15 @@ const commits: GitCommitGraphRow[] = Array.from({ length: 10_000 }, (_, index) =
   authorDate: "2026-01-01T00:00:00Z", relativeDate: "1 day ago"
 }));
 const chunk = "Build output line\n".repeat(64);
+// About the 250 KB diff limit: 10,000 rows in 40 hunks.
+const largeDiffGroups = processDiffPlain({
+  filePath: "large.css",
+  truncated: false,
+  text: Array.from({ length: 40 }, (_, hunk) => [
+    `@@ -${hunk * 300 + 1},250 +${hunk * 300 + 1},250 @@`,
+    ...Array.from({ length: 250 }, (_, line) => `${line % 3 === 0 ? "+" : line % 3 === 1 ? "-" : " "}\t.selector-${hunk}-${line} { color: var(--color-${line}); }`)
+  ].join("\n")).join("\n")
+}).groups;
 
 describe("repository-sized workloads", () => {
   test("highlight addition with 1,000 context lines", async ({ bench }) => {
@@ -59,6 +69,9 @@ describe("repository-sized workloads", () => {
   });
   test("parse 1,000-line diff without highlighting", async ({ bench }) => {
     await measure(bench, "parse 1,000-line diff without highlighting", () => { processDiffPlain(addition); });
+  });
+  test("plan render chunks for a 10,000-row diff", async ({ bench }) => {
+    await measure(bench, "plan render chunks for a 10,000-row diff", () => { planDiffRender(largeDiffGroups); });
   });
   test("build and flatten 10,000 status files", async ({ bench }) => {
     await measure(bench, "build and flatten 10,000 status files", () => { flattenStatusFileTree(buildStatusFileTree(files), new Set()); });

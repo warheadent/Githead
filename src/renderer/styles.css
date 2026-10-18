@@ -5316,6 +5316,43 @@ textarea,
   width: 100%;
 }
 
+/* Disables every line and hunk action at once without re-rendering the rows. It adds no box. */
+.diff-rows-content {
+  display: contents;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+/*
+ * A render chunk of about 64 rows. Off screen, the browser skips its layout, paint, and hit testing
+ * and sizes it from the row estimate: unwrapped rows have a fixed height, so the estimate is exact,
+ * and the width covers its longest line, so horizontal scrolling keeps the full width.
+ */
+.diff-chunk {
+  min-width: 0;
+  content-visibility: auto;
+  contain-intrinsic-width: var(--diff-chunk-width);
+  contain-intrinsic-height: var(--diff-chunk-height);
+}
+
+/* Wrapped rows vary in height, so a skipped chunk keeps the height it last rendered at. */
+.diff-output.text.is-wrapped .diff-chunk {
+  contain-intrinsic-width: none;
+  contain-intrinsic-height: auto var(--diff-chunk-height);
+}
+
+/* A chunk that has not mounted its rows yet keeps their space. */
+.diff-chunk[data-pending] {
+  min-width: var(--diff-chunk-width);
+  min-height: var(--diff-chunk-height);
+}
+
+.diff-output.text.is-wrapped .diff-chunk[data-pending] {
+  min-width: 0;
+}
+
 .markdown-preview-output {
   min-height: 0;
   overflow: auto;
