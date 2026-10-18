@@ -68,6 +68,7 @@ export const IPC_CHANNELS = {
   saveRepositoryAnalyticsSettings: "analytics:settings:save",
   getGitHubWorkflowAnalytics: "github:workflow-analytics",
   getFileDiff: "git:file-diff",
+  getFileDiffFingerprint: "git:file-diff-fingerprint",
   getStashes: "git:stashes",
   getStashDetails: "git:stash-details",
   getStashFileDiff: "git:stash-file-diff",

@@ -4383,6 +4383,7 @@ describe("GitService", () => {
   it("returns staged text diffs", async () => {
     const runner = new FakeRunner([
       ok("true\n"),
+      ok(trackedRecord("M.", "a.ts")),
       ok("diff --git a/a.ts b/a.ts\n+added\n")
     ]);
     const service = new GitService(runner);
@@ -4440,6 +4441,47 @@ describe("GitService", () => {
       "--",
       "a.ts"
     ]);
+  });
+
+  it("returns the fingerprint read before the diff from one File Status call", async () => {
+    const status = ok(`${trackedRecord(".M", "a.ts")}\0`);
+    const runner = new FakeRunner([
+      ok("true\n"),
+      status,
+      ok("diff --git a/a.ts b/a.ts\n+changed\n"),
+      status
+    ]);
+    const service = new GitService(runner);
+
+    const diff = await service.getFileDiff({ repoPath: "D:\\Repo", path: "a.ts", side: "unstaged" });
+    expect(runner.calls.map((call) => call.args.includes("status") ? "status" : call.args[2])).toEqual(["rev-parse", "status", "diff"]);
+    expect(diff.fingerprint).toMatch(/^[0-9a-f]{40}$/);
+
+    const latest = await service.getFileDiffFingerprint({ repoPath: "D:\\Repo", path: "a.ts", side: "unstaged" });
+    expect(latest.fingerprint).toBe(diff.fingerprint);
+    expect(runner.calls).toHaveLength(4);
+  });
+
+  it("omits fingerprints when the diff or File Status failed", async () => {
+    const failedDiff = await new GitService(new FakeRunner([
+      ok("true\n"),
+      ok(`${trackedRecord("M.", "a.ts")}\0`),
+      failure("fatal: timed out")
+    ])).getFileDiff({ repoPath: "D:\\Repo", path: "a.ts", side: "staged" });
+    expect(failedDiff).toMatchObject({ kind: "error" });
+    expect(failedDiff.fingerprint).toBeUndefined();
+
+    const failedStatus = await new GitService(new FakeRunner([
+      ok("true\n"),
+      failure("fatal: index unavailable"),
+      ok("diff --git a/a.ts b/a.ts\n+changed\n")
+    ])).getFileDiff({ repoPath: "D:\\Repo", path: "a.ts", side: "unstaged" });
+    expect(failedStatus).toMatchObject({ kind: "text" });
+    expect(failedStatus.fingerprint).toBeUndefined();
+
+    await expect(new GitService(new FakeRunner([failure("fatal: not a git repository")]))
+      .getFileDiffFingerprint({ repoPath: "D:\\Repo", path: "a.ts", side: "unstaged" }))
+      .resolves.toEqual({ fingerprint: null });
   });
 
   it("reads commit-plan diffs with one repository validation and one File Status call", async () => {
@@ -4619,6 +4661,7 @@ describe("GitService", () => {
   it("returns binary and error diff results distinctly", async () => {
     const binaryRunner = new FakeRunner([
       ok("true\n"),
+      ok(trackedRecord("M.", "logo.png")),
       ok("diff --git a/logo.png b/logo.png\nBinary files a/logo.png and b/logo.png differ\n")
     ]);
     const binaryService = new GitService(binaryRunner);
@@ -4634,6 +4677,7 @@ describe("GitService", () => {
 
     const errorRunner = new FakeRunner([
       ok("true\n"),
+      ok(""),
       failure("fatal: bad path")
     ]);
     const errorService = new GitService(errorRunner);

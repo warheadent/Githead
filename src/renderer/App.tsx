@@ -1759,24 +1759,34 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     const requestId = requestIds.current.diffFreshness + 1;
     requestIds.current.diffFreshness = requestId;
     const repoPath = current.repoPath;
+    const request = {
+      repoPath,
+      path: selection.path,
+      side: selection.side,
+      requestId: repositoryReadRequestId("diff-freshness", requestId)
+    };
+    const isCurrent = (): boolean => {
+      const latest = stateRef.current;
+      return requestId === requestIds.current.diffFreshness &&
+        isSameRepoPath(repoPath, latest.repoPath) &&
+        latest.selection?.path === selection.path &&
+        latest.selection.side === selection.side &&
+        latest.diff === loadedDiff;
+    };
 
     try {
-      const latestDiff = await window.githead.getFileDiff({
-        repoPath,
-        path: selection.path,
-        side: selection.side,
-        requestId: repositoryReadRequestId("diff-freshness", requestId)
-      });
-      const latest = stateRef.current;
-      if (
-        requestId !== requestIds.current.diffFreshness ||
-        !isSameRepoPath(repoPath, latest.repoPath) ||
-        latest.selection?.path !== selection.path ||
-        latest.selection.side !== selection.side ||
-        latest.diff !== loadedDiff
-      ) {
-        return;
+      // A fingerprint read avoids transferring the whole diff, including both
+      // image versions, after every repository change event.
+      if (loadedDiff.fingerprint) {
+        const { fingerprint } = await window.githead.getFileDiffFingerprint(request);
+        if (!isCurrent()) return;
+        if (fingerprint !== null) {
+          if (fingerprint !== loadedDiff.fingerprint) updateState({ diffChanged: true });
+          return;
+        }
       }
+      const latestDiff = await window.githead.getFileDiff(request);
+      if (!isCurrent()) return;
       if (!areFileDiffsEqual(loadedDiff, latestDiff)) {
         updateState({ diffChanged: true });
       }

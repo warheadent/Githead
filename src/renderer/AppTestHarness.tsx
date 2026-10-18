@@ -383,6 +383,7 @@ export function createGitheadMock(): GitheadApi {
     onRepositoryAnalyticsProgress: vi.fn(() => () => undefined),
     getDiscardSnapshot: vi.fn().mockResolvedValue("unchanged-snapshot"),
     getFileDiff: vi.fn(),
+    getFileDiffFingerprint: vi.fn(),
     getStashes: vi.fn().mockResolvedValue([]),
     getStashDetails: vi.fn(),
     getStashFileDiff: vi.fn(),

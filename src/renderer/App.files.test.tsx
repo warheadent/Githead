@@ -1025,6 +1025,69 @@ describe("App", { timeout: 10_000 }, () => {
     expect(screen.queryByText("Loaded diff is out of date")).toBeNull();
   });
 
+  it("checks selected diff freshness by fingerprint without reloading the diff", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [createStatusFile("src/app.ts", { isUnstaged: true, worktreeStatus: "M" })]
+    }));
+    vi.mocked(githead.getFileDiff).mockResolvedValue({ ...createTextDiff("src/app.ts", "initial-value"), fingerprint: "loaded" });
+    vi.mocked(githead.getFileDiffFingerprint).mockResolvedValue({ fingerprint: "loaded" });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("option", { name: /src\/app\.ts/ }));
+    expect(await screen.findByText("initial-value")).toBeTruthy();
+    vi.mocked(githead.getFileDiff).mockClear();
+
+    await act(async () => {
+      emitRepoChanged();
+      await flushRendererAsync();
+    });
+    await waitFor(() => expect(githead.getFileDiffFingerprint).toHaveBeenCalledOnce());
+    expect(vi.mocked(githead.getFileDiffFingerprint).mock.calls[0]?.[0]).toMatchObject({
+      path: "src/app.ts",
+      side: "unstaged",
+      requestId: expect.stringMatching(/^diff-freshness:/)
+    });
+    expect(githead.getFileDiff).not.toHaveBeenCalled();
+    expect(screen.queryByText("Loaded diff is out of date")).toBeNull();
+
+    vi.mocked(githead.getFileDiffFingerprint).mockResolvedValue({ fingerprint: "changed" });
+    await act(async () => {
+      emitRepoChanged();
+      await flushRendererAsync();
+    });
+    expect(await screen.findByText("Loaded diff is out of date")).toBeTruthy();
+    expect(screen.getByText("initial-value")).toBeTruthy();
+    expect(githead.getFileDiff).not.toHaveBeenCalled();
+  });
+
+  it("compares full diffs when the latest diff cannot be fingerprinted", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({
+      files: [createStatusFile("child", { isUnstaged: true, worktreeStatus: "M" })]
+    }));
+    vi.mocked(githead.getFileDiff)
+      .mockResolvedValueOnce({ ...createTextDiff("child", "initial-value"), fingerprint: "loaded" })
+      .mockResolvedValue(createTextDiff("child", "changed-value"));
+    vi.mocked(githead.getFileDiffFingerprint).mockResolvedValue({ fingerprint: null });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("option", { name: /child/ }));
+    expect(await screen.findByText("initial-value")).toBeTruthy();
+    vi.mocked(githead.getFileDiff).mockClear();
+
+    await act(async () => {
+      emitRepoChanged();
+      await flushRendererAsync();
+    });
+    expect(await screen.findByText("Loaded diff is out of date")).toBeTruthy();
+    expect(githead.getFileDiffFingerprint).toHaveBeenCalledOnce();
+    expect(githead.getFileDiff).toHaveBeenCalledOnce();
+    expect(vi.mocked(githead.getFileDiff).mock.calls[0]?.[0].requestId).toMatch(/^diff-freshness:/);
+  });
+
   it("keeps stale content visible when a watcher comparison finds a changed diff", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary)

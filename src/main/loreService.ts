@@ -31,6 +31,7 @@ import type {
   GitDeleteTagRequest,
   GitFileChangesRequest,
   GitFileDiff,
+  GitFileDiffFingerprint,
   GitFileDiffRequest,
   GitFileHistoryRequest,
   GitFileHistoryResult,
@@ -393,6 +394,14 @@ export class LoreService implements VcsService {
       ] : [],
       files: revision.files
     };
+  }
+
+  /**
+   * Lore diffs carry no fingerprint, so diff freshness checks keep comparing
+   * full Lore diffs.
+   */
+  async getFileDiffFingerprint(): Promise<GitFileDiffFingerprint> {
+    return { fingerprint: null };
   }
 
   async getFileDiff(request: GitFileDiffRequest): Promise<GitFileDiff> {

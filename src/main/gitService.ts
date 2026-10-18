@@ -50,6 +50,7 @@ import type {
   GitFileChangesRequest,
   GitForceWithLeaseRequest,
   GitFileDiff,
+  GitFileDiffFingerprint,
   GitFileDiffRequest,
   GitFileHistoryRequest,
   GitFileHistoryResult,
@@ -131,6 +132,7 @@ import { escapeLfsIncludePath, isGitLfsPointerDiff, parseGitLfsPointer, parseLoc
 import { resolvePreviewFile, validatePreviewPath, readMarkdownPreviewFile, validateMarkdownPreviewPath, validateMarkdownPreviewText } from "./filePreview";
 import { sanitizeCommitHash, sanitizeHistoryLimit, sanitizeSingleRepoPath } from "./gitReadValidation";
 import { readGitFileHistory } from "./gitFileHistory";
+import { createGitDiffFingerprint } from "./gitDiffFingerprint";
 import { readGitFileBlame } from "./gitBlame";
 import { runEffect, tryPromise } from "../shared/effectRuntime";
 import { runProcessEffect } from "./processEffect";
@@ -568,6 +570,18 @@ export class GitService {
       };
     }
 
+    // Read File Status, and the fingerprint built from it, before the diff. A
+    // change that lands while the diff runs then makes the next freshness
+    // check report a changed fingerprint instead of hiding the change.
+    const statusResult = await this.runGitStatus(request.repoPath, pathStatusArgs(request.path));
+    const fingerprint = await this.readDiffFingerprint(request, statusResult);
+    const pathStatus = statusResult.exitCode === 0
+      ? { file: parsePorcelainStatus(statusResult.stdout).files.find((file) => file.path === request.path) }
+      : null;
+    const readPathStatus = async (): Promise<GitStatusFile | undefined> => pathStatus
+      ? pathStatus.file
+      : (await this.getStatusFiles(request.repoPath, [request.path]))[0];
+
     const diffResult = request.side === "staged"
       ? await this.runGit(request.repoPath, [
         "diff",
@@ -579,23 +593,44 @@ export class GitService {
         "--",
         request.path
       ])
-      : await this.getUnstagedDiff(request.repoPath, request.path, true);
+      : await this.getUnstagedDiff(request.repoPath, request.path, pathStatus?.file, true);
 
     const normalized = normalizeDiffResult(request, diffResult);
+    let diff: GitFileDiff = normalized;
     if (normalized.kind === "empty") {
-      const status = (await this.getStatusFiles(request.repoPath, [request.path]))[0];
+      const status = await readPathStatus();
       if (status?.submodule && (status.submodule.trackedChanges || status.submodule.untrackedChanges)) {
-        return {
+        diff = {
           path: request.path,
           side: request.side,
           kind: "text",
           text: "This submodule contains internal working-tree changes. Open the submodule repository to inspect, stage, or commit them."
         };
       }
+    } else if ((normalized.kind === "binary" || (normalized.kind === "text" && isGitLfsPointerDiff(normalized.text))) && isPreviewableRasterImagePath(request.path) && this.runner.runBinary) {
+      diff = await this.getWorkingImageDiff(request, await readPathStatus());
     }
-    return (normalized.kind === "binary" || (normalized.kind === "text" && isGitLfsPointerDiff(normalized.text))) && isPreviewableRasterImagePath(request.path) && this.runner.runBinary
-      ? await this.getWorkingImageDiff(request)
-      : normalized;
+    return fingerprint && canReuseDiffByFingerprint(diff) ? { ...diff, fingerprint } : diff;
+  }
+
+  /**
+   * Reads the identity of a working-tree diff without reading the diff, so
+   * repository change events can check a loaded diff cheaply.
+   */
+  async getFileDiffFingerprint(request: GitFileDiffRequest): Promise<GitFileDiffFingerprint> {
+    if (!request.path.trim()) return { fingerprint: null };
+    const statusResult = await this.runGitStatus(request.repoPath, pathStatusArgs(request.path));
+    return { fingerprint: await this.readDiffFingerprint(request, statusResult) };
+  }
+
+  private async readDiffFingerprint(request: GitFileDiffRequest, statusResult: ProcessResult): Promise<string | null> {
+    const pathResult = sanitizeSingleRepoPath(request.path);
+    if (statusResult.exitCode !== 0 || "error" in pathResult || pathResult.path !== request.path) return null;
+    try {
+      return await createGitDiffFingerprint(request.repoPath, request.path, request.side, statusResult.stdout);
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -3587,16 +3622,12 @@ export class GitService {
     return result;
   }
 
-  private async getUnstagedDiff(repoPath: string, filePath: string, submoduleShort = false): Promise<ProcessResult> {
-    const statusResult = await this.runGitStatus(repoPath, [
-      "--porcelain=v2",
-      "-z",
-      "--untracked-files=all",
-      "--",
-      filePath
-    ]);
-    const statusFile = parsePorcelainStatus(statusResult.stdout).files.find((file) => file.path === filePath);
-
+  private async getUnstagedDiff(
+    repoPath: string,
+    filePath: string,
+    statusFile: GitStatusFile | undefined,
+    submoduleShort = false
+  ): Promise<ProcessResult> {
     if (statusFile?.indexStatus === "?") {
       const result = await this.runner.run("git", [
         "diff",
@@ -3669,10 +3700,9 @@ export class GitService {
     ], options);
   }
 
-  private async getWorkingImageDiff(request: GitFileDiffRequest): Promise<GitFileDiff> {
+  private async getWorkingImageDiff(request: GitFileDiffRequest, status: GitStatusFile | undefined): Promise<GitFileDiff> {
     const pathResult = sanitizeSingleRepoPath(request.path);
     if ("error" in pathResult) return { path: request.path, side: request.side, kind: "binary", text: "Image preview is unavailable." };
-    const status = (await this.getStatusFiles(request.repoPath, [pathResult.path]))[0];
     const isAdded = status?.indexStatus === "A" || status?.indexStatus === "?";
     const isDeleted = request.side === "staged" ? status?.indexStatus === "D" : status?.worktreeStatus === "D";
     let before: ImageReadResult;
@@ -5307,6 +5337,20 @@ function normalizeDiffResult(request: GitFileDiffRequest, result: ProcessResult,
     text: truncated ? result.stdout.slice(0, textLimit) : result.stdout,
     ...(truncated ? { truncated } : {})
   };
+}
+
+function pathStatusArgs(filePath: string): string[] {
+  return ["--porcelain=v2", "-z", "--untracked-files=all", "--", filePath];
+}
+
+/**
+ * Error diffs and unavailable image sides can change without any repository
+ * change (for example a timeout or a Git LFS setup fix), so freshness checks
+ * must compare them in full rather than trust a fingerprint.
+ */
+function canReuseDiffByFingerprint(diff: GitFileDiff): boolean {
+  if (diff.kind === "error") return false;
+  return diff.kind !== "image" || (diff.before.status !== "unavailable" && diff.after.status !== "unavailable");
 }
 
 function isBinaryDiff(text: string): boolean {

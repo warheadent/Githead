@@ -29,6 +29,7 @@ export type VcsService = Pick<
   | "checkRepositoryAccess"
   | "cloneRepository"
   | "getFileDiff"
+  | "getFileDiffFingerprint"
   | "getStashes"
   | "getStashDetails"
   | "getStashFileDiff"

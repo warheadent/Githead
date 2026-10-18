@@ -761,6 +761,11 @@ ipcMain.handle(IPC_CHANNELS.getFileDiff, (event, request: GitFileDiffRequest) =>
     processRunner.runWithSignal(signal, async () =>
       (await vcsRouter.serviceForRepo(request.repoPath)).getFileDiff(request))));
 
+ipcMain.handle(IPC_CHANNELS.getFileDiffFingerprint, (event, request: GitFileDiffRequest) =>
+  handleRead(event, request, async (signal) =>
+    processRunner.runWithSignal(signal, async () =>
+      (await vcsRouter.serviceForRepo(request.repoPath)).getFileDiffFingerprint(request))));
+
 ipcMain.handle(IPC_CHANNELS.getStashes, (event, request: GitStashListRequest) =>
   handleRead(event, request, async (signal) =>
     processRunner.runWithSignal(signal, async () =>

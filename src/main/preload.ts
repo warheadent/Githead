@@ -245,6 +245,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getGitHubWorkflowAnalytics, request) as ReturnType<GitheadApi["getGitHubWorkflowAnalytics"]>,
   getFileDiff: (request: GitFileDiffRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getFileDiff, request) as ReturnType<GitheadApi["getFileDiff"]>,
+  getFileDiffFingerprint: (request: GitFileDiffRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getFileDiffFingerprint, request) as ReturnType<GitheadApi["getFileDiffFingerprint"]>,
   getStashes: (request: GitStashListRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getStashes, request) as ReturnType<GitheadApi["getStashes"]>,
   getStashDetails: (request: GitStashDetailsRequest) =>

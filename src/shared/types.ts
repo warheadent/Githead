@@ -2355,6 +2355,17 @@ export interface GitHunkRequest {
 interface GitFileDiffBase {
   path: string;
   side: GitDiffSide;
+  /**
+   * Working-tree diff identity read before the diff itself. Compare it with
+   * {@link GitFileDiffFingerprint} to detect a changed diff without reading it
+   * again. Absent when the backend cannot fingerprint this diff.
+   */
+  fingerprint?: string;
+}
+
+export interface GitFileDiffFingerprint {
+  /** `null` when the diff cannot be fingerprinted; compare full diffs instead. */
+  fingerprint: string | null;
 }
 
 export interface GitImageVersion {
@@ -2689,6 +2700,7 @@ export interface GitheadApi {
   getRepositoryAnalytics(request: RepositoryAnalyticsRequest): Promise<RepositoryAnalytics | null>;
   getGitHubWorkflowAnalytics(request: GitHubWorkflowAnalyticsRequest): Promise<GitHubOperationResult<GitHubWorkflowAnalytics>>;
   getFileDiff(request: GitFileDiffRequest): Promise<GitFileDiff>;
+  getFileDiffFingerprint(request: GitFileDiffRequest): Promise<GitFileDiffFingerprint>;
   getStashes(request: GitStashListRequest): Promise<GitStashEntry[]>;
   getStashDetails(request: GitStashDetailsRequest): Promise<GitStashDetails>;
   getStashFileDiff(request: GitStashFileDiffRequest): Promise<GitFileDiff>;
