@@ -14,23 +14,14 @@ export async function readGitFileBlame(
 ): Promise<GitFileBlameResult> {
   if (!runner.runBinary) throw new Error("Binary process output is unavailable.");
   const object = `${hash}:${filePath}`;
-  const blob = await runner.runBinary("git", ["-C", repoPath, "cat-file", "blob", object], {
+  const blobRead = runner.runBinary("git", ["-C", repoPath, "cat-file", "blob", object], {
     maxBytes: BLAME_BLOB_BYTE_LIMIT + 1,
     timeoutMs: BLAME_TIMEOUT_MS
   });
-  if (blob.terminationReason === "aborted") throw new Error(blob.error || "Command was cancelled.");
-  if (blob.terminationReason === "timedOut") return unavailable(repoPath, hash, filePath, "timed-out", "Reading the selected file timed out.");
-  if (blob.exceededLimit) return unavailable(repoPath, hash, filePath, "oversized", "Blame is unavailable for files larger than 1 MB.");
-  if (blob.exitCode !== 0) return unavailable(repoPath, hash, filePath, "missing", blob.stderr.trim() || "The selected file version is unavailable.");
-
-  const bytes = blob.stdout;
-  if (bytes.includes(0)) return unavailable(repoPath, hash, filePath, "binary", "Blame is unavailable for binary files.", bytes.byteLength);
-  const lineCount = countLines(bytes);
-  if (lineCount > BLAME_LINE_LIMIT) {
-    return { ...unavailable(repoPath, hash, filePath, "too-many-lines", "Blame is unavailable for files with more than 20,000 lines.", bytes.byteLength), lineCount };
-  }
-
-  const result = await runner.runBinary("git", [
+  // Blame starts with the size check instead of after it; the size check
+  // stops it when the file is not eligible.
+  const blameAbort = new AbortController();
+  const blameRead = runner.runBinary("git", [
     "-C", repoPath,
     "blame",
     "--porcelain",
@@ -40,7 +31,38 @@ export async function readGitFileBlame(
     hash,
     "--",
     filePath
-  ], { maxBytes: BLAME_OUTPUT_BYTE_LIMIT, timeoutMs: BLAME_TIMEOUT_MS });
+  ], { maxBytes: BLAME_OUTPUT_BYTE_LIMIT, timeoutMs: BLAME_TIMEOUT_MS, signal: blameAbort.signal });
+  // Observed below; this keeps an early rejection from going unhandled meanwhile.
+  blameRead.catch(() => undefined);
+  const stopBlame = async <T>(value: T): Promise<T> => {
+    blameAbort.abort();
+    await blameRead.catch(() => undefined);
+    return value;
+  };
+
+  let blob: Awaited<typeof blobRead>;
+  try {
+    blob = await blobRead;
+  } catch (error) {
+    await stopBlame(undefined);
+    throw error;
+  }
+  if (blob.terminationReason === "aborted") {
+    await stopBlame(undefined);
+    throw new Error(blob.error || "Command was cancelled.");
+  }
+  if (blob.terminationReason === "timedOut") return stopBlame(unavailable(repoPath, hash, filePath, "timed-out", "Reading the selected file timed out."));
+  if (blob.exceededLimit) return stopBlame(unavailable(repoPath, hash, filePath, "oversized", "Blame is unavailable for files larger than 1 MB."));
+  if (blob.exitCode !== 0) return stopBlame(unavailable(repoPath, hash, filePath, "missing", blob.stderr.trim() || "The selected file version is unavailable."));
+
+  const bytes = blob.stdout;
+  if (bytes.includes(0)) return stopBlame(unavailable(repoPath, hash, filePath, "binary", "Blame is unavailable for binary files.", bytes.byteLength));
+  const lineCount = countLines(bytes);
+  if (lineCount > BLAME_LINE_LIMIT) {
+    return stopBlame({ ...unavailable(repoPath, hash, filePath, "too-many-lines", "Blame is unavailable for files with more than 20,000 lines.", bytes.byteLength), lineCount });
+  }
+
+  const result = await blameRead;
   if (result.terminationReason === "aborted") throw new Error(result.error || "Command was cancelled.");
   if (result.terminationReason === "timedOut") return unavailable(repoPath, hash, filePath, "timed-out", "Blame exceeded the 30 second time limit.", bytes.byteLength);
   if (result.exceededLimit) return unavailable(repoPath, hash, filePath, "metadata-limit", "Blame metadata exceeded the safe output limit.", bytes.byteLength);

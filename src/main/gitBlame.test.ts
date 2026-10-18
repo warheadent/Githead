@@ -54,18 +54,40 @@ describe("gitBlame", () => {
     })));
   });
 
-  it("returns a bounded binary state before invoking blame", async () => {
-    const runBinary = vi.fn().mockResolvedValueOnce({ exitCode: 0, stdout: new Uint8Array([1, 0, 2]), stderr: "" });
+  it("returns a bounded binary state and stops the blame started alongside the preflight", async () => {
+    let blameSignal: AbortSignal | undefined;
+    const runBinary = vi.fn()
+      .mockResolvedValueOnce({ exitCode: 0, stdout: new Uint8Array([1, 0, 2]), stderr: "" })
+      .mockImplementationOnce((_command: string, _args: string[], options: { signal?: AbortSignal }) => {
+        blameSignal = options.signal;
+        return new Promise((resolve) => options.signal?.addEventListener("abort", () =>
+          resolve({ exitCode: -1, stdout: new Uint8Array(), stderr: "", terminationReason: "aborted" })));
+      });
     const result = await readGitFileBlame({ run: vi.fn(), runBinary } as ProcessRunner, "D:\\Repo", hash, "asset.bin");
     expect(result).toMatchObject({ kind: "unavailable", reason: "binary" });
-    expect(runBinary).toHaveBeenCalledOnce();
+    expect(runBinary).toHaveBeenCalledTimes(2);
+    expect(runBinary.mock.calls[1]?.[1]).toContain("blame");
+    expect(blameSignal?.aborted).toBe(true);
   });
 
   it("returns oversized without retaining partial output", async () => {
-    const runBinary = vi.fn().mockResolvedValueOnce({ exitCode: -1, stdout: new Uint8Array(), stderr: "", exceededLimit: true });
+    const runBinary = vi.fn()
+      .mockResolvedValueOnce({ exitCode: -1, stdout: new Uint8Array(), stderr: "", exceededLimit: true })
+      .mockResolvedValueOnce({ exitCode: -1, stdout: new Uint8Array(), stderr: "", terminationReason: "aborted" });
     const result = await readGitFileBlame({ run: vi.fn(), runBinary } as ProcessRunner, "D:\\Repo", hash, "huge.txt");
     expect(result).toMatchObject({ kind: "unavailable", reason: "oversized" });
     expect(runBinary.mock.calls[0]?.[2]).toMatchObject({ maxBytes: BLAME_BLOB_BYTE_LIMIT + 1 });
+  });
+
+  it("starts blame without waiting for the blob preflight", async () => {
+    let releaseBlob: (value: unknown) => void = () => undefined;
+    const runBinary = vi.fn()
+      .mockReturnValueOnce(new Promise((resolve) => { releaseBlob = resolve; }))
+      .mockResolvedValueOnce({ exitCode: 0, stdout: new TextEncoder().encode(`${hash} 1 1 1\nauthor T\nauthor-mail <t@e>\nauthor-time 1\nsummary Init\nfilename a.txt\n\thello\n`), stderr: "" });
+    const pending = readGitFileBlame({ run: vi.fn(), runBinary } as ProcessRunner, "D:\\Repo", hash, "a.txt");
+    expect(runBinary).toHaveBeenCalledTimes(2);
+    releaseBlob({ exitCode: 0, stdout: new TextEncoder().encode("hello\n"), stderr: "" });
+    await expect(pending).resolves.toMatchObject({ kind: "text", lines: [{ text: "hello" }] });
   });
 
   it("loads bounded porcelain after the blob preflight", async () => {
