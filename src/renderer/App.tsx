@@ -1966,7 +1966,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
           requestId !== requestIds.current.repo ||
           !isSameRepoPath(repoPath, stateRef.current.repoPath)
         ) return;
-        const status = await window.githead.getRepoStatus({ repoPath, generation: requestId, requestId: repositoryReadRequestId("status", requestId) });
+        const status = await window.githead.getRepoStatus({ repoPath, generation: requestId, statusOnly: true, requestId: repositoryReadRequestId("status", requestId) });
         if (requestId !== requestIds.current.repo || !isSameRepoPath(status.repoPath, stateRef.current.repoPath)) return;
         acknowledgedFileStatusGenerationRef.current = Math.max(acknowledgedFileStatusGenerationRef.current, fileStatusGeneration);
         refreshSucceeded = true;

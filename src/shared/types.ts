@@ -898,6 +898,12 @@ export type CancelGitOperationResult =
 export interface RepoSectionRequest extends RepositoryReadRequest {
   repoPath: string;
   generation: number;
+  /**
+   * Only working-tree files changed since the last full read. A status read
+   * may then reuse submodule checkout state (checked-out commits and
+   * initialization) from that read.
+   */
+  statusOnly?: boolean;
 }
 
 export interface RepoIdentitySection {

@@ -86,6 +86,9 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files, statusTruncation: { shownFileCount: 2, outputLimitBytes: 8 * 1024 * 1024, trackedComplete: false } }));
     act(() => emitRepoChanged({ reason: "filesystem" }));
     await waitFor(() => expect(screen.getByText("Too many changed files")).toBeTruthy());
+    // Working-tree refreshes let the main process reuse submodule checkout state.
+    expect(githead.getRepoStatus).toHaveBeenLastCalledWith(expect.objectContaining({ statusOnly: true }));
+    expect(vi.mocked(githead.getRepoStatus).mock.calls[0]?.[0]).not.toHaveProperty("statusOnly");
     expect(screen.getByText(/Some staged or modified files are not listed/)).toBeTruthy();
 
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ files, statusTruncation: null }));

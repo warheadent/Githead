@@ -253,6 +253,7 @@ const DIFF_OUTPUT_LIMIT_BYTES = DIFF_TEXT_LIMIT * 3 + 4;
 // limit. The cost estimate allows room for quoting and the fixed Git args.
 const GIT_STATUS_PATHSPEC_CHARACTER_BUDGET = 12_000;
 const REPOSITORY_ACCESS_CHECK_TIMEOUT_MS = 30_000;
+const SUBMODULE_CHECKOUT_SNAPSHOT_LIMIT = 16;
 
 interface RepoReadContext {
   repoKey: string;
@@ -270,6 +271,7 @@ export interface GitServiceOptions {
 
 export class GitService {
   private readonly remoteCheckLeases = new Map<string, RemoteCheckLease>();
+  private readonly submoduleCheckoutSnapshots = new Map<string, { configText: string; statuses: SubmoduleCheckoutStatuses }>();
   private readonly operationRecovery: GitOperationRecoveryService;
   private readonly integration: GitIntegrationService;
   private readonly amend: GitAmendService;
@@ -318,7 +320,7 @@ export class GitService {
     const records = completeStatusRecords(result);
     const status = parsePorcelainStatus(records, { truncated });
     const [submodules, operationState] = await Promise.all([
-      this.getSubmodules(request.repoPath, status.files),
+      this.getSubmodules(request.repoPath, status.files, request.statusOnly === true),
       this.operationRecovery.detect(request.repoPath, records)
     ]);
     // Git lists tracked changes before untracked files, so any untracked entry
@@ -2470,20 +2472,29 @@ export class GitService {
     };
   }
 
-  private async getSubmodules(repoPath: string, files: GitStatusFile[]): Promise<GitSubmodule[]> {
+  /**
+   * Lists configured and nested submodules. `submodule status --recursive`
+   * runs Git in every submodule, so a status-only read reuses the checkout
+   * state of the last full read while `.gitmodules` is unchanged. Recorded
+   * commits and change flags are always read fresh.
+   */
+  private async getSubmodules(repoPath: string, files: GitStatusFile[], reuseCheckoutState = false): Promise<GitSubmodule[]> {
+    const snapshotKey = getRepoPathKey(repoPath);
     let configText: string;
     try {
       configText = await fs.readFile(path.join(repoPath, ".gitmodules"), "utf8");
     } catch {
+      this.submoduleCheckoutSnapshots.delete(snapshotKey);
       return [];
     }
     const configured = parseSubmoduleConfig(configText);
     const paths = new Set([...configured.values()].map((entry) => entry.path).filter(Boolean));
-    const [statusResult, recordedCommits] = await Promise.all([
-      this.runGit(repoPath, ["submodule", "status", "--recursive"]),
+    const snapshot = reuseCheckoutState ? this.submoduleCheckoutSnapshots.get(snapshotKey) : undefined;
+    const reusable = snapshot?.configText === configText ? snapshot.statuses : null;
+    const [statuses, recordedCommits] = await Promise.all([
+      reusable ?? this.readSubmoduleCheckoutState(repoPath, snapshotKey, configText),
       this.getRecordedSubmoduleCommits(repoPath, [...paths])
     ]);
-    const statuses = parseSubmoduleStatuses(statusResult.stdout);
     // Literal directory pathspecs already cover descendants. Query only paths
     // outside the configured trees when recursive status discovers more entries.
     const discoveredPaths = [...statuses.keys()].filter((submodulePath) => {
@@ -2495,23 +2506,40 @@ export class GitService {
     for (const [submodulePath, commit] of await this.getRecordedSubmoduleCommits(repoPath, discoveredPaths)) {
       recordedCommits.set(submodulePath, commit);
     }
+    const configuredPaths = new Set(paths);
     for (const submodulePath of statuses.keys()) paths.add(submodulePath);
     const submodules: GitSubmodule[] = [];
     for (const submodulePath of paths) {
-      const status = statuses.get(submodulePath);
+      // Submodule status lists exactly the gitlinks in this index, which the
+      // fresh ls-files read covers for configured paths. A reused snapshot
+      // therefore cannot describe a configured path that has left the index.
+      const inIndex = recordedCommits.has(submodulePath) || !configuredPaths.has(submodulePath);
+      const status = inIndex ? statuses.get(submodulePath) : undefined;
       const file = files.find((candidate) => candidate.path === submodulePath);
       if (file?.submodule) file.submodule.initialized = status?.initialized ?? false;
       const config = [...configured.values()].find((entry) => entry.path === submodulePath);
       submodules.push({
         path: submodulePath,
         url: config?.url ?? "",
-        recordedCommit: recordedCommits.get(submodulePath) ?? status?.recordedCommit ?? null,
+        recordedCommit: recordedCommits.get(submodulePath) ?? (configuredPaths.has(submodulePath) ? null : status?.recordedCommit ?? null),
         checkedOutCommit: status?.checkedOutCommit ?? null,
         initialized: status?.initialized ?? false,
         status: !status?.initialized ? "uninitialized" : file?.isConflicted ? "conflicted" : file?.submodule?.untrackedChanges ? "untracked" : file?.submodule?.trackedChanges || file?.submodule?.commitChanged ? "modified" : "clean"
       });
     }
     return submodules.sort((left, right) => left.path.localeCompare(right.path));
+  }
+
+  private async readSubmoduleCheckoutState(repoPath: string, snapshotKey: string, configText: string): Promise<SubmoduleCheckoutStatuses> {
+    const result = await this.runGit(repoPath, ["submodule", "status", "--recursive"]);
+    const statuses = parseSubmoduleStatuses(result.stdout);
+    this.submoduleCheckoutSnapshots.delete(snapshotKey);
+    if (result.exitCode === 0 && !result.exceededLimit) {
+      this.submoduleCheckoutSnapshots.set(snapshotKey, { configText, statuses });
+      const oldest = this.submoduleCheckoutSnapshots.size > SUBMODULE_CHECKOUT_SNAPSHOT_LIMIT ? this.submoduleCheckoutSnapshots.keys().next().value : undefined;
+      if (oldest !== undefined) this.submoduleCheckoutSnapshots.delete(oldest);
+    }
+    return statuses;
   }
 
   private async getRecordedSubmoduleCommits(repoPath: string, paths: string[]): Promise<Map<string, string>> {
@@ -5715,8 +5743,10 @@ function parseSubmoduleConfig(text: string): Map<string, { path: string; url: st
   return entries;
 }
 
-function parseSubmoduleStatuses(text: string): Map<string, { initialized: boolean; recordedCommit: string | null; checkedOutCommit: string | null }> {
-  const statuses = new Map<string, { initialized: boolean; recordedCommit: string | null; checkedOutCommit: string | null }>();
+type SubmoduleCheckoutStatuses = Map<string, { initialized: boolean; recordedCommit: string | null; checkedOutCommit: string | null }>;
+
+function parseSubmoduleStatuses(text: string): SubmoduleCheckoutStatuses {
+  const statuses: SubmoduleCheckoutStatuses = new Map();
   for (const line of splitLines(text)) {
     const match = /^([-+ U])([0-9a-f]{40,64})\s+(.+?)(?:\s+\(.+\))?$/.exec(line);
     if (!match) continue;

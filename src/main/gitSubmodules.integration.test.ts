@@ -63,4 +63,69 @@ describe("submodule refresh with real Git", () => {
       await fs.rm(directory, { recursive: true, force: true, maxRetries: 50, retryDelay: 100 });
     }
   }, 30_000);
+
+  it("reuses submodule checkout state on status-only reads while .gitmodules is unchanged", async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "githead-submodules-status-only-"));
+    const repo = path.join(directory, "parent");
+    const child = path.join(directory, "child");
+    const git = (cwd: string, args: string[]) => execFileSync("git", ["-C", cwd, ...args], {
+      encoding: "utf8",
+      env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null" }
+    }).trim();
+    try {
+      for (const location of [repo, child]) {
+        await fs.mkdir(location);
+        git(location, ["init", "-q"]);
+        git(location, ["config", "user.name", "Githead Test"]);
+        git(location, ["config", "user.email", "githead@example.test"]);
+      }
+      await fs.writeFile(path.join(child, "tracked.txt"), "one\n");
+      git(child, ["add", "."]);
+      git(child, ["commit", "-qm", "Initial"]);
+      git(repo, ["commit", "--allow-empty", "-qm", "Initial"]);
+      git(repo, ["-c", "protocol.file.allow=always", "submodule", "add", "-q", child, "vendor/child"]);
+      git(repo, ["config", "-f", ".gitmodules", "submodule.uninitialized.path", "vendor/uninitialized"]);
+      git(repo, ["config", "-f", ".gitmodules", "submodule.uninitialized.url", child]);
+      git(repo, ["update-index", "--add", "--cacheinfo", `160000,${git(child, ["rev-parse", "HEAD"])},vendor/uninitialized`]);
+      git(repo, ["add", ".gitmodules"]);
+      git(repo, ["commit", "-qm", "Add submodules"]);
+
+      const commands: string[][] = [];
+      const actual = new NodeProcessRunner();
+      const runner: ProcessRunner = { run: async (command, args, options) => {
+        commands.push(args);
+        return actual.run(command, args, options);
+      } };
+      const service = new GitService(runner);
+      const submoduleStatusRuns = () => commands.filter((args) => args.includes("submodule") && args.includes("status")).length;
+      // A service without a snapshot always reads checkout state fresh.
+      const fresh = () => new GitService(actual).getRepoStatus({ repoPath: repo, generation: 0 });
+      const withoutGeneration = ({ generation: _generation, ...section }: Awaited<ReturnType<GitService["getRepoStatus"]>>) => section;
+
+      await service.getRepoStatus({ repoPath: repo, generation: 1 });
+      expect(submoduleStatusRuns()).toBe(1);
+      const clean = await service.getRepoStatus({ repoPath: repo, generation: 2, statusOnly: true });
+      expect(submoduleStatusRuns()).toBe(1);
+      expect(withoutGeneration(clean)).toEqual(withoutGeneration(await fresh()));
+
+      await fs.appendFile(path.join(repo, "vendor/child/tracked.txt"), "two\n");
+      const modified = await service.getRepoStatus({ repoPath: repo, generation: 3, statusOnly: true });
+      expect(submoduleStatusRuns()).toBe(1);
+      expect(withoutGeneration(modified)).toEqual(withoutGeneration(await fresh()));
+      expect(modified.files).toContainEqual(expect.objectContaining({ path: "vendor/child", submodule: expect.objectContaining({ trackedChanges: true, initialized: true }) }));
+      expect(modified.submodules).toContainEqual(expect.objectContaining({ path: "vendor/child", status: "modified", initialized: true }));
+
+      git(repo, ["rm", "-q", "--cached", "vendor/uninitialized"]);
+      const unindexed = await service.getRepoStatus({ repoPath: repo, generation: 4, statusOnly: true });
+      expect(submoduleStatusRuns()).toBe(1);
+      expect(withoutGeneration(unindexed)).toEqual(withoutGeneration(await fresh()));
+
+      git(repo, ["config", "-f", ".gitmodules", "submodule.uninitialized.url", `${child}-moved`]);
+      const reconfigured = await service.getRepoStatus({ repoPath: repo, generation: 5, statusOnly: true });
+      expect(submoduleStatusRuns()).toBe(2);
+      expect(withoutGeneration(reconfigured)).toEqual(withoutGeneration(await fresh()));
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true, maxRetries: 50, retryDelay: 100 });
+    }
+  }, 30_000);
 });
