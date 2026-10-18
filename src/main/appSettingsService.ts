@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import * as Schema from "effect/Schema";
-import { APP_VISUAL_EFFECTS, APP_REDUCE_MOTION_MODES, DEFAULT_VISUAL_EFFECTS, DEFAULT_REDUCE_MOTION, APP_APPEARANCE_MODES, APP_CODE_FONTS, APP_COLOR_THEMES, APP_UI_FONTS, DEFAULT_CODE_FONT, DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS, DEFAULT_TAG_PUSH_BEHAVIOR, DEFAULT_UI_FONT, REMOTE_CHECK_LEASE_SECONDS, STATUS_FILE_VIEW_MODES, TAG_PUSH_BEHAVIORS, isAppZoomFactor, type AppAppearanceMode, type AppCodeFont, type AppColorTheme, type AppSettings, type AppSettingsSaveRequest, type AppUiFont, type GitBehaviorSettings, type PrivacySettings, type StatusFileViewMode } from "../shared/types";
+import { APP_VISUAL_EFFECTS, APP_REDUCE_MOTION_MODES, DEFAULT_VISUAL_EFFECTS, DEFAULT_REDUCE_MOTION, APP_APPEARANCE_MODES, APP_CODE_FONTS, APP_COLOR_THEMES, APP_UI_FONTS, DEFAULT_CODE_FONT, DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS, DEFAULT_TAG_PUSH_BEHAVIOR, DEFAULT_UI_FONT, REMOTE_CHECK_LEASE_SECONDS, STATUS_FILE_VIEW_MODES, TAG_PUSH_BEHAVIORS, DEFAULT_ZOOM_FACTOR, isAppZoomFactor, type AppAppearanceMode, type AppCodeFont, type AppColorTheme, type AppSettings, type AppSettingsSaveRequest, type AppUiFont, type GitBehaviorSettings, type PrivacySettings, type StatusFileViewMode } from "../shared/types";
 import {
   normalizeAutoFetchIntervalForSave,
   parseStoredAutoFetchInterval
@@ -28,8 +28,7 @@ interface StoredAppSettings {
 
 export const DEFAULT_COLOR_THEME: AppColorTheme = "githead";
 export const DEFAULT_APPEARANCE_MODE: AppAppearanceMode = "system";
-export { DEFAULT_CODE_FONT, DEFAULT_UI_FONT } from "../shared/types";
-export const DEFAULT_ZOOM_FACTOR = 1;
+export { DEFAULT_CODE_FONT, DEFAULT_UI_FONT, DEFAULT_ZOOM_FACTOR } from "../shared/types";
 export const DEFAULT_STATUS_FILE_VIEW_MODE: StatusFileViewMode = "list";
 export const DEFAULT_WRAP_DIFF_LINES = false;
 export { DEFAULT_TAG_PUSH_BEHAVIOR } from "../shared/types";

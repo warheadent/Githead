@@ -1194,6 +1194,34 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.saveGitIdentity).not.toHaveBeenCalled();
   });
 
+  it("steps and saves the interface scale with Ctrl+Plus, Ctrl+Minus, and Ctrl+0", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForRepositoryWorkspace();
+
+    await user.keyboard("{Control>}={/Control}");
+    await waitFor(() => expect(githead.saveAppSettings).toHaveBeenLastCalledWith(expect.objectContaining({ zoomFactor: 1.1 })));
+    expect(githead.setWindowZoomFactor).toHaveBeenLastCalledWith(1.1);
+
+    await user.keyboard("{Control>}{Shift>}+{/Shift}{/Control}");
+    await waitFor(() => expect(githead.saveAppSettings).toHaveBeenLastCalledWith(expect.objectContaining({ zoomFactor: 1.25 })));
+
+    await user.keyboard("{Control>}-{/Control}{Control>}-{/Control}{Control>}-{/Control}");
+    await waitFor(() => expect(githead.saveAppSettings).toHaveBeenLastCalledWith(expect.objectContaining({ zoomFactor: 0.9 })));
+    expect(githead.setWindowZoomFactor).toHaveBeenLastCalledWith(0.9);
+
+    await user.keyboard("{Control>}0{/Control}");
+    await waitFor(() => expect(githead.saveAppSettings).toHaveBeenLastCalledWith(expect.objectContaining({ zoomFactor: 1 })));
+
+    await openSettings(user);
+    await user.click(screen.getByRole("tab", { name: "Appearance" }));
+    const saveCount = vi.mocked(githead.saveAppSettings).mock.calls.length;
+    await user.keyboard("{Control>}={/Control}");
+    await waitFor(() => expect(screen.getByRole("slider", { name: "Interface scale" }).getAttribute("aria-valuetext")).toBe("110%"));
+    expect(githead.setWindowZoomFactor).toHaveBeenLastCalledWith(1.1);
+    expect(githead.saveAppSettings).toHaveBeenCalledTimes(saveCount);
+  });
+
   it("opens remote management from the branch switcher and adds a local remote without fetching", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ remotes: [], upstream: null, remoteBranches: [] }));

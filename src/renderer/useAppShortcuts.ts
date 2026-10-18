@@ -76,3 +76,42 @@ function hasBlockingOverlay(): boolean {
   return Array.from(document.querySelectorAll('[role="dialog"], [role="alertdialog"], [role="menu"]'))
     .some((element) => !element.hasAttribute(QUICK_SWITCHER_ATTRIBUTE));
 }
+
+export type ZoomShortcutAction = "zoom-in" | "zoom-out" | "zoom-reset";
+
+/**
+ * Registers Ctrl/Cmd+Plus, Ctrl/Cmd+Minus and Ctrl/Cmd+0. Unlike the workspace shortcuts, zoom works on every route and
+ * over open dialogs because it does not change focus or open anything.
+ */
+export function useZoomShortcuts(onZoom: (action: ZoomShortcutAction) => void): void {
+  const onZoomRef = useRef(onZoom);
+  onZoomRef.current = onZoom;
+
+  useLayoutEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented || event.isComposing) return;
+      const action = getZoomShortcutAction(event);
+      if (!action) return;
+      event.preventDefault();
+      onZoomRef.current(action);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+}
+
+function getZoomShortcutAction(event: KeyboardEvent): ZoomShortcutAction | null {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return null;
+  switch (event.key) {
+    case "=":
+    case "+":
+      return "zoom-in";
+    case "-":
+    case "_":
+      return "zoom-out";
+    case "0":
+      return event.shiftKey ? null : "zoom-reset";
+    default:
+      return null;
+  }
+}

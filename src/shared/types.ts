@@ -2177,10 +2177,18 @@ export interface PrivacySettings {
 
 export const DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS = true;
 
+export const DEFAULT_ZOOM_FACTOR = 1;
+
 export const APP_ZOOM_FACTORS = [0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2] as const;
 
 export function isAppZoomFactor(value: unknown): value is number {
   return typeof value === "number" && APP_ZOOM_FACTORS.some((factor) => factor === value);
+}
+
+/** Moves one interface scale step from `current`, clamped to the supported range. Unsupported values snap toward the next step. */
+export function stepAppZoomFactor(current: number, direction: 1 | -1): number {
+  if (direction > 0) return APP_ZOOM_FACTORS.find((factor) => factor > current) ?? Math.max(...APP_ZOOM_FACTORS);
+  return [...APP_ZOOM_FACTORS].reverse().find((factor) => factor < current) ?? Math.min(...APP_ZOOM_FACTORS);
 }
 
 export interface AppSettings {

@@ -231,7 +231,7 @@ import type {
   RepositoryGroup,
   StatusFileViewMode
 } from "../shared/types";
-import { AI_COMMIT_MESSAGE_PROVIDERS, DEFAULT_CODE_FONT, DEFAULT_COMMIT_PLAN_GRANULARITY, DEFAULT_REMOTE_CHECK_LEASE_SECONDS, DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS, DEFAULT_TAG_PUSH_BEHAVIOR, DEFAULT_UI_FONT, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities } from "../shared/types";
+import { AI_COMMIT_MESSAGE_PROVIDERS, DEFAULT_CODE_FONT, DEFAULT_COMMIT_PLAN_GRANULARITY, DEFAULT_REMOTE_CHECK_LEASE_SECONDS, DEFAULT_SHARE_ANONYMOUS_DIAGNOSTICS, DEFAULT_TAG_PUSH_BEHAVIOR, DEFAULT_UI_FONT, DEFAULT_ZOOM_FACTOR, GIT_CONFIGURED_ACTION_SHELLS, gitCapabilities, stepAppZoomFactor } from "../shared/types";
 import { isMarkdownPath, isSvgPath } from "../shared/filePreview";
 import { parseCommitSubject, type ParsedCommitSubject } from "../shared/commitSubject";
 import { parseGitHubReferences } from "../shared/githubReference";
@@ -288,7 +288,7 @@ import { confirmAppUpdateInstall } from "./AppUpdateControl";
 import { QuickSwitcher } from "./QuickSwitcher";
 import { focusActiveViewTab, RepositoryHeader, type AddViewOption, type ConfiguredActionCancelTarget } from "./RepositoryHeader";
 import { buildGoToItems, buildQuickSwitcherSections, type QuickSwitcherItem, type QuickSwitcherMode } from "./quickSwitcherItems";
-import { useAppShortcuts } from "./useAppShortcuts";
+import { useAppShortcuts, useZoomShortcuts } from "./useAppShortcuts";
 import {
   moveRepoPath,
   useRepositoryRowActions,
@@ -1171,7 +1171,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
   }, [state.repoPath, state.summary?.isValid, state.summary?.kind, updateState]);
 
   const saveAppSettingsPreference = useCallback((
-    patch: Partial<Pick<AppSettings, "statusFileViewMode" | "wrapDiffLines">>,
+    patch: Partial<Pick<AppSettings, "statusFileViewMode" | "wrapDiffLines" | "zoomFactor">>,
     failureMessage: string
   ): void => {
     const previous = stateRef.current.appSettings;
@@ -1180,15 +1180,22 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     if (
       desired.statusFileViewMode === previous.statusFileViewMode
       && desired.wrapDiffLines === previous.wrapDiffLines
+      && desired.zoomFactor === previous.zoomFactor
     ) return;
 
     const saveId = ++appSettingsPreferenceSaveId.current;
     updateState({ appSettings: desired });
+    if (desired.zoomFactor !== previous.zoomFactor) {
+      void window.githead.setWindowZoomFactor(desired.zoomFactor).catch(() => undefined);
+    }
     appSettingsSaveQueue.current = appSettingsSaveQueue.current.then(async () => {
       try {
         const appSettings = await window.githead.saveAppSettings(desired);
         if (saveId === appSettingsPreferenceSaveId.current) updateState({ appSettings });
       } catch (error) {
+        if (saveId === appSettingsPreferenceSaveId.current && desired.zoomFactor !== previous.zoomFactor) {
+          void window.githead.setWindowZoomFactor(previous.zoomFactor).catch(() => undefined);
+        }
         if (saveId === appSettingsPreferenceSaveId.current) updateState({
           appSettings: previous,
           lastOperationResult: {
@@ -1205,6 +1212,22 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
   const setWrapDiffLines = useCallback((wrapDiffLines: boolean): void => {
     saveAppSettingsPreference({ wrapDiffLines }, "Unable to save the diff line wrap preference.");
   }, [saveAppSettingsPreference]);
+
+  useZoomShortcuts((action) => {
+    const current = stateRef.current;
+    const settingsOpen = current.settingsOpen;
+    if (settingsOpen && current.settingsSaving) return;
+    const from = settingsOpen ? current.settingsDraft.zoomFactor : current.appSettings?.zoomFactor ?? DEFAULT_ZOOM_FACTOR;
+    const zoomFactor = action === "zoom-reset" ? DEFAULT_ZOOM_FACTOR : stepAppZoomFactor(from, action === "zoom-in" ? 1 : -1);
+    if (zoomFactor === from) return;
+    if (!settingsOpen) {
+      saveAppSettingsPreference({ zoomFactor }, "Unable to save the interface scale.");
+      return;
+    }
+    // The settings dialog previews its draft scale; keep the shortcut in step with the slider until the user saves or cancels.
+    void window.githead.setWindowZoomFactor(zoomFactor).catch(() => undefined);
+    updateState({ settingsDraft: { ...current.settingsDraft, zoomFactor } });
+  });
 
   const requestRepoTrust = useCallback((repoPath: string): Promise<RepoTrustResult> => {
     const pending = pendingRepoTrustRequestRef.current;
