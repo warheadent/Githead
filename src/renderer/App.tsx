@@ -12853,6 +12853,8 @@ function HistoryPullRequests({
 }
 
 function HistoryCheckState({ association, compact = false }: { association: GitHubCommitAssociation; compact?: boolean }): ReactNode {
+  if (association.checkState === "unknown") return null;
+
   const stateLabel = formatCheckStateLabel(association.checkState);
   const counts = association.checkCounts;
   const label = counts ? `${stateLabel}: ${counts.passed} of ${counts.total} passed` : stateLabel;
