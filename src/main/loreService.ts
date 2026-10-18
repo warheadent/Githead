@@ -442,6 +442,9 @@ export class LoreService implements VcsService {
   }
 
   async getCommitFileDiff(request: GitCommitFileDiffRequest): Promise<GitFileDiff> {
+    // Lore does not resolve the revision's file list here; the empty path tells
+    // the caller to request the file it selects from the revision details.
+    if (request.fallbackToFirstFile) return { path: "", side: "unstaged", kind: "empty", text: "" };
     const hash = sanitizeHash(request.hash);
     if (!hash) {
       return this.diffError(request.path, "unstaged", "Revision signature is invalid.");

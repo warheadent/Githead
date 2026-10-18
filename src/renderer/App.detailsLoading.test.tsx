@@ -89,13 +89,65 @@ describe("Commit detail loading", { timeout: 10_000 }, () => {
     await waitFor(() => expect(githead.getCommitDetails).toHaveBeenCalledTimes(1));
     await user.click(screen.getByRole("option", { name: /second commit/ }));
     await user.click(screen.getByRole("option", { name: /first commit/ }));
-    await waitFor(() => expect(githead.getCommitFileDiff).toHaveBeenCalledTimes(1));
+    // Each selection starts its preferred diff alongside the details.
+    await waitFor(() => expect(githead.getCommitDetails).toHaveBeenCalledTimes(3));
+    expect(githead.getCommitFileDiff).toHaveBeenCalledTimes(3);
 
     await act(async () => pendingDetails.reject(new Error("Earlier read was cancelled")));
-    expect(githead.getCommitFileDiff).toHaveBeenCalledTimes(1);
+    expect(githead.getCommitFileDiff).toHaveBeenCalledTimes(3);
     expect(screen.queryByText("Earlier read was cancelled")).toBeNull();
     await act(async () => pendingDiff.resolve(createTextDiff("first.txt", "current-commit-diff")));
     expect(document.querySelector(".diff-output")?.textContent).toContain("current-commit-diff");
+  });
+
+  it("requests the preferred file's diff together with the commit details", async () => {
+    const user = userEvent.setup();
+    const first = createCommit({ hash: "a".repeat(40), subject: "first commit" });
+    const second = createCommit({ hash: "b".repeat(40), subject: "second commit" });
+    const pendingDetails = defer<Awaited<ReturnType<GitheadApi["getCommitDetails"]>>>();
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([first, second]);
+    vi.mocked(githead.getCommitDetails).mockImplementation(({ hash }) => hash === first.hash
+      ? Promise.resolve(createCommitDetails(hash, { files: [{ path: "shared.txt", status: "M", additions: 1, deletions: 0 }] }))
+      : pendingDetails.promise);
+    vi.mocked(githead.getCommitFileDiff).mockImplementation(async ({ hash, path }) =>
+      createTextDiff(path || "shared.txt", `diff of ${hash.slice(0, 1)} ${path || "shared.txt"}`));
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
+    await waitFor(() => expect(document.querySelector(".diff-output")?.textContent).toContain("diff of a shared.txt"));
+    expect(githead.getCommitFileDiff).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("option", { name: /second commit/ }));
+    // The diff starts before the details resolve.
+    await waitFor(() => expect(githead.getCommitFileDiff).toHaveBeenCalledTimes(2));
+    // Selecting another commit opens its first file.
+    expect(vi.mocked(githead.getCommitFileDiff).mock.calls[1]![0]).toMatchObject({ hash: second.hash, path: "", fallbackToFirstFile: true });
+    await act(async () => pendingDetails.resolve(createCommitDetails(second.hash, {
+      files: [{ path: "shared.txt", status: "M", additions: 1, deletions: 0 }]
+    })));
+    await waitFor(() => expect(document.querySelector(".diff-output")?.textContent).toContain("diff of b shared.txt"));
+    expect(githead.getCommitFileDiff).toHaveBeenCalledTimes(2);
+  });
+
+  it("requests the selected file explicitly when the service does not choose it", async () => {
+    const user = userEvent.setup();
+    const commit = createCommit({ hash: "a".repeat(40), subject: "only commit" });
+    vi.mocked(githead.getCommitHistory).mockResolvedValue([commit]);
+    vi.mocked(githead.getCommitDetails).mockResolvedValue(createCommitDetails(commit.hash, {
+      files: [{ path: "first.txt", status: "M", additions: 1, deletions: 0 }]
+    }));
+    vi.mocked(githead.getCommitFileDiff).mockImplementation(async ({ path, fallbackToFirstFile }) => fallbackToFirstFile
+      ? { path: "", side: "unstaged", kind: "empty", text: "" }
+      : createTextDiff(path, `explicit ${path}`));
+
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: /^History$/ }));
+    await waitFor(() => expect(document.querySelector(".diff-output")?.textContent).toContain("explicit first.txt"));
+    expect(githead.getCommitFileDiff).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(githead.getCommitFileDiff).mock.calls[1]![0]).toMatchObject({ path: "first.txt" });
+    expect(vi.mocked(githead.getCommitFileDiff).mock.calls[1]![0].fallbackToFirstFile).toBeUndefined();
   });
 
   it.each(["details", "diff"])("ignores pending %s when a refresh removes every commit", async (pendingRead) => {

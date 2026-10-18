@@ -938,7 +938,10 @@ describe("App", { timeout: 10_000 }, () => {
     vi.mocked(githead.getCommitDetails).mockImplementation(async ({ hash }) => createCommitDetails(hash, {
       files: [{ path: `${hash.slice(0, 1)}.ts`, status: "modified", additions: 1, deletions: 0 }]
     }));
-    vi.mocked(githead.getCommitFileDiff).mockImplementation(async ({ path }) => createTextDiff(path, path));
+    vi.mocked(githead.getCommitFileDiff).mockImplementation(async ({ hash, path, fallbackToFirstFile }) => {
+      const filePath = fallbackToFirstFile ? `${hash.slice(0, 1)}.ts` : path;
+      return createTextDiff(filePath, filePath);
+    });
 
     render(<App />);
     await waitForRepositoryWorkspace();

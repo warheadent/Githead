@@ -951,6 +951,14 @@ export interface GitCommitFileDiffRequest extends RepositoryReadRequest {
   hash: string;
   path: string;
   originalPath?: string;
+  /**
+   * Treat `path` as a preference: diff it when the commit changed it, else the
+   * commit's first changed file. The result's `path` names the file chosen
+   * (empty when the commit has no files). Lets a commit's first diff load in
+   * parallel with its details. Services that cannot resolve the commit's files
+   * return an empty-path result, and callers fall back to an explicit request.
+   */
+  fallbackToFirstFile?: boolean;
 }
 
 export interface GitCommitFileResetRequest {

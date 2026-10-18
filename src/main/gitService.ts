@@ -134,6 +134,9 @@ import { sanitizeCommitHash, sanitizeHistoryLimit, sanitizeSingleRepoPath } from
 import { readGitFileHistory } from "./gitFileHistory";
 import { createGitDiffFingerprint } from "./gitDiffFingerprint";
 import { readGitFileBlame } from "./gitBlame";
+import { ImmutableReadCache, immutableRepoKey, observeInterruptions, readRepoFingerprint, repoFingerprintPaths, trackProcessInterruptions, type ImmutableLoadResult, type RepoReadPaths, type StatLike } from "./immutableReadCache";
+import { selectPatchSectionsForPath } from "./gitPatchSections";
+import { preferredCommitFile } from "../shared/commitFileSelection";
 import { runEffect, tryPromise } from "../shared/effectRuntime";
 import { runProcessEffect } from "./processEffect";
 import { GIT_STASH_LIST_FORMAT, isGitStashRef, parseGitStashFiles, parseGitStashList } from "./gitStash";
@@ -247,13 +250,35 @@ const DIFF_OUTPUT_LIMIT_BYTES = DIFF_TEXT_LIMIT * 3 + 4;
 const GIT_STATUS_PATHSPEC_CHARACTER_BUDGET = 12_000;
 const REPOSITORY_ACCESS_CHECK_TIMEOUT_MS = 30_000;
 
+interface RepoReadContext {
+  repoKey: string;
+  /** Null when Git did not report absolute metadata paths; disables caching. */
+  paths: RepoReadPaths | null;
+  /** True when this read reused a validation from an earlier read. */
+  reused: boolean;
+}
+
+export interface GitServiceOptions {
+  immutableReadCache?: ImmutableReadCache;
+  /** Overrides the stat used for history-rewriting input fingerprints. */
+  fingerprintStat?: StatLike;
+}
+
 export class GitService {
   private readonly remoteCheckLeases = new Map<string, RemoteCheckLease>();
   private readonly operationRecovery: GitOperationRecoveryService;
   private readonly integration: GitIntegrationService;
   private readonly amend: GitAmendService;
+  private readonly runner: ProcessRunner;
+  private readonly immutableReads: ImmutableReadCache;
+  private readonly fingerprintStat: StatLike | undefined;
+  /** Successful read validations keyed by normalized repository path. */
+  private readonly readContexts = new Map<string, Promise<Omit<RepoReadContext, "reused"> | null>>();
 
-  constructor(private readonly runner: ProcessRunner, operationRecovery?: GitOperationRecoveryService) {
+  constructor(runner: ProcessRunner, operationRecovery?: GitOperationRecoveryService, options: GitServiceOptions = {}) {
+    this.runner = trackProcessInterruptions(runner);
+    this.immutableReads = options.immutableReadCache ?? new ImmutableReadCache();
+    this.fingerprintStat = options.fingerprintStat;
     this.operationRecovery = operationRecovery ?? new GitOperationRecoveryService(runner);
     this.integration = new GitIntegrationService(runner, this.operationRecovery);
     this.amend = new GitAmendService(runner, this.operationRecovery);
@@ -750,8 +775,8 @@ export class GitService {
   }
 
   async getFilePreviewImage(request: GitFilePreviewRequest): Promise<GitImageVersion> {
-    const validation = await this.validateRepo(request.repoPath);
-    if (!validation.isValid) throw new Error(validation.validationErrors.join(" "));
+    const context = await this.resolveReadContext(request.repoPath);
+    if ("error" in context) throw new Error(context.error);
     const filePath = validatePreviewPath(request.path);
     if (!isPreviewableImagePath(filePath)) throw new Error("This image format is not supported.");
     let result: ImageReadResult;
@@ -760,19 +785,28 @@ export class GitService {
       if (root.exitCode !== 0) throw new Error("Unable to locate the repository root.");
       const resolved = await resolvePreviewFile(root.stdout.trim(), filePath);
       result = await this.readWorkingImage(root.stdout.trim(), path.relative(root.stdout.trim(), resolved));
+    } else if (request.source.kind === "commit") {
+      const hash = sanitizeCommitHash(request.source.hash);
+      if ("error" in hash) throw new Error(hash.error);
+      // Only decoded images are retained; LFS and missing states can change.
+      result = await this.immutableReads.read(
+        { repoKey: context.repoKey, kind: "preview-image", hash: hash.hash, parts: [filePath] },
+        await this.readFingerprint(context),
+        async () => {
+          const image = await this.readGitImage(request.repoPath, `${hash.hash}:${filePath}`, filePath, false);
+          return { value: image, cacheable: image.kind === "image" };
+        }
+      );
     } else {
-      const hash = request.source.kind === "commit" ? sanitizeCommitHash(request.source.hash) : null;
-      if (hash && "error" in hash) throw new Error(hash.error);
-      result = await this.readGitImage(request.repoPath,
-        request.source.kind === "staged" ? `:${filePath}` : `${hash?.hash}:${filePath}`, filePath, false);
+      result = await this.readGitImage(request.repoPath, `:${filePath}`, filePath, false);
     }
     if (result.kind !== "image") throw new Error(imageFallbackText([result]));
     return result.version;
   }
 
   async getFilePreview(request: GitFilePreviewRequest): Promise<GitFilePreview> {
-    const validation = await this.validateRepo(request.repoPath);
-    if (!validation.isValid) throw new Error(validation.validationErrors.join(" "));
+    const context = await this.resolveReadContext(request.repoPath);
+    if ("error" in context) throw new Error(context.error);
 
     const filePath = validateMarkdownPreviewPath(request.path);
     if (request.source.kind === "working") {
@@ -785,14 +819,22 @@ export class GitService {
 
     const hashResult = request.source.kind === "commit" ? sanitizeCommitHash(request.source.hash) : null;
     if (hashResult && "error" in hashResult) throw new Error(hashResult.error);
-    const objectName = request.source.kind === "staged"
-      ? `:${filePath}`
-      : `${hashResult?.hash}:${filePath}`;
-    const result = await this.runGit(request.repoPath, ["cat-file", "blob", objectName]);
-    if (result.exitCode !== 0) {
-      throw new Error(result.stderr.trim() || "Markdown file is missing from the selected version.");
-    }
-    return { path: request.path, text: validateMarkdownPreviewText(result.stdout) };
+    const readBlob = async (objectName: string): Promise<string> => {
+      const result = await this.runGit(request.repoPath, ["cat-file", "blob", objectName]);
+      if (result.exitCode !== 0) {
+        throw new Error(await this.readFailureMessage(request.repoPath, context, result,
+          result.stderr.trim() || "Markdown file is missing from the selected version."));
+      }
+      return validateMarkdownPreviewText(result.stdout);
+    };
+    const text = hashResult
+      ? await this.immutableReads.read(
+        { repoKey: context.repoKey, kind: "preview-text", hash: hashResult.hash, parts: [filePath] },
+        await this.readFingerprint(context),
+        async () => ({ value: await readBlob(`${hashResult.hash}:${filePath}`), cacheable: true })
+      )
+      : await readBlob(`:${filePath}`);
+    return { path: request.path, text };
   }
 
   async getCommitHistory(request: GitCommitHistoryRequest): Promise<GitCommitGraphRow[]> {
@@ -857,9 +899,9 @@ export class GitService {
   }
 
   async getCommitDetails(request: GitCommitDetailsRequest): Promise<GitCommitDetails> {
-    const validation = await this.validateRepo(request.repoPath);
-    if (!validation.isValid) {
-      throw new Error(validation.validationErrors.join(" "));
+    const context = await this.resolveReadContext(request.repoPath);
+    if ("error" in context) {
+      throw new Error(context.error);
     }
 
     const hashResult = sanitizeCommitHash(request.hash);
@@ -867,77 +909,109 @@ export class GitService {
       throw new Error(hashResult.error);
     }
 
-    const [
-      metadataResult,
-      filesResult
-    ] = await runEffect(Effect.all([
-      this.runGitEffect(request.repoPath, [
-        "show",
-        "-s",
-        "--date=iso-strict",
-        "--decorate=full",
-        "--pretty=format:%H%x1f%h%x1f%D%x1f%s%x1f%an%x1f%ae%x1f%aI%x1f%cn%x1f%ce%x1f%cI%x1f%P%x1e%b",
-        hashResult.hash
-      ]),
-      this.runGitEffect(request.repoPath, [
-        "diff-tree",
-        "--root",
-        "--no-commit-id",
-        "--raw",
-        "--numstat",
-        "-r",
-        "-z",
-        "--find-renames",
-        "--find-copies",
-        hashResult.hash
-      ])
-    ], { concurrency: "unbounded" }));
+    return this.readCommitDetails(request.repoPath, context, hashResult.hash);
+  }
 
-    if (metadataResult.exitCode !== 0) {
-      throw new Error(metadataResult.stderr.trim() || metadataResult.error || "Unable to read commit details.");
-    }
-    if (filesResult.exitCode !== 0) {
-      throw new Error(filesResult.stderr.trim() || filesResult.error || "Unable to read changed files.");
-    }
+  private async readCommitDetails(repoPath: string, context: RepoReadContext, hash: string): Promise<GitCommitDetails> {
+    return this.immutableReads.read({ repoKey: context.repoKey, kind: "commit-details", hash }, await this.readFingerprint(context), async () => {
+      const [metadataResult, filesResult] = await Promise.all([
+        this.runGit(repoPath, [
+          "show",
+          "-s",
+          "--date=iso-strict",
+          "--decorate=full",
+          "--pretty=format:%H%x1f%h%x1f%D%x1f%s%x1f%an%x1f%ae%x1f%aI%x1f%cn%x1f%ce%x1f%cI%x1f%P%x1e%b",
+          hash
+        ]),
+        this.runGit(repoPath, [
+          "diff-tree",
+          "--root",
+          "--no-commit-id",
+          "--raw",
+          "--numstat",
+          "-r",
+          "-z",
+          "--find-renames",
+          "--find-copies",
+          hash
+        ])
+      ]);
 
-    return {
-      ...parseCommitDetails(metadataResult.stdout),
-      files: parseCommitFiles(filesResult.stdout)
-    };
+      if (metadataResult.exitCode !== 0) {
+        throw new Error(await this.readFailureMessage(repoPath, context, metadataResult,
+          metadataResult.stderr.trim() || metadataResult.error || "Unable to read commit details."));
+      }
+      if (filesResult.exitCode !== 0) {
+        throw new Error(await this.readFailureMessage(repoPath, context, filesResult,
+          filesResult.stderr.trim() || filesResult.error || "Unable to read changed files."));
+      }
+
+      return {
+        value: {
+          ...parseCommitDetails(metadataResult.stdout),
+          files: parseCommitFiles(filesResult.stdout)
+        },
+        cacheable: true
+      };
+    });
   }
 
   async getCommitFileDiff(request: GitCommitFileDiffRequest): Promise<GitFileDiff> {
-    const validation = await this.validateRepo(request.repoPath);
-    if (!validation.isValid) {
-      return {
-        path: request.path,
-        side: "unstaged",
-        kind: "error",
-        text: validation.validationErrors.join(" ")
-      };
+    const failure = (text: string, filePath = request.path): GitFileDiff => ({ path: filePath, side: "unstaged", kind: "error", text });
+    const context = await this.resolveReadContext(request.repoPath);
+    if ("error" in context) {
+      return failure(context.error);
     }
 
     const hashResult = sanitizeCommitHash(request.hash);
     if ("error" in hashResult) {
-      return {
-        path: request.path,
-        side: "unstaged",
-        kind: "error",
-        text: hashResult.error
-      };
+      return failure(hashResult.error);
     }
 
-    const pathResult = sanitizeSingleRepoPath(request.path);
+    let filePath = request.path;
+    let originalPath = request.originalPath;
+    if (request.fallbackToFirstFile) {
+      // Shares the in-flight or cached details read for the same commit.
+      let details: GitCommitDetails;
+      try {
+        details = await this.readCommitDetails(request.repoPath, context, hashResult.hash);
+      } catch (error) {
+        return failure(error instanceof Error ? error.message : "Unable to read changed files.");
+      }
+      const file = preferredCommitFile(details.files, request.path);
+      if (!file) return { path: "", side: "unstaged", kind: "empty", text: "This commit has no changed files." };
+      filePath = file.path;
+      originalPath = file.originalPath;
+    }
+
+    const pathResult = sanitizeSingleRepoPath(filePath);
     if ("error" in pathResult) {
-      return {
-        path: request.path,
-        side: "unstaged",
-        kind: "error",
-        text: pathResult.error
-      };
+      return failure(pathResult.error, filePath);
     }
+    const originalPathResult = originalPath && originalPath !== pathResult.path ? sanitizeSingleRepoPath(originalPath) : null;
+    if (originalPathResult && "error" in originalPathResult) {
+      return failure(originalPathResult.error, pathResult.path);
+    }
+    const previousPath = originalPathResult?.path;
 
-    const diffResult = await this.runGitDiff(request.repoPath, [
+    return this.immutableReads.read({
+      repoKey: context.repoKey,
+      kind: "commit-file-diff",
+      hash: hashResult.hash,
+      parts: [pathResult.path, previousPath ?? "", this.runner.runBinary ? "images" : "text"]
+    }, await this.readFingerprint(context), () => this.loadCommitFileDiff(request.repoPath, context, hashResult.hash, pathResult.path, previousPath));
+  }
+
+  private async loadCommitFileDiff(
+    repoPath: string,
+    context: RepoReadContext,
+    hash: string,
+    filePath: string,
+    originalPath: string | undefined
+  ): Promise<ImmutableLoadResult<GitFileDiff>> {
+    // Rename and copy detection only pairs paths inside the pathspec, so the
+    // original path must be included or a renamed file shows as an addition.
+    const diffResult = await this.runGitDiff(repoPath, [
       "show",
       "--format=",
       "--no-color",
@@ -945,19 +1019,26 @@ export class GitService {
       "--no-textconv",
       "--find-renames",
       "--find-copies",
-      hashResult.hash,
+      hash,
       "--",
-      pathResult.path
+      filePath,
+      ...(originalPath ? [originalPath] : [])
     ]);
+    const result = originalPath && diffResult.exitCode === 0
+      ? { ...diffResult, stdout: selectPatchSectionsForPath(diffResult.stdout, filePath) }
+      : diffResult;
 
-    const normalized = normalizeDiffResult({
-      repoPath: request.repoPath,
-      path: pathResult.path,
-      side: "unstaged"
-    }, diffResult);
-    return (normalized.kind === "binary" || (normalized.kind === "text" && isGitLfsPointerDiff(normalized.text))) && isPreviewableRasterImagePath(request.path) && this.runner.runBinary
-      ? await this.getCommitImageDiff(request, hashResult.hash)
-      : normalized;
+    const normalized = normalizeDiffResult({ repoPath, path: filePath, side: "unstaged" }, result);
+    if (normalized.kind === "error") {
+      return {
+        value: { ...normalized, text: await this.readFailureMessage(repoPath, context, result, normalized.text) },
+        cacheable: false
+      };
+    }
+    if ((normalized.kind === "binary" || (normalized.kind === "text" && isGitLfsPointerDiff(normalized.text))) && isPreviewableRasterImagePath(filePath) && this.runner.runBinary) {
+      return this.getCommitImageDiff(repoPath, hash, filePath, originalPath, result.stdout);
+    }
+    return { value: normalized, cacheable: true };
   }
 
   async resetFilesToCommit(request: GitCommitFileResetRequest): Promise<GitOperationResult> {
@@ -3238,6 +3319,85 @@ export class GitService {
     };
   }
 
+  /**
+   * Validates a repository for read paths. A successful check is reused by
+   * later reads, so a warm read spawns only the command it needs; a failed
+   * read revalidates (see readFailureMessage) so a repository that became
+   * invalid still reports the same user-facing error as validateRepo.
+   */
+  private async resolveReadContext(repoPath: string): Promise<RepoReadContext | { error: string }> {
+    const repoKey = immutableRepoKey(repoPath);
+    if (!repoKey) {
+      const validation = await this.validateRepo(repoPath);
+      return validation.isValid
+        ? { repoKey: repoPath.trim(), paths: null, reused: false }
+        : { error: validation.validationErrors.join(" ") };
+    }
+
+    let pending = this.readContexts.get(repoKey);
+    const reused = pending !== undefined;
+    if (!pending) {
+      pending = this.loadReadContext(repoPath, repoKey);
+      this.readContexts.set(repoKey, pending);
+      const settled = pending;
+      const forget = () => {
+        if (this.readContexts.get(repoKey) === settled) this.readContexts.delete(repoKey);
+      };
+      void settled.then((context) => { if (!context) forget(); }, forget);
+    }
+    const context = await pending;
+    if (context) return { ...context, reused };
+
+    // The shared check may have run under another request's cancelled signal,
+    // so this request validates on its own to report the precise error.
+    const validation = await this.validateRepo(repoPath);
+    return validation.isValid
+      ? { repoKey, paths: null, reused: false }
+      : { error: validation.validationErrors.join(" ") };
+  }
+
+  private async loadReadContext(repoPath: string, repoKey: string): Promise<Omit<RepoReadContext, "reused"> | null> {
+    const result = await this.runGit(repoPath, [
+      "rev-parse",
+      "--is-inside-work-tree",
+      "--path-format=absolute",
+      "--show-toplevel",
+      "--git-dir",
+      "--git-common-dir"
+    ]);
+    const lines = result.stdout.replace(/\r?\n$/, "").split(/\r?\n/);
+    if (result.exitCode !== 0 || lines[0]?.trim() !== "true") return null;
+    const [, topLevel = "", gitDir = "", commonDir = ""] = lines;
+    const paths = lines.length === 4 && [topLevel, gitDir, commonDir].every((value) => path.isAbsolute(value))
+      ? { topLevel, gitDir, commonDir }
+      : null;
+    return { repoKey, paths };
+  }
+
+  private async readFingerprint(context: RepoReadContext): Promise<string | null> {
+    return context.paths
+      ? readRepoFingerprint(repoFingerprintPaths(context.paths), this.fingerprintStat)
+      : null;
+  }
+
+  /**
+   * Returns the message for a failed read. When the read reused an earlier
+   * validation, the repository is checked again so a folder that stopped
+   * being a repository reports the same error as an upfront validation.
+   */
+  private async readFailureMessage(
+    repoPath: string,
+    context: RepoReadContext,
+    result: Pick<ProcessResult, "terminationReason">,
+    message: string
+  ): Promise<string> {
+    const interrupted = result.terminationReason === "aborted" || result.terminationReason === "timedOut";
+    if (!context.reused || interrupted) return message;
+    this.readContexts.delete(context.repoKey);
+    const validation = await this.validateRepo(repoPath);
+    return validation.isValid ? message : validation.validationErrors.join(" ");
+  }
+
   private async validateRepo(repoPath: string): Promise<Pick<RepoSummary, "isValid" | "validationErrors" | "safeDirectory">> {
     if (!repoPath.trim()) {
       return {
@@ -3645,24 +3805,47 @@ export class GitService {
     return this.runGitOperation(request.repoPath, ["worktree", "remove", ...(request.force ? ["--force"] : []), "--", path.normalize(request.worktreePath)]);
   }
 
+  // File history is not cached: entries carry Git's relative dates ("3 days
+  // ago"), which change with the clock even for a fixed starting commit.
   async getFileHistory(request: GitFileHistoryRequest): Promise<GitFileHistoryResult> {
-    const validation = await this.validateRepo(request.repoPath);
-    if (!validation.isValid) throw new Error(validation.validationErrors.join(" "));
+    const context = await this.resolveReadContext(request.repoPath);
+    if ("error" in context) throw new Error(context.error);
     const hashResult = sanitizeCommitHash(request.startHash);
     if ("error" in hashResult) throw new Error(hashResult.error);
     const pathResult = sanitizeSingleRepoPath(request.path);
     if ("error" in pathResult) throw new Error(pathResult.error);
-    return readGitFileHistory(this.runner, request.repoPath, hashResult.hash, pathResult.path, sanitizeHistoryLimit(request.limit));
+    return this.withReadFailureValidation(request.repoPath, context, () =>
+      readGitFileHistory(this.runner, request.repoPath, hashResult.hash, pathResult.path, sanitizeHistoryLimit(request.limit)));
   }
 
   async getFileBlame(request: GitFileBlameRequest): Promise<GitFileBlameResult> {
-    const validation = await this.validateRepo(request.repoPath);
-    if (!validation.isValid) throw new Error(validation.validationErrors.join(" "));
+    const context = await this.resolveReadContext(request.repoPath);
+    if ("error" in context) throw new Error(context.error);
     const hashResult = sanitizeCommitHash(request.hash);
     if ("error" in hashResult) throw new Error(hashResult.error);
     const pathResult = sanitizeSingleRepoPath(request.path);
     if ("error" in pathResult) throw new Error(pathResult.error);
-    return readGitFileBlame(this.runner, request.repoPath, hashResult.hash, pathResult.path);
+    const blame = await this.immutableReads.read(
+      { repoKey: context.repoKey, kind: "blame", hash: hashResult.hash, parts: [pathResult.path] },
+      await this.readFingerprint(context),
+      async () => {
+        const result = await this.withReadFailureValidation(request.repoPath, context, () =>
+          readGitFileBlame(this.runner, request.repoPath, hashResult.hash, pathResult.path));
+        // A missing version or timeout may be transient (lazy fetch, load).
+        return { value: result, cacheable: result.kind === "text" || (result.reason !== "missing" && result.reason !== "timed-out") };
+      }
+    );
+    return blame.repoPath === request.repoPath ? blame : { ...blame, repoPath: request.repoPath };
+  }
+
+  /** Rethrows a failed read, replacing its message when the repository is no longer valid. */
+  private async withReadFailureValidation<T>(repoPath: string, context: RepoReadContext, operation: () => Promise<T>): Promise<T> {
+    const outcome = await observeInterruptions(operation);
+    if (outcome.ok) return outcome.value;
+    const { error } = outcome;
+    if (outcome.interrupted || !(error instanceof Error)) throw error;
+    const message = await this.readFailureMessage(repoPath, context, {}, error.message);
+    throw message === error.message ? error : new Error(message);
   }
 
   private runGitStatus(repoPath: string, args: string[], signal?: AbortSignal): Promise<ProcessResult> {
@@ -3783,16 +3966,32 @@ export class GitService {
     return this.buildImageDiff(request.path, request.side, before, after);
   }
 
-  private async getCommitImageDiff(request: GitCommitFileDiffRequest, hash: string): Promise<GitFileDiff> {
-    const currentPath = sanitizeSingleRepoPath(request.path);
-    const previousPath = sanitizeSingleRepoPath(request.originalPath ?? request.path);
-    if ("error" in currentPath || "error" in previousPath) return { path: request.path, side: "unstaged", kind: "binary", text: "Image preview is unavailable." };
-    const parentResult = await this.runGit(request.repoPath, ["rev-parse", "--verify", `${hash}^`]);
+  private async getCommitImageDiff(
+    repoPath: string,
+    hash: string,
+    filePath: string,
+    originalPath: string | undefined,
+    patch: string
+  ): Promise<ImmutableLoadResult<GitFileDiff>> {
+    const previousPath = originalPath ?? filePath;
+    const [parentResult, after] = await Promise.all([
+      this.runGit(repoPath, ["rev-parse", "--verify", `${hash}^`]),
+      this.readGitImage(repoPath, `${hash}:${filePath}`, filePath, true)
+    ]);
     const before: ImageReadResult = parentResult.exitCode === 0
-      ? await this.readGitImage(request.repoPath, `${parentResult.stdout.trim()}:${previousPath.path}`, previousPath.path, true)
+      ? await this.readGitImage(repoPath, `${parentResult.stdout.trim()}:${previousPath}`, previousPath, true)
       : { kind: "missing" };
-    const after = await this.readGitImage(request.repoPath, `${hash}:${currentPath.path}`, currentPath.path, true);
-    return this.buildImageDiff(request.path, "unstaged", before, after);
+    const diff = this.buildImageDiff(filePath, "unstaged", before, after);
+    // Git LFS sides depend on local storage, and an absent side is only
+    // settled when the patch itself says the file was added or deleted.
+    const settled = (side: GitImageSide | undefined, absentInPatch: boolean): boolean =>
+      side?.status === "available" ||
+      (side?.status === "absent" && absentInPatch) ||
+      (side?.status === "unavailable" && side.reason === "oversized");
+    const cacheable = diff.kind === "image" &&
+      settled(diff.before, /^new file mode /m.test(patch)) &&
+      settled(diff.after, /^deleted file mode /m.test(patch));
+    return { value: diff, cacheable };
   }
 
   private async readGitImage(repoPath: string, object: string, displayPath: string, fetchable: boolean): Promise<ImageReadResult> {

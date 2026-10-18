@@ -539,10 +539,11 @@ describe("GitService", () => {
   it("loads working MDX plus staged and commit Markdown preview versions", async () => {
     await withTempDir(async (dir) => {
       await fs.writeFile(path.join(dir, "README.mdx"), "# Working MDX\n", "utf8");
+      // The repository check runs once; later reads of the same repository reuse it.
       const runner = new FakeRunner([
         ok("true\n"), ok(`${dir}\n`),
-        ok("true\n"), ok("# Staged\n"),
-        ok("true\n"), ok("# Commit\n")
+        ok("# Staged\n"),
+        ok("# Commit\n")
       ]);
       const service = new GitService(runner);
 
@@ -553,8 +554,10 @@ describe("GitService", () => {
       await expect(service.getFilePreview({ repoPath: dir, path: "README.md", source: { kind: "commit", hash: oid } }))
         .resolves.toEqual({ path: "README.md", text: "# Commit\n" });
 
-      expect(runner.calls[3]?.args).toEqual(["-C", dir, "cat-file", "blob", ":README.md"]);
-      expect(runner.calls[5]?.args).toEqual(["-C", dir, "cat-file", "blob", `${oid}:README.md`]);
+      expect(runner.calls[0]?.args).toEqual(expect.arrayContaining(["rev-parse", "--is-inside-work-tree"]));
+      expect(runner.calls[2]?.args).toEqual(["-C", dir, "cat-file", "blob", ":README.md"]);
+      expect(runner.calls[3]?.args).toEqual(["-C", dir, "cat-file", "blob", `${oid}:README.md`]);
+      expect(runner.calls).toHaveLength(4);
     });
   });
 

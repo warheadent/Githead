@@ -4,6 +4,7 @@ import { RepositoryOmnibox } from "./RepositoryOmnibox";
 import { CloneOptions } from "./CloneOptions";
 import { emptyCloneDraft, type CloneDraft, type CloneRepositoryControls } from "./cloneRepository";
 import { inferCloneDirectoryName, isLoreSource, parseRepositorySource, resolveRepositorySourceBranch } from "../shared/repositorySource";
+import { preferredCommitFile } from "../shared/commitFileSelection";
 import { loadPullRequestDraft, savePullRequestDraft, removePullRequestDraft } from "./pullRequestDraft";
 import type { GitTagCheckoutRequest, OperationCancelStatus } from "../shared/types";
 import {
@@ -353,6 +354,11 @@ const HISTORY_LIMIT = 200;
 type HistoryColumnId = "graph" | "description" | "date" | "author" | "commit" | "references" | "pullRequest" | "checks";
 
 type IntegrationDialogState = { kind: "merge" | "rebase" | "cherry-pick"; commitHash?: string } | null;
+
+interface CommitFileDiffRead {
+  requestId: number;
+  diff: Promise<GitFileDiff>;
+}
 
 interface FileSelection {
   path: string;
@@ -1392,10 +1398,26 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     };
   }, []);
 
-  const loadCommitFileDiff = useCallback(async (hash: string, filePath: string): Promise<void> => {
-    cancelRepositoryRead("commit-file-diff", requestIds.current.commitFileDiff);
-    const requestId = requestIds.current.commitFileDiff + 1;
-    requestIds.current.commitFileDiff = requestId;
+  const loadCommitFileDiff = useCallback(async (hash: string, filePath: string, prefetched?: CommitFileDiffRead): Promise<void> => {
+    const beginRead = (): number => {
+      cancelRepositoryRead("commit-file-diff", requestIds.current.commitFileDiff);
+      requestIds.current.commitFileDiff += 1;
+      return requestIds.current.commitFileDiff;
+    };
+    const readDiff = (readId: number): Promise<GitFileDiff> => {
+      const originalPath = stateRef.current.commitDetails?.files.find((file) => file.path === filePath)?.originalPath;
+      return window.githead.getCommitFileDiff({
+        repoPath: stateRef.current.repoPath,
+        hash,
+        path: filePath,
+        requestId: repositoryReadRequestId("commit-file-diff", readId),
+        ...(originalPath ? { originalPath } : {})
+      });
+    };
+    // A read started with the commit details is still current only when no
+    // other file or commit was selected since.
+    const usePrefetched = prefetched !== undefined && prefetched.requestId === requestIds.current.commitFileDiff;
+    let requestId = usePrefetched ? prefetched.requestId : beginRead();
     updateState({
       commitFileDiffLoading: true,
       commitFileDiffError: "",
@@ -1403,14 +1425,12 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     });
 
     try {
-      const originalPath = stateRef.current.commitDetails?.files.find((file) => file.path === filePath)?.originalPath;
-      const diff = await window.githead.getCommitFileDiff({
-        repoPath: stateRef.current.repoPath,
-        hash,
-        path: filePath,
-        requestId: repositoryReadRequestId("commit-file-diff", requestId),
-        ...(originalPath ? { originalPath } : {})
-      });
+      let diff = await (usePrefetched ? prefetched.diff : readDiff(requestId));
+      if (usePrefetched && requestId === requestIds.current.commitFileDiff && diff?.path !== filePath) {
+        // The service chose another file or declined to choose one.
+        requestId = beginRead();
+        diff = await readDiff(requestId);
+      }
 
       if (requestId === requestIds.current.commitFileDiff) {
         updateState({
@@ -1453,6 +1473,23 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       commitFileDiffError: ""
     });
 
+    // Start the diff the details will select (the previous file when this
+    // commit changed it, else its first file) instead of after the details.
+    const diffRequestId = requestIds.current.commitFileDiff;
+    const repoPath = stateRef.current.repoPath;
+    const prefetchedDiff: CommitFileDiffRead = {
+      requestId: diffRequestId,
+      diff: (async () => window.githead.getCommitFileDiff({
+        repoPath,
+        hash,
+        path: previousFilePath ?? "",
+        fallbackToFirstFile: true,
+        requestId: repositoryReadRequestId("commit-file-diff", diffRequestId)
+      }))()
+    };
+    // Observed by loadCommitFileDiff when the details select a file.
+    prefetchedDiff.diff.catch(() => undefined);
+
     try {
       const details = await window.githead.getCommitDetails({
         repoPath: stateRef.current.repoPath,
@@ -1464,9 +1501,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
         return;
       }
 
-      const selectedCommitFilePath = details.files.some((file) => file.path === previousFilePath)
-        ? previousFilePath
-        : details.files[0]?.path ?? null;
+      const selectedCommitFilePath = preferredCommitFile(details.files, previousFilePath)?.path ?? null;
 
       updateState({
         commitDetails: details,
@@ -1491,7 +1526,9 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     if (requestId !== requestIds.current.commitDetails) return;
     const latest = stateRef.current;
     if (latest.selectedCommitHash === hash && latest.selectedCommitFilePath) {
-      await loadCommitFileDiff(hash, latest.selectedCommitFilePath);
+      await loadCommitFileDiff(hash, latest.selectedCommitFilePath, prefetchedDiff);
+    } else if (diffRequestId === requestIds.current.commitFileDiff) {
+      cancelRepositoryRead("commit-file-diff", diffRequestId);
     }
   }, [invalidateCommitDetailReads, loadCommitFileDiff, updateState]);
 

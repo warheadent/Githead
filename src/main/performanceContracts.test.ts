@@ -9,6 +9,7 @@ import {
   PERFORMANCE_DIAGNOSTIC_PROCESS_METRIC_LIMIT
 } from "./performanceDiagnostics";
 import { DEFAULT_PROCESS_MAX_OUTPUT_BYTES } from "./processRunner";
+import { IMMUTABLE_READ_CACHE_MAX_BYTES, IMMUTABLE_READ_CACHE_MAX_ENTRY_BYTES } from "./immutableReadCache";
 
 describe("deterministic performance contracts", () => {
   it("keeps buffered text process output at or below eight MiB", () => {
@@ -24,5 +25,10 @@ describe("deterministic performance contracts", () => {
   it("keeps diagnostic retention limits explicit and finite", () => {
     expect(DEFAULT_PERFORMANCE_DIAGNOSTIC_SAMPLE_LIMIT).toBeLessThanOrEqual(600);
     expect(PERFORMANCE_DIAGNOSTIC_PROCESS_METRIC_LIMIT).toBeLessThanOrEqual(64);
+  });
+
+  it("keeps the immutable Git read cache bounded by bytes", () => {
+    expect(IMMUTABLE_READ_CACHE_MAX_BYTES).toBeLessThanOrEqual(64 * 1024 * 1024);
+    expect(IMMUTABLE_READ_CACHE_MAX_ENTRY_BYTES).toBeLessThanOrEqual(IMMUTABLE_READ_CACHE_MAX_BYTES / 4);
   });
 });
