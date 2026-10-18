@@ -3527,6 +3527,58 @@ export class GitService {
     };
   }
 
+  /**
+   * Lists directories under `repoPath` that match an ignore rule, relative to
+   * `repoPath` with forward slashes. `--ignored=matching` reports a directory
+   * only when a rule matches the directory itself, so a directory that merely
+   * contains ignored files (and could receive non-ignored ones) is never
+   * listed, and Git does not report directories that contain tracked files.
+   * Stdout is parsed incrementally so repositories with many ignored files
+   * are not buffered. Porcelain paths are relative to the worktree root, so
+   * they are rebased when `repoPath` is a subdirectory.
+   */
+  async getIgnoredDirectories(repoPath: string, options: { maxEntries?: number; timeoutMs?: number } = {}): Promise<string[]> {
+    const maxEntries = options.maxEntries ?? 10_000;
+    const rootRelativeDirectories: string[] = [];
+    let pending = "";
+    const takeToken = (token: string): void => {
+      if (rootRelativeDirectories.length < maxEntries && token.startsWith("! ") && token.endsWith("/")) {
+        rootRelativeDirectories.push(token.slice(2, -1));
+      }
+    };
+    const [prefixResult, result] = await Promise.all([this.runGit(repoPath, ["rev-parse", "--show-prefix"]), this.runner.run("git", [
+      "-C",
+      repoPath,
+      "--no-optional-locks",
+      "status",
+      "--porcelain=v2",
+      "-z",
+      "--ignored=matching",
+      "--untracked-files=normal",
+      "--no-renames",
+      "--ignore-submodules=all",
+      "--",
+      "."
+    ], {
+      streamStdout: true,
+      timeoutMs: options.timeoutMs ?? 30_000,
+      onOutput: ({ stream, text }) => {
+        if (stream !== "stdout") return;
+        const tokens = (pending + text).split("\0");
+        pending = tokens.pop() ?? "";
+        for (const token of tokens) takeToken(token);
+      }
+    })]);
+    if (prefixResult.exitCode !== 0) throw new Error(prefixResult.stderr.trim() || "Unable to locate the worktree root.");
+    if (result.exitCode !== 0) throw new Error(result.error || result.stderr.trim() || "Unable to list ignored directories.");
+    if (pending) takeToken(pending);
+    // The `.` pathspec limits output to `repoPath`; strip its root-relative prefix.
+    const prefix = prefixResult.stdout.replace(/\r?\n$/, "");
+    return rootRelativeDirectories
+      .filter((directory) => directory.startsWith(prefix) && directory.length > prefix.length)
+      .map((directory) => directory.slice(prefix.length));
+  }
+
   async createWorktree(request: GitWorktreeCreateRequest, onOutput?: GitOutputHandler): Promise<GitOperationResult> {
     const validation = await this.validateRepo(request.repoPath);
     if (!validation.isValid) return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));

@@ -501,24 +501,49 @@ ipcMain.handle(IPC_CHANNELS.cancelGitOperation, (event, request: CancelGitOperat
   return repositoryOperations.cancel(request.operationId, getRepositoryOperationOwnerId(event));
 });
 
+// The latest watch request; an older request that resolves later, or one
+// cancelled by an unwatch, must not replace it.
+let pendingRepoWatchRequest: { repoPath: string } | null = null;
+
 ipcMain.handle(IPC_CHANNELS.watchRepoChanges, async (_event, repoPath: string) => {
+  const request = { repoPath };
+  pendingRepoWatchRequest = request;
   const targets: RepoWatchTarget[] = [{ path: repoPath, recursive: true, kind: "content" }];
+  let resolveIgnoredDirectories: (() => Promise<readonly string[]>) | undefined;
   if (await isTrustedRepo(repoPath) && await vcsRouter.resolveKind(repoPath) === "git") {
+    // Ignored directories are not walked or watched; Lore and untrusted
+    // repositories only skip VCS internals.
+    resolveIgnoredDirectories = () => gitService.getIgnoredDirectories(repoPath);
     try {
       const admin = await gitService.getWorktreeAdminPaths(repoPath);
+      // Metadata watchers are the only source of `.git` changes: the content
+      // watcher skips `.git` so staging does not refresh repository metadata.
       targets.push({ path: admin.gitDir, recursive: false, kind: "metadata" });
       targets.push({ path: admin.commonDir, recursive: false, kind: "metadata" });
-      for (const metadataPath of [path.join(admin.commonDir, "refs"), path.join(admin.commonDir, "worktrees")]) {
+      for (const [metadataPath, recursive] of [
+        [path.join(admin.commonDir, "refs"), true],
+        [path.join(admin.commonDir, "worktrees"), true],
+        [path.join(admin.commonDir, "info"), false]
+      ] as const) {
         try {
-          if ((await fs.stat(metadataPath)).isDirectory()) targets.push({ path: metadataPath, recursive: true, kind: "metadata" });
+          if ((await fs.stat(metadataPath)).isDirectory()) targets.push({ path: metadataPath, recursive, kind: "metadata" });
         } catch { /* optional metadata directory */ }
       }
     } catch { /* content watching still provides focus-refresh fallback */ }
   }
-  getRepoWatchService().watchRepo(repoPath, targets);
+  if (pendingRepoWatchRequest !== request) return;
+  pendingRepoWatchRequest = null;
+  // Returns before the content watcher walks the tree; see RepoWatchService.
+  getRepoWatchService().watchRepo(repoPath, targets, resolveIgnoredDirectories ? { resolveIgnoredDirectories } : {});
 });
 
 ipcMain.handle(IPC_CHANNELS.unwatchRepoChanges, async (_event, repoPath?: string) => {
+  if (
+    pendingRepoWatchRequest &&
+    (!repoPath || path.resolve(pendingRepoWatchRequest.repoPath).toLocaleLowerCase() === path.resolve(repoPath).toLocaleLowerCase())
+  ) {
+    pendingRepoWatchRequest = null;
+  }
   getRepoWatchService().stopWatching(repoPath);
 });
 
