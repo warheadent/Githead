@@ -2256,15 +2256,10 @@ describe("GitService", () => {
     ]);
   });
 
-  it("reads local ahead and behind counts for a repository", async () => {
+  it("reads local ahead and behind counts from refs without scanning the working tree", async () => {
     const runner = new FakeRunner([
       ok("true\n"),
-      ok([
-        "# branch.oid 0123456789abcdef0123456789abcdef01234567",
-        "# branch.head main",
-        "# branch.upstream origin/main",
-        "# branch.ab +1 -4"
-      ].join("\0"))
+      ok("1\t4\n")
     ]);
     const service = new GitService(runner);
 
@@ -2278,28 +2273,15 @@ describe("GitService", () => {
       behind: 4,
       error: ""
     });
-    expect(runner.calls[1]).toMatchObject({
-      command: "git",
-      args: [
-        "-C",
-        "D:\\Repo",
-        "--no-optional-locks",
-        "status",
-        "--porcelain=v2",
-        "-z",
-        "--branch",
-        "--untracked-files=no"
-      ]
-    });
+    expect(runner.calls[1]?.args).toEqual(["-C", "D:\\Repo", "rev-list", "--left-right", "--count", "HEAD...@{upstream}", "--"]);
+    expect(runner.calls.map((call) => call.args)).not.toContainEqual(expect.arrayContaining(["status"]));
   });
 
-  it("returns zero sync counts when a repository has no ahead-behind status", async () => {
+  it("returns zero sync counts when the current branch has no upstream to compare", async () => {
     const runner = new FakeRunner([
       ok("true\n"),
-      ok([
-        "# branch.oid 0123456789abcdef0123456789abcdef01234567",
-        "# branch.head main"
-      ].join("\0"))
+      failure("fatal: no upstream configured for branch 'main'"),
+      failure("")
     ]);
     const service = new GitService(runner);
 
@@ -2310,6 +2292,20 @@ describe("GitService", () => {
       ahead: 0,
       behind: 0,
       error: ""
+    });
+    expect(runner.calls[2]?.args).toEqual(["-C", "D:\\Repo", "rev-parse", "--verify", "--quiet", "@{upstream}"]);
+  });
+
+  it("reports a sync failure when an existing upstream cannot be compared", async () => {
+    const runner = new FakeRunner([
+      ok("true\n"),
+      failure("fatal: bad object HEAD"),
+      ok(`${oid}\n`)
+    ]);
+
+    await expect(new GitService(runner).getRepoSyncStatus("D:\\Repo")).resolves.toMatchObject({
+      isValid: false,
+      error: "fatal: bad object HEAD"
     });
   });
 

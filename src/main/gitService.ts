@@ -445,24 +445,25 @@ export class GitService {
         return createInvalidRepoSyncStatus(repoPath, validation.validationErrors.join(" "));
       }
 
-      const statusResult = await this.runGitStatus(repoPath, [
-        "--porcelain=v2",
-        "-z",
-        "--branch",
-        "--untracked-files=no"
-      ]);
-      if (statusResult.exitCode !== 0) {
-        return createInvalidRepoSyncStatus(repoPath, statusResult.stderr.trim() || "Unable to read repository sync status.");
+      // Compare refs only. Unlike git status, this never scans the working tree,
+      // which matters when every recent repository refreshes on window focus.
+      const countsResult = await this.runGit(repoPath, ["rev-list", "--left-right", "--count", "HEAD...@{upstream}", "--"]);
+      const counts = countsResult.exitCode === 0 ? parseLeftRightCounts(countsResult.stdout) : null;
+      if (!counts) {
+        // A detached or unborn HEAD, or a branch without an existing upstream,
+        // has nothing to compare, as with status's missing branch.ab line.
+        const upstreamResult = await this.runGit(repoPath, ["rev-parse", "--verify", "--quiet", "@{upstream}"]);
+        if (upstreamResult.exitCode === 0) {
+          return createInvalidRepoSyncStatus(repoPath, countsResult.stderr.trim() || countsResult.error || "Unable to read repository sync status.");
+        }
       }
-
-      const status = parsePorcelainStatus(statusResult.stdout);
 
       return {
         repoPath,
         kind: "git",
         isValid: true,
-        ahead: status.ahead ?? 0,
-        behind: status.behind ?? 0,
+        ahead: counts?.ahead ?? 0,
+        behind: counts?.behind ?? 0,
         error: ""
       };
     } catch (error) {
