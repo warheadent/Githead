@@ -371,6 +371,9 @@ export function createGitheadMock(): GitheadApi {
       draft: false
     }, rateLimit: null }),
     getCommitHistory: vi.fn().mockResolvedValue([]),
+    // Without a tips token the renderer always reads full prefixes, so tests
+    // that mock getCommitHistory keep describing the requests it makes.
+    getCommitHistoryPage: vi.fn(async (request) => ({ rows: await window.githead.getCommitHistory(request), tipsToken: null, tipsChanged: false })),
     getGitHubHistoryInsights: vi.fn().mockResolvedValue({ ok: true, data: { currentBranchPullRequests: [], commits: [], unavailableCommitShas: [] }, rateLimit: null }),
     getCommitDetails: vi.fn(),
     getCommitFileDiff: vi.fn(),

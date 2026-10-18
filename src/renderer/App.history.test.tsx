@@ -409,6 +409,55 @@ describe("App", { timeout: 10_000 }, () => {
     await waitFor(() => expect(githead.getCommitHistory).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 602 })));
   });
 
+  it("appends later history pages and refreshes only the first page while history is unchanged", async () => {
+    const user = userEvent.setup();
+    let commits = Array.from({ length: 601 }, (_, index) => createCommit({
+      hash: index.toString(16).padStart(40, "0"), subject: `Paged entry ${index}`
+    }));
+    let currentToken = "tips-1";
+    vi.mocked(githead.getCommitHistoryPage).mockImplementation(async ({ limit = 200, skip = 0, tipsToken }) => (
+      tipsToken !== undefined && tipsToken !== currentToken
+        ? { rows: [], tipsToken: currentToken, tipsChanged: true }
+        : { rows: commits.slice(skip, skip + limit), tipsToken: currentToken, tipsChanged: false }
+    ));
+    render(<App />);
+    await waitForRepositoryWorkspace();
+    await user.click(screen.getByRole("tab", { name: "History" }));
+    await screen.findByRole("option", { name: /Paged entry 0/ });
+    expect(githead.getCommitHistoryPage).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 201, scope: "current" }));
+    expect(vi.mocked(githead.getCommitHistoryPage).mock.lastCall?.[0]).not.toHaveProperty("skip");
+    const list = screen.getByRole("listbox", { name: "Commit history" });
+
+    await user.click(screen.getByRole("button", { name: "Load more commits" }));
+    await waitFor(() => expect(within(list).getAllByRole("option")[0]?.getAttribute("aria-setsize")).toBe("400"));
+    expect(githead.getCommitHistoryPage).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 201, skip: 200, tipsToken: "tips-1" }));
+    await user.click(screen.getByRole("button", { name: "Load more commits" }));
+    await waitFor(() => expect(within(list).getAllByRole("option")[0]?.getAttribute("aria-setsize")).toBe("601"));
+    expect(githead.getCommitHistoryPage).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 401, skip: 400, tipsToken: "tips-1" }));
+    expect(screen.queryByRole("button", { name: "Load more commits" })).toBeNull();
+
+    const callsBeforeRefresh = vi.mocked(githead.getCommitHistoryPage).mock.calls.length;
+    act(() => emitRepoChanged({ reason: "filesystem-metadata" }));
+    await waitFor(() => expect(githead.getCommitHistoryPage).toHaveBeenCalledTimes(callsBeforeRefresh + 1));
+    expect(vi.mocked(githead.getCommitHistoryPage).mock.lastCall?.[0]).toMatchObject({ limit: 201, tipsToken: "tips-1" });
+    expect(vi.mocked(githead.getCommitHistoryPage).mock.lastCall?.[0]).not.toHaveProperty("skip");
+    await flushRendererAsync();
+    expect(within(list).getAllByRole("option")[0]?.getAttribute("aria-setsize")).toBe("601");
+
+    // Moved history falls back to rereading the whole loaded prefix.
+    commits = [createCommit({ hash: "f".repeat(40), subject: "Paged new tip" }), ...commits];
+    currentToken = "tips-2";
+    act(() => emitRepoChanged({ reason: "filesystem-metadata" }));
+    await waitFor(() => expect(githead.getCommitHistoryPage).toHaveBeenCalledTimes(callsBeforeRefresh + 3));
+    expect(vi.mocked(githead.getCommitHistoryPage).mock.calls.at(-2)?.[0]).toMatchObject({ limit: 201, tipsToken: "tips-1" });
+    expect(vi.mocked(githead.getCommitHistoryPage).mock.lastCall?.[0]).toMatchObject({ limit: 602 });
+    expect(vi.mocked(githead.getCommitHistoryPage).mock.lastCall?.[0]).not.toHaveProperty("tipsToken");
+    expect(await screen.findByRole("option", { name: /Paged new tip/ })).toBeTruthy();
+    expect(within(list).getAllByRole("option")[0]?.getAttribute("aria-setsize")).toBe("601");
+    expect(screen.getByRole("button", { name: "Load more commits" })).toBeTruthy();
+    expect(githead.getCommitHistory).not.toHaveBeenCalled();
+  });
+
   it("prevents duplicate loads and lets users retry without losing commits", async () => {
     const user = userEvent.setup();
     const commits = Array.from({ length: 201 }, (_, index) => createCommit({

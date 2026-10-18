@@ -6,7 +6,7 @@ const summary = (repoPath: string, fileCount = 1): RepoSummary => ({
   repoPath, kind: "git", capabilities: {} as RepoSummary["capabilities"], isValid: true, branch: "main", upstream: null, branches: [], hasHead: true, remotes: [], remoteBranches: [], defaultRemoteBranch: null, commitsAheadOfDefaultBranch: null, githubRepository: null, ahead: null, behind: null, files: Array.from({ length: fileCount }, (_, index) => ({ path: `file-${index}`, indexStatus: ".", worktreeStatus: "M", isStaged: false, isUnstaged: true, isConflicted: false })), operationState: null, safeDirectory: null, actionsConfig: {} as RepoSummary["actionsConfig"], validationErrors: []
 });
 
-const snapshot = (repoPath: string, fileCount = 1) => ({ summary: summary(repoPath, fileCount), history: [], historyHasMore: false, historyScope: "current" as const, selection: fileCount ? { path: "file-0", side: "unstaged" as const, paths: ["file-0"], anchorPath: "file-0" } : null, activeView: "status" as const });
+const snapshot = (repoPath: string, fileCount = 1) => ({ summary: summary(repoPath, fileCount), history: [], historyTipsToken: null, historyHasMore: false, historyScope: "current" as const, selection: fileCount ? { path: "file-0", side: "unstaged" as const, paths: ["file-0"], anchorPath: "file-0" } : null, activeView: "status" as const });
 
 describe("RepositorySnapshotCache", () => {
   it("normalizes equivalent Repository paths", () => {

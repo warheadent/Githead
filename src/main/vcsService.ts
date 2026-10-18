@@ -39,6 +39,7 @@ export type VcsService = Pick<
   | "fetchLfsImageVersions"
   | "getStagedDiff"
   | "getCommitHistory"
+  | "getCommitHistoryPage"
   | "getCommitDetails"
   | "getCommitFileDiff"
   | "getFileHistory"

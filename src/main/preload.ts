@@ -46,6 +46,7 @@ import type {
   GitCommitFileVersionRequest,
   GitCommitHashRequest,
   GitCommitHistoryRequest,
+  GitCommitHistoryPageRequest,
   GenerateCommitMessageRequest,
   GenerateCommitPlanRequest,
   CommitPlanValidationRequest,
@@ -231,6 +232,8 @@ const api: GitheadApi = {
     ipcRenderer.invoke(IPC_CHANNELS.disconnectGitHub) as ReturnType<GitheadApi["disconnectGitHub"]>,
   getCommitHistory: (request: GitCommitHistoryRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getCommitHistory, request) as ReturnType<GitheadApi["getCommitHistory"]>,
+  getCommitHistoryPage: (request: GitCommitHistoryPageRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getCommitHistoryPage, request) as ReturnType<GitheadApi["getCommitHistoryPage"]>,
   getCommitDetails: (request: GitCommitDetailsRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.getCommitDetails, request) as ReturnType<GitheadApi["getCommitDetails"]>,
   getCommitFileDiff: (request: GitCommitFileDiffRequest) =>

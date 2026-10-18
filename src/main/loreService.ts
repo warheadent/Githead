@@ -20,6 +20,8 @@ import type {
   GitCommitGraphRow,
   GitCommitHashRequest,
   GitCommitHistoryRequest,
+  GitCommitHistoryPage,
+  GitCommitHistoryPageRequest,
   GitCommitRequest,
   GitConfiguredActionRunRequest,
   GitConfiguredActionSaveRequest,
@@ -349,6 +351,13 @@ export class LoreService implements VcsService {
     // block. This renders linear history exactly; merge commits (a second
     // parent) are refined in a later stage.
     return revisions.map((revision, index) => this.toGraphRow(revision, revisions[index + 1] ?? null));
+  }
+
+  async getCommitHistoryPage(request: GitCommitHistoryPageRequest): Promise<GitCommitHistoryPage> {
+    // Lore history has no stable offset to resume from. A null token keeps the
+    // renderer on full reads; a later page is reported as moved for the same reason.
+    if (request.skip || request.tipsToken !== undefined) return { rows: [], tipsToken: null, tipsChanged: true };
+    return { rows: await this.getCommitHistory(request), tipsToken: null, tipsChanged: false };
   }
 
   async getCommitDetails(request: GitCommitDetailsRequest): Promise<GitCommitDetails> {

@@ -9,6 +9,7 @@ import { classifyGitOperationError } from "./gitOperationFailure";
 import { isGitIndexLockError } from "../shared/gitIndexLock";
 import { getRepoPathKey, normalizeRepoPath } from "./repoPath";
 import type {
+  CommitHistoryScope,
   CommitRef,
   GitBranch,
   GitBranchRequest,
@@ -39,6 +40,8 @@ import type {
   GitCommitGraphRow,
   GitCommitHashRequest,
   GitCommitHistoryRequest,
+  GitCommitHistoryPage,
+  GitCommitHistoryPageRequest,
   GitCommitAndPushResult,
   GitCommitWithRemoteCheckResult,
   GitQuickCommitRequest,
@@ -130,7 +133,7 @@ import { mapRepoSyncStatuses } from "./repoSyncStatus";
 import { IMAGE_PREVIEW_LIMIT, imageFallbackText, imageVersionFromBytes, isPreviewableImagePath, isPreviewableRasterImagePath, type ImageReadResult } from "./imageDiff";
 import { escapeLfsIncludePath, isGitLfsPointerDiff, parseGitLfsPointer, parseLocalMediaDir, resolveLocalLfsImage, type GitLfsPointer } from "./gitLfs";
 import { resolvePreviewFile, validatePreviewPath, readMarkdownPreviewFile, validateMarkdownPreviewPath, validateMarkdownPreviewText } from "./filePreview";
-import { sanitizeCommitHash, sanitizeHistoryLimit, sanitizeSingleRepoPath } from "./gitReadValidation";
+import { sanitizeCommitHash, sanitizeHistoryLimit, sanitizeHistorySkip, sanitizeSingleRepoPath } from "./gitReadValidation";
 import { readGitFileHistory } from "./gitFileHistory";
 import { createGitDiffFingerprint } from "./gitDiffFingerprint";
 import { readGitFileBlame } from "./gitBlame";
@@ -872,30 +875,151 @@ export class GitService {
     }
 
     const limit = sanitizeHistoryLimit(request.limit, 200, 0xFFFFFFFF);
+    return this.readCommitHistoryRows(request.repoPath, scope, headResult.exitCode === 0, limit, 0, noLazyFetchEnv);
+  }
+
+  /**
+   * Reads one page of the same topological listing `getCommitHistory` returns.
+   * Every page is checked against the HEAD, ref, and shallow state the caller's
+   * first page saw, so appended pages always continue that exact listing.
+   */
+  async getCommitHistoryPage(request: GitCommitHistoryPageRequest): Promise<GitCommitHistoryPage> {
+    const validation = await this.validateRepo(request.repoPath);
+    if (!validation.isValid) {
+      throw new Error(validation.validationErrors.join(" "));
+    }
+
+    const scope = request.scope === "all" ? "all" : "current";
+    const noLazyFetchEnv = scope === "all" ? { ...process.env, GIT_NO_LAZY_FETCH: "1" } : undefined;
+    const limit = sanitizeHistoryLimit(request.limit, 200, 0xFFFFFFFF);
+    const skip = sanitizeHistorySkip(request.skip);
+    if ("error" in skip) throw new Error(skip.error);
+    if (skip.skip > 0 && request.tipsToken === undefined) {
+      throw new Error("Later commit history pages require the first page's tips token.");
+    }
+
+    const expected = request.tipsToken === undefined ? null : parseHistoryTipsToken(request.tipsToken);
+    if (request.tipsToken !== undefined && !expected) {
+      return { rows: [], tipsToken: null, tipsChanged: true };
+    }
+    const hasRows = (tips: Pick<HistoryTips, "hasHead" | "hasHistoryRefs">) => tips.hasHead || (scope === "all" && tips.hasHistoryRefs);
+
+    let before: HistoryTips;
+    let rows: GitCommitGraphRow[] = [];
+    if (expected) {
+      // The token fixes which revisions git log needs, so the fingerprint can
+      // be checked concurrently with the read instead of before it.
+      const [tips, read] = await Promise.allSettled([
+        this.readHistoryTips(request.repoPath, noLazyFetchEnv),
+        hasRows(expected)
+          ? this.readCommitHistoryRows(request.repoPath, scope, expected.hasHead, limit, skip.skip, noLazyFetchEnv)
+          : Promise.resolve([])
+      ]);
+      if (tips.status === "rejected") throw tips.reason;
+      before = tips.value;
+      if (before.token !== request.tipsToken) return { rows: [], tipsToken: before.token, tipsChanged: true };
+      if (read.status === "rejected") throw read.reason;
+      rows = read.value;
+    } else {
+      before = await this.readHistoryTips(request.repoPath, noLazyFetchEnv);
+      if (!hasRows(before)) return { rows: [], tipsToken: before.token, tipsChanged: false };
+      rows = await this.readCommitHistoryRows(request.repoPath, scope, before.hasHead, limit, skip.skip, noLazyFetchEnv);
+    }
+
+    if (!hasRows(before)) return { rows, tipsToken: before.token, tipsChanged: false };
+    const after = await this.readHistoryTips(request.repoPath, noLazyFetchEnv);
+    if (after.token !== null && after.token === before.token) {
+      return { rows, tipsToken: before.token, tipsChanged: false };
+    }
+    // History moved while git log ran. A first page is still one consistent
+    // listing, but it cannot anchor later pages.
+    return expected
+      ? { rows: [], tipsToken: after.token, tipsChanged: true }
+      : { rows, tipsToken: null, tipsChanged: false };
+  }
+
+  private async readCommitHistoryRows(
+    repoPath: string,
+    scope: CommitHistoryScope,
+    hasHead: boolean,
+    limit: number,
+    skip: number,
+    env: NodeJS.ProcessEnv | undefined
+  ): Promise<GitCommitGraphRow[]> {
     const revisions = scope === "all"
       ? [
-        ...(headResult.exitCode === 0 ? ["HEAD"] : []),
+        ...(hasHead ? ["HEAD"] : []),
         "--branches",
         "--remotes",
         "--tags"
       ]
       : [];
-    const result = await this.runGit(request.repoPath, [
+    const result = await this.runGit(repoPath, [
       "log",
       "--topo-order",
       "--parents",
+      ...(skip > 0 ? [`--skip=${skip}`] : []),
       `--max-count=${limit}`,
       "--date=iso-strict",
       "--decorate=full",
       "--pretty=format:%x1f%H%x1f%h%x1f%D%x1f%s%x1f%an%x1f%ae%x1f%aI%x1f%ar%x1f%P%x1e",
       ...revisions
-    ], undefined, undefined, noLazyFetchEnv);
+    ], undefined, undefined, env);
 
     if (result.exitCode !== 0) {
       throw new Error(result.stderr.trim() || result.error || "Unable to read commit history.");
     }
 
     return parseCommitHistory(result.stdout);
+  }
+
+  /**
+   * Fingerprints everything that determines a history listing: HEAD (both its
+   * commit and the branch it names), every ref (walk tips and decorations),
+   * and the shallow boundary. The token is null when any part is unreadable.
+   */
+  private async readHistoryTips(repoPath: string, env: NodeJS.ProcessEnv | undefined): Promise<HistoryTips> {
+    const refsHash = createHash("sha256");
+    let pendingLine = "";
+    let hasHistoryRefs = false;
+    const inspectRefs = (text: string): void => {
+      refsHash.update(text);
+      if (hasHistoryRefs) return;
+      const lines = (pendingLine + text).split("\n");
+      pendingLine = lines.pop() ?? "";
+      hasHistoryRefs = lines.some(isHistoryTipRefLine);
+    };
+    const [headResult, refsResult] = await runEffect(Effect.all([
+      this.runGitEffect(repoPath, ["rev-parse", "--git-path", "shallow", "--verify", "-q", "HEAD"], undefined, undefined, env),
+      // Ref names cannot contain spaces. Stream the listing so repositories
+      // with very many refs cannot hit the captured-output limit.
+      runProcessEffect(this.runner, "git", [
+        "-C",
+        repoPath,
+        "for-each-ref",
+        "--format=%(refname) %(objectname) %(HEAD)"
+      ], {
+        ...(env ? { env } : {}),
+        streamStdout: true,
+        onOutput: (output) => {
+          if (output.stream === "stdout") inspectRefs(output.text);
+        }
+      })
+    ], { concurrency: "unbounded" }));
+    if (!hasHistoryRefs && isHistoryTipRefLine(pendingLine)) hasHistoryRefs = true;
+
+    const [shallowPath = "", headLine = ""] = headResult.stdout.split(/\r?\n/);
+    const hasHead = headResult.exitCode === 0 && /^[0-9a-f]{40,64}$/i.test(headLine.trim());
+    const refsComplete = refsResult.exitCode === 0 && (refsResult.terminationReason ?? "exited") === "exited";
+    const shallow = shallowPath.trim() ? await readOptionalFile(path.resolve(repoPath, shallowPath.trim())) : null;
+    const token = refsComplete && shallow !== null
+      ? formatHistoryTipsToken(hasHead, hasHistoryRefs, createHash("sha256")
+        .update(`head ${hasHead ? headLine.trim() : "-"}\0`)
+        .update(`shallow ${createHash("sha256").update(shallow).digest("hex")}\0`)
+        .update(`refs ${refsHash.digest("hex")}`)
+        .digest("hex"))
+      : null;
+    return { token, hasHead, hasHistoryRefs };
   }
 
   async getCommitDetails(request: GitCommitDetailsRequest): Promise<GitCommitDetails> {
@@ -5015,6 +5139,36 @@ function shouldEscapeIgnoreSpaces(existing: string): boolean {
       const trimmed = line.trim();
       return trimmed.length > 0 && !trimmed.startsWith("#") && /\\ /.test(trimmed);
     });
+}
+
+interface HistoryTips {
+  token: string | null;
+  hasHead: boolean;
+  hasHistoryRefs: boolean;
+}
+
+// The token leads with whether HEAD and history refs exist, so a later page
+// knows which revisions to read without waiting for the fingerprint.
+function formatHistoryTipsToken(hasHead: boolean, hasHistoryRefs: boolean, digest: string): string {
+  return `${hasHead ? "h" : "-"}${hasHistoryRefs ? "r" : "-"}${digest}`;
+}
+
+function parseHistoryTipsToken(token: string): Pick<HistoryTips, "hasHead" | "hasHistoryRefs"> | null {
+  const match = /^([h-])([r-])[0-9a-f]{64}$/.exec(token);
+  return match ? { hasHead: match[1] === "h", hasHistoryRefs: match[2] === "r" } : null;
+}
+
+function isHistoryTipRefLine(line: string): boolean {
+  return line.startsWith("refs/heads/") || line.startsWith("refs/remotes/") || line.startsWith("refs/tags/");
+}
+
+/** Missing files read as empty; other failures read as null. */
+async function readOptionalFile(filePath: string): Promise<string | null> {
+  try {
+    return await fs.readFile(filePath, "utf8");
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ENOENT" ? "" : null;
+  }
 }
 
 function parseCommitHistory(text: string): GitCommitGraphRow[] {

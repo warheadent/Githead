@@ -312,6 +312,7 @@ import {
   shouldShowCreatePullRequest,
 } from "./remoteActions";
 import { isGitHubView, isGuestView, type GuestView } from "./workspaceViews";
+import { applyHistoryPage, fullHistoryRead, historyReadRequest, planHistoryRead, type HistoryRead } from "./historyPaging";
 import { buildCommitGraphLayout, COMMIT_GRAPH_COLOR_COUNT, COMMIT_GRAPH_ROW_HEIGHT, type CommitGraphLayout } from "./commitGraph";
 import { countDiffLineChanges, createLinePatch, isTechnicalFileHeader, type DiffLineChangeCounts, type DiffRow, type DiffRowGroup } from "./diffParser";
 import { createDiffProcessingSession, type ProcessedDiff } from "./diffProcessingClient";
@@ -526,6 +527,8 @@ interface AppState {
   guestView: GuestView | null;
   historyScope: CommitHistoryScope;
   history: GitCommitGraphRow[];
+  /** Identifies the listing `history` came from, so later pages can extend it. */
+  historyTipsToken: string | null;
   historyLoading: boolean;
   historyLoadingMore: boolean;
   historyLoaded: boolean;
@@ -948,6 +951,7 @@ const initialState: AppState = {
   guestView: null,
   historyScope: "current",
   history: [],
+  historyTipsToken: null,
   historyLoading: false,
   historyLoadingMore: false,
   historyLoaded: false,
@@ -1541,6 +1545,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     if (!current.summary?.isValid) {
       updateState({
         history: [],
+        historyTipsToken: null,
         historyLoaded: false,
         historyHasMore: false,
         historyError: current.summary?.validationErrors.join(" ") ?? ""
@@ -1556,9 +1561,11 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
 
     const repoPath = current.repoPath;
     const scope = current.historyScope;
-    // Grow geometrically to avoid repeatedly reading almost the same prefix.
-    // A complete prefix keeps graph ordering consistent when refs change.
-    const limit = Math.max(HISTORY_LIMIT, current.history.length * (loadMore ? 2 : 1));
+    const baseHistory = current.history;
+    const baseHasMore = current.historyHasMore;
+    // Extend or refresh the loaded rows only while the listing they came from
+    // is unchanged. Otherwise reread the full prefix so graph order stays exact.
+    let read = planHistoryRead(baseHistory, current.historyTipsToken, loadMore);
     const repoRequestId = requestIds.current.repo;
 
     preloadedHistoryRequestId.current = null;
@@ -1574,20 +1581,33 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     let commitHashToLoad: string | null = null;
 
     try {
-      const loadedHistory = await window.githead.getCommitHistory({
+      const readPage = (nextRead: HistoryRead) => window.githead.getCommitHistoryPage({
         repoPath,
-        limit: limit + 1,
+        ...historyReadRequest(nextRead),
         scope,
         requestId: repositoryReadRequestId("history", requestId)
       });
-
+      let page = await readPage(read);
       if (requestId !== requestIds.current.history) {
         return false;
       }
+      let applied = applyHistoryPage(baseHistory, baseHasMore, read, page);
+      if (!applied) {
+        read = fullHistoryRead(baseHistory.length, loadMore);
+        page = await readPage(read);
+        if (requestId !== requestIds.current.history) {
+          return false;
+        }
+        applied = applyHistoryPage(baseHistory, baseHasMore, read, page);
+      }
 
       const latest = stateRef.current;
+      // Paged results extend the rows they were planned from.
+      if (!applied || (read.kind !== "full" && latest.history !== baseHistory)) {
+        return false;
+      }
       preloadedHistoryRequestId.current = preload && repoRequestId === requestIds.current.repo && latest.activeView !== "history" ? requestId : null;
-      const history = reuseCommitHistoryRows(latest.history, loadedHistory.slice(0, limit));
+      const history = reuseCommitHistoryRows(latest.history, applied.history);
       const selectedCommitHash = history.some((commit) => commit.hash === latest.selectedCommitHash)
         ? latest.selectedCommitHash
         : history[0]?.hash ?? null;
@@ -1599,7 +1619,8 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       if (selectionChanged && latest.selectedCommitHash) invalidateCommitDetailReads();
       updateState(selectionChanged ? {
         history,
-        historyHasMore: loadedHistory.length > limit,
+        historyTipsToken: applied.tipsToken,
+        historyHasMore: applied.hasMore,
         historyLoaded: true,
         historyError: "",
         selectedCommitHash,
@@ -1612,7 +1633,8 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
         commitFileDiffError: ""
       } : {
         history,
-        historyHasMore: loadedHistory.length > limit,
+        historyTipsToken: applied.tipsToken,
+        historyHasMore: applied.hasMore,
         historyLoaded: true,
         historyError: ""
       });
@@ -1631,6 +1653,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
         } else {
           updateState({
             history: [],
+            historyTipsToken: null,
             historyLoaded: false,
             historyHasMore: false,
             historyError,
@@ -1706,6 +1729,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     updateState({
       historyScope: scope,
       history: [],
+      historyTipsToken: null,
       historyLoading: false,
       historyLoadingMore: false,
       historyLoaded: false,
@@ -2244,6 +2268,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       repositorySnapshots.current.set(leaving.repoPath, {
         summary: leaving.summary,
         history: leaving.history,
+        historyTipsToken: leaving.historyTipsToken,
         historyHasMore: leaving.historyHasMore,
         historyScope: leaving.historyScope,
         selection: leaving.selection,
@@ -2361,7 +2386,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       diffLoading: false,
       diffChanged: false
       }));
-      const restored = cached ? { ...reset, history: cached.history, historyScope: cached.historyScope, historyLoaded: cached.history.length > 0, historyHasMore: cached.historyHasMore, selection: cached.selection } : reset;
+      const restored = cached ? { ...reset, history: cached.history, historyTipsToken: cached.historyTipsToken, historyScope: cached.historyScope, historyLoaded: cached.history.length > 0, historyHasMore: cached.historyHasMore, selection: cached.selection } : reset;
       return options.location ? { ...restored, ...options.location } : restored;
     });
 
@@ -14567,6 +14592,7 @@ function resetHistoryState(state: AppState): AppState {
     ...state,
     historyScope: "current",
     history: [],
+    historyTipsToken: null,
     historyLoading: false,
     historyLoadingMore: false,
     historyLoaded: false,

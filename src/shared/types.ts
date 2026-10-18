@@ -941,6 +941,24 @@ export interface GitCommitHistoryRequest extends RepositoryReadRequest {
   scope?: CommitHistoryScope;
 }
 
+export interface GitCommitHistoryPageRequest extends GitCommitHistoryRequest {
+  /** Number of leading rows to skip. Pages after the first must pass `tipsToken`. */
+  skip?: number;
+  /**
+   * Token from an earlier page of the same scope. When HEAD, refs, or the
+   * shallow boundary no longer match it, the page has no rows and reports
+   * `tipsChanged`, so the caller can reload instead of appending stale rows.
+   */
+  tipsToken?: string;
+}
+
+export interface GitCommitHistoryPage {
+  rows: GitCommitGraphRow[];
+  /** Identifies the history the rows came from; null when it moved during the read or paging is unsupported. */
+  tipsToken: string | null;
+  tipsChanged: boolean;
+}
+
 export interface GitCommitDetailsRequest extends RepositoryReadRequest {
   repoPath: string;
   hash: string;
@@ -2701,6 +2719,7 @@ export interface GitheadApi {
   pollGitHubDeviceFlow(request: GitHubDeviceFlowPollRequest): Promise<GitHubDeviceFlowPollResult>;
   disconnectGitHub(): Promise<GitHubConnectionStatus>;
   getCommitHistory(request: GitCommitHistoryRequest): Promise<GitCommitGraphRow[]>;
+  getCommitHistoryPage(request: GitCommitHistoryPageRequest): Promise<GitCommitHistoryPage>;
   getCommitDetails(request: GitCommitDetailsRequest): Promise<GitCommitDetails>;
   getCommitFileDiff(request: GitCommitFileDiffRequest): Promise<GitFileDiff>;
   getFileHistory(request: GitFileHistoryRequest): Promise<GitFileHistoryResult>;

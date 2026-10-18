@@ -58,6 +58,7 @@ export const IPC_CHANNELS = {
   pollGitHubDeviceFlow: "github:device-flow-poll",
   disconnectGitHub: "github:disconnect",
   getCommitHistory: "git:commit-history",
+  getCommitHistoryPage: "git:commit-history-page",
   getCommitDetails: "git:commit-details",
   getCommitFileDiff: "git:commit-file-diff",
   getFileHistory: "git:file-history",

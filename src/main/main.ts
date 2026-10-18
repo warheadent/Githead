@@ -63,6 +63,7 @@ import type {
   GitCommitFileVersionRequest,
   GitCommitHashRequest,
   GitCommitHistoryRequest,
+  GitCommitHistoryPageRequest,
   GenerateCommitMessageRequest,
   GenerateCommitPlanRequest,
   GenerateCommitPlanResult,
@@ -742,6 +743,13 @@ ipcMain.handle(IPC_CHANNELS.getCommitHistory, (event, request: GitCommitHistoryR
     processRunner.runWithSignal(signal, async () => {
       await assertTrustedRepo(request.repoPath);
       return (await vcsRouter.serviceForRepo(request.repoPath)).getCommitHistory(request);
+    })));
+
+ipcMain.handle(IPC_CHANNELS.getCommitHistoryPage, (event, request: GitCommitHistoryPageRequest) =>
+  handleRead(event, request, async (signal) =>
+    processRunner.runWithSignal(signal, async () => {
+      await assertTrustedRepo(request.repoPath);
+      return (await vcsRouter.serviceForRepo(request.repoPath)).getCommitHistoryPage(request);
     })));
 
 ipcMain.handle(IPC_CHANNELS.getCommitDetails, (event, request: GitCommitDetailsRequest) =>
