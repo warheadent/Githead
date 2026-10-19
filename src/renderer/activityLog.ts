@@ -48,6 +48,8 @@ export const ACTIVITY_LOG_MAX_RAW_CHARS = 2_000_000;
 export const ACTIVITY_LOG_MAX_BLOCKS = 3_000;
 export const ACTIVITY_LOG_MAX_RUNS = 100;
 export const ACTIVITY_LOG_SEGMENT_CHARS = 4_096;
+/** A segment may exceed ACTIVITY_LOG_SEGMENT_CHARS up to this size to finish its last line. */
+export const ACTIVITY_LOG_SEGMENT_MAX_CHARS = 16_384;
 const TRIM_NOTICE_TEXT = "... older output trimmed ...\n";
 const TERMINAL_HYPERLINK_PREFIX = "\u001B]8;";
 
@@ -119,15 +121,8 @@ export function appendActivityLogEvent(state: ActivityLogState, event: GitOutput
   while (offset < event.text.length && parser) {
     const last = blocks.at(-1);
     const adjacent = last?.kind === "output" && last.runId === event.runId && last.stream === event.stream && last.action === event.action;
-    const append = adjacent && !last.sealed && last.rawText.length < ACTIVITY_LOG_SEGMENT_CHARS;
-    const remaining = ACTIVITY_LOG_SEGMENT_CHARS - (append ? last.rawText.length : 0);
-    let text = event.text.slice(offset, offset + remaining);
-    const sealed = text.length === remaining;
-    // Prefer complete lines when closing a segment. A single oversized line still has a hard cap.
-    if (sealed) {
-      const newline = text.lastIndexOf("\n");
-      if (newline >= 0) text = text.slice(0, newline + 1);
-    }
+    const append = adjacent && !last.sealed;
+    const { text, sealed } = nextSegmentText(event.text, offset, append ? last.rawText.length : 0);
     const html = parser.converter.ansi_to_html(completeAnsiSequences(parser, stripTerminalHyperlinks(parser, text)));
     if (append) {
       blocks[blocks.length - 1] = { ...last, rawText: last.rawText + text, html: last.html + html, sealed };
@@ -170,6 +165,22 @@ export function getActivityLogRawText(state: ActivityLogState, runId?: string): 
     previous = block;
     return `${separator}${prefix}${block.rawText}`;
   }).join("");
+}
+
+/**
+ * Takes the next part of an event for the open segment. A segment closes only after a newline so that
+ * no line is split across rows. A segment grows past its target size to finish a line; a single line
+ * longer than the hard cap still closes the segment mid-line.
+ */
+function nextSegmentText(eventText: string, offset: number, segmentLength: number): { text: string; sealed: boolean } {
+  const target = Math.max(0, ACTIVITY_LOG_SEGMENT_CHARS - segmentLength);
+  const hardCap = Math.max(1, ACTIVITY_LOG_SEGMENT_MAX_CHARS - segmentLength);
+  const rest = eventText.slice(offset, offset + hardCap);
+  if (segmentLength + eventText.length - offset < ACTIVITY_LOG_SEGMENT_CHARS) return { text: rest, sealed: false };
+  const lastNewline = rest.lastIndexOf("\n", target - 1);
+  const newline = lastNewline >= 0 ? lastNewline : rest.indexOf("\n", target);
+  if (newline >= 0) return { text: rest.slice(0, newline + 1), sealed: true };
+  return { text: rest, sealed: rest.length === hardCap };
 }
 
 function trimActivityLog(state: ActivityLogState): ActivityLogState {

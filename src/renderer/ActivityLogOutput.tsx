@@ -172,7 +172,10 @@ export function ActivityLogOutput({ log, wrapLines, onCopyRun, runId = null }: {
 
 const ActivityLogBlockView = memo(function ActivityLogBlockView({ block }: { block: ActivityLogBlock }): ReactNode {
   return <div className={`activity-log-block${block.kind === "notice" ? " activity-log-notice" : ""}`} data-stream={block.stream}>
-    {block.kind === "output" ? <span className="activity-log-stream-label">{block.stream === "system" ? block.rawText.trimStart().startsWith(">") ? "cmd" : "sys" : block.stream}</span> : null}
+    {/* A continuation segment carries on the previous segment's stream, so it repeats no label. */}
+    {block.kind === "output" ? <span className="activity-log-stream-label">
+      {block.continuation ? null : block.stream === "system" ? block.rawText.trimStart().startsWith(">") ? "cmd" : "sys" : block.stream}
+    </span> : null}
     <span className="activity-log-line" dangerouslySetInnerHTML={{ __html: block.html || "&nbsp;" }} />
   </div>;
 });
