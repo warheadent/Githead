@@ -4,6 +4,8 @@ import type { GitOutputEvent } from "../shared/types";
 import {
   ACTIVITY_LOG_MAX_BLOCKS,
   ACTIVITY_LOG_MAX_RAW_CHARS,
+  ACTIVITY_LOG_SEGMENT_CHARS,
+  ACTIVITY_LOG_SEGMENT_MAX_CHARS,
   appendActivityLogEvent,
   appendActivityOperationResult,
   createActivityLogState,
@@ -72,6 +74,30 @@ describe("activityLog", () => {
     expect(state.blocks).toHaveLength(1);
     expect(state.blocks[0]?.rawText).toBe("one two\n");
     expect(getActivityLogRawText(state)).toBe("[stdout] one two\n");
+  });
+
+  it("closes segments only at line boundaries when chunks end mid-line", () => {
+    let state = createActivityLogState();
+    const lines: string[] = [];
+    for (let index = 0; index < 500; index++) lines.push(`[${index}/500] Compile [x64] Module.Example.${index}.cpp\n`);
+    const text = lines.join("");
+    // Uneven chunks that rarely end at a newline, like a build tool's piped output.
+    for (let offset = 0; offset < text.length; offset += 37) state = appendActivityLogEvent(state, output({ text: text.slice(offset, offset + 37) }));
+
+    expect(state.blocks.length).toBeGreaterThan(1);
+    for (const block of state.blocks.slice(0, -1)) expect(block.rawText.endsWith("\n")).toBe(true);
+    expect(state.blocks.slice(1).every((block) => block.continuation)).toBe(true);
+    expect(state.blocks.map((block) => block.rawText).join("")).toBe(text);
+    expect(getActivityLogRawText(state)).toBe(`[stdout] ${text}`);
+  });
+
+  it("splits a single line only beyond the hard segment cap", () => {
+    const line = `${"a".repeat(ACTIVITY_LOG_SEGMENT_CHARS * 2)}\n`;
+    let state = appendActivityLogEvent(createActivityLogState(), output({ text: line }));
+    expect(state.blocks.map((block) => block.rawText)).toEqual([line]);
+
+    state = appendActivityLogEvent(createActivityLogState(), output({ text: "b".repeat(ACTIVITY_LOG_SEGMENT_MAX_CHARS + 10) }));
+    expect(state.blocks.map((block) => block.rawText.length)).toEqual([ACTIVITY_LOG_SEGMENT_MAX_CHARS, 10]);
   });
 
   it("starts a new block when the stream changes", () => {
@@ -203,7 +229,7 @@ it("bounds segments and preserves ANSI state across interleaved streams and trim
   state = appendActivityLogEvent(state, output({ text: "\u001b[31m" + "a".repeat(ACTIVITY_LOG_MAX_RAW_CHARS) }));
   state = appendActivityLogEvent(state, output({ stream: "stderr", text: "progress\n" }));
   state = appendActivityLogEvent(state, output({ text: "red tail\u001b[0m\n" }));
-  expect(state.blocks.every((block) => block.rawText.length <= 4096)).toBe(true);
+  expect(state.blocks.every((block) => block.rawText.length <= ACTIVITY_LOG_SEGMENT_MAX_CHARS)).toBe(true);
   expect(state.blocks.at(-1)?.html).toContain("ansi-red-fg");
   expect(state.blocks.at(-1)?.html).toContain("red tail");
   expect(state.rawTextLength).toBeLessThanOrEqual(ACTIVITY_LOG_MAX_RAW_CHARS);
