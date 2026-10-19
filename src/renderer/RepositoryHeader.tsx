@@ -655,7 +655,6 @@ function RepositoryActionsMenuBody({
   const actionsConfig = summary?.actionsConfig;
   const configuredActions = actionsConfig?.actions ?? [];
   const configError = actionsConfig?.error.trim() ?? "";
-  const fileName = actionsConfig?.shared.fileName ?? "";
   // Folders start open; the ones the user closed are remembered for this repository.
   const [collapsedFolders, setCollapsedFolders] = usePersistentWorkspacePanelState<readonly string[]>("repository-action-folders-collapsed", () => []);
   const setFolderCollapsed = (key: string, collapsed: boolean): void => setCollapsedFolders((current) => {
@@ -665,10 +664,7 @@ function RepositoryActionsMenuBody({
 
   return (
     <>
-      <DropdownMenuLabel className="repo-actions-menu-label">
-        <span>Repository actions</span>
-        {fileName ? <span className="repo-actions-menu-file">{fileName}</span> : null}
-      </DropdownMenuLabel>
+      <DropdownMenuLabel>Repository actions</DropdownMenuLabel>
       {runs.map((run) => (
         <RunningConfiguredAction
           key={run.id}

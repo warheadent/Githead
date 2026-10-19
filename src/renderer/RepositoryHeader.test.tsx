@@ -739,7 +739,7 @@ describe("RepositoryHeader", () => {
       await user.click(trigger);
       const menu = screen.getByRole("menu");
 
-      expect(within(menu).getByText("actions.toml")).toBeTruthy();
+      expect(within(menu).queryByText("actions.toml")).toBeNull();
       expect(within(menu).getByText("Packaging")).toBeTruthy();
       expect(within(menu).getByText("Release")).toBeTruthy();
       expect(within(menu).queryByText("Release › Windows")).toBeNull();

@@ -1132,21 +1132,6 @@ textarea,
   max-width: calc(100vw - 32px);
 }
 
-.repo-actions-menu-label {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.repo-actions-menu-file {
-  min-width: 0;
-  overflow: hidden;
-  font-weight: 400;
-  letter-spacing: 0;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .repo-actions-run {
   display: flex;
   align-items: flex-start;
