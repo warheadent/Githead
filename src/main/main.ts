@@ -169,6 +169,7 @@ import {
   reportUnexpectedError
 } from "./operationalErrorReporter";
 import {
+  CONFIGURED_ACTION_TIMEOUT_MS,
   LOCAL_OPERATION_TIMEOUT_MS,
   NETWORK_OPERATION_TIMEOUT_MS
 } from "./operationTimeouts";
@@ -1697,7 +1698,7 @@ ipcMain.handle(IPC_CHANNELS.runConfiguredAction, async (event, request: Coordina
       const service = await vcsRouter.serviceForRepo(request.repoPath);
       return service.runConfiguredAction(request, onOutput);
     }),
-    repositoryOperationOptions(event, request.operationId, request.repoPath, NETWORK_OPERATION_TIMEOUT_MS),
+    repositoryOperationOptions(event, request.operationId, request.repoPath, CONFIGURED_ACTION_TIMEOUT_MS),
     (failure) => createGitRunFailure("untrusted", actionName, request.repoPath, failure.stderr),
     () => createGitRunFailure(
       "busy",

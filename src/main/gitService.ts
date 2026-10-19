@@ -4,7 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Effect } from "effect";
-import { NETWORK_OPERATION_TIMEOUT_MS } from "./operationTimeouts";
+import { CONFIGURED_ACTION_TIMEOUT_MS, NETWORK_OPERATION_TIMEOUT_MS } from "./operationTimeouts";
 import { classifyGitOperationError } from "./gitOperationFailure";
 import { isGitIndexLockError } from "../shared/gitIndexLock";
 import { getRepoPathKey, normalizeRepoPath } from "./repoPath";
@@ -3291,7 +3291,7 @@ export class GitService {
     const result = await this.runner.run(shellCommand.command, shellCommand.args, {
       cwd: repoRoot,
       ...createTerminalColorRunOptions(),
-      timeoutMs: NETWORK_OPERATION_TIMEOUT_MS,
+      timeoutMs: CONFIGURED_ACTION_TIMEOUT_MS,
       onOutput: (output) => {
         onOutput?.(this.createOutputEvent(runId, configuredAction.name, output.stream, output.text));
       }

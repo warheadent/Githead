@@ -9,7 +9,7 @@ import { createTerminalColorEnv, GitService, parsePorcelainStatus, parseWorktree
 import { createCommitPlanChanges } from "./commitPlanChanges";
 import { completeStatusRecords } from "./gitStatusOutput";
 import { CancellableProcessRunner } from "./cancellableProcessRunner";
-import { NETWORK_OPERATION_TIMEOUT_MS } from "./operationTimeouts";
+import { CONFIGURED_ACTION_TIMEOUT_MS, NETWORK_OPERATION_TIMEOUT_MS } from "./operationTimeouts";
 import { runWithRepositoryGitOutput } from "./gitOutputBatcher";
 import type { GitLfsImageFetchRequest, GitOutputEvent } from "../shared/types";
 
@@ -2548,7 +2548,7 @@ describe("GitService", () => {
         args,
         options: expect.objectContaining({
           cwd: dir,
-          timeoutMs: 30 * 60_000
+          timeoutMs: CONFIGURED_ACTION_TIMEOUT_MS
         })
       });
     });
