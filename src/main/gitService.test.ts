@@ -618,21 +618,23 @@ describe("GitService", () => {
 
   it("rejects unsafe, missing, invalid-revision, and oversized Markdown previews", async () => {
     const oversized = "x".repeat(1_000_001);
+    // An absolute path enables the shared repository check on every platform.
+    const repoPath = path.resolve("D:/Repo");
     const runner = new FakeRunner([
       ok("true\n"),
-      ok("true\n"),
-      ok("true\n"), failure("fatal: not found"),
+      // A failed read on a reused check revalidates, then the next read checks again.
+      failure("fatal: not found"), ok("true\n"),
       ok("true\n"), ok(oversized)
     ]);
     const service = new GitService(runner);
 
-    await expect(service.getFilePreview({ repoPath: "D:\\Repo", path: "../README.md", source: { kind: "staged" } }))
+    await expect(service.getFilePreview({ repoPath, path: "../README.md", source: { kind: "staged" } }))
       .rejects.toThrow("inside the repository");
-    await expect(service.getFilePreview({ repoPath: "D:\\Repo", path: "README.md", source: { kind: "commit", hash: "HEAD~1" } }))
+    await expect(service.getFilePreview({ repoPath, path: "README.md", source: { kind: "commit", hash: "HEAD~1" } }))
       .rejects.toThrow("Commit hash is invalid");
-    await expect(service.getFilePreview({ repoPath: "D:\\Repo", path: "README.md", source: { kind: "staged" } }))
+    await expect(service.getFilePreview({ repoPath, path: "README.md", source: { kind: "staged" } }))
       .rejects.toThrow("fatal: not found");
-    await expect(service.getFilePreview({ repoPath: "D:\\Repo", path: "README.md", source: { kind: "staged" } }))
+    await expect(service.getFilePreview({ repoPath, path: "README.md", source: { kind: "staged" } }))
       .rejects.toThrow("larger than 1 MB");
   });
 
