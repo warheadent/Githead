@@ -1344,11 +1344,13 @@ textarea,
   padding: 0;
 }
 
-.header-more {
+.header-more,
+.header-activity-log {
   position: relative;
 }
 
-.header-more .header-attention-dot {
+.header-more .header-attention-dot,
+.header-activity-log .header-attention-dot {
   position: absolute;
   top: 6px;
   right: 6px;
@@ -1494,6 +1496,7 @@ textarea,
     min-width: var(--repository-header-nav-min);
   }
 
+  .header-activity-log,
   .header-more {
     order: 2;
   }
@@ -9160,10 +9163,10 @@ textarea,
 }
 
 /*
- * Activity log attention while the log is not open: a dot in the ⋯ button, and in the guest
- * segment when the log holds the guest slot. .header-attention-dot draws both dots.
+ * Activity log attention while the log is not open: a dot in the activity log button, and in
+ * the guest segment when the log holds the guest slot. .header-attention-dot draws both dots.
  */
-.header-more[data-attention="error"] .activity-log-attention-indicator,
+.header-activity-log[data-attention="error"] .header-attention-dot,
 .view-switch-guest[data-attention="error"] .header-attention-dot {
   background: var(--destructive);
 }

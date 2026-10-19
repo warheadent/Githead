@@ -906,16 +906,12 @@ describe("RepositoryHeader", () => {
       expect(props.onOpenSwitcher).toHaveBeenCalledWith("all");
     });
 
-    it.each([
-      ["error", "Unread error details in the activity log"],
-      ["unread", "Unread activity log output"]
-    ] as const)("carries %s activity attention with the indicator", (attention, description) => {
-      renderHeader({ activityAttention: attention, appUpdate: createUpdateState({ status: "available", availableVersion: "0.2.0" }) });
+    it("leaves activity attention to the activity log button", () => {
+      renderHeader({ activityAttention: "error" });
 
       const more = screen.getByRole("button", { name: "More" });
-      expect(more.getAttribute("data-attention")).toBe(attention);
-      expect(more.querySelector(".activity-log-attention-indicator")).toBeTruthy();
-      expect(document.getElementById(more.getAttribute("aria-describedby") ?? "")?.textContent).toBe(description);
+      expect(more.getAttribute("data-attention")).toBe("none");
+      expect(more.querySelector(".header-attention-dot")).toBeNull();
     });
 
     it("carries update attention when an app update is actionable", () => {
@@ -925,6 +921,31 @@ describe("RepositoryHeader", () => {
       expect(more.getAttribute("data-attention")).toBe("update");
       expect(more.querySelector(".header-attention-dot")).toBeTruthy();
       expect(more.querySelector(".activity-log-attention-indicator")).toBeNull();
+    });
+  });
+
+  describe("activity log button", () => {
+    it("opens the activity log", async () => {
+      const user = userEvent.setup();
+      const { props } = renderHeader();
+
+      const button = screen.getByRole("button", { name: "Activity log" });
+      expect(button.getAttribute("data-attention")).toBe("none");
+      expect(button.querySelector(".header-attention-dot")).toBeNull();
+      await user.click(button);
+
+      expect(props.onOpenView).toHaveBeenCalledWith("activity");
+    });
+
+    it.each([
+      ["error", "Activity log, unread error details available"],
+      ["unread", "Activity log, unread output available"]
+    ] as const)("carries %s activity attention with the indicator", (attention, name) => {
+      renderHeader({ activityAttention: attention });
+
+      const button = screen.getByRole("button", { name });
+      expect(button.getAttribute("data-attention")).toBe(attention);
+      expect(button.querySelector(".activity-log-attention-indicator")?.getAttribute("data-attention")).toBe(attention);
     });
   });
 

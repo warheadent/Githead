@@ -4,7 +4,6 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { gitCapabilities } from "../shared/types";
 import {
-  chooseSwitcherOption,
   closeQuickSwitcher,
   createCommit,
   createCommitDetails,
@@ -963,15 +962,16 @@ describe("App", { timeout: 10_000 }, () => {
       expect(button.querySelector(".operation-button-feedback")?.getAttribute("data-feedback")).toBe("error");
     });
 
-    const more = screen.getByRole("button", { name: "More" });
-    expect(more.getAttribute("data-attention")).toBe("error");
-    expect(more.querySelector(".activity-log-attention-indicator")).toBeTruthy();
+    const activityLog = screen.getByRole("button", { name: "Activity log, unread error details available" });
+    expect(activityLog.getAttribute("data-attention")).toBe("error");
+    expect(activityLog.querySelector(".activity-log-attention-indicator")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "More" }).getAttribute("data-attention")).toBe("none");
 
-    await chooseSwitcherOption("Activity log, unread error details available", user);
+    await user.click(activityLog);
     const activityLogTab = await screen.findByRole("tab", { name: "Activity log", selected: true });
     expect(activityLogTab.getAttribute("data-attention")).toBe("none");
-    expect(more.getAttribute("data-attention")).toBe("none");
-    expect(more.querySelector(".activity-log-attention-indicator")).toBeNull();
+    expect(activityLog.getAttribute("data-attention")).toBe("none");
+    expect(activityLog.querySelector(".activity-log-attention-indicator")).toBeNull();
   });
 
   it("opens guided recovery after a forced-update pull failure", async () => {
@@ -1126,7 +1126,7 @@ describe("App", { timeout: 10_000 }, () => {
     await user.click(await screen.findByRole("button", { name: /^Push$/ }));
 
     expect(await screen.findByText("Push partially complete")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "More" }).getAttribute("data-attention")).toBe("error");
+    expect(screen.getByRole("button", { name: "Activity log, unread error details available" }).getAttribute("data-attention")).toBe("error");
     expect(within(await goToSection()).getByRole("option", { name: "Activity log, unread error details available" })).toBeTruthy();
   });
 
@@ -1954,7 +1954,7 @@ describe("App", { timeout: 10_000 }, () => {
 
     await waitFor(() => expect(actionsButton.textContent).toContain("Build failed"));
     expect(actionsButton.getAttribute("data-actions-state")).toBe("failed");
-    expect(screen.getByRole("button", { name: "More" }).getAttribute("data-attention")).toBe("error");
+    expect(screen.getByRole("button", { name: "Activity log, unread error details available" }).getAttribute("data-attention")).toBe("error");
 
     await user.click(screen.getByRole("tab", { name: /^Activity log/ }));
     await waitFor(() => expect(actionsButton.getAttribute("data-actions-state")).toBe("idle"));

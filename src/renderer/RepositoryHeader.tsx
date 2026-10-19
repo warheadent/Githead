@@ -270,8 +270,10 @@ export const RepositoryHeader = memo(function RepositoryHeader({
               />
             </>
           )}
+          {invalid ? null : (
+            <ActivityLogButton attention={activityAttention} onOpen={() => onOpenView("activity")} />
+          )}
           <MoreButton
-            activityAttention={activityAttention}
             updateAvailable={resolveAppUpdateAction(appUpdate) !== "none"}
             onOpen={() => onOpenSwitcher("all")}
           />
@@ -1011,22 +1013,48 @@ function RemoteActionsGroup({
   );
 }
 
+/** Opens the activity log. Its dot marks unread output, red when it holds unread error details. */
+function ActivityLogButton({
+  attention,
+  onOpen
+}: {
+  attention: ActivityLogAttention;
+  onOpen: () => void;
+}): ReactNode {
+  const ActivityIcon = WORKSPACE_VIEW_ICONS.activity;
+  const tooltip = attention === "error"
+    ? "View unread error details in the activity log"
+    : attention === "unread" ? "View unread activity log output" : WORKSPACE_VIEW_LABELS.activity;
+
+  return (
+    <TooltipButton
+      type="button"
+      variant="ghost"
+      size="icon"
+      className="header-activity-log"
+      data-attention={attention}
+      aria-label={formatActivityLogLabel(attention)}
+      tooltip={tooltip}
+      onClick={onOpen}
+    >
+      <ActivityIcon />
+      {attention === "none" ? null : (
+        <span className="header-attention-dot activity-log-attention-indicator" data-attention={attention} aria-hidden="true" />
+      )}
+    </TooltipButton>
+  );
+}
+
 function MoreButton({
-  activityAttention,
   updateAvailable,
   onOpen
 }: {
-  activityAttention: ActivityLogAttention;
   updateAvailable: boolean;
   onOpen: () => void;
 }): ReactNode {
   const descriptionId = useId();
-  const attention = activityAttention !== "none" ? activityAttention : updateAvailable ? "update" : "none";
-  const description = activityAttention === "error"
-    ? "Unread error details in the activity log"
-    : activityAttention === "unread"
-      ? "Unread activity log output"
-      : updateAvailable ? "An app update is available" : "";
+  const attention = updateAvailable ? "update" : "none";
+  const description = updateAvailable ? "An app update is available" : "";
 
   return (
     <>
@@ -1044,11 +1072,7 @@ function MoreButton({
       >
         <Ellipsis />
         {attention === "none" ? null : (
-          <span
-            className={activityAttention === "none" ? "header-attention-dot" : "header-attention-dot activity-log-attention-indicator"}
-            data-attention={attention}
-            aria-hidden="true"
-          />
+          <span className="header-attention-dot" data-attention={attention} aria-hidden="true" />
         )}
       </TooltipButton>
       {description ? <span id={descriptionId} hidden>{description}</span> : null}

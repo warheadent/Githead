@@ -2367,9 +2367,9 @@ describe("App", { timeout: 10_000 }, () => {
 
     await waitFor(() => expect((message as HTMLTextAreaElement).value).toBe(""));
     expect(screen.queryByRole("alert")).toBeNull();
-    const more = screen.getByRole("button", { name: "More" });
-    expect(more.getAttribute("data-attention")).toBe("error");
-    expect(more.querySelector(".activity-log-attention-indicator")?.getAttribute("data-attention")).toBe("error");
+    const activityLog = screen.getByRole("button", { name: "Activity log, unread error details available" });
+    expect(activityLog.getAttribute("data-attention")).toBe("error");
+    expect(activityLog.querySelector(".activity-log-attention-indicator")?.getAttribute("data-attention")).toBe("error");
   });
 
   it("shows a safety warning without creating a commit when the fetched remote is ahead", async () => {
@@ -2540,11 +2540,10 @@ describe("App", { timeout: 10_000 }, () => {
       timestamp: new Date().toISOString()
     });
 
-    const more = screen.getByRole("button", { name: "More" });
-    await waitFor(() => expect(more.getAttribute("data-attention")).toBe("unread"));
-    expect(more.querySelector(".activity-log-attention-indicator")).not.toBeNull();
+    const activityLog = await screen.findByRole("button", { name: "Activity log, unread output available" });
+    expect(activityLog.querySelector(".activity-log-attention-indicator")).not.toBeNull();
     await chooseSwitcherOption("Activity log, unread output available", user);
-    await waitFor(() => expect(more.getAttribute("data-attention")).toBe("none"));
+    await waitFor(() => expect(activityLog.getAttribute("data-attention")).toBe("none"));
     expect(screen.getByRole("tab", { name: "Activity log", selected: true })).toBeTruthy();
     expect(await screen.findByText("Output available")).toBeTruthy();
     expect(screen.getByText(/fetch output/)).toBeTruthy();
