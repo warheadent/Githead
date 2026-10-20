@@ -27,6 +27,7 @@ export default defineConfig({
       input: {
         main: path.resolve(__dirname, "src/main/main.ts"),
         preload: path.resolve(__dirname, "src/main/preload.ts"),
+        "process-host": path.resolve(__dirname, "src/main/processHost.ts"),
         "workspace-trust-preload": path.resolve(__dirname, "src/main/workspaceTrustPreload.ts")
       },
       external: (id) =>

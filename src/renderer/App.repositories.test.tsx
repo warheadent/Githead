@@ -603,6 +603,46 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.getRepoSummary).toHaveBeenCalledTimes(1);
   });
 
+  it("rescans recent repositories at most once per interval when the window is refocused", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    vi.mocked(githead.getRepositoryGroups).mockImplementation(async (request) => request.repoPaths.map((path) => ({
+      id: path, kind: "git" as const, anchorPath: path, lastUsedPath: path,
+      recentPaths: [path], commonDir: `${path}\\.git`, worktrees: [], error: ""
+    })));
+    const refocus = async (): Promise<void> => {
+      await act(async () => {
+        window.dispatchEvent(new Event("blur"));
+      });
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+      });
+      await flushRendererAsync();
+    };
+    try {
+      render(<App />);
+      await flushRendererAsync();
+      const groupScans = vi.mocked(githead.getRepositoryGroups).mock.calls.length;
+      const syncScans = vi.mocked(githead.getRepoSyncStatuses).mock.calls.length;
+
+      await refocus();
+      expect(githead.getRepositoryGroups).toHaveBeenCalledTimes(groupScans + 1);
+      // Loading groups refreshes sync statuses once; focus does not request a second scan.
+      expect(githead.getRepoSyncStatuses).toHaveBeenCalledTimes(syncScans + 1);
+
+      now.mockReturnValue(1_029_999);
+      await refocus();
+      expect(githead.getRepositoryGroups).toHaveBeenCalledTimes(groupScans + 1);
+      expect(githead.getRepoSyncStatuses).toHaveBeenCalledTimes(syncScans + 1);
+      expect(githead.getRepoSummary).toHaveBeenCalledTimes(3);
+
+      now.mockReturnValue(1_030_000);
+      await refocus();
+      expect(githead.getRepositoryGroups).toHaveBeenCalledTimes(groupScans + 2);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it("restores parent-owned file data and retains the used Commit History panel", async () => {
     const user = userEvent.setup();
     vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({

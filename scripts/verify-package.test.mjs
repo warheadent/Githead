@@ -9,6 +9,7 @@ import {
 const VALID_ENTRIES = [
   "dist/main/main/main.js",
   "dist/main/main/preload.js",
+  "dist/main/main/process-host.js",
   "dist/renderer/index.html",
   "resources/icon.png",
   "resources/icon.ico",

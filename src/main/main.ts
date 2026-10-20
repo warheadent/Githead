@@ -193,6 +193,7 @@ import {
   type RepositoryOperationOptions
 } from "./repositoryOperationCoordinator";
 import { AppUpdateService } from "./updateService";
+import { createUtilityProcessHostFactory, UtilityProcessRunner } from "./utilityProcessRunner";
 import { VcsRouter } from "./vcsRouter";
 import { MIN_WINDOW_BOUNDS, WindowStateService } from "./windowStateService";
 import { initializeSentry, setSentryTelemetryEnabled } from "./sentry";
@@ -202,8 +203,15 @@ initializeSentry();
 
 const performanceDiagnostics = new PerformanceDiagnostics({ appMetricsSource: app });
 const performanceDiagnosticsSessions = new PerformanceDiagnosticsSessionRegistry(performanceDiagnostics);
+// Child processes start in a utility process. On Windows, starting a process
+// blocks the starting thread, and on this thread that stalls window dragging,
+// resizing, and input while a burst of Git commands starts.
+const hostedProcessRunner = new UtilityProcessRunner(
+  createUtilityProcessHostFactory(path.join(__dirname, "process-host.js")),
+  new NodeProcessRunner()
+);
 const processRunner = new CancellableProcessRunner(
-  new InstrumentedProcessRunner(new NodeProcessRunner(), performanceDiagnostics)
+  new InstrumentedProcessRunner(hostedProcessRunner, performanceDiagnostics)
 );
 const gitService = new GitService(processRunner);
 const gitIndexLockService = new GitIndexLockService(processRunner);
@@ -373,6 +381,7 @@ function getDisplayWorkAreas(): Electron.Rectangle[] {
 
 app.whenReady().then(async () => {
   app.setAppUserModelId("com.githead.gui");
+  hostedProcessRunner.start();
   const appSettings = await getAppSettingsService().getSettings();
   setSentryTelemetryEnabled(appSettings.privacy.shareAnonymousDiagnostics);
   await createWindow();

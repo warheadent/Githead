@@ -13,6 +13,7 @@ export const PACKAGE_LIMITS = Object.freeze({
 const REQUIRED_ASAR_ENTRIES = Object.freeze([
   "dist/main/main/main.js",
   "dist/main/main/preload.js",
+  "dist/main/main/process-host.js",
   "dist/renderer/index.html",
   "resources/icon.png",
   "resources/icon.ico",

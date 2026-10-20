@@ -868,6 +868,9 @@ const emptyStashComposer: StashComposerState = {
 const REPOSITORY_TRUST_REQUIRED_MESSAGE = "Repository trust is required before Githead can run Git operations that may execute configured hooks or local Git configuration.";
 const OPERATION_RECONCILE_INITIAL_DELAY_MS = 3_000;
 const OPERATION_RECONCILE_INTERVAL_MS = 10_000;
+// Each recent repository costs several Git processes to rescan. Focus changes
+// are frequent, for example clicking the window to move it.
+const FOCUS_RECENTS_REFRESH_INTERVAL_MS = 30_000;
 
 const initialState: AppState = {
   startupStatus: "loading",
@@ -1107,6 +1110,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
   const startupAttemptRef = useRef(0);
   const refreshDirtyFileStatusRef = useRef<() => Promise<void>>(async () => undefined);
   const windowFocusedRef = useRef(true);
+  const focusRecentsRefreshAtRef = useRef<number | null>(null);
   const updateState = useCallback((updater: AppStateUpdater): void => {
     const base = stateRef.current;
     // Every write goes through the guest reconcile, so any path that activates a guest view also puts it in the slot.
@@ -2244,8 +2248,13 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
         force: true,
         reason: "focus"
       });
-      void loadRepoSyncStatuses();
-      void loadRepositoryGroups();
+      const now = Date.now();
+      const lastRefreshAt = focusRecentsRefreshAtRef.current;
+      if (lastRefreshAt === null || now - lastRefreshAt >= FOCUS_RECENTS_REFRESH_INTERVAL_MS) {
+        focusRecentsRefreshAtRef.current = now;
+        // Loading groups also refreshes the sync status of every workspace.
+        void loadRepositoryGroups();
+      }
     };
 
     window.addEventListener("blur", handleWindowBlur);
@@ -2254,7 +2263,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
       window.removeEventListener("blur", handleWindowBlur);
       window.removeEventListener("focus", handleWindowFocus);
     };
-  }, [loadRepoSyncStatuses, loadRepositoryGroups, refreshDirtyFileStatus]);
+  }, [loadRepositoryGroups, refreshDirtyFileStatus]);
 
   const switchRepo = useCallback(async (repoPath: string, options: { addToRecents?: boolean; recentAnchorPath?: string; location?: WorkspaceLocation } = {}): Promise<void> => {
     const nextRepoPath = repoPath.trim();
