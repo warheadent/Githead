@@ -9,6 +9,7 @@ import type {
   AnalyticsFileType,
   AnalyticsFolderOwnership,
   AnalyticsHotspot,
+  AnalyticsIdentity,
   AnalyticsLargeFile,
   AnalyticsPerson,
   AnalyticsRange,
@@ -452,7 +453,7 @@ export function mergeIdentities(
       person: {
         name: display,
         commits: sorted.reduce((total, member) => total + counts[member]!, 0),
-        identities: sorted.map((member) => ({ name: identities[member]!.name, email: identities[member]!.email, commits: counts[member]! }))
+        identities: distinctIdentities(sorted.map((member) => ({ name: identities[member]!.name, email: identities[member]!.email, commits: counts[member]! })))
       }
     };
   }).sort((a, b) => b.person.commits - a.person.commits || a.person.name.localeCompare(b.person.name));
@@ -461,6 +462,21 @@ export function mergeIdentities(
     for (const member of members) personOfIdentity[member] = index;
   });
   return { people: people.map(({ person }) => person), personOfIdentity };
+}
+
+/**
+ * Combines identities that `.mailmap` already maps to the same name and email,
+ * so only identities the mailmap does not cover remain distinct.
+ */
+function distinctIdentities(identities: readonly AnalyticsIdentity[]): AnalyticsIdentity[] {
+  const byKey = new Map<string, AnalyticsIdentity>();
+  for (const identity of identities) {
+    const key = `${identity.name}\0${identity.email}`;
+    const existing = byKey.get(key);
+    if (existing) existing.commits += identity.commits;
+    else byKey.set(key, { ...identity });
+  }
+  return [...byKey.values()].sort((a, b) => b.commits - a.commits);
 }
 
 function memoizePathFlags(paths: readonly string[], test: (path: string) => boolean): (id: number) => boolean {

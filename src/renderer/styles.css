@@ -9872,6 +9872,15 @@ button.analytics-legend-item:focus-visible { outline: 2px solid var(--ring); out
 .analytics-identities { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 8px; }
 .analytics-identities span { padding: 1px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); font-size: 12px; }
 .analytics-identities em { margin-left: 6px; color: var(--muted-foreground); font-style: normal; }
+.analytics-fold { margin-top: 12px; }
+.analytics-fold > summary { display: flex; align-items: center; gap: 8px; width: fit-content; cursor: pointer; list-style: none; color: var(--muted-foreground); font-size: 12px; }
+.analytics-fold > summary::-webkit-details-marker { display: none; }
+.analytics-fold > summary:hover { color: var(--foreground); }
+.analytics-fold > summary:focus-visible { border-radius: 4px; outline: 2px solid var(--ring); outline-offset: 2px; }
+.analytics-fold > summary code { font-family: var(--font-code); }
+.analytics-fold > summary > span { padding: 0 6px; border-radius: 999px; background: var(--analytics-wash); }
+.analytics-fold > summary > svg { width: 14px; height: 14px; transition: transform 120ms ease; }
+.analytics-fold[open] > summary > svg { transform: rotate(180deg); }
 .analytics-notice { display: flex; align-items: flex-start; gap: 10px; margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: var(--analytics-wash); color: var(--muted-foreground); font-size: 12px; }
 .analytics-stack > .analytics-notice, .analytics-content > .analytics-notice { margin: 0 0 16px; }
 .analytics-notice > svg { width: 14px; height: 14px; flex: none; margin-top: 1px; }

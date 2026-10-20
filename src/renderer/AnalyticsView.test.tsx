@@ -153,6 +153,10 @@ describe("AnalyticsView", () => {
     const card = (await screen.findByRole("heading", { name: "Commit activity" })).closest("section")!;
     await user.click(within(card).getByRole("button", { name: "Table" }));
     expect(within(card).getAllByRole("row").length).toBeGreaterThan(1);
+    const fold = screen.getByText(/Identities missing from/).closest("details")!;
+    expect(fold.open).toBe(false);
+    await user.click(within(fold).getByText(/Identities missing from/));
+    expect(fold.open).toBe(true);
     await user.click(screen.getByRole("button", { name: "Copy .mailmap entries" }));
     expect(githead.copyTextToClipboard).toHaveBeenCalledWith({ text: "aida <aiquiti@example.test> aidan <aidan@example.test>" });
   });

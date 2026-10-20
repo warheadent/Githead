@@ -159,6 +159,18 @@ describe("mergeIdentities", () => {
     expect(people[0]!.identities.map((identity) => identity.email).sort()).toEqual(["aidan@example.test", "aidan@example.test", "aiquiti@outlook.com", "aiquiti@outlook.com"]);
     expect(people.map((person) => person.name).sort()).toEqual(["Ben", "Cleo", "aida", "dependabot[bot]", "dependabot[bot]"]);
   });
+
+  it("combines identities that .mailmap already maps to the same author", () => {
+    const built = history([
+      { daysAgo: 1, name: "Taylor", email: "taylor@example.test" },
+      { daysAgo: 1, name: "Taylor", email: "taylor@example.test" },
+      { daysAgo: 1, name: "taylor", email: "old@example.test" },
+      { daysAgo: 1, name: "Taylor", email: "taylor@laptop.local" }
+    ]);
+    const mapped = built.identities.map(() => ({ name: "Taylor", email: "taylor@example.test" }));
+    const { people } = mergeIdentities(mapped, built.commits);
+    expect(people).toEqual([{ name: "Taylor", commits: 4, identities: [{ name: "Taylor", email: "taylor@example.test", commits: 4 }] }]);
+  });
 });
 
 describe("groupFolders", () => {

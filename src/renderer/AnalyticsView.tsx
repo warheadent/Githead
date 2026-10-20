@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Boxes,
   Check,
+  ChevronDown,
   CircleCheck,
   CircleMinus,
   CircleX,
@@ -510,18 +511,27 @@ function ActivitySection({ data, range: rangeKey }: { data: RepositoryAnalytics;
                   );
                 })}
               </div>
-              {merged.slice(0, 2).map((person) => {
-                const emails = new Set(person.identities.map((identity) => identity.email.toLowerCase()));
-                return (
-                  <Notice key={person.name}>
-                    <p><strong>{person.name}</strong> commits under {person.identities.length} identities across {emails.size} {emails.size === 1 ? "email" : "emails"}. Githead grouped them by shared emails and names. A <code>.mailmap</code> file makes this grouping apply in every Git tool.</p>
-                    <div className="analytics-identities">
-                      {person.identities.map((identity) => <span key={`${identity.name}<${identity.email}>`}>{identity.name} &lt;{identity.email}&gt;<em>{formatCount(identity.commits)}</em></span>)}
-                    </div>
-                    <CopyButton text={mailmapEntries(person)} label="Copy .mailmap entries" />
-                  </Notice>
-                );
-              })}
+              {merged.length ? (
+                <details className="analytics-fold">
+                  <summary>
+                    Identities missing from <code>.mailmap</code>
+                    <span>{formatCount(merged.length)} {merged.length === 1 ? "person" : "people"}</span>
+                    <ChevronDown aria-hidden="true" />
+                  </summary>
+                  {merged.map((person) => {
+                    const emails = new Set(person.identities.map((identity) => identity.email.toLowerCase()));
+                    return (
+                      <Notice key={person.name}>
+                        <p><strong>{person.name}</strong> commits under {person.identities.length} identities across {emails.size} {emails.size === 1 ? "email" : "emails"}. Githead grouped them by shared emails and names. A <code>.mailmap</code> file makes this grouping apply in every Git tool.</p>
+                        <div className="analytics-identities">
+                          {person.identities.map((identity) => <span key={`${identity.name}<${identity.email}>`}>{identity.name} &lt;{identity.email}&gt;<em>{formatCount(identity.commits)}</em></span>)}
+                        </div>
+                        <CopyButton text={mailmapEntries(person)} label="Copy .mailmap entries" />
+                      </Notice>
+                    );
+                  })}
+                </details>
+              ) : null}
             </>
           ) : <EmptyChart text="No commits in this period." />}
         </ChartCard>
