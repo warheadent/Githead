@@ -78,6 +78,9 @@ export interface OperationalErrorContext {
   /** A Git subcommand name from a fixed list, never arguments. */
   gitCommand?: string;
   exitCode?: number;
+  httpStatus?: number;
+  /** The error's class name, such as SyntaxError. It names code, never content. */
+  errorName?: string;
   retryable?: boolean;
   outcomeUnknown?: boolean;
 }
@@ -224,6 +227,8 @@ function safeAttributes(context: OperationalErrorContext) {
     ...(context.commandKind ? { command_kind: safeLabel(context.commandKind) } : {}),
     ...(context.gitCommand ? { git_command: safeLabel(context.gitCommand) } : {}),
     ...(Number.isFinite(context.exitCode) ? { exit_code: Math.trunc(context.exitCode!) } : {}),
+    ...(Number.isFinite(context.httpStatus) ? { http_status: Math.trunc(context.httpStatus!) } : {}),
+    ...(context.errorName ? { error_name: safeLabel(context.errorName) } : {}),
     ...(context.retryable === undefined ? {} : { retryable: context.retryable }),
     ...(context.outcomeUnknown === undefined ? {} : { outcome_unknown: context.outcomeUnknown })
   };

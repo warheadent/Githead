@@ -1322,7 +1322,7 @@ export function classifyError(error: unknown, source: GitHubFailure["source"], m
     source,
     rateLimit: getRateLimit(httpError)
   };
-  reportGitHubFailure(mutation ? "mutation" : "read", failure);
+  reportGitHubFailure(mutation ? "mutation" : "read", failure, { httpStatus: httpError?.status, error });
   return failure;
 }
 
