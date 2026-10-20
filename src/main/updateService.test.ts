@@ -3,10 +3,11 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { BrowserWindow } from "electron";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { IPC_CHANNELS } from "../shared/ipc";
 import type { AppUpdateState } from "../shared/types";
-import { AppUpdateService, type AppUpdateServiceOptions, type AutoUpdaterLike } from "./updateService";
+import { configureOperationalErrorReporter, type OperationalErrorSink } from "./operationalErrorReporter";
+import { AppUpdateService, classifyUpdateFailure, type AppUpdateServiceOptions, type AutoUpdaterLike } from "./updateService";
 
 class FakeUpdater extends EventEmitter implements AutoUpdaterLike {
   autoDownload = true;
@@ -139,6 +140,8 @@ function createDeferred<T>(): Deferred<T> {
     reject
   };
 }
+
+afterEach(() => configureOperationalErrorReporter(null));
 
 describe("AppUpdateService", () => {
   it("repairs a missing packaged update feed before enabling updates", async () => {
@@ -557,6 +560,41 @@ describe("AppUpdateService", () => {
           canRetry: true
         } satisfies Partial<AppUpdateState>
       });
+      service.stop();
+    });
+  });
+
+  it("classifies Electron connection failures as network failures", () => {
+    for (const message of [
+      "net::ERR_INTERNET_DISCONNECTED",
+      "net::ERR_NETWORK_IO_SUSPENDED",
+      "net::ERR_NAME_NOT_RESOLVED",
+      "connect ETIMEDOUT 140.82.112.3:443",
+      "getaddrinfo EAI_AGAIN github.com"
+    ]) expect(classifyUpdateFailure(new Error(message))).toBe("network");
+    expect(classifyUpdateFailure(new Error("HttpError: 503 Service Unavailable"))).toBe("transient");
+    expect(classifyUpdateFailure(new Error("Cannot find latest.yml in the latest release artifacts"))).toBe("provider");
+  });
+
+  it("counts a disconnected update check without raising an issue, and tells the user to check the network", async () => {
+    const sink: OperationalErrorSink = { addBreadcrumb: vi.fn(), captureException: vi.fn(), captureMessage: vi.fn(), countMetric: vi.fn() };
+    configureOperationalErrorReporter(sink);
+    await withTempDir(async (dir) => {
+      const { service, updater } = await createServiceFixture(dir);
+      updater.checkForUpdates.mockRejectedValue(new Error("net::ERR_INTERNET_DISCONNECTED"));
+
+      await expect(service.checkForUpdates()).resolves.toMatchObject({
+        state: { message: "Could not check for updates. Check your network connection and try again." }
+      });
+      expect(sink.countMetric).toHaveBeenCalledWith("githead.operation.failure", expect.objectContaining({ subsystem: "update", category: "network" }));
+      expect(sink.captureMessage).not.toHaveBeenCalled();
+
+      updater.checkForUpdates.mockRejectedValue(new Error("Cannot find latest.yml in the latest release artifacts"));
+      await service.checkForUpdates();
+      expect(sink.captureMessage).toHaveBeenCalledWith("Githead operational failure", expect.objectContaining({
+        level: "warning",
+        tags: expect.objectContaining({ subsystem: "update", category: "provider" })
+      }));
       service.stop();
     });
   });

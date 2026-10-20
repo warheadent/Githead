@@ -559,19 +559,25 @@ function reportUpdateFailure(
   issue: "warning" | "error" | undefined = "warning"
 ): void {
   const category = classifyUpdateFailure(error);
+  // Checks and downloads retry on the next poll. Losing the connection, often while the computer wakes from sleep,
+  // is counted, but only an unexpected answer from the release feed is worth an issue.
+  const reportIssue = issue !== undefined && (operation === "install" || category === "provider");
   reportOperationalFailure({
     subsystem: "update",
     operation,
     category,
     retryable: operation !== "install"
-  }, issue ? { issue } : {});
+  }, reportIssue ? { issue } : {});
 }
 
-function classifyUpdateFailure(error: unknown): OperationalFailureCategory {
+export function classifyUpdateFailure(error: unknown): OperationalFailureCategory {
   if (error instanceof Error && error.name === "TimeoutError") return "timeout";
   const message = error instanceof Error ? error.message.toLowerCase() : "";
-  if (/enotfound|econnreset|network|fetch failed|offline/u.test(message)) return "network";
-  if (/\b(?:408|429|502|503|504)\b|temporar/u.test(message)) return "transient";
+  // Electron's net module, which electron-updater uses, reports connection failures as net::ERR_* codes.
+  if (/net::err_|enotfound|econnreset|econnrefused|econnaborted|etimedout|eai_again|enetunreach|ehostunreach|socket hang up|network|fetch failed|offline/u.test(message)) {
+    return "network";
+  }
+  if (/\b(?:408|429|500|502|503|504)\b|temporar/u.test(message)) return "transient";
   return "provider";
 }
 
@@ -669,7 +675,8 @@ function getUpdateErrorMessage(context: NonNullable<AppUpdateErrorContext>, erro
     return `Could not ${action}. The GitHub release feed requires authentication.`;
   }
 
-  if (lowerMessage.includes("network") || lowerMessage.includes("timeout") || lowerMessage.includes("econn")) {
+  const category = classifyUpdateFailure(error);
+  if (category === "network" || category === "timeout" || lowerMessage.includes("timeout")) {
     return `Could not ${action}. Check your network connection and try again.`;
   }
 
