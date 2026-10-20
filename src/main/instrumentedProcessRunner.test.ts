@@ -3,6 +3,7 @@ import { configureOperationalErrorReporter, type OperationalErrorSink } from "./
 import type { BinaryProcessResult, ProcessResult, ProcessRunner } from "./processRunner";
 import { PerformanceDiagnostics } from "./performanceDiagnostics";
 import {
+  classifyGitCommand,
   classifyPerformanceCommand,
   classifyProcessFailure,
   InstrumentedProcessRunner
@@ -45,6 +46,27 @@ describe("InstrumentedProcessRunner", () => {
     expect(classifyPerformanceCommand("cmd.exe", ["/d", "/c", "codex", "exec"])).toBe("ai");
     expect(classifyPerformanceCommand("powershell.exe", ["-Command", "secret command"])).toBe("configured-action");
     expect(classifyPerformanceCommand("private-tool", ["private-argument"])).toBe("other");
+  });
+
+  it("names the Git subcommand without reporting arguments", () => {
+    expect(classifyGitCommand("git", ["-C", "private-path", "-c", "core.quotepath=false", "--no-optional-locks", "status", "--porcelain=v2"])).toBe("status");
+    expect(classifyGitCommand("git", ["--git-dir", "private-dir", "fetch", "origin"])).toBe("fetch");
+    expect(classifyGitCommand("git", ["-C", "private-path", "private-alias"])).toBe("other");
+    expect(classifyGitCommand("configured-action", ["-lc", "status"])).toBeUndefined();
+  });
+
+  it("tags a timed-out Git command with its subcommand", async () => {
+    const sink: OperationalErrorSink = { addBreadcrumb: vi.fn(), captureException: vi.fn(), captureMessage: vi.fn(), countMetric: vi.fn() };
+    configureOperationalErrorReporter(sink);
+    const delegate: ProcessRunner = {
+      run: vi.fn(async (): Promise<ProcessResult> => ({ exitCode: -1, stdout: "", stderr: "", terminationReason: "timedOut" }))
+    };
+    await new InstrumentedProcessRunner(delegate, new PerformanceDiagnostics({ now: () => 1 })).run("git", ["-C", "private-path", "status"]);
+
+    expect(sink.captureMessage).toHaveBeenCalledWith("Githead operational failure", expect.objectContaining({
+      tags: expect.objectContaining({ category: "timeout", command_kind: "git", git_command: "status" })
+    }));
+    expect(JSON.stringify(vi.mocked(sink.captureMessage).mock.calls)).not.toContain("private-path");
   });
 
   it("classifies common process failures without retaining output", () => {

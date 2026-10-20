@@ -75,6 +75,8 @@ export interface OperationalErrorContext {
   category: OperationalFailureCategory;
   provider?: AiCommitMessageProvider;
   commandKind?: PerformanceCommandKind;
+  /** A Git subcommand name from a fixed list, never arguments. */
+  gitCommand?: string;
   exitCode?: number;
   retryable?: boolean;
   outcomeUnknown?: boolean;
@@ -220,6 +222,7 @@ function safeAttributes(context: OperationalErrorContext) {
     category: safeLabel(context.category),
     ...(context.provider ? { provider: safeLabel(context.provider) } : {}),
     ...(context.commandKind ? { command_kind: safeLabel(context.commandKind) } : {}),
+    ...(context.gitCommand ? { git_command: safeLabel(context.gitCommand) } : {}),
     ...(Number.isFinite(context.exitCode) ? { exit_code: Math.trunc(context.exitCode!) } : {}),
     ...(context.retryable === undefined ? {} : { retryable: context.retryable }),
     ...(context.outcomeUnknown === undefined ? {} : { outcome_unknown: context.outcomeUnknown })

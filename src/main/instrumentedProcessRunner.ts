@@ -42,7 +42,7 @@ export class InstrumentedProcessRunner implements ProcessRunner {
     const commandKind = classifyPerformanceCommand(command, args);
     return this.measure(commandKind, async () => {
       const result = await this.delegate.run(command, args, options);
-      reportProcessResult(commandKind, result);
+      reportProcessResult(commandKind, result, classifyGitCommand(commandKind, args));
       return {
         result,
         outcome: processOutcome(result),
@@ -62,7 +62,7 @@ export class InstrumentedProcessRunner implements ProcessRunner {
     const commandKind = classifyPerformanceCommand(command, args);
     return this.measure(commandKind, async () => {
       const result = await this.delegate.runBinary!(command, args, options);
-      reportProcessResult(commandKind, result);
+      reportProcessResult(commandKind, result, classifyGitCommand(commandKind, args));
       return {
         result,
         outcome: processOutcome(result),
@@ -143,12 +143,14 @@ function processOutcome(result: ProcessResult | BinaryProcessResult): Performanc
 
 function reportProcessResult(
   commandKind: PerformanceCommandKind,
-  result: ProcessResult | BinaryProcessResult
+  result: ProcessResult | BinaryProcessResult,
+  gitCommand: string | undefined
 ): void {
   const context = {
     subsystem: "process" as const,
     operation: "command" as const,
     commandKind,
+    ...(gitCommand ? { gitCommand } : {}),
     exitCode: result.exitCode
   };
   switch (result.terminationReason) {
@@ -177,6 +179,36 @@ function reportProcessResult(
       category: classifyProcessFailure(commandKind, result.stderr)
     });
   }
+}
+
+/** Git's own subcommand names. Anything else, such as a user alias, is reported as "other". */
+const GIT_COMMANDS = new Set([
+  "add", "am", "apply", "archive", "bisect", "blame", "branch", "bundle", "cat-file", "check-attr", "check-ignore",
+  "check-mailmap", "check-ref-format", "checkout", "cherry", "cherry-pick", "clean", "clone", "commit", "commit-graph",
+  "commit-tree", "config", "count-objects", "describe", "diff", "diff-files", "diff-index", "diff-tree", "fetch",
+  "for-each-ref", "format-patch", "fsck", "gc", "grep", "hash-object", "init", "lfs", "log", "ls-files", "ls-remote",
+  "ls-tree", "maintenance", "merge", "merge-base", "merge-file", "merge-tree", "mv", "name-rev", "notes", "pull", "push",
+  "range-diff", "read-tree", "rebase", "reflog", "remote", "repack", "replace", "reset", "restore", "rev-list",
+  "rev-parse", "revert", "rm", "shortlog", "show", "show-ref", "sparse-checkout", "stash", "status", "submodule",
+  "switch", "symbolic-ref", "tag", "update-index", "update-ref", "var", "verify-commit", "verify-tag", "version",
+  "worktree", "write-tree"
+]);
+/** Global options whose value is the next argument, so it is not mistaken for the subcommand. */
+const GIT_OPTIONS_WITH_VALUE = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env"]);
+
+/** Names the Git subcommand from a fixed list, so a timeout can be traced to a command without reporting arguments. */
+export function classifyGitCommand(commandKind: PerformanceCommandKind, args: readonly string[]): string | undefined {
+  if (commandKind !== "git") return undefined;
+  for (let index = 0; index < args.length; index++) {
+    const argument = args[index]!;
+    if (GIT_OPTIONS_WITH_VALUE.has(argument)) {
+      index++;
+      continue;
+    }
+    if (argument.startsWith("-")) continue;
+    return GIT_COMMANDS.has(argument) ? argument : "other";
+  }
+  return undefined;
 }
 
 export function classifyProcessFailure(
