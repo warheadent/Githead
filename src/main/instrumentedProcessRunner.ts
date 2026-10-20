@@ -162,6 +162,12 @@ function reportProcessResult(
       reportOperationalFailure({ ...context, category: "output-limit" }, { issue: "warning" });
       return;
     case "spawnFailed":
+      // A missing executable or working directory is the user's environment, not a defect: optional tools such as
+      // gh, codex and claude are probed on every launch, and a repository action can name a shell this system lacks.
+      if (result.spawnErrorCode === "ENOENT") {
+        reportOperationalFailure({ ...context, category: "not-found" });
+        return;
+      }
       reportOperationalFailure({ ...context, category: "spawn-failed" }, { issue: "error" });
       return;
   }

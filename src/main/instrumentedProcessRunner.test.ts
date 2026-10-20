@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { configureOperationalErrorReporter, type OperationalErrorSink } from "./operationalErrorReporter";
 import type { BinaryProcessResult, ProcessResult, ProcessRunner } from "./processRunner";
 import { PerformanceDiagnostics } from "./performanceDiagnostics";
 import {
@@ -7,7 +8,36 @@ import {
   InstrumentedProcessRunner
 } from "./instrumentedProcessRunner";
 
+afterEach(() => configureOperationalErrorReporter(null));
+
 describe("InstrumentedProcessRunner", () => {
+  it("raises an issue for a spawn failure but only counts a missing executable", async () => {
+    const sink: OperationalErrorSink = {
+      addBreadcrumb: vi.fn(),
+      captureException: vi.fn(),
+      captureMessage: vi.fn(),
+      countMetric: vi.fn()
+    };
+    configureOperationalErrorReporter(sink);
+    const spawnFailure = (spawnErrorCode: string): ProcessResult => ({
+      exitCode: -1, stdout: "", stderr: "", error: `spawn ${spawnErrorCode}`, terminationReason: "spawnFailed", spawnErrorCode
+    });
+    const delegate: ProcessRunner = {
+      run: vi.fn(async (command: string) => spawnFailure(command === "claude" ? "ENOENT" : "EACCES"))
+    };
+    const runner = new InstrumentedProcessRunner(delegate, new PerformanceDiagnostics({ now: () => 1 }));
+
+    await runner.run("claude", ["--version"]);
+    expect(sink.countMetric).toHaveBeenCalledWith("githead.operation.failure", expect.objectContaining({ category: "not-found", command_kind: "ai" }));
+    expect(sink.captureMessage).not.toHaveBeenCalled();
+
+    await runner.run("bash", ["-lc", "private command"]);
+    expect(sink.captureMessage).toHaveBeenCalledWith("Githead operational failure", expect.objectContaining({
+      level: "error",
+      tags: expect.objectContaining({ category: "spawn-failed", command_kind: "configured-action" })
+    }));
+  });
+
   it("classifies commands without returning command data", () => {
     expect(classifyPerformanceCommand("C:\\Tools\\git.exe", ["status"])).toBe("git");
     expect(classifyPerformanceCommand("lore", ["status"])).toBe("lore");

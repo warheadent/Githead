@@ -12,6 +12,8 @@ export interface ProcessResult {
   stderr: string;
   error?: string;
   terminationReason?: ProcessTerminationReason;
+  /** The system error code, such as ENOENT, when the process could not be started. */
+  spawnErrorCode?: string;
   exceededLimit?: boolean;
   stdoutTruncated?: boolean;
   stderrTruncated?: boolean;
@@ -46,6 +48,7 @@ export interface BinaryProcessResult {
   stderrTruncated?: boolean;
   outputLimitStream?: "stdout" | "stderr";
   terminationReason?: ProcessTerminationReason;
+  spawnErrorCode?: string;
 }
 export interface ProcessRunner {
   run(command: string, args: string[], options?: ProcessRunOptions): Promise<ProcessResult>;
@@ -198,6 +201,10 @@ function terminateWindowsProcessTree(
   };
 }
 
+function systemErrorCode(error: unknown): string | undefined {
+  return error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : undefined;
+}
+
 function isProcessGroupAlive(processGroupId: number): boolean {
   try {
     process.kill(-processGroupId, 0);
@@ -339,6 +346,7 @@ export class NodeProcessRunner implements ProcessRunner {
       let outputSinkClosed = options.stdoutFilePath === undefined;
       let outputSinkError: string | undefined;
       let inputError: string | undefined;
+      let spawnErrorCode: string | undefined;
       let inputClosed = false;
       let stdoutEnded = options.stdoutFilePath === undefined;
       let processDrainDone = false;
@@ -376,6 +384,7 @@ export class NodeProcessRunner implements ProcessRunner {
           stderr: stderrText.value(),
           ...(error ? { error } : {}),
           terminationReason: reason,
+          ...(reason === "spawnFailed" && spawnErrorCode ? { spawnErrorCode } : {}),
           exceededLimit,
           ...(!binary ? {
             stdoutTruncated: stdoutText?.truncated ?? false,
@@ -478,6 +487,7 @@ export class NodeProcessRunner implements ProcessRunner {
           detached: process.platform !== "win32"
         });
       } catch (error) {
+        spawnErrorCode = systemErrorCode(error);
         finish(-1, error instanceof Error ? error.message : "Unable to start command.", "spawnFailed"); return;
       }
       // A pending write can fail asynchronously, even after process exit or
@@ -565,6 +575,7 @@ export class NodeProcessRunner implements ProcessRunner {
       child.stderr.once("end", () => finishTextOutput("stderr"));
       child.on("error", (error) => {
         if (child.pid && !hasExited(child)) return;
+        spawnErrorCode ??= systemErrorCode(error);
         freezeOutcome(-1, "spawnFailed", error.message);
         stdoutEnded = true;
         processDrainDone = true;

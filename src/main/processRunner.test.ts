@@ -58,7 +58,7 @@ describe("NodeProcessRunner.run", () => {
         stdin: "payload"
       });
 
-      expect(result).toMatchObject({ exitCode: -1, terminationReason: "spawnFailed" });
+      expect(result).toMatchObject({ exitCode: -1, terminationReason: "spawnFailed", spawnErrorCode: "ENOENT" });
       expect(result.error).toContain("ENOENT");
     });
   });
