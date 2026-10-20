@@ -516,6 +516,8 @@ describe("RepositoryHeader", () => {
       expect(within(gitActions()).getByRole("button", { name: "Stopping…" })).toBeTruthy();
       rerenderHeader({ cancellable: false });
       expect(within(gitActions()).queryByRole("button", { name: /Cancel|Stop/ })).toBeNull();
+      // An empty slot holds Cancel's place, so it appears without moving the controls after it.
+      expect(gitActions().firstElementChild?.className).toBe("header-cancel-slot");
     });
 
     it("dims segments with nothing to move and shows counts on the segments they affect", () => {
@@ -608,22 +610,21 @@ describe("RepositoryHeader", () => {
     });
 
     it.each([
-      ["fetch", "Fetch", "Fetching…", createSummary()],
-      ["pull", "Pull 2 commits", "Pulling…", createSummary({ behind: 2, ahead: 0 })],
-      ["pull", "Sync", "Syncing…", createSummary({ kind: "lore", capabilities: loreCapabilities(), upstream: null })],
-      ["push", "Push", "Pushing…", createSummary()]
-    ] as const)("spins the running %s segment and keeps its name %s", (action, name, text, summary) => {
+      ["fetch", "Fetch", "Fetch", createSummary()],
+      ["pull", "Pull 2 commits", "Pull", createSummary({ behind: 2, ahead: 0 })],
+      ["pull", "Sync", "Sync", createSummary({ kind: "lore", capabilities: loreCapabilities(), upstream: null })],
+      ["push", "Push", "Push", createSummary()]
+    ] as const)("spins the running %s segment and keeps its name %s", (action, name, label, summary) => {
       renderHeader({ summary, runningAction: action, disabled: true });
 
       const running = segment(name);
-      expect(running.textContent).toContain(text);
       expect(running.querySelector(".animate-spin")).toBeTruthy();
       expect(running.getAttribute("data-idle")).toBe("false");
       expect((running as HTMLButtonElement).disabled).toBe(true);
-      // Only the running segment keeps its label, so the group does not widen and move the view switch.
-      expect(running.getAttribute("data-running")).toBe("true");
-      expect(running.closest(".remote-actions")?.getAttribute("data-running")).toBe("true");
-      expect(running.closest(".remote-actions")?.querySelectorAll('[data-running="true"]')).toHaveLength(1);
+      // Every segment keeps its idle label while one runs, so no segment changes width.
+      expect(running.querySelector(".remote-actions-label")?.textContent).toBe(label);
+      const labels = [...running.closest(".remote-actions")!.querySelectorAll(".remote-actions-label")];
+      expect(labels.some((element) => element.textContent?.endsWith("…"))).toBe(false);
     });
 
     it("keeps operation feedback inside the segment buttons", () => {

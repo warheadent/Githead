@@ -1107,6 +1107,18 @@ textarea,
   color: var(--destructive);
 }
 
+/*
+ * Holds Cancel's place while nothing runs. Remote segments keep their labels while they run, so
+ * without this slot Cancel would widen the right cluster and move the view switch. It is held
+ * only where Cancel is icon-only; wider headers have room for Cancel to grow into.
+ */
+.header-cancel-slot {
+  display: none;
+  width: 32px;
+  height: 32px;
+  flex: none;
+}
+
 .repo-actions-button {
   min-width: 0;
   color: var(--foreground);
@@ -1323,18 +1335,6 @@ textarea,
   color: var(--muted-foreground);
 }
 
-/*
- * While one segment runs, the others show icon and count only. That pays for the longer running
- * label and the Cancel button, so the right cluster keeps its width and the view switch stays put.
- */
-.remote-actions[data-running="true"] .remote-actions-segment:not([data-running="true"], .remote-actions-more) {
-  padding-inline: 8px;
-}
-
-.remote-actions[data-running="true"] .remote-actions-segment:not([data-running="true"]) .remote-actions-label {
-  display: none;
-}
-
 .remote-actions-segment[data-recovery="true"] svg {
   color: var(--status-modified);
 }
@@ -1375,6 +1375,10 @@ textarea,
   .header-cancel {
     width: 32px;
     padding-inline: 0;
+  }
+
+  .header-cancel-slot {
+    display: block;
   }
 
   .header-cancel-label {
@@ -1522,6 +1526,11 @@ textarea,
   .header-git-actions {
     order: 6;
     margin-left: auto;
+  }
+
+  /* The second row wraps instead of centring, so it does not hold Cancel's place. */
+  .header-cancel-slot {
+    display: none;
   }
 
   .app-update-control.is-compact {

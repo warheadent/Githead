@@ -241,7 +241,7 @@ export const RepositoryHeader = memo(function RepositoryHeader({
                     canceling={cancelStatus === "canceling"}
                     onCancel={onCancel}
                   />
-                ) : null}
+                ) : <span className="header-cancel-slot" aria-hidden="true" />}
                 <RepositoryActionsButton
                   summary={summary}
                   runs={configuredActionRuns}
@@ -894,7 +894,7 @@ function RemoteActionsGroup({
   const pushIdle = !pushRunning && !publishInsteadOfPush && !usesSync && pushableCommitCount === 0;
 
   return (
-    <div className="remote-actions" data-running={fetchRunning || pullRunning || pushRunning ? "true" : undefined}>
+    <div className="remote-actions">
       {showFetch ? (
         <TooltipButton
           type="button"
@@ -902,7 +902,6 @@ function RemoteActionsGroup({
           className="remote-actions-segment"
           data-action="fetch"
           data-idle="false"
-          data-running={fetchRunning ? "true" : undefined}
           disabled={disabled}
           tooltip="Fetch"
           aria-label="Fetch"
@@ -910,7 +909,7 @@ function RemoteActionsGroup({
         >
           <OperationButtonFeedback action="fetch" event={feedbackEvent} successLabel="Fetched" surface="action-bar">
             {fetchRunning ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-            <span className="remote-actions-label">{fetchRunning ? "Fetching…" : "Fetch"}</span>
+            <span className="remote-actions-label">Fetch</span>
           </OperationButtonFeedback>
         </TooltipButton>
       ) : null}
@@ -920,7 +919,6 @@ function RemoteActionsGroup({
         className="remote-actions-segment"
         data-action="pull"
         data-idle={pullIdle ? "true" : "false"}
-        data-running={pullRunning ? "true" : undefined}
         data-recovery={pullRecovery ? "true" : undefined}
         disabled={pullDisabled}
         tooltip={pullName}
@@ -938,9 +936,7 @@ function RemoteActionsGroup({
             : pullRecovery ? <TriangleAlert />
               : usesSync ? <ArrowDownUp />
                 : <ArrowDown />}
-          <span className="remote-actions-label">
-            {pullRunning ? usesSync ? "Syncing…" : "Pulling…" : pullLabel}
-          </span>
+          <span className="remote-actions-label">{pullLabel}</span>
           {!pullRecovery && !usesSync && pullableCommitCount > 0 ? (
             <SyncCountChip className="remote-actions-count" title={formatCommitCountLabel(pullableCommitCount, "behind")}>
               {pullableCommitCount}
@@ -954,7 +950,6 @@ function RemoteActionsGroup({
         className="remote-actions-segment"
         data-action="push"
         data-idle={pushIdle ? "true" : "false"}
-        data-running={pushRunning ? "true" : undefined}
         disabled={disabled}
         tooltip={pushName}
         aria-label={pushName}
@@ -962,7 +957,7 @@ function RemoteActionsGroup({
       >
         <OperationButtonFeedback action="push" event={feedbackEvent} successLabel="Pushed" surface="action-bar">
           {pushRunning ? <Loader2 className="animate-spin" /> : publishInsteadOfPush ? <CloudUpload /> : <ArrowUp />}
-          <span className="remote-actions-label">{pushRunning ? "Pushing…" : pushLabel}</span>
+          <span className="remote-actions-label">{pushLabel}</span>
           {!publishInsteadOfPush && pushableCommitCount > 0 ? (
             <SyncCountChip className="remote-actions-count" title={formatCommitCountLabel(pushableCommitCount, "ahead")}>
               {pushableCommitCount}
