@@ -81,15 +81,15 @@ export function ActivityLogOutput({ log, wrapLines, onCopyRun, runId = null }: {
     }
     programmaticScrollTop.current = output.scrollTop;
     previousLayout.current = layout;
-    setViewport((current) => ({ ...current, top: output.scrollTop, height: output.clientHeight || current.height, width: output.clientWidth }));
+    setViewport((current) => nextViewport(current, output, output.scrollTop));
   }, [layout, totalHeight, viewport.height]);
 
   useLayoutEffect(() => {
     const output = outputRef.current;
     if (!output || typeof ResizeObserver !== "function") return;
     const observer = new ResizeObserver((entries) => {
-      const width = output.clientWidth;
-      setViewport((current) => current.width === width && current.height === output.clientHeight ? current : { ...current, width, height: output.clientHeight });
+      const width = output.offsetWidth;
+      setViewport((current) => nextViewport(current, output, current.top));
       setMeasurements((current) => {
         let next = current;
         for (const entry of entries) {
@@ -168,6 +168,19 @@ export function ActivityLogOutput({ log, wrapLines, onCopyRun, runId = null }: {
       setViewport((current) => ({ ...current, top: output?.scrollTop ?? 0 }));
     }}><ArrowDown />Jump to latest</Button> : null}
   </>;
+}
+
+interface Viewport { top: number; height: number; width: number }
+
+/**
+ * Sizes the viewport by its border box. The client box loses a scrollbar's width or height when the scrollbar appears, and
+ * the content decides whether it appears: keying layout on the client box let wrapped rows add a scrollbar at one width and
+ * drop it at the next, re-running the layout effect until React aborted the render.
+ */
+function nextViewport(current: Viewport, output: HTMLElement, top: number): Viewport {
+  const height = output.offsetHeight || current.height;
+  const width = output.offsetWidth;
+  return current.top === top && current.height === height && current.width === width ? current : { top, height, width };
 }
 
 const ActivityLogBlockView = memo(function ActivityLogBlockView({ block }: { block: ActivityLogBlock }): ReactNode {

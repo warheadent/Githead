@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { ActivityLogOutput } from "./ActivityLogOutput";
 import { appendActivityLogEvent, appendActivityOperationResult, createActivityLogState } from "./activityLog";
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 function history() {
   let log = createActivityLogState();
@@ -44,7 +44,7 @@ describe("ActivityLogOutput", () => {
     const view = render(<ActivityLogOutput log={log} wrapLines={false} onCopyRun={() => {}} />);
     const output = screen.getByRole("log");
     // jsdom has no layout. Supply the viewport and the scroll extent: a 40px run header and 500 lines of 20px.
-    Object.defineProperties(output, { clientHeight: { value: 400 }, scrollHeight: { value: 10_040 } });
+    Object.defineProperties(output, { clientHeight: { value: 400 }, offsetHeight: { value: 400 }, scrollHeight: { value: 10_040 } });
     fireEvent.scroll(output, { target: { scrollTop: 0 } });
     expect(screen.getByText("line 0")).toBeTruthy();
     expect(view.container.querySelectorAll(".activity-log-block").length).toBeLessThan(60);
@@ -79,6 +79,36 @@ describe("ActivityLogOutput", () => {
     expect(view.container.querySelector(".activity-log-notice")?.textContent).toContain("older output trimmed");
     expect(screen.getByText("output 100")).toBeTruthy();
     expect(screen.queryByText("output 99")).toBeNull();
+  });
+
+  it("keeps a stable layout when measured rows add a scrollbar that estimated rows remove", () => {
+    let observe: ResizeObserverCallback = () => {};
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: ResizeObserverCallback) { observe = callback; }
+      observe() {}
+      disconnect() {}
+    });
+    let log = createActivityLogState();
+    for (let index = 0; index < 15; index++) log = appendActivityLogEvent(log, {
+      runId: "wrap", action: "Build", stream: index % 2 ? "stderr" : "stdout", text: `line ${index}\n`, timestamp: "2026-09-04T12:00:00Z"
+    });
+    // Mount the log row into a box whose vertical scrollbar takes 15px of client width once the content overflows 400px.
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (this: HTMLElement) {
+      const space = this.querySelector<HTMLElement>(".activity-log-virtual-space");
+      return space && parseFloat(space.style.height) > 400 ? 585 : 600;
+    });
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(600);
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(400);
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(400);
+    const view = render(<ActivityLogOutput log={log} wrapLines onCopyRun={() => {}} />);
+    const blocks = [...view.container.querySelectorAll<HTMLElement>("[data-log-row^='block-']")];
+    for (const block of blocks) vi.spyOn(block, "getBoundingClientRect").mockReturnValue({ height: 60 } as DOMRect);
+
+    // The rendered rows wrap to three lines each: 15 × 60px overflows, where the 20px estimates did not.
+    act(() => observe(blocks.map((target) => ({ target }) as ResizeObserverEntry), {} as ResizeObserver));
+
+    const space = view.container.querySelector<HTMLElement>(".activity-log-virtual-space");
+    expect(space?.style.height).toBe("940px");
   });
 
   it("shows the empty state for a run that has no output", () => {
