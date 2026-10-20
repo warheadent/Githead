@@ -105,7 +105,7 @@ describe("ActivityLogOutput", () => {
     for (const block of blocks) vi.spyOn(block, "getBoundingClientRect").mockReturnValue({ height: 60 } as DOMRect);
 
     // The rendered rows wrap to three lines each: 15 × 60px overflows, where the 20px estimates did not.
-    act(() => observe(blocks.map((target) => ({ target }) as ResizeObserverEntry), {} as ResizeObserver));
+    act(() => observe(blocks.map((target) => ({ target }) as unknown as ResizeObserverEntry), {} as ResizeObserver));
 
     const space = view.container.querySelector<HTMLElement>(".activity-log-virtual-space");
     expect(space?.style.height).toBe("940px");
