@@ -66,6 +66,14 @@ describe("repository omnibox", () => {
     expect(screen.queryByRole("combobox", { name: inputName })).toBeNull();
   });
 
+  it("opens the local-folder flow from its button without passing the click event to the folder picker", async () => {
+    const user = await openPicker();
+    await user.click(screen.getByRole("button", { name: "Open local folder…" }));
+    await waitFor(() => expect(githead.chooseRepo).toHaveBeenCalledTimes(1));
+    // The folder picker crosses IPC, which cannot clone a DOM event.
+    expect(["string", "undefined"]).toContain(typeof vi.mocked(githead.chooseRepo).mock.calls[0]?.[0]);
+  });
+
   it("passes local paths to the existing folder picker", async () => {
     const user = await openPicker();
     await user.type(screen.getByRole("combobox", { name: inputName }), "D:\\Code\\local{Enter}");

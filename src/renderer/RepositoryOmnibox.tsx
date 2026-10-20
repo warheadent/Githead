@@ -274,7 +274,7 @@ function RepositoryPicker({ inputRef, query, onQueryChange, disabled, onSelect, 
       {remote && searchResult?.query === normalizedQuery && !searching ? <p className="repo-omnibox-notice" role="status">{searchResult.data.repositories.length ? `${searchResult.data.repositories.length} GitHub results${searchResult.data.hasMore || searchResult.data.incomplete ? ". Refine your search to see more." : "."}` : "No GitHub repositories match this search."}</p> : null}
     </div>
     <div className="repo-omnibox-footer">
-      <button type="button" className="repo-omnibox-local" aria-label="Open local folder…" onClick={onOpenLocal} disabled={disabled}><FolderOpen />Open local folder…<kbd>{/Mac/.test(navigator.platform) ? "⌘ O" : "Ctrl O"}</kbd></button>
+      <button type="button" className="repo-omnibox-local" aria-label="Open local folder…" onClick={() => onOpenLocal()} disabled={disabled}><FolderOpen />Open local folder…<kbd>{/Mac/.test(navigator.platform) ? "⌘ O" : "Ctrl O"}</kbd></button>
       <span className="repo-omnibox-hints"><kbd><ArrowDownUp /></kbd>Move <kbd><CornerDownLeft /></kbd>Select</span>
     </div>
   </>;
