@@ -2570,11 +2570,17 @@ export class GitService {
   async deleteBranch(request: GitDeleteBranchRequest): Promise<GitOperationResult> {
     const validation = await this.validateRepo(request.repoPath);
     if (!validation.isValid) return this.createOperationFailure(request.repoPath, validation.validationErrors.join(" "));
-    const branch = await this.validateBranchName(request.repoPath, request.branchName);
-    if ("error" in branch) return this.createOperationFailure(request.repoPath, branch.error);
-    const exists = await this.runGit(request.repoPath, ["show-ref", "--verify", "--quiet", `refs/heads/${branch.branchName}`]);
-    if (exists.exitCode !== 0) return this.createOperationFailure(request.repoPath, "Branch does not exist.");
-    return this.runGitOperation(request.repoPath, ["branch", request.force ? "-D" : "-d", branch.branchName]);
+    const branchNames = [...new Set(request.branchNames.map((name) => name.trim()))];
+    if (!branchNames.length || branchNames.some((name) => !name)) return this.createOperationFailure(request.repoPath, "Enter a branch name.");
+    if (branchNames.some((name) => name.startsWith("-"))) return this.createOperationFailure(request.repoPath, "Branch name cannot start with a dash.");
+    // One listing checks every requested name; an exact match is also a valid ref name, so no per-name check-ref-format spawn is needed.
+    const heads = await this.runGit(request.repoPath, ["for-each-ref", "--format=%(refname:strip=2)", "refs/heads"]);
+    if (heads.exitCode !== 0) return this.createOperationFailure(request.repoPath, heads.stderr.trim() || "Unable to list local branches.");
+    const existing = new Set(heads.stdout.split(/\r?\n/).filter(Boolean));
+    const missing = branchNames.filter((name) => !existing.has(name));
+    if (missing.length) return this.createOperationFailure(request.repoPath, missing.length === 1 ? `Branch ${missing[0]} does not exist.` : `Branches do not exist: ${missing.join(", ")}.`);
+    // git branch deletes each ref independently and reports every refusal, so one call covers the whole selection.
+    return this.runGitOperation(request.repoPath, ["branch", request.force ? "-D" : "-d", ...branchNames]);
   }
 
   async fetchLfsImageVersions(request: GitLfsImageFetchRequest, onOutput?: GitOutputHandler): Promise<GitOperationResult> {

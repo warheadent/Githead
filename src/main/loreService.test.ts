@@ -828,9 +828,20 @@ Committer : Bot <bot@example.com>
     await withLoreRepo(async (dir) => {
       const runner = new FakeRunner([ok("ok"), ok("* main\n  feature\n"), ok("Archived")]);
       const service = new LoreService(runner);
-      const result = await service.deleteBranch({ repoPath: dir, branchName: "feature", force: false });
+      const result = await service.deleteBranch({ repoPath: dir, branchNames: ["feature"], force: false });
       expect(result.exitCode).toBe(0);
       expect(runner.calls.at(-1)?.args).toEqual(["--repository", dir, "-P", "branch", "archive", "feature"]);
+    });
+  });
+
+  it("archives each selected branch and reports the ones Lore refused", async () => {
+    await withLoreRepo(async (dir) => {
+      const runner = new FakeRunner([ok("ok"), ok("* main\n  feature\n  spike\n  old\n"), ok("Archived"), { exitCode: 1, stdout: "", stderr: "branch is locked" }, ok("Archived")]);
+      const service = new LoreService(runner);
+      const result = await service.deleteBranch({ repoPath: dir, branchNames: ["feature", "spike", "old"], force: false });
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toBe("spike: branch is locked");
+      expect(runner.calls.slice(-3).map((call) => call.args.at(-1))).toEqual(["feature", "spike", "old"]);
     });
   });
 
@@ -838,7 +849,7 @@ Committer : Bot <bot@example.com>
     await withLoreRepo(async (dir) => {
       const runner = new FakeRunner([ok("ok"), ok("* main\n  feature\n")]);
       const service = new LoreService(runner);
-      const result = await service.deleteBranch({ repoPath: dir, branchName: "main", force: false });
+      const result = await service.deleteBranch({ repoPath: dir, branchNames: ["main"], force: false });
       expect(result.exitCode).toBe(-1);
       expect(result.stderr).toContain("Switch to another branch");
     });

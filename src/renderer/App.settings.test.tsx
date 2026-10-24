@@ -692,13 +692,37 @@ describe("App", { timeout: 10_000 }, () => {
     });
     await user.click(await screen.findByRole("button", { name: "Delete feature/old" }));
     await user.click(screen.getByRole("button", { name: "Delete branch" }));
-    expect(githead.deleteBranch).toHaveBeenCalledWith({ repoPath, branchName: "feature/old", force: false, operationId: expect.any(String) });
+    expect(githead.deleteBranch).toHaveBeenCalledWith({ repoPath, branchNames: ["feature/old"], force: false, operationId: expect.any(String) });
     expect(await screen.findByText("This branch has commits that haven’t been merged. Merge them into another branch before deleting it.")).toBeTruthy();
     expect(screen.queryByText(/git branch -D/)).toBeNull();
     vi.mocked(githead.deleteBranch).mockResolvedValue({ repoPath, exitCode: 0, stdout: "", stderr: "" });
     await user.click(screen.getByRole("checkbox", { name: /Force delete/ }));
     await user.click(screen.getByRole("button", { name: "Force delete branch" }));
-    await waitFor(() => expect(githead.deleteBranch).toHaveBeenLastCalledWith({ repoPath, branchName: "feature/old", force: true, operationId: expect.any(String) }));
+    await waitFor(() => expect(githead.deleteBranch).toHaveBeenLastCalledWith({ repoPath, branchNames: ["feature/old"], force: true, operationId: expect.any(String) }));
+  });
+
+  it("bulk deletes branches in one operation and names the unmerged ones git kept", async () => {
+    const user = userEvent.setup();
+    vi.mocked(githead.getRepoSummary).mockResolvedValue(createSummary({ branches: [
+      { name: "main", current: true, upstream: "origin/main" },
+      { name: "feature/a", current: false, upstream: null },
+      { name: "feature/b", current: false, upstream: null }
+    ] }));
+    vi.mocked(githead.deleteBranch).mockResolvedValue({
+      repoPath,
+      exitCode: 1,
+      stdout: "Deleted branch feature/a (was 1234567).",
+      stderr: "error: the branch 'feature/b' is not fully merged\nhint: run git branch -D feature/b"
+    });
+    render(<App />);
+    await screen.findByText("main");
+    await user.click(within(await openBranchSwitcher(user)).getByRole("option", { name: "Manage branches…" }));
+    await user.click(screen.getByRole("checkbox", { name: /Select all shown branches/ }));
+    await user.click(screen.getByRole("button", { name: "Delete 2 branches…" }));
+    await user.click(screen.getByRole("button", { name: "Delete 2 branches" }));
+    expect(githead.deleteBranch).toHaveBeenCalledTimes(1);
+    expect(githead.deleteBranch).toHaveBeenCalledWith({ repoPath, branchNames: ["feature/a", "feature/b"], force: false, operationId: expect.any(String) });
+    expect(await screen.findByText("feature/b has commits that haven’t been merged and was kept. Merge them into another branch or use force delete.")).toBeTruthy();
   });
 
   it("shows model-aware reasoning controls for commit plans and PR descriptions", async () => {

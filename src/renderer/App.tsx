@@ -4342,20 +4342,24 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     updateState({ branchManagerOpen: false });
   }, [updateState]);
 
-  const runBranchOperation = useCallback(async (action: "rename" | "remove", label: string, branchName: string, operation: (repoPath: string, operationId: string) => Promise<GitOperationResult>): Promise<string | null> => {
+  const runBranchOperation = useCallback(async (action: "rename" | "remove", label: string, branchNames: string[], operation: (repoPath: string, operationId: string) => Promise<GitOperationResult>): Promise<string | null> => {
     const snapshot = stateRef.current;
     const repoPath = snapshot.repoPath;
     if (!(await ensureTrustedRepo(repoPath))) return "Trust this workspace before changing branches.";
     const latest = stateRef.current;
     if (latest.repoPath !== repoPath || !latest.branchManagerOpen) return "The active repository changed. Reopen Manage branches and try again.";
-    if (action === "remove" && latest.summary?.branch === branchName) return "Switch to another branch before removing this branch.";
+    if (action === "remove" && latest.summary?.branch && branchNames.includes(latest.summary.branch)) return "Switch to another branch before removing this branch.";
     setBranchMutationRunning(true);
     try {
       const result = await runRepoOperation(label, undefined, (operationId) => operation(repoPath, operationId));
       if (!result) return "Another repository operation is already running.";
       if (result.exitCode === 0) return null;
       if (action === "remove" && /not fully merged/i.test(result.stderr)) {
-        return "This branch has commits that haven’t been merged. Merge them into another branch before deleting it.";
+        if (branchNames.length === 1) return "This branch has commits that haven’t been merged. Merge them into another branch before deleting it.";
+        // git branch -d keeps going after a refusal, so only the named branches remain.
+        const unmerged = [...result.stderr.matchAll(/branch '([^']+)' is not fully merged/gi)].map((match) => match[1]);
+        const kept = unmerged.length ? `${unmerged.join(", ")} ${unmerged.length === 1 ? "has" : "have"}` : "Some branches have";
+        return `${kept} commits that haven’t been merged and ${unmerged.length === 1 ? "was" : "were"} kept. Merge them into another branch or use force delete.`;
       }
       return result.stderr.trim() || `${label} failed.`;
     } finally {
@@ -8682,8 +8686,8 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
             else closeBranchManager();
           }
         }}
-        onRename={(branchName, newBranchName) => runBranchOperation("rename", `Renaming branch ${branchName}`, branchName, (repoPath, operationId) => window.githead.renameBranch({ repoPath, branchName, newBranchName, operationId }))}
-        onRemove={(branchName, force) => runBranchOperation("remove", `${force ? "Force deleting" : "Removing"} branch ${branchName}`, branchName, (repoPath, operationId) => window.githead.deleteBranch({ repoPath, branchName, force, operationId }))}
+        onRename={(branchName, newBranchName) => runBranchOperation("rename", `Renaming branch ${branchName}`, [branchName], (repoPath, operationId) => window.githead.renameBranch({ repoPath, branchName, newBranchName, operationId }))}
+        onRemove={(branchNames, force) => runBranchOperation("remove", `${force ? "Force deleting" : "Removing"} ${branchNames.length === 1 ? `branch ${branchNames[0]}` : `${branchNames.length} branches`}`, branchNames, (repoPath, operationId) => window.githead.deleteBranch({ repoPath, branchNames, force, operationId }))}
       />
 
       {integrationDialog ? (

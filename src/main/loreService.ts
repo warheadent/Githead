@@ -1031,17 +1031,29 @@ export class LoreService implements VcsService {
   async deleteBranch(request: GitDeleteBranchRequest): Promise<GitOperationResult> {
     const validation = await this.validateRepo(request.repoPath);
     if (!validation.isValid) return this.failure(request.repoPath, validation.error);
-    const branchName = request.branchName.trim();
-    if (!branchName) return this.failure(request.repoPath, "Branch name is required.");
+    const branchNames = [...new Set(request.branchNames.map((name) => name.trim()))];
+    if (!branchNames.length || branchNames.some((name) => !name)) return this.failure(request.repoPath, "Branch name is required.");
     if (request.force) return this.failure(request.repoPath, "Force removal is not supported for Lore repositories.");
     const listed = await this.runLore(validation.rootPath, ["branch", "list"]);
     if (listed.exitCode !== 0) return this.toOperationResult(request.repoPath, listed);
-    const branches = parseLoreBranchList(listed.stdout);
-    const branch = branches.find((candidate) => candidate.name === branchName);
-    if (!branch) return this.failure(request.repoPath, "Branch does not exist.");
-    if (branch.current) return this.failure(request.repoPath, "Switch to another branch before archiving this branch.");
-    const result = await this.runLore(validation.rootPath, ["branch", "archive", branchName]);
-    return this.toOperationResult(request.repoPath, result);
+    const branches = new Map(parseLoreBranchList(listed.stdout).map((branch) => [branch.name, branch]));
+    const missing = branchNames.filter((name) => !branches.has(name));
+    if (missing.length) return this.failure(request.repoPath, missing.length === 1 ? `Branch ${missing[0]} does not exist.` : `Branches do not exist: ${missing.join(", ")}.`);
+    if (branchNames.some((name) => branches.get(name)?.current)) return this.failure(request.repoPath, "Switch to another branch before archiving this branch.");
+    // `lore branch archive` takes one branch per call; keep going after a refusal so every branch gets an outcome.
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    let exitCode = 0;
+    for (const branchName of branchNames) {
+      const result = this.toOperationResult(request.repoPath, await this.runLore(validation.rootPath, ["branch", "archive", branchName]));
+      if (result.stdout.trim()) stdout.push(result.stdout.trim());
+      if (result.exitCode !== 0) {
+        exitCode = exitCode || result.exitCode;
+        const message = result.stderr.trim() || "Archive failed.";
+        stderr.push(branchNames.length > 1 ? `${branchName}: ${message}` : message);
+      }
+    }
+    return { repoPath: request.repoPath, exitCode, stdout: stdout.join("\n"), stderr: stderr.join("\n") };
   }
 
   async fetchLfsImageVersions(request: GitLfsImageFetchRequest): Promise<GitOperationResult> {

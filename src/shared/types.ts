@@ -1631,7 +1631,8 @@ export interface GitRenameBranchRequest {
 
 export interface GitDeleteBranchRequest {
   repoPath: string;
-  branchName: string;
+  /** Local branches removed in one operation; services report every branch they could not remove. */
+  branchNames: string[];
   force: boolean;
 }
 

@@ -57,7 +57,7 @@ describe("BranchManagementDialog", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /Force delete/ }));
     fireEvent.click(screen.getByRole("button", { name: "Force delete branch" }));
 
-    await waitFor(() => expect(props.onRemove).toHaveBeenCalledWith("feature", true));
+    await waitFor(() => expect(props.onRemove).toHaveBeenCalledWith(["feature"], true));
   });
 
   it("keeps the dialog open and shows errors next to the inline action", async () => {
@@ -91,6 +91,52 @@ describe("BranchManagementDialog", () => {
 
     expect(screen.queryByRole("textbox", { name: "New name" })).toBeNull();
     expect(screen.getByRole("button", { name: "Delete branch" })).toBeTruthy();
+  });
+
+  it("bulk deletes the selected branches after confirming in the footer", async () => {
+    const { props } = renderDialog();
+
+    expect((screen.getByRole("checkbox", { name: "Select main" }) as HTMLInputElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select release" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select feature" }));
+    expect(screen.getByText("2 selected")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete 2 branches…" }));
+    expect(screen.getByText("feature, release")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Delete 2 branches" }));
+
+    await waitFor(() => expect(props.onRemove).toHaveBeenCalledWith(["feature", "release"], false));
+    await waitFor(() => expect(screen.queryByText("2 selected")).toBeNull());
+  });
+
+  it("selects every removable branch shown by the search", () => {
+    renderDialog({ branches: [...branches, { name: "feature/two", current: false, upstream: null }] });
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Search branches" }), { target: { value: "feature" } });
+    const selectAll = screen.getByRole("checkbox", { name: /Select all shown branches/ }) as HTMLInputElement;
+    fireEvent.click(selectAll);
+    expect(screen.getByText("2 selected")).toBeTruthy();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Search branches" }), { target: { value: "" } });
+    expect(selectAll.indeterminate).toBe(true);
+    expect((screen.getByRole("checkbox", { name: "Select release" }) as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("keeps only the branches that survived a partial bulk delete selected", async () => {
+    const onRemove = vi.fn().mockResolvedValue("feature has commits that haven’t been merged and was kept.");
+    const { rerender, props } = renderDialog({ onRemove });
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select feature" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select release" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete 2 branches…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete 2 branches" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("was kept");
+
+    rerender(<BranchManagementDialog {...props} branches={branches.filter((branch) => branch.name !== "release")} />);
+    expect(screen.getByText("Delete 1 branch?")).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox", { name: /Force delete/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Force delete 1 branch" }));
+    await waitFor(() => expect(onRemove).toHaveBeenLastCalledWith(["feature"], true));
   });
 
   it("keeps the active row visible while the search changes", () => {
