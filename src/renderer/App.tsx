@@ -1,3 +1,4 @@
+import { getRepositoryWebUrl } from "../shared/remoteWebUrl";
 import { repositoryName as getRepoDisplayName, organizeRepositories, repositoryLabels, repositoryPreference, useRepositoryOrganization, type RepositoryOrganization } from "./repositoryOrganization";
 import { CheckoutTagDialog } from "./CheckoutTagDialog";
 import { RepositoryOmnibox } from "./RepositoryOmnibox";
@@ -4307,6 +4308,17 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     await runIndependentOperation("Showing repository in Explorer", () => window.githead.showRepositoryInExplorer(repoPath));
   }, [runIndependentOperation]);
 
+  const openRepositoryRemote = useCallback(async (repoPath: string): Promise<void> => {
+    await runIndependentOperation("Opening remote repository", async () => {
+      const remotes = (await window.githead.getRemoteConfigs(repoPath)).flatMap((remote) =>
+        remote.fetchUrls.map((url) => ({ name: remote.name, url, direction: "fetch" as const })));
+      const url = getRepositoryWebUrl(remotes);
+      if (!url) throw new Error("This repository has no remote with a web URL.");
+      await window.githead.openExternalUrl({ url });
+      return { repoPath, exitCode: 0, stdout: url, stderr: "" };
+    });
+  }, [runIndependentOperation]);
+
   const openBranchDialog = useCallback((): void => {
     const current = stateRef.current;
     if (!current.summary?.isValid || isOperationRunning(current)) {
@@ -7483,6 +7495,7 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
     onRemove: removeRepositoryFromSwitcher,
     onRecover: recoverRecentRepo,
     onShowInExplorer: showRepositoryInExplorerFromSwitcher,
+    onOpenRemote: (repoPath) => { void openRepositoryRemote(repoPath); },
     onOpenRepositorySettings: setRepositorySettingsPath,
     onRemoveWorktree: removeWorktreeFromSwitcher,
     onReorder: reorderRepositoriesFromSwitcher,
@@ -7925,6 +7938,9 @@ export function App({ initialAppSettings = null }: { initialAppSettings?: AppSet
           }}
           onShowInExplorer={(repoPath) => {
             void showRecentRepositoryInExplorer(repoPath);
+          }}
+          onOpenRemote={(repoPath) => {
+            void openRepositoryRemote(repoPath);
           }}
           onOpenRepositorySettings={setRepositorySettingsPath}
           onCloneDraftChange={updateCloneDraft}
@@ -9182,6 +9198,7 @@ function RepositorySetupScreen({
   onRecoverRecent,
   onReorderRepositories,
   onShowInExplorer,
+  onOpenRemote,
   onOpenRepositorySettings,
   onCloneDraftChange,
   onCloneSourceChange,
@@ -9213,6 +9230,7 @@ function RepositorySetupScreen({
   onRecoverRecent: (repoPath: string) => Promise<RepositoryRecoveryResult>;
   onReorderRepositories: (repoPaths: string[]) => void;
   onShowInExplorer: (repoPath: string) => void;
+  onOpenRemote: (repoPath: string) => void;
   onOpenRepositorySettings: (repoPath: string) => void;
   onCloneDraftChange: (draft: CloneDraft) => void;
   onCloneSourceChange: (draft: CloneDraft) => void;
@@ -9326,6 +9344,7 @@ function RepositorySetupScreen({
                   onRecover={onRecoverRecent}
                   onReorder={onReorderRepositories}
                   onShowInExplorer={onShowInExplorer}
+                  onOpenRemote={onOpenRemote}
                   onOpenRepositorySettings={onOpenRepositorySettings}
                 />
               ) : (
@@ -9357,6 +9376,7 @@ interface RepositoryListProps {
   onRecover: (repoPath: string) => Promise<RepositoryRecoveryResult>;
   onReorder: (repoPaths: string[]) => void;
   onShowInExplorer: (repoPath: string) => void;
+  onOpenRemote: (repoPath: string) => void;
   onOpenRepositorySettings: (repoPath: string) => void;
   onRemoveWorktree?: (worktree: GitWorktree) => void;
 }
@@ -9395,6 +9415,7 @@ function RepositoryList({
   onRecover,
   onReorder,
   onShowInExplorer,
+  onOpenRemote,
   onOpenRepositorySettings,
   onRemoveWorktree
 }: RepositoryListProps): ReactNode {
@@ -9416,6 +9437,7 @@ function RepositoryList({
     onRemove,
     onRecover,
     onShowInExplorer,
+    onOpenRemote,
     onOpenRepositorySettings,
     ...(onRemoveWorktree ? { onRemoveWorktree } : {})
   });

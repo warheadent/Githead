@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, CircleAlert, FolderOpen, Loader2, MapPinned, Settings, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, CircleAlert, ExternalLink, FolderOpen, Loader2, MapPinned, Settings, Trash2 } from "lucide-react";
 import { useCallback, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
@@ -51,6 +51,8 @@ export interface RepositoryRowActionsOptions {
   onRemove: (repoPath: string) => void;
   onRecover: (repoPath: string) => Promise<RepositoryRecoveryResult>;
   onShowInExplorer: (repoPath: string) => void;
+  /** Opens the hosted web page of the repository's remote in the browser. */
+  onOpenRemote: (repoPath: string) => void;
   onOpenRepositorySettings: (repoPath: string) => void;
   onRemoveWorktree?: (worktree: GitWorktree) => void;
   /** Saves a new repository order. Required for the "Move up" and "Move down" items. */
@@ -81,6 +83,7 @@ export function useRepositoryRowActions({
   onRemove,
   onRecover,
   onShowInExplorer,
+  onOpenRemote,
   onOpenRepositorySettings,
   onRemoveWorktree,
   onReorder,
@@ -122,6 +125,7 @@ export function useRepositoryRowActions({
         <>
           <ContextMenuItem disabled={unavailable} onSelect={open(() => onOpenRepositorySettings(worktree.path))}><Settings />Repository settings…</ContextMenuItem>
           <ContextMenuItem disabled={unavailable} onSelect={open(() => onShowInExplorer(worktree.path))}><MapPinned />Show in Explorer</ContextMenuItem>
+          <ContextMenuItem disabled={unavailable} onSelect={open(() => onOpenRemote(worktree.path))}><ExternalLink />Open remote repository</ContextMenuItem>
           {!worktree.isMain && !workspaceActive && onRemoveWorktree ? <ContextMenuItem disabled={disabled || unavailable || worktree.locked} onSelect={open(() => onRemoveWorktree(worktree))}><Trash2 />Remove worktree…</ContextMenuItem> : null}
         </>
       );
@@ -171,6 +175,10 @@ export function useRepositoryRowActions({
           <MapPinned />
           Show in Explorer
         </ContextMenuItem>
+        <ContextMenuItem disabled={navigationUnavailable} onSelect={open(() => onOpenRemote(settingsPath))}>
+          <ExternalLink />
+          Open remote repository
+        </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem variant="destructive" onSelect={open(() => setRemoveTarget(path))}>
           <Trash2 />
@@ -178,7 +186,7 @@ export function useRepositoryRowActions({
         </ContextMenuItem>
       </>
     );
-  }, [activeRepoPath, changePreference, disabled, onBeforeOpen, onOpenRepositorySettings, onRemoveWorktree, onReorder, onShowInExplorer, organization, repoPaths]);
+  }, [activeRepoPath, changePreference, disabled, onBeforeOpen, onOpenRemote, onOpenRepositorySettings, onRemoveWorktree, onReorder, onShowInExplorer, organization, repoPaths]);
 
   const dialogs = (
     <>

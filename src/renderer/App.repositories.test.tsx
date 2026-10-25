@@ -1690,6 +1690,27 @@ describe("App", { timeout: 10_000 }, () => {
     expect(githead.getRepoSummary).not.toHaveBeenCalledWith(otherRepo);
   });
 
+  it("opens a recent repository's remote in the browser from the context menu", async () => {
+    const user = userEvent.setup();
+    const otherRepo = "D:\\Work\\Other";
+    vi.mocked(githead.getRepoRecents).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.addRepoRecent).mockResolvedValue(repositoryRecents(repoPath, otherRepo));
+    vi.mocked(githead.getRemoteConfigs).mockResolvedValue([
+      { name: "origin", fetchUrls: ["git@github.com:octo/other.git"], pushUrls: [], trackedBranches: [] }
+    ]);
+
+    render(<App />);
+
+    await waitForRepositoryWorkspace();
+    fireEvent.contextMenu(await repositoryOption(otherRepo, user));
+    await user.click(await screen.findByRole("menuitem", { name: "Open remote repository" }));
+
+    await waitFor(() => {
+      expect(githead.openExternalUrl).toHaveBeenCalledWith({ url: "https://github.com/octo/other" });
+    });
+    expect(githead.getRemoteConfigs).toHaveBeenCalledWith(otherRepo);
+  });
+
   it("opens repository settings and saves an AI override from the context menu", async () => {
     const user = userEvent.setup();
     const otherRepo = "D:\\Work\\Other";
