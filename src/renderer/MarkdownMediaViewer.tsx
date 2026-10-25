@@ -3,10 +3,16 @@ import { Maximize2, Minus, Plus } from "lucide-react";
 import { Button, TooltipButton } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
-export function MarkdownMediaViewer({ src, label, kind = "image" }: { src: string; label: string; kind?: "image" | "diagram" }): ReactNode {
+// A function source is resolved each time the viewer opens, so it can reflect the current theme.
+export function MarkdownMediaViewer({ src, label, kind = "image" }: { src: string | (() => string); label: string; kind?: "image" | "diagram" }): ReactNode {
   const canvas = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(100);
-  return <Dialog onOpenChange={(open) => { if (open) setZoom(100); }}>
+  const [openedSrc, setOpenedSrc] = useState("");
+  return <Dialog onOpenChange={(open) => {
+    if (!open) return;
+    setZoom(100);
+    if (typeof src === "function") setOpenedSrc(src());
+  }}>
     <DialogTrigger asChild>
       <TooltipButton type="button" variant="outline" size="icon-sm" aria-label={`Expand ${kind}`} tooltip={`Expand ${kind}`}><Maximize2 /></TooltipButton>
     </DialogTrigger>
@@ -20,7 +26,7 @@ export function MarkdownMediaViewer({ src, label, kind = "image" }: { src: strin
         <Button variant="outline" size="sm" onClick={() => setZoom(100)}>Fit width</Button>
       </div>
       <div ref={canvas} className="markdown-media-canvas" tabIndex={0} aria-label={`${kind} viewport`}>
-        <img src={src} alt={label} style={{ width: `${zoom}%` }} />
+        <img src={typeof src === "function" ? openedSrc : src} alt={label} style={{ width: `${zoom}%` }} />
       </div>
     </DialogContent>
   </Dialog>;

@@ -25,7 +25,7 @@ const REQUIRED_ASAR_ENTRIES = Object.freeze([
 const RENDERER_ONLY_DEPENDENCIES = Object.freeze([
   "@fontsource-variable/inter",
   "highlight.js",
-  "mermaid",
+  "pele",
   "radix-ui",
   "react-dom"
 ]);

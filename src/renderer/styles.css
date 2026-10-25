@@ -9626,7 +9626,21 @@ textarea,
 
 .markdown-image-frame { display: block; position: relative; }
 .markdown-image-expand { position: absolute; top: 8px; right: 8px; }
-.markdown-mermaid-frame { margin: 0 0 1em; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.markdown-mermaid-frame {
+  --pele-bg: var(--card);
+  --pele-fg: var(--foreground);
+  --pele-muted: var(--muted-foreground);
+  --pele-line: var(--foreground);
+  --pele-surface: color-mix(in oklch, var(--card), var(--foreground) 8%);
+  --pele-surface-alt: color-mix(in oklch, var(--card), var(--foreground) 4%);
+  --pele-border: color-mix(in oklch, var(--card), var(--foreground) 45%);
+  --pele-accent: var(--primary);
+  --pele-critical: var(--destructive);
+  margin: 0 0 1em;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
 .markdown-mermaid-toolbar { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
 .markdown-mermaid-toolbar > span { margin-right: auto; color: var(--muted-foreground); font-size: 0.75rem; }
 .markdown-mermaid-frame .markdown-mermaid { border: 0; border-radius: 0; margin: 0; }

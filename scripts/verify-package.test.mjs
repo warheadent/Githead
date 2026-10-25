@@ -33,12 +33,12 @@ describe("package verification", () => {
     const errors = inspectAsarEntries([
       ...VALID_ENTRIES,
       "dist/renderer/assets/index.js.map",
-      "node_modules/mermaid/package.json"
+      "node_modules/pele/package.json"
     ]);
 
     expect(errors).toEqual([
       "Packaged source maps: dist/renderer/assets/index.js.map",
-      "Packaged renderer-only dependency: mermaid"
+      "Packaged renderer-only dependency: pele"
     ]);
   });
 
