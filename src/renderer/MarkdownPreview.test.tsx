@@ -5,14 +5,10 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import type { GitheadApi } from "@/shared/types";
 import { MarkdownPreview } from "./MarkdownPreview";
 
-const renderMermaid = vi.fn();
-const initializeMermaid = vi.fn();
+const renderDiagram = vi.fn();
 
-vi.mock("mermaid", () => ({
-  default: {
-    initialize: initializeMermaid,
-    render: renderMermaid
-  }
+vi.mock("pele/lazy", () => ({
+  renderAsync: renderDiagram
 }));
 
 const copyTextToClipboard = vi.fn<GitheadApi["copyTextToClipboard"]>();
@@ -39,9 +35,8 @@ beforeEach(() => {
     disconnect(): void {}
   });
   copyTextToClipboard.mockReset();
-  initializeMermaid.mockReset();
-  renderMermaid.mockReset();
-  renderMermaid.mockResolvedValue({ svg: "<svg><text>Rendered diagram</text></svg>" });
+  renderDiagram.mockReset();
+  renderDiagram.mockResolvedValue({ svg: "<svg><text>Rendered diagram</text></svg>" });
   copyTextToClipboard.mockResolvedValue({
     repoPath: "",
     exitCode: 0,
@@ -106,16 +101,9 @@ describe("MarkdownPreview", () => {
     expect(screen.getByText("plain text")).toBeTruthy();
     await vi.waitFor(() => expect(screen.getByRole("img", { name: "Mermaid diagram" })).toBeTruthy());
 
-    expect(renderMermaid).toHaveBeenCalledOnce();
-    expect(initializeMermaid).toHaveBeenCalledWith(expect.objectContaining({
-      securityLevel: "strict",
-      startOnLoad: false,
-      suppressErrorRendering: true,
-      layout: "dagre",
-      look: "classic",
-      theme: "default"
-    }));
-    expect(renderMermaid.mock.calls[0]?.[1]).toBe("graph TD\n  A --> B");
+    expect(renderDiagram).toHaveBeenCalledOnce();
+    expect(renderDiagram.mock.calls[0]?.[0]).toBe("graph TD\n  A --> B");
+    expect(renderDiagram.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ links: false, images: false }));
     expect(screen.getByText("Rendered diagram")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Copy code" })).toHaveLength(1);
   });
@@ -129,11 +117,11 @@ describe("MarkdownPreview", () => {
     expect(copyTextToClipboard).toHaveBeenCalledWith({ text: "graph LR\n  A --> B\n" });
     fireEvent.click(screen.getByRole("button", { name: "Show diagram" }));
     expect(screen.getByRole("img", { name: "Mermaid diagram" })).toBeTruthy();
-    expect(renderMermaid).toHaveBeenCalledOnce();
+    expect(renderDiagram).toHaveBeenCalledOnce();
   });
 
   it("shows invalid Mermaid source with a copy button", async () => {
-    renderMermaid.mockRejectedValueOnce(new Error("Parse error on line 1"));
+    renderDiagram.mockRejectedValueOnce(new Error("Parse error on line 1"));
     renderPreview("```mermaid\nnot a diagram\n```");
 
     await vi.waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Parse error on line 1"));

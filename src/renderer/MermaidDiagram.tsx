@@ -1,46 +1,43 @@
-import { useMemo, useEffect, useId, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { MarkdownMediaViewer } from "./MarkdownMediaViewer";
 
-interface RenderedDiagram {
-  svg: string;
-  bindFunctions?: ((element: Element) => void) | undefined;
-}
-
 type DiagramState =
   | { status: "loading" }
-  | { status: "ready"; diagram: RenderedDiagram }
+  | { status: "ready"; svg: string }
   | { status: "error"; message: string };
 
-let renderQueue = Promise.resolve();
-const themeListeners = new Set<() => void>();
-let themeObserver: MutationObserver | null = null;
+// Pele colors diagrams through these variables (set in styles.css), so theme changes need no re-render.
+const THEME_VARIABLES = [
+  "--pele-bg", "--pele-fg", "--pele-muted", "--pele-line", "--pele-surface", "--pele-surface-alt",
+  "--pele-border", "--pele-accent", "--pele-critical"
+] as const;
 
-function getThemeSnapshot(): string {
-  return getDiagramTheme();
+const fontListeners = new Set<() => void>();
+let fontObserver: MutationObserver | null = null;
+
+function getFontSnapshot(): string {
+  const { uiFont = "", codeFont = "" } = document.documentElement.dataset;
+  return `${uiFont}|${codeFont}`;
 }
 
-function subscribeToTheme(listener: () => void): () => void {
-  themeListeners.add(listener);
-  if (!themeObserver) {
-    themeObserver = new MutationObserver(() => {
-      for (const currentListener of themeListeners) currentListener();
+function subscribeToFonts(listener: () => void): () => void {
+  fontListeners.add(listener);
+  if (!fontObserver) {
+    fontObserver = new MutationObserver(() => {
+      for (const currentListener of fontListeners) currentListener();
     });
-    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    fontObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-ui-font", "data-code-font"] });
   }
 
   return () => {
-    themeListeners.delete(listener);
-    if (themeListeners.size === 0) {
-      themeObserver?.disconnect();
-      themeObserver = null;
+    fontListeners.delete(listener);
+    if (fontListeners.size === 0) {
+      fontObserver?.disconnect();
+      fontObserver = null;
     }
   };
-}
-
-function getDiagramTheme(): "dark" | "default" {
-  return document.documentElement.classList.contains("dark") ? "dark" : "default";
 }
 
 function getErrorMessage(error: unknown): string {
@@ -49,38 +46,51 @@ function getErrorMessage(error: unknown): string {
   return firstLine || "The diagram syntax is not valid.";
 }
 
-function renderDiagram(id: string, definition: string, theme: "dark" | "default"): Promise<RenderedDiagram> {
-  const task = renderQueue.then(async () => {
-    const { default: mermaid } = await import("mermaid");
-    mermaid.initialize({
-      startOnLoad: false,
-      securityLevel: "strict",
-      suppressErrorRendering: true,
-      layout: "dagre",
-      look: "classic",
-      theme
-    });
-    return mermaid.render(id, definition);
+async function renderDiagram(element: HTMLElement, idPrefix: string, definition: string): Promise<string> {
+  // Pele measures labels when it lays out the diagram, so wait for pending web fonts first.
+  const [{ renderAsync }] = await Promise.all([import("pele/lazy"), "fonts" in document ? document.fonts.ready : undefined]);
+  const style = getComputedStyle(element);
+  const result = await renderAsync(definition, {
+    idPrefix,
+    fontFamily: style.fontFamily,
+    fontFamilyMono: style.getPropertyValue("--font-code").trim() || "monospace",
+    // Like Mermaid's strict security level: diagrams cannot navigate or load remote images.
+    links: false,
+    images: false
   });
+  return result.svg;
+}
 
-  renderQueue = task.then(() => undefined, () => undefined);
-  return task;
+// The expanded viewer shows the SVG as an image, which cannot inherit the page's CSS variables.
+function withResolvedTheme(svg: string, element: Element | null): string {
+  const parsed = new DOMParser().parseFromString(svg, "image/svg+xml");
+  const root = parsed.documentElement;
+  if (element && root instanceof SVGSVGElement) {
+    const style = getComputedStyle(element);
+    for (const name of THEME_VARIABLES) {
+      const value = style.getPropertyValue(name).trim();
+      if (value) root.style.setProperty(name, value);
+    }
+  }
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(parsed))}`;
 }
 
 export function MermaidDiagram({ definition, fallback }: { definition: string; fallback: ReactNode }): ReactNode {
   const reactId = useId();
-  const diagramId = `mermaid-${reactId.replace(/[^a-zA-Z0-9_-]/g, "")}`;
-  const themeSnapshot = useSyncExternalStore(subscribeToTheme, getThemeSnapshot);
+  const idPrefix = `mermaid-${reactId.replace(/[^a-zA-Z0-9_-]/g, "")}-`;
+  const fontSnapshot = useSyncExternalStore(subscribeToFonts, getFontSnapshot);
+  const root = useRef<HTMLDivElement>(null);
   const [showSource, setShowSource] = useState(false);
   const [state, setState] = useState<DiagramState>({ status: "loading" });
 
   useEffect(() => {
+    const element = root.current;
+    if (!element) return;
     let active = true;
-    setState({ status: "loading" });
 
-    void renderDiagram(diagramId, definition, getDiagramTheme()).then(
-      (diagram) => {
-        if (active) setState({ status: "ready", diagram });
+    void renderDiagram(element, idPrefix, definition).then(
+      (svg) => {
+        if (active) setState({ status: "ready", svg });
       },
       (error: unknown) => {
         if (active) setState({ status: "error", message: getErrorMessage(error) });
@@ -90,18 +100,15 @@ export function MermaidDiagram({ definition, fallback }: { definition: string; f
     return () => {
       active = false;
     };
-  }, [definition, diagramId, themeSnapshot]);
-
-  const expandedSource = useMemo(() => state.status === "ready"
-    ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(state.diagram.svg)}` : "", [state]);
+  }, [definition, idPrefix, fontSnapshot]);
 
   if (state.status === "loading") {
-    return <div className="markdown-mermaid-status" role="status">Rendering Mermaid diagram...</div>;
+    return <div ref={root} className="markdown-mermaid-status" role="status">Rendering Mermaid diagram...</div>;
   }
 
   if (state.status === "error") {
     return (
-      <div className="markdown-mermaid-error">
+      <div ref={root} className="markdown-mermaid-error">
         <p role="alert">Unable to render Mermaid diagram. {state.message}</p>
         {fallback}
       </div>
@@ -109,18 +116,17 @@ export function MermaidDiagram({ definition, fallback }: { definition: string; f
   }
 
   return (
-    <div className="markdown-mermaid-frame">
+    <div ref={root} className="markdown-mermaid-frame">
       <div className="markdown-mermaid-toolbar">
         <span>Mermaid</span>
         <Button type="button" variant="ghost" size="sm" aria-pressed={showSource} onClick={() => setShowSource(!showSource)}>{showSource ? "Show diagram" : "Show source"}</Button>
-        <MarkdownMediaViewer src={expandedSource} label="Mermaid diagram" kind="diagram" />
+        <MarkdownMediaViewer src={() => withResolvedTheme(state.svg, root.current)} label="Mermaid diagram" kind="diagram" />
       </div>
       {showSource ? fallback : <div
         className="markdown-mermaid"
         role="img"
         aria-label="Mermaid diagram"
-        ref={(element) => { if (element) state.diagram.bindFunctions?.(element); }}
-        dangerouslySetInnerHTML={{ __html: state.diagram.svg }}
+        dangerouslySetInnerHTML={{ __html: state.svg }}
       />}
     </div>
   );
