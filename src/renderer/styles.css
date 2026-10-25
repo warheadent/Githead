@@ -6439,13 +6439,16 @@ textarea,
   font-variant-numeric: tabular-nums;
 }
 
-/* The one detail card: summary, then the bounded file list, then the diff. It hugs short diffs. */
+/*
+ * The one detail card: summary, then the bounded file list, then the diff. It hugs short diffs. A
+ * resize handle follows the summary and the file list; a dragged height replaces their max-height.
+ */
 .commit-details-panel {
   display: grid;
   min-height: 0;
   max-height: 100%;
   align-self: start;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto auto minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -6456,6 +6459,36 @@ textarea,
   min-height: 0;
   max-height: clamp(132px, 30vh, 240px);
   overflow: auto;
+}
+
+/* A zero-height row on the border below a section, with an 8px hit area that overlaps it. */
+.section-resize-handle {
+  position: relative;
+  z-index: 1;
+  height: 0;
+  outline: none;
+  touch-action: none;
+}
+
+.section-resize-handle::before {
+  position: absolute;
+  inset: -4px 0;
+  content: "";
+  cursor: row-resize;
+}
+
+.section-resize-handle::after {
+  position: absolute;
+  inset: -1px 0;
+  content: "";
+  pointer-events: none;
+  transition: background-color 120ms ease;
+}
+
+.section-resize-handle:hover::after,
+.section-resize-handle:active::after,
+.section-resize-handle:focus-visible::after {
+  background: var(--ring);
 }
 
 .commit-file-list-header {

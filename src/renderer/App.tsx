@@ -240,6 +240,7 @@ import { parseGitHubReferences } from "../shared/githubReference";
 import { ActivityLogPanel } from "./ActivityLogPanel";
 import { CommitPlanView } from "./CommitPlanView";
 import { ListDetailLayout } from "./ListDetailLayout";
+import { SectionResizeHandle, usePersistentSectionHeight } from "./SectionResizeHandle";
 import { canStageStatusFile } from "../shared/statusFiles";
 import { BranchManagementDialog } from "./BranchManagementDialog";
 import { GitIntegrationDialog } from "./GitIntegrationDialog";
@@ -12818,6 +12819,13 @@ function CommitDetailsPanel({
   /** The embedded diff for the selected file. The card shows it once the details load. */
   diff: ReactNode;
 }): ReactNode {
+  const panelRef = useRef<HTMLElement | null>(null);
+  const metaScrollRef = useRef<HTMLDivElement | null>(null);
+  const fileListRef = useRef<HTMLDivElement | null>(null);
+  const [metaHeight, setMetaHeight] = usePersistentSectionHeight(COMMIT_MESSAGE_HEIGHT_STORAGE_KEY);
+  const [fileListHeight, setFileListHeight] = usePersistentSectionHeight(COMMIT_FILE_LIST_HEIGHT_STORAGE_KEY);
+  const getSectionMaxHeight = useCallback((section: HTMLElement) => getCommitSectionMaxHeight(panelRef.current, section), []);
+
   if (loading || error || !details) {
     return (
       <section className="commit-details-panel" aria-label="Commit details">
@@ -12840,8 +12848,8 @@ function CommitDetailsPanel({
   const references = parseGitHubReferences(`${details.subject}\n${details.body}`, repository);
 
   return (
-    <section className="commit-details-panel" aria-label="Commit details">
-      <div className="commit-meta-scroll">
+    <section ref={panelRef} className="commit-details-panel" aria-label="Commit details">
+      <div ref={metaScrollRef} className="commit-meta-scroll" style={metaHeight === null ? undefined : { maxHeight: metaHeight }}>
         <div className="commit-meta-card selectable-text">
           <div className="commit-title-row">
             <TooltipTarget content={details.subject || undefined}>
@@ -12890,12 +12898,20 @@ function CommitDetailsPanel({
           ) : null}
         </div>
       </div>
+      <SectionResizeHandle
+        label="Resize commit message"
+        targetRef={metaScrollRef}
+        height={metaHeight}
+        minHeight={MIN_COMMIT_MESSAGE_HEIGHT}
+        getMaxHeight={getSectionMaxHeight}
+        onHeightChange={setMetaHeight}
+      />
       <div className="commit-file-list-header">
         <span>{fileCount}</span>
         <span className="sr-only">Sorted by file status</span>
         <span className="commit-change-summary"><span className="good">+{totals.additions}</span><span className="bad">−{totals.deletions}</span></span>
       </div>
-      <div className="commit-file-list" role="listbox" aria-label="Changed files">
+      <div ref={fileListRef} className="commit-file-list" role="listbox" aria-label="Changed files" style={fileListHeight === null ? undefined : { maxHeight: fileListHeight }}>
         {details.files.length === 0 ? (
           <EmptyState title="No changed files." />
         ) : details.files.map((file) => (
@@ -12911,9 +12927,44 @@ function CommitDetailsPanel({
           />
         ))}
       </div>
+      <SectionResizeHandle
+        label="Resize changed files"
+        targetRef={fileListRef}
+        height={fileListHeight}
+        minHeight={MIN_COMMIT_FILE_LIST_HEIGHT}
+        getMaxHeight={getSectionMaxHeight}
+        onHeightChange={setFileListHeight}
+      />
       {diff}
     </section>
   );
+}
+
+const COMMIT_MESSAGE_HEIGHT_STORAGE_KEY = "githead.commit-details.message-height";
+const COMMIT_FILE_LIST_HEIGHT_STORAGE_KEY = "githead.commit-details.file-list-height";
+const MIN_COMMIT_MESSAGE_HEIGHT = 48;
+/** One file row and the list padding. */
+const MIN_COMMIT_FILE_LIST_HEIGHT = 32 + 16;
+/** The diff header and a few lines stay visible below the resized sections. */
+const MIN_COMMIT_DIFF_HEIGHT = 160;
+
+/**
+ * The tallest a resizable section of the commit card can be: its whole content, but no more than
+ * leaves the diff its minimum height inside the detail pane.
+ */
+function getCommitSectionMaxHeight(panel: HTMLElement | null, section: HTMLElement): number {
+  const pane = panel?.parentElement;
+  // The diff is the panel's last child.
+  const diff = panel?.lastElementChild;
+  if (!panel || !pane || !diff) return section.scrollHeight;
+  // The panel can grow from its top to the pane's bottom padding. A narrow layout puts a Back row above it.
+  const available = pane.getBoundingClientRect().bottom - parseFloat(getComputedStyle(pane).paddingBottom) - panel.getBoundingClientRect().top;
+  const panelBorders = panel.offsetHeight - panel.clientHeight;
+  let otherRows = 0;
+  for (const child of panel.children) {
+    if (child !== section && child !== diff) otherRows += child.getBoundingClientRect().height;
+  }
+  return Math.min(section.scrollHeight, available - panelBorders - otherRows - MIN_COMMIT_DIFF_HEIGHT);
 }
 
 function ParentCommitLinks({
