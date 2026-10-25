@@ -80,7 +80,7 @@ describe("quick switcher", { timeout: 10_000 }, () => {
     }));
     render(<App />);
 
-    await chooseSwitcherOption("feature/nav, local only", user);
+    await chooseSwitcherOption("feature/nav", user);
     await waitFor(() => expect(githead.switchBranch).toHaveBeenCalledWith(expect.objectContaining({ repoPath, branchName: "feature/nav" })));
 
     await chooseSwitcherOption(/^Change upstream…/, user);

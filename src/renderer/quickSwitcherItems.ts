@@ -426,7 +426,7 @@ export function buildBranchSectionItems({ repoPath, summary, running }: BranchSe
     branches: summary.branches,
     remoteBranches: summary.remoteBranches
   })) {
-    const detail = item.detail ?? (item.kind === "local" ? "local only" : undefined);
+    const detail = item.detail;
     const aheadLabel = item.current && ahead > 0 ? formatCommitCountLabel(ahead, "ahead") : "";
     const section = item.kind === "local" ? "branches-local" : "branches-remote";
     result[section].push({

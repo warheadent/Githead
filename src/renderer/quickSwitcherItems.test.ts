@@ -390,7 +390,7 @@ describe("buildBranchSectionItems", () => {
 
     expect(labels(sections["branches-local"])).toEqual([
       "main, current, 2 commits ahead",
-      "feature/nav, local only",
+      "feature/nav",
       "feature/worktrees, Githead-feature"
     ]);
     expect(sections["branches-local"][0]?.meta).toBe("↑2");
@@ -775,7 +775,7 @@ describe("filterQuickSwitcherItems", () => {
   it("matches every token against the label, title and keywords, ignoring case", () => {
     const result = filterQuickSwitcherItems(sections, "FEATURE nav");
 
-    expect(result.map((section) => [section.id, labels(section.items)])).toEqual([["branches-local", ["feature/nav, local only"]]]);
+    expect(result.map((section) => [section.id, labels(section.items)])).toEqual([["branches-local", ["feature/nav"]]]);
     expect(labels(filterQuickSwitcherItems(sections, "package win").flatMap((section) => section.items))).toEqual(["Packaging › Package for Windows"]);
     expect(labels(filterQuickSwitcherItems(sections, "theme").flatMap((section) => section.items))).toEqual(["Settings"]);
     expect(filterQuickSwitcherItems(sections, "no such thing")).toEqual([]);

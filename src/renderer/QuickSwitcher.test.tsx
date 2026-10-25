@@ -248,7 +248,7 @@ describe("QuickSwitcher", () => {
 
     fireEvent.change(searchField(), { target: { value: "feature" } });
     expect(screen.queryByRole("group", { name: "Repositories" })).toBeNull();
-    const option = screen.getByRole("option", { name: "feature/nav, local only" });
+    const option = screen.getByRole("option", { name: "feature/nav" });
     expect(activeOption()).toBe(option);
 
     fireEvent.click(option);
