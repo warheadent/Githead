@@ -872,6 +872,14 @@ textarea,
   -webkit-app-region: no-drag;
 }
 
+/*
+ * A modal overlay covers the drag strip, but Electron hit-tests drag regions before the page
+ * sees the pointer, so a click on the strip would move the window instead of dismissing the dialog.
+ */
+[data-slot="dialog-overlay"] {
+  -webkit-app-region: no-drag;
+}
+
 .repository-header-left {
   container: repository-header-nav / inline-size;
   display: flex;
